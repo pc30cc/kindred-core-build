@@ -577,13 +577,232 @@ const cdnVendors: ProviderVendor[] = [
 // =============================================
 const authVendors: ProviderVendor[] = [
   {
-    name: 'supabase', label: 'Supabase Auth',
-    description: 'Built-in authentication (default)',
+    name: 'supabase', label: 'Supabase Auth (Cloud)',
+    description: 'Managed Supabase authentication — current active instance',
     fields: [
-      { key: 'site_url', label: 'Site URL', type: 'url', placeholder: 'https://yoursite.com' },
+      { key: 'supabase_url', label: 'Supabase URL', type: 'url', required: true, placeholder: 'https://xxxx.supabase.co', hint: 'Your project URL' },
+      { key: 'supabase_anon_key', label: 'Anon/Public Key', type: 'text', required: true, hint: 'Publishable key — safe for frontend' },
+      { key: 'site_url', label: 'Site URL', type: 'url', placeholder: 'https://yoursite.com', hint: 'Used in email redirects' },
       { key: 'redirect_urls', label: 'Allowed Redirect URLs', type: 'text', hint: 'Comma-separated' },
+      { key: 'jwt_expiry', label: 'JWT Expiry (seconds)', type: 'number', placeholder: '3600' },
+      { key: 'enable_signup', label: 'Enable Sign-Up', type: 'toggle' },
     ],
   },
+  {
+    name: 'supabase_self_hosted', label: 'Supabase Auth (Self-Hosted)',
+    description: 'Connect to your own self-hosted Supabase/GoTrue instance',
+    docsUrl: 'https://supabase.com/docs/guides/self-hosting',
+    fields: [
+      { key: 'supabase_url', label: 'Supabase URL', type: 'url', required: true, placeholder: 'https://supabase.yourdomain.com' },
+      { key: 'supabase_anon_key', label: 'Anon/Public Key', type: 'text', required: true },
+      { key: 'supabase_service_role_key', label: 'Service Role Key', type: 'password', hint: 'Server-side only — never exposed to frontend' },
+      { key: 'gotrue_url', label: 'GoTrue URL', type: 'url', hint: 'Override if GoTrue runs on a different URL', placeholder: 'https://auth.yourdomain.com' },
+      { key: 'site_url', label: 'Site URL', type: 'url', placeholder: 'https://yoursite.com' },
+      { key: 'redirect_urls', label: 'Allowed Redirect URLs', type: 'text', hint: 'Comma-separated' },
+      { key: 'jwt_secret', label: 'JWT Secret', type: 'password', hint: 'HMAC secret for token signing' },
+      { key: 'jwt_expiry', label: 'JWT Expiry (seconds)', type: 'number', placeholder: '3600' },
+      { key: 'enable_signup', label: 'Enable Sign-Up', type: 'toggle' },
+      { key: 'smtp_host', label: 'Auth SMTP Host', type: 'text', hint: 'SMTP for auth emails (verify, reset)', placeholder: 'smtp.yourdomain.com' },
+      { key: 'smtp_port', label: 'Auth SMTP Port', type: 'number', placeholder: '587' },
+      { key: 'smtp_user', label: 'Auth SMTP User', type: 'text' },
+      { key: 'smtp_pass', label: 'Auth SMTP Password', type: 'password' },
+    ],
+  },
+  {
+    name: 'auth0', label: 'Auth0',
+    description: 'Enterprise identity platform by Okta',
+    docsUrl: 'https://auth0.com/docs',
+    fields: [
+      { key: 'domain', label: 'Domain', type: 'text', required: true, placeholder: 'your-tenant.auth0.com' },
+      { key: 'client_id', label: 'Client ID', type: 'text', required: true },
+      { key: 'client_secret', label: 'Client Secret', type: 'password', required: true },
+      { key: 'audience', label: 'API Audience', type: 'url', hint: 'Optional API identifier' },
+    ],
+  },
+  {
+    name: 'clerk', label: 'Clerk',
+    description: 'Modern auth with pre-built UI components',
+    docsUrl: 'https://clerk.com/docs',
+    fields: [
+      { key: 'publishable_key', label: 'Publishable Key', type: 'text', required: true },
+      { key: 'secret_key', label: 'Secret Key', type: 'password', required: true },
+    ],
+  },
+  {
+    name: 'firebase_auth', label: 'Firebase Auth',
+    description: 'Google Firebase authentication',
+    docsUrl: 'https://firebase.google.com/docs/auth',
+    fields: [
+      { key: 'api_key', label: 'Web API Key', type: 'text', required: true },
+      { key: 'auth_domain', label: 'Auth Domain', type: 'text', required: true, placeholder: 'your-project.firebaseapp.com' },
+      { key: 'project_id', label: 'Project ID', type: 'text', required: true },
+    ],
+  },
+  {
+    name: 'keycloak', label: 'Keycloak (Self-Hosted)',
+    description: 'Open-source identity & access management',
+    docsUrl: 'https://www.keycloak.org/documentation',
+    fields: [
+      { key: 'server_url', label: 'Server URL', type: 'url', required: true, placeholder: 'https://keycloak.yourdomain.com' },
+      { key: 'realm', label: 'Realm', type: 'text', required: true },
+      { key: 'client_id', label: 'Client ID', type: 'text', required: true },
+      { key: 'client_secret', label: 'Client Secret', type: 'password' },
+    ],
+  },
+];
+
+// =============================================
+// DATABASE VENDORS
+// =============================================
+const databaseVendors: ProviderVendor[] = [
+  {
+    name: 'supabase', label: 'Supabase PostgreSQL (Cloud)',
+    description: 'Managed Supabase PostgreSQL — current active instance',
+    fields: [
+      { key: 'supabase_url', label: 'Supabase URL', type: 'url', required: true, placeholder: 'https://xxxx.supabase.co' },
+      { key: 'supabase_anon_key', label: 'Anon/Public Key', type: 'text', required: true },
+      { key: 'schema', label: 'Default Schema', type: 'text', placeholder: 'public' },
+      { key: 'pool_size', label: 'Connection Pool Size', type: 'number', placeholder: '10' },
+    ],
+  },
+  {
+    name: 'supabase_self_hosted', label: 'Supabase PostgreSQL (Self-Hosted)',
+    description: 'Connect to your own self-hosted Supabase + PostgREST instance',
+    docsUrl: 'https://supabase.com/docs/guides/self-hosting',
+    fields: [
+      { key: 'supabase_url', label: 'Supabase URL', type: 'url', required: true, placeholder: 'https://supabase.yourdomain.com' },
+      { key: 'supabase_anon_key', label: 'Anon/Public Key', type: 'text', required: true },
+      { key: 'supabase_service_role_key', label: 'Service Role Key', type: 'password', hint: 'Server-side only' },
+      { key: 'database_url', label: 'Direct PostgreSQL URL', type: 'password', hint: 'For server-side direct access', placeholder: 'postgresql://user:pass@host:5432/postgres' },
+      { key: 'postgrest_url', label: 'PostgREST URL', type: 'url', hint: 'Override if PostgREST runs separately', placeholder: 'https://api.yourdomain.com' },
+      { key: 'schema', label: 'Default Schema', type: 'text', placeholder: 'public' },
+      { key: 'pool_size', label: 'Connection Pool Size', type: 'number', placeholder: '10' },
+    ],
+  },
+  {
+    name: 'neon', label: 'Neon',
+    description: 'Serverless Postgres with branching',
+    docsUrl: 'https://neon.tech/docs',
+    fields: [
+      { key: 'connection_string', label: 'Connection String', type: 'password', required: true, placeholder: 'postgresql://user:pass@host/db' },
+    ],
+  },
+  {
+    name: 'planetscale', label: 'PlanetScale',
+    description: 'MySQL-compatible serverless database',
+    docsUrl: 'https://planetscale.com/docs',
+    fields: [
+      { key: 'host', label: 'Host', type: 'text', required: true },
+      { key: 'username', label: 'Username', type: 'text', required: true },
+      { key: 'password', label: 'Password', type: 'password', required: true },
+      { key: 'database', label: 'Database Name', type: 'text', required: true },
+    ],
+  },
+  {
+    name: 'turso', label: 'Turso (libSQL)',
+    description: 'Edge-replicated SQLite by ChiselStrike',
+    docsUrl: 'https://docs.turso.tech',
+    fields: [
+      { key: 'url', label: 'Database URL', type: 'url', required: true, placeholder: 'libsql://your-db.turso.io' },
+      { key: 'auth_token', label: 'Auth Token', type: 'password', required: true },
+    ],
+  },
+  {
+    name: 'postgres_self_hosted', label: 'PostgreSQL (Self-Hosted)',
+    description: 'Direct connection to any self-hosted PostgreSQL server',
+    fields: [
+      { key: 'host', label: 'Host', type: 'text', required: true, placeholder: 'db.yourdomain.com' },
+      { key: 'port', label: 'Port', type: 'number', required: true, placeholder: '5432' },
+      { key: 'database', label: 'Database Name', type: 'text', required: true, placeholder: 'postgres' },
+      { key: 'username', label: 'Username', type: 'text', required: true },
+      { key: 'password', label: 'Password', type: 'password', required: true },
+      { key: 'ssl', label: 'Use SSL', type: 'toggle' },
+      { key: 'pool_size', label: 'Pool Size', type: 'number', placeholder: '10' },
+    ],
+  },
+];
+
+// =============================================
+// REALTIME VENDORS
+// =============================================
+const realtimeVendors: ProviderVendor[] = [
+  {
+    name: 'supabase', label: 'Supabase Realtime (Cloud)',
+    description: 'Managed Supabase Realtime — current active instance',
+    fields: [
+      { key: 'supabase_url', label: 'Supabase URL', type: 'url', required: true, placeholder: 'https://xxxx.supabase.co' },
+      { key: 'supabase_anon_key', label: 'Anon/Public Key', type: 'text', required: true },
+      { key: 'max_channels', label: 'Max Channels per Client', type: 'number', placeholder: '100' },
+      { key: 'heartbeat_interval', label: 'Heartbeat Interval (ms)', type: 'number', placeholder: '30000' },
+    ],
+  },
+  {
+    name: 'supabase_self_hosted', label: 'Supabase Realtime (Self-Hosted)',
+    description: 'Connect to your own self-hosted Supabase Realtime server',
+    docsUrl: 'https://supabase.com/docs/guides/self-hosting',
+    fields: [
+      { key: 'supabase_url', label: 'Supabase URL', type: 'url', required: true, placeholder: 'https://supabase.yourdomain.com' },
+      { key: 'supabase_anon_key', label: 'Anon/Public Key', type: 'text', required: true },
+      { key: 'realtime_url', label: 'Realtime WebSocket URL', type: 'url', hint: 'Override if Realtime runs separately', placeholder: 'wss://realtime.yourdomain.com' },
+      { key: 'max_channels', label: 'Max Channels per Client', type: 'number', placeholder: '100' },
+      { key: 'heartbeat_interval', label: 'Heartbeat Interval (ms)', type: 'number', placeholder: '30000' },
+    ],
+  },
+  {
+    name: 'pusher', label: 'Pusher',
+    description: 'Hosted WebSocket channels & presence',
+    docsUrl: 'https://pusher.com/docs',
+    fields: [
+      { key: 'app_id', label: 'App ID', type: 'text', required: true },
+      { key: 'key', label: 'Key', type: 'text', required: true },
+      { key: 'secret', label: 'Secret', type: 'password', required: true },
+      { key: 'cluster', label: 'Cluster', type: 'text', required: true, placeholder: 'eu' },
+    ],
+  },
+  {
+    name: 'ably', label: 'Ably',
+    description: 'Realtime messaging infrastructure',
+    docsUrl: 'https://ably.com/docs',
+    fields: [
+      { key: 'api_key', label: 'API Key', type: 'password', required: true, hint: 'Root API key or token' },
+    ],
+  },
+  {
+    name: 'soketi', label: 'Soketi (Self-Hosted)',
+    description: 'Open-source, Pusher-compatible WebSocket server',
+    docsUrl: 'https://docs.soketi.app',
+    fields: [
+      { key: 'host', label: 'Host', type: 'url', required: true, placeholder: 'ws://soketi.local:6001' },
+      { key: 'app_id', label: 'App ID', type: 'text', required: true },
+      { key: 'key', label: 'Key', type: 'text', required: true },
+      { key: 'secret', label: 'Secret', type: 'password', required: true },
+    ],
+  },
+  {
+    name: 'centrifugo', label: 'Centrifugo (Self-Hosted)',
+    description: 'Scalable real-time messaging server',
+    docsUrl: 'https://centrifugal.dev',
+    fields: [
+      { key: 'url', label: 'Server URL', type: 'url', required: true, placeholder: 'http://centrifugo.local:8000' },
+      { key: 'api_key', label: 'API Key', type: 'password', required: true },
+      { key: 'token_secret', label: 'Token HMAC Secret', type: 'password', required: true },
+    ],
+  },
+  {
+    name: 'websocket_native', label: 'WebSocket (Self-Hosted)',
+    description: 'Your own WebSocket server — raw WS or Socket.IO',
+    fields: [
+      { key: 'ws_url', label: 'WebSocket URL', type: 'url', required: true, placeholder: 'wss://ws.yourdomain.com' },
+      { key: 'auth_token', label: 'Auth Token', type: 'password', hint: 'Token for connection authentication' },
+      { key: 'protocol', label: 'Protocol', type: 'select', options: [
+        { value: 'ws', label: 'Raw WebSocket' },
+        { value: 'socketio', label: 'Socket.IO' },
+        { value: 'ws-json', label: 'WebSocket + JSON-RPC' },
+      ]},
+      { key: 'reconnect_interval', label: 'Reconnect Interval (ms)', type: 'number', placeholder: '5000' },
+    ],
+  },
+];
   {
     name: 'auth0', label: 'Auth0',
     description: 'Enterprise identity platform by Okta',

@@ -803,10 +803,6 @@ const realtimeVendors: ProviderVendor[] = [
     ],
   },
 ];
-  {
-    name: 'auth0', label: 'Auth0',
-    description: 'Enterprise identity platform by Okta',
-    docsUrl: 'https://auth0.com/docs',
     fields: [
       { key: 'domain', label: 'Domain', type: 'text', required: true, placeholder: 'your-tenant.auth0.com' },
       { key: 'client_id', label: 'Client ID', type: 'text', required: true },

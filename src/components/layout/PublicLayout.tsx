@@ -1,19 +1,28 @@
-import { Outlet, Link, useLocation } from 'react-router-dom';
+import { Outlet, Link } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
 import { useI18n } from '@/i18n';
-import { useBrandingContext } from '@/features/branding/BrandingContext';
+import { usePublicBranding } from '@/hooks/usePublicBranding';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { Locale } from '@/i18n/config';
 import { SUPPORTED_LOCALES, LOCALE_CONFIG } from '@/i18n/config';
 import { Button } from '@/components/ui/button';
 import { Menu, X } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 export function PublicLayout() {
   const { t } = useTranslation();
   const { locale, setLocale } = useI18n();
-  const { platformName, branding } = useBrandingContext();
+  const { branding, platformName } = usePublicBranding();
   const [menuOpen, setMenuOpen] = useState(false);
+
+  // Drive browser title from branding for public pages
+  useEffect(() => {
+    if (branding?.meta_title) {
+      document.title = branding.meta_title;
+    } else if (branding?.platform_name) {
+      document.title = branding.platform_name;
+    }
+  }, [branding]);
 
   const navLinks = [
     { label: t('public.features'), path: '/features' },
@@ -89,7 +98,7 @@ export function PublicLayout() {
 
       <footer className="border-t py-8 mt-auto">
         <div className="container text-center text-sm text-muted-foreground">
-          {branding?.footer_text || t('public.footerTagline')}
+          {branding?.footer_text || `© ${new Date().getFullYear()} ${platformName}`}
         </div>
       </footer>
     </div>

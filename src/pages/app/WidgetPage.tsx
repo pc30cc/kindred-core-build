@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useWidgetSettings, useUpdateWidgetSettings } from '@/hooks/useWidgetSettings';
-import { useBranding } from '@/hooks/useBranding';
+import { useBrandingContext } from '@/features/branding/BrandingContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -10,19 +10,20 @@ import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { Copy, Check, Code } from 'lucide-react';
+import { Copy, Check, Code, ExternalLink } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 
 export default function WidgetPage() {
   const { t } = useTranslation();
   const workspace = useCurrentWorkspace();
   const { data: widget, isLoading } = useWidgetSettings(workspace?.id);
-  const { data: branding } = useBranding(workspace?.id);
+  const { branding, platformName } = useBrandingContext();
   const updateWidget = useUpdateWidgetSettings(workspace?.id);
   const [copied, setCopied] = useState(false);
   const [newDomain, setNewDomain] = useState('');
 
-  const widgetBaseUrl = branding?.widget_base_url || 'YOUR_WIDGET_BASE_URL';
+  // Widget base URL comes from branding settings — fully configurable
+  const widgetBaseUrl = branding?.widget_base_url || window.location.origin;
 
   const embedCode = `<script type="text/javascript">
   window.__gs = [];
@@ -30,7 +31,7 @@ export default function WidgetPage() {
   (function(){
     var d = document;
     var s = d.createElement("script");
-    s.src = "${widgetBaseUrl}/loader.js";
+    s.src = "${widgetBaseUrl}/widget/loader.js";
     s.async = 1;
     d.getElementsByTagName("head")[0].appendChild(s);
   })();
@@ -83,13 +84,21 @@ export default function WidgetPage() {
         </CardHeader>
       </Card>
 
-      {/* Embed Code */}
+      {/* Embed Code — uses branding-driven widget base URL */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <Code className="h-4 w-4" /> {t('widget.embedCode')}
           </CardTitle>
-          <CardDescription>{t('widget.installInstructions')}</CardDescription>
+          <CardDescription>
+            {t('widget.installInstructions')}
+            {branding?.widget_base_url && (
+              <span className="flex items-center gap-1 mt-1 text-xs">
+                <ExternalLink className="h-3 w-3" />
+                Widget URL: {branding.widget_base_url}
+              </span>
+            )}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="relative">
@@ -101,6 +110,11 @@ export default function WidgetPage() {
               <span className="ms-1">{copied ? t('common.copied') : t('common.copy')}</span>
             </Button>
           </div>
+          {!branding?.widget_base_url && (
+            <p className="text-xs text-warning mt-2">
+              ⚠ Widget Base URL not configured. Go to Settings → Branding to set it for production.
+            </p>
+          )}
         </CardContent>
       </Card>
 
@@ -116,12 +130,12 @@ export default function WidgetPage() {
               <div className="flex gap-2">
                 <Input
                   type="color"
-                  value={widget?.primary_color || '#3B82F6'}
+                  value={widget?.primary_color || branding?.primary_color || '#3B82F6'}
                   onChange={e => updateWidget.mutate({ primary_color: e.target.value } as any)}
                   className="w-12 h-10 p-1"
                 />
                 <Input
-                  value={widget?.primary_color || '#3B82F6'}
+                  value={widget?.primary_color || branding?.primary_color || '#3B82F6'}
                   onChange={e => updateWidget.mutate({ primary_color: e.target.value } as any)}
                 />
               </div>
@@ -145,6 +159,7 @@ export default function WidgetPage() {
             <Input
               value={widget?.launcher_text || ''}
               onChange={e => updateWidget.mutate({ launcher_text: e.target.value } as any)}
+              placeholder={platformName}
             />
           </div>
           <div className="space-y-2">

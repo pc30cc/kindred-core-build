@@ -27,7 +27,7 @@ export function ProviderContextProvider({ children }: { children: React.ReactNod
   // Re-render consumers when registry changes
   const _version = useSyncExternalStore(
     (cb) => providerRegistry.subscribe(cb),
-    () => Date.now(),
+    () => providerRegistry.getVersion(),
   );
 
   // Sync provider configs from DB on mount

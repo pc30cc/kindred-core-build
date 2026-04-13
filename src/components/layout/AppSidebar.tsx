@@ -37,6 +37,7 @@ export function AppSidebar() {
   const { t, dir } = useTranslation();
   const location = useLocation();
   const { signOut } = useAuth();
+  const { data: isAdmin } = useIsGlobalAdmin();
   const [collapsed, setCollapsed] = useState(false);
 
   const isActive = (path: string) => {

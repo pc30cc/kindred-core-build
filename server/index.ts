@@ -9,6 +9,7 @@ import { emailRouter } from './routes/email.js';
 import { authSecurityRouter } from './routes/auth.js';
 import { aiRouter } from './routes/ai.js';
 import { storageRouter } from './routes/storage.js';
+import { cdnRouter } from './routes/cdn.js';
 import {
   ipBlockMiddleware,
   authRateLimiter,

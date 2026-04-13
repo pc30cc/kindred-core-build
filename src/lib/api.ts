@@ -201,6 +201,67 @@ export function storageGetConfig(workspaceId: string) {
   });
 }
 
+// ─── CDN ─────────────────────────────────────────────────────────
+
+export function cdnPurge(data: { workspaceId: string; paths?: string[] }) {
+  return request<{
+    success: boolean;
+    purgedPaths?: string[];
+    error?: string;
+  }>('/api/cdn/purge', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  });
+}
+
+export function cdnTestConnection(data: {
+  provider: string;
+  api_key?: string;
+  api_token?: string;
+  api_secret?: string;
+  domain?: string;
+  zone_id?: string;
+  pull_zone_id?: string;
+  hostname?: string;
+  service_id?: string;
+  access_key_id?: string;
+  secret_access_key?: string;
+  distribution_id?: string;
+  zone_url?: string;
+  zone_name?: string;
+}) {
+  return request<{
+    success: boolean;
+    latencyMs: number;
+    provider: string;
+    error?: string;
+    details?: string;
+  }>('/api/cdn/test', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  });
+}
+
+export function cdnGetConfig(workspaceId: string) {
+  return request<{
+    configured: boolean;
+    provider?: string;
+    domain?: string;
+  }>(`/api/cdn/config/${workspaceId}`, {
+    headers: authHeaders(),
+  });
+}
+
+export function cdnGetAssetUrl(workspaceId: string, path: string) {
+  return request<{ url: string }>('/api/cdn/asset-url', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ workspaceId, path }),
+  });
+}
+
 // ─── Health ──────────────────────────────────────────────────────
 
 export function checkHealth() {

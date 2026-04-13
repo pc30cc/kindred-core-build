@@ -9,6 +9,7 @@ import { emailRouter } from './routes/email.js';
 import { authSecurityRouter } from './routes/auth.js';
 import { aiRouter } from './routes/ai.js';
 import { storageRouter } from './routes/storage.js';
+import { cdnRouter } from './routes/cdn.js';
 import {
   ipBlockMiddleware,
   authRateLimiter,
@@ -66,6 +67,9 @@ app.use('/api/ai', aiRouter);
 
 // Storage — auth required, file size limits in routes
 app.use('/api/storage', storageRouter);
+
+// CDN — auth required, purge and config
+app.use('/api/cdn', cdnRouter);
 
 // Admin — moderate rate limit
 app.use('/api/admin', adminRateLimiter);

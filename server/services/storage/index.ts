@@ -1,0 +1,451 @@
+/**
+ * Storage Provider implementations — BunnyCDN, S3-compatible, local fallback
+ * All operations run server-side only. Secrets never leave the backend.
+ */
+
+import type { ServerConfig } from '../config.js';
+import { getServiceClient } from '../supabase.js';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as crypto from 'crypto';
+
+export interface StorageConfig {
+  provider: string;
+  // BunnyCDN
+  apiKey?: string;
+  storageZone?: string;
+  region?: string;
+  cdnUrl?: string;
+  // S3-compatible
+  accessKeyId?: string;
+  secretAccessKey?: string;
+  bucket?: string;
+  s3Region?: string;
+  endpoint?: string;
+  // Local
+  localPath?: string;
+  publicUrl?: string;
+  // Limits
+  maxFileSizeMB?: number;
+}
+
+export interface UploadRequest {
+  workspaceId: string;
+  fileKey: string;
+  data: Buffer;
+  contentType: string;
+}
+
+export interface StorageResult {
+  success: boolean;
+  url?: string;
+  fileKey?: string;
+  error?: string;
+}
+
+// ─── Allowed file types ──────────────────────────────────────────
+
+const ALLOWED_TYPES = new Set([
+  'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml',
+  'application/pdf', 'text/plain', 'text/html', 'text/css',
+  'application/javascript', 'application/json',
+  'video/mp4', 'audio/mpeg', 'audio/wav',
+  'application/zip', 'application/gzip',
+]);
+
+const MAX_FILE_SIZE_DEFAULT = 50 * 1024 * 1024; // 50MB
+
+function validateFile(data: Buffer, contentType: string, maxSizeMB?: number): string | null {
+  const maxBytes = (maxSizeMB || 50) * 1024 * 1024;
+  if (data.length > maxBytes) return `File too large (max ${maxSizeMB || 50}MB)`;
+  if (!ALLOWED_TYPES.has(contentType)) return `File type not allowed: ${contentType}`;
+  return null;
+}
+
+// ─── BunnyCDN Storage ────────────────────────────────────────────
+
+async function bunnyUpload(config: StorageConfig, req: UploadRequest): Promise<StorageResult> {
+  const regionPrefix = config.region && config.region !== 'de' ? `${config.region}.` : '';
+  const baseUrl = `https://${regionPrefix}storage.bunnycdn.com/${config.storageZone}`;
+
+  const res = await fetch(`${baseUrl}/${req.fileKey}`, {
+    method: 'PUT',
+    headers: {
+      'AccessKey': config.apiKey!,
+      'Content-Type': 'application/octet-stream',
+    },
+    body: req.data,
+  });
+
+  if (!res.ok) {
+    return { success: false, error: `BunnyCDN upload failed: ${res.statusText}` };
+  }
+
+  const cdnBase = config.cdnUrl || `https://${config.storageZone}.b-cdn.net`;
+  return { success: true, url: `${cdnBase}/${req.fileKey}`, fileKey: req.fileKey };
+}
+
+async function bunnyDelete(config: StorageConfig, fileKey: string): Promise<StorageResult> {
+  const regionPrefix = config.region && config.region !== 'de' ? `${config.region}.` : '';
+  const baseUrl = `https://${regionPrefix}storage.bunnycdn.com/${config.storageZone}`;
+
+  const res = await fetch(`${baseUrl}/${fileKey}`, {
+    method: 'DELETE',
+    headers: { 'AccessKey': config.apiKey! },
+  });
+
+  return { success: res.ok, error: res.ok ? undefined : `Delete failed: ${res.statusText}` };
+}
+
+function bunnyGetUrl(config: StorageConfig, fileKey: string): string {
+  const cdnBase = config.cdnUrl || `https://${config.storageZone}.b-cdn.net`;
+  return `${cdnBase}/${fileKey}`;
+}
+
+// ─── S3-Compatible Storage ───────────────────────────────────────
+
+function getS3Endpoint(config: StorageConfig): string {
+  if (config.endpoint) return config.endpoint;
+  return `https://s3.${config.s3Region || 'us-east-1'}.amazonaws.com`;
+}
+
+function signS3Request(
+  method: string,
+  url: string,
+  config: StorageConfig,
+  contentType?: string,
+  body?: Buffer
+): Record<string, string> {
+  const now = new Date();
+  const dateStr = now.toISOString().replace(/[:-]|\.\d{3}/g, '').slice(0, 8);
+  const timeStr = now.toISOString().replace(/[:-]|\.\d{3}/g, '');
+  const region = config.s3Region || 'us-east-1';
+  const parsed = new URL(url);
+
+  const headers: Record<string, string> = {
+    'Host': parsed.host,
+    'x-amz-date': timeStr,
+    'x-amz-content-sha256': body
+      ? crypto.createHash('sha256').update(body).digest('hex')
+      : 'UNSIGNED-PAYLOAD',
+  };
+  if (contentType) headers['Content-Type'] = contentType;
+
+  // Simplified SigV4 — for production, use AWS SDK or a proper signing lib
+  const credential = `${config.accessKeyId}/${dateStr}/${region}/s3/aws4_request`;
+  const signedHeaders = Object.keys(headers).sort().join(';').toLowerCase();
+
+  const canonicalHeaders = Object.keys(headers)
+    .sort()
+    .map(k => `${k.toLowerCase()}:${headers[k]}`)
+    .join('\n') + '\n';
+
+  const canonicalRequest = [
+    method,
+    parsed.pathname,
+    parsed.search?.slice(1) || '',
+    canonicalHeaders,
+    signedHeaders,
+    headers['x-amz-content-sha256'],
+  ].join('\n');
+
+  const stringToSign = [
+    'AWS4-HMAC-SHA256',
+    timeStr,
+    `${dateStr}/${region}/s3/aws4_request`,
+    crypto.createHash('sha256').update(canonicalRequest).digest('hex'),
+  ].join('\n');
+
+  const kDate = crypto.createHmac('sha256', `AWS4${config.secretAccessKey}`).update(dateStr).digest();
+  const kRegion = crypto.createHmac('sha256', kDate).update(region).digest();
+  const kService = crypto.createHmac('sha256', kRegion).update('s3').digest();
+  const kSigning = crypto.createHmac('sha256', kService).update('aws4_request').digest();
+  const signature = crypto.createHmac('sha256', kSigning).update(stringToSign).digest('hex');
+
+  headers['Authorization'] = `AWS4-HMAC-SHA256 Credential=${credential}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+
+  return headers;
+}
+
+async function s3Upload(config: StorageConfig, req: UploadRequest): Promise<StorageResult> {
+  const endpoint = getS3Endpoint(config);
+  const url = `${endpoint}/${config.bucket}/${req.fileKey}`;
+  const headers = signS3Request('PUT', url, config, req.contentType, req.data);
+
+  const res = await fetch(url, {
+    method: 'PUT',
+    headers: { ...headers, 'Content-Type': req.contentType },
+    body: req.data,
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    return { success: false, error: `S3 upload failed: ${res.status} ${text.slice(0, 200)}` };
+  }
+
+  const publicUrl = config.cdnUrl
+    ? `${config.cdnUrl}/${req.fileKey}`
+    : `${endpoint}/${config.bucket}/${req.fileKey}`;
+
+  return { success: true, url: publicUrl, fileKey: req.fileKey };
+}
+
+async function s3Delete(config: StorageConfig, fileKey: string): Promise<StorageResult> {
+  const endpoint = getS3Endpoint(config);
+  const url = `${endpoint}/${config.bucket}/${fileKey}`;
+  const headers = signS3Request('DELETE', url, config);
+
+  const res = await fetch(url, { method: 'DELETE', headers });
+  return { success: res.ok, error: res.ok ? undefined : `Delete failed: ${res.statusText}` };
+}
+
+function s3GetUrl(config: StorageConfig, fileKey: string): string {
+  if (config.cdnUrl) return `${config.cdnUrl}/${fileKey}`;
+  const endpoint = getS3Endpoint(config);
+  return `${endpoint}/${config.bucket}/${fileKey}`;
+}
+
+// ─── Local Storage (dev fallback) ────────────────────────────────
+
+function ensureLocalDir(dir: string) {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+}
+
+async function localUpload(config: StorageConfig, req: UploadRequest): Promise<StorageResult> {
+  const basePath = config.localPath || '/tmp/storage';
+  const filePath = path.join(basePath, req.fileKey);
+  ensureLocalDir(path.dirname(filePath));
+  fs.writeFileSync(filePath, req.data);
+  const publicUrl = `${config.publicUrl || 'http://localhost:3001/storage'}/${req.fileKey}`;
+  return { success: true, url: publicUrl, fileKey: req.fileKey };
+}
+
+async function localDelete(config: StorageConfig, fileKey: string): Promise<StorageResult> {
+  const filePath = path.join(config.localPath || '/tmp/storage', fileKey);
+  try { fs.unlinkSync(filePath); } catch {}
+  return { success: true };
+}
+
+function localGetUrl(config: StorageConfig, fileKey: string): string {
+  return `${config.publicUrl || 'http://localhost:3001/storage'}/${fileKey}`;
+}
+
+// ─── Provider Router ─────────────────────────────────────────────
+
+const uploadHandlers: Record<string, (config: StorageConfig, req: UploadRequest) => Promise<StorageResult>> = {
+  bunny_storage: bunnyUpload,
+  s3: s3Upload,
+  cloudflare_r2: s3Upload,
+  minio: s3Upload,
+  do_spaces: s3Upload,
+  gcs: s3Upload, // GCS has S3-compatible interop
+  azure_blob: s3Upload,
+  local: localUpload,
+};
+
+const deleteHandlers: Record<string, (config: StorageConfig, key: string) => Promise<StorageResult>> = {
+  bunny_storage: bunnyDelete,
+  s3: s3Delete,
+  cloudflare_r2: s3Delete,
+  minio: s3Delete,
+  do_spaces: s3Delete,
+  local: localDelete,
+};
+
+const urlHandlers: Record<string, (config: StorageConfig, key: string) => string> = {
+  bunny_storage: bunnyGetUrl,
+  s3: s3GetUrl,
+  cloudflare_r2: s3GetUrl,
+  minio: s3GetUrl,
+  do_spaces: s3GetUrl,
+  local: localGetUrl,
+};
+
+/**
+ * Resolve storage config from DB for a workspace.
+ */
+export async function resolveStorageConfig(serverConfig: ServerConfig, workspaceId: string): Promise<StorageConfig | null> {
+  const sb = getServiceClient(serverConfig);
+
+  // 1. Workspace override
+  const { data: wsConfig } = await sb
+    .from('provider_configs')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .eq('provider_type', 'storage')
+    .eq('is_active', true)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single();
+
+  if (wsConfig?.config) {
+    return mapDBConfigToStorage(wsConfig.provider_name, wsConfig.config as any);
+  }
+
+  // 2. Global default
+  const { data: globalConfig } = await sb
+    .from('app_runtime_config')
+    .select('value')
+    .eq('key', 'default_storage_provider')
+    .single();
+
+  if (globalConfig?.value) {
+    const c = globalConfig.value as any;
+    return mapDBConfigToStorage(c.provider || 'local', c);
+  }
+
+  // 3. Fallback to local
+  return { provider: 'local', localPath: '/tmp/storage' };
+}
+
+function mapDBConfigToStorage(provider: string, c: any): StorageConfig {
+  return {
+    provider,
+    apiKey: c.api_key,
+    storageZone: c.storage_zone,
+    region: c.region,
+    cdnUrl: c.cdn_url || c.cdn_endpoint || c.public_url,
+    accessKeyId: c.access_key_id || c.access_key,
+    secretAccessKey: c.secret_access_key || c.secret_key,
+    bucket: c.bucket || c.container,
+    s3Region: c.region,
+    endpoint: c.endpoint,
+    maxFileSizeMB: c.max_file_size ? parseInt(c.max_file_size) : undefined,
+  };
+}
+
+/**
+ * Upload a file through the resolved storage provider.
+ */
+export async function uploadFile(
+  serverConfig: ServerConfig,
+  req: UploadRequest
+): Promise<StorageResult> {
+  const storageConfig = await resolveStorageConfig(serverConfig, req.workspaceId);
+  if (!storageConfig) {
+    return { success: false, error: 'No storage provider configured' };
+  }
+
+  // Validate file
+  const validationError = validateFile(req.data, req.contentType, storageConfig.maxFileSizeMB);
+  if (validationError) {
+    return { success: false, error: validationError };
+  }
+
+  const handler = uploadHandlers[storageConfig.provider];
+  if (!handler) {
+    return { success: false, error: `Unsupported storage provider: ${storageConfig.provider}` };
+  }
+
+  const sb = getServiceClient(serverConfig);
+  let result: StorageResult;
+
+  try {
+    result = await handler(storageConfig, req);
+
+    await sb.from('storage_usage_logs').insert({
+      workspace_id: req.workspaceId,
+      provider_name: storageConfig.provider,
+      operation: 'upload',
+      file_key: req.fileKey,
+      file_size: req.data.length,
+      content_type: req.contentType,
+      success: result.success,
+      error_message: result.error,
+    });
+  } catch (err: any) {
+    await sb.from('storage_usage_logs').insert({
+      workspace_id: req.workspaceId,
+      provider_name: storageConfig.provider,
+      operation: 'upload',
+      file_key: req.fileKey,
+      success: false,
+      error_message: err.message,
+    });
+    return { success: false, error: err.message };
+  }
+
+  return result;
+}
+
+/**
+ * Delete a file through the resolved storage provider.
+ */
+export async function deleteFile(
+  serverConfig: ServerConfig,
+  workspaceId: string,
+  fileKey: string
+): Promise<StorageResult> {
+  const storageConfig = await resolveStorageConfig(serverConfig, workspaceId);
+  if (!storageConfig) return { success: false, error: 'No storage provider configured' };
+
+  const handler = deleteHandlers[storageConfig.provider];
+  if (!handler) return { success: false, error: `Unsupported provider: ${storageConfig.provider}` };
+
+  const sb = getServiceClient(serverConfig);
+  try {
+    const result = await handler(storageConfig, fileKey);
+    await sb.from('storage_usage_logs').insert({
+      workspace_id: workspaceId,
+      provider_name: storageConfig.provider,
+      operation: 'delete',
+      file_key: fileKey,
+      success: result.success,
+      error_message: result.error,
+    });
+    return result;
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Get public URL for a file.
+ */
+export async function getFileUrl(
+  serverConfig: ServerConfig,
+  workspaceId: string,
+  fileKey: string
+): Promise<string | null> {
+  const storageConfig = await resolveStorageConfig(serverConfig, workspaceId);
+  if (!storageConfig) return null;
+  const handler = urlHandlers[storageConfig.provider];
+  if (!handler) return null;
+  return handler(storageConfig, fileKey);
+}
+
+/**
+ * Test storage connection with a real upload + delete.
+ */
+export async function testStorageConnection(config: StorageConfig): Promise<{
+  success: boolean;
+  latencyMs: number;
+  error?: string;
+}> {
+  const testKey = `_test/${Date.now()}.txt`;
+  const testData = Buffer.from('connectivity test');
+  const start = Date.now();
+
+  const handler = uploadHandlers[config.provider];
+  const delHandler = deleteHandlers[config.provider];
+
+  if (!handler) return { success: false, latencyMs: 0, error: `Unknown provider: ${config.provider}` };
+
+  try {
+    const result = await handler(config, {
+      workspaceId: 'test',
+      fileKey: testKey,
+      data: testData,
+      contentType: 'text/plain',
+    });
+
+    if (!result.success) return { success: false, latencyMs: Date.now() - start, error: result.error };
+
+    // Cleanup
+    if (delHandler) await delHandler(config, testKey);
+
+    return { success: true, latencyMs: Date.now() - start };
+  } catch (err: any) {
+    return { success: false, latencyMs: Date.now() - start, error: err.message };
+  }
+}

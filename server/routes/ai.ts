@@ -1,0 +1,152 @@
+/**
+ * AI API Routes — server-side only, all secrets stay on backend
+ */
+
+import { Router } from 'express';
+import { z } from 'zod';
+import type { ServerConfig } from '../config.js';
+import { executeAICompletion, testAIConnection, resolveAIConfig } from '../services/ai/index.js';
+import { logSecurityEvent } from '../middleware/security.js';
+
+export const aiRouter = Router();
+
+// Rate limit tracking per workspace
+const wsUsageCounters = new Map<string, { count: number; windowStart: number }>();
+const AI_RATE_LIMIT = 60; // requests per minute per workspace
+const AI_WINDOW = 60_000;
+
+function checkAIRateLimit(workspaceId: string): boolean {
+  const now = Date.now();
+  const counter = wsUsageCounters.get(workspaceId);
+  if (!counter || now - counter.windowStart > AI_WINDOW) {
+    wsUsageCounters.set(workspaceId, { count: 1, windowStart: now });
+    return true;
+  }
+  counter.count++;
+  return counter.count <= AI_RATE_LIMIT;
+}
+
+const completionSchema = z.object({
+  workspaceId: z.string().uuid(),
+  prompt: z.string().min(1).max(100_000),
+  systemPrompt: z.string().max(50_000).optional(),
+  model: z.string().max(100).optional(),
+  maxTokens: z.number().min(1).max(128_000).optional(),
+  temperature: z.number().min(0).max(2).optional(),
+});
+
+/**
+ * POST /api/ai/complete
+ * Execute AI completion through resolved provider.
+ */
+aiRouter.post('/complete', async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+
+    // Auth check
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.replace('Bearer ', '');
+    if (token !== config.supabaseAnonKey && token !== config.supabaseServiceRoleKey) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const parsed = completionSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten().fieldErrors });
+    }
+
+    // Rate limit
+    if (!checkAIRateLimit(parsed.data.workspaceId)) {
+      await logSecurityEvent(req, 'rate_limited', 'warn', {
+        endpoint: '/api/ai/complete',
+        workspaceId: parsed.data.workspaceId,
+      });
+      return res.status(429).json({ error: 'AI rate limit exceeded. Max 60 requests/minute per workspace.' });
+    }
+
+    const result = await executeAICompletion(config, parsed.data);
+    return res.json({
+      text: result.text,
+      model: result.model,
+      provider: result.provider,
+      usage: {
+        promptTokens: result.promptTokens,
+        completionTokens: result.completionTokens,
+        totalTokens: result.totalTokens,
+      },
+      latencyMs: result.latencyMs,
+    });
+  } catch (err: any) {
+    console.error('[ai] Completion error:', err.message);
+    return res.status(500).json({ error: err.message || 'AI completion failed' });
+  }
+});
+
+const testSchema = z.object({
+  provider: z.string(),
+  apiKey: z.string(),
+  model: z.string().optional(),
+  baseUrl: z.string().optional(),
+  orgId: z.string().optional(),
+});
+
+/**
+ * POST /api/ai/test
+ * Test AI provider connection with a minimal completion.
+ */
+aiRouter.post('/test', async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    if (token !== config.supabaseServiceRoleKey && token !== config.supabaseAnonKey) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const parsed = testSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid input' });
+    }
+
+    const result = await testAIConnection({
+      provider: parsed.data.provider,
+      apiKey: parsed.data.apiKey,
+      model: parsed.data.model || 'gpt-4o-mini',
+      baseUrl: parsed.data.baseUrl,
+      orgId: parsed.data.orgId,
+    });
+
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/ai/config/:workspaceId
+ * Get resolved AI provider info (without secrets) for a workspace.
+ */
+aiRouter.get('/config/:workspaceId', async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    if (token !== config.supabaseAnonKey && token !== config.supabaseServiceRoleKey) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const aiConfig = await resolveAIConfig(config, req.params.workspaceId);
+    if (!aiConfig) {
+      return res.json({ configured: false });
+    }
+
+    return res.json({
+      configured: true,
+      provider: aiConfig.provider,
+      model: aiConfig.model,
+      maxTokens: aiConfig.maxTokens,
+      temperature: aiConfig.temperature,
+      // Never expose API key
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});

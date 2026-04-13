@@ -652,10 +652,12 @@ const captchaVendors: ProviderVendor[] = [
 // CDN VENDORS
 // =============================================
 const cdnVendors: ProviderVendor[] = [
+  // ── International (EN) ──────────────────────────
   {
     name: 'cloudflare', label: 'Cloudflare CDN',
     description: 'Global CDN with edge caching & DDoS protection',
     docsUrl: 'https://developers.cloudflare.com',
+    locales: ['en'], currency: 'USD',
     fields: [
       { key: 'zone_id', label: 'Zone ID', type: 'text', required: true },
       { key: 'api_token', label: 'API Token', type: 'password', required: true },
@@ -666,6 +668,7 @@ const cdnVendors: ProviderVendor[] = [
     name: 'bunny', label: 'Bunny CDN',
     description: 'Cost-effective global CDN with 100+ PoPs',
     docsUrl: 'https://docs.bunny.net',
+    locales: ['en'], currency: 'USD',
     fields: [
       { key: 'api_key', label: 'API Key', type: 'password', required: true },
       { key: 'pull_zone_id', label: 'Pull Zone ID', type: 'text', required: true },
@@ -676,6 +679,7 @@ const cdnVendors: ProviderVendor[] = [
     name: 'fastly', label: 'Fastly',
     description: 'Edge cloud platform for content delivery',
     docsUrl: 'https://developer.fastly.com',
+    locales: ['en'], currency: 'USD',
     fields: [
       { key: 'api_token', label: 'API Token', type: 'password', required: true },
       { key: 'service_id', label: 'Service ID', type: 'text', required: true },
@@ -686,6 +690,7 @@ const cdnVendors: ProviderVendor[] = [
     name: 'aws_cloudfront', label: 'AWS CloudFront',
     description: 'Amazon CloudFront CDN distribution',
     docsUrl: 'https://docs.aws.amazon.com/cloudfront',
+    locales: ['en'], currency: 'USD',
     fields: [
       { key: 'access_key_id', label: 'Access Key ID', type: 'password', required: true },
       { key: 'secret_access_key', label: 'Secret Access Key', type: 'password', required: true },
@@ -697,10 +702,77 @@ const cdnVendors: ProviderVendor[] = [
     name: 'keycdn', label: 'KeyCDN',
     description: 'Simple, affordable CDN',
     docsUrl: 'https://www.keycdn.com/api',
+    locales: ['en'], currency: 'USD',
     fields: [
       { key: 'api_key', label: 'API Key', type: 'password', required: true },
       { key: 'zone_id', label: 'Zone ID', type: 'text', required: true },
       { key: 'zone_url', label: 'Zone URL', type: 'url', required: true },
+    ],
+  },
+
+  // ── Iranian (FA) ──────────────────────────
+  {
+    name: 'arvancloud', label: 'ابر آروان (ArvanCloud)',
+    description: 'سی‌دی‌ان ابری ایرانی — PoP داخلی و بین‌المللی',
+    docsUrl: 'https://www.arvancloud.ir/docs/api/cdn',
+    locales: ['fa'], currency: 'IRR',
+    fields: [
+      { key: 'api_key', label: 'کلید API', type: 'password', required: true },
+      { key: 'domain', label: 'دامنه', type: 'url', required: true, placeholder: 'cdn.yourdomain.ir' },
+    ],
+  },
+  {
+    name: 'iranserver_cdn', label: 'ایران سرور CDN',
+    description: 'سی‌دی‌ان ایران سرور — زیرساخت داخلی',
+    docsUrl: 'https://www.iranserver.com',
+    locales: ['fa'], currency: 'IRR',
+    fields: [
+      { key: 'api_key', label: 'کلید API', type: 'password', required: true },
+      { key: 'domain', label: 'دامنه CDN', type: 'url', required: true },
+    ],
+  },
+  {
+    name: 'parspack_cdn', label: 'پارس‌پک CDN',
+    description: 'سرویس CDN پارس‌پک — دیتاسنتر ایران',
+    docsUrl: 'https://www.parspack.com',
+    locales: ['fa'], currency: 'IRR',
+    fields: [
+      { key: 'api_key', label: 'کلید API', type: 'password', required: true },
+      { key: 'zone_name', label: 'نام Zone', type: 'text', required: true },
+      { key: 'domain', label: 'دامنه', type: 'url', required: true },
+    ],
+  },
+  {
+    name: 'derakcloud', label: 'ابر دراک (DerakCloud)',
+    description: 'پلتفرم ابری و CDN ایرانی',
+    docsUrl: 'https://derak.cloud',
+    locales: ['fa'], currency: 'IRR',
+    fields: [
+      { key: 'api_token', label: 'توکن API', type: 'password', required: true },
+      { key: 'domain', label: 'دامنه', type: 'url', required: true },
+    ],
+  },
+
+  // ── Turkish (TR) ──────────────────────────
+  {
+    name: 'medianova', label: 'Medianova',
+    description: 'Türkiye merkezli CDN — düşük gecikme süresi',
+    docsUrl: 'https://docs.medianova.com',
+    locales: ['tr'], currency: 'TRY',
+    fields: [
+      { key: 'api_key', label: 'API Anahtarı', type: 'password', required: true },
+      { key: 'api_secret', label: 'API Secret', type: 'password', required: true },
+      { key: 'zone_id', label: 'Zone ID', type: 'text', required: true },
+      { key: 'domain', label: 'CDN Alan Adı', type: 'url', required: true },
+    ],
+  },
+  {
+    name: 'turkcell_cdn', label: 'Turkcell Bulut CDN',
+    description: 'Turkcell altyapısı ile içerik dağıtımı — TRY',
+    locales: ['tr'], currency: 'TRY',
+    fields: [
+      { key: 'api_key', label: 'API Anahtarı', type: 'password', required: true },
+      { key: 'domain', label: 'CDN Alan Adı', type: 'url', required: true },
     ],
   },
 ];

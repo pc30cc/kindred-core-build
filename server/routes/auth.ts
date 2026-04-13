@@ -129,14 +129,26 @@ authSecurityRouter.post('/login', authRateLimiter, async (req, res) => {
 
 /**
  * POST /api/auth/record-result
- * Frontend calls after Supabase auth to record success/failure
+ * Frontend calls after Supabase auth to record success/failure.
+ * Also accepts generic security event logging from the client.
  */
 authSecurityRouter.post('/record-result', async (req, res) => {
   try {
     const config: ServerConfig = (req as any).serverConfig;
-    const { email, success } = req.body;
-    if (!email || typeof success !== 'boolean') {
-      return res.status(400).json({ error: 'email and success required' });
+    const { email, success, eventType, severity, metadata } = req.body;
+    if (!email) {
+      return res.status(400).json({ error: 'email required' });
+    }
+
+    // If this is a generic security event log
+    if (eventType) {
+      await logSecurityEvent(req, eventType, severity || 'info', { email, ...metadata });
+      return res.json({ ok: true });
+    }
+
+    // Standard login result recording
+    if (typeof success !== 'boolean') {
+      return res.status(400).json({ error: 'success (boolean) required' });
     }
 
     recordLoginAttempt(req, email, success);

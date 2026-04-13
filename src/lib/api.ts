@@ -262,6 +262,85 @@ export function cdnGetAssetUrl(workspaceId: string, path: string) {
   });
 }
 
+// ─── Billing ─────────────────────────────────────────────────────
+
+export function billingGetPlans(locale?: string) {
+  const params = new URLSearchParams();
+  if (locale) params.set('locale', locale);
+  return request<{ plans: any[] }>(`/api/billing/plans?${params}`, { headers: authHeaders() });
+}
+
+export function billingGetStatus(workspaceId: string) {
+  return request<{ subscription: any; payments: any[] }>(`/api/billing/status/${workspaceId}`, { headers: authHeaders() });
+}
+
+export function billingCheckout(data: {
+  workspaceId: string;
+  planId: string;
+  interval: 'monthly' | 'yearly';
+  currency: string;
+  callbackUrl: string;
+  customerEmail?: string;
+  customerName?: string;
+  amount?: number;
+  phone?: string;
+}) {
+  return request<{ success: boolean; paymentUrl: string; sessionId?: string }>('/api/billing/checkout', {
+    method: 'POST', headers: authHeaders(), body: JSON.stringify(data),
+  });
+}
+
+export function billingCancel(workspaceId: string) {
+  return request<{ success: boolean }>('/api/billing/subscription/cancel', {
+    method: 'POST', headers: authHeaders(), body: JSON.stringify({ workspaceId }),
+  });
+}
+
+export function billingResume(workspaceId: string) {
+  return request<{ success: boolean }>('/api/billing/subscription/resume', {
+    method: 'POST', headers: authHeaders(), body: JSON.stringify({ workspaceId }),
+  });
+}
+
+export function billingGetPortal(workspaceId: string, returnUrl: string) {
+  return request<{ url: string }>('/api/billing/portal', {
+    method: 'POST', headers: authHeaders(), body: JSON.stringify({ workspaceId, returnUrl }),
+  });
+}
+
+export function billingTest(provider: string, config: Record<string, unknown>) {
+  return request<{ success: boolean; latencyMs: number; error?: string }>('/api/billing/test', {
+    method: 'POST', headers: authHeaders(), body: JSON.stringify({ provider, config }),
+  });
+}
+
+export function billingGetEvents(workspaceId: string) {
+  return request<{ events: any[] }>(`/api/billing/events/${workspaceId}`, { headers: authHeaders() });
+}
+
+export function billingAdminOverview() {
+  return request<{
+    totalSubscriptions: number;
+    activeSubscriptions: number;
+    recentPayments: any[];
+    recentEvents: any[];
+    plans: any[];
+  }>('/api/billing/admin/overview', { headers: authHeaders() });
+}
+
+export function billingAdminGrant(data: { workspaceId: string; planId: string; status?: string; expiresAt?: string }) {
+  return request<{ subscription: any }>('/api/billing/admin/grant', {
+    method: 'POST', headers: authHeaders(), body: JSON.stringify(data),
+  });
+}
+
+export function billingEntitlement(workspaceId: string, feature: string) {
+  return request<{ allowed: boolean; limit?: number; used?: number }>(
+    `/api/billing/entitlement?workspaceId=${workspaceId}&feature=${feature}`,
+    { headers: authHeaders() }
+  );
+}
+
 // ─── Health ──────────────────────────────────────────────────────
 
 export function checkHealth() {

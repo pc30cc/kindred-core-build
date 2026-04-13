@@ -14,6 +14,151 @@ export type Database = {
   }
   public: {
     Tables: {
+      contacts: {
+        Row: {
+          avatar_url: string | null
+          created_at: string | null
+          email: string | null
+          id: string
+          metadata: Json | null
+          name: string | null
+          notes: string | null
+          phone: string | null
+          tags: string[] | null
+          updated_at: string | null
+          workspace_id: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string | null
+          email?: string | null
+          id?: string
+          metadata?: Json | null
+          name?: string | null
+          notes?: string | null
+          phone?: string | null
+          tags?: string[] | null
+          updated_at?: string | null
+          workspace_id: string
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string | null
+          email?: string | null
+          id?: string
+          metadata?: Json | null
+          name?: string | null
+          notes?: string | null
+          phone?: string | null
+          tags?: string[] | null
+          updated_at?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contacts_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      conversation_messages: {
+        Row: {
+          body: string
+          conversation_id: string
+          created_at: string | null
+          id: string
+          metadata: Json | null
+          sender_id: string | null
+          sender_type: Database["public"]["Enums"]["sender_type"]
+        }
+        Insert: {
+          body: string
+          conversation_id: string
+          created_at?: string | null
+          id?: string
+          metadata?: Json | null
+          sender_id?: string | null
+          sender_type: Database["public"]["Enums"]["sender_type"]
+        }
+        Update: {
+          body?: string
+          conversation_id?: string
+          created_at?: string | null
+          id?: string
+          metadata?: Json | null
+          sender_id?: string | null
+          sender_type?: Database["public"]["Enums"]["sender_type"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conversation_messages_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      conversations: {
+        Row: {
+          assigned_to: string | null
+          contact_id: string | null
+          created_at: string | null
+          id: string
+          priority: Database["public"]["Enums"]["conversation_priority"] | null
+          status: Database["public"]["Enums"]["conversation_status"] | null
+          subject: string | null
+          tags: string[] | null
+          updated_at: string | null
+          visitor_session_id: string | null
+          workspace_id: string
+        }
+        Insert: {
+          assigned_to?: string | null
+          contact_id?: string | null
+          created_at?: string | null
+          id?: string
+          priority?: Database["public"]["Enums"]["conversation_priority"] | null
+          status?: Database["public"]["Enums"]["conversation_status"] | null
+          subject?: string | null
+          tags?: string[] | null
+          updated_at?: string | null
+          visitor_session_id?: string | null
+          workspace_id: string
+        }
+        Update: {
+          assigned_to?: string | null
+          contact_id?: string | null
+          created_at?: string | null
+          id?: string
+          priority?: Database["public"]["Enums"]["conversation_priority"] | null
+          status?: Database["public"]["Enums"]["conversation_status"] | null
+          subject?: string | null
+          tags?: string[] | null
+          updated_at?: string | null
+          visitor_session_id?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conversations_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "conversations_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -61,6 +206,183 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      widget_settings: {
+        Row: {
+          allowed_domains: string[] | null
+          chat_enabled: boolean | null
+          created_at: string | null
+          enabled: boolean | null
+          id: string
+          kb_enabled: boolean | null
+          launcher_text: string | null
+          locale: string | null
+          logo_url: string | null
+          position: string | null
+          primary_color: string | null
+          updated_at: string | null
+          visitor_tracking_enabled: boolean | null
+          welcome_message: string | null
+          workspace_id: string
+        }
+        Insert: {
+          allowed_domains?: string[] | null
+          chat_enabled?: boolean | null
+          created_at?: string | null
+          enabled?: boolean | null
+          id?: string
+          kb_enabled?: boolean | null
+          launcher_text?: string | null
+          locale?: string | null
+          logo_url?: string | null
+          position?: string | null
+          primary_color?: string | null
+          updated_at?: string | null
+          visitor_tracking_enabled?: boolean | null
+          welcome_message?: string | null
+          workspace_id: string
+        }
+        Update: {
+          allowed_domains?: string[] | null
+          chat_enabled?: boolean | null
+          created_at?: string | null
+          enabled?: boolean | null
+          id?: string
+          kb_enabled?: boolean | null
+          launcher_text?: string | null
+          locale?: string | null
+          logo_url?: string | null
+          position?: string | null
+          primary_color?: string | null
+          updated_at?: string | null
+          visitor_tracking_enabled?: boolean | null
+          welcome_message?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "widget_settings_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: true
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workspace_branding: {
+        Row: {
+          accent_color: string | null
+          asset_base_url: string | null
+          canonical_base_url: string | null
+          created_at: string | null
+          favicon_url: string | null
+          footer_text: string | null
+          id: string
+          legal_name: string | null
+          logo_url: string | null
+          meta_description: string | null
+          meta_title: string | null
+          panel_base_url: string | null
+          platform_name: string
+          primary_color: string | null
+          sender_name: string | null
+          short_name: string | null
+          social_image_url: string | null
+          support_email: string | null
+          updated_at: string | null
+          widget_base_url: string | null
+          workspace_id: string
+        }
+        Insert: {
+          accent_color?: string | null
+          asset_base_url?: string | null
+          canonical_base_url?: string | null
+          created_at?: string | null
+          favicon_url?: string | null
+          footer_text?: string | null
+          id?: string
+          legal_name?: string | null
+          logo_url?: string | null
+          meta_description?: string | null
+          meta_title?: string | null
+          panel_base_url?: string | null
+          platform_name?: string
+          primary_color?: string | null
+          sender_name?: string | null
+          short_name?: string | null
+          social_image_url?: string | null
+          support_email?: string | null
+          updated_at?: string | null
+          widget_base_url?: string | null
+          workspace_id: string
+        }
+        Update: {
+          accent_color?: string | null
+          asset_base_url?: string | null
+          canonical_base_url?: string | null
+          created_at?: string | null
+          favicon_url?: string | null
+          footer_text?: string | null
+          id?: string
+          legal_name?: string | null
+          logo_url?: string | null
+          meta_description?: string | null
+          meta_title?: string | null
+          panel_base_url?: string | null
+          platform_name?: string
+          primary_color?: string | null
+          sender_name?: string | null
+          short_name?: string | null
+          social_image_url?: string | null
+          support_email?: string | null
+          updated_at?: string | null
+          widget_base_url?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workspace_branding_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: true
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workspace_domains: {
+        Row: {
+          created_at: string | null
+          domain: string
+          id: string
+          is_primary: boolean | null
+          verified: boolean | null
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          domain: string
+          id?: string
+          is_primary?: boolean | null
+          verified?: boolean | null
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string | null
+          domain?: string
+          id?: string
+          is_primary?: boolean | null
+          verified?: boolean | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workspace_domains_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       workspace_members: {
         Row: {
@@ -153,6 +475,9 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "moderator" | "user"
+      conversation_priority: "low" | "normal" | "high" | "urgent"
+      conversation_status: "open" | "pending" | "resolved" | "closed"
+      sender_type: "agent" | "contact" | "system" | "bot"
       workspace_role: "owner" | "admin" | "agent" | "viewer"
     }
     CompositeTypes: {
@@ -282,6 +607,9 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "moderator", "user"],
+      conversation_priority: ["low", "normal", "high", "urgent"],
+      conversation_status: ["open", "pending", "resolved", "closed"],
+      sender_type: ["agent", "contact", "system", "bot"],
       workspace_role: ["owner", "admin", "agent", "viewer"],
     },
   },

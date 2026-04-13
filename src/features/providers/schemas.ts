@@ -1457,6 +1457,11 @@ export const PROVIDER_SCHEMAS: Record<string, ProviderTypeSchema> = {
     description: 'Transactional and notification emails',
     vendors: emailVendors, allowWorkspaceOverride: true,
   },
+  sms: {
+    type: 'sms', label: 'SMS Provider', icon: 'Smartphone',
+    description: 'SMS messaging, OTP, and bulk notifications',
+    vendors: smsVendors, allowWorkspaceOverride: true,
+  },
   ai: {
     type: 'ai', label: 'AI Provider', icon: 'Bot',
     description: 'LLM completions, embeddings, and AI features',

@@ -10,6 +10,7 @@ import { authSecurityRouter } from './routes/auth.js';
 import { aiRouter } from './routes/ai.js';
 import { storageRouter } from './routes/storage.js';
 import { cdnRouter } from './routes/cdn.js';
+import { billingRouter } from './routes/billing.js';
 import {
   ipBlockMiddleware,
   authRateLimiter,
@@ -70,6 +71,9 @@ app.use('/api/storage', storageRouter);
 
 // CDN — auth required, purge and config
 app.use('/api/cdn', cdnRouter);
+
+// Billing — checkout, webhooks, subscription management
+app.use('/api/billing', billingRouter);
 
 // Admin — moderate rate limit
 app.use('/api/admin', adminRateLimiter);

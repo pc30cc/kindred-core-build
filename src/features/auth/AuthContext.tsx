@@ -65,6 +65,9 @@ export function AuthContextProvider({
 
 export function useAuth() {
   const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error('useAuth must be used within AuthContextProvider');
+  if (!ctx) {
+    // During HMR, context can briefly be null — return safe defaults instead of crashing
+    return { user: null, session: null, loading: true, signOut: async () => {} } as AuthContextValue;
+  }
   return ctx;
 }

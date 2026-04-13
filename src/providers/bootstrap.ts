@@ -1,14 +1,14 @@
 // ============================================
 // PROVIDER BOOTSTRAP
 // Registers all default (Supabase + stub) providers at app startup.
-// Real provider implementations are registered here as they are built.
+// Email uses self-hosted API provider — NO Edge Functions.
 // ============================================
 
 import { providerRegistry } from './registry';
 import { supabaseAuthProvider } from './supabase/auth';
 import { supabaseDatabaseProvider } from './supabase/database';
 import { supabaseRealtimeProvider } from './supabase/realtime';
-import { createEdgeFunctionEmailProvider } from './email/edge-function';
+import { createApiEmailProvider } from './email/api';
 import {
   stubEmailProvider,
   stubAIProvider,
@@ -29,7 +29,7 @@ let bootstrapped = false;
  * Register all default providers.
  * Called once at app startup.
  * Supabase implementations get priority 0 (default).
- * Edge function providers get priority 5.
+ * Self-hosted API providers get priority 5.
  * Stubs get priority 100 (fallback).
  */
 export function bootstrapProviders(): void {
@@ -68,27 +68,25 @@ export function bootstrapProviders(): void {
     meta: { vendor: 'supabase', builtIn: true },
   });
 
-  // --- Email: Edge Function provider (routes through send-email edge function) ---
-  // Register a generic "edge-function" email provider.
-  // The edge function itself resolves the actual vendor (Resend/SendGrid/SMTP)
-  // based on DB config. This is a workspace-aware factory, so we register
-  // a default instance. Real workspace-scoped instances are created on demand.
-  const defaultEmailProvider = createEdgeFunctionEmailProvider('__default__');
-  providerRegistry.register('email', 'edge-function', defaultEmailProvider, {
+  // --- Email: Self-hosted API provider ---
+  // Routes through the self-hosted backend server (server/routes/email.ts).
+  // The backend resolves the actual vendor (Resend/SendGrid/SMTP) from DB config.
+  const defaultEmailProvider = createApiEmailProvider('__default__');
+  providerRegistry.register('email', 'api', defaultEmailProvider, {
     priority: 5,
     healthCheck: async () => {
-      // Health check: invoke the edge function with a dry-run
       try {
-        // We can't easily health-check without a real workspace, so return unknown
-        return 'unknown';
+        const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+        const res = await fetch(`${API_BASE}/api/email/health`);
+        return res.ok ? 'healthy' : 'down';
       } catch {
         return 'down';
       }
     },
     meta: {
-      vendor: 'edge-function',
+      vendor: 'self-hosted',
       builtIn: true,
-      description: 'Routes email via edge function → Resend/SendGrid/SMTP based on DB config',
+      description: 'Routes email via self-hosted backend → Resend/SendGrid/SMTP based on DB config',
     },
   });
 
@@ -152,7 +150,7 @@ export function bootstrapProviders(): void {
   providerRegistry.setActive('auth', 'supabase');
   providerRegistry.setActive('database', 'supabase');
   providerRegistry.setActive('realtime', 'supabase');
-  providerRegistry.setActive('email', 'edge-function');
+  providerRegistry.setActive('email', 'api');
 
   console.info('[Providers] Bootstrap complete:', providerRegistry.getSummary());
 }

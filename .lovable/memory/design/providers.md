@@ -8,7 +8,7 @@ type: design
 - Singleton `providerRegistry` with register/unregister/resolve/setActive
 - Resolution order: workspace override → global active → priority fallback
 - Health check with 30s cache
-- `useSyncExternalStore` for React reactivity
+- `useSyncExternalStore` for React reactivity (version counter)
 
 ## 14 Provider Types
 auth, database, realtime, email, ai, storage, search, notification, cache, feature_flag, widget, billing, captcha, cdn
@@ -19,8 +19,17 @@ auth, database, realtime, email, ai, storage, search, notification, cache, featu
 
 ## Implementations
 - Supabase: auth, database, realtime (priority 0, active by default)
+- Email: self-hosted API provider (priority 5, routes via server/routes/email.ts)
 - Stubs: all 14 types (priority 100, fallback)
 - In-memory cache (priority 50)
+
+## Email Architecture (self-hosted only)
+- Frontend: `src/providers/email/api.ts` → calls `POST /api/email/send` on self-hosted backend
+- Backend: `server/services/email/` — Resend, SendGrid, SMTP (nodemailer)
+- Backend route: `server/routes/email.ts`
+- NO Supabase Edge Functions in email path
+- Provider resolution: workspace override → global default → stub
+- Secrets: server env vars only (RESEND_API_KEY, SENDGRID_API_KEY, SMTP_*)
 
 ## Bootstrap (`src/providers/bootstrap.ts`)
 Called once at app startup. Registers all defaults.

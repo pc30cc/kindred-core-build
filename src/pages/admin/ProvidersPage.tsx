@@ -233,7 +233,7 @@ function EmailProviderConfigDialog() {
               />
               {field === 'api_key' && (
                 <p className="text-xs text-muted-foreground">
-                  ⚠️ For production, store API keys as Edge Function secrets (RESEND_API_KEY / SENDGRID_API_KEY) instead of here.
+                  ⚠️ For production, store API keys as server env vars (RESEND_API_KEY / SENDGRID_API_KEY) on the self-hosted backend.
                 </p>
               )}
             </div>

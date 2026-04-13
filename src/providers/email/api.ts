@@ -1,23 +1,30 @@
 // ============================================
-// EDGE FUNCTION EMAIL PROVIDER
-// EmailProvider implementation that sends emails via the send-email edge function.
-// This is the real provider — no direct vendor SDK usage in business logic.
+// API-BASED EMAIL PROVIDER
+// EmailProvider implementation that sends emails via the self-hosted backend.
+// NO Supabase Edge Functions. All email goes through server/routes/email.
 // ============================================
 
 import type { EmailProvider, EmailMessage } from '@/types/providers';
-import { supabase } from '@/lib/supabase';
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || '';
 
 /**
- * Creates an EmailProvider that routes through the send-email edge function.
- * The edge function handles provider resolution (Resend/SendGrid/SMTP)
+ * Creates an EmailProvider that routes through the self-hosted backend API.
+ * The backend handles provider resolution (Resend/SendGrid/SMTP)
  * based on DB config (workspace override → global default → stub).
  */
-export function createEdgeFunctionEmailProvider(workspaceId: string): EmailProvider {
+export function createApiEmailProvider(workspaceId: string): EmailProvider {
   return {
     async send(message: EmailMessage) {
       try {
-        const { data, error } = await supabase.functions.invoke('send-email', {
-          body: {
+        const res = await fetch(`${API_BASE}/api/email/send`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+          },
+          body: JSON.stringify({
             workspaceId,
             to: message.to,
             subject: message.subject,
@@ -27,18 +34,16 @@ export function createEdgeFunctionEmailProvider(workspaceId: string): EmailProvi
             replyTo: message.replyTo,
             templateSlug: message.templateId,
             templateData: message.templateData,
-          },
+          }),
         });
 
-        if (error) {
-          return { id: '', error: new Error(error.message) };
+        const data = await res.json();
+
+        if (!res.ok || data.error) {
+          return { id: '', error: new Error(data.error || `Email API error: ${res.status}`) };
         }
 
-        if (data?.error) {
-          return { id: '', error: new Error(data.error) };
-        }
-
-        return { id: data?.id || '', error: null };
+        return { id: data.id || '', error: null };
       } catch (err) {
         return { id: '', error: err instanceof Error ? err : new Error(String(err)) };
       }

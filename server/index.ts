@@ -6,6 +6,7 @@ import { loadConfig } from './config.js';
 import { widgetRouter } from './routes/widget.js';
 import { visitorRouter } from './routes/visitors.js';
 import { healthRouter } from './routes/health.js';
+import { emailRouter } from './routes/email.js';
 
 const config = loadConfig();
 
@@ -46,6 +47,7 @@ app.use((req, _res, next) => {
 app.use('/api/health', healthRouter);
 app.use('/api/widget', widgetLimiter, widgetRouter);
 app.use('/api/visitors', widgetLimiter, visitorRouter);
+app.use('/api/email', limiter, emailRouter);
 
 // 404
 app.use((_req, res) => {

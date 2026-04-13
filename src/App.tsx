@@ -1,12 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { I18nProvider } from "@/i18n";
 import { AuthContextProvider } from "@/features/auth/AuthContext";
 import { RequireAuth } from "@/features/auth/RequireAuth";
-import { BrandingProvider } from "@/features/branding/BrandingContext";
+import { BrandingGate } from "@/features/branding/BrandingGate";
 
 import { PublicLayout } from "@/components/layout/PublicLayout";
 import { AuthLayout } from "@/components/layout/AuthLayout";
@@ -50,60 +50,58 @@ const App = () => (
   <QueryClientProvider client={queryClient}>
     <I18nProvider>
       <AuthContextProvider>
-        <BrandingProvider branding={null} isLoading={false}>
-          <TooltipProvider>
-            <Toaster />
-            <Sonner />
-            <BrowserRouter>
-              <Routes>
-                {/* Public */}
-                <Route element={<PublicLayout />}>
-                  <Route path="/" element={<HomePage />} />
-                  <Route path="/features" element={<FeaturesPage />} />
-                  <Route path="/pricing" element={<PricingPage />} />
-                  <Route path="/contact" element={<ContactPage />} />
-                </Route>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <Routes>
+              {/* Public — branding loaded from anon-accessible workspace_branding */}
+              <Route element={<PublicLayout />}>
+                <Route path="/" element={<HomePage />} />
+                <Route path="/features" element={<FeaturesPage />} />
+                <Route path="/pricing" element={<PricingPage />} />
+                <Route path="/contact" element={<ContactPage />} />
+              </Route>
 
-                {/* Auth */}
-                <Route element={<AuthLayout />}>
-                  <Route path="/auth/login" element={<LoginPage />} />
-                  <Route path="/auth/signup" element={<SignupPage />} />
-                  <Route path="/auth/forgot-password" element={<ForgotPasswordPage />} />
-                  <Route path="/auth/reset-password" element={<ResetPasswordPage />} />
-                  <Route path="/auth/verify-email" element={<VerifyEmailPage />} />
-                  <Route path="/auth/invite" element={<InvitePage />} />
-                </Route>
+              {/* Auth */}
+              <Route element={<AuthLayout />}>
+                <Route path="/auth/login" element={<LoginPage />} />
+                <Route path="/auth/signup" element={<SignupPage />} />
+                <Route path="/auth/forgot-password" element={<ForgotPasswordPage />} />
+                <Route path="/auth/reset-password" element={<ResetPasswordPage />} />
+                <Route path="/auth/verify-email" element={<VerifyEmailPage />} />
+                <Route path="/auth/invite" element={<InvitePage />} />
+              </Route>
 
-                {/* Onboarding */}
-                <Route path="/onboarding" element={
-                  <RequireAuth><OnboardingPage /></RequireAuth>
-                } />
+              {/* Onboarding */}
+              <Route path="/onboarding" element={
+                <RequireAuth><OnboardingPage /></RequireAuth>
+              } />
 
-                {/* App (protected) */}
-                <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
-                  <Route path="/app" element={<OverviewPage />} />
-                  <Route path="/app/inbox" element={<InboxPage />} />
-                  <Route path="/app/contacts" element={<ContactsPage />} />
-                  <Route path="/app/visitors" element={<VisitorsPage />} />
-                  <Route path="/app/knowledge-base" element={<KnowledgeBasePage />} />
-                  <Route path="/app/widget" element={<WidgetPage />} />
-                  <Route path="/app/ai" element={<AIPage />} />
-                  <Route path="/app/email" element={<EmailPage />} />
-                  <Route path="/app/team" element={<TeamPage />} />
-                  <Route path="/app/billing" element={<BillingPage />} />
-                  <Route path="/app/settings/general" element={<SettingsGeneralPage />} />
-                  <Route path="/app/settings/branding" element={<SettingsBrandingPage />} />
-                  <Route path="/app/settings/domains" element={<SettingsDomainsPage />} />
-                  <Route path="/app/settings/providers" element={<SettingsProvidersPage />} />
-                  <Route path="/app/settings/translations" element={<SettingsTranslationsPage />} />
-                  <Route path="/app/settings/profile" element={<SettingsProfilePage />} />
-                </Route>
+              {/* App (protected) — BrandingGate auto-loads branding from current workspace */}
+              <Route element={<RequireAuth><BrandingGate><AppLayout /></BrandingGate></RequireAuth>}>
+                <Route path="/app" element={<OverviewPage />} />
+                <Route path="/app/inbox" element={<InboxPage />} />
+                <Route path="/app/contacts" element={<ContactsPage />} />
+                <Route path="/app/visitors" element={<VisitorsPage />} />
+                <Route path="/app/knowledge-base" element={<KnowledgeBasePage />} />
+                <Route path="/app/widget" element={<WidgetPage />} />
+                <Route path="/app/ai" element={<AIPage />} />
+                <Route path="/app/email" element={<EmailPage />} />
+                <Route path="/app/team" element={<TeamPage />} />
+                <Route path="/app/billing" element={<BillingPage />} />
+                <Route path="/app/settings/general" element={<SettingsGeneralPage />} />
+                <Route path="/app/settings/branding" element={<SettingsBrandingPage />} />
+                <Route path="/app/settings/domains" element={<SettingsDomainsPage />} />
+                <Route path="/app/settings/providers" element={<SettingsProvidersPage />} />
+                <Route path="/app/settings/translations" element={<SettingsTranslationsPage />} />
+                <Route path="/app/settings/profile" element={<SettingsProfilePage />} />
+              </Route>
 
-                <Route path="*" element={<NotFound />} />
-              </Routes>
-            </BrowserRouter>
-          </TooltipProvider>
-        </BrandingProvider>
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </BrowserRouter>
+        </TooltipProvider>
       </AuthContextProvider>
     </I18nProvider>
   </QueryClientProvider>

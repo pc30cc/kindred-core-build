@@ -1,18 +1,28 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import rateLimit from 'express-rate-limit';
 import { loadConfig } from './config.js';
 import { widgetRouter } from './routes/widget.js';
 import { visitorRouter } from './routes/visitors.js';
 import { healthRouter } from './routes/health.js';
 import { emailRouter } from './routes/email.js';
+import { authSecurityRouter } from './routes/auth.js';
+import {
+  ipBlockMiddleware,
+  authRateLimiter,
+  emailRateLimiter,
+  widgetRateLimiter,
+  visitorRateLimiter,
+  adminRateLimiter,
+  abuseDetectionMiddleware,
+  validateJsonBody,
+} from './middleware/security.js';
 
 const config = loadConfig();
 
 const app = express();
 
-// Security
+// Security headers
 app.use(helmet());
 app.use(cors({
   origin: config.corsOrigins[0] === '*' ? true : config.corsOrigins,
@@ -20,34 +30,40 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '1mb' }));
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: config.rateLimitWindowMs,
-  max: config.rateLimitMax,
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-app.use('/api/', limiter);
-
-// Stricter rate limit for widget/visitor ingestion
-const widgetLimiter = rateLimit({
-  windowMs: 60_000,
-  max: 300,
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
 // Attach config to requests
 app.use((req, _res, next) => {
   (req as any).serverConfig = config;
   next();
 });
 
-// Routes
+// Global: IP blocking check
+app.use('/api/', ipBlockMiddleware());
+
+// Global: Abuse detection
+app.use('/api/', abuseDetectionMiddleware());
+
+// Global: Body size validation
+app.use('/api/', validateJsonBody());
+
+// ─── Routes with per-endpoint rate limiting ──────────────────────
+
+// Health (no rate limit)
 app.use('/api/health', healthRouter);
-app.use('/api/widget', widgetLimiter, widgetRouter);
-app.use('/api/visitors', widgetLimiter, visitorRouter);
-app.use('/api/email', limiter, emailRouter);
+
+// Auth security (brute force + captcha) — strict rate limit
+app.use('/api/auth', authRateLimiter, authSecurityRouter);
+
+// Widget — high-traffic rate limit
+app.use('/api/widget', widgetRateLimiter, widgetRouter);
+
+// Visitor tracking — high-traffic rate limit
+app.use('/api/visitors', visitorRateLimiter, visitorRouter);
+
+// Email — workspace-scoped rate limit
+app.use('/api/email', emailRateLimiter, emailRouter);
+
+// Admin — moderate rate limit
+app.use('/api/admin', adminRateLimiter);
 
 // 404
 app.use((_req, res) => {

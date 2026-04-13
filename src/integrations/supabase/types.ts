@@ -14,6 +14,71 @@ export type Database = {
   }
   public: {
     Tables: {
+      app_runtime_config: {
+        Row: {
+          key: string
+          updated_at: string | null
+          value: Json
+        }
+        Insert: {
+          key: string
+          updated_at?: string | null
+          value: Json
+        }
+        Update: {
+          key?: string
+          updated_at?: string | null
+          value?: Json
+        }
+        Relationships: []
+      }
+      audit_logs: {
+        Row: {
+          action: string
+          created_at: string | null
+          entity_id: string | null
+          entity_type: string
+          id: string
+          ip_address: string | null
+          new_value: Json | null
+          old_value: Json | null
+          user_id: string
+          workspace_id: string
+        }
+        Insert: {
+          action: string
+          created_at?: string | null
+          entity_id?: string | null
+          entity_type: string
+          id?: string
+          ip_address?: string | null
+          new_value?: Json | null
+          old_value?: Json | null
+          user_id: string
+          workspace_id: string
+        }
+        Update: {
+          action?: string
+          created_at?: string | null
+          entity_id?: string | null
+          entity_type?: string
+          id?: string
+          ip_address?: string | null
+          new_value?: Json | null
+          old_value?: Json | null
+          user_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "audit_logs_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       contacts: {
         Row: {
           avatar_url: string | null
@@ -159,6 +224,180 @@ export type Database = {
           },
         ]
       }
+      email_templates: {
+        Row: {
+          html_body: string
+          id: string
+          locale: string
+          slug: string
+          subject: string
+          text_body: string | null
+          workspace_id: string
+        }
+        Insert: {
+          html_body: string
+          id?: string
+          locale?: string
+          slug: string
+          subject: string
+          text_body?: string | null
+          workspace_id: string
+        }
+        Update: {
+          html_body?: string
+          id?: string
+          locale?: string
+          slug?: string
+          subject?: string
+          text_body?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_templates_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      feature_flags: {
+        Row: {
+          description: string | null
+          enabled: boolean | null
+          id: string
+          key: string
+          workspace_id: string | null
+        }
+        Insert: {
+          description?: string | null
+          enabled?: boolean | null
+          id?: string
+          key: string
+          workspace_id?: string | null
+        }
+        Update: {
+          description?: string | null
+          enabled?: boolean | null
+          id?: string
+          key?: string
+          workspace_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "feature_flags_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      knowledge_base_articles: {
+        Row: {
+          category_id: string | null
+          content: string
+          created_at: string | null
+          excerpt: string | null
+          id: string
+          locale: string
+          slug: string
+          sort_order: number | null
+          status: Database["public"]["Enums"]["article_status"] | null
+          title: string
+          updated_at: string | null
+          workspace_id: string
+        }
+        Insert: {
+          category_id?: string | null
+          content?: string
+          created_at?: string | null
+          excerpt?: string | null
+          id?: string
+          locale?: string
+          slug: string
+          sort_order?: number | null
+          status?: Database["public"]["Enums"]["article_status"] | null
+          title: string
+          updated_at?: string | null
+          workspace_id: string
+        }
+        Update: {
+          category_id?: string | null
+          content?: string
+          created_at?: string | null
+          excerpt?: string | null
+          id?: string
+          locale?: string
+          slug?: string
+          sort_order?: number | null
+          status?: Database["public"]["Enums"]["article_status"] | null
+          title?: string
+          updated_at?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "knowledge_base_articles_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "knowledge_base_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "knowledge_base_articles_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      knowledge_base_categories: {
+        Row: {
+          created_at: string | null
+          description: string | null
+          icon: string | null
+          id: string
+          locale: string
+          name: string
+          slug: string
+          sort_order: number | null
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          description?: string | null
+          icon?: string | null
+          id?: string
+          locale?: string
+          name: string
+          slug: string
+          sort_order?: number | null
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string | null
+          description?: string | null
+          icon?: string | null
+          id?: string
+          locale?: string
+          name?: string
+          slug?: string
+          sort_order?: number | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "knowledge_base_categories_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -189,6 +428,82 @@ export type Database = {
         }
         Relationships: []
       }
+      provider_configs: {
+        Row: {
+          config: Json | null
+          created_at: string | null
+          id: string
+          is_active: boolean | null
+          provider_name: string
+          provider_type: string
+          updated_at: string | null
+          workspace_id: string
+        }
+        Insert: {
+          config?: Json | null
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          provider_name: string
+          provider_type: string
+          updated_at?: string | null
+          workspace_id: string
+        }
+        Update: {
+          config?: Json | null
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          provider_name?: string
+          provider_type?: string
+          updated_at?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "provider_configs_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      translations: {
+        Row: {
+          id: string
+          key: string
+          locale: string
+          namespace: string
+          value: string
+          workspace_id: string | null
+        }
+        Insert: {
+          id?: string
+          key: string
+          locale: string
+          namespace: string
+          value: string
+          workspace_id?: string | null
+        }
+        Update: {
+          id?: string
+          key?: string
+          locale?: string
+          namespace?: string
+          value?: string
+          workspace_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "translations_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_roles: {
         Row: {
           id: string
@@ -206,6 +521,104 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      visitor_presence: {
+        Row: {
+          current_page: string | null
+          id: string
+          status: Database["public"]["Enums"]["presence_status"] | null
+          updated_at: string | null
+          visitor_session_id: string
+          workspace_id: string
+        }
+        Insert: {
+          current_page?: string | null
+          id?: string
+          status?: Database["public"]["Enums"]["presence_status"] | null
+          updated_at?: string | null
+          visitor_session_id: string
+          workspace_id: string
+        }
+        Update: {
+          current_page?: string | null
+          id?: string
+          status?: Database["public"]["Enums"]["presence_status"] | null
+          updated_at?: string | null
+          visitor_session_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "visitor_presence_visitor_session_id_fkey"
+            columns: ["visitor_session_id"]
+            isOneToOne: false
+            referencedRelation: "visitor_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "visitor_presence_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      visitor_sessions: {
+        Row: {
+          browser: string | null
+          city: string | null
+          country: string | null
+          current_page: string | null
+          device: string | null
+          id: string
+          ip_hash: string | null
+          last_seen_at: string | null
+          os: string | null
+          referrer: string | null
+          started_at: string | null
+          visitor_id: string
+          workspace_id: string
+        }
+        Insert: {
+          browser?: string | null
+          city?: string | null
+          country?: string | null
+          current_page?: string | null
+          device?: string | null
+          id?: string
+          ip_hash?: string | null
+          last_seen_at?: string | null
+          os?: string | null
+          referrer?: string | null
+          started_at?: string | null
+          visitor_id: string
+          workspace_id: string
+        }
+        Update: {
+          browser?: string | null
+          city?: string | null
+          country?: string | null
+          current_page?: string | null
+          device?: string | null
+          id?: string
+          ip_hash?: string | null
+          last_seen_at?: string | null
+          os?: string | null
+          referrer?: string | null
+          started_at?: string | null
+          visitor_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "visitor_sessions_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       widget_settings: {
         Row: {
@@ -475,8 +888,10 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "moderator" | "user"
+      article_status: "draft" | "published" | "archived"
       conversation_priority: "low" | "normal" | "high" | "urgent"
       conversation_status: "open" | "pending" | "resolved" | "closed"
+      presence_status: "online" | "idle" | "offline"
       sender_type: "agent" | "contact" | "system" | "bot"
       workspace_role: "owner" | "admin" | "agent" | "viewer"
     }
@@ -607,8 +1022,10 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "moderator", "user"],
+      article_status: ["draft", "published", "archived"],
       conversation_priority: ["low", "normal", "high", "urgent"],
       conversation_status: ["open", "pending", "resolved", "closed"],
+      presence_status: ["online", "idle", "offline"],
       sender_type: ["agent", "contact", "system", "bot"],
       workspace_role: ["owner", "admin", "agent", "viewer"],
     },

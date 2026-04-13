@@ -5,7 +5,16 @@ export { createApiEmailProvider } from './email/api';
 export { providerRegistry, PROVIDER_TYPE_KEYS } from './registry';
 export type { ProviderTypeKey, ProviderTypeMap, ProviderHealth, RegisteredProvider } from './registry';
 export { bootstrapProviders } from './bootstrap';
-export { syncProvidersFromDB, setGlobalDefaultProvider, getGlobalDefaultProvider } from './sync';
+export {
+  syncProvidersFromDB,
+  setGlobalDefaultProvider,
+  getGlobalDefaultProvider,
+  removeGlobalDefaultProvider,
+  getAllGlobalDefaults,
+  testProviderConnection,
+  getFallbackLog,
+  logFallback,
+} from './sync';
 export {
   ProviderContextProvider,
   useProvider,

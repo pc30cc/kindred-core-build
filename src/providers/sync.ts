@@ -2,11 +2,44 @@
 // DB → REGISTRY SYNC
 // Loads provider_configs and app_runtime_config from the database
 // and applies them to the ProviderRegistry at runtime.
-// This is the missing bridge layer.
 // ============================================
 
 import { supabase } from '@/lib/supabase';
 import { providerRegistry, type ProviderTypeKey, PROVIDER_TYPE_KEYS } from './registry';
+
+// Track fallback usage for observability
+const fallbackLog: Array<{
+  type: ProviderTypeKey;
+  failedProvider: string;
+  fallbackProvider: string;
+  timestamp: number;
+  error?: string;
+}> = [];
+
+export function getFallbackLog() {
+  return [...fallbackLog];
+}
+
+export function logFallback(
+  type: ProviderTypeKey,
+  failedProvider: string,
+  fallbackProvider: string,
+  error?: string
+) {
+  fallbackLog.push({
+    type,
+    failedProvider,
+    fallbackProvider,
+    timestamp: Date.now(),
+    error,
+  });
+  // Keep only last 100 entries
+  if (fallbackLog.length > 100) fallbackLog.shift();
+  console.warn(
+    `[ProviderFallback] ${type}: ${failedProvider} failed → ${fallbackProvider}`,
+    error ?? ''
+  );
+}
 
 /**
  * Load global default provider settings from app_runtime_config
@@ -22,7 +55,6 @@ export async function syncProvidersFromDB(workspaceId?: string): Promise<void> {
 
     if (globalConfigs) {
       for (const row of globalConfigs) {
-        // key format: default_email_provider → type = email
         const match = row.key.match(/^default_(\w+)_provider$/);
         if (!match) continue;
         const type = match[1] as ProviderTypeKey;
@@ -30,13 +62,11 @@ export async function syncProvidersFromDB(workspaceId?: string): Promise<void> {
 
         const value = row.value as { provider_name?: string } | null;
         if (value?.provider_name) {
-          // If this provider is already registered, set it as active
           const registered = providerRegistry.getProviders(type);
           const exists = registered.some(p => p.name === value.provider_name);
           if (exists) {
             providerRegistry.setActive(type, value.provider_name);
           }
-          // Store the config reference for edge function resolution
         }
       }
     }
@@ -69,6 +99,7 @@ export async function syncProvidersFromDB(workspaceId?: string): Promise<void> {
 
 /**
  * Save a global default provider to app_runtime_config.
+ * Also syncs the change to the live registry immediately.
  */
 export async function setGlobalDefaultProvider(
   type: ProviderTypeKey,
@@ -90,6 +121,26 @@ export async function setGlobalDefaultProvider(
 }
 
 /**
+ * Remove global default provider — reverts to registry fallback.
+ */
+export async function removeGlobalDefaultProvider(
+  type: ProviderTypeKey
+): Promise<{ error: Error | null }> {
+  const key = `default_${type}_provider`;
+  const { error } = await supabase
+    .from('app_runtime_config')
+    .delete()
+    .eq('key', key);
+
+  if (!error) {
+    // Clear active, registry will fall back to priority-based resolution
+    providerRegistry.clearActive(type);
+  }
+
+  return { error: error ? new Error(error.message) : null };
+}
+
+/**
  * Get the current global default for a provider type.
  */
 export async function getGlobalDefaultProvider(
@@ -103,4 +154,57 @@ export async function getGlobalDefaultProvider(
     .maybeSingle();
 
   return data?.value as { provider_name: string; config: Record<string, unknown> } | null;
+}
+
+/**
+ * Get all global default providers at once.
+ */
+export async function getAllGlobalDefaults(): Promise<
+  Record<string, { provider_name: string; config: Record<string, unknown> }>
+> {
+  const { data } = await supabase
+    .from('app_runtime_config')
+    .select('key, value')
+    .like('key', 'default_%_provider');
+
+  const result: Record<string, { provider_name: string; config: Record<string, unknown> }> = {};
+  if (data) {
+    for (const row of data) {
+      const match = row.key.match(/^default_(\w+)_provider$/);
+      if (match) {
+        const type = match[1];
+        result[type] = row.value as { provider_name: string; config: Record<string, unknown> };
+      }
+    }
+  }
+  return result;
+}
+
+/**
+ * Test a provider connection by running its health check.
+ * Returns detailed status including error info.
+ */
+export async function testProviderConnection(
+  type: ProviderTypeKey,
+  providerName: string
+): Promise<{
+  status: 'healthy' | 'degraded' | 'down' | 'unknown' | 'not_configured' | 'auth_failed' | 'network_error';
+  message: string;
+  checkedAt: number;
+}> {
+  const health = await providerRegistry.checkHealth(type, providerName);
+  const checkedAt = Date.now();
+
+  const messages: Record<string, string> = {
+    healthy: 'Connection successful — provider is responding normally.',
+    degraded: 'Provider is responding but with degraded performance.',
+    down: 'Connection failed — provider is not responding.',
+    unknown: 'No health check available for this provider.',
+  };
+
+  return {
+    status: health,
+    message: messages[health] ?? 'Status unknown.',
+    checkedAt,
+  };
 }

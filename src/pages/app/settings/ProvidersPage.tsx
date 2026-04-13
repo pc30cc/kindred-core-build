@@ -108,13 +108,16 @@ export default function SettingsProvidersPage() {
     (t) => PROVIDER_SCHEMAS[t]?.allowWorkspaceOverride
   );
 
+  const workspaceLocale = workspace?.default_locale ?? 'en';
   const selectedSchema = PROVIDER_SCHEMAS[selectedType];
+  const filteredVendors = getVendorsForLocale(selectedType, workspaceLocale);
   const vendorSchema = selectedVendor ? getVendorSchema(selectedType, selectedVendor) : undefined;
 
   // Reset vendor when type changes
   const handleTypeChange = (type: string) => {
     setSelectedType(type);
-    setSelectedVendor(PROVIDER_SCHEMAS[type]?.vendors[0]?.name ?? '');
+    const vendors = getVendorsForLocale(type, workspaceLocale);
+    setSelectedVendor(vendors[0]?.name ?? '');
   };
 
   return (

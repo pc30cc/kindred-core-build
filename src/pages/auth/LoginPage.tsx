@@ -38,7 +38,7 @@ export default function LoginPage() {
 
       // After 5 failures, show progressive warning
       if (newCount >= 5) {
-        setError(t('auth.tooManyAttempts') || 'Too many failed attempts. Please wait before trying again.');
+        setError('Too many failed attempts. Please wait before trying again.');
       }
     } else {
       setFailCount(0);

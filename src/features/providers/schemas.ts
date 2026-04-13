@@ -1241,7 +1241,7 @@ export const PROVIDER_SCHEMAS: Record<string, ProviderTypeSchema> = {
   billing: {
     type: 'billing', label: 'Billing Provider', icon: 'CreditCard',
     description: 'Subscriptions, plans, and payment processing',
-    vendors: billingVendors, allowWorkspaceOverride: false,
+    vendors: billingVendors, allowWorkspaceOverride: true,
   },
   captcha: {
     type: 'captcha', label: 'Captcha / Abuse', icon: 'ShieldAlert',
@@ -1261,4 +1261,12 @@ export function getSchemaForType(type: string): ProviderTypeSchema | undefined {
 
 export function getVendorSchema(type: string, vendorName: string): ProviderVendor | undefined {
   return PROVIDER_SCHEMAS[type]?.vendors.find(v => v.name === vendorName);
+}
+
+/** Filter vendors by locale — returns all vendors if none match or vendor has no locale tag */
+export function getVendorsForLocale(type: string, locale?: string): ProviderVendor[] {
+  const schema = PROVIDER_SCHEMAS[type];
+  if (!schema) return [];
+  if (!locale) return schema.vendors;
+  return schema.vendors.filter(v => !v.locales || v.locales.includes(locale as 'en' | 'fa' | 'tr'));
 }

@@ -2,9 +2,9 @@ import { useState } from 'react';
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useEmailLogs } from '@/hooks/useEmailLogs';
-import { useEmailProvider, useActiveProviderName } from '@/providers';
-import { createEdgeFunctionEmailProvider } from '@/providers/email/edge-function';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useActiveProviderName } from '@/providers';
+import { createApiEmailProvider } from '@/providers/email/api';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -53,12 +53,13 @@ export default function EmailPage() {
 
   // Test email state
   const [testOpen, setTestOpen] = useState(false);
-  const [testForm, setTestForm] = useState({ to: '', subject: 'Test Email', html: '<h1>Hello!</h1><p>This is a test email sent via the provider system.</p>' });
+  const [testForm, setTestForm] = useState({ to: '', subject: 'Test Email', html: '<h1>Hello!</h1><p>This is a test email sent via the self-hosted backend.</p>' });
 
   const sendTestEmail = useMutation({
     mutationFn: async () => {
       if (!workspace?.id) throw new Error('No workspace');
-      const provider = createEdgeFunctionEmailProvider(workspace.id);
+      // Send via self-hosted backend API — NOT edge function
+      const provider = createApiEmailProvider(workspace.id);
       const result = await provider.send({
         to: testForm.to,
         subject: testForm.subject,
@@ -77,7 +78,6 @@ export default function EmailPage() {
     },
   });
 
-  // Stats
   const sent = logs?.filter(l => l.status === 'sent').length || 0;
   const failed = logs?.filter(l => l.status === 'failed').length || 0;
   const total = logs?.length || 0;
@@ -89,6 +89,7 @@ export default function EmailPage() {
           <h1 className="text-2xl font-bold text-foreground">{t('email.title')}</h1>
           <p className="text-muted-foreground text-sm mt-1">
             Active provider: <Badge variant="outline">{activeProvider || 'none'}</Badge>
+            <span className="ml-2 text-xs">(self-hosted backend)</span>
           </p>
         </div>
         <Dialog open={testOpen} onOpenChange={setTestOpen}>
@@ -100,35 +101,20 @@ export default function EmailPage() {
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label>Recipient</Label>
-                <Input
-                  type="email"
-                  placeholder="test@example.com"
-                  value={testForm.to}
-                  onChange={e => setTestForm(p => ({ ...p, to: e.target.value }))}
-                />
+                <Input type="email" placeholder="test@example.com" value={testForm.to} onChange={e => setTestForm(p => ({ ...p, to: e.target.value }))} />
               </div>
               <div className="space-y-2">
                 <Label>Subject</Label>
-                <Input
-                  value={testForm.subject}
-                  onChange={e => setTestForm(p => ({ ...p, subject: e.target.value }))}
-                />
+                <Input value={testForm.subject} onChange={e => setTestForm(p => ({ ...p, subject: e.target.value }))} />
               </div>
               <div className="space-y-2">
                 <Label>HTML Body</Label>
-                <Textarea
-                  rows={4}
-                  value={testForm.html}
-                  onChange={e => setTestForm(p => ({ ...p, html: e.target.value }))}
-                />
+                <Textarea rows={4} value={testForm.html} onChange={e => setTestForm(p => ({ ...p, html: e.target.value }))} />
               </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setTestOpen(false)}>Cancel</Button>
-              <Button
-                onClick={() => sendTestEmail.mutate()}
-                disabled={!testForm.to || sendTestEmail.isPending}
-              >
+              <Button onClick={() => sendTestEmail.mutate()} disabled={!testForm.to || sendTestEmail.isPending}>
                 {sendTestEmail.isPending ? 'Sending...' : 'Send'}
               </Button>
             </DialogFooter>
@@ -136,41 +122,10 @@ export default function EmailPage() {
         </Dialog>
       </div>
 
-      {/* Stats */}
       <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-primary/10"><Mail className="h-5 w-5 text-primary" /></div>
-              <div>
-                <p className="text-2xl font-bold text-foreground">{total}</p>
-                <p className="text-xs text-muted-foreground">Total Emails</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-emerald-500/10"><CheckCircle className="h-5 w-5 text-emerald-400" /></div>
-              <div>
-                <p className="text-2xl font-bold text-foreground">{sent}</p>
-                <p className="text-xs text-muted-foreground">Delivered</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-red-500/10"><XCircle className="h-5 w-5 text-red-400" /></div>
-              <div>
-                <p className="text-2xl font-bold text-foreground">{failed}</p>
-                <p className="text-xs text-muted-foreground">Failed</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <Card><CardContent className="pt-6"><div className="flex items-center gap-3"><div className="p-2 rounded-lg bg-primary/10"><Mail className="h-5 w-5 text-primary" /></div><div><p className="text-2xl font-bold text-foreground">{total}</p><p className="text-xs text-muted-foreground">Total Emails</p></div></div></CardContent></Card>
+        <Card><CardContent className="pt-6"><div className="flex items-center gap-3"><div className="p-2 rounded-lg bg-emerald-500/10"><CheckCircle className="h-5 w-5 text-emerald-400" /></div><div><p className="text-2xl font-bold text-foreground">{sent}</p><p className="text-xs text-muted-foreground">Delivered</p></div></div></CardContent></Card>
+        <Card><CardContent className="pt-6"><div className="flex items-center gap-3"><div className="p-2 rounded-lg bg-red-500/10"><XCircle className="h-5 w-5 text-red-400" /></div><div><p className="text-2xl font-bold text-foreground">{failed}</p><p className="text-xs text-muted-foreground">Failed</p></div></div></CardContent></Card>
       </div>
 
       <Tabs defaultValue="logs" className="space-y-4">
@@ -178,79 +133,29 @@ export default function EmailPage() {
           <TabsTrigger value="logs">Delivery Logs</TabsTrigger>
           <TabsTrigger value="templates">Templates ({templates?.length || 0})</TabsTrigger>
         </TabsList>
-
         <TabsContent value="logs">
-          <Card>
-            <CardContent className="pt-6">
-              {logsLoading ? (
-                <p className="text-muted-foreground">Loading...</p>
-              ) : !logs?.length ? (
-                <div className="text-center py-8">
-                  <Activity className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
-                  <p className="text-muted-foreground">No emails sent yet. Send a test email to verify your provider.</p>
-                </div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Recipient</TableHead>
-                      <TableHead>Subject</TableHead>
-                      <TableHead>Provider</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Time</TableHead>
-                      <TableHead>Error</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {logs.map(log => (
-                      <TableRow key={log.id}>
-                        <TableCell className="font-mono text-xs">{log.recipient_email}</TableCell>
-                        <TableCell className="max-w-[200px] truncate">{log.subject}</TableCell>
-                        <TableCell><Badge variant="outline" className="text-xs">{log.provider_name}</Badge></TableCell>
-                        <TableCell>{statusBadge(log.status)}</TableCell>
-                        <TableCell className="text-xs text-muted-foreground">
-                          {new Date(log.created_at).toLocaleString()}
-                        </TableCell>
-                        <TableCell className="text-xs text-red-400 max-w-[200px] truncate">{log.error_message}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
+          <Card><CardContent className="pt-6">
+            {logsLoading ? <p className="text-muted-foreground">Loading...</p> : !logs?.length ? (
+              <div className="text-center py-8"><Activity className="h-12 w-12 text-muted-foreground mx-auto mb-3" /><p className="text-muted-foreground">No emails sent yet. Send a test email to verify your provider.</p></div>
+            ) : (
+              <Table><TableHeader><TableRow><TableHead>Recipient</TableHead><TableHead>Subject</TableHead><TableHead>Provider</TableHead><TableHead>Status</TableHead><TableHead>Time</TableHead><TableHead>Error</TableHead></TableRow></TableHeader>
+                <TableBody>{logs.map(log => (
+                  <TableRow key={log.id}><TableCell className="font-mono text-xs">{log.recipient_email}</TableCell><TableCell className="max-w-[200px] truncate">{log.subject}</TableCell><TableCell><Badge variant="outline" className="text-xs">{log.provider_name}</Badge></TableCell><TableCell>{statusBadge(log.status)}</TableCell><TableCell className="text-xs text-muted-foreground">{new Date(log.created_at).toLocaleString()}</TableCell><TableCell className="text-xs text-red-400 max-w-[200px] truncate">{log.error_message}</TableCell></TableRow>
+                ))}</TableBody></Table>
+            )}
+          </CardContent></Card>
         </TabsContent>
-
         <TabsContent value="templates">
-          <Card>
-            <CardContent className="pt-6">
-              {!templates?.length ? (
-                <div className="text-center py-8">
-                  <Mail className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
-                  <p className="text-muted-foreground">No email templates yet. Create templates for signup, verification, and transactional emails.</p>
-                </div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Slug</TableHead>
-                      <TableHead>Subject</TableHead>
-                      <TableHead>Locale</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {templates.map(tpl => (
-                      <TableRow key={tpl.id}>
-                        <TableCell className="font-mono text-xs">{tpl.slug}</TableCell>
-                        <TableCell>{tpl.subject}</TableCell>
-                        <TableCell><Badge variant="outline">{tpl.locale}</Badge></TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
+          <Card><CardContent className="pt-6">
+            {!templates?.length ? (
+              <div className="text-center py-8"><Mail className="h-12 w-12 text-muted-foreground mx-auto mb-3" /><p className="text-muted-foreground">No email templates yet.</p></div>
+            ) : (
+              <Table><TableHeader><TableRow><TableHead>Slug</TableHead><TableHead>Subject</TableHead><TableHead>Locale</TableHead></TableRow></TableHeader>
+                <TableBody>{templates.map(tpl => (
+                  <TableRow key={tpl.id}><TableCell className="font-mono text-xs">{tpl.slug}</TableCell><TableCell>{tpl.subject}</TableCell><TableCell><Badge variant="outline">{tpl.locale}</Badge></TableCell></TableRow>
+                ))}</TableBody></Table>
+            )}
+          </CardContent></Card>
         </TabsContent>
       </Tabs>
     </div>

@@ -103,7 +103,16 @@ export function AppSidebar() {
         ))}
       </nav>
 
-      <div className="border-t border-sidebar-border p-2">
+      <div className="border-t border-sidebar-border p-2 space-y-1">
+        {isAdmin && (
+          <Link
+            to="/admin"
+            className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-red-400 hover:bg-sidebar-accent hover:text-red-300 transition-colors"
+          >
+            <Shield className="h-4 w-4 shrink-0" />
+            {!collapsed && <span>Super Admin</span>}
+          </Link>
+        )}
         <Button
           variant="ghost"
           size="sm"

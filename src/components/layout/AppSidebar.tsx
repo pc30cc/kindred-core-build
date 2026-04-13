@@ -3,10 +3,11 @@ import { useTranslation } from '@/i18n';
 import {
   LayoutDashboard, Inbox, Users, Eye, BookOpen, MessageSquare,
   Bot, Mail, UserPlus, CreditCard, Settings, Globe, Palette,
-  Languages, User, Plug, ChevronLeft, ChevronRight, LogOut,
+  Languages, User, Plug, ChevronLeft, ChevronRight, LogOut, Shield,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/features/auth/AuthContext';
+import { useIsGlobalAdmin } from '@/hooks/useAdmin';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 

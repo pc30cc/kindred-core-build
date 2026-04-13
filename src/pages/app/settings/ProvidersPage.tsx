@@ -14,7 +14,7 @@ import {
 import { Plus, Plug, ArrowDown, Shield } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { PROVIDER_TYPE_KEYS, useProviderSummary, type ProviderTypeKey } from '@/providers';
-import { PROVIDER_SCHEMAS, getVendorSchema } from '@/features/providers/schemas';
+import { PROVIDER_SCHEMAS, getVendorSchema, getVendorsForLocale } from '@/features/providers/schemas';
 import { ProviderConfigForm } from '@/features/providers/ProviderConfigForm';
 import { ProviderIcon } from '@/features/providers/ProviderIcon';
 

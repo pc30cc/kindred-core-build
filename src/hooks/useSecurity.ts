@@ -126,15 +126,26 @@ export function useResolveSecurityEvent() {
   });
 }
 
-// Log security event from frontend (via edge function)
+// Log security event from frontend via self-hosted backend
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+
 export async function logClientSecurityEvent(
   eventType: string,
   severity: 'info' | 'warn' | 'error' | 'critical',
   metadata: Record<string, any> = {}
 ) {
+  if (!API_BASE) return; // No backend configured — skip silently
   try {
-    await supabase.functions.invoke('log-security-event', {
-      body: { eventType, severity, metadata },
+    await fetch(`${API_BASE}/api/auth/record-result`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: metadata.email || 'unknown',
+        success: false,
+        eventType,
+        severity,
+        metadata,
+      }),
     });
   } catch {
     // Silently fail — security logging should not break UX

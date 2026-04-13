@@ -56,7 +56,7 @@ export default function LoginPage() {
         <CardContent className="space-y-4">
           {error && <p className="text-sm text-destructive">{error}</p>}
           {failCount >= 3 && (
-            <p className="text-sm text-yellow-500">
+            <p className="text-sm text-destructive/80">
               ⚠ {failCount} failed attempts detected. Account may be temporarily locked after continued failures.
             </p>
           )}

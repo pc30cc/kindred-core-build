@@ -7,7 +7,7 @@
 import type {
   AuthProvider, DatabaseProvider, RealtimeProvider, EmailProvider,
   AIProvider, StorageProvider, SearchProvider, NotificationProvider,
-  CacheProvider, FeatureFlagProvider, WidgetDeliveryProvider,
+  CacheProvider, FeatureFlagProvider, WidgetDeliveryProvider, SmsProvider,
 } from '@/types/providers';
 import type { BillingProvider, CaptchaProvider, CDNProvider } from '@/types/providers-extended';
 

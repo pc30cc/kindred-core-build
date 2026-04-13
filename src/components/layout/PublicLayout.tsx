@@ -1,6 +1,7 @@
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
 import { useI18n } from '@/i18n';
+import { useBrandingContext } from '@/features/branding/BrandingContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { Locale } from '@/i18n/config';
 import { SUPPORTED_LOCALES, LOCALE_CONFIG } from '@/i18n/config';
@@ -11,6 +12,7 @@ import { useState } from 'react';
 export function PublicLayout() {
   const { t } = useTranslation();
   const { locale, setLocale } = useI18n();
+  const { platformName, branding } = useBrandingContext();
   const [menuOpen, setMenuOpen] = useState(false);
 
   const navLinks = [
@@ -23,9 +25,11 @@ export function PublicLayout() {
     <div className="min-h-screen flex flex-col bg-background">
       <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur">
         <div className="container flex h-16 items-center justify-between">
-          <Link to="/" className="text-xl font-bold text-foreground">
-            {/* White-label: platform name from branding config */}
-            Growth Suite
+          <Link to="/" className="flex items-center gap-2">
+            {branding?.logo_url && (
+              <img src={branding.logo_url} alt={platformName} className="h-8 w-auto" />
+            )}
+            <span className="text-xl font-bold text-foreground">{platformName}</span>
           </Link>
 
           <nav className="hidden md:flex items-center gap-6">
@@ -85,7 +89,7 @@ export function PublicLayout() {
 
       <footer className="border-t py-8 mt-auto">
         <div className="container text-center text-sm text-muted-foreground">
-          {t('public.footerTagline')}
+          {branding?.footer_text || t('public.footerTagline')}
         </div>
       </footer>
     </div>

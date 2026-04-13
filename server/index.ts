@@ -68,6 +68,9 @@ app.use('/api/ai', aiRouter);
 // Storage — auth required, file size limits in routes
 app.use('/api/storage', storageRouter);
 
+// CDN — auth required, purge and config
+app.use('/api/cdn', cdnRouter);
+
 // Admin — moderate rate limit
 app.use('/api/admin', adminRateLimiter);
 

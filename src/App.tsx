@@ -4,6 +4,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { I18nProvider } from "@/i18n";
+import { ProviderContextProvider } from "@/providers";
 import { AuthContextProvider } from "@/features/auth/AuthContext";
 import { RequireAuth } from "@/features/auth/RequireAuth";
 import { RequireAdmin } from "@/features/admin/RequireAdmin";
@@ -64,8 +65,9 @@ const queryClient = new QueryClient();
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <I18nProvider>
-      <AuthContextProvider>
-        <TooltipProvider>
+      <ProviderContextProvider>
+        <AuthContextProvider>
+          <TooltipProvider>
           <Toaster />
           <Sonner />
           <BrowserRouter>
@@ -136,8 +138,9 @@ const App = () => (
               <Route path="*" element={<NotFound />} />
             </Routes>
           </BrowserRouter>
-        </TooltipProvider>
-      </AuthContextProvider>
+          </TooltipProvider>
+        </AuthContextProvider>
+      </ProviderContextProvider>
     </I18nProvider>
   </QueryClientProvider>
 );

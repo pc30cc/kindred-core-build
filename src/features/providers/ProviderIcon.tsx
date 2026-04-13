@@ -1,13 +1,13 @@
 import {
   Shield, Mail, Bot, HardDrive, Radio, Search,
   Bell, Database, Flag, MessageSquare, CreditCard,
-  ShieldAlert, Globe, Layers,
+  ShieldAlert, Globe, Layers, Smartphone,
 } from 'lucide-react';
 
 const ICONS: Record<string, typeof Shield> = {
   Shield, Mail, Bot, HardDrive, Radio, Search,
   Bell, Database, Flag, MessageSquare, CreditCard,
-  ShieldAlert, Globe, Layers,
+  ShieldAlert, Globe, Layers, Smartphone,
 };
 
 export function ProviderIcon({ iconName, className }: { iconName: string; className?: string }) {

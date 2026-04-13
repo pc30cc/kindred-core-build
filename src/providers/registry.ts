@@ -5,18 +5,9 @@
 // ============================================
 
 import type {
-  AuthProvider,
-  DatabaseProvider,
-  RealtimeProvider,
-  EmailProvider,
-  AIProvider,
-  StorageProvider,
-  SearchProvider,
-  NotificationProvider,
-  CacheProvider,
-  FeatureFlagProvider,
-  WidgetDeliveryProvider,
-  SmsProvider,
+  AuthProvider, DatabaseProvider, RealtimeProvider, EmailProvider,
+  AIProvider, StorageProvider, SearchProvider, NotificationProvider,
+  CacheProvider, FeatureFlagProvider, WidgetDeliveryProvider, SmsProvider,
 } from '@/types/providers';
 import type { BillingProvider, CaptchaProvider, CDNProvider } from '@/types/providers-extended';
 
@@ -76,7 +67,7 @@ interface ProviderEntry {
 export class ProviderRegistry {
   private entries = new Map<ProviderTypeKey, ProviderEntry>();
   private workspaceOverrides = new Map<string, Map<ProviderTypeKey, string>>(); // wsId → type → providerName
-  private healthCache = new Map<string, { health: ProviderHealth; checkedAt: number }>();
+  private healthCache = new Map<string, { health: ProviderHealth; checkedAt: number; message?: string }>();
   private listeners = new Set<() => void>();
   private version = 0;
 
@@ -87,9 +78,6 @@ export class ProviderRegistry {
     return this.entries.get(type)!;
   }
 
-  /**
-   * Register a provider implementation.
-   */
   register<K extends ProviderTypeKey>(
     type: K,
     name: string,
@@ -112,9 +100,6 @@ export class ProviderRegistry {
     this.notify();
   }
 
-  /**
-   * Unregister a provider.
-   */
   unregister(type: ProviderTypeKey, name: string): void {
     const entry = this.entries.get(type);
     if (entry) {
@@ -126,9 +111,6 @@ export class ProviderRegistry {
     }
   }
 
-  /**
-   * Set the globally active provider for a type.
-   */
   setActive(type: ProviderTypeKey, name: string): void {
     const entry = this.getOrCreateEntry(type);
     if (!entry.providers.has(name)) {
@@ -139,9 +121,14 @@ export class ProviderRegistry {
     this.notify();
   }
 
-  /**
-   * Set a workspace-level override.
-   */
+  clearActive(type: ProviderTypeKey): void {
+    const entry = this.entries.get(type);
+    if (entry) {
+      entry.activeProviderName = null;
+      this.notify();
+    }
+  }
+
   setWorkspaceOverride(workspaceId: string, type: ProviderTypeKey, providerName: string): void {
     if (!this.workspaceOverrides.has(workspaceId)) {
       this.workspaceOverrides.set(workspaceId, new Map());
@@ -150,18 +137,11 @@ export class ProviderRegistry {
     this.notify();
   }
 
-  /**
-   * Remove a workspace-level override.
-   */
   removeWorkspaceOverride(workspaceId: string, type: ProviderTypeKey): void {
     this.workspaceOverrides.get(workspaceId)?.delete(type);
     this.notify();
   }
 
-  /**
-   * Resolve the active provider for a given type.
-   * Resolution: workspace override → global active → highest priority fallback
-   */
   resolve<K extends ProviderTypeKey>(type: K, workspaceId?: string): ProviderTypeMap[K] | null {
     const entry = this.entries.get(type);
     if (!entry || entry.providers.size === 0) return null;
@@ -185,17 +165,55 @@ export class ProviderRegistry {
   }
 
   /**
-   * Get all registered providers for a type.
+   * Get the full resolution chain for a type, showing exactly how a provider would be resolved.
    */
+  getResolutionChain(type: ProviderTypeKey, workspaceId?: string): {
+    step: string;
+    providerName: string | null;
+    isActive: boolean;
+  }[] {
+    const entry = this.entries.get(type);
+    const chain: { step: string; providerName: string | null; isActive: boolean }[] = [];
+
+    // Step 1: workspace override
+    const wsOverride = workspaceId
+      ? this.workspaceOverrides.get(workspaceId)?.get(type) ?? null
+      : null;
+    const wsExists = wsOverride && entry?.providers.has(wsOverride);
+    chain.push({
+      step: 'Workspace Override',
+      providerName: wsOverride,
+      isActive: !!wsExists,
+    });
+
+    // Step 2: global active
+    const globalActive = entry?.activeProviderName ?? null;
+    const globalExists = globalActive && entry?.providers.has(globalActive);
+    chain.push({
+      step: 'Global Default',
+      providerName: globalActive,
+      isActive: !wsExists && !!globalExists,
+    });
+
+    // Step 3: priority fallback
+    if (entry && entry.providers.size > 0) {
+      const sorted = [...entry.providers.values()].sort((a, b) => a.priority - b.priority);
+      chain.push({
+        step: 'Priority Fallback',
+        providerName: sorted[0]?.name ?? null,
+        isActive: !wsExists && !globalExists,
+      });
+    }
+
+    return chain;
+  }
+
   getProviders(type: ProviderTypeKey): RegisteredProvider[] {
     const entry = this.entries.get(type);
     if (!entry) return [];
     return [...entry.providers.values()];
   }
 
-  /**
-   * Get the active provider name for a type.
-   */
   getActiveName(type: ProviderTypeKey, workspaceId?: string): string | null {
     if (workspaceId) {
       const override = this.workspaceOverrides.get(workspaceId)?.get(type);
@@ -205,8 +223,25 @@ export class ProviderRegistry {
   }
 
   /**
-   * Check health of a specific provider.
+   * Get the effective provider name (the one that would actually be used at runtime).
    */
+  getEffectiveName(type: ProviderTypeKey, workspaceId?: string): string | null {
+    const entry = this.entries.get(type);
+    if (!entry || entry.providers.size === 0) return null;
+
+    if (workspaceId) {
+      const override = this.workspaceOverrides.get(workspaceId)?.get(type);
+      if (override && entry.providers.has(override)) return override;
+    }
+
+    if (entry.activeProviderName && entry.providers.has(entry.activeProviderName)) {
+      return entry.activeProviderName;
+    }
+
+    const sorted = [...entry.providers.values()].sort((a, b) => a.priority - b.priority);
+    return sorted[0]?.name ?? null;
+  }
+
   async checkHealth(type: ProviderTypeKey, name: string): Promise<ProviderHealth> {
     const entry = this.entries.get(type);
     const provider = entry?.providers.get(name);
@@ -229,8 +264,14 @@ export class ProviderRegistry {
   }
 
   /**
-   * Check health of all providers for a type.
+   * Force health check (bypass cache).
    */
+  async forceCheckHealth(type: ProviderTypeKey, name: string): Promise<ProviderHealth> {
+    const cacheKey = `${type}:${name}`;
+    this.healthCache.delete(cacheKey);
+    return this.checkHealth(type, name);
+  }
+
   async checkAllHealth(type: ProviderTypeKey): Promise<Record<string, ProviderHealth>> {
     const providers = this.getProviders(type);
     const results: Record<string, ProviderHealth> = {};
@@ -243,8 +284,13 @@ export class ProviderRegistry {
   }
 
   /**
-   * Subscribe to registry changes.
+   * Get cached health for a provider (no network call).
    */
+  getCachedHealth(type: ProviderTypeKey, name: string): { health: ProviderHealth; checkedAt: number } | null {
+    const cacheKey = `${type}:${name}`;
+    return this.healthCache.get(cacheKey) ?? null;
+  }
+
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -259,19 +305,18 @@ export class ProviderRegistry {
     return this.version;
   }
 
-  /**
-   * Get a summary of all registered providers and their status.
-   */
   getSummary(): Record<ProviderTypeKey, {
     registered: string[];
     active: string | null;
+    effective: string | null;
   }> {
-    const summary = {} as Record<ProviderTypeKey, { registered: string[]; active: string | null }>;
+    const summary = {} as Record<ProviderTypeKey, { registered: string[]; active: string | null; effective: string | null }>;
     for (const type of PROVIDER_TYPE_KEYS) {
       const entry = this.entries.get(type);
       summary[type] = {
         registered: entry ? [...entry.providers.keys()] : [],
         active: entry?.activeProviderName ?? null,
+        effective: this.getEffectiveName(type),
       };
     }
     return summary;

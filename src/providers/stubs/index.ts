@@ -7,7 +7,7 @@
 import type {
   AuthProvider, DatabaseProvider, RealtimeProvider, EmailProvider,
   AIProvider, StorageProvider, SearchProvider, NotificationProvider,
-  CacheProvider, FeatureFlagProvider, WidgetDeliveryProvider,
+  CacheProvider, FeatureFlagProvider, WidgetDeliveryProvider, SmsProvider,
 } from '@/types/providers';
 import type { BillingProvider, CaptchaProvider, CDNProvider } from '@/types/providers-extended';
 
@@ -53,6 +53,12 @@ export const stubRealtimeProvider: RealtimeProvider = {
 export const stubEmailProvider: EmailProvider = {
   async send() { warn('email', 'send'); return { id: '', error: err('email') }; },
   async sendBatch() { warn('email', 'sendBatch'); return { ids: [], error: err('email') }; },
+};
+
+// --- SMS Stub ---
+export const stubSmsProvider: SmsProvider = {
+  async send() { warn('sms', 'send'); return { id: '', error: err('sms') }; },
+  async sendBatch() { warn('sms', 'sendBatch'); return { ids: [], error: err('sms') }; },
 };
 
 // --- AI Stub ---

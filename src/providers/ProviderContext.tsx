@@ -110,3 +110,7 @@ export function useStorageProvider(workspaceId?: string) {
 export function useBillingProvider(workspaceId?: string) {
   return useProvider('billing', workspaceId);
 }
+
+export function useSmsProvider(workspaceId?: string) {
+  return useProvider('sms', workspaceId);
+}

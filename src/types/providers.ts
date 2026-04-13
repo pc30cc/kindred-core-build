@@ -198,3 +198,18 @@ export interface WidgetDeliveryProvider {
   getConfig(workspaceId: string, origin: string): Promise<MutationResult<WidgetConfig>>;
   validateOrigin(workspaceId: string, origin: string): Promise<boolean>;
 }
+
+// --- SMS Provider ---
+export interface SmsMessage {
+  to: string;
+  body: string;
+  from?: string;
+  templateId?: string;
+  templateData?: Record<string, unknown>;
+}
+
+export interface SmsProvider {
+  send(message: SmsMessage): Promise<{ id: string; error: Error | null }>;
+  sendBatch(messages: SmsMessage[]): Promise<{ ids: string[]; error: Error | null }>;
+  getBalance?(): Promise<{ balance: number; currency: string; error: Error | null }>;
+}

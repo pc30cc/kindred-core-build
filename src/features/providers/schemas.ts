@@ -1252,6 +1252,188 @@ const widgetVendors: ProviderVendor[] = [
 ];
 
 // =============================================
+// SMS VENDORS
+// =============================================
+const smsVendors: ProviderVendor[] = [
+  // ── International (EN) ──────────────────────────
+  {
+    name: 'twilio', label: 'Twilio',
+    description: 'Global SMS, voice, and messaging platform',
+    docsUrl: 'https://www.twilio.com/docs/sms',
+    locales: ['en'], currency: 'USD',
+    fields: [
+      { key: 'account_sid', label: 'Account SID', type: 'text', required: true },
+      { key: 'auth_token', label: 'Auth Token', type: 'password', required: true },
+      { key: 'from_number', label: 'From Number', type: 'text', required: true, placeholder: '+1234567890', hint: 'E.164 format' },
+    ],
+  },
+  {
+    name: 'vonage', label: 'Vonage (Nexmo)',
+    description: 'Global messaging API — SMS, WhatsApp, Viber',
+    docsUrl: 'https://developer.vonage.com/en/messaging/sms/overview',
+    locales: ['en'], currency: 'USD',
+    fields: [
+      { key: 'api_key', label: 'API Key', type: 'text', required: true },
+      { key: 'api_secret', label: 'API Secret', type: 'password', required: true },
+      { key: 'from_number', label: 'From Number / Name', type: 'text', required: true },
+    ],
+  },
+  {
+    name: 'messagebird', label: 'MessageBird (Bird)',
+    description: 'Omnichannel messaging — SMS, WhatsApp, Telegram',
+    docsUrl: 'https://developers.messagebird.com',
+    locales: ['en'], currency: 'EUR',
+    fields: [
+      { key: 'api_key', label: 'API Key', type: 'password', required: true },
+      { key: 'originator', label: 'Originator', type: 'text', required: true, hint: 'Phone number or alphanumeric sender' },
+    ],
+  },
+  {
+    name: 'sinch', label: 'Sinch',
+    description: 'Cloud communications — SMS & voice',
+    docsUrl: 'https://developers.sinch.com',
+    locales: ['en'], currency: 'USD',
+    fields: [
+      { key: 'service_plan_id', label: 'Service Plan ID', type: 'text', required: true },
+      { key: 'api_token', label: 'API Token', type: 'password', required: true },
+      { key: 'from_number', label: 'From Number', type: 'text', required: true },
+    ],
+  },
+  {
+    name: 'aws_sns', label: 'AWS SNS',
+    description: 'Amazon Simple Notification Service — SMS',
+    docsUrl: 'https://docs.aws.amazon.com/sns',
+    locales: ['en'], currency: 'USD',
+    fields: [
+      { key: 'access_key_id', label: 'Access Key ID', type: 'password', required: true },
+      { key: 'secret_access_key', label: 'Secret Access Key', type: 'password', required: true },
+      { key: 'region', label: 'Region', type: 'text', required: true, placeholder: 'us-east-1' },
+      { key: 'sender_id', label: 'Sender ID', type: 'text', hint: 'Alphanumeric sender (where supported)' },
+    ],
+  },
+
+  // ── Iranian (FA) ──────────────────────────
+  {
+    name: 'kavenegar', label: 'کاوه‌نگار (Kavenegar)',
+    description: 'پلتفرم پیامک و تماس صوتی ایران',
+    docsUrl: 'https://kavenegar.com/rest.html',
+    locales: ['fa'], currency: 'IRR',
+    fields: [
+      { key: 'api_key', label: 'کلید API', type: 'password', required: true },
+      { key: 'sender', label: 'شماره فرستنده', type: 'text', required: true, placeholder: '10008663' },
+    ],
+  },
+  {
+    name: 'melipayamak', label: 'ملی پیامک (MeliPayamak)',
+    description: 'سامانه پیامکی ملی پیامک — پنل ارسال انبوه',
+    docsUrl: 'https://www.melipayamak.com',
+    locales: ['fa'], currency: 'IRR',
+    fields: [
+      { key: 'username', label: 'نام کاربری', type: 'text', required: true },
+      { key: 'password', label: 'رمز عبور وب‌سرویس', type: 'password', required: true },
+      { key: 'from_number', label: 'شماره فرستنده', type: 'text', required: true },
+    ],
+  },
+  {
+    name: 'ghasedak', label: 'قاصدک (Ghasedak)',
+    description: 'سرویس پیام کوتاه قاصدک — OTP و ارسال انبوه',
+    docsUrl: 'https://ghasedak.me/docs',
+    locales: ['fa'], currency: 'IRR',
+    fields: [
+      { key: 'api_key', label: 'کلید API', type: 'password', required: true },
+      { key: 'line_number', label: 'شماره خط', type: 'text', required: true },
+    ],
+  },
+  {
+    name: 'farazsms', label: 'فراز اس‌ام‌اس (FarazSMS)',
+    description: 'پنل پیامکی فراز — ارسال و دریافت پیامک',
+    docsUrl: 'https://farazsms.com',
+    locales: ['fa'], currency: 'IRR',
+    fields: [
+      { key: 'api_key', label: 'کلید API', type: 'password', required: true },
+      { key: 'sender', label: 'شماره فرستنده', type: 'text', required: true },
+    ],
+  },
+  {
+    name: 'smsir', label: 'اس‌ام‌اس آی‌آر (SMS.ir)',
+    description: 'وب‌سرویس پیامکی SMS.ir — خطوط اختصاصی',
+    docsUrl: 'https://www.sms.ir',
+    locales: ['fa'], currency: 'IRR',
+    fields: [
+      { key: 'api_key', label: 'کلید API', type: 'password', required: true },
+      { key: 'line_number', label: 'شماره خط', type: 'text', required: true },
+    ],
+  },
+  {
+    name: 'payamresan', label: 'پیام‌رسان (PayamResan)',
+    description: 'سرویس پیامکی پیام‌رسان — پوشش سراسری',
+    locales: ['fa'], currency: 'IRR',
+    fields: [
+      { key: 'username', label: 'نام کاربری', type: 'text', required: true },
+      { key: 'password', label: 'رمز عبور', type: 'password', required: true },
+      { key: 'sender', label: 'شماره فرستنده', type: 'text', required: true },
+    ],
+  },
+
+  // ── Turkish (TR) ──────────────────────────
+  {
+    name: 'netgsm', label: 'Netgsm',
+    description: 'Türkiye\'nin lider toplu SMS platformu',
+    docsUrl: 'https://www.netgsm.com.tr/dokuman',
+    locales: ['tr'], currency: 'TRY',
+    fields: [
+      { key: 'usercode', label: 'Kullanıcı Kodu', type: 'text', required: true },
+      { key: 'password', label: 'Şifre', type: 'password', required: true },
+      { key: 'msgheader', label: 'Mesaj Başlığı', type: 'text', required: true, hint: 'Onaylı başlık adı' },
+    ],
+  },
+  {
+    name: 'iletimerkezi', label: 'İleti Merkezi',
+    description: 'Toplu SMS ve OTP gönderim platformu — TRY',
+    docsUrl: 'https://www.iletimerkezi.com/api',
+    locales: ['tr'], currency: 'TRY',
+    fields: [
+      { key: 'api_key', label: 'API Anahtarı', type: 'password', required: true },
+      { key: 'api_hash', label: 'API Hash', type: 'password', required: true },
+      { key: 'sender', label: 'Gönderici Adı', type: 'text', required: true },
+    ],
+  },
+  {
+    name: 'mutlucell', label: 'Mutlucell',
+    description: 'Toplu SMS ve kampanya yönetimi — TRY',
+    docsUrl: 'https://www.mutlucell.com.tr',
+    locales: ['tr'], currency: 'TRY',
+    fields: [
+      { key: 'username', label: 'Kullanıcı Adı', type: 'text', required: true },
+      { key: 'password', label: 'Şifre', type: 'password', required: true },
+      { key: 'originator', label: 'Gönderici', type: 'text', required: true },
+    ],
+  },
+  {
+    name: 'jetsms', label: 'JetSMS (TuraTech)',
+    description: 'Kurumsal SMS çözümleri — Türkiye',
+    docsUrl: 'https://www.jetsms.net',
+    locales: ['tr'], currency: 'TRY',
+    fields: [
+      { key: 'username', label: 'Kullanıcı Adı', type: 'text', required: true },
+      { key: 'password', label: 'Şifre', type: 'password', required: true },
+      { key: 'originator', label: 'Başlık', type: 'text', required: true },
+    ],
+  },
+  {
+    name: 'verimor', label: 'Verimor',
+    description: 'Toplu SMS API — hızlı entegrasyon — TRY',
+    docsUrl: 'https://www.verimor.com.tr/api',
+    locales: ['tr'], currency: 'TRY',
+    fields: [
+      { key: 'api_id', label: 'API ID', type: 'text', required: true },
+      { key: 'api_key', label: 'API Anahtarı', type: 'password', required: true },
+      { key: 'source_addr', label: 'Kaynak Adres', type: 'text', required: true },
+    ],
+  },
+];
+
+// =============================================
 // MASTER SCHEMA MAP
 // =============================================
 export const PROVIDER_SCHEMAS: Record<string, ProviderTypeSchema> = {
@@ -1274,6 +1456,11 @@ export const PROVIDER_SCHEMAS: Record<string, ProviderTypeSchema> = {
     type: 'email', label: 'Email Provider', icon: 'Mail',
     description: 'Transactional and notification emails',
     vendors: emailVendors, allowWorkspaceOverride: true,
+  },
+  sms: {
+    type: 'sms', label: 'SMS Provider', icon: 'Smartphone',
+    description: 'SMS messaging, OTP, and bulk notifications',
+    vendors: smsVendors, allowWorkspaceOverride: true,
   },
   ai: {
     type: 'ai', label: 'AI Provider', icon: 'Bot',

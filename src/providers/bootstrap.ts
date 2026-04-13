@@ -21,6 +21,7 @@ import {
   stubBillingProvider,
   stubCaptchaProvider,
   stubCDNProvider,
+  stubSmsProvider,
 } from './stubs';
 
 let bootstrapped = false;
@@ -97,6 +98,11 @@ export function bootstrapProviders(): void {
   });
 
   providerRegistry.register('ai', 'stub', stubAIProvider, {
+    priority: 100,
+    meta: { vendor: 'stub', builtIn: true },
+  });
+
+  providerRegistry.register('sms', 'stub', stubSmsProvider, {
     priority: 100,
     meta: { vendor: 'stub', builtIn: true },
   });

@@ -19,4 +19,5 @@ export {
   useAIProvider,
   useStorageProvider,
   useBillingProvider,
+  useSmsProvider,
 } from './ProviderContext';

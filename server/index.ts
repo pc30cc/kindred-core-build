@@ -7,6 +7,8 @@ import { visitorRouter } from './routes/visitors.js';
 import { healthRouter } from './routes/health.js';
 import { emailRouter } from './routes/email.js';
 import { authSecurityRouter } from './routes/auth.js';
+import { aiRouter } from './routes/ai.js';
+import { storageRouter } from './routes/storage.js';
 import {
   ipBlockMiddleware,
   authRateLimiter,
@@ -28,7 +30,7 @@ app.use(cors({
   origin: config.corsOrigins[0] === '*' ? true : config.corsOrigins,
   credentials: true,
 }));
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '50mb' })); // Larger limit for file uploads
 
 // Attach config to requests
 app.use((req, _res, next) => {
@@ -41,9 +43,6 @@ app.use('/api/', ipBlockMiddleware());
 
 // Global: Abuse detection
 app.use('/api/', abuseDetectionMiddleware());
-
-// Global: Body size validation
-app.use('/api/', validateJsonBody());
 
 // ─── Routes with per-endpoint rate limiting ──────────────────────
 
@@ -61,6 +60,12 @@ app.use('/api/visitors', visitorRateLimiter, visitorRouter);
 
 // Email — workspace-scoped rate limit
 app.use('/api/email', emailRateLimiter, emailRouter);
+
+// AI — auth required, workspace rate limiting built into routes
+app.use('/api/ai', aiRouter);
+
+// Storage — auth required, file size limits in routes
+app.use('/api/storage', storageRouter);
 
 // Admin — moderate rate limit
 app.use('/api/admin', adminRateLimiter);

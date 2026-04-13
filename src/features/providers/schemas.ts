@@ -803,8 +803,8 @@ const realtimeVendors: ProviderVendor[] = [
     ],
   },
 ];
-    fields: [
-      { key: 'domain', label: 'Domain', type: 'text', required: true, placeholder: 'your-tenant.auth0.com' },
+
+
       { key: 'client_id', label: 'Client ID', type: 'text', required: true },
       { key: 'client_secret', label: 'Client Secret', type: 'password', required: true },
       { key: 'audience', label: 'API Audience', type: 'url', hint: 'Optional API identifier' },

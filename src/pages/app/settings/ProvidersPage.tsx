@@ -164,15 +164,15 @@ export default function SettingsProvidersPage() {
               </div>
 
               {/* Vendor selector */}
-              {selectedSchema && selectedSchema.vendors.length > 0 && (
+              {selectedSchema && filteredVendors.length > 0 && (
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium">Vendor</label>
                   <Select value={selectedVendor} onValueChange={setSelectedVendor}>
                     <SelectTrigger><SelectValue placeholder="Select vendor" /></SelectTrigger>
                     <SelectContent>
-                      {selectedSchema.vendors.map((v) => (
+                      {filteredVendors.map((v) => (
                         <SelectItem key={v.name} value={v.name}>
-                          {v.label} — {v.description}
+                          {v.label}{v.currency ? ` (${v.currency})` : ''} — {v.description}
                         </SelectItem>
                       ))}
                     </SelectContent>

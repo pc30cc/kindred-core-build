@@ -76,6 +76,7 @@ export class ProviderRegistry {
   private workspaceOverrides = new Map<string, Map<ProviderTypeKey, string>>(); // wsId → type → providerName
   private healthCache = new Map<string, { health: ProviderHealth; checkedAt: number }>();
   private listeners = new Set<() => void>();
+  private version = 0;
 
   private getOrCreateEntry(type: ProviderTypeKey): ProviderEntry {
     if (!this.entries.has(type)) {

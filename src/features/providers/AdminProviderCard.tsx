@@ -180,25 +180,54 @@ export function AdminProviderCard({ type }: AdminProviderCardProps) {
             </div>
           )}
 
-          {/* Vendor selector */}
-          {schema.vendors.length > 1 && (
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium">Select Vendor</label>
-              <Select value={selectedVendor} onValueChange={setSelectedVendor}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {schema.vendors.map((v) => (
-                    <SelectItem key={v.name} value={v.name}>
-                      <div className="flex items-center gap-2">
-                        <span>{v.label}</span>
-                        <span className="text-xs text-muted-foreground">— {v.description}</span>
+          {/* Vendor selector — grouped by locale if vendors have locale tags */}
+          {schema.vendors.length > 1 && (() => {
+            const hasLocales = schema.vendors.some(v => v.locales?.length);
+            if (!hasLocales) {
+              return (
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Select Vendor</label>
+                  <Select value={selectedVendor} onValueChange={setSelectedVendor}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {schema.vendors.map((v) => (
+                        <SelectItem key={v.name} value={v.name}>
+                          {v.label} — {v.description}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              );
+            }
+            const groups: { label: string; locale: string; vendors: typeof schema.vendors }[] = [
+              { label: '🇺🇸 International (USD/EUR)', locale: 'en', vendors: schema.vendors.filter(v => v.locales?.includes('en')) },
+              { label: '🇮🇷 ایران (IRR/تومان)', locale: 'fa', vendors: schema.vendors.filter(v => v.locales?.includes('fa')) },
+              { label: '🇹🇷 Türkiye (TRY)', locale: 'tr', vendors: schema.vendors.filter(v => v.locales?.includes('tr')) },
+              { label: '🌐 Other', locale: '', vendors: schema.vendors.filter(v => !v.locales?.length) },
+            ].filter(g => g.vendors.length > 0);
+
+            return (
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Select Vendor</label>
+                <Select value={selectedVendor} onValueChange={setSelectedVendor}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {groups.map((g) => (
+                      <div key={g.locale}>
+                        <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">{g.label}</div>
+                        {g.vendors.map((v) => (
+                          <SelectItem key={v.name} value={v.name}>
+                            {v.label}{v.currency ? ` (${v.currency})` : ''}
+                          </SelectItem>
+                        ))}
                       </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            );
+          })()}
 
           {/* Config form */}
           {vendorSchema && (

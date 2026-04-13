@@ -55,6 +55,12 @@ export const stubEmailProvider: EmailProvider = {
   async sendBatch() { warn('email', 'sendBatch'); return { ids: [], error: err('email') }; },
 };
 
+// --- SMS Stub ---
+export const stubSmsProvider: SmsProvider = {
+  async send() { warn('sms', 'send'); return { id: '', error: err('sms') }; },
+  async sendBatch() { warn('sms', 'sendBatch'); return { ids: [], error: err('sms') }; },
+};
+
 // --- AI Stub ---
 export const stubAIProvider: AIProvider = {
   async complete() { warn('ai', 'complete'); return { text: '', error: err('ai') }; },

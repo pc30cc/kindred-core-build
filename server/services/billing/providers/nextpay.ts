@@ -1,0 +1,76 @@
+import type { BillingProviderHandler, BillingProviderConfig, CheckoutRequest, CheckoutResult, WebhookEvent } from '../types.js';
+
+export const nextpayProvider: BillingProviderHandler = {
+  name: 'nextpay',
+  capabilities: {
+    subscriptions: false, oneTimePayments: true, customerPortal: false,
+    refunds: false, webhooks: false, multiCurrency: false, trialSupport: false,
+  },
+
+  async createCheckoutSession(config: BillingProviderConfig, req: CheckoutRequest): Promise<CheckoutResult> {
+    const amount = parseInt(String(req.metadata?.amount || '0'));
+    const res = await fetch('https://nextpay.org/nx/gateway/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        api_key: config.api_key,
+        amount,
+        order_id: `${req.workspaceId}_${req.planId}_${Date.now()}`,
+        callback_uri: req.callbackUrl,
+        customer_phone: req.metadata?.phone,
+        payer_name: req.customerName,
+      }),
+    });
+    const data = await res.json();
+    if (data.code !== -1) throw new Error(`NextPay error: code ${data.code}`);
+    return {
+      paymentUrl: `https://nextpay.org/nx/gateway/payment/${data.trans_id}`,
+      sessionId: data.trans_id,
+    };
+  },
+
+  async verifyPayment(config: BillingProviderConfig, params: Record<string, string>) {
+    const res = await fetch('https://nextpay.org/nx/gateway/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        api_key: config.api_key,
+        trans_id: params.trans_id,
+        amount: parseInt(params.amount || '0'),
+      }),
+    });
+    const data = await res.json();
+    return {
+      verified: data.code === 0,
+      providerRef: String(data.Shaparak_Ref_Id || params.trans_id),
+      amount: parseInt(params.amount || '0'),
+      status: data.code === 0 ? 'success' : 'failed',
+    };
+  },
+
+  async verifyWebhook(_config: BillingProviderConfig, _headers: Record<string, string>, body: string): Promise<WebhookEvent | null> {
+    const data = JSON.parse(body);
+    return {
+      type: 'payment_succeeded',
+      providerEventId: data.trans_id,
+      providerPaymentId: data.trans_id,
+      raw: data,
+    };
+  },
+
+  async testConnection(config: BillingProviderConfig) {
+    const start = Date.now();
+    try {
+      const res = await fetch('https://nextpay.org/nx/gateway/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ api_key: config.api_key, amount: 1000, order_id: 'test', callback_uri: 'https://test.localhost' }),
+      });
+      const data = await res.json();
+      if (data.code === -2) return { success: false, latencyMs: Date.now() - start, error: 'Invalid API key' };
+      return { success: true, latencyMs: Date.now() - start };
+    } catch (e: any) {
+      return { success: false, latencyMs: Date.now() - start, error: e.message };
+    }
+  },
+};

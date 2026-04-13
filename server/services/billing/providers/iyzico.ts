@@ -1,0 +1,120 @@
+import type { BillingProviderHandler, BillingProviderConfig, CheckoutRequest, CheckoutResult, WebhookEvent } from '../types.js';
+import crypto from 'crypto';
+
+const baseUrl = (config: BillingProviderConfig) =>
+  config.sandbox ? 'https://sandbox-api.iyzipay.com' : (config.base_url as string || 'https://api.iyzipay.com');
+
+function iyzicoAuth(config: BillingProviderConfig, uri: string, body: string): Record<string, string> {
+  const randomStr = Date.now().toString();
+  const hashStr = config.secret_key + randomStr;
+  const hash = crypto.createHmac('sha256', config.secret_key as string).update(hashStr + body).digest('base64');
+  const authStr = `IYZWS ${config.api_key}:${hash}`;
+  return {
+    'Authorization': authStr,
+    'x-iyzi-rnd': randomStr,
+    'Content-Type': 'application/json',
+  };
+}
+
+export const iyzicoProvider: BillingProviderHandler = {
+  name: 'iyzico',
+  capabilities: {
+    subscriptions: true, oneTimePayments: true, customerPortal: false,
+    refunds: true, webhooks: true, multiCurrency: false, trialSupport: false,
+  },
+
+  async createCheckoutSession(config: BillingProviderConfig, req: CheckoutRequest): Promise<CheckoutResult> {
+    const amount = req.metadata?.amount || '0';
+    const body = JSON.stringify({
+      locale: 'tr',
+      conversationId: `${req.workspaceId}_${Date.now()}`,
+      price: amount,
+      paidPrice: amount,
+      currency: 'TRY',
+      basketId: `${req.workspaceId}_${req.planId}`,
+      paymentGroup: 'SUBSCRIPTION',
+      callbackUrl: req.callbackUrl,
+      enabledInstallments: [1, 2, 3, 6, 9],
+      buyer: {
+        id: req.workspaceId,
+        name: req.customerName || 'User',
+        surname: 'User',
+        email: req.customerEmail || 'user@example.com',
+        identityNumber: '11111111111',
+        registrationAddress: 'Istanbul, Turkey',
+        city: 'Istanbul',
+        country: 'Turkey',
+        ip: '127.0.0.1',
+      },
+      shippingAddress: { contactName: 'User', city: 'Istanbul', country: 'Turkey', address: 'Istanbul' },
+      billingAddress: { contactName: 'User', city: 'Istanbul', country: 'Turkey', address: 'Istanbul' },
+      basketItems: [{
+        id: req.planId,
+        name: `Plan ${req.planId}`,
+        category1: 'Subscription',
+        itemType: 'VIRTUAL',
+        price: amount,
+      }],
+    });
+
+    const res = await fetch(`${baseUrl(config)}/payment/iyzi-pos/checkoutform/initialize/auth/ecom`, {
+      method: 'POST',
+      headers: iyzicoAuth(config, '/payment/iyzi-pos/checkoutform/initialize/auth/ecom', body),
+      body,
+    });
+    const data = await res.json();
+    if (data.status !== 'success') throw new Error(data.errorMessage || 'iyzico checkout failed');
+    return { paymentUrl: data.paymentPageUrl, sessionId: data.token };
+  },
+
+  async verifyWebhook(_config: BillingProviderConfig, _headers: Record<string, string>, body: string): Promise<WebhookEvent | null> {
+    const data = JSON.parse(body);
+    if (data.status === 'SUCCESS' || data.paymentStatus === 'SUCCESS') {
+      return {
+        type: 'payment_succeeded',
+        providerEventId: data.paymentId || data.token,
+        providerPaymentId: data.paymentId,
+        amount: parseFloat(data.paidPrice || '0') * 100,
+        currency: 'TRY',
+        raw: data,
+      };
+    }
+    return null;
+  },
+
+  async refundPayment(config: BillingProviderConfig, paymentId: string, amount?: number) {
+    const body = JSON.stringify({
+      locale: 'tr',
+      paymentTransactionId: paymentId,
+      price: amount ? (amount / 100).toFixed(2) : '0',
+      currency: 'TRY',
+      ip: '127.0.0.1',
+    });
+    const res = await fetch(`${baseUrl(config)}/payment/refund`, {
+      method: 'POST',
+      headers: iyzicoAuth(config, '/payment/refund', body),
+      body,
+    });
+    const data = await res.json();
+    return { success: data.status === 'success', refundId: data.paymentTransactionId };
+  },
+
+  async testConnection(config: BillingProviderConfig) {
+    const start = Date.now();
+    try {
+      const body = JSON.stringify({ locale: 'tr', conversationId: 'test' });
+      const res = await fetch(`${baseUrl(config)}/payment/bin/check`, {
+        method: 'POST',
+        headers: iyzicoAuth(config, '/payment/bin/check', body),
+        body,
+      });
+      const data = await res.json();
+      if (data.status === 'failure' && data.errorCode === '1000') {
+        return { success: false, latencyMs: Date.now() - start, error: 'Invalid credentials' };
+      }
+      return { success: true, latencyMs: Date.now() - start };
+    } catch (e: any) {
+      return { success: false, latencyMs: Date.now() - start, error: e.message };
+    }
+  },
+};

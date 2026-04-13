@@ -1,0 +1,101 @@
+import type { BillingProviderHandler, BillingProviderConfig, CheckoutRequest, CheckoutResult, WebhookEvent } from '../types.js';
+
+export const paratikaProvider: BillingProviderHandler = {
+  name: 'paratika',
+  capabilities: {
+    subscriptions: false, oneTimePayments: true, customerPortal: false,
+    refunds: true, webhooks: true, multiCurrency: false, trialSupport: false,
+  },
+
+  async createCheckoutSession(config: BillingProviderConfig, req: CheckoutRequest): Promise<CheckoutResult> {
+    const amount = req.metadata?.amount || '0';
+    const orderId = `${req.workspaceId}_${Date.now()}`;
+
+    const params = new URLSearchParams();
+    params.set('ACTION', 'SESSIONTOKEN');
+    params.set('MERCHANTUSER', config.merchant_user as string);
+    params.set('MERCHANTPASSWORD', config.merchant_password as string);
+    params.set('MERCHANT', config.merchant_code as string);
+    params.set('SESSIONTYPE', 'PAYMENTSESSION');
+    params.set('RETURNURL', req.callbackUrl);
+    params.set('AMOUNT', String(amount));
+    params.set('CURRENCY', 'TRY');
+    params.set('MERCHANTPAYMENTID', orderId);
+    params.set('CUSTOMER', req.customerEmail || '');
+
+    const res = await fetch('https://entegrasyon.asseco-see.com.tr/fim/api', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params.toString(),
+    });
+    const data = await res.json();
+    if (data.responseCode !== '00') throw new Error(data.responseMsg || 'Paratika session failed');
+    return {
+      paymentUrl: `https://entegrasyon.asseco-see.com.tr/fim/paymentPage?sessiontoken=${data.sessionToken}`,
+      sessionId: data.sessionToken,
+    };
+  },
+
+  async verifyWebhook(_config: BillingProviderConfig, _headers: Record<string, string>, body: string): Promise<WebhookEvent | null> {
+    const data = JSON.parse(body);
+    if (data.responseCode === '00') {
+      return {
+        type: 'payment_succeeded',
+        providerEventId: data.pgTranId || data.merchantPaymentId,
+        providerPaymentId: data.pgTranId,
+        amount: parseFloat(data.amount || '0') * 100,
+        currency: 'TRY',
+        raw: data,
+      };
+    }
+    return null;
+  },
+
+  async refundPayment(config: BillingProviderConfig, paymentId: string, amount?: number) {
+    const params = new URLSearchParams();
+    params.set('ACTION', 'REFUND');
+    params.set('MERCHANTUSER', config.merchant_user as string);
+    params.set('MERCHANTPASSWORD', config.merchant_password as string);
+    params.set('MERCHANT', config.merchant_code as string);
+    params.set('PGTRANID', paymentId);
+    if (amount) params.set('AMOUNT', (amount / 100).toFixed(2));
+    params.set('CURRENCY', 'TRY');
+
+    const res = await fetch('https://entegrasyon.asseco-see.com.tr/fim/api', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params.toString(),
+    });
+    const data = await res.json();
+    return { success: data.responseCode === '00', refundId: data.pgTranId };
+  },
+
+  async testConnection(config: BillingProviderConfig) {
+    const start = Date.now();
+    try {
+      if (!config.merchant_code || !config.merchant_user || !config.merchant_password) {
+        return { success: false, latencyMs: Date.now() - start, error: 'Missing credentials' };
+      }
+      const params = new URLSearchParams();
+      params.set('ACTION', 'SESSIONTOKEN');
+      params.set('MERCHANTUSER', config.merchant_user as string);
+      params.set('MERCHANTPASSWORD', config.merchant_password as string);
+      params.set('MERCHANT', config.merchant_code as string);
+      params.set('SESSIONTYPE', 'PAYMENTSESSION');
+      params.set('RETURNURL', 'https://test.localhost');
+      params.set('AMOUNT', '1.00');
+      params.set('CURRENCY', 'TRY');
+
+      const res = await fetch('https://entegrasyon.asseco-see.com.tr/fim/api', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString(),
+      });
+      const data = await res.json();
+      if (data.responseCode === '99') return { success: false, latencyMs: Date.now() - start, error: 'Auth failed' };
+      return { success: true, latencyMs: Date.now() - start };
+    } catch (e: any) {
+      return { success: false, latencyMs: Date.now() - start, error: e.message };
+    }
+  },
+};

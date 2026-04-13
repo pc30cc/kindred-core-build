@@ -344,6 +344,33 @@ export type Database = {
           },
         ]
       }
+      ip_blocklist: {
+        Row: {
+          blocked_by: string | null
+          blocked_until: string | null
+          created_at: string | null
+          id: string
+          ip_address: string
+          reason: string
+        }
+        Insert: {
+          blocked_by?: string | null
+          blocked_until?: string | null
+          created_at?: string | null
+          id?: string
+          ip_address: string
+          reason: string
+        }
+        Update: {
+          blocked_by?: string | null
+          blocked_until?: string | null
+          created_at?: string | null
+          id?: string
+          ip_address?: string
+          reason?: string
+        }
+        Relationships: []
+      }
       knowledge_base_articles: {
         Row: {
           category_id: string | null
@@ -448,6 +475,30 @@ export type Database = {
           },
         ]
       }
+      login_attempts: {
+        Row: {
+          created_at: string | null
+          email: string
+          id: string
+          ip_address: string
+          success: boolean
+        }
+        Insert: {
+          created_at?: string | null
+          email: string
+          id?: string
+          ip_address: string
+          success?: boolean
+        }
+        Update: {
+          created_at?: string | null
+          email?: string
+          id?: string
+          ip_address?: string
+          success?: boolean
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -518,6 +569,54 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      security_events: {
+        Row: {
+          created_at: string | null
+          endpoint: string | null
+          event_type: string
+          id: string
+          ip_address: string | null
+          metadata: Json | null
+          resolved: boolean | null
+          resolved_at: string | null
+          resolved_by: string | null
+          severity: string
+          user_email: string | null
+          user_id: string | null
+          workspace_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          endpoint?: string | null
+          event_type: string
+          id?: string
+          ip_address?: string | null
+          metadata?: Json | null
+          resolved?: boolean | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          severity?: string
+          user_email?: string | null
+          user_id?: string | null
+          workspace_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          endpoint?: string | null
+          event_type?: string
+          id?: string
+          ip_address?: string | null
+          metadata?: Json | null
+          resolved?: boolean | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          severity?: string
+          user_email?: string | null
+          user_id?: string | null
+          workspace_id?: string | null
+        }
+        Relationships: []
       }
       translations: {
         Row: {
@@ -953,7 +1052,12 @@ export type Database = {
           updated_at: string
         }[]
       }
+      admin_security_stats: { Args: never; Returns: Json }
       bootstrap_admin: { Args: { _user_id: string }; Returns: boolean }
+      count_recent_login_failures: {
+        Args: { _email: string; _ip: string; _window_minutes?: number }
+        Returns: number
+      }
       get_workspace_role: {
         Args: { _user_id: string; _workspace_id: string }
         Returns: Database["public"]["Enums"]["workspace_role"]
@@ -965,6 +1069,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      is_ip_blocked: { Args: { _ip: string }; Returns: boolean }
       is_workspace_member: {
         Args: { _user_id: string; _workspace_id: string }
         Returns: boolean

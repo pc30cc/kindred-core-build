@@ -7,14 +7,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { Plus, Plug } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
-
-const PROVIDER_TYPES = ['auth', 'email', 'ai', 'storage', 'search', 'notification', 'cache', 'realtime'];
+import { PROVIDER_TYPE_KEYS, useProviderSummary, providerRegistry, type ProviderTypeKey } from '@/providers';
 
 export default function SettingsProvidersPage() {
   const { t } = useTranslation();
@@ -22,6 +21,7 @@ export default function SettingsProvidersPage() {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ provider_type: 'email', provider_name: '', config: '{}' });
+  const summary = useProviderSummary();
 
   const { data: configs, isLoading } = useQuery({
     queryKey: ['provider-configs', workspace?.id],
@@ -76,14 +76,19 @@ export default function SettingsProvidersPage() {
   return (
     <div className="space-y-6 animate-fade-in max-w-3xl">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-foreground">{t('settings.providers')}</h1>
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">{t('settings.providers')}</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Override global providers for this workspace. Unset types fall back to platform defaults.
+          </p>
+        </div>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
-            <Button><Plus className="h-4 w-4 me-2" />Add Provider</Button>
+            <Button><Plus className="h-4 w-4 me-2" />Add Override</Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Add Provider Configuration</DialogTitle>
+              <DialogTitle>Add Provider Override</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
               <div className="space-y-2">
@@ -91,8 +96,11 @@ export default function SettingsProvidersPage() {
                 <Select value={form.provider_type} onValueChange={v => setForm(p => ({ ...p, provider_type: v }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {PROVIDER_TYPES.map(t => (
-                      <SelectItem key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</SelectItem>
+                    {PROVIDER_TYPE_KEYS.map(typeKey => (
+                      <SelectItem key={typeKey} value={typeKey}>
+                        {typeKey.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+                        {summary[typeKey]?.active ? ` (global: ${summary[typeKey].active})` : ''}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -125,13 +133,32 @@ export default function SettingsProvidersPage() {
         </Dialog>
       </div>
 
+      {/* Global defaults info */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Platform Defaults</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-wrap gap-2">
+            {PROVIDER_TYPE_KEYS.map(typeKey => {
+              const active = summary[typeKey]?.active;
+              return (
+                <Badge key={typeKey} variant="outline" className="text-xs">
+                  {typeKey}: {active ?? 'none'}
+                </Badge>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+
       {isLoading ? (
         <p className="text-muted-foreground">{t('common.loading')}</p>
       ) : !configs?.length ? (
         <Card>
           <CardContent className="py-8 text-center">
             <Plug className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
-            <p className="text-muted-foreground">No providers configured. Add providers for email, AI, storage, etc.</p>
+            <p className="text-muted-foreground">No workspace overrides. Using platform defaults for all provider types.</p>
           </CardContent>
         </Card>
       ) : (
@@ -143,7 +170,10 @@ export default function SettingsProvidersPage() {
                   <div className="flex items-center gap-3">
                     <Badge variant="outline">{config.provider_type}</Badge>
                     <span className="font-medium">{config.provider_name}</span>
-                    {config.is_active && <Badge className="bg-success text-success-foreground">Active</Badge>}
+                    {config.is_active && <Badge className="bg-primary/20 text-primary">Active</Badge>}
+                    <span className="text-xs text-muted-foreground">
+                      (overrides: {summary[config.provider_type as ProviderTypeKey]?.active ?? 'none'})
+                    </span>
                   </div>
                   <div className="flex items-center gap-3">
                     <Switch

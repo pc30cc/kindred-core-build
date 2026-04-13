@@ -3,10 +3,11 @@ import { useTranslation } from '@/i18n';
 import {
   LayoutDashboard, Inbox, Users, Eye, BookOpen, MessageSquare,
   Bot, Mail, UserPlus, CreditCard, Settings, Globe, Palette,
-  Languages, User, Plug, ChevronLeft, ChevronRight, LogOut,
+  Languages, User, Plug, ChevronLeft, ChevronRight, LogOut, Shield,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/features/auth/AuthContext';
+import { useIsGlobalAdmin } from '@/hooks/useAdmin';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 
@@ -36,6 +37,7 @@ export function AppSidebar() {
   const { t, dir } = useTranslation();
   const location = useLocation();
   const { signOut } = useAuth();
+  const { data: isAdmin } = useIsGlobalAdmin();
   const [collapsed, setCollapsed] = useState(false);
 
   const isActive = (path: string) => {
@@ -101,7 +103,16 @@ export function AppSidebar() {
         ))}
       </nav>
 
-      <div className="border-t border-sidebar-border p-2">
+      <div className="border-t border-sidebar-border p-2 space-y-1">
+        {isAdmin && (
+          <Link
+            to="/admin"
+            className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-red-400 hover:bg-sidebar-accent hover:text-red-300 transition-colors"
+          >
+            <Shield className="h-4 w-4 shrink-0" />
+            {!collapsed && <span>Super Admin</span>}
+          </Link>
+        )}
         <Button
           variant="ghost"
           size="sm"

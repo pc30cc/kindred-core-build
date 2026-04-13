@@ -870,6 +870,40 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      admin_count_profiles: { Args: never; Returns: number }
+      admin_count_workspaces: { Args: never; Returns: number }
+      admin_list_profiles: {
+        Args: { _limit?: number; _offset?: number }
+        Returns: {
+          avatar_url: string | null
+          created_at: string | null
+          email: string
+          full_name: string | null
+          id: string
+          preferred_locale: string | null
+          updated_at: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "profiles"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      admin_list_workspaces: {
+        Args: { _limit?: number; _offset?: number }
+        Returns: {
+          created_at: string
+          id: string
+          member_count: number
+          name: string
+          owner_email: string
+          owner_id: string
+          slug: string
+          updated_at: string
+        }[]
+      }
+      bootstrap_admin: { Args: { _user_id: string }; Returns: boolean }
       get_workspace_role: {
         Args: { _user_id: string; _workspace_id: string }
         Returns: Database["public"]["Enums"]["workspace_role"]

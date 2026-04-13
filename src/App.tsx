@@ -6,11 +6,13 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { I18nProvider } from "@/i18n";
 import { AuthContextProvider } from "@/features/auth/AuthContext";
 import { RequireAuth } from "@/features/auth/RequireAuth";
+import { RequireAdmin } from "@/features/admin/RequireAdmin";
 import { BrandingGate } from "@/features/branding/BrandingGate";
 
 import { PublicLayout } from "@/components/layout/PublicLayout";
 import { AuthLayout } from "@/components/layout/AuthLayout";
 import { AppLayout } from "@/components/layout/AppLayout";
+import { AdminLayout } from "@/components/layout/AdminLayout";
 
 import HomePage from "@/pages/public/HomePage";
 import FeaturesPage from "@/pages/public/FeaturesPage";
@@ -41,6 +43,19 @@ import SettingsDomainsPage from "@/pages/app/settings/DomainsPage";
 import SettingsProvidersPage from "@/pages/app/settings/ProvidersPage";
 import SettingsTranslationsPage from "@/pages/app/settings/TranslationsPage";
 import SettingsProfilePage from "@/pages/app/settings/ProfilePage";
+
+import AdminDashboardPage from "@/pages/admin/DashboardPage";
+import AdminUsersPage from "@/pages/admin/UsersPage";
+import AdminWorkspacesPage from "@/pages/admin/WorkspacesPage";
+import AdminProvidersPage from "@/pages/admin/ProvidersPage";
+import AdminSystemPage from "@/pages/admin/SystemPage";
+import AdminFeatureFlagsPage from "@/pages/admin/FeatureFlagsPage";
+import AdminBrandingPage from "@/pages/admin/BrandingPage";
+import AdminDomainsPage from "@/pages/admin/DomainsPage";
+import AdminAuditLogsPage from "@/pages/admin/AuditLogsPage";
+import AdminBillingPage from "@/pages/admin/BillingPage";
+import AdminSecurityPage from "@/pages/admin/SecurityPage";
+import AdminBootstrapPage from "@/pages/admin/BootstrapPage";
 
 import NotFound from "@/pages/NotFound";
 
@@ -77,6 +92,26 @@ const App = () => (
               <Route path="/onboarding" element={
                 <RequireAuth><OnboardingPage /></RequireAuth>
               } />
+
+              {/* Admin Bootstrap — requires auth but NOT admin role */}
+              <Route path="/admin/bootstrap" element={
+                <RequireAuth><AdminBootstrapPage /></RequireAuth>
+              } />
+
+              {/* Global Super Admin (protected by RequireAdmin) */}
+              <Route element={<RequireAdmin><AdminLayout /></RequireAdmin>}>
+                <Route path="/admin" element={<AdminDashboardPage />} />
+                <Route path="/admin/users" element={<AdminUsersPage />} />
+                <Route path="/admin/workspaces" element={<AdminWorkspacesPage />} />
+                <Route path="/admin/providers" element={<AdminProvidersPage />} />
+                <Route path="/admin/system" element={<AdminSystemPage />} />
+                <Route path="/admin/feature-flags" element={<AdminFeatureFlagsPage />} />
+                <Route path="/admin/branding" element={<AdminBrandingPage />} />
+                <Route path="/admin/domains" element={<AdminDomainsPage />} />
+                <Route path="/admin/audit-logs" element={<AdminAuditLogsPage />} />
+                <Route path="/admin/billing" element={<AdminBillingPage />} />
+                <Route path="/admin/security" element={<AdminSecurityPage />} />
+              </Route>
 
               {/* App (protected) — BrandingGate auto-loads branding from current workspace */}
               <Route element={<RequireAuth><BrandingGate><AppLayout /></BrandingGate></RequireAuth>}>

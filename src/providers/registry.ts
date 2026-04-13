@@ -249,7 +249,12 @@ export class ProviderRegistry {
   }
 
   private notify(): void {
+    this.version++;
     this.listeners.forEach((l) => l());
+  }
+
+  getVersion(): number {
+    return this.version;
   }
 
   /**

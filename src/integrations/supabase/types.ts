@@ -127,6 +127,149 @@ export type Database = {
           },
         ]
       }
+      billing_events: {
+        Row: {
+          amount: number | null
+          created_at: string | null
+          currency: string | null
+          event_type: string
+          id: string
+          metadata: Json | null
+          processed_at: string | null
+          provider_event_id: string | null
+          provider_name: string
+          status: string
+          workspace_id: string
+        }
+        Insert: {
+          amount?: number | null
+          created_at?: string | null
+          currency?: string | null
+          event_type: string
+          id?: string
+          metadata?: Json | null
+          processed_at?: string | null
+          provider_event_id?: string | null
+          provider_name: string
+          status?: string
+          workspace_id: string
+        }
+        Update: {
+          amount?: number | null
+          created_at?: string | null
+          currency?: string | null
+          event_type?: string
+          id?: string
+          metadata?: Json | null
+          processed_at?: string | null
+          provider_event_id?: string | null
+          provider_name?: string
+          status?: string
+          workspace_id?: string
+        }
+        Relationships: []
+      }
+      billing_payments: {
+        Row: {
+          amount: number
+          created_at: string | null
+          currency: string
+          id: string
+          metadata: Json | null
+          provider_name: string
+          provider_payment_id: string | null
+          refund_amount: number | null
+          status: string
+          workspace_id: string
+        }
+        Insert: {
+          amount?: number
+          created_at?: string | null
+          currency?: string
+          id?: string
+          metadata?: Json | null
+          provider_name: string
+          provider_payment_id?: string | null
+          refund_amount?: number | null
+          status?: string
+          workspace_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string | null
+          currency?: string
+          id?: string
+          metadata?: Json | null
+          provider_name?: string
+          provider_payment_id?: string | null
+          refund_amount?: number | null
+          status?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_payments_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      billing_plans: {
+        Row: {
+          created_at: string | null
+          default_currency: string
+          description: string | null
+          entitlements: Json
+          id: string
+          is_active: boolean | null
+          is_free: boolean | null
+          limits: Json
+          name: string
+          prices: Json
+          provider_price_ids: Json
+          slug: string
+          sort_order: number | null
+          trial_days: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          default_currency?: string
+          description?: string | null
+          entitlements?: Json
+          id?: string
+          is_active?: boolean | null
+          is_free?: boolean | null
+          limits?: Json
+          name: string
+          prices?: Json
+          provider_price_ids?: Json
+          slug: string
+          sort_order?: number | null
+          trial_days?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          default_currency?: string
+          description?: string | null
+          entitlements?: Json
+          id?: string
+          is_active?: boolean | null
+          is_free?: boolean | null
+          limits?: Json
+          name?: string
+          prices?: Json
+          provider_price_ids?: Json
+          slug?: string
+          sort_order?: number | null
+          trial_days?: number | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       contacts: {
         Row: {
           avatar_url: string | null
@@ -1063,6 +1206,72 @@ export type Database = {
             foreignKeyName: "workspace_members_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workspace_subscriptions: {
+        Row: {
+          cancel_at_period_end: boolean | null
+          created_at: string | null
+          current_period_end: string | null
+          current_period_start: string | null
+          id: string
+          metadata: Json | null
+          plan_id: string | null
+          provider_customer_id: string | null
+          provider_name: string
+          provider_subscription_id: string | null
+          status: string
+          trial_end: string | null
+          updated_at: string | null
+          workspace_id: string
+        }
+        Insert: {
+          cancel_at_period_end?: boolean | null
+          created_at?: string | null
+          current_period_end?: string | null
+          current_period_start?: string | null
+          id?: string
+          metadata?: Json | null
+          plan_id?: string | null
+          provider_customer_id?: string | null
+          provider_name?: string
+          provider_subscription_id?: string | null
+          status?: string
+          trial_end?: string | null
+          updated_at?: string | null
+          workspace_id: string
+        }
+        Update: {
+          cancel_at_period_end?: boolean | null
+          created_at?: string | null
+          current_period_end?: string | null
+          current_period_start?: string | null
+          id?: string
+          metadata?: Json | null
+          plan_id?: string | null
+          provider_customer_id?: string | null
+          provider_name?: string
+          provider_subscription_id?: string | null
+          status?: string
+          trial_end?: string | null
+          updated_at?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workspace_subscriptions_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "billing_plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workspace_subscriptions_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: true
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },

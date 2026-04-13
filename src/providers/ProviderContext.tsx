@@ -2,11 +2,13 @@
 // PROVIDER CONTEXT
 // React context that exposes the provider registry to the component tree.
 // Provides type-safe hooks for each provider type.
+// Syncs provider configs from DB on mount.
 // ============================================
 
 import React, { createContext, useContext, useEffect, useMemo, useSyncExternalStore } from 'react';
 import { providerRegistry, type ProviderTypeKey, type ProviderTypeMap } from './registry';
 import { bootstrapProviders } from './bootstrap';
+import { syncProvidersFromDB } from './sync';
 
 // Ensure providers are bootstrapped before any React rendering
 bootstrapProviders();
@@ -25,8 +27,13 @@ export function ProviderContextProvider({ children }: { children: React.ReactNod
   // Re-render consumers when registry changes
   const _version = useSyncExternalStore(
     (cb) => providerRegistry.subscribe(cb),
-    () => Date.now(), // snapshot — forces re-render on any change
+    () => Date.now(),
   );
+
+  // Sync provider configs from DB on mount
+  useEffect(() => {
+    syncProvidersFromDB();
+  }, []);
 
   const value = useMemo<ProviderContextValue>(() => ({
     resolve: (type, wsId) => providerRegistry.resolve(type, wsId),
@@ -51,9 +58,6 @@ function useProviderContext(): ProviderContextValue {
   return ctx;
 }
 
-/**
- * Resolve a provider by type. Returns the active instance or null.
- */
 export function useProvider<K extends ProviderTypeKey>(
   type: K,
   workspaceId?: string
@@ -62,25 +66,16 @@ export function useProvider<K extends ProviderTypeKey>(
   return resolve(type, workspaceId);
 }
 
-/**
- * Get the active provider name for a type.
- */
 export function useActiveProviderName(type: ProviderTypeKey, workspaceId?: string): string | null {
   const { getActiveName } = useProviderContext();
   return getActiveName(type, workspaceId);
 }
 
-/**
- * Get all registered providers for a type.
- */
 export function useRegisteredProviders(type: ProviderTypeKey) {
   const { getProviders } = useProviderContext();
   return getProviders(type);
 }
 
-/**
- * Get the full provider registry summary.
- */
 export function useProviderSummary() {
   const { getSummary } = useProviderContext();
   return getSummary();

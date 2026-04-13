@@ -8,6 +8,7 @@ import { providerRegistry } from './registry';
 import { supabaseAuthProvider } from './supabase/auth';
 import { supabaseDatabaseProvider } from './supabase/database';
 import { supabaseRealtimeProvider } from './supabase/realtime';
+import { createEdgeFunctionEmailProvider } from './email/edge-function';
 import {
   stubEmailProvider,
   stubAIProvider,
@@ -28,6 +29,7 @@ let bootstrapped = false;
  * Register all default providers.
  * Called once at app startup.
  * Supabase implementations get priority 0 (default).
+ * Edge function providers get priority 5.
  * Stubs get priority 100 (fallback).
  */
 export function bootstrapProviders(): void {
@@ -39,8 +41,7 @@ export function bootstrapProviders(): void {
     priority: 0,
     healthCheck: async () => {
       try {
-        const session = await supabaseAuthProvider.getSession();
-        // If we can call getSession without error, auth is healthy
+        await supabaseAuthProvider.getSession();
         return 'healthy';
       } catch {
         return 'down';
@@ -56,7 +57,7 @@ export function bootstrapProviders(): void {
         await supabaseDatabaseProvider.rpc('admin_count_profiles');
         return 'healthy';
       } catch {
-        return 'degraded'; // RLS might block but DB is up
+        return 'degraded';
       }
     },
     meta: { vendor: 'supabase', builtIn: true },
@@ -67,7 +68,31 @@ export function bootstrapProviders(): void {
     meta: { vendor: 'supabase', builtIn: true },
   });
 
-  // --- Stub/fallback providers ---
+  // --- Email: Edge Function provider (routes through send-email edge function) ---
+  // Register a generic "edge-function" email provider.
+  // The edge function itself resolves the actual vendor (Resend/SendGrid/SMTP)
+  // based on DB config. This is a workspace-aware factory, so we register
+  // a default instance. Real workspace-scoped instances are created on demand.
+  const defaultEmailProvider = createEdgeFunctionEmailProvider('__default__');
+  providerRegistry.register('email', 'edge-function', defaultEmailProvider, {
+    priority: 5,
+    healthCheck: async () => {
+      // Health check: invoke the edge function with a dry-run
+      try {
+        // We can't easily health-check without a real workspace, so return unknown
+        return 'unknown';
+      } catch {
+        return 'down';
+      }
+    },
+    meta: {
+      vendor: 'edge-function',
+      builtIn: true,
+      description: 'Routes email via edge function → Resend/SendGrid/SMTP based on DB config',
+    },
+  });
+
+  // Stub email as fallback
   providerRegistry.register('email', 'stub', stubEmailProvider, {
     priority: 100,
     meta: { vendor: 'stub', builtIn: true, description: 'No-op email — configure a real provider' },
@@ -127,6 +152,7 @@ export function bootstrapProviders(): void {
   providerRegistry.setActive('auth', 'supabase');
   providerRegistry.setActive('database', 'supabase');
   providerRegistry.setActive('realtime', 'supabase');
+  providerRegistry.setActive('email', 'edge-function');
 
   console.info('[Providers] Bootstrap complete:', providerRegistry.getSummary());
 }

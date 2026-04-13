@@ -14,6 +14,54 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_usage_logs: {
+        Row: {
+          completion_tokens: number | null
+          created_at: string | null
+          endpoint: string | null
+          error_message: string | null
+          id: string
+          latency_ms: number | null
+          metadata: Json | null
+          model: string | null
+          prompt_tokens: number | null
+          provider_name: string
+          success: boolean
+          total_tokens: number | null
+          workspace_id: string
+        }
+        Insert: {
+          completion_tokens?: number | null
+          created_at?: string | null
+          endpoint?: string | null
+          error_message?: string | null
+          id?: string
+          latency_ms?: number | null
+          metadata?: Json | null
+          model?: string | null
+          prompt_tokens?: number | null
+          provider_name: string
+          success?: boolean
+          total_tokens?: number | null
+          workspace_id: string
+        }
+        Update: {
+          completion_tokens?: number | null
+          created_at?: string | null
+          endpoint?: string | null
+          error_message?: string | null
+          id?: string
+          latency_ms?: number | null
+          metadata?: Json | null
+          model?: string | null
+          prompt_tokens?: number | null
+          provider_name?: string
+          success?: boolean
+          total_tokens?: number | null
+          workspace_id?: string
+        }
+        Relationships: []
+      }
       app_runtime_config: {
         Row: {
           key: string
@@ -615,6 +663,48 @@ export type Database = {
           user_email?: string | null
           user_id?: string | null
           workspace_id?: string | null
+        }
+        Relationships: []
+      }
+      storage_usage_logs: {
+        Row: {
+          content_type: string | null
+          created_at: string | null
+          error_message: string | null
+          file_key: string | null
+          file_size: number | null
+          id: string
+          metadata: Json | null
+          operation: string
+          provider_name: string
+          success: boolean
+          workspace_id: string
+        }
+        Insert: {
+          content_type?: string | null
+          created_at?: string | null
+          error_message?: string | null
+          file_key?: string | null
+          file_size?: number | null
+          id?: string
+          metadata?: Json | null
+          operation: string
+          provider_name: string
+          success?: boolean
+          workspace_id: string
+        }
+        Update: {
+          content_type?: string | null
+          created_at?: string | null
+          error_message?: string | null
+          file_key?: string | null
+          file_size?: number | null
+          id?: string
+          metadata?: Json | null
+          operation?: string
+          provider_name?: string
+          success?: boolean
+          workspace_id?: string
         }
         Relationships: []
       }

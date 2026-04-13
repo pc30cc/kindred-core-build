@@ -21,6 +21,10 @@ export interface ProviderVendor {
   description: string;
   fields: ProviderField[];
   docsUrl?: string;
+  /** Locale tags — if set, vendor is only shown when workspace/platform locale matches */
+  locales?: ('en' | 'fa' | 'tr')[];
+  /** Currency this vendor operates in */
+  currency?: string;
 }
 
 export interface ProviderTypeSchema {
@@ -423,14 +427,19 @@ const storageVendors: ProviderVendor[] = [
 // BILLING VENDORS
 // =============================================
 const billingVendors: ProviderVendor[] = [
+  // ── International (EN) ──────────────────────────
   {
     name: 'stripe', label: 'Stripe',
-    description: 'Full payment processing with subscriptions',
+    description: 'Full payment processing — USD / EUR / multi-currency',
     docsUrl: 'https://stripe.com/docs',
+    locales: ['en'], currency: 'USD/EUR',
     fields: [
       { key: 'secret_key', label: 'Secret Key', type: 'password', required: true, hint: 'sk_live_... or sk_test_...' },
       { key: 'publishable_key', label: 'Publishable Key', type: 'text', required: true, hint: 'pk_live_... or pk_test_...' },
       { key: 'webhook_secret', label: 'Webhook Secret', type: 'password', required: true, hint: 'whsec_...' },
+      { key: 'currency', label: 'Default Currency', type: 'select', options: [
+        { value: 'usd', label: 'USD ($)' }, { value: 'eur', label: 'EUR (€)' }, { value: 'gbp', label: 'GBP (£)' },
+      ]},
       { key: 'price_id_free', label: 'Free Plan Price ID', type: 'text', placeholder: 'price_...' },
       { key: 'price_id_pro', label: 'Pro Plan Price ID', type: 'text', placeholder: 'price_...' },
       { key: 'price_id_enterprise', label: 'Enterprise Plan Price ID', type: 'text', placeholder: 'price_...' },
@@ -438,8 +447,9 @@ const billingVendors: ProviderVendor[] = [
   },
   {
     name: 'paddle', label: 'Paddle',
-    description: 'Merchant of Record — handles tax, compliance globally',
+    description: 'Merchant of Record — handles tax & compliance globally (USD/EUR)',
     docsUrl: 'https://developer.paddle.com',
+    locales: ['en'], currency: 'USD/EUR',
     fields: [
       { key: 'api_key', label: 'API Key', type: 'password', required: true },
       { key: 'seller_id', label: 'Seller ID', type: 'text', required: true },
@@ -449,8 +459,9 @@ const billingVendors: ProviderVendor[] = [
   },
   {
     name: 'lemon_squeezy', label: 'Lemon Squeezy',
-    description: 'Merchant of Record for digital products',
+    description: 'Merchant of Record for digital products (USD)',
     docsUrl: 'https://docs.lemonsqueezy.com',
+    locales: ['en'], currency: 'USD',
     fields: [
       { key: 'api_key', label: 'API Key', type: 'password', required: true },
       { key: 'store_id', label: 'Store ID', type: 'text', required: true },
@@ -459,12 +470,134 @@ const billingVendors: ProviderVendor[] = [
   },
   {
     name: 'paypal', label: 'PayPal',
-    description: 'Global payments with PayPal & Venmo',
+    description: 'Global payments with PayPal & Venmo (USD/EUR)',
     docsUrl: 'https://developer.paypal.com/docs',
+    locales: ['en'], currency: 'USD/EUR',
     fields: [
       { key: 'client_id', label: 'Client ID', type: 'text', required: true },
       { key: 'client_secret', label: 'Client Secret', type: 'password', required: true },
       { key: 'sandbox', label: 'Sandbox Mode', type: 'toggle' },
+    ],
+  },
+
+  // ── Iranian (FA) — IRR / Toman ──────────────────
+  {
+    name: 'zarinpal', label: 'زرین‌پال (ZarinPal)',
+    description: 'درگاه پرداخت آنلاین — ریال / تومان',
+    docsUrl: 'https://docs.zarinpal.com',
+    locales: ['fa'], currency: 'IRR',
+    fields: [
+      { key: 'merchant_id', label: 'شناسه مرچنت (Merchant ID)', type: 'password', required: true, hint: '36 کاراکتر UUID' },
+      { key: 'sandbox', label: 'حالت تست (Sandbox)', type: 'toggle' },
+      { key: 'currency', label: 'واحد پول', type: 'select', options: [
+        { value: 'IRR', label: 'ریال (IRR)' }, { value: 'IRT', label: 'تومان (IRT)' },
+      ]},
+    ],
+  },
+  {
+    name: 'idpay', label: 'آیدی پی (IDPay)',
+    description: 'درگاه پرداخت اینترنتی رایگان — ریال / تومان',
+    docsUrl: 'https://idpay.ir/web-service',
+    locales: ['fa'], currency: 'IRR',
+    fields: [
+      { key: 'api_key', label: 'کلید API', type: 'password', required: true },
+      { key: 'sandbox', label: 'حالت تست', type: 'toggle' },
+    ],
+  },
+  {
+    name: 'nextpay', label: 'نکست‌پی (NextPay)',
+    description: 'درگاه پرداخت واسط — بدون نیاز به نماد اعتماد',
+    docsUrl: 'https://nextpay.org/docs',
+    locales: ['fa'], currency: 'IRR',
+    fields: [
+      { key: 'api_key', label: 'کلید API', type: 'password', required: true },
+    ],
+  },
+  {
+    name: 'payping', label: 'پی‌پینگ (PayPing)',
+    description: 'درگاه پرداخت و لینک پرداخت — ریال',
+    docsUrl: 'https://docs.payping.ir',
+    locales: ['fa'], currency: 'IRR',
+    fields: [
+      { key: 'bearer_token', label: 'توکن Bearer', type: 'password', required: true },
+    ],
+  },
+  {
+    name: 'zibal', label: 'زیبال (Zibal)',
+    description: 'درگاه پرداخت اینترنتی زیبال — ریال / تومان',
+    docsUrl: 'https://docs.zibal.ir',
+    locales: ['fa'], currency: 'IRR',
+    fields: [
+      { key: 'merchant', label: 'مرچنت کد', type: 'password', required: true },
+      { key: 'lazy_mode', label: 'حالت Lazy', type: 'toggle', hint: 'تأیید دستی تراکنش' },
+    ],
+  },
+  {
+    name: 'sep_shaparak', label: 'سپ (سامان‌کیش)',
+    description: 'درگاه مستقیم بانک سامان — شاپرک',
+    locales: ['fa'], currency: 'IRR',
+    fields: [
+      { key: 'terminal_id', label: 'شماره ترمینال', type: 'text', required: true },
+      { key: 'merchant_key', label: 'کلید مرچنت', type: 'password', required: true },
+    ],
+  },
+
+  // ── Turkish (TR) — TRY ──────────────────────────
+  {
+    name: 'iyzico', label: 'iyzico',
+    description: 'Türkiye\'nin lider ödeme altyapısı — TRY',
+    docsUrl: 'https://dev.iyzipay.com',
+    locales: ['tr'], currency: 'TRY',
+    fields: [
+      { key: 'api_key', label: 'API Anahtarı', type: 'password', required: true },
+      { key: 'secret_key', label: 'Gizli Anahtar', type: 'password', required: true },
+      { key: 'base_url', label: 'API URL', type: 'url', placeholder: 'https://api.iyzipay.com' },
+      { key: 'sandbox', label: 'Test Modu', type: 'toggle' },
+    ],
+  },
+  {
+    name: 'paytr', label: 'PayTR',
+    description: 'Sanal POS ve ödeme çözümleri — TRY',
+    docsUrl: 'https://dev.paytr.com',
+    locales: ['tr'], currency: 'TRY',
+    fields: [
+      { key: 'merchant_id', label: 'Mağaza No', type: 'text', required: true },
+      { key: 'merchant_key', label: 'Mağaza Anahtarı', type: 'password', required: true },
+      { key: 'merchant_salt', label: 'Mağaza Salt', type: 'password', required: true },
+      { key: 'sandbox', label: 'Test Modu', type: 'toggle' },
+    ],
+  },
+  {
+    name: 'sipay', label: 'Sipay',
+    description: 'Türkiye dijital ödeme platformu — TRY',
+    docsUrl: 'https://docs.sipay.com.tr',
+    locales: ['tr'], currency: 'TRY',
+    fields: [
+      { key: 'merchant_key', label: 'Merchant Key', type: 'password', required: true },
+      { key: 'app_key', label: 'App Key', type: 'text', required: true },
+      { key: 'app_secret', label: 'App Secret', type: 'password', required: true },
+    ],
+  },
+  {
+    name: 'paratika', label: 'Paratika (Asseco)',
+    description: 'Sanal POS entegrasyonu — TRY',
+    docsUrl: 'https://dev.paratika.com.tr',
+    locales: ['tr'], currency: 'TRY',
+    fields: [
+      { key: 'merchant_code', label: 'Üye İşyeri Kodu', type: 'text', required: true },
+      { key: 'merchant_user', label: 'API Kullanıcı', type: 'text', required: true },
+      { key: 'merchant_password', label: 'API Şifre', type: 'password', required: true },
+    ],
+  },
+  {
+    name: 'craftgate', label: 'Craftgate',
+    description: 'Ödeme orkestrasyonu — çoklu banka desteği — TRY',
+    docsUrl: 'https://developer.craftgate.io',
+    locales: ['tr'], currency: 'TRY',
+    fields: [
+      { key: 'api_key', label: 'API Key', type: 'text', required: true },
+      { key: 'secret_key', label: 'Secret Key', type: 'password', required: true },
+      { key: 'sandbox', label: 'Test Modu', type: 'toggle' },
     ],
   },
 ];
@@ -1108,7 +1241,7 @@ export const PROVIDER_SCHEMAS: Record<string, ProviderTypeSchema> = {
   billing: {
     type: 'billing', label: 'Billing Provider', icon: 'CreditCard',
     description: 'Subscriptions, plans, and payment processing',
-    vendors: billingVendors, allowWorkspaceOverride: false,
+    vendors: billingVendors, allowWorkspaceOverride: true,
   },
   captcha: {
     type: 'captcha', label: 'Captcha / Abuse', icon: 'ShieldAlert',
@@ -1128,4 +1261,12 @@ export function getSchemaForType(type: string): ProviderTypeSchema | undefined {
 
 export function getVendorSchema(type: string, vendorName: string): ProviderVendor | undefined {
   return PROVIDER_SCHEMAS[type]?.vendors.find(v => v.name === vendorName);
+}
+
+/** Filter vendors by locale — returns all vendors if none match or vendor has no locale tag */
+export function getVendorsForLocale(type: string, locale?: string): ProviderVendor[] {
+  const schema = PROVIDER_SCHEMAS[type];
+  if (!schema) return [];
+  if (!locale) return schema.vendors;
+  return schema.vendors.filter(v => !v.locales || v.locales.includes(locale as 'en' | 'fa' | 'tr'));
 }

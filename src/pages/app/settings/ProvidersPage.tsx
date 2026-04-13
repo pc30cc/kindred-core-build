@@ -14,7 +14,7 @@ import {
 import { Plus, Plug, ArrowDown, Shield } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { PROVIDER_TYPE_KEYS, useProviderSummary, type ProviderTypeKey } from '@/providers';
-import { PROVIDER_SCHEMAS, getVendorSchema } from '@/features/providers/schemas';
+import { PROVIDER_SCHEMAS, getVendorSchema, getVendorsForLocale } from '@/features/providers/schemas';
 import { ProviderConfigForm } from '@/features/providers/ProviderConfigForm';
 import { ProviderIcon } from '@/features/providers/ProviderIcon';
 
@@ -108,13 +108,16 @@ export default function SettingsProvidersPage() {
     (t) => PROVIDER_SCHEMAS[t]?.allowWorkspaceOverride
   );
 
+  const workspaceLocale = workspace?.default_locale ?? 'en';
   const selectedSchema = PROVIDER_SCHEMAS[selectedType];
+  const filteredVendors = getVendorsForLocale(selectedType, workspaceLocale);
   const vendorSchema = selectedVendor ? getVendorSchema(selectedType, selectedVendor) : undefined;
 
   // Reset vendor when type changes
   const handleTypeChange = (type: string) => {
     setSelectedType(type);
-    setSelectedVendor(PROVIDER_SCHEMAS[type]?.vendors[0]?.name ?? '');
+    const vendors = getVendorsForLocale(type, workspaceLocale);
+    setSelectedVendor(vendors[0]?.name ?? '');
   };
 
   return (
@@ -161,15 +164,15 @@ export default function SettingsProvidersPage() {
               </div>
 
               {/* Vendor selector */}
-              {selectedSchema && selectedSchema.vendors.length > 0 && (
+              {selectedSchema && filteredVendors.length > 0 && (
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium">Vendor</label>
                   <Select value={selectedVendor} onValueChange={setSelectedVendor}>
                     <SelectTrigger><SelectValue placeholder="Select vendor" /></SelectTrigger>
                     <SelectContent>
-                      {selectedSchema.vendors.map((v) => (
+                      {filteredVendors.map((v) => (
                         <SelectItem key={v.name} value={v.name}>
-                          {v.label} — {v.description}
+                          {v.label}{v.currency ? ` (${v.currency})` : ''} — {v.description}
                         </SelectItem>
                       ))}
                     </SelectContent>

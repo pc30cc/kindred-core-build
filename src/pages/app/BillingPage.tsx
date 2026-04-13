@@ -37,7 +37,8 @@ const STATUS_COLORS: Record<string, string> = {
 
 export default function BillingPage() {
   const { t } = useTranslation();
-  const { workspace } = useWorkspace();
+  const { data: workspaces } = useWorkspaces();
+  const workspace = workspaces?.[0];
   const [plans, setPlans] = useState<any[]>([]);
   const [subscription, setSubscription] = useState<any>(null);
   const [payments, setPayments] = useState<any[]>([]);

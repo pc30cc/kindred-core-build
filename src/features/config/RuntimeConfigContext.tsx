@@ -6,7 +6,7 @@
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { useI18n } from '@/i18n';
-import { useWorkspace } from '@/hooks/useWorkspace';
+import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import type { ResolvedConfig } from '@/lib/config-api';
 import { fetchResolvedConfig } from '@/lib/config-api';
 
@@ -79,8 +79,7 @@ const RuntimeConfigContext = createContext<RuntimeConfigContextValue>({
 
 export function RuntimeConfigProvider({ children }: { children: React.ReactNode }) {
   const { locale } = useI18n();
-  const { workspace } = useWorkspace();
-  const [config, setConfig] = useState<ResolvedConfig | null>(null);
+  const { data: workspace } = useCurrentWorkspace();
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 

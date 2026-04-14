@@ -92,6 +92,9 @@ const tr: TranslationKeys = {
     emailConfirmErrorDesc: 'E-postanız doğrulanamadı. Bağlantı süresi dolmuş veya daha önce kullanılmış olabilir.',
     emailConfirmErrorExpired: 'Doğrulama bağlantısının süresi dolmuş olabilir. Lütfen yeni bir tane talep edin.',
     emailConfirmErrorRetry: 'Yeni bir doğrulama e-postası almak için tekrar kayıt olun.',
+    acceptTerms: 'Şartları ve koşulları kabul ediyorum',
+    mustAcceptTerms: 'Şartları ve koşulları kabul etmelisiniz',
+    emailNotVerified: 'E-postanız doğrulanmadı. Tam erişim için lütfen e-postanızı doğrulayın.',
   },
   nav: {
     overview: 'Genel Bakış',

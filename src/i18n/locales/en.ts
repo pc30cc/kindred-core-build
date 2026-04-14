@@ -90,6 +90,9 @@ const en = {
     emailConfirmErrorDesc: 'We couldn\'t verify your email. The link may have expired or already been used.',
     emailConfirmErrorExpired: 'The verification link may have expired. Please request a new one.',
     emailConfirmErrorRetry: 'Try signing up again to receive a new verification email.',
+    acceptTerms: 'I accept the terms and conditions',
+    mustAcceptTerms: 'You must accept the terms and conditions',
+    emailNotVerified: 'Your email is not verified. Please verify your email to get full access.',
   },
   nav: {
     overview: 'Overview',

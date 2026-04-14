@@ -3,37 +3,45 @@ import {
   LayoutDashboard, Users, Building2, Plug, Server,
   Flag, Palette, Globe, FileText, CreditCard, Shield,
   Database,
-  ChevronLeft, ChevronRight, LogOut, ArrowLeft,
+  ChevronLeft, ChevronRight, LogOut, ArrowLeft, ArrowRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/features/auth/AuthContext';
+import { useTranslation } from '@/i18n';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 
 const adminNav = [
-  { key: 'Dashboard', path: '/admin', icon: LayoutDashboard },
-  { key: 'Users', path: '/admin/users', icon: Users },
-  { key: 'Workspaces', path: '/admin/workspaces', icon: Building2 },
-  { key: 'Providers', path: '/admin/providers', icon: Plug },
-  { key: 'System', path: '/admin/system', icon: Server },
-  { key: 'Feature Flags', path: '/admin/feature-flags', icon: Flag },
-  { key: 'Branding', path: '/admin/branding', icon: Palette },
-  { key: 'Domains', path: '/admin/domains', icon: Globe },
-  { key: 'Audit Logs', path: '/admin/audit-logs', icon: FileText },
-  { key: 'Billing', path: '/admin/billing', icon: CreditCard },
-  { key: 'Database', path: '/admin/database', icon: Database },
-  { key: 'Security', path: '/admin/security', icon: Shield },
+  { key: 'dashboard', path: '/admin', icon: LayoutDashboard },
+  { key: 'users', path: '/admin/users', icon: Users },
+  { key: 'workspaces', path: '/admin/workspaces', icon: Building2 },
+  { key: 'providers', path: '/admin/providers', icon: Plug },
+  { key: 'system', path: '/admin/system', icon: Server },
+  { key: 'featureFlags', path: '/admin/feature-flags', icon: Flag },
+  { key: 'branding', path: '/admin/branding', icon: Palette },
+  { key: 'domains', path: '/admin/domains', icon: Globe },
+  { key: 'auditLogs', path: '/admin/audit-logs', icon: FileText },
+  { key: 'billing', path: '/admin/billing', icon: CreditCard },
+  { key: 'database', path: '/admin/database', icon: Database },
+  { key: 'security', path: '/admin/security', icon: Shield },
 ] as const;
 
 export function AdminSidebar() {
   const location = useLocation();
   const { signOut } = useAuth();
+  const { t, dir } = useTranslation();
   const [collapsed, setCollapsed] = useState(false);
 
   const isActive = (path: string) => {
     if (path === '/admin') return location.pathname === '/admin';
     return location.pathname.startsWith(path);
   };
+
+  const isRtl = dir === 'rtl';
+  const CollapseIcon = isRtl
+    ? (collapsed ? ChevronLeft : ChevronRight)
+    : (collapsed ? ChevronRight : ChevronLeft);
+  const BackIcon = isRtl ? ArrowRight : ArrowLeft;
 
   return (
     <aside
@@ -46,11 +54,11 @@ export function AdminSidebar() {
       <div className="flex h-14 items-center justify-between px-4 border-b border-border">
         {!collapsed && (
           <span className="text-sm font-bold tracking-wide text-admin-accent uppercase">
-            Super Admin
+            {t('admin.nav.title' as any)}
           </span>
         )}
         <button onClick={() => setCollapsed(!collapsed)} className="p-1 rounded hover:bg-sidebar-accent">
-          {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+          <CollapseIcon className="h-4 w-4" />
         </button>
       </div>
 
@@ -67,7 +75,7 @@ export function AdminSidebar() {
             )}
           >
             <item.icon className="h-4 w-4 shrink-0" />
-            {!collapsed && <span className="truncate">{item.key}</span>}
+            {!collapsed && <span className="truncate">{t(`admin.nav.${item.key}` as any)}</span>}
           </Link>
         ))}
       </nav>
@@ -77,8 +85,8 @@ export function AdminSidebar() {
           to="/app"
           className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-sidebar-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors"
         >
-          <ArrowLeft className="h-4 w-4 shrink-0" />
-          {!collapsed && <span>Back to App</span>}
+          <BackIcon className="h-4 w-4 shrink-0" />
+          {!collapsed && <span>{t('admin.nav.backToApp' as any)}</span>}
         </Link>
         <Button
           variant="ghost"
@@ -87,7 +95,7 @@ export function AdminSidebar() {
           onClick={signOut}
         >
           <LogOut className="h-4 w-4 shrink-0" />
-          {!collapsed && <span>Sign Out</span>}
+          {!collapsed && <span>{t('auth.logout')}</span>}
         </Button>
       </div>
     </aside>

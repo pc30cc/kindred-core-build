@@ -199,6 +199,23 @@ const tr: TranslationKeys = {
     usageControls: 'Kullanım Kontrolleri',
   },
   admin: {
+    nav: {
+      title: 'Süper Yönetici',
+      dashboard: 'Gösterge Paneli',
+      users: 'Kullanıcılar',
+      workspaces: 'Çalışma Alanları',
+      providers: 'Sağlayıcılar',
+      system: 'Sistem',
+      featureFlags: 'Özellik Bayrakları',
+      branding: 'Marka',
+      domains: 'Alan Adları',
+      auditLogs: 'Denetim Günlükleri',
+      billing: 'Faturalandırma',
+      database: 'Veritabanı',
+      security: 'Güvenlik',
+      backToApp: 'Uygulamaya Dön',
+      controlCenter: 'Platform Kontrol Merkezi',
+    },
     database: {
       title: 'Veritabanı Yönetimi',
       backupTab: 'Yedekleme',

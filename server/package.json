@@ -19,6 +19,7 @@
     "nodemailer": "^6.9.0"
   },
   "devDependencies": {
+    "@types/cookie-parser": "^1.4.7",
     "@types/express": "^5.0.0",
     "@types/cors": "^2.8.17",
     "@types/crypto-js": "^4.2.2",

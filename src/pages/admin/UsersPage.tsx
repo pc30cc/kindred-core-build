@@ -33,7 +33,7 @@ function UserRolesCell({ userId }: { userId: string }) {
         <DialogTrigger asChild>
           <Button variant="outline" size="sm" className="h-6 text-xs border-admin-border">+</Button>
         </DialogTrigger>
-        <DialogContent className="bg-admin-card border-admin-border">
+        <DialogContent className="admin-scope bg-admin-card border-admin-border">
           <DialogHeader>
             <DialogTitle className="text-admin-foreground">Assign Role</DialogTitle>
           </DialogHeader>

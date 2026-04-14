@@ -12,6 +12,7 @@ import { storageRouter } from './routes/storage.js';
 import { cdnRouter } from './routes/cdn.js';
 import { billingRouter } from './routes/billing.js';
 import { adminRouter } from './routes/admin.js';
+import { templatesRouter } from './routes/templates.js';
 import {
   ipBlockMiddleware,
   authRateLimiter,
@@ -78,6 +79,7 @@ app.use('/api/billing', billingRouter);
 
 // Admin — moderate rate limit
 app.use('/api/admin', adminRateLimiter, adminRouter);
+app.use('/api/admin/templates', adminRateLimiter, templatesRouter);
 
 // 404
 app.use((_req, res) => {

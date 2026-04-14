@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { usePlatformBrandingForLocale } from '@/hooks/usePublicBranding';
 import { LanguageSelector } from '@/components/auth/LanguageSelector';
+import { sendVerificationEmail } from '@/lib/auth-email-api';
 
 function getPasswordStrength(pw: string): { score: number; label: string; color: string } {
   let score = 0;
@@ -77,6 +78,14 @@ export default function SignupPage() {
         toast.error(t('auth.signupFailed'), { description: error.message });
         return;
       }
+
+      // Send verification email via configured provider (not Supabase built-in)
+      try {
+        await sendVerificationEmail(email.trim().toLowerCase(), locale);
+      } catch (emailErr) {
+        console.warn('[signup] Provider email failed, Supabase fallback may apply:', emailErr);
+      }
+
       toast.success(t('auth.signupSuccess'), { description: t('auth.signupSuccessDesc') });
       navigate(`/auth/check-email?email=${encodeURIComponent(email.trim().toLowerCase())}`);
     } catch (err: any) {

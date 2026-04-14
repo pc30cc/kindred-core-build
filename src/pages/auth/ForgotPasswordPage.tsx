@@ -1,7 +1,6 @@
 import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
-import { useAuth } from '@/features/auth/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -9,13 +8,13 @@ import { toast } from 'sonner';
 import { Mail, Loader2, ArrowRight, ArrowLeft } from 'lucide-react';
 import { usePlatformBrandingForLocale } from '@/hooks/usePublicBranding';
 import { LanguageSelector } from '@/components/auth/LanguageSelector';
+import { sendResetEmail } from '@/lib/auth-email-api';
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
   const { t, locale, dir } = useTranslation();
-  const { resetPasswordRequest } = useAuth();
   const brand = usePlatformBrandingForLocale(locale);
   const isRtl = dir === 'rtl';
 
@@ -27,12 +26,12 @@ export default function ForgotPasswordPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    const { error } = await resetPasswordRequest(email);
-    if (error) {
-      toast.error(t('auth.error'), { description: error.message });
-    } else {
+    try {
+      await sendResetEmail(email.trim().toLowerCase(), locale);
       setSent(true);
       toast.success(t('auth.forgotSent'));
+    } catch (err: any) {
+      toast.error(t('auth.error'), { description: err?.message });
     }
     setLoading(false);
   };

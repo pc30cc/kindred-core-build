@@ -75,6 +75,8 @@ const en = {
     checkEmailTipWait: 'It may take a few minutes to arrive.',
     checkEmailTipLatest: 'Make sure to click the latest link if you requested multiple times.',
     checkEmailWrongEmail: 'Wrong email? Sign up again',
+    verificationResent: 'Verification email resent!',
+    resendEmail: 'Resend',
     emailConfirmLoading: 'Verifying your email...',
     emailConfirmLoadingDesc: 'Please wait while we verify your account.',
     emailConfirmSuccess: 'Email verified!',

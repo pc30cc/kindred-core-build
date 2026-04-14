@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
 import { useAuth } from '@/features/auth/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -9,9 +9,11 @@ import { toast } from 'sonner';
 import { Lock, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { usePlatformBrandingForLocale } from '@/hooks/usePublicBranding';
 import { LanguageSelector } from '@/components/auth/LanguageSelector';
+import { resetPasswordWithToken } from '@/lib/auth-email-api';
 
 export default function ResetPasswordPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { t, locale, dir } = useTranslation();
   const { updatePassword } = useAuth();
   const brand = usePlatformBrandingForLocale(locale);
@@ -22,6 +24,7 @@ export default function ResetPasswordPage() {
   const [loading, setLoading] = useState(false);
 
   const passwordsMatch = confirmPassword.length > 0 && password === confirmPassword;
+  const token = searchParams.get('token');
 
   const brandLetter = useMemo(() => {
     const name = brand?.platform_name || 'App';
@@ -39,14 +42,28 @@ export default function ResetPasswordPage() {
       return;
     }
     setLoading(true);
-    const { error } = await updatePassword(password);
-    setLoading(false);
-    if (error) {
-      toast.error(t('auth.error'), { description: error.message });
-    } else {
-      toast.success(t('auth.passwordChanged'));
-      navigate('/app');
+
+    try {
+      if (token) {
+        // Custom token-based reset via configured provider
+        await resetPasswordWithToken(token, password);
+        toast.success(t('auth.passwordChanged'));
+        navigate('/auth/login');
+      } else {
+        // Supabase session-based reset (fallback)
+        const { error } = await updatePassword(password);
+        if (error) {
+          toast.error(t('auth.error'), { description: error.message });
+        } else {
+          toast.success(t('auth.passwordChanged'));
+          navigate('/app');
+        }
+      }
+    } catch (err: any) {
+      toast.error(t('auth.error'), { description: err?.message });
     }
+
+    setLoading(false);
   };
 
   return (

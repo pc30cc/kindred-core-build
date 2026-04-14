@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
 import { useAuth } from '@/features/auth/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -8,30 +8,46 @@ import {
   Shield, Sparkles, Home, AlertTriangle, RefreshCw,
 } from 'lucide-react';
 import { LanguageSelector } from '@/components/auth/LanguageSelector';
+import { verifyEmailToken } from '@/lib/auth-email-api';
 
 export default function EmailConfirmedPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const { t, dir } = useTranslation();
   const { session } = useAuth();
   const isRtl = dir === 'rtl';
 
   useEffect(() => {
-    const checkConfirmation = async () => {
-      // If we already have a session (from auth state listener), success
+    const token = searchParams.get('token');
+
+    const verify = async () => {
+      if (token) {
+        // Custom token verification via configured provider
+        try {
+          const result = await verifyEmailToken(token);
+          if (result.success) {
+            setStatus('success');
+            return;
+          }
+        } catch {
+          setStatus('error');
+          return;
+        }
+      }
+
+      // Fallback: check if session exists (Supabase built-in flow)
       if (session) {
         setStatus('success');
         return;
       }
-      // Wait a bit for auth state to settle
       await new Promise(r => setTimeout(r, 2000));
-      // Re-check — the auth listener should have updated by now
       setStatus(session ? 'success' : 'error');
     };
-    checkConfirmation();
-  }, [session]);
 
-  // Re-check when session changes
+    verify();
+  }, [searchParams, session]);
+
   useEffect(() => {
     if (session && status === 'loading') {
       setStatus('success');
@@ -63,7 +79,6 @@ export default function EmailConfirmedPage() {
               <div className="mx-auto w-24 h-24 rounded-full bg-green-500/10 flex items-center justify-center">
                 <CheckCircle2 className="w-14 h-14 text-green-500" />
               </div>
-
               <div>
                 <h1 className="text-2xl md:text-3xl font-bold text-foreground mb-3">
                   {t('auth.emailConfirmSuccess')}
@@ -72,7 +87,6 @@ export default function EmailConfirmedPage() {
                   {t('auth.emailConfirmSuccessDesc')}
                 </p>
               </div>
-
               <div className="bg-muted/50 rounded-2xl p-5 space-y-3">
                 <div className="flex items-center gap-3 text-sm text-foreground">
                   <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
@@ -87,24 +101,14 @@ export default function EmailConfirmedPage() {
                   <span>{t('auth.emailConfirmAccess')}</span>
                 </div>
               </div>
-
               <div className="space-y-3">
                 <Button
-                  onClick={() => navigate('/app')}
+                  onClick={() => navigate('/auth/login')}
                   size="lg"
                   className="w-full h-12 text-base font-semibold rounded-xl gap-2"
                 >
-                  {t('auth.emailConfirmCta')}
+                  {t('auth.login')}
                   <NavArrow className="w-5 h-5" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => navigate('/auth/login')}
-                  className="text-muted-foreground gap-1.5"
-                >
-                  <Home className="w-4 h-4" />
-                  {t('auth.backToLogin')}
                 </Button>
               </div>
             </div>
@@ -116,7 +120,6 @@ export default function EmailConfirmedPage() {
               <div className="mx-auto w-24 h-24 rounded-full bg-destructive/10 flex items-center justify-center">
                 <XCircle className="w-14 h-14 text-destructive" />
               </div>
-
               <div>
                 <h1 className="text-2xl md:text-3xl font-bold text-foreground mb-3">
                   {t('auth.emailConfirmError')}
@@ -125,7 +128,6 @@ export default function EmailConfirmedPage() {
                   {t('auth.emailConfirmErrorDesc')}
                 </p>
               </div>
-
               <div className="bg-muted/40 rounded-2xl p-5 space-y-3 text-start">
                 <div className="flex items-start gap-3 text-sm text-foreground">
                   <div className="w-8 h-8 rounded-lg bg-destructive/10 flex items-center justify-center shrink-0 mt-0.5">
@@ -140,7 +142,6 @@ export default function EmailConfirmedPage() {
                   <span className="leading-relaxed">{t('auth.emailConfirmErrorRetry')}</span>
                 </div>
               </div>
-
               <div className="space-y-3">
                 <Button
                   onClick={() => navigate('/auth/login')}

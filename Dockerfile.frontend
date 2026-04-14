@@ -1,9 +1,9 @@
 # ── Frontend Build ──────────────────────────────────────────
-FROM node:18-alpine AS build
+FROM node:20-alpine AS build
 WORKDIR /app
 
 COPY package.json bun.lockb* package-lock.json* ./
-RUN npm ci --ignore-scripts
+RUN npm install --ignore-scripts
 
 COPY . .
 

@@ -1,24 +1,15 @@
 # ── Backend Server ─────────────────────────────────────────
-FROM node:18-alpine AS build
+FROM node:20-alpine
 WORKDIR /app
 
+# Copy and install server dependencies
 COPY server/package.json server/package-lock.json* ./
-RUN npm ci
+RUN npm install
 
+# Copy server source code
 COPY server/ .
-COPY server/tsconfig.server.json ./tsconfig.server.json 2>/dev/null || true
-
-# Build TypeScript (if tsconfig exists)
-RUN npx tsc -p tsconfig.server.json 2>/dev/null || npx tsc --outDir dist --esModuleInterop --module NodeNext --moduleResolution NodeNext --target ES2022 *.ts **/*.ts 2>/dev/null || echo "No TS build needed"
-
-# ── Production ─────────────────────────────────────────────
-FROM node:18-alpine
-WORKDIR /app
-
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/ ./
 
 EXPOSE 3001
 
-# Use tsx for running TypeScript directly (dev-friendly & works in prod)
+# Run TypeScript directly with tsx
 CMD ["npx", "tsx", "index.ts"]

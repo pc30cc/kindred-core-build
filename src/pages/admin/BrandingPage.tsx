@@ -6,8 +6,16 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
+import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter,
+} from '@/components/ui/dialog';
 import { toast } from '@/hooks/use-toast';
-import { Loader2, Palette, Globe, Type, Link2, Image, Save, Eye } from 'lucide-react';
+import { Loader2, Palette, Type, Link2, Save, Eye, Mail, Plus, Pencil, Trash2, Settings2 } from 'lucide-react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { supabase } from '@/lib/supabase';
 import {
   usePlatformBranding,
   useUpdatePlatformBranding,
@@ -22,19 +30,9 @@ import {
 
 // ── Reusable field row ──
 function FieldRow({
-  label,
-  desc,
-  value,
-  onChange,
-  type = 'text',
-  placeholder,
+  label, desc, value, onChange, type = 'text', placeholder,
 }: {
-  label: string;
-  desc?: string;
-  value: string;
-  onChange: (v: string) => void;
-  type?: string;
-  placeholder?: string;
+  label: string; desc?: string; value: string; onChange: (v: string) => void; type?: string; placeholder?: string;
 }) {
   return (
     <div className="grid gap-1.5">
@@ -43,26 +41,11 @@ function FieldRow({
       <div className="flex gap-2">
         {type === 'color' ? (
           <>
-            <Input
-              type="color"
-              value={value || '#3B82F6'}
-              onChange={(e) => onChange(e.target.value)}
-              className="w-12 h-10 p-1 shrink-0"
-            />
-            <Input
-              value={value}
-              onChange={(e) => onChange(e.target.value)}
-              placeholder="#3B82F6"
-              className="font-mono"
-            />
+            <Input type="color" value={value || '#3B82F6'} onChange={(e) => onChange(e.target.value)} className="w-12 h-10 p-1 shrink-0" />
+            <Input value={value} onChange={(e) => onChange(e.target.value)} placeholder="#3B82F6" className="font-mono" />
           </>
         ) : (
-          <Input
-            type={type}
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            placeholder={placeholder}
-          />
+          <Input type={type} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />
         )}
       </div>
     </div>
@@ -73,29 +56,17 @@ function FieldRow({
 function VisualIdentitySection() {
   const { data: branding, isLoading } = usePlatformBranding();
   const update = useUpdatePlatformBranding();
-
   const [form, setForm] = useState<Partial<PlatformBranding>>({});
   const [dirty, setDirty] = useState(false);
 
-  useEffect(() => {
-    if (branding) {
-      setForm(branding);
-      setDirty(false);
-    }
-  }, [branding]);
+  useEffect(() => { if (branding) { setForm(branding); setDirty(false); } }, [branding]);
 
-  const set = (key: keyof PlatformBranding, val: string) => {
-    setForm((p) => ({ ...p, [key]: val }));
-    setDirty(true);
-  };
+  const set = (key: keyof PlatformBranding, val: string) => { setForm((p) => ({ ...p, [key]: val })); setDirty(true); };
 
   const handleSave = () => {
     const { id, created_at, updated_at, ...rest } = form as any;
     update.mutate(rest, {
-      onSuccess: () => {
-        toast({ title: 'Visual identity saved' });
-        setDirty(false);
-      },
+      onSuccess: () => { toast({ title: 'Visual identity saved' }); setDirty(false); },
       onError: (e) => toast({ title: 'Error', description: e.message, variant: 'destructive' }),
     });
   };
@@ -106,13 +77,9 @@ function VisualIdentitySection() {
     <Card className="bg-card border-border">
       <CardHeader className="pb-4">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Palette className="h-5 w-5 text-primary" />
-            <CardTitle className="text-foreground">Visual Identity</CardTitle>
-          </div>
+          <div className="flex items-center gap-2"><Palette className="h-5 w-5 text-primary" /><CardTitle className="text-foreground">Visual Identity</CardTitle></div>
           <Button size="sm" onClick={handleSave} disabled={!dirty || update.isPending}>
-            {update.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}
-            Save
+            {update.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}Save
           </Button>
         </div>
         <CardDescription>Logo, colors, and favicon for the entire platform.</CardDescription>
@@ -125,17 +92,13 @@ function VisualIdentitySection() {
           <FieldRow label="Secondary Color" type="color" value={form.secondary_color ?? '#6366F1'} onChange={(v) => set('secondary_color', v)} />
           <FieldRow label="PWA Icon URL" desc="512x512 icon for progressive web app" value={form.pwa_icon_url ?? ''} onChange={(v) => set('pwa_icon_url', v)} placeholder="https://cdn.example.com/pwa-icon.png" />
         </div>
-
-        {/* Preview */}
         {(form.logo_url || form.primary_color) && (
           <>
             <Separator />
             <div className="rounded-lg border border-border p-4">
               <p className="text-xs text-muted-foreground mb-3 flex items-center gap-1"><Eye className="h-3 w-3" /> Preview</p>
               <div className="flex items-center gap-3">
-                {form.logo_url && (
-                  <img src={form.logo_url} alt="Logo preview" className="h-10 max-w-[160px] object-contain rounded" onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')} />
-                )}
+                {form.logo_url && <img src={form.logo_url} alt="Logo preview" className="h-10 max-w-[160px] object-contain rounded" onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')} />}
                 <div className="flex gap-2">
                   <div className="w-8 h-8 rounded-md border border-border" style={{ backgroundColor: form.primary_color ?? '#3B82F6' }} title="Primary" />
                   <div className="w-8 h-8 rounded-md border border-border" style={{ backgroundColor: form.secondary_color ?? '#6366F1' }} title="Secondary" />
@@ -157,13 +120,13 @@ const LOCALES = [
 ];
 
 const LOCALIZED_FIELDS: { key: keyof PlatformBrandingLocalized; label: string; desc?: string }[] = [
-  { key: 'platform_name', label: 'Platform Name', desc: 'Main name shown in header and emails' },
-  { key: 'meta_title', label: 'Meta Title', desc: 'Default SEO page title' },
+  { key: 'platform_name', label: 'Platform Name', desc: 'Main name shown in header, emails, and browser tab' },
+  { key: 'meta_title', label: 'Meta Title', desc: 'Default SEO page title (also used as app title)' },
   { key: 'meta_description', label: 'Meta Description', desc: 'Default SEO description' },
   { key: 'social_share_title', label: 'Social Share Title', desc: 'OG title for social cards' },
   { key: 'social_share_description', label: 'Social Share Description' },
   { key: 'browser_title_format', label: 'Browser Title Format', desc: 'e.g. {{page}} | {{platform}}' },
-  { key: 'public_site_title', label: 'Public Site Title', desc: 'Landing/public page heading' },
+  { key: 'public_site_title', label: 'Public Site Title' },
   { key: 'widget_display_name', label: 'Widget Display Name', desc: 'Chat widget header name' },
   { key: 'knowledge_base_title', label: 'Knowledge Base Title' },
   { key: 'legal_company_display_name', label: 'Legal Company Name', desc: 'For structured data and footer' },
@@ -173,7 +136,16 @@ const LOCALIZED_FIELDS: { key: keyof PlatformBrandingLocalized; label: string; d
 
 function LocalizedBrandingSection() {
   const { data: rows, isLoading } = usePlatformBrandingLocalized();
+  const { data: settings } = useQuery({
+    queryKey: ['platform_settings'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('platform_settings').select('*').limit(1).maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+  });
   const upsert = useUpsertPlatformBrandingLocalized();
+  const qc = useQueryClient();
   const [activeLocale, setActiveLocale] = useState('en');
   const [forms, setForms] = useState<Record<string, Partial<PlatformBrandingLocalized>>>({});
   const [dirtyLocales, setDirtyLocales] = useState<Set<string>>(new Set());
@@ -188,10 +160,7 @@ function LocalizedBrandingSection() {
   }, [rows]);
 
   const setField = (locale: string, key: string, val: string) => {
-    setForms((p) => ({
-      ...p,
-      [locale]: { ...p[locale], [key]: val, locale },
-    }));
+    setForms((p) => ({ ...p, [locale]: { ...p[locale], [key]: val, locale } }));
     setDirtyLocales((p) => new Set(p).add(locale));
   };
 
@@ -199,42 +168,55 @@ function LocalizedBrandingSection() {
     const row = forms[locale];
     if (!row) return;
     const { id, created_at, updated_at, ...rest } = row as any;
-    upsert.mutate(
-      { ...rest, locale },
-      {
-        onSuccess: () => {
-          toast({ title: `${locale.toUpperCase()} branding saved` });
-          setDirtyLocales((p) => {
-            const n = new Set(p);
-            n.delete(locale);
-            return n;
-          });
-        },
-        onError: (e) => toast({ title: 'Error', description: e.message, variant: 'destructive' }),
-      }
-    );
+    upsert.mutate({ ...rest, locale }, {
+      onSuccess: () => { toast({ title: `${locale.toUpperCase()} branding saved` }); setDirtyLocales((p) => { const n = new Set(p); n.delete(locale); return n; }); },
+      onError: (e) => toast({ title: 'Error', description: e.message, variant: 'destructive' }),
+    });
+  };
+
+  const handleSetDefaultLocale = async (locale: string) => {
+    const { data: existing } = await supabase.from('platform_settings').select('id').limit(1).maybeSingle();
+    if (existing) {
+      await supabase.from('platform_settings').update({ default_locale: locale, updated_at: new Date().toISOString() }).eq('id', existing.id);
+    } else {
+      await supabase.from('platform_settings').insert({ default_locale: locale });
+    }
+    qc.invalidateQueries({ queryKey: ['platform_settings'] });
+    toast({ title: `Default language set to ${locale.toUpperCase()}` });
   };
 
   if (isLoading) return <LoadingCard />;
 
   const current = forms[activeLocale] ?? {};
+  const defaultLocale = settings?.default_locale || 'en';
 
   return (
     <Card className="bg-card border-border">
       <CardHeader className="pb-4">
-        <div className="flex items-center gap-2">
-          <Type className="h-5 w-5 text-primary" />
-          <CardTitle className="text-foreground">Localized Branding</CardTitle>
-        </div>
+        <div className="flex items-center gap-2"><Type className="h-5 w-5 text-primary" /><CardTitle className="text-foreground">Localized Branding</CardTitle></div>
         <CardDescription>Platform text & SEO for each language.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* Default locale selector */}
+        <div className="flex items-center gap-3 p-3 rounded-lg border border-border bg-muted/30">
+          <Label className="text-sm font-medium whitespace-nowrap">Default Language:</Label>
+          <Select value={defaultLocale} onValueChange={handleSetDefaultLocale}>
+            <SelectTrigger className="w-40 h-9"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {LOCALES.map(l => (
+                <SelectItem key={l.code} value={l.code}>{l.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
         <Tabs value={activeLocale} onValueChange={setActiveLocale}>
           <div className="flex items-center justify-between">
             <TabsList>
               {LOCALES.map((l) => (
                 <TabsTrigger key={l.code} value={l.code} className="gap-1.5">
                   {l.label}
+                  {l.code === defaultLocale && <Badge variant="outline" className="text-[10px] px-1 py-0">default</Badge>}
                   {dirtyLocales.has(l.code) && <Badge variant="secondary" className="text-[10px] px-1 py-0">unsaved</Badge>}
                 </TabsTrigger>
               ))}
@@ -244,19 +226,11 @@ function LocalizedBrandingSection() {
               Save {activeLocale.toUpperCase()}
             </Button>
           </div>
-
           {LOCALES.map((l) => (
             <TabsContent key={l.code} value={l.code} className="mt-4">
               <div className="grid gap-5 md:grid-cols-2">
                 {LOCALIZED_FIELDS.map((f) => (
-                  <FieldRow
-                    key={f.key}
-                    label={f.label}
-                    desc={f.desc}
-                    value={(current as any)?.[f.key] ?? ''}
-                    onChange={(v) => setField(l.code, f.key, v)}
-                    placeholder={`Enter ${f.label.toLowerCase()}`}
-                  />
+                  <FieldRow key={f.key} label={f.label} desc={f.desc} value={(current as any)?.[f.key] ?? ''} onChange={(v) => setField(l.code, f.key, v)} placeholder={`Enter ${f.label.toLowerCase()}`} />
                 ))}
               </div>
             </TabsContent>
@@ -286,25 +260,14 @@ function DomainUrlsSection() {
   const [form, setForm] = useState<Partial<PlatformDomains>>({});
   const [dirty, setDirty] = useState(false);
 
-  useEffect(() => {
-    if (domains) {
-      setForm(domains);
-      setDirty(false);
-    }
-  }, [domains]);
+  useEffect(() => { if (domains) { setForm(domains); setDirty(false); } }, [domains]);
 
-  const set = (key: keyof PlatformDomains, val: string) => {
-    setForm((p) => ({ ...p, [key]: val }));
-    setDirty(true);
-  };
+  const set = (key: keyof PlatformDomains, val: string) => { setForm((p) => ({ ...p, [key]: val })); setDirty(true); };
 
   const handleSave = () => {
     const { id, created_at, updated_at, ...rest } = form as any;
     update.mutate(rest, {
-      onSuccess: () => {
-        toast({ title: 'Domain URLs saved' });
-        setDirty(false);
-      },
+      onSuccess: () => { toast({ title: 'Domain URLs saved' }); setDirty(false); },
       onError: (e) => toast({ title: 'Error', description: e.message, variant: 'destructive' }),
     });
   };
@@ -315,13 +278,9 @@ function DomainUrlsSection() {
     <Card className="bg-card border-border">
       <CardHeader className="pb-4">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Link2 className="h-5 w-5 text-primary" />
-            <CardTitle className="text-foreground">Platform Domain URLs</CardTitle>
-          </div>
+          <div className="flex items-center gap-2"><Link2 className="h-5 w-5 text-primary" /><CardTitle className="text-foreground">Platform Domain URLs</CardTitle></div>
           <Button size="sm" onClick={handleSave} disabled={!dirty || update.isPending}>
-            {update.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}
-            Save
+            {update.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}Save
           </Button>
         </div>
         <CardDescription>Base URLs used across emails, widgets, SEO, and public pages.</CardDescription>
@@ -329,16 +288,302 @@ function DomainUrlsSection() {
       <CardContent>
         <div className="grid gap-5 md:grid-cols-2">
           {DOMAIN_FIELDS.map((f) => (
-            <FieldRow
-              key={f.key}
-              label={f.label}
-              desc={f.desc}
-              value={(form as any)?.[f.key] ?? ''}
-              onChange={(v) => set(f.key, v)}
-              placeholder={f.placeholder}
-            />
+            <FieldRow key={f.key} label={f.label} desc={f.desc} value={(form as any)?.[f.key] ?? ''} onChange={(v) => set(f.key, v)} placeholder={f.placeholder} />
           ))}
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Email Settings Section ──
+function EmailSettingsSection() {
+  const qc = useQueryClient();
+  const { data: emailSettings, isLoading: settingsLoading } = useQuery({
+    queryKey: ['platform-email-settings'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('email_settings').select('*').is('workspace_id', null).maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const [settingsForm, setSettingsForm] = useState({ sender_email: '', reply_to_email: '', email_logo_url: '', email_footer_text: '' });
+  const [settingsDirty, setSettingsDirty] = useState(false);
+
+  useEffect(() => {
+    if (emailSettings) {
+      setSettingsForm({
+        sender_email: emailSettings.sender_email ?? '',
+        reply_to_email: emailSettings.reply_to_email ?? '',
+        email_logo_url: emailSettings.email_logo_url ?? '',
+        email_footer_text: emailSettings.email_footer_text ?? '',
+      });
+      setSettingsDirty(false);
+    }
+  }, [emailSettings]);
+
+  const saveSettings = useMutation({
+    mutationFn: async () => {
+      if (emailSettings?.id) {
+        const { error } = await supabase.from('email_settings').update({ ...settingsForm, updated_at: new Date().toISOString() }).eq('id', emailSettings.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('email_settings').insert({ ...settingsForm, workspace_id: null });
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => { toast({ title: 'Email settings saved' }); setSettingsDirty(false); qc.invalidateQueries({ queryKey: ['platform-email-settings'] }); },
+    onError: (e) => toast({ title: 'Error', description: e.message, variant: 'destructive' }),
+  });
+
+  // Email settings localized
+  const { data: emailLocalized } = useQuery({
+    queryKey: ['platform-email-settings-localized'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('email_settings_localized').select('*').is('workspace_id', null).order('locale');
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  const [emailLocaleForms, setEmailLocaleForms] = useState<Record<string, any>>({});
+  const [emailLocaleDirty, setEmailLocaleDirty] = useState<Set<string>>(new Set());
+  const [emailLocaleTab, setEmailLocaleTab] = useState('en');
+
+  useEffect(() => {
+    if (emailLocalized) {
+      const map: Record<string, any> = {};
+      emailLocalized.forEach(r => (map[r.locale] = r));
+      setEmailLocaleForms(map);
+      setEmailLocaleDirty(new Set());
+    }
+  }, [emailLocalized]);
+
+  const saveEmailLocale = useMutation({
+    mutationFn: async (locale: string) => {
+      const row = emailLocaleForms[locale];
+      const { id, created_at, updated_at, ...rest } = row || {};
+      const payload = { ...rest, locale, workspace_id: null, updated_at: new Date().toISOString() };
+
+      const { data: existing } = await supabase.from('email_settings_localized').select('id').is('workspace_id', null).eq('locale', locale).maybeSingle();
+      if (existing) {
+        const { error } = await supabase.from('email_settings_localized').update(payload).eq('id', existing.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('email_settings_localized').insert(payload);
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => { toast({ title: 'Email locale saved' }); qc.invalidateQueries({ queryKey: ['platform-email-settings-localized'] }); },
+    onError: (e) => toast({ title: 'Error', description: e.message, variant: 'destructive' }),
+  });
+
+  if (settingsLoading) return <LoadingCard />;
+
+  return (
+    <Card className="bg-card border-border">
+      <CardHeader className="pb-4">
+        <div className="flex items-center gap-2"><Settings2 className="h-5 w-5 text-primary" /><CardTitle className="text-foreground">Email Settings</CardTitle></div>
+        <CardDescription>Global email configuration used by email providers.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        {/* Global email settings */}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-foreground">Global Settings</h3>
+            <Button size="sm" onClick={() => saveSettings.mutate()} disabled={!settingsDirty || saveSettings.isPending}>
+              {saveSettings.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}Save
+            </Button>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <FieldRow label="Sender Email" desc="From address for all emails" value={settingsForm.sender_email} onChange={(v) => { setSettingsForm(p => ({ ...p, sender_email: v })); setSettingsDirty(true); }} placeholder="noreply@example.com" />
+            <FieldRow label="Reply-To Email" value={settingsForm.reply_to_email} onChange={(v) => { setSettingsForm(p => ({ ...p, reply_to_email: v })); setSettingsDirty(true); }} placeholder="support@example.com" />
+            <FieldRow label="Email Logo URL" desc="Logo shown in email headers" value={settingsForm.email_logo_url} onChange={(v) => { setSettingsForm(p => ({ ...p, email_logo_url: v })); setSettingsDirty(true); }} placeholder="https://cdn.example.com/email-logo.png" />
+            <FieldRow label="Email Footer Text" value={settingsForm.email_footer_text} onChange={(v) => { setSettingsForm(p => ({ ...p, email_footer_text: v })); setSettingsDirty(true); }} placeholder="© 2026 Your Company" />
+          </div>
+        </div>
+
+        <Separator />
+
+        {/* Localized email settings */}
+        <div className="space-y-4">
+          <h3 className="text-sm font-semibold text-foreground">Localized Email Text</h3>
+          <Tabs value={emailLocaleTab} onValueChange={setEmailLocaleTab}>
+            <div className="flex items-center justify-between">
+              <TabsList>
+                {LOCALES.map(l => (
+                  <TabsTrigger key={l.code} value={l.code} className="gap-1.5">
+                    {l.label}
+                    {emailLocaleDirty.has(l.code) && <Badge variant="secondary" className="text-[10px] px-1 py-0">unsaved</Badge>}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+              <Button size="sm" onClick={() => saveEmailLocale.mutate(emailLocaleTab)} disabled={!emailLocaleDirty.has(emailLocaleTab) || saveEmailLocale.isPending}>
+                {saveEmailLocale.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}Save
+              </Button>
+            </div>
+            {LOCALES.map(l => (
+              <TabsContent key={l.code} value={l.code} className="mt-4">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <FieldRow label="Sender Name" desc="Name shown in email From field" value={emailLocaleForms[l.code]?.sender_name ?? ''} onChange={(v) => { setEmailLocaleForms(p => ({ ...p, [l.code]: { ...p[l.code], sender_name: v, locale: l.code } })); setEmailLocaleDirty(p => new Set(p).add(l.code)); }} placeholder="Your Platform" />
+                  <FieldRow label="Footer Text" value={emailLocaleForms[l.code]?.footer_text ?? ''} onChange={(v) => { setEmailLocaleForms(p => ({ ...p, [l.code]: { ...p[l.code], footer_text: v, locale: l.code } })); setEmailLocaleDirty(p => new Set(p).add(l.code)); }} placeholder="All rights reserved." />
+                  <FieldRow label="Support Contact Label" value={emailLocaleForms[l.code]?.support_contact_label ?? ''} onChange={(v) => { setEmailLocaleForms(p => ({ ...p, [l.code]: { ...p[l.code], support_contact_label: v, locale: l.code } })); setEmailLocaleDirty(p => new Set(p).add(l.code)); }} placeholder="Contact Support" />
+                </div>
+              </TabsContent>
+            ))}
+          </Tabs>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Email Templates Section ──
+function EmailTemplatesSection() {
+  const qc = useQueryClient();
+
+  // Platform-level templates: workspace_id = first workspace or use a global approach
+  // For platform branding, we show ALL email templates across workspaces
+  const { data: templates, isLoading } = useQuery({
+    queryKey: ['platform-email-templates'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('email_templates').select('*').order('slug').order('locale');
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  const [editOpen, setEditOpen] = useState(false);
+  const [editingTpl, setEditingTpl] = useState<any>(null);
+  const [tplForm, setTplForm] = useState({ slug: '', subject: '', html_body: '', text_body: '', locale: 'en', workspace_id: '' });
+
+  const openEdit = (tpl?: any) => {
+    if (tpl) {
+      setEditingTpl(tpl);
+      setTplForm({ slug: tpl.slug, subject: tpl.subject, html_body: tpl.html_body, text_body: tpl.text_body || '', locale: tpl.locale, workspace_id: tpl.workspace_id });
+    } else {
+      setEditingTpl(null);
+      setTplForm({ slug: '', subject: '', html_body: '', text_body: '', locale: 'en', workspace_id: '' });
+    }
+    setEditOpen(true);
+  };
+
+  const saveTpl = useMutation({
+    mutationFn: async () => {
+      if (!tplForm.workspace_id) throw new Error('Workspace ID is required');
+      if (editingTpl) {
+        const { error } = await supabase.from('email_templates').update({
+          slug: tplForm.slug, subject: tplForm.subject, html_body: tplForm.html_body,
+          text_body: tplForm.text_body || null, locale: tplForm.locale,
+        }).eq('id', editingTpl.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('email_templates').insert({
+          slug: tplForm.slug, subject: tplForm.subject, html_body: tplForm.html_body,
+          text_body: tplForm.text_body || null, locale: tplForm.locale,
+          workspace_id: tplForm.workspace_id,
+        });
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => { toast({ title: 'Template saved' }); setEditOpen(false); qc.invalidateQueries({ queryKey: ['platform-email-templates'] }); },
+    onError: (e) => toast({ title: 'Error', description: e.message, variant: 'destructive' }),
+  });
+
+  const deleteTpl = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from('email_templates').delete().eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => { toast({ title: 'Template deleted' }); qc.invalidateQueries({ queryKey: ['platform-email-templates'] }); },
+    onError: (e) => toast({ title: 'Error', description: e.message, variant: 'destructive' }),
+  });
+
+  if (isLoading) return <LoadingCard />;
+
+  return (
+    <Card className="bg-card border-border">
+      <CardHeader className="pb-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2"><Mail className="h-5 w-5 text-primary" /><CardTitle className="text-foreground">Email Templates</CardTitle></div>
+          <Button size="sm" onClick={() => openEdit()}><Plus className="h-4 w-4 mr-1" />New Template</Button>
+        </div>
+        <CardDescription>Manage email templates for all workspaces. Templates use {'{{variable}}'} syntax for dynamic data.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {!templates?.length ? (
+          <div className="text-center py-8"><Mail className="h-12 w-12 text-muted-foreground mx-auto mb-3" /><p className="text-muted-foreground">No email templates yet.</p></div>
+        ) : (
+          <Table>
+            <TableHeader><TableRow><TableHead>Slug</TableHead><TableHead>Subject</TableHead><TableHead>Locale</TableHead><TableHead>Active</TableHead><TableHead className="w-[100px]">Actions</TableHead></TableRow></TableHeader>
+            <TableBody>
+              {templates.map(tpl => (
+                <TableRow key={tpl.id}>
+                  <TableCell className="font-mono text-xs">{tpl.slug}</TableCell>
+                  <TableCell className="max-w-[200px] truncate">{tpl.subject}</TableCell>
+                  <TableCell><Badge variant="outline">{tpl.locale}</Badge></TableCell>
+                  <TableCell>{tpl.is_active ? <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-700">Active</Badge> : <Badge variant="secondary">Inactive</Badge>}</TableCell>
+                  <TableCell>
+                    <div className="flex gap-1">
+                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(tpl)}><Pencil className="h-3.5 w-3.5" /></Button>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => deleteTpl.mutate(tpl.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+
+        {/* Edit/Create Dialog */}
+        <Dialog open={editOpen} onOpenChange={setEditOpen}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader><DialogTitle>{editingTpl ? 'Edit Template' : 'New Email Template'}</DialogTitle></DialogHeader>
+            <div className="space-y-4 max-h-[60vh] overflow-y-auto">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label>Slug</Label>
+                  <Input value={tplForm.slug} onChange={e => setTplForm(p => ({ ...p, slug: e.target.value }))} placeholder="welcome-email" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Locale</Label>
+                  <Select value={tplForm.locale} onValueChange={v => setTplForm(p => ({ ...p, locale: v }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {LOCALES.map(l => <SelectItem key={l.code} value={l.code}>{l.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              {!editingTpl && (
+                <div className="space-y-1.5">
+                  <Label>Workspace ID</Label>
+                  <Input value={tplForm.workspace_id} onChange={e => setTplForm(p => ({ ...p, workspace_id: e.target.value }))} placeholder="Workspace UUID" />
+                  <p className="text-xs text-muted-foreground">Required for new templates.</p>
+                </div>
+              )}
+              <div className="space-y-1.5">
+                <Label>Subject</Label>
+                <Input value={tplForm.subject} onChange={e => setTplForm(p => ({ ...p, subject: e.target.value }))} placeholder="Welcome to {{platform_name}}" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>HTML Body</Label>
+                <Textarea rows={8} value={tplForm.html_body} onChange={e => setTplForm(p => ({ ...p, html_body: e.target.value }))} placeholder="<h1>Hello {{name}}</h1>" className="font-mono text-xs" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Text Body (optional)</Label>
+                <Textarea rows={3} value={tplForm.text_body} onChange={e => setTplForm(p => ({ ...p, text_body: e.target.value }))} placeholder="Plain text version" className="font-mono text-xs" />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
+              <Button onClick={() => saveTpl.mutate()} disabled={!tplForm.slug || !tplForm.subject || !tplForm.html_body || saveTpl.isPending}>
+                {saveTpl.isPending ? 'Saving...' : 'Save'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </CardContent>
     </Card>
   );
@@ -362,18 +607,22 @@ export default function AdminBrandingPage() {
       <div>
         <h1 className="text-2xl font-bold text-foreground">Platform Branding</h1>
         <p className="text-muted-foreground text-sm mt-1">
-          Default visual identity, localized text, and domain URLs applied to all new workspaces and the public site.
+          Visual identity, localized text, email configuration, and domain URLs — applied globally across the platform.
         </p>
       </div>
 
       <Tabs defaultValue="identity">
-        <TabsList className="w-full justify-start">
+        <TabsList className="w-full justify-start flex-wrap">
           <TabsTrigger value="identity" className="gap-1.5"><Palette className="h-4 w-4" /> Visual Identity</TabsTrigger>
           <TabsTrigger value="localized" className="gap-1.5"><Type className="h-4 w-4" /> Localized Text</TabsTrigger>
+          <TabsTrigger value="email-settings" className="gap-1.5"><Settings2 className="h-4 w-4" /> Email Settings</TabsTrigger>
+          <TabsTrigger value="email-templates" className="gap-1.5"><Mail className="h-4 w-4" /> Email Templates</TabsTrigger>
           <TabsTrigger value="domains" className="gap-1.5"><Link2 className="h-4 w-4" /> Domain URLs</TabsTrigger>
         </TabsList>
         <TabsContent value="identity" className="mt-4"><VisualIdentitySection /></TabsContent>
         <TabsContent value="localized" className="mt-4"><LocalizedBrandingSection /></TabsContent>
+        <TabsContent value="email-settings" className="mt-4"><EmailSettingsSection /></TabsContent>
+        <TabsContent value="email-templates" className="mt-4"><EmailTemplatesSection /></TabsContent>
         <TabsContent value="domains" className="mt-4"><DomainUrlsSection /></TabsContent>
       </Tabs>
     </div>

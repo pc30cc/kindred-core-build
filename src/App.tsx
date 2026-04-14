@@ -9,16 +9,11 @@ import { AuthContextProvider } from "@/features/auth/AuthContext";
 import { RequireAuth } from "@/features/auth/RequireAuth";
 import { RequireAdmin } from "@/features/admin/RequireAdmin";
 import { BrandingGate } from "@/features/branding/BrandingGate";
+import { PlatformBrandingGate } from "@/features/branding/PlatformBrandingGate";
 
-import { PublicLayout } from "@/components/layout/PublicLayout";
 import { AuthLayout } from "@/components/layout/AuthLayout";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { AdminLayout } from "@/components/layout/AdminLayout";
-
-import HomePage from "@/pages/public/HomePage";
-import FeaturesPage from "@/pages/public/FeaturesPage";
-import PricingPage from "@/pages/public/PricingPage";
-import ContactPage from "@/pages/public/ContactPage";
 
 import LoginPage from "@/pages/auth/LoginPage";
 import SignupPage from "@/pages/auth/SignupPage";
@@ -68,18 +63,14 @@ const App = () => (
     <I18nProvider>
       <ProviderContextProvider>
         <AuthContextProvider>
+          <PlatformBrandingGate>
           <TooltipProvider>
           <Toaster />
           <Sonner />
           <BrowserRouter>
             <Routes>
-              {/* Public — branding loaded from anon-accessible workspace_branding */}
-              <Route element={<PublicLayout />}>
-                <Route path="/" element={<HomePage />} />
-                <Route path="/features" element={<FeaturesPage />} />
-                <Route path="/pricing" element={<PricingPage />} />
-                <Route path="/contact" element={<ContactPage />} />
-              </Route>
+              {/* Root redirects to app */}
+              <Route path="/" element={<Navigate to="/app" replace />} />
 
               {/* Auth */}
               <Route element={<AuthLayout />}>
@@ -96,12 +87,12 @@ const App = () => (
                 <RequireAuth><OnboardingPage /></RequireAuth>
               } />
 
-              {/* Admin Bootstrap — requires auth but NOT admin role */}
+              {/* Admin Bootstrap */}
               <Route path="/admin/bootstrap" element={
                 <RequireAuth><AdminBootstrapPage /></RequireAuth>
               } />
 
-              {/* Global Super Admin (protected by RequireAdmin) */}
+              {/* Global Super Admin */}
               <Route element={<RequireAdmin><AdminLayout /></RequireAdmin>}>
                 <Route path="/admin" element={<AdminDashboardPage />} />
                 <Route path="/admin/users" element={<AdminUsersPage />} />
@@ -117,7 +108,7 @@ const App = () => (
                 <Route path="/admin/security" element={<AdminSecurityPage />} />
               </Route>
 
-              {/* App (protected) — BrandingGate auto-loads branding from current workspace */}
+              {/* App (protected) */}
               <Route element={<RequireAuth><BrandingGate><AppLayout /></BrandingGate></RequireAuth>}>
                 <Route path="/app" element={<OverviewPage />} />
                 <Route path="/app/inbox" element={<InboxPage />} />
@@ -141,6 +132,7 @@ const App = () => (
             </Routes>
           </BrowserRouter>
           </TooltipProvider>
+          </PlatformBrandingGate>
         </AuthContextProvider>
       </ProviderContextProvider>
     </I18nProvider>

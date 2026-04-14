@@ -14,6 +14,7 @@ import { cdnRouter } from './routes/cdn.js';
 import { billingRouter } from './routes/billing.js';
 import { adminRouter } from './routes/admin.js';
 import { templatesRouter } from './routes/templates.js';
+import { configRouter } from './routes/config.js';
 import {
   ipBlockMiddleware,
   authRateLimiter,
@@ -82,6 +83,9 @@ app.use('/api/billing', billingRouter);
 // Admin — moderate rate limit
 app.use('/api/admin', adminRateLimiter, adminRouter);
 app.use('/api/admin/templates', adminRateLimiter, templatesRouter);
+
+// Config — runtime config resolution + admin management
+app.use('/api/config', configRouter);
 
 // 404
 app.use((_req, res) => {

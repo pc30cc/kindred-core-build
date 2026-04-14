@@ -214,6 +214,7 @@ const en = {
       security: 'Security',
       backToApp: 'Back to App',
       templates: 'Templates',
+      platformSettings: 'Platform Config',
       controlCenter: 'Platform Control Center',
     },
     database: {

@@ -1,12 +1,12 @@
 // ============================================
 // AUTH EMAIL SENDER — self-hosted
-// Handles verification, password reset, welcome emails
-// using the email_templates table + email service.
-// This replaces Supabase default auth emails.
+// Uses runtime config resolver for all identity.
+// No hardcoded brand names, URLs, or sender info.
 // ============================================
 
 import type { ServerConfig } from '../../config.js';
 import { sendEmail } from './index.js';
+import { resolveConfig, buildTemplateVariables } from '../config/resolver.js';
 import { createClient } from '@supabase/supabase-js';
 
 interface AuthEmailParams {
@@ -19,7 +19,7 @@ interface AuthEmailParams {
 
 /**
  * Send an auth-related email through the self-hosted email system.
- * Uses email_templates table as the single source of truth.
+ * All identity (brand name, sender, URLs) comes from the config resolver.
  */
 export async function sendAuthEmail(
   config: ServerConfig,
@@ -28,29 +28,39 @@ export async function sendAuthEmail(
   const { type, email, locale = 'en', variables, workspaceId } = params;
   const wsId = workspaceId || '00000000-0000-0000-0000-000000000000';
 
+  // Resolve runtime config for identity
+  const resolved = await resolveConfig(config, { workspaceId: wsId !== '00000000-0000-0000-0000-000000000000' ? wsId : undefined, locale });
+  const configVars = buildTemplateVariables(resolved);
+
+  // Merge config variables with auth-specific variables
+  const mergedVars = { ...configVars, ...variables };
+  // Ensure 'brand' variable maps to resolved platform name
+  if (!mergedVars.brand) {
+    mergedVars.brand = resolved.identity.platformName;
+  }
+
   return sendEmail(config, {
     workspaceId: wsId,
     to: email,
     templateSlug: type,
-    templateData: variables,
+    templateData: mergedVars,
     locale,
+    from: `${resolved.email.senderName} <${resolved.email.senderEmail}>`,
   });
 }
 
 /**
  * Generate a custom email verification token and send verification email.
- * This bypasses Supabase's built-in email verification.
  */
 export async function sendVerificationEmail(
   config: ServerConfig,
   userId: string,
   email: string,
   locale: string = 'en',
-  brandName: string = 'Platform'
+  workspaceId?: string
 ) {
   const supabase = createClient(config.supabaseUrl, config.supabaseServiceRoleKey);
 
-  // Generate a verification link using Supabase Admin API
   const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
     type: 'signup',
     email,
@@ -62,8 +72,7 @@ export async function sendVerificationEmail(
   }
 
   const actionUrl = linkData?.properties?.action_link || `${config.supabaseUrl}/auth/v1/verify`;
-  
-  // Get user profile for name
+
   const { data: profile } = await supabase
     .from('profiles')
     .select('full_name')
@@ -76,9 +85,9 @@ export async function sendVerificationEmail(
     type: 'email_verify',
     email,
     locale,
+    workspaceId,
     variables: {
       name,
-      brand: brandName,
       action_url: actionUrl,
       expiry_time: '60',
     },
@@ -92,7 +101,7 @@ export async function sendPasswordResetEmail(
   config: ServerConfig,
   email: string,
   locale: string = 'en',
-  brandName: string = 'Platform'
+  workspaceId?: string
 ) {
   const supabase = createClient(config.supabaseUrl, config.supabaseServiceRoleKey);
 
@@ -108,7 +117,6 @@ export async function sendPasswordResetEmail(
 
   const actionUrl = linkData?.properties?.action_link || '';
 
-  // Get user profile for name
   const { data: user } = await supabase.auth.admin.getUserByEmail(email).catch(() => ({ data: null })) as any;
   const name = user?.user?.user_metadata?.full_name || email.split('@')[0];
 
@@ -116,9 +124,9 @@ export async function sendPasswordResetEmail(
     type: 'password_reset',
     email,
     locale,
+    workspaceId,
     variables: {
       name,
-      brand: brandName,
       action_url: actionUrl,
     },
   });
@@ -132,16 +140,14 @@ export async function sendWelcomeEmail(
   email: string,
   name: string,
   locale: string = 'en',
-  brandName: string = 'Platform'
+  workspaceId?: string
 ) {
   return sendAuthEmail(config, {
     type: 'welcome',
     email,
     locale,
-    variables: {
-      name,
-      brand: brandName,
-    },
+    workspaceId,
+    variables: { name },
   });
 }
 
@@ -153,20 +159,24 @@ export async function sendAdminCreatedUserEmail(
   email: string,
   tempPassword: string,
   locale: string = 'en',
-  brandName: string = 'Platform',
-  loginUrl: string = ''
+  workspaceId?: string,
+  loginUrl?: string
 ) {
+  // Resolve config for login URL
+  const resolved = await resolveConfig(config, { workspaceId, locale });
+  const appBase = resolved.domains.appBaseUrl || '';
+
   const name = email.split('@')[0];
   return sendAuthEmail(config, {
     type: 'admin_created_user',
     email,
     locale,
+    workspaceId,
     variables: {
       name,
-      brand: brandName,
       email,
       temp_password: tempPassword,
-      action_url: loginUrl || `${config.supabaseUrl.replace(/\/+$/, '')}/auth/login`,
+      action_url: loginUrl || `${appBase}/auth/login`,
     },
   });
 }

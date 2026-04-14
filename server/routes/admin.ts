@@ -88,21 +88,9 @@ adminRouter.post('/users/create', async (req, res) => {
     // Send notification email via self-hosted email service
     if (sendNotification !== false) {
       try {
-        // Get brand name
-        const { data: branding } = await admin
-          .from('workspace_branding')
-          .select('platform_name')
-          .limit(1)
-          .maybeSingle();
-        const brandName = branding?.platform_name || 'Platform';
-        const loginUrl = config.corsOrigins?.[0] !== '*' ? `${config.corsOrigins[0]}/auth/login` : '';
-
-        await sendAdminCreatedUserEmail(
-          config, email, password, locale || 'en', brandName, loginUrl
-        );
+        await sendAdminCreatedUserEmail(config, email, password, locale || 'en');
       } catch (emailErr) {
         console.warn('[admin] Failed to send user creation email:', emailErr);
-        // Don't fail the user creation if email fails
       }
     }
 
@@ -118,18 +106,8 @@ adminRouter.post('/users/reset-password', async (req, res) => {
     const { email, locale } = req.body;
     if (!email) return res.status(400).json({ error: 'email is required' });
     const config: ServerConfig = (req as any).serverConfig;
-    const admin = (req as any).supabaseAdmin;
 
-    // Get brand name
-    const { data: branding } = await admin
-      .from('workspace_branding')
-      .select('platform_name')
-      .limit(1)
-      .maybeSingle();
-    const brandName = branding?.platform_name || 'Platform';
-
-    // Send password reset through self-hosted email service
-    const result = await sendPasswordResetEmail(config, email, locale || 'en', brandName);
+    const result = await sendPasswordResetEmail(config, email, locale || 'en');
 
     res.json({ success: result.success, error: result.error });
   } catch (err: any) {

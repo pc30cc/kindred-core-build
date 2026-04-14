@@ -1,7 +1,7 @@
 // ============================================
 // SELF-HOSTED EMAIL SERVICE
 // All email delivery runs through the server runtime.
-// No Supabase Edge Functions in the production email path.
+// No hardcoded sender names or addresses.
 // ============================================
 
 import type { ServerConfig } from '../../config.js';
@@ -35,15 +35,10 @@ export interface SendResult {
   error?: string;
 }
 
-/**
- * Resolve which email provider to use.
- * Priority: workspace override → global default → stub.
- */
 async function resolveProviderConfig(
   supabase: ReturnType<typeof createClient>,
   workspaceId: string
 ): Promise<ProviderConfig | null> {
-  // 1. Workspace-level override
   const { data: wsConfig } = await supabase
     .from('provider_configs')
     .select('provider_name, config')
@@ -54,7 +49,6 @@ async function resolveProviderConfig(
 
   if (wsConfig) return wsConfig as ProviderConfig;
 
-  // 2. Global default from app_runtime_config
   const { data: globalConfig } = await supabase
     .from('app_runtime_config')
     .select('value')
@@ -66,9 +60,6 @@ async function resolveProviderConfig(
   return null;
 }
 
-/**
- * Resolve email template by slug + locale, with fallback to 'en'.
- */
 async function resolveTemplate(
   supabase: ReturnType<typeof createClient>,
   workspaceId: string,
@@ -85,7 +76,6 @@ async function resolveTemplate(
 
   if (template) return template;
 
-  // Fallback to 'en'
   if (locale !== 'en') {
     const { data: fallback } = await supabase
       .from('email_templates')
@@ -101,12 +91,12 @@ async function resolveTemplate(
 }
 
 /**
- * Interpolate {{key}} variables in a string.
+ * Interpolate {{key}} and {{dotted.key}} variables in a string.
  */
 function interpolate(text: string, data: Record<string, string>): string {
   let result = text;
   for (const [key, value] of Object.entries(data)) {
-    result = result.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value);
+    result = result.replace(new RegExp(`\\{\\{${key.replace(/\./g, '\\.')}\\}\\}`, 'g'), value);
   }
   return result;
 }
@@ -114,7 +104,6 @@ function interpolate(text: string, data: Record<string, string>): string {
 /**
  * Main email sending function.
  * Resolves provider, template, and sends email.
- * Logs all delivery attempts to email_logs.
  */
 export async function sendEmail(
   config: ServerConfig,
@@ -128,11 +117,9 @@ export async function sendEmail(
     return { success: false, provider: 'none', error: 'workspaceId and to are required' };
   }
 
-  // --- Resolve provider config ---
   const providerConfig = await resolveProviderConfig(supabase, workspaceId);
   const providerName = providerConfig?.provider_name || 'stub';
 
-  // --- Resolve template if slug provided ---
   let subject = request.subject || '';
   let html = request.html || '';
   let text = request.text || '';
@@ -156,7 +143,8 @@ export async function sendEmail(
     return { success: false, provider: providerName, error: 'No subject/body provided and template not found' };
   }
 
-  // --- Resolve from address ---
+  // Resolve from address: use request.from (set by auth-sender with resolved config),
+  // then provider config, then safe fallback
   if (!fromAddr && providerConfig?.config) {
     const cfg = providerConfig.config as Record<string, string>;
     const name = cfg.from_name || 'Platform';
@@ -164,7 +152,6 @@ export async function sendEmail(
     fromAddr = `${name} <${email}>`;
   }
 
-  // --- Send via resolved provider ---
   let result: SendResult;
 
   switch (providerName) {
@@ -185,7 +172,6 @@ export async function sendEmail(
       result = { success: false, provider: providerName, error: `Unknown provider: ${providerName}` };
   }
 
-  // --- Log delivery attempt ---
   await supabase.from('email_logs').insert({
     workspace_id: workspaceId,
     template_slug: templateSlug || null,

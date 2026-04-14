@@ -216,6 +216,7 @@ const fa: TranslationKeys = {
       security: 'امنیت',
       backToApp: 'بازگشت به پنل',
       templates: 'قالب‌ها',
+      platformSettings: 'تنظیمات پلتفرم',
       controlCenter: 'مرکز کنترل پلتفرم',
     },
     database: {

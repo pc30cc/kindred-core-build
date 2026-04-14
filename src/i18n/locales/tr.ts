@@ -216,6 +216,7 @@ const tr: TranslationKeys = {
       security: 'Güvenlik',
       backToApp: 'Uygulamaya Dön',
       templates: 'Şablonlar',
+      platformSettings: 'Platform Ayarları',
       controlCenter: 'Platform Kontrol Merkezi',
     },
     database: {

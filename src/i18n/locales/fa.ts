@@ -215,6 +215,7 @@ const fa: TranslationKeys = {
       database: 'دیتابیس',
       security: 'امنیت',
       backToApp: 'بازگشت به پنل',
+      templates: 'قالب‌ها',
       controlCenter: 'مرکز کنترل پلتفرم',
     },
     database: {

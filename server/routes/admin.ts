@@ -2,11 +2,13 @@
 // ADMIN USER & ROLE MANAGEMENT — self-hosted backend only
 // All admin operations use the service role key server-side.
 // NO Edge Functions in this path.
+// Auth emails sent via self-hosted email service.
 // ============================================
 
 import { Router } from 'express';
 import { createClient } from '@supabase/supabase-js';
 import type { ServerConfig } from '../config.js';
+import { sendAdminCreatedUserEmail, sendPasswordResetEmail, sendVerificationEmail } from '../services/email/auth-sender.js';
 
 export const adminRouter = Router();
 
@@ -71,8 +73,9 @@ adminRouter.post('/users/list', async (req, res) => {
 // ─── Create User ─────────────────────────────────────────────────
 adminRouter.post('/users/create', async (req, res) => {
   try {
-    const { email, password, fullName, emailConfirm } = req.body;
+    const { email, password, fullName, emailConfirm, sendNotification, locale } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'email and password are required' });
+    const config: ServerConfig = (req as any).serverConfig;
     const admin = (req as any).supabaseAdmin;
     const { data, error } = await admin.auth.admin.createUser({
       email,
@@ -81,21 +84,54 @@ adminRouter.post('/users/create', async (req, res) => {
       user_metadata: { full_name: fullName || '' },
     });
     if (error) throw error;
+
+    // Send notification email via self-hosted email service
+    if (sendNotification !== false) {
+      try {
+        // Get brand name
+        const { data: branding } = await admin
+          .from('workspace_branding')
+          .select('platform_name')
+          .limit(1)
+          .maybeSingle();
+        const brandName = branding?.platform_name || 'Platform';
+        const loginUrl = config.corsOrigins?.[0] !== '*' ? `${config.corsOrigins[0]}/auth/login` : '';
+
+        await sendAdminCreatedUserEmail(
+          config, email, password, locale || 'en', brandName, loginUrl
+        );
+      } catch (emailErr) {
+        console.warn('[admin] Failed to send user creation email:', emailErr);
+        // Don't fail the user creation if email fails
+      }
+    }
+
     res.json({ success: true, user: { id: data.user.id, email: data.user.email } });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   }
 });
 
-// ─── Reset Password (generate link) ─────────────────────────────
+// ─── Reset Password (generate link + send email) ────────────────
 adminRouter.post('/users/reset-password', async (req, res) => {
   try {
-    const { email } = req.body;
+    const { email, locale } = req.body;
     if (!email) return res.status(400).json({ error: 'email is required' });
+    const config: ServerConfig = (req as any).serverConfig;
     const admin = (req as any).supabaseAdmin;
-    const { data, error } = await admin.auth.admin.generateLink({ type: 'recovery', email });
-    if (error) throw error;
-    res.json({ success: true, link: data?.properties?.action_link });
+
+    // Get brand name
+    const { data: branding } = await admin
+      .from('workspace_branding')
+      .select('platform_name')
+      .limit(1)
+      .maybeSingle();
+    const brandName = branding?.platform_name || 'Platform';
+
+    // Send password reset through self-hosted email service
+    const result = await sendPasswordResetEmail(config, email, locale || 'en', brandName);
+
+    res.json({ success: result.success, error: result.error });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   }

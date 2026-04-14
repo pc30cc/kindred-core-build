@@ -59,6 +59,7 @@ import AdminSecurityPage from "@/pages/admin/SecurityPage";
 import AdminDatabasePage from "@/pages/admin/DatabasePage";
 import AdminRolesPage from "@/pages/admin/RolesPage";
 import AdminBootstrapPage from "@/pages/admin/BootstrapPage";
+import AdminTemplatesPage from "@/pages/admin/TemplatesPage";
 
 import NotFound from "@/pages/NotFound";
 
@@ -117,6 +118,7 @@ const App = () => (
                 <Route path="/admin/billing" element={<AdminBillingPage />} />
                 <Route path="/admin/database" element={<AdminDatabasePage />} />
                 <Route path="/admin/security" element={<AdminSecurityPage />} />
+                <Route path="/admin/templates" element={<AdminTemplatesPage />} />
               </Route>
 
               {/* App (protected) — BrandingGate auto-loads branding from current workspace */}

@@ -213,6 +213,7 @@ const en = {
       database: 'Database',
       security: 'Security',
       backToApp: 'Back to App',
+      templates: 'Templates',
       controlCenter: 'Platform Control Center',
     },
     database: {

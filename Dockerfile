@@ -32,7 +32,6 @@ ENV VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
 ENV VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY}
 ENV VITE_SUPABASE_PUBLISHABLE_KEY=${VITE_SUPABASE_PUBLISHABLE_KEY}
 COPY --from=frontend-build /app/dist /usr/share/nginx/html
-COPY --from=frontend-build /app/.env /app/.env
 COPY --from=server-build /app/server/dist /app/server/dist
 COPY --from=server-build /app/server/node_modules /app/server/node_modules
 COPY nginx.conf /etc/nginx/conf.d/default.conf

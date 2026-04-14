@@ -118,7 +118,8 @@ authSecurityRouter.post('/login', authRateLimiter, async (req, res) => {
     // Record attempt (will be marked success/fail after result)
     // Use Supabase client to verify credentials
     const sb = getServiceClient(config);
-    const { data: loginData, error: loginError } = await sb.auth.admin.getUserByEmail(email);
+    const { data: listData, error: loginError } = await sb.auth.admin.listUsers();
+    const loginUser = listData?.users?.find(u => u.email === email) ?? null;
 
     // We don't actually perform login here — the frontend does via Supabase SDK
     // This endpoint validates brute force + captcha, then returns clearance

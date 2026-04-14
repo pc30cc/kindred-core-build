@@ -8,6 +8,7 @@ import type { ServerConfig } from '../../config.js';
 import { sendEmail } from './index.js';
 import { resolveConfig, buildTemplateVariables } from '../config/resolver.js';
 import { createClient } from '@supabase/supabase-js';
+import * as crypto from 'crypto';
 
 interface AuthEmailParams {
   type: 'email_verify' | 'password_reset' | 'magic_link' | 'welcome' | 'invite_member' | 'admin_created_user';

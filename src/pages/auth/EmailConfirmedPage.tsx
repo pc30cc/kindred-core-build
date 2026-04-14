@@ -22,37 +22,20 @@ export default function EmailConfirmedPage() {
     const token = searchParams.get('token');
 
     const verify = async () => {
-      if (token) {
-        // Custom token verification via configured provider
-        try {
-          const result = await verifyEmailToken(token);
-          if (result.success) {
-            setStatus('success');
-            return;
-          }
-        } catch {
-          setStatus('error');
-          return;
-        }
-      }
-
-      // Fallback: check if session exists (Supabase built-in flow)
-      if (session) {
-        setStatus('success');
+      if (!token) {
+        setStatus('error');
         return;
       }
-      await new Promise(r => setTimeout(r, 2000));
-      setStatus(session ? 'success' : 'error');
+      try {
+        const result = await verifyEmailToken(token);
+        setStatus(result.success ? 'success' : 'error');
+      } catch {
+        setStatus('error');
+      }
     };
 
     verify();
-  }, [searchParams, session]);
-
-  useEffect(() => {
-    if (session && status === 'loading') {
-      setStatus('success');
-    }
-  }, [session, status]);
+  }, [searchParams]);
 
   const NavArrow = isRtl ? ArrowLeft : ArrowRight;
 

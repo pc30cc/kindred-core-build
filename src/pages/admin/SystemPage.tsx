@@ -8,18 +8,18 @@ export default function AdminSystemPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">System Overview</h1>
+      <h1 className="text-2xl font-bold text-admin-foreground">System Overview</h1>
 
       <div className="grid gap-4 md:grid-cols-2">
-        <Card className="bg-slate-900 border-slate-800">
+        <Card className="bg-admin-card border-admin-border">
           <CardHeader>
-            <CardTitle className="text-white text-sm">System Health</CardTitle>
+            <CardTitle className="text-admin-foreground text-sm">System Health</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             {['Database', 'Auth Service', 'Realtime', 'Storage', 'Edge Functions'].map(s => (
               <div key={s} className="flex items-center justify-between">
-                <span className="text-slate-300 text-sm">{s}</span>
-                <Badge className="bg-green-900 text-green-300 gap-1">
+                <span className="text-admin-muted-foreground text-sm">{s}</span>
+                <Badge className="bg-success/20 text-success gap-1">
                   <CheckCircle className="h-3 w-3" /> Healthy
                 </Badge>
               </div>
@@ -27,16 +27,16 @@ export default function AdminSystemPage() {
           </CardContent>
         </Card>
 
-        <Card className="bg-slate-900 border-slate-800">
+        <Card className="bg-admin-card border-admin-border">
           <CardHeader>
-            <CardTitle className="text-white text-sm">Runtime Configuration</CardTitle>
+            <CardTitle className="text-admin-foreground text-sm">Runtime Configuration</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-            {config?.length === 0 && <p className="text-slate-500 text-sm">No runtime config entries</p>}
+            {config?.length === 0 && <p className="text-admin-muted-foreground text-sm">No runtime config entries</p>}
             {config?.map(c => (
               <div key={c.key} className="flex items-center justify-between">
-                <span className="text-slate-300 font-mono text-sm">{c.key}</span>
-                <span className="text-slate-400 text-xs truncate max-w-[200px]">
+                <span className="text-admin-muted-foreground font-mono text-sm">{c.key}</span>
+                <span className="text-admin-muted-foreground text-xs truncate max-w-[200px]">
                   {JSON.stringify(c.value)}
                 </span>
               </div>

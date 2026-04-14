@@ -39,17 +39,17 @@ export function AdminSidebar() {
     <aside
       className={cn(
         'flex h-screen flex-col border-e transition-all duration-200',
-        'bg-slate-900 text-slate-200 border-slate-700',
+        'bg-admin-sidebar text-admin-sidebar-foreground border-admin-border',
         collapsed ? 'w-16' : 'w-60'
       )}
     >
-      <div className="flex h-14 items-center justify-between px-4 border-b border-slate-700">
+      <div className="flex h-14 items-center justify-between px-4 border-b border-admin-border">
         {!collapsed && (
-          <span className="text-sm font-bold tracking-wide text-red-400 uppercase">
+          <span className="text-sm font-bold tracking-wide text-admin-accent uppercase">
             Super Admin
           </span>
         )}
-        <button onClick={() => setCollapsed(!collapsed)} className="p-1 rounded hover:bg-slate-800">
+        <button onClick={() => setCollapsed(!collapsed)} className="p-1 rounded hover:bg-admin-sidebar-hover">
           {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
         </button>
       </div>
@@ -62,8 +62,8 @@ export function AdminSidebar() {
             className={cn(
               'flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
               isActive(item.path)
-                ? 'bg-slate-700 text-white font-medium'
-                : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                ? 'bg-admin-sidebar-active text-admin-foreground font-medium'
+                : 'text-admin-muted-foreground hover:bg-admin-sidebar-hover hover:text-admin-foreground'
             )}
           >
             <item.icon className="h-4 w-4 shrink-0" />
@@ -72,10 +72,10 @@ export function AdminSidebar() {
         ))}
       </nav>
 
-      <div className="border-t border-slate-700 p-2 space-y-1">
+      <div className="border-t border-admin-border p-2 space-y-1">
         <Link
           to="/app"
-          className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
+          className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-admin-muted-foreground hover:bg-admin-sidebar-hover hover:text-admin-foreground transition-colors"
         >
           <ArrowLeft className="h-4 w-4 shrink-0" />
           {!collapsed && <span>Back to App</span>}
@@ -83,7 +83,7 @@ export function AdminSidebar() {
         <Button
           variant="ghost"
           size="sm"
-          className="w-full justify-start gap-3 text-slate-400 hover:text-white hover:bg-slate-800"
+          className="w-full justify-start gap-3 text-admin-muted-foreground hover:text-admin-foreground hover:bg-admin-sidebar-hover"
           onClick={signOut}
         >
           <LogOut className="h-4 w-4 shrink-0" />

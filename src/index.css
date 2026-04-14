@@ -55,6 +55,22 @@
 
     --surface-elevated: 0 0% 100%;
     --surface-sunken: 210 40% 98%;
+
+    /* Admin panel tokens */
+    --admin-background: 225 14% 11%;
+    --admin-foreground: 220 10% 90%;
+    --admin-card: 225 12% 14%;
+    --admin-card-foreground: 220 10% 90%;
+    --admin-border: 225 8% 20%;
+    --admin-input: 225 8% 22%;
+    --admin-muted: 225 9% 17%;
+    --admin-muted-foreground: 220 6% 64%;
+    --admin-sidebar: 225 14% 9%;
+    --admin-sidebar-foreground: 220 6% 68%;
+    --admin-sidebar-active: 225 10% 15%;
+    --admin-sidebar-hover: 225 10% 15%;
+    --admin-accent: 174 50% 44%;
+    --admin-accent-foreground: 225 15% 6%;
   }
 
   .dark {

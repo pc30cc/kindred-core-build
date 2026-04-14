@@ -130,9 +130,10 @@ export function AdminProviderCard({ type }: AdminProviderCardProps) {
   // Resolution chain
   const resolutionChain = providerRegistry.getResolutionChain(type);
 
-  // Determine card status — active if configured OR has an effective (built-in) provider
+  // Determine card status — active if admin-configured OR has a real (non-stub) active provider
   const hasGlobalDefault = !!globalConfig?.provider_name;
-  const isActive = hasGlobalDefault || !!effectiveName;
+  const hasActiveProvider = !!activeName;
+  const isActive = hasGlobalDefault || hasActiveProvider;
   const statusColor = isActive
     ? 'border-admin-accent/30'
     : providers.some(p => p.meta?.builtIn) ? 'border-admin-border' : 'border-amber-500/30';

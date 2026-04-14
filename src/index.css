@@ -138,6 +138,10 @@
   --card-foreground: var(--admin-card-foreground);
   --popover: var(--admin-card);
   --popover-foreground: var(--admin-card-foreground);
+  --primary: var(--admin-accent);
+  --primary-foreground: var(--admin-accent-foreground);
+  --secondary: var(--admin-muted);
+  --secondary-foreground: var(--admin-foreground);
   --muted: var(--admin-muted);
   --muted-foreground: var(--admin-muted-foreground);
   --accent: var(--admin-sidebar-active);

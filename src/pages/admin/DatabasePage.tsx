@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
+import { cn } from '@/lib/utils';
 import {
   Database, Download, Clock, HardDrive,
   Cloud, Server, FolderSync, CalendarDays, CalendarRange,
@@ -34,7 +35,8 @@ const mockBackups: BackupRecord[] = [
 ];
 
 function BackupTab() {
-  const { t } = useTranslation();
+  const { t, dir } = useTranslation();
+  const isRtl = dir === 'rtl';
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [autoEnabled, setAutoEnabled] = useState(false);
   const [schedule, setSchedule] = useState('daily');
@@ -72,19 +74,19 @@ function BackupTab() {
     d === 'cdn' ? 'CDN' : d === 'ftp' ? 'FTP' : t('admin.database.local');
 
   return (
-    <div className="space-y-6">
+    <div dir={dir} className="space-y-6 text-start">
       <Card className="bg-card border-border">
         <CardHeader>
-          <CardTitle className="text-foreground text-sm flex items-center gap-2">
+          <CardTitle className={cn('text-foreground text-sm flex items-center gap-2', isRtl && 'flex-row-reverse justify-end')}>
             <Download className="h-4 w-4" />
             {t('admin.database.manualBackup')}
           </CardTitle>
-          <CardDescription className="text-muted-foreground">{t('admin.database.manualBackupDesc')}</CardDescription>
+          <CardDescription className="text-muted-foreground text-start">{t('admin.database.manualBackupDesc')}</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center gap-4">
+          <div className={cn('flex gap-4', isRtl ? 'flex-col sm:flex-row-reverse sm:items-center' : 'flex-col sm:flex-row sm:items-center')}>
             <Select value={destination} onValueChange={setDestination}>
-              <SelectTrigger className="w-48 bg-input border-border text-foreground">
+              <SelectTrigger className="w-full sm:w-48 bg-input border-border text-foreground [&>span]:text-start">
                 <SelectValue placeholder={t('admin.database.destination')} />
               </SelectTrigger>
               <SelectContent>
@@ -93,7 +95,7 @@ function BackupTab() {
                 <SelectItem value="ftp">{t('admin.database.privateFtp')}</SelectItem>
               </SelectContent>
             </Select>
-            <Button onClick={handleManualBackup} disabled={isBackingUp} className="gap-2">
+            <Button onClick={handleManualBackup} disabled={isBackingUp} className={cn('gap-2', isRtl && 'flex-row-reverse')}>
               {isBackingUp ? (
                 <><Loader2 className="h-4 w-4 animate-spin" /> {t('admin.database.backingUp')}</>
               ) : (
@@ -106,15 +108,15 @@ function BackupTab() {
 
       <Card className="bg-card border-border">
         <CardHeader>
-          <CardTitle className="text-foreground text-sm flex items-center gap-2">
+          <CardTitle className={cn('text-foreground text-sm flex items-center gap-2', isRtl && 'flex-row-reverse justify-end')}>
             <Clock className="h-4 w-4" />
             {t('admin.database.autoBackup')}
           </CardTitle>
-          <CardDescription className="text-muted-foreground">{t('admin.database.autoBackupDesc')}</CardDescription>
+          <CardDescription className="text-muted-foreground text-start">{t('admin.database.autoBackupDesc')}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div className="flex items-center justify-between">
-            <div>
+          <div className={cn('flex items-center justify-between gap-4', isRtl && 'flex-row-reverse')}>
+            <div className="text-start">
               <p className="text-sm text-foreground">{t('admin.database.enableAutoBackup')}</p>
               <p className="text-xs text-muted-foreground">{t('admin.database.autoBackupHint')}</p>
             </div>
@@ -126,8 +128,8 @@ function BackupTab() {
               <Separator className="bg-background-border" />
 
               <div className="space-y-2">
-                <Label className="text-muted-foreground">{t('admin.database.schedule')}</Label>
-                <div className="flex gap-2">
+                <Label className="text-muted-foreground text-start">{t('admin.database.schedule')}</Label>
+                <div className={cn('flex flex-wrap gap-2', isRtl && 'flex-row-reverse')}>
                   {([
                     { value: 'daily', label: t('admin.database.daily'), icon: CalendarDays },
                     { value: 'weekly', label: t('admin.database.weekly'), icon: CalendarRange },
@@ -138,7 +140,7 @@ function BackupTab() {
                       variant={schedule === s.value ? 'default' : 'outline'}
                       size="sm"
                       onClick={() => setSchedule(s.value)}
-                      className="gap-1.5"
+                      className={cn('gap-1.5', isRtl && 'flex-row-reverse')}
                     >
                       <s.icon className="h-3.5 w-3.5" />
                       {s.label}
@@ -148,30 +150,30 @@ function BackupTab() {
               </div>
 
               <div className="space-y-2">
-                <Label className="text-muted-foreground">{t('admin.database.destination')}</Label>
+                <Label className="text-muted-foreground text-start">{t('admin.database.destination')}</Label>
                 <Select value={destination} onValueChange={setDestination}>
-                  <SelectTrigger className="bg-input border-border text-foreground">
+                  <SelectTrigger className="bg-input border-border text-foreground [&>span]:text-start">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="cdn">
-                      <span className="flex items-center gap-2"><Cloud className="h-3.5 w-3.5" /> {t('admin.database.cdnProvider')}</span>
+                      <span className={cn('flex items-center gap-2', isRtl && 'flex-row-reverse justify-end')}><Cloud className="h-3.5 w-3.5" /> {t('admin.database.cdnProvider')}</span>
                     </SelectItem>
                     <SelectItem value="ftp">
-                      <span className="flex items-center gap-2"><Server className="h-3.5 w-3.5" /> {t('admin.database.privateFtp')}</span>
+                      <span className={cn('flex items-center gap-2', isRtl && 'flex-row-reverse justify-end')}><Server className="h-3.5 w-3.5" /> {t('admin.database.privateFtp')}</span>
                     </SelectItem>
                     <SelectItem value="local">
-                      <span className="flex items-center gap-2"><HardDrive className="h-3.5 w-3.5" /> {t('admin.database.local')}</span>
+                      <span className={cn('flex items-center gap-2', isRtl && 'flex-row-reverse justify-end')}><HardDrive className="h-3.5 w-3.5" /> {t('admin.database.local')}</span>
                     </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
               {destination === 'cdn' && (
-                <div className="space-y-3 rounded-md border border-border p-4">
+                <div className="space-y-3 rounded-md border border-border p-4 text-start">
                   <p className="text-xs text-muted-foreground font-medium">{t('admin.database.cdnProvider')}</p>
                   <Select value={cdnProvider} onValueChange={setCdnProvider}>
-                    <SelectTrigger className="bg-input border-border text-foreground">
+                    <SelectTrigger className="bg-input border-border text-foreground [&>span]:text-start">
                       <SelectValue placeholder={t('admin.database.selectCdnProvider')} />
                     </SelectTrigger>
                     <SelectContent>
@@ -186,39 +188,39 @@ function BackupTab() {
               )}
 
               {destination === 'ftp' && (
-                <div className="space-y-3 rounded-md border border-border p-4">
+                <div className="space-y-3 rounded-md border border-border p-4 text-start">
                   <p className="text-xs text-muted-foreground font-medium">{t('admin.database.ftpSettings')}</p>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                     <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">{t('admin.database.host')}</Label>
-                      <Input value={ftpHost} onChange={e => setFtpHost(e.target.value)} placeholder="ftp.example.com" className="bg-input border-border text-foreground" />
+                      <Label className="text-xs text-muted-foreground text-start">{t('admin.database.host')}</Label>
+                      <Input value={ftpHost} onChange={e => setFtpHost(e.target.value)} placeholder="ftp.example.com" className="bg-input border-border text-foreground text-start" />
                     </div>
                     <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">{t('admin.database.port')}</Label>
-                      <Input value={ftpPort} onChange={e => setFtpPort(e.target.value)} placeholder="21" className="bg-input border-border text-foreground" />
+                      <Label className="text-xs text-muted-foreground text-start">{t('admin.database.port')}</Label>
+                      <Input value={ftpPort} onChange={e => setFtpPort(e.target.value)} placeholder="21" className="bg-input border-border text-foreground text-start" />
                     </div>
                     <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">{t('admin.database.username')}</Label>
-                      <Input value={ftpUser} onChange={e => setFtpUser(e.target.value)} placeholder="backup_user" className="bg-input border-border text-foreground" />
+                      <Label className="text-xs text-muted-foreground text-start">{t('admin.database.username')}</Label>
+                      <Input value={ftpUser} onChange={e => setFtpUser(e.target.value)} placeholder="backup_user" className="bg-input border-border text-foreground text-start" />
                     </div>
                     <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">{t('admin.database.password')}</Label>
-                      <Input type="password" value={ftpPass} onChange={e => setFtpPass(e.target.value)} className="bg-input border-border text-foreground" />
+                      <Label className="text-xs text-muted-foreground text-start">{t('admin.database.password')}</Label>
+                      <Input type="password" value={ftpPass} onChange={e => setFtpPass(e.target.value)} className="bg-input border-border text-foreground text-start" />
                     </div>
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">{t('admin.database.savePath')}</Label>
-                    <Input value={ftpPath} onChange={e => setFtpPath(e.target.value)} className="bg-input border-border text-foreground" />
+                    <Label className="text-xs text-muted-foreground text-start">{t('admin.database.savePath')}</Label>
+                    <Input value={ftpPath} onChange={e => setFtpPath(e.target.value)} className="bg-input border-border text-foreground text-start" />
                   </div>
                 </div>
               )}
 
               <div className="space-y-2">
-                <Label className="text-muted-foreground">{t('admin.database.retentionDays')}</Label>
-                <Input type="number" value={retentionDays} onChange={e => setRetentionDays(e.target.value)} className="w-32 bg-input border-border text-foreground" />
+                <Label className="text-muted-foreground text-start">{t('admin.database.retentionDays')}</Label>
+                <Input type="number" value={retentionDays} onChange={e => setRetentionDays(e.target.value)} className="w-32 bg-input border-border text-foreground text-start" />
               </div>
 
-              <Button onClick={handleSaveAutoConfig} className="gap-2">
+              <Button onClick={handleSaveAutoConfig} className={cn('gap-2', isRtl && 'flex-row-reverse')}>
                 <CheckCircle className="h-4 w-4" />
                 {t('admin.database.saveSettings')}
               </Button>
@@ -229,7 +231,7 @@ function BackupTab() {
 
       <Card className="bg-card border-border">
         <CardHeader>
-          <CardTitle className="text-foreground text-sm flex items-center gap-2">
+          <CardTitle className={cn('text-foreground text-sm flex items-center gap-2', isRtl && 'flex-row-reverse justify-end')}>
             <HardDrive className="h-4 w-4" />
             {t('admin.database.backupHistory')}
           </CardTitle>
@@ -237,9 +239,15 @@ function BackupTab() {
         <CardContent>
           <div className="space-y-2">
             {mockBackups.map(b => (
-              <div key={b.id} className="flex items-center justify-between rounded-md border border-border px-4 py-3">
-                <div className="flex items-center gap-3">
-                  <Database className="h-4 w-4 text-muted-foreground" />
+              <div
+                key={b.id}
+                className={cn(
+                  'flex flex-col gap-3 rounded-md border border-border px-4 py-3 lg:flex-row lg:items-center lg:justify-between',
+                  isRtl && 'lg:flex-row-reverse',
+                )}
+              >
+                <div className={cn('flex items-center gap-3 text-start', isRtl && 'flex-row-reverse')}>
+                  <Database className="h-4 w-4 text-muted-foreground shrink-0" />
                   <div>
                     <p className="text-sm text-foreground font-mono">{b.name}</p>
                     <p className="text-xs text-muted-foreground">
@@ -247,7 +255,7 @@ function BackupTab() {
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className={cn('flex flex-wrap items-center gap-2', isRtl && 'flex-row-reverse')}>
                   <Badge className={statusColor(b.status)}>{statusLabel(b.status)}</Badge>
                   <Badge variant="outline" className="text-muted-foreground border-border">
                     {b.type === 'manual' ? t('admin.database.manual') : t('admin.database.scheduled')}
@@ -269,26 +277,27 @@ function BackupTab() {
 }
 
 function MigrationTab() {
-  const { t } = useTranslation();
+  const { t, dir } = useTranslation();
+  const isRtl = dir === 'rtl';
 
   return (
-    <div className="space-y-6">
+    <div dir={dir} className="space-y-6 text-start">
       <Card className="bg-card border-border">
         <CardHeader>
-          <CardTitle className="text-foreground text-sm flex items-center gap-2">
+          <CardTitle className={cn('text-foreground text-sm flex items-center gap-2', isRtl && 'flex-row-reverse justify-end')}>
             <ArrowRightLeft className="h-4 w-4" />
             {t('admin.database.migrationTitle')}
           </CardTitle>
-          <CardDescription className="text-muted-foreground">{t('admin.database.migrationDesc')}</CardDescription>
+          <CardDescription className="text-muted-foreground text-start">{t('admin.database.migrationDesc')}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div className="space-y-3 rounded-md border border-border p-4">
+          <div className="space-y-3 rounded-md border border-border p-4 text-start">
             <p className="text-xs font-medium text-muted-foreground">{t('admin.database.sourceDb')}</p>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               {['Host', 'Port', 'Database', 'User'].map(field => (
                 <div key={field} className="space-y-1">
-                  <Label className="text-xs text-muted-foreground">{field}</Label>
-                  <Input placeholder={field.toLowerCase()} className="bg-input border-border text-foreground" disabled />
+                  <Label className="text-xs text-muted-foreground text-start">{field}</Label>
+                  <Input placeholder={field.toLowerCase()} className="bg-input border-border text-foreground text-start" disabled />
                 </div>
               ))}
             </div>
@@ -298,24 +307,24 @@ function MigrationTab() {
             <ArrowRightLeft className="h-6 w-6 text-muted-foreground" />
           </div>
 
-          <div className="space-y-3 rounded-md border border-border p-4">
+          <div className="space-y-3 rounded-md border border-border p-4 text-start">
             <p className="text-xs font-medium text-muted-foreground">{t('admin.database.targetDb')}</p>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               {['Host', 'Port', 'Database', 'User'].map(field => (
                 <div key={field} className="space-y-1">
-                  <Label className="text-xs text-muted-foreground">{field}</Label>
-                  <Input placeholder={field.toLowerCase()} className="bg-input border-border text-foreground" disabled />
+                  <Label className="text-xs text-muted-foreground text-start">{field}</Label>
+                  <Input placeholder={field.toLowerCase()} className="bg-input border-border text-foreground text-start" disabled />
                 </div>
               ))}
             </div>
           </div>
 
-          <div className="flex items-center gap-3 rounded-md border border-warning/30 bg-warning/5 p-3">
+          <div className={cn('flex items-center gap-3 rounded-md border border-warning/30 bg-warning/5 p-3 text-start', isRtl && 'flex-row-reverse')}>
             <AlertCircle className="h-5 w-5 text-warning shrink-0" />
             <p className="text-xs text-warning">{t('admin.database.migrationPending')}</p>
           </div>
 
-          <Button disabled className="gap-2">
+          <Button disabled className={cn('gap-2', isRtl && 'flex-row-reverse')}>
             <FolderSync className="h-4 w-4" />
             {t('admin.database.startMigration')}
           </Button>
@@ -326,22 +335,23 @@ function MigrationTab() {
 }
 
 export default function AdminDatabasePage() {
-  const { t } = useTranslation();
+  const { t, dir } = useTranslation();
+  const isRtl = dir === 'rtl';
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-3">
+    <div dir={dir} className="space-y-6 text-start">
+      <div className={cn('flex items-center gap-3', isRtl && 'flex-row-reverse justify-end')}>
         <Database className="h-6 w-6 text-admin-accent" />
         <h1 className="text-2xl font-bold text-foreground">{t('admin.database.title')}</h1>
       </div>
 
-      <Tabs defaultValue="backup">
-        <TabsList className="bg-muted">
-          <TabsTrigger value="backup" className="gap-1.5 data-[state=active]:bg-sidebar-accent data-[state=active]:text-foreground">
+      <Tabs defaultValue="backup" dir={dir}>
+        <TabsList className={cn('bg-muted', isRtl && 'flex-row-reverse')}>
+          <TabsTrigger value="backup" className={cn('gap-1.5 data-[state=active]:bg-sidebar-accent data-[state=active]:text-foreground', isRtl && 'flex-row-reverse')}>
             <Download className="h-3.5 w-3.5" />
             {t('admin.database.backupTab')}
           </TabsTrigger>
-          <TabsTrigger value="migration" className="gap-1.5 data-[state=active]:bg-sidebar-accent data-[state=active]:text-foreground">
+          <TabsTrigger value="migration" className={cn('gap-1.5 data-[state=active]:bg-sidebar-accent data-[state=active]:text-foreground', isRtl && 'flex-row-reverse')}>
             <ArrowRightLeft className="h-3.5 w-3.5" />
             {t('admin.database.migrationTab')}
           </TabsTrigger>

@@ -6,11 +6,11 @@ import type { Locale } from '@/i18n/config';
 import { SUPPORTED_LOCALES, LOCALE_CONFIG } from '@/i18n/config';
 
 export function AdminLayout() {
-  const { locale, setLocale } = useI18n();
+  const { locale, dir, setLocale } = useI18n();
   const { t } = useTranslation();
 
   return (
-    <div className="panel-scope flex h-screen overflow-hidden bg-background text-foreground">
+    <div dir={dir} className="panel-scope flex h-screen overflow-hidden bg-background text-foreground">
       <AdminSidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
         <header className="flex h-14 items-center justify-between border-b border-border px-6">

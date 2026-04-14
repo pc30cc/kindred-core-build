@@ -19,37 +19,37 @@ export default function AdminDomainsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Domains</h1>
-      <p className="text-slate-400 text-sm">All custom domains registered across all workspaces.</p>
+      <h1 className="text-2xl font-bold text-admin-foreground">Domains</h1>
+      <p className="text-admin-muted-foreground text-sm">All custom domains registered across all workspaces.</p>
 
-      <Card className="bg-slate-900 border-slate-800">
+      <Card className="bg-admin-card border-admin-border">
         <CardContent className="p-0">
           <Table>
             <TableHeader>
-              <TableRow className="border-slate-800">
-                <TableHead className="text-slate-400">Domain</TableHead>
-                <TableHead className="text-slate-400">Workspace</TableHead>
-                <TableHead className="text-slate-400">Verified</TableHead>
-                <TableHead className="text-slate-400">Primary</TableHead>
+              <TableRow className="border-admin-border">
+                <TableHead className="text-admin-muted-foreground">Domain</TableHead>
+                <TableHead className="text-admin-muted-foreground">Workspace</TableHead>
+                <TableHead className="text-admin-muted-foreground">Verified</TableHead>
+                <TableHead className="text-admin-muted-foreground">Primary</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading && (
-                <TableRow><TableCell colSpan={4} className="text-center text-slate-500">Loading…</TableCell></TableRow>
+                <TableRow><TableCell colSpan={4} className="text-center text-admin-muted-foreground">Loading…</TableCell></TableRow>
               )}
               {(!isLoading && (!domains || domains.length === 0)) && (
-                <TableRow><TableCell colSpan={4} className="text-center text-slate-500">No domains registered</TableCell></TableRow>
+                <TableRow><TableCell colSpan={4} className="text-center text-admin-muted-foreground">No domains registered</TableCell></TableRow>
               )}
               {domains?.map((d: any) => (
-                <TableRow key={d.id} className="border-slate-800 hover:bg-slate-800/50">
-                  <TableCell className="text-white font-mono text-sm">{d.domain}</TableCell>
-                  <TableCell className="text-slate-300 text-sm">{d.workspaces?.name ?? '—'}</TableCell>
+                <TableRow key={d.id} className="border-admin-border hover:bg-admin-muted/50">
+                  <TableCell className="text-admin-foreground font-mono text-sm">{d.domain}</TableCell>
+                  <TableCell className="text-admin-foreground/80 text-sm">{d.workspaces?.name ?? '—'}</TableCell>
                   <TableCell>
-                    <Badge className={d.verified ? 'bg-green-900 text-green-300' : 'bg-yellow-900 text-yellow-300'}>
+                    <Badge className={d.verified ? 'bg-green-900/50 text-green-400 border-green-500/30' : 'bg-yellow-900/50 text-yellow-400 border-yellow-500/30'}>
                       {d.verified ? 'Verified' : 'Pending'}
                     </Badge>
                   </TableCell>
-                  <TableCell className="text-slate-400 text-sm">{d.is_primary ? 'Yes' : 'No'}</TableCell>
+                  <TableCell className="text-admin-muted-foreground text-sm">{d.is_primary ? 'Yes' : 'No'}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

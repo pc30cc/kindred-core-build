@@ -136,60 +136,8 @@ export async function issueVerificationEmail(
   }
 }
 
-export async function issueSignupLinkEmail(
-  config: ServerConfig,
-  options: SignupLinkEmailOptions,
-): Promise<{ success: boolean; userId?: string; error?: string }> {
-  try {
-    const sb = getServiceClient(config);
-    const normalizedWebsite = options.website?.trim() || '';
-    const userMetadata = {
-      full_name: options.fullName?.trim() || '',
-      website: normalizedWebsite,
-      website_url: normalizedWebsite,
-      locale: options.locale || 'en',
-      app_email_verified: false,
-    };
-
-    // email_confirm: true allows immediate signIn, but we still send
-    // a verification email and track real verification via auth_verify_tokens.
-    const { data: createData, error: createError } = await sb.auth.admin.createUser({
-      email: options.email,
-      password: options.password,
-      email_confirm: true,
-      user_metadata: userMetadata,
-    });
-
-    if (createError) {
-      throw new Error(createError.message || 'Failed to create user');
-    }
-
-    const userId = createData.user?.id;
-    if (!userId) {
-      throw new Error('User creation returned no user ID');
-    }
-
-    const verificationResult = await issueVerificationEmail(config, {
-      userId,
-      email: options.email,
-      fullName: options.fullName,
-      locale: options.locale,
-      ipAddress: null,
-    });
-
-    if (!verificationResult.success) {
-      return { success: false, userId, error: verificationResult.error };
-    }
-
-    return { success: true, userId };
-  } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Failed to send signup email' };
-  }
-}
-
 /**
  * Issue a password recovery email using fully self-hosted token system.
- * No Supabase generateLink — uses auth_reset_tokens table + custom frontend URL.
  */
 export async function issueRecoveryEmail(
   config: ServerConfig,
@@ -198,14 +146,12 @@ export async function issueRecoveryEmail(
   try {
     const sb = getServiceClient(config);
 
-    // Revoke any existing unused reset tokens for this user
     await sb.from('auth_reset_tokens')
       .update({ revoked_at: new Date().toISOString() })
       .eq('user_id', options.userId)
       .is('used_at', null)
       .is('revoked_at', null);
 
-    // Generate and store custom reset token
     const rawToken = generateToken();
     const tokenHash = hashToken(rawToken);
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour

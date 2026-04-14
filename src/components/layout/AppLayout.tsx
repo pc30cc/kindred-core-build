@@ -29,9 +29,9 @@ function EmailVerificationBanner() {
   };
 
   return (
-    <div className="bg-yellow-500/10 border-b border-yellow-500/30 px-4 py-2.5 flex items-center justify-center gap-2 text-sm">
-      <AlertTriangle className="w-4 h-4 text-yellow-600 shrink-0" />
-      <span className="text-yellow-800 dark:text-yellow-200">{t('auth.emailNotVerified')}</span>
+    <div className="bg-destructive/10 border-b border-destructive/30 px-4 py-2.5 flex items-center justify-center gap-2 text-sm">
+      <AlertTriangle className="w-4 h-4 text-destructive shrink-0" />
+      <span className="text-foreground">{t('auth.emailNotVerified')}</span>
       <button
         onClick={handleResend}
         disabled={sending}

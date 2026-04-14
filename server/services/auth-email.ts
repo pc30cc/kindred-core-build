@@ -72,45 +72,36 @@ interface RecoveryLinkEmailOptions {
   locale?: string;
 }
 
-async function generateActionLink(
+async function generateRecoveryLink(
   config: ServerConfig,
-  params: {
-    type: 'signup' | 'recovery';
-    email: string;
-    password?: string;
-    redirectPath: string;
-    data?: Record<string, unknown>;
-  },
-): Promise<{ actionLink: string; userId?: string }> {
+  email: string,
+  redirectPath: string,
+): Promise<{ actionLink: string }> {
   const sb = getServiceClient(config);
   const appBaseUrl = await resolveAppBaseUrl(config);
-  const redirectTo = `${appBaseUrl}${params.redirectPath}`;
+  const redirectTo = `${appBaseUrl}${redirectPath}`;
 
   const { data, error } = await sb.auth.admin.generateLink({
-    type: params.type,
-    email: params.email,
-    password: params.password,
-    options: {
-      data: params.data,
-      redirectTo,
-    },
+    type: 'recovery',
+    email,
+    options: { redirectTo },
   });
 
   if (error) {
-    throw new Error(error.message || `Failed to generate ${params.type} link`);
+    throw new Error(error.message || 'Failed to generate recovery link');
   }
 
   const rawActionLink = data.properties?.action_link;
   if (!rawActionLink) {
-    throw new Error(`Missing ${params.type} action link`);
+    throw new Error('Missing recovery action link');
   }
 
   try {
     const parsed = new URL(rawActionLink);
     parsed.searchParams.set('redirect_to', redirectTo);
-    return { actionLink: parsed.toString(), userId: data.user?.id };
+    return { actionLink: parsed.toString() };
   } catch {
-    return { actionLink: rawActionLink, userId: data.user?.id };
+    return { actionLink: rawActionLink };
   }
 }
 

@@ -33,7 +33,15 @@ interface I18nContextValue {
   isLoading: boolean;
 }
 
-const I18nContext = createContext<I18nContextValue | null>(null);
+const i18nFallbackContext: I18nContextValue = {
+  locale: DEFAULT_LOCALE,
+  dir: LOCALE_CONFIG[DEFAULT_LOCALE].dir,
+  setLocale: () => {},
+  t: (key) => key,
+  isLoading: false,
+};
+
+const I18nContext = createContext<I18nContextValue>(i18nFallbackContext);
 
 function getInitialLocale(): Locale {
   if (typeof window === 'undefined') return DEFAULT_LOCALE;
@@ -102,9 +110,7 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
 }
 
 export function useI18n() {
-  const ctx = useContext(I18nContext);
-  if (!ctx) throw new Error('useI18n must be used within I18nProvider');
-  return ctx;
+  return useContext(I18nContext);
 }
 
 export function useTranslation() {

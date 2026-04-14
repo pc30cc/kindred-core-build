@@ -214,7 +214,7 @@ export default function AdminUsersPage() {
     setActionLoading('add-role');
     try {
       const { error } = await supabase.from('user_roles')
-        .upsert({ user_id: selectedUser.id, role: newRoleToAdd as any }, { onConflict: 'user_id,role' });
+        .upsert({ user_id: selectedUser.id, role: newRoleToAdd as "admin" | "moderator" | "user" }, { onConflict: 'user_id,role' });
       if (error) throw error;
       toast.success(isRtl ? 'نقش اضافه شد' : 'Role added');
       setSelectedUser({ ...selectedUser, roles: [...selectedUser.roles, { role: newRoleToAdd, user_id: selectedUser.id }] });

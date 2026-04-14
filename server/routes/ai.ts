@@ -5,7 +5,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
-import { executeAICompletion, testAIConnection, resolveAIConfig } from '../services/ai/index.js';
+import { executeAICompletion, testAIConnection, resolveAIConfig, type AIRequest } from '../services/ai/index.js';
 import { logSecurityEvent } from '../middleware/security.js';
 
 export const aiRouter = Router();

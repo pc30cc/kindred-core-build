@@ -247,3 +247,6 @@ const fa: TranslationKeys = {
       savePath: 'مسیر ذخیره',
     },
   },
+};
+
+export default fa;

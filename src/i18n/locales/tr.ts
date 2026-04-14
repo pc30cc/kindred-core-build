@@ -247,3 +247,6 @@ const tr: TranslationKeys = {
       savePath: 'Kayıt Yolu',
     },
   },
+};
+
+export default tr;

@@ -366,9 +366,16 @@ export default function AdminBrandingPage() {
         </p>
       </div>
 
-      <VisualIdentitySection />
-      <LocalizedBrandingSection />
-      <DomainUrlsSection />
+      <Tabs defaultValue="identity">
+        <TabsList className="w-full justify-start">
+          <TabsTrigger value="identity" className="gap-1.5"><Palette className="h-4 w-4" /> Visual Identity</TabsTrigger>
+          <TabsTrigger value="localized" className="gap-1.5"><Type className="h-4 w-4" /> Localized Text</TabsTrigger>
+          <TabsTrigger value="domains" className="gap-1.5"><Link2 className="h-4 w-4" /> Domain URLs</TabsTrigger>
+        </TabsList>
+        <TabsContent value="identity" className="mt-4"><VisualIdentitySection /></TabsContent>
+        <TabsContent value="localized" className="mt-4"><LocalizedBrandingSection /></TabsContent>
+        <TabsContent value="domains" className="mt-4"><DomainUrlsSection /></TabsContent>
+      </Tabs>
     </div>
   );
 }

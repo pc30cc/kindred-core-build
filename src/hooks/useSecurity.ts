@@ -134,10 +134,11 @@ export async function logClientSecurityEvent(
   severity: 'info' | 'warn' | 'error' | 'critical',
   metadata: Record<string, any> = {}
 ) {
-  if (!API_BASE) return; // No backend configured — skip silently
+  if (!API_BASE) return;
   try {
     await fetch(`${API_BASE}/api/auth/record-result`, {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         email: metadata.email || 'unknown',

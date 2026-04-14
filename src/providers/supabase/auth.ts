@@ -45,7 +45,7 @@ export const supabaseAuthProvider: AuthProvider = {
    */
   async signUp({ email, password, metadata }: SignUpParams) {
     try {
-      const body = await apiFetch(`${API_BASE}/api/auth-email/signup`, {
+      const body = await apiFetch(buildApiUrl('/api/auth-email/signup'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -87,7 +87,7 @@ export const supabaseAuthProvider: AuthProvider = {
    */
   async resetPasswordRequest(email: string) {
     try {
-      await apiFetch(`${API_BASE}/api/auth-email/reset-password`, {
+      await apiFetch(buildApiUrl('/api/auth-email/reset-password'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

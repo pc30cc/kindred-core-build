@@ -36,7 +36,7 @@ export default function AdminBootstrapPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-4">
+    <div className="panel-scope flex min-h-screen items-center justify-center bg-background p-4">
       <Card className="max-w-md w-full bg-card border-border">
         <CardHeader className="text-center">
           <Shield className="h-12 w-12 mx-auto text-red-400 mb-2" />

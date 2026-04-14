@@ -64,7 +64,8 @@ export async function sendVerificationEmail(
   const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
     type: 'signup',
     email,
-  });
+    password: crypto.randomUUID(),
+  } as any);
 
   if (linkError) {
     console.error('[auth-email] Failed to generate verification link:', linkError);
@@ -117,8 +118,12 @@ export async function sendPasswordResetEmail(
 
   const actionUrl = linkData?.properties?.action_link || '';
 
-  const { data: user } = await supabase.auth.admin.getUserByEmail(email).catch(() => ({ data: null })) as any;
-  const name = user?.user?.user_metadata?.full_name || email.split('@')[0];
+  let name = email.split('@')[0];
+  try {
+    const { data: { users } } = await supabase.auth.admin.listUsers();
+    const found = users.find((u: any) => u.email === email);
+    if (found?.user_metadata?.full_name) name = found.user_metadata.full_name;
+  } catch {}
 
   return sendAuthEmail(config, {
     type: 'password_reset',

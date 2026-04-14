@@ -36,7 +36,7 @@ export interface SendResult {
 }
 
 async function resolveProviderConfig(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   workspaceId: string
 ): Promise<ProviderConfig | null> {
   const { data: wsConfig } = await supabase
@@ -55,13 +55,13 @@ async function resolveProviderConfig(
     .eq('key', 'default_email_provider')
     .maybeSingle();
 
-  if (globalConfig?.value) return globalConfig.value as unknown as ProviderConfig;
+  if (globalConfig?.value) return (globalConfig as any).value as ProviderConfig;
 
   return null;
 }
 
 async function resolveTemplate(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   workspaceId: string,
   slug: string,
   locale: string

@@ -34,9 +34,10 @@ authEmailRouter.post('/signup', async (req, res) => {
 
     if (error) {
       if (error.message?.includes('already been registered')) {
-        const { data: existingUser } = await supabase.auth.admin.getUserByEmail(email) as any;
-        if (existingUser?.user && !existingUser.user.email_confirmed_at) {
-          await sendVerificationEmail(config, existingUser.user.id, email, locale || 'en');
+        const { data: { users } } = await supabase.auth.admin.listUsers();
+        const existingUser = users.find((u: any) => u.email === email);
+        if (existingUser && !existingUser.email_confirmed_at) {
+          await sendVerificationEmail(config, existingUser.id, email, locale || 'en');
           return res.json({ success: true, message: 'Verification email resent' });
         }
         return res.status(400).json({ error: error.message });
@@ -89,12 +90,13 @@ authEmailRouter.post('/resend-verification', async (req, res) => {
     }
 
     const supabase = createClient(config.supabaseUrl, config.supabaseServiceRoleKey);
-    const { data: userData } = await supabase.auth.admin.getUserByEmail(email) as any;
-    if (!userData?.user) {
+    const { data: { users } } = await supabase.auth.admin.listUsers();
+    const foundUser = users.find((u: any) => u.email === email);
+    if (!foundUser) {
       return res.json({ success: true });
     }
 
-    await sendVerificationEmail(config, userData.user.id, email, locale || 'en');
+    await sendVerificationEmail(config, foundUser.id, email, locale || 'en');
     res.json({ success: true });
   } catch (err: any) {
     console.error('[auth-email] Resend verification error:', err);

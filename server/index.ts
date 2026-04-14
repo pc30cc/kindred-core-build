@@ -6,6 +6,7 @@ import { widgetRouter } from './routes/widget.js';
 import { visitorRouter } from './routes/visitors.js';
 import { healthRouter } from './routes/health.js';
 import { emailRouter } from './routes/email.js';
+import { authEmailRouter } from './routes/auth-email.js';
 import { authSecurityRouter } from './routes/auth.js';
 import { aiRouter } from './routes/ai.js';
 import { storageRouter } from './routes/storage.js';
@@ -64,6 +65,7 @@ app.use('/api/visitors', visitorRateLimiter, visitorRouter);
 
 // Email — workspace-scoped rate limit
 app.use('/api/email', emailRateLimiter, emailRouter);
+app.use('/api/auth-email', authRateLimiter, authEmailRouter);
 
 // AI — auth required, workspace rate limiting built into routes
 app.use('/api/ai', aiRouter);

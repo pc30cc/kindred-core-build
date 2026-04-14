@@ -708,13 +708,13 @@ export default function AdminBrandingPage() {
       <Tabs defaultValue="identity">
         <TabsList className="w-full justify-start flex-wrap">
           <TabsTrigger value="identity" className="gap-1.5"><Palette className="h-4 w-4" /> Visual Identity</TabsTrigger>
-          <TabsTrigger value="localized" className="gap-1.5"><Type className="h-4 w-4" /> Localized Text</TabsTrigger>
-          <TabsTrigger value="email-settings" className="gap-1.5"><Settings2 className="h-4 w-4" /> Email Settings</TabsTrigger>
+          <TabsTrigger value="settings" className="gap-1.5"><Settings2 className="h-4 w-4" /> Settings</TabsTrigger>
+          <TabsTrigger value="email-settings" className="gap-1.5"><Mail className="h-4 w-4" /> Email Settings</TabsTrigger>
           <TabsTrigger value="email-templates" className="gap-1.5"><Mail className="h-4 w-4" /> Email Templates</TabsTrigger>
           <TabsTrigger value="domains" className="gap-1.5"><Link2 className="h-4 w-4" /> Domain URLs</TabsTrigger>
         </TabsList>
         <TabsContent value="identity" className="mt-4"><VisualIdentitySection /></TabsContent>
-        <TabsContent value="localized" className="mt-4"><LocalizedBrandingSection /></TabsContent>
+        <TabsContent value="settings" className="mt-4"><SettingsSection /></TabsContent>
         <TabsContent value="email-settings" className="mt-4"><EmailSettingsSection /></TabsContent>
         <TabsContent value="email-templates" className="mt-4"><EmailTemplatesTab /></TabsContent>
         <TabsContent value="domains" className="mt-4"><DomainUrlsSection /></TabsContent>

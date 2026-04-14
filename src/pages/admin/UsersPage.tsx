@@ -166,10 +166,7 @@ export default function AdminUsersPage() {
     const disable = !isBanned(selectedUser);
     setActionLoading('toggle-ban');
     try {
-      const { data, error } = await supabase.functions.invoke('admin-actions', {
-        body: { action: 'disable_user', userId: selectedUser.id, disable },
-      });
-      if (error || data?.error) throw new Error(data?.error || 'Error');
+      await adminToggleDisable(selectedUser.id, disable);
       toast.success(disable
         ? (isRtl ? 'کاربر غیرفعال شد' : 'User disabled')
         : (isRtl ? 'کاربر فعال شد' : 'User enabled'));
@@ -184,10 +181,7 @@ export default function AdminUsersPage() {
     if (!user) return;
     setActionLoading(`confirm-email-${user.id}`);
     try {
-      const { data, error } = await supabase.functions.invoke('admin-actions', {
-        body: { action: 'confirm_email', userId: user.id },
-      });
-      if (error || data?.error) throw new Error(data?.error || 'Error');
+      await adminConfirmEmail(user.id);
       toast.success(isRtl ? 'ایمیل تأیید شد' : 'Email confirmed');
       queryClient.invalidateQueries({ queryKey: ['admin-users-full'] });
     } catch (e: any) { toast.error(e.message); }
@@ -198,9 +192,7 @@ export default function AdminUsersPage() {
     if (!selectedUser) return;
     setActionLoading(`rm-role-${role}`);
     try {
-      const { error } = await supabase.from('user_roles').delete()
-        .eq('user_id', selectedUser.id).eq('role', role as "admin" | "moderator" | "user");
-      if (error) throw error;
+      await adminRemoveRole({ userId: selectedUser.id, role });
       toast.success(isRtl ? 'نقش حذف شد' : 'Role removed');
       setSelectedUser({ ...selectedUser, roles: selectedUser.roles.filter((r: any) => r.role !== role) });
       queryClient.invalidateQueries({ queryKey: ['admin-users-full'] });
@@ -212,9 +204,7 @@ export default function AdminUsersPage() {
     if (!selectedUser || !newRoleToAdd) return;
     setActionLoading('add-role');
     try {
-      const { error } = await supabase.from('user_roles')
-        .upsert({ user_id: selectedUser.id, role: newRoleToAdd as "admin" | "moderator" | "user" }, { onConflict: 'user_id,role' });
-      if (error) throw error;
+      await adminAssignRole(selectedUser.id, newRoleToAdd);
       toast.success(isRtl ? 'نقش اضافه شد' : 'Role added');
       setSelectedUser({ ...selectedUser, roles: [...selectedUser.roles, { role: newRoleToAdd, user_id: selectedUser.id }] });
       setNewRoleToAdd('');
@@ -228,10 +218,7 @@ export default function AdminUsersPage() {
     if (!createEmail || !createPassword) return;
     setCreateLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke('admin-actions', {
-        body: { action: 'create_user', email: createEmail, password: createPassword, fullName: createName, emailConfirm: true },
-      });
-      if (error || data?.error) throw new Error(data?.error || 'Error');
+      await adminCreateUser({ email: createEmail, password: createPassword, fullName: createName, emailConfirm: true });
       toast.success(isRtl ? 'کاربر ایجاد شد' : 'User created');
       setCreateEmail('');
       setCreateName('');

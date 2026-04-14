@@ -14,7 +14,6 @@ export default function EmailConfirmedPage() {
   const [searchParams] = useSearchParams();
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const { t, dir } = useTranslation();
-  const { session } = useAuth();
   const isRtl = dir === 'rtl';
 
   useEffect(() => {

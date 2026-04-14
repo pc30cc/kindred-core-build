@@ -109,7 +109,9 @@ async function resolveTemplate(
 function interpolate(text: string, data: Record<string, string>): string {
   let result = text;
   for (const [key, value] of Object.entries(data)) {
+    // Support both {key} and {{key}} patterns
     result = result.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value);
+    result = result.replace(new RegExp(`\\{${key}\\}`, 'g'), value);
   }
   return result;
 }

@@ -1,121 +1,61 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import type { AuthUser } from '@/types/providers';
-import {
-  authLogin,
-  authSignUp,
-  authGetMe,
-  authLogout,
-  setSessionToken,
-  type AuthUserResponse,
-} from '@/lib/auth-email-api';
+import type { AuthProvider, AuthSession, AuthUser } from '@/types/providers';
+import { supabaseAuthProvider } from '@/providers';
 
 interface AuthContextValue {
   user: AuthUser | null;
+  session: AuthSession | null;
   isLoading: boolean;
-  signUp: (params: {
-    email: string;
-    password: string;
-    website?: string;
-    fullName?: string;
-    locale?: string;
-    metadata?: Record<string, unknown>;
-  }) => Promise<{ user: AuthUser | null; error: Error | null }>;
-  signIn: (params: { email: string; password: string }) => Promise<{ error: Error | null }>;
+  signUp: AuthProvider['signUp'];
+  signIn: AuthProvider['signIn'];
   signOut: () => Promise<void>;
-  refreshUser: () => Promise<void>;
+  resetPasswordRequest: AuthProvider['resetPasswordRequest'];
+  updatePassword: AuthProvider['updatePassword'];
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-function mapUser(u: AuthUserResponse | null): AuthUser | null {
-  if (!u) return null;
-  return {
-    id: u.id,
-    email: u.email,
-    emailVerified: !!u.emailVerified,
-    metadata: u.metadata ?? {},
-    createdAt: u.createdAt ?? '',
-  };
-}
-
-export function AuthContextProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(null);
+// Default to Supabase — can be swapped via props
+export function AuthContextProvider({
+  children,
+  provider = supabaseAuthProvider,
+}: {
+  children: React.ReactNode;
+  provider?: AuthProvider;
+}) {
+  const [session, setSession] = useState<AuthSession | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Bootstrap: load current user from backend session
   useEffect(() => {
-    let cancelled = false;
-    authGetMe()
-      .then((res) => {
-        if (!cancelled) {
-          setUser(mapUser(res.user));
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setUser(null);
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, []);
+    const unsubscribe = provider.onAuthStateChange((s) => {
+      setSession(s);
+      setIsLoading(false);
+    });
 
-  const handleSignUp = useCallback(async (params: {
-    email: string;
-    password: string;
-    website?: string;
-    fullName?: string;
-    locale?: string;
-    metadata?: Record<string, unknown>;
-  }) => {
-    try {
-      const result = await authSignUp(params);
-      const mapped = mapUser(result.user);
-      setUser(mapped);
-      return { user: mapped, error: null };
-    } catch (err) {
-      return { user: null, error: err instanceof Error ? err : new Error('Signup failed') };
-    }
-  }, []);
+    provider.getSession().then((s) => {
+      setSession(s);
+      setIsLoading(false);
+    });
 
-  const handleSignIn = useCallback(async (params: { email: string; password: string }) => {
-    try {
-      const result = await authLogin(params);
-      setUser(mapUser(result.user));
-      return { error: null };
-    } catch (err) {
-      return { error: err instanceof Error ? err : new Error('Login failed') };
-    }
-  }, []);
+    return unsubscribe;
+  }, [provider]);
 
   const handleSignOut = useCallback(async () => {
-    try {
-      await authLogout();
-    } catch {
-      // Clear local state even if backend call fails
-    }
-    setUser(null);
-    setSessionToken(null);
-  }, []);
-
-  const refreshUser = useCallback(async () => {
-    try {
-      const res = await authGetMe();
-      setUser(mapUser(res.user));
-    } catch {
-      setUser(null);
-    }
-  }, []);
+    await provider.signOut();
+    setSession(null);
+  }, [provider]);
 
   return (
     <AuthContext.Provider
       value={{
-        user,
+        user: session?.user ?? null,
+        session,
         isLoading,
-        signUp: handleSignUp,
-        signIn: handleSignIn,
+        signUp: provider.signUp.bind(provider),
+        signIn: provider.signIn.bind(provider),
         signOut: handleSignOut,
-        refreshUser,
+        resetPasswordRequest: provider.resetPasswordRequest.bind(provider),
+        updatePassword: provider.updatePassword.bind(provider),
       }}
     >
       {children}
@@ -127,13 +67,11 @@ export function useAuth() {
   const ctx = useContext(AuthContext);
   if (!ctx) {
     // During HMR, context can briefly be null — return safe loading defaults
+    const noop = async () => ({ error: null }) as never;
     return {
-      user: null,
-      isLoading: true,
-      signUp: async () => ({ user: null, error: null }),
-      signIn: async () => ({ error: null }),
-      signOut: async () => {},
-      refreshUser: async () => {},
+      user: null, session: null, isLoading: true,
+      signUp: noop, signIn: noop, signOut: async () => {},
+      resetPasswordRequest: noop, updatePassword: noop,
     } as unknown as AuthContextValue;
   }
   return ctx;

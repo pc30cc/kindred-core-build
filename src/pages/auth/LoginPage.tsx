@@ -38,7 +38,7 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     try {
-      const { error } = await signIn({ email: email.trim().toLowerCase(), password });
+      const { error } = await signIn({ email, password });
       if (error) {
         toast.error(t('auth.loginFailed'), { description: error.message });
         return;

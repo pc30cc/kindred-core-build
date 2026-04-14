@@ -30,7 +30,7 @@ function getPasswordStrength(pw: string): { score: number; label: string; color:
 export default function SignupPage() {
   const navigate = useNavigate();
   const { t, locale, dir } = useTranslation();
-  const { signUp } = useAuth();
+  const { signUp, signIn } = useAuth();
   const brand = usePlatformBrandingForLocale(locale);
   const isRtl = dir === 'rtl';
 
@@ -72,9 +72,10 @@ export default function SignupPage() {
     }
 
     setLoading(true);
+    const trimmedEmail = email.trim().toLowerCase();
     try {
       const { error } = await signUp({
-        email: email.trim().toLowerCase(),
+        email: trimmedEmail,
         password,
         website: '',
         locale,
@@ -83,6 +84,21 @@ export default function SignupPage() {
       if (error) {
         toast.error(t('auth.signupFailed'), { description: error.message });
         return;
+      }
+
+      // Sign in immediately after signup to create a client session
+      const { error: signInError } = await signIn({ email: trimmedEmail, password });
+      if (signInError) {
+        // Auto-login failed — try once more after a short delay
+        console.warn('[signup] Auto-login failed, retrying...', signInError.message);
+        await new Promise(r => setTimeout(r, 500));
+        const { error: retryError } = await signIn({ email: trimmedEmail, password });
+        if (retryError) {
+          console.error('[signup] Auto-login retry failed:', retryError.message);
+          toast.error(t('auth.signupSuccess'), { description: 'Please log in manually.' });
+          navigate('/auth/login');
+          return;
+        }
       }
 
       toast.success(t('auth.signupSuccess'));

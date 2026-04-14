@@ -84,7 +84,7 @@ export default function EmailConfirmedPage() {
               </div>
               <div className="space-y-3">
                 <Button
-                  onClick={() => navigate('/app')}
+                  onClick={() => navigate('/auth/login')}
                   size="lg"
                   className="w-full h-12 text-base font-semibold rounded-xl gap-2"
                 >

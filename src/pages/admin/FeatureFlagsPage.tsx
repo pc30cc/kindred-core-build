@@ -25,27 +25,27 @@ export default function AdminFeatureFlagsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-admin-foreground">Feature Flags</h1>
-      <p className="text-admin-muted-foreground text-sm">Global feature flags (workspace_id = null). Toggle features on/off across the entire platform.</p>
+      <h1 className="text-2xl font-bold text-foreground">Feature Flags</h1>
+      <p className="text-muted-foreground text-sm">Global feature flags (workspace_id = null). Toggle features on/off across the entire platform.</p>
 
-      <Card className="bg-admin-card border-admin-border">
+      <Card className="bg-card border-border">
         <CardContent className="p-0">
           <Table>
             <TableHeader>
-              <TableRow className="border-admin-border">
-                <TableHead className="text-admin-muted-foreground">Key</TableHead>
-                <TableHead className="text-admin-muted-foreground">Description</TableHead>
-                <TableHead className="text-admin-muted-foreground">Enabled</TableHead>
+              <TableRow className="border-border">
+                <TableHead className="text-muted-foreground">Key</TableHead>
+                <TableHead className="text-muted-foreground">Description</TableHead>
+                <TableHead className="text-muted-foreground">Enabled</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading && (
-                <TableRow><TableCell colSpan={3} className="text-center text-admin-muted-foreground">Loading…</TableCell></TableRow>
+                <TableRow><TableCell colSpan={3} className="text-center text-muted-foreground">Loading…</TableCell></TableRow>
               )}
               {flags?.map(f => (
-                <TableRow key={f.id} className="border-admin-border hover:bg-admin-muted/50">
-                  <TableCell className="text-admin-foreground font-mono text-sm">{f.key}</TableCell>
-                  <TableCell className="text-admin-muted-foreground text-sm">{f.description || '—'}</TableCell>
+                <TableRow key={f.id} className="border-border hover:bg-muted/50">
+                  <TableCell className="text-foreground font-mono text-sm">{f.key}</TableCell>
+                  <TableCell className="text-muted-foreground text-sm">{f.description || '—'}</TableCell>
                   <TableCell>
                     <Switch
                       checked={f.enabled ?? false}

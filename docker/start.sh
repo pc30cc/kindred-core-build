@@ -1,6 +1,15 @@
 #!/bin/sh
 set -eu
 
+if [ -f /app/.env ]; then
+  set -a
+  . /app/.env
+  set +a
+fi
+
+export SUPABASE_URL="${SUPABASE_URL:-${VITE_SUPABASE_URL:-}}"
+export SUPABASE_ANON_KEY="${SUPABASE_ANON_KEY:-${VITE_SUPABASE_ANON_KEY:-${VITE_SUPABASE_PUBLISHABLE_KEY:-}}}"
+
 node /app/server/dist/index.js &
 NODE_PID=$!
 

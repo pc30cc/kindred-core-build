@@ -113,11 +113,43 @@ function VisualIdentitySection() {
   );
 }
 
-// ── Localized Branding Section ──
-const LOCALES = [
-  { code: 'en', label: 'English' },
-  { code: 'fa', label: 'فارسی' },
-  { code: 'tr', label: 'Türkçe' },
+// ── Settings Section (was Localized Text) ──
+const ALL_LOCALES = [
+  { code: 'en', label: 'English', flag: '🇺🇸' },
+  { code: 'fa', label: 'فارسی', flag: '🇮🇷' },
+  { code: 'tr', label: 'Türkçe', flag: '🇹🇷' },
+  { code: 'ar', label: 'العربية', flag: '🇸🇦' },
+  { code: 'de', label: 'Deutsch', flag: '🇩🇪' },
+  { code: 'fr', label: 'Français', flag: '🇫🇷' },
+  { code: 'es', label: 'Español', flag: '🇪🇸' },
+  { code: 'ru', label: 'Русский', flag: '🇷🇺' },
+  { code: 'zh', label: '中文', flag: '🇨🇳' },
+  { code: 'ja', label: '日本語', flag: '🇯🇵' },
+  { code: 'ko', label: '한국어', flag: '🇰🇷' },
+  { code: 'pt', label: 'Português', flag: '🇧🇷' },
+  { code: 'it', label: 'Italiano', flag: '🇮🇹' },
+  { code: 'nl', label: 'Nederlands', flag: '🇳🇱' },
+  { code: 'hi', label: 'हिन्दी', flag: '🇮🇳' },
+  { code: 'ku', label: 'کوردی', flag: '🏳️' },
+];
+
+const BILLING_PROVIDERS = [
+  { value: 'none', label: 'No Payment Gateway' },
+  { value: 'stripe', label: 'Stripe' },
+  { value: 'paypal', label: 'PayPal' },
+  { value: 'paddle', label: 'Paddle' },
+  { value: 'zarinpal', label: 'ZarinPal' },
+  { value: 'payping', label: 'PayPing' },
+  { value: 'nextpay', label: 'NextPay' },
+  { value: 'idpay', label: 'IDPay' },
+  { value: 'sep', label: 'SEP (Saman)' },
+  { value: 'zibal', label: 'Zibal' },
+  { value: 'iyzico', label: 'iyzico' },
+  { value: 'paytr', label: 'PayTR' },
+  { value: 'craftgate', label: 'Craftgate' },
+  { value: 'sipay', label: 'Sipay' },
+  { value: 'paratika', label: 'Paratika' },
+  { value: 'lemonsqueezy', label: 'Lemon Squeezy' },
 ];
 
 const LOCALIZED_FIELDS: { key: keyof PlatformBrandingLocalized; label: string; desc?: string }[] = [
@@ -135,9 +167,12 @@ const LOCALIZED_FIELDS: { key: keyof PlatformBrandingLocalized; label: string; d
   { key: 'support_label', label: 'Support Label', desc: 'Support link text' },
 ];
 
-function LocalizedBrandingSection() {
-  const { data: rows, isLoading } = usePlatformBrandingLocalized();
-  const { data: settings } = useQuery({
+import { Switch } from '@/components/ui/switch';
+import { Globe, Wrench, CreditCard, Languages } from 'lucide-react';
+
+function SettingsSection() {
+  const { data: rows, isLoading: brandingLoading } = usePlatformBrandingLocalized();
+  const { data: settings, isLoading: settingsLoading } = useQuery({
     queryKey: ['platform_settings'],
     queryFn: async () => {
       const { data, error } = await supabase.from('platform_settings').select('*').limit(1).maybeSingle();
@@ -147,9 +182,34 @@ function LocalizedBrandingSection() {
   });
   const upsert = useUpsertPlatformBrandingLocalized();
   const qc = useQueryClient();
+
   const [activeLocale, setActiveLocale] = useState('en');
   const [forms, setForms] = useState<Record<string, Partial<PlatformBrandingLocalized>>>({});
   const [dirtyLocales, setDirtyLocales] = useState<Set<string>>(new Set());
+  const [settingsTab, setSettingsTab] = useState('general');
+
+  // Settings form state
+  const [defaultLocale, setDefaultLocale] = useState('en');
+  const [activeLocales, setActiveLocales] = useState<string[]>(['en']);
+  const [timezone, setTimezone] = useState('UTC');
+  const [siteMode, setSiteMode] = useState('multi_language');
+  const [maintenanceMode, setMaintenanceMode] = useState(false);
+  const [maintenanceMessage, setMaintenanceMessage] = useState('');
+  const [localeBillingProviders, setLocaleBillingProviders] = useState<Record<string, string>>({});
+  const [settingsDirty, setSettingsDirty] = useState(false);
+
+  useEffect(() => {
+    if (settings) {
+      setDefaultLocale(settings.default_locale || 'en');
+      setActiveLocales(settings.active_locales || ['en']);
+      setTimezone(settings.timezone || 'UTC');
+      setSiteMode(settings.site_mode || 'multi_language');
+      setMaintenanceMode((settings as any).maintenance_mode ?? false);
+      setMaintenanceMessage((settings as any).maintenance_message ?? '');
+      setLocaleBillingProviders((settings as any).locale_billing_providers ?? {});
+      setSettingsDirty(false);
+    }
+  }, [settings]);
 
   useEffect(() => {
     if (rows) {
@@ -165,7 +225,7 @@ function LocalizedBrandingSection() {
     setDirtyLocales((p) => new Set(p).add(locale));
   };
 
-  const handleSave = (locale: string) => {
+  const handleSaveBranding = (locale: string) => {
     const row = forms[locale];
     if (!row) return;
     const { id, created_at, updated_at, ...rest } = row as any;
@@ -175,70 +235,253 @@ function LocalizedBrandingSection() {
     });
   };
 
-  const handleSetDefaultLocale = async (locale: string) => {
+  const handleSaveSettings = async () => {
     const { data: existing } = await supabase.from('platform_settings').select('id').limit(1).maybeSingle();
+    const payload = {
+      default_locale: defaultLocale,
+      active_locales: activeLocales,
+      timezone,
+      site_mode: siteMode,
+      maintenance_mode: maintenanceMode,
+      maintenance_message: maintenanceMessage || null,
+      locale_billing_providers: localeBillingProviders,
+      updated_at: new Date().toISOString(),
+    };
     if (existing) {
-      await supabase.from('platform_settings').update({ default_locale: locale, updated_at: new Date().toISOString() }).eq('id', existing.id);
+      const { error } = await supabase.from('platform_settings').update(payload).eq('id', existing.id);
+      if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); return; }
     } else {
-      await supabase.from('platform_settings').insert({ default_locale: locale });
+      const { error } = await supabase.from('platform_settings').insert(payload);
+      if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); return; }
     }
     qc.invalidateQueries({ queryKey: ['platform_settings'] });
-    toast({ title: `Default language set to ${locale.toUpperCase()}` });
+    toast({ title: 'Settings saved' });
+    setSettingsDirty(false);
   };
 
-  if (isLoading) return <LoadingCard />;
+  const toggleLocale = (code: string) => {
+    setActiveLocales(prev => {
+      const next = prev.includes(code) ? prev.filter(l => l !== code) : [...prev, code];
+      if (next.length === 0) return prev;
+      return next;
+    });
+    setSettingsDirty(true);
+  };
+
+  if (brandingLoading || settingsLoading) return <LoadingCard />;
 
   const current = forms[activeLocale] ?? {};
-  const defaultLocale = settings?.default_locale || 'en';
 
   return (
-    <Card className="bg-card border-border">
-      <CardHeader className="pb-4">
-        <div className="flex items-center gap-2"><Type className="h-5 w-5 text-primary" /><CardTitle className="text-foreground">Localized Branding</CardTitle></div>
-        <CardDescription>Platform text & SEO for each language.</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {/* Default locale selector */}
-        <div className="flex items-center gap-3 p-3 rounded-lg border border-border bg-muted/30">
-          <Label className="text-sm font-medium whitespace-nowrap">Default Language:</Label>
-          <Select value={defaultLocale} onValueChange={handleSetDefaultLocale}>
-            <SelectTrigger className="w-40 h-9"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {LOCALES.map(l => (
-                <SelectItem key={l.code} value={l.code}>{l.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+    <div className="space-y-6">
+      <Tabs value={settingsTab} onValueChange={setSettingsTab}>
+        <TabsList>
+          <TabsTrigger value="general" className="gap-1.5"><Wrench className="h-4 w-4" /> General</TabsTrigger>
+          <TabsTrigger value="languages" className="gap-1.5"><Languages className="h-4 w-4" /> Languages</TabsTrigger>
+          <TabsTrigger value="billing" className="gap-1.5"><CreditCard className="h-4 w-4" /> Payment Gateways</TabsTrigger>
+          <TabsTrigger value="localized" className="gap-1.5"><Globe className="h-4 w-4" /> Localized Text</TabsTrigger>
+        </TabsList>
 
-        <Tabs value={activeLocale} onValueChange={setActiveLocale}>
-          <div className="flex items-center justify-between">
-            <TabsList>
-              {LOCALES.map((l) => (
-                <TabsTrigger key={l.code} value={l.code} className="gap-1.5">
-                  {l.label}
-                  {l.code === defaultLocale && <Badge variant="outline" className="text-[10px] px-1 py-0">default</Badge>}
-                  {dirtyLocales.has(l.code) && <Badge variant="secondary" className="text-[10px] px-1 py-0">unsaved</Badge>}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-            <Button size="sm" onClick={() => handleSave(activeLocale)} disabled={!dirtyLocales.has(activeLocale) || upsert.isPending}>
-              {upsert.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}
-              Save {activeLocale.toUpperCase()}
-            </Button>
-          </div>
-          {LOCALES.map((l) => (
-            <TabsContent key={l.code} value={l.code} className="mt-4">
-              <div className="grid gap-5 md:grid-cols-2">
-                {LOCALIZED_FIELDS.map((f) => (
-                  <FieldRow key={f.key} label={f.label} desc={f.desc} value={(current as any)?.[f.key] ?? ''} onChange={(v) => setField(l.code, f.key, v)} placeholder={`Enter ${f.label.toLowerCase()}`} />
-                ))}
+        {/* ── General Settings ── */}
+        <TabsContent value="general" className="mt-4">
+          <Card className="bg-card border-border">
+            <CardHeader className="pb-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2"><Wrench className="h-5 w-5 text-primary" /><CardTitle>General Settings</CardTitle></div>
+                <Button size="sm" onClick={handleSaveSettings} disabled={!settingsDirty}>
+                  <Save className="h-4 w-4 mr-1" />Save
+                </Button>
               </div>
-            </TabsContent>
-          ))}
-        </Tabs>
-      </CardContent>
-    </Card>
+              <CardDescription>Core platform settings: timezone, site mode, and maintenance.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="grid gap-5 md:grid-cols-2">
+                <div className="grid gap-1.5">
+                  <Label>Default Language</Label>
+                  <p className="text-xs text-muted-foreground">Primary language shown to visitors</p>
+                  <Select value={defaultLocale} onValueChange={(v) => { setDefaultLocale(v); setSettingsDirty(true); }}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {activeLocales.map(code => {
+                        const l = ALL_LOCALES.find(x => x.code === code);
+                        return <SelectItem key={code} value={code}>{l?.flag} {l?.label || code}</SelectItem>;
+                      })}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-1.5">
+                  <Label>Timezone</Label>
+                  <Input value={timezone} onChange={e => { setTimezone(e.target.value); setSettingsDirty(true); }} placeholder="UTC" />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label>Site Mode</Label>
+                  <Select value={siteMode} onValueChange={(v) => { setSiteMode(v); setSettingsDirty(true); }}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="multi_language">Multi-Language</SelectItem>
+                      <SelectItem value="single_language">Single Language</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <Separator />
+
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label className="text-sm font-medium">Maintenance Mode</Label>
+                    <p className="text-xs text-muted-foreground">When enabled, visitors see a maintenance page</p>
+                  </div>
+                  <Switch checked={maintenanceMode} onCheckedChange={(v) => { setMaintenanceMode(v); setSettingsDirty(true); }} />
+                </div>
+                {maintenanceMode && (
+                  <div className="grid gap-1.5">
+                    <Label>Maintenance Message</Label>
+                    <Textarea value={maintenanceMessage} onChange={e => { setMaintenanceMessage(e.target.value); setSettingsDirty(true); }} placeholder="We're upgrading our systems. Please check back soon." className="min-h-[80px]" />
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── Languages ── */}
+        <TabsContent value="languages" className="mt-4">
+          <Card className="bg-card border-border">
+            <CardHeader className="pb-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2"><Languages className="h-5 w-5 text-primary" /><CardTitle>Active Languages</CardTitle></div>
+                <Button size="sm" onClick={handleSaveSettings} disabled={!settingsDirty}>
+                  <Save className="h-4 w-4 mr-1" />Save
+                </Button>
+              </div>
+              <CardDescription>Select which languages are available on the platform. The default language is shown first.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+                {ALL_LOCALES.map(l => {
+                  const isActive = activeLocales.includes(l.code);
+                  const isDefault = defaultLocale === l.code;
+                  return (
+                    <button
+                      key={l.code}
+                      onClick={() => { if (!isDefault) toggleLocale(l.code); }}
+                      className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-colors text-left ${
+                        isActive ? 'bg-primary/10 border-primary/30 text-foreground' : 'bg-muted/30 border-border text-muted-foreground hover:bg-muted/50'
+                      } ${isDefault ? 'ring-2 ring-primary/50' : ''}`}
+                    >
+                      <span className="text-lg">{l.flag}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium truncate">{l.label}</div>
+                        <div className="text-xs text-muted-foreground">{l.code}</div>
+                      </div>
+                      {isDefault && <Badge variant="default" className="text-[10px] shrink-0">Default</Badge>}
+                      {isActive && !isDefault && <Badge variant="outline" className="text-[10px] shrink-0">Active</Badge>}
+                    </button>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── Payment Gateways per Locale ── */}
+        <TabsContent value="billing" className="mt-4">
+          <Card className="bg-card border-border">
+            <CardHeader className="pb-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2"><CreditCard className="h-5 w-5 text-primary" /><CardTitle>Payment Gateway per Language</CardTitle></div>
+                <Button size="sm" onClick={handleSaveSettings} disabled={!settingsDirty}>
+                  <Save className="h-4 w-4 mr-1" />Save
+                </Button>
+              </div>
+              <CardDescription>Assign a default payment gateway for each active language. When a user selects a language, payments route through that gateway automatically.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Language</TableHead>
+                    <TableHead>Payment Gateway</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {activeLocales.map(code => {
+                    const l = ALL_LOCALES.find(x => x.code === code);
+                    return (
+                      <TableRow key={code}>
+                        <TableCell className="font-medium">
+                          <span className="mr-2">{l?.flag}</span>{l?.label || code}
+                          {code === defaultLocale && <Badge variant="outline" className="ml-2 text-[10px]">default</Badge>}
+                        </TableCell>
+                        <TableCell>
+                          <Select
+                            value={localeBillingProviders[code] || 'none'}
+                            onValueChange={(v) => {
+                              setLocaleBillingProviders(prev => ({ ...prev, [code]: v }));
+                              setSettingsDirty(true);
+                            }}
+                          >
+                            <SelectTrigger className="w-52"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              {BILLING_PROVIDERS.map(p => (
+                                <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── Localized Text ── */}
+        <TabsContent value="localized" className="mt-4">
+          <Card className="bg-card border-border">
+            <CardHeader className="pb-4">
+              <div className="flex items-center gap-2"><Globe className="h-5 w-5 text-primary" /><CardTitle>Localized Branding</CardTitle></div>
+              <CardDescription>Platform text & SEO for each active language.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Tabs value={activeLocale} onValueChange={setActiveLocale}>
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <TabsList className="flex-wrap">
+                    {activeLocales.map((code) => {
+                      const l = ALL_LOCALES.find(x => x.code === code);
+                      return (
+                        <TabsTrigger key={code} value={code} className="gap-1.5">
+                          {l?.flag} {l?.label || code}
+                          {code === defaultLocale && <Badge variant="outline" className="text-[10px] px-1 py-0">default</Badge>}
+                          {dirtyLocales.has(code) && <Badge variant="secondary" className="text-[10px] px-1 py-0">unsaved</Badge>}
+                        </TabsTrigger>
+                      );
+                    })}
+                  </TabsList>
+                  <Button size="sm" onClick={() => handleSaveBranding(activeLocale)} disabled={!dirtyLocales.has(activeLocale) || upsert.isPending}>
+                    {upsert.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}
+                    Save {activeLocale.toUpperCase()}
+                  </Button>
+                </div>
+                {activeLocales.map((code) => (
+                  <TabsContent key={code} value={code} className="mt-4">
+                    <div className="grid gap-5 md:grid-cols-2">
+                      {LOCALIZED_FIELDS.map((f) => (
+                        <FieldRow key={f.key} label={f.label} desc={f.desc} value={(current as any)?.[f.key] ?? ''} onChange={(v) => setField(code, f.key, v)} placeholder={`Enter ${f.label.toLowerCase()}`} />
+                      ))}
+                    </div>
+                  </TabsContent>
+                ))}
+              </Tabs>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+    </div>
   );
 }
 
@@ -413,7 +656,7 @@ function EmailSettingsSection() {
           <Tabs value={emailLocaleTab} onValueChange={setEmailLocaleTab}>
             <div className="flex items-center justify-between">
               <TabsList>
-                {LOCALES.map(l => (
+                {ALL_LOCALES.filter(l => true).slice(0, 3).map(l => (
                   <TabsTrigger key={l.code} value={l.code} className="gap-1.5">
                     {l.label}
                     {emailLocaleDirty.has(l.code) && <Badge variant="secondary" className="text-[10px] px-1 py-0">unsaved</Badge>}
@@ -424,7 +667,7 @@ function EmailSettingsSection() {
                 {saveEmailLocale.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}Save
               </Button>
             </div>
-            {LOCALES.map(l => (
+            {ALL_LOCALES.filter(l => true).slice(0, 3).map(l => (
               <TabsContent key={l.code} value={l.code} className="mt-4">
                 <div className="grid gap-4 md:grid-cols-2">
                   <FieldRow label="Sender Name" desc="Name shown in email From field" value={emailLocaleForms[l.code]?.sender_name ?? ''} onChange={(v) => { setEmailLocaleForms(p => ({ ...p, [l.code]: { ...p[l.code], sender_name: v, locale: l.code } })); setEmailLocaleDirty(p => new Set(p).add(l.code)); }} placeholder="Your Platform" />
@@ -465,13 +708,13 @@ export default function AdminBrandingPage() {
       <Tabs defaultValue="identity">
         <TabsList className="w-full justify-start flex-wrap">
           <TabsTrigger value="identity" className="gap-1.5"><Palette className="h-4 w-4" /> Visual Identity</TabsTrigger>
-          <TabsTrigger value="localized" className="gap-1.5"><Type className="h-4 w-4" /> Localized Text</TabsTrigger>
-          <TabsTrigger value="email-settings" className="gap-1.5"><Settings2 className="h-4 w-4" /> Email Settings</TabsTrigger>
+          <TabsTrigger value="settings" className="gap-1.5"><Settings2 className="h-4 w-4" /> Settings</TabsTrigger>
+          <TabsTrigger value="email-settings" className="gap-1.5"><Mail className="h-4 w-4" /> Email Settings</TabsTrigger>
           <TabsTrigger value="email-templates" className="gap-1.5"><Mail className="h-4 w-4" /> Email Templates</TabsTrigger>
           <TabsTrigger value="domains" className="gap-1.5"><Link2 className="h-4 w-4" /> Domain URLs</TabsTrigger>
         </TabsList>
         <TabsContent value="identity" className="mt-4"><VisualIdentitySection /></TabsContent>
-        <TabsContent value="localized" className="mt-4"><LocalizedBrandingSection /></TabsContent>
+        <TabsContent value="settings" className="mt-4"><SettingsSection /></TabsContent>
         <TabsContent value="email-settings" className="mt-4"><EmailSettingsSection /></TabsContent>
         <TabsContent value="email-templates" className="mt-4"><EmailTemplatesTab /></TabsContent>
         <TabsContent value="domains" className="mt-4"><DomainUrlsSection /></TabsContent>

@@ -1025,6 +1025,9 @@ export type Database = {
           default_locale: string
           fallback_locale: string
           id: string
+          locale_billing_providers: Json
+          maintenance_message: string | null
+          maintenance_mode: boolean
           panel_default_locale: string
           site_mode: string
           timezone: string
@@ -1037,6 +1040,9 @@ export type Database = {
           default_locale?: string
           fallback_locale?: string
           id?: string
+          locale_billing_providers?: Json
+          maintenance_message?: string | null
+          maintenance_mode?: boolean
           panel_default_locale?: string
           site_mode?: string
           timezone?: string
@@ -1049,6 +1055,9 @@ export type Database = {
           default_locale?: string
           fallback_locale?: string
           id?: string
+          locale_billing_providers?: Json
+          maintenance_message?: string | null
+          maintenance_mode?: boolean
           panel_default_locale?: string
           site_mode?: string
           timezone?: string

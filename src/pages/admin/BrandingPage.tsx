@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { EmailTemplatesTab } from '@/components/admin/EmailTemplatesTab';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -439,156 +440,6 @@ function EmailSettingsSection() {
   );
 }
 
-// ── Email Templates Section ──
-function EmailTemplatesSection() {
-  const qc = useQueryClient();
-
-  // Platform-level templates: workspace_id = first workspace or use a global approach
-  // For platform branding, we show ALL email templates across workspaces
-  const { data: templates, isLoading } = useQuery({
-    queryKey: ['platform-email-templates'],
-    queryFn: async () => {
-      const { data, error } = await supabase.from('email_templates').select('*').order('slug').order('locale');
-      if (error) throw error;
-      return data ?? [];
-    },
-  });
-
-  const [editOpen, setEditOpen] = useState(false);
-  const [editingTpl, setEditingTpl] = useState<any>(null);
-  const [tplForm, setTplForm] = useState({ slug: '', subject: '', html_body: '', text_body: '', locale: 'en', workspace_id: '' });
-
-  const openEdit = (tpl?: any) => {
-    if (tpl) {
-      setEditingTpl(tpl);
-      setTplForm({ slug: tpl.slug, subject: tpl.subject, html_body: tpl.html_body, text_body: tpl.text_body || '', locale: tpl.locale, workspace_id: tpl.workspace_id });
-    } else {
-      setEditingTpl(null);
-      setTplForm({ slug: '', subject: '', html_body: '', text_body: '', locale: 'en', workspace_id: '' });
-    }
-    setEditOpen(true);
-  };
-
-  const saveTpl = useMutation({
-    mutationFn: async () => {
-      if (!tplForm.workspace_id) throw new Error('Workspace ID is required');
-      if (editingTpl) {
-        const { error } = await supabase.from('email_templates').update({
-          slug: tplForm.slug, subject: tplForm.subject, html_body: tplForm.html_body,
-          text_body: tplForm.text_body || null, locale: tplForm.locale,
-        }).eq('id', editingTpl.id);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from('email_templates').insert({
-          slug: tplForm.slug, subject: tplForm.subject, html_body: tplForm.html_body,
-          text_body: tplForm.text_body || null, locale: tplForm.locale,
-          workspace_id: tplForm.workspace_id,
-        });
-        if (error) throw error;
-      }
-    },
-    onSuccess: () => { toast({ title: 'Template saved' }); setEditOpen(false); qc.invalidateQueries({ queryKey: ['platform-email-templates'] }); },
-    onError: (e) => toast({ title: 'Error', description: e.message, variant: 'destructive' }),
-  });
-
-  const deleteTpl = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from('email_templates').delete().eq('id', id);
-      if (error) throw error;
-    },
-    onSuccess: () => { toast({ title: 'Template deleted' }); qc.invalidateQueries({ queryKey: ['platform-email-templates'] }); },
-    onError: (e) => toast({ title: 'Error', description: e.message, variant: 'destructive' }),
-  });
-
-  if (isLoading) return <LoadingCard />;
-
-  return (
-    <Card className="bg-card border-border">
-      <CardHeader className="pb-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2"><Mail className="h-5 w-5 text-primary" /><CardTitle className="text-foreground">Email Templates</CardTitle></div>
-          <Button size="sm" onClick={() => openEdit()}><Plus className="h-4 w-4 mr-1" />New Template</Button>
-        </div>
-        <CardDescription>Manage email templates for all workspaces. Templates use {'{{variable}}'} syntax for dynamic data.</CardDescription>
-      </CardHeader>
-      <CardContent>
-        {!templates?.length ? (
-          <div className="text-center py-8"><Mail className="h-12 w-12 text-muted-foreground mx-auto mb-3" /><p className="text-muted-foreground">No email templates yet.</p></div>
-        ) : (
-          <Table>
-            <TableHeader><TableRow><TableHead>Slug</TableHead><TableHead>Subject</TableHead><TableHead>Locale</TableHead><TableHead>Active</TableHead><TableHead className="w-[100px]">Actions</TableHead></TableRow></TableHeader>
-            <TableBody>
-              {templates.map(tpl => (
-                <TableRow key={tpl.id}>
-                  <TableCell className="font-mono text-xs">{tpl.slug}</TableCell>
-                  <TableCell className="max-w-[200px] truncate">{tpl.subject}</TableCell>
-                  <TableCell><Badge variant="outline">{tpl.locale}</Badge></TableCell>
-                  <TableCell>{tpl.is_active ? <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-700">Active</Badge> : <Badge variant="secondary">Inactive</Badge>}</TableCell>
-                  <TableCell>
-                    <div className="flex gap-1">
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(tpl)}><Pencil className="h-3.5 w-3.5" /></Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => deleteTpl.mutate(tpl.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-
-        {/* Edit/Create Dialog */}
-        <Dialog open={editOpen} onOpenChange={setEditOpen}>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader><DialogTitle>{editingTpl ? 'Edit Template' : 'New Email Template'}</DialogTitle></DialogHeader>
-            <div className="space-y-4 max-h-[60vh] overflow-y-auto">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-1.5">
-                  <Label>Slug</Label>
-                  <Input value={tplForm.slug} onChange={e => setTplForm(p => ({ ...p, slug: e.target.value }))} placeholder="welcome-email" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Locale</Label>
-                  <Select value={tplForm.locale} onValueChange={v => setTplForm(p => ({ ...p, locale: v }))}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {LOCALES.map(l => <SelectItem key={l.code} value={l.code}>{l.label}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              {!editingTpl && (
-                <div className="space-y-1.5">
-                  <Label>Workspace ID</Label>
-                  <Input value={tplForm.workspace_id} onChange={e => setTplForm(p => ({ ...p, workspace_id: e.target.value }))} placeholder="Workspace UUID" />
-                  <p className="text-xs text-muted-foreground">Required for new templates.</p>
-                </div>
-              )}
-              <div className="space-y-1.5">
-                <Label>Subject</Label>
-                <Input value={tplForm.subject} onChange={e => setTplForm(p => ({ ...p, subject: e.target.value }))} placeholder="Welcome to {{platform_name}}" />
-              </div>
-              <div className="space-y-1.5">
-                <Label>HTML Body</Label>
-                <Textarea rows={8} value={tplForm.html_body} onChange={e => setTplForm(p => ({ ...p, html_body: e.target.value }))} placeholder="<h1>Hello {{name}}</h1>" className="font-mono text-xs" />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Text Body (optional)</Label>
-                <Textarea rows={3} value={tplForm.text_body} onChange={e => setTplForm(p => ({ ...p, text_body: e.target.value }))} placeholder="Plain text version" className="font-mono text-xs" />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
-              <Button onClick={() => saveTpl.mutate()} disabled={!tplForm.slug || !tplForm.subject || !tplForm.html_body || saveTpl.isPending}>
-                {saveTpl.isPending ? 'Saving...' : 'Save'}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      </CardContent>
-    </Card>
-  );
-}
-
 // ── Loading placeholder ──
 function LoadingCard() {
   return (
@@ -622,7 +473,7 @@ export default function AdminBrandingPage() {
         <TabsContent value="identity" className="mt-4"><VisualIdentitySection /></TabsContent>
         <TabsContent value="localized" className="mt-4"><LocalizedBrandingSection /></TabsContent>
         <TabsContent value="email-settings" className="mt-4"><EmailSettingsSection /></TabsContent>
-        <TabsContent value="email-templates" className="mt-4"><EmailTemplatesSection /></TabsContent>
+        <TabsContent value="email-templates" className="mt-4"><EmailTemplatesTab /></TabsContent>
         <TabsContent value="domains" className="mt-4"><DomainUrlsSection /></TabsContent>
       </Tabs>
     </div>

@@ -23,7 +23,9 @@ export interface AuthSession {
 export interface SignUpParams {
   email: string;
   password: string;
+  website: string;
   fullName?: string;
+  locale?: string;
   metadata?: Record<string, unknown>;
   redirectTo?: string;
 }

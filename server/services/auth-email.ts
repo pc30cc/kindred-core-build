@@ -148,6 +148,7 @@ export async function issueSignupLinkEmail(
       website: normalizedWebsite,
       website_url: normalizedWebsite,
       locale: options.locale || 'en',
+      email_verified: false,
     };
 
     // email_confirm: true allows immediate signIn, but we still send

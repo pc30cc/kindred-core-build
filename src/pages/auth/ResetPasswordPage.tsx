@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
-import { useAuth } from '@/features/auth/AuthContext';
+
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -15,7 +15,6 @@ export default function ResetPasswordPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { t, locale, dir } = useTranslation();
-  const { updatePassword } = useAuth();
   const brand = usePlatformBrandingForLocale(locale);
   const isRtl = dir === 'rtl';
 

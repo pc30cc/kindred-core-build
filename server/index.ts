@@ -14,6 +14,7 @@ import { cdnRouter } from './routes/cdn.js';
 import { billingRouter } from './routes/billing.js';
 import { adminRouter } from './routes/admin.js';
 import { templatesRouter } from './routes/templates.js';
+import { configRouter } from './routes/config.js';
 import {
   ipBlockMiddleware,
   authRateLimiter,

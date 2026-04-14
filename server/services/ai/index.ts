@@ -3,8 +3,8 @@
  * All calls run server-side only. API keys never leave the backend.
  */
 
-import type { ServerConfig } from '../config.js';
-import { getServiceClient } from '../supabase.js';
+import type { ServerConfig } from '../../config.js';
+import { getServiceClient } from '../../supabase.js';
 
 export interface AIConfig {
   provider: string;

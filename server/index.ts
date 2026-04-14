@@ -11,6 +11,7 @@ import { aiRouter } from './routes/ai.js';
 import { storageRouter } from './routes/storage.js';
 import { cdnRouter } from './routes/cdn.js';
 import { billingRouter } from './routes/billing.js';
+import { adminRouter } from './routes/admin.js';
 import {
   ipBlockMiddleware,
   authRateLimiter,
@@ -76,7 +77,7 @@ app.use('/api/cdn', cdnRouter);
 app.use('/api/billing', billingRouter);
 
 // Admin — moderate rate limit
-app.use('/api/admin', adminRateLimiter);
+app.use('/api/admin', adminRateLimiter, adminRouter);
 
 // 404
 app.use((_req, res) => {

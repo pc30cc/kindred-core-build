@@ -7,6 +7,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useTranslation } from '@/i18n';
 import { toast } from 'sonner';
+import { adminAssignRole, adminRemoveRole, adminListRoles } from '@/lib/api';
 import {
   Shield, Users, UserCog, Loader2, Trash2, CheckCircle2, Plus,
 } from 'lucide-react';
@@ -42,12 +43,12 @@ export default function AdminRolesPage() {
   const { data: allRoles = [], isLoading } = useQuery({
     queryKey: ['admin-all-roles'],
     queryFn: async () => {
-      const { data } = await supabase.from('user_roles').select('*').order('role');
-      if (!data) return [];
-      const ids = [...new Set(data.map(r => r.user_id))];
-      if (ids.length === 0) return data.map(r => ({ ...r, userName: r.user_id.slice(0, 8), email: '' }));
+      const result = await adminListRoles();
+      const roles = result?.roles || [];
+      if (roles.length === 0) return [];
+      const ids = [...new Set(roles.map((r: any) => r.user_id))];
       const { data: profiles } = await supabase.rpc('admin_list_profiles', { _limit: 200, _offset: 0 });
-      return data.map(r => {
+      return roles.map((r: any) => {
         const p = (profiles || []).find((pr: any) => pr.id === r.user_id);
         return { ...r, userName: p?.full_name || r.user_id.slice(0, 8), email: p?.email || '' };
       });
@@ -57,9 +58,7 @@ export default function AdminRolesPage() {
   const assignRole = useMutation({
     mutationFn: async () => {
       if (!targetUserId.trim()) throw new Error(isRtl ? 'شناسه کاربر الزامی است' : 'User ID is required');
-      const { error } = await supabase.from('user_roles')
-        .upsert({ user_id: targetUserId.trim(), role: selectedRole as any }, { onConflict: 'user_id,role' });
-      if (error) throw error;
+      await adminAssignRole(targetUserId.trim(), selectedRole);
     },
     onSuccess: () => {
       toast.success(isRtl ? 'نقش اختصاص یافت' : 'Role assigned');
@@ -71,8 +70,7 @@ export default function AdminRolesPage() {
 
   const removeRole = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from('user_roles').delete().eq('id', id);
-      if (error) throw error;
+      await adminRemoveRole({ roleId: id });
     },
     onSuccess: () => {
       toast.success(isRtl ? 'نقش حذف شد' : 'Role removed');

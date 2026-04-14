@@ -12,6 +12,10 @@ import { useTranslation } from '@/i18n';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import {
+  adminListUsers, adminCreateUser, adminResetPassword, adminUpdatePassword,
+  adminToggleDisable, adminConfirmEmail, adminAssignRole, adminRemoveRole,
+} from '@/lib/api';
+import {
   Search, Edit, Ban, CheckCircle2, ShieldCheck, ShieldOff,
   User, AtSign, Phone, Calendar, Shield, Building2, Key, KeyRound,
   Loader2, Save, Plus, Trash2, Clock, Users, AlertTriangle, Eye, X,
@@ -38,11 +42,12 @@ function useAdminUsersData() {
       const { data: roles } = await supabase.from('user_roles').select('*').in('user_id', ids);
       // Fetch workspace memberships
       const { data: members } = await supabase.from('workspace_members').select('user_id, workspace_id, role');
-      // Fetch auth data from edge function
-      const { data: authData, error: authErr } = await supabase.functions.invoke('admin-actions', {
-        body: { action: 'list_users' },
-      });
-      const authUsers = authErr ? [] : (authData?.users || []);
+      // Fetch auth data from self-hosted backend
+      let authUsers: any[] = [];
+      try {
+        const authData = await adminListUsers(1, 200);
+        authUsers = authData?.users || [];
+      } catch {}
 
       return (profiles || []).map((p: any) => {
         const authUser = authUsers.find((au: any) => au.id === p.id);
@@ -136,10 +141,7 @@ export default function AdminUsersPage() {
     if (!selectedUser?.email) return;
     setActionLoading('reset-pw');
     try {
-      const { data, error } = await supabase.functions.invoke('admin-actions', {
-        body: { action: 'reset_password', userId: selectedUser.id, email: selectedUser.email },
-      });
-      if (error || data?.error) throw new Error(data?.error || 'Error');
+      await adminResetPassword(selectedUser.email);
       toast.success(isRtl ? 'لینک ریست پسورد ایجاد شد' : 'Password reset link generated');
     } catch (e: any) { toast.error(e.message); }
     setActionLoading(null);
@@ -152,10 +154,7 @@ export default function AdminUsersPage() {
     }
     setActionLoading('update-pw');
     try {
-      const { data, error } = await supabase.functions.invoke('admin-actions', {
-        body: { action: 'update_password', userId: selectedUser.id, password: newPassword },
-      });
-      if (error || data?.error) throw new Error(data?.error || 'Error');
+      await adminUpdatePassword(selectedUser.id, newPassword);
       toast.success(isRtl ? 'رمز عبور تغییر کرد' : 'Password changed');
       setNewPassword('');
     } catch (e: any) { toast.error(e.message); }
@@ -167,10 +166,7 @@ export default function AdminUsersPage() {
     const disable = !isBanned(selectedUser);
     setActionLoading('toggle-ban');
     try {
-      const { data, error } = await supabase.functions.invoke('admin-actions', {
-        body: { action: 'disable_user', userId: selectedUser.id, disable },
-      });
-      if (error || data?.error) throw new Error(data?.error || 'Error');
+      await adminToggleDisable(selectedUser.id, disable);
       toast.success(disable
         ? (isRtl ? 'کاربر غیرفعال شد' : 'User disabled')
         : (isRtl ? 'کاربر فعال شد' : 'User enabled'));
@@ -185,10 +181,7 @@ export default function AdminUsersPage() {
     if (!user) return;
     setActionLoading(`confirm-email-${user.id}`);
     try {
-      const { data, error } = await supabase.functions.invoke('admin-actions', {
-        body: { action: 'confirm_email', userId: user.id },
-      });
-      if (error || data?.error) throw new Error(data?.error || 'Error');
+      await adminConfirmEmail(user.id);
       toast.success(isRtl ? 'ایمیل تأیید شد' : 'Email confirmed');
       queryClient.invalidateQueries({ queryKey: ['admin-users-full'] });
     } catch (e: any) { toast.error(e.message); }
@@ -199,9 +192,7 @@ export default function AdminUsersPage() {
     if (!selectedUser) return;
     setActionLoading(`rm-role-${role}`);
     try {
-      const { error } = await supabase.from('user_roles').delete()
-        .eq('user_id', selectedUser.id).eq('role', role as "admin" | "moderator" | "user");
-      if (error) throw error;
+      await adminRemoveRole({ userId: selectedUser.id, role });
       toast.success(isRtl ? 'نقش حذف شد' : 'Role removed');
       setSelectedUser({ ...selectedUser, roles: selectedUser.roles.filter((r: any) => r.role !== role) });
       queryClient.invalidateQueries({ queryKey: ['admin-users-full'] });
@@ -213,9 +204,7 @@ export default function AdminUsersPage() {
     if (!selectedUser || !newRoleToAdd) return;
     setActionLoading('add-role');
     try {
-      const { error } = await supabase.from('user_roles')
-        .upsert({ user_id: selectedUser.id, role: newRoleToAdd as "admin" | "moderator" | "user" }, { onConflict: 'user_id,role' });
-      if (error) throw error;
+      await adminAssignRole(selectedUser.id, newRoleToAdd);
       toast.success(isRtl ? 'نقش اضافه شد' : 'Role added');
       setSelectedUser({ ...selectedUser, roles: [...selectedUser.roles, { role: newRoleToAdd, user_id: selectedUser.id }] });
       setNewRoleToAdd('');
@@ -229,10 +218,7 @@ export default function AdminUsersPage() {
     if (!createEmail || !createPassword) return;
     setCreateLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke('admin-actions', {
-        body: { action: 'create_user', email: createEmail, password: createPassword, fullName: createName, emailConfirm: true },
-      });
-      if (error || data?.error) throw new Error(data?.error || 'Error');
+      await adminCreateUser({ email: createEmail, password: createPassword, fullName: createName, emailConfirm: true });
       toast.success(isRtl ? 'کاربر ایجاد شد' : 'User created');
       setCreateEmail('');
       setCreateName('');

@@ -1,89 +1,129 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useState, useEffect, useMemo } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
 import { useAuth } from '@/features/auth/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { logClientSecurityEvent } from '@/hooks/useSecurity';
+import { toast } from 'sonner';
+import { Eye, EyeOff, LogIn, Loader2 } from 'lucide-react';
+import { usePlatformBrandingForLocale } from '@/hooks/usePublicBranding';
+import { LanguageSelector } from '@/components/auth/LanguageSelector';
 
 export default function LoginPage() {
-  const { t } = useTranslation();
-  const { signIn } = useAuth();
+  const [params] = useSearchParams();
   const navigate = useNavigate();
+  const { t, locale, dir } = useTranslation();
+  const { signIn, user, isLoading: authLoading } = useAuth();
+  const brand = usePlatformBrandingForLocale(locale);
+  const isRtl = dir === 'rtl';
+
+  useEffect(() => {
+    if (user && !authLoading) {
+      navigate(params.get('redirect') || '/app', { replace: true });
+    }
+  }, [user, authLoading, navigate, params]);
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [failCount, setFailCount] = useState(0);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const brandLetter = useMemo(() => {
+    const name = brand?.platform_name || 'App';
+    return name.charAt(0);
+  }, [brand]);
+
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
     setLoading(true);
-
-    const { error: err } = await signIn({ email, password });
-    if (err) {
-      const newCount = failCount + 1;
-      setFailCount(newCount);
-      setError(err.message);
-      setLoading(false);
-
-      // Log failed login attempt
-      logClientSecurityEvent('login_failed', newCount >= 5 ? 'error' : 'warn', {
-        email,
-        failCount: newCount,
-      });
-
-      // After 5 failures, show progressive warning
-      if (newCount >= 5) {
-        setError('Too many failed attempts. Please wait before trying again.');
+    try {
+      const { error } = await signIn({ email, password });
+      if (error) {
+        toast.error(t('auth.loginFailed'), { description: error.message });
+        return;
       }
-    } else {
-      setFailCount(0);
-      navigate('/app');
+      toast.success(t('auth.welcomeBack'));
+      navigate(params.get('redirect') || '/app');
+    } catch (err: any) {
+      toast.error(t('auth.loginFailed'), { description: err?.message });
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <Card>
-      <CardHeader className="text-center">
-        <CardTitle className="text-2xl">{t('auth.loginTitle')}</CardTitle>
-        <CardDescription>{t('auth.loginSubtitle')}</CardDescription>
-      </CardHeader>
-      <form onSubmit={handleSubmit}>
-        <CardContent className="space-y-4">
-          {error && <p className="text-sm text-destructive">{error}</p>}
-          {failCount >= 3 && (
-            <p className="text-sm text-destructive/80">
-              ⚠ {failCount} failed attempts detected. Account may be temporarily locked after continued failures.
-            </p>
-          )}
-          <div className="space-y-2">
-            <Label htmlFor="email">{t('auth.email')}</Label>
-            <Input id="email" type="email" value={email} onChange={e => setEmail(e.target.value)} required />
+    <div className="min-h-screen flex items-center justify-center bg-background p-4" dir={dir}>
+      <div className="w-full max-w-md space-y-8">
+        {/* Header */}
+        <div className="text-center space-y-2">
+          <div className="w-14 h-14 rounded-xl bg-primary mx-auto flex items-center justify-center">
+            <span className="text-2xl font-black text-primary-foreground">{brandLetter}</span>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="password">{t('auth.password')}</Label>
-            <Input id="password" type="password" value={password} onChange={e => setPassword(e.target.value)} required />
-          </div>
-          <div className="text-end">
-            <Link to="/auth/forgot-password" className="text-sm text-primary hover:underline">
-              {t('auth.forgotPassword')}
-            </Link>
-          </div>
-        </CardContent>
-        <CardFooter className="flex-col gap-4">
-          <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? t('common.loading') : t('auth.login')}
-          </Button>
-          <p className="text-sm text-muted-foreground">
+          <h1 className="text-2xl font-bold text-foreground">{t('auth.loginTitle')}</h1>
+          <p className="text-sm text-muted-foreground">{t('auth.loginSubtitle')}</p>
+        </div>
+
+        {/* Form Card */}
+        <div className="bg-card border border-border rounded-xl p-6 space-y-5 shadow-sm">
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="email">{t('auth.email')}</Label>
+              <Input
+                id="email"
+                type="email"
+                placeholder="email@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                dir="ltr"
+                className="text-left"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="password">{t('auth.password')}</Label>
+              <div className="relative">
+                <Input
+                  id="password"
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  dir="ltr"
+                  className={`text-left ${isRtl ? 'pr-10' : 'pl-10'}`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className={`absolute ${isRtl ? 'right-3' : 'left-3'} top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground`}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+            <Button type="submit" className="w-full" disabled={loading}>
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogIn className="w-4 h-4" />}
+              <span className={isRtl ? 'mr-2' : 'ml-2'}>{t('auth.login')}</span>
+            </Button>
+          </form>
+        </div>
+
+        {/* Footer links */}
+        <div className="text-center space-y-3">
+          <p className="text-base text-muted-foreground">
             {t('auth.noAccount')}{' '}
-            <Link to="/auth/signup" className="text-primary hover:underline">{t('auth.signup')}</Link>
+            <Link to="/auth/signup" className="text-primary hover:underline font-medium">
+              {t('auth.signup')}
+            </Link>
           </p>
-        </CardFooter>
-      </form>
-    </Card>
+          <Link to="/auth/forgot-password" className="text-base text-primary hover:underline font-medium">
+            {t('auth.forgotPassword')}
+          </Link>
+        </div>
+
+        <LanguageSelector />
+      </div>
+    </div>
   );
 }

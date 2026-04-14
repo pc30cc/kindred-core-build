@@ -20,6 +20,8 @@ import SignupPage from "@/pages/auth/SignupPage";
 import ForgotPasswordPage from "@/pages/auth/ForgotPasswordPage";
 import ResetPasswordPage from "@/pages/auth/ResetPasswordPage";
 import VerifyEmailPage from "@/pages/auth/VerifyEmailPage";
+import CheckEmailPage from "@/pages/auth/CheckEmailPage";
+import EmailConfirmedPage from "@/pages/auth/EmailConfirmedPage";
 import InvitePage from "@/pages/auth/InvitePage";
 
 import OnboardingPage from "@/pages/app/OnboardingPage";
@@ -79,6 +81,8 @@ const App = () => (
                 <Route path="/auth/forgot-password" element={<ForgotPasswordPage />} />
                 <Route path="/auth/reset-password" element={<ResetPasswordPage />} />
                 <Route path="/auth/verify-email" element={<VerifyEmailPage />} />
+                <Route path="/auth/check-email" element={<CheckEmailPage />} />
+                <Route path="/auth/email-confirmed" element={<EmailConfirmedPage />} />
                 <Route path="/auth/invite" element={<InvitePage />} />
               </Route>
 

@@ -1,56 +1,103 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
 import { useAuth } from '@/features/auth/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { toast } from 'sonner';
+import { Lock, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { usePlatformBrandingForLocale } from '@/hooks/usePublicBranding';
+import { LanguageSelector } from '@/components/auth/LanguageSelector';
 
 export default function ResetPasswordPage() {
-  const { t } = useTranslation();
-  const { updatePassword } = useAuth();
   const navigate = useNavigate();
+  const { t, locale, dir } = useTranslation();
+  const { updatePassword } = useAuth();
+  const brand = usePlatformBrandingForLocale(locale);
+  const isRtl = dir === 'rtl';
+
   const [password, setPassword] = useState('');
-  const [confirm, setConfirm] = useState('');
-  const [error, setError] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const passwordsMatch = confirmPassword.length > 0 && password === confirmPassword;
+
+  const brandLetter = useMemo(() => {
+    const name = brand?.platform_name || 'App';
+    return name.charAt(0);
+  }, [brand]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (password !== confirm) { setError('Passwords do not match'); return; }
-    setError('');
+    if (password !== confirmPassword) {
+      toast.error(t('auth.passwordsMismatch'));
+      return;
+    }
+    if (password.length < 6) {
+      toast.error(t('auth.passwordMinLength'));
+      return;
+    }
     setLoading(true);
-    const { error: err } = await updatePassword(password);
-    if (err) setError(err.message);
-    else navigate('/app');
+    const { error } = await updatePassword(password);
     setLoading(false);
+    if (error) {
+      toast.error(t('auth.error'), { description: error.message });
+    } else {
+      toast.success(t('auth.passwordChanged'));
+      navigate('/app');
+    }
   };
 
   return (
-    <Card>
-      <CardHeader className="text-center">
-        <CardTitle className="text-2xl">{t('auth.resetTitle')}</CardTitle>
-        <CardDescription>{t('auth.resetSubtitle')}</CardDescription>
-      </CardHeader>
-      <form onSubmit={handleSubmit}>
-        <CardContent className="space-y-4">
-          {error && <p className="text-sm text-destructive">{error}</p>}
-          <div className="space-y-2">
-            <Label htmlFor="password">{t('auth.password')}</Label>
-            <Input id="password" type="password" value={password} onChange={e => setPassword(e.target.value)} required />
+    <div className="min-h-screen flex items-center justify-center bg-background p-4" dir={dir}>
+      <div className="w-full max-w-md space-y-8">
+        <div className="text-center space-y-2">
+          <div className="w-14 h-14 rounded-xl bg-primary mx-auto flex items-center justify-center">
+            <span className="text-2xl font-black text-primary-foreground">{brandLetter}</span>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="confirm">{t('auth.confirmPassword')}</Label>
-            <Input id="confirm" type="password" value={confirm} onChange={e => setConfirm(e.target.value)} required />
-          </div>
-        </CardContent>
-        <CardFooter>
-          <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? t('common.loading') : t('auth.resetPassword')}
-          </Button>
-        </CardFooter>
-      </form>
-    </Card>
+          <h1 className="text-2xl font-bold text-foreground">{t('auth.resetTitle')}</h1>
+          <p className="text-sm text-muted-foreground">{t('auth.resetSubtitle')}</p>
+        </div>
+
+        <div className="bg-card border border-border rounded-xl p-6 shadow-sm">
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="password">{t('auth.newPassword')}</Label>
+              <Input id="password" type="password" placeholder={t('auth.passwordPlaceholder')} value={password} onChange={(e) => setPassword(e.target.value)} required dir="ltr" className="text-left" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="confirm">{t('auth.confirmPassword')}</Label>
+              <div className="relative">
+                <Input
+                  id="confirm"
+                  type="password"
+                  placeholder={t('auth.confirmPasswordPlaceholder')}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  required
+                  dir="ltr"
+                  className={`text-left ${confirmPassword && !passwordsMatch ? 'border-destructive/50' : ''}`}
+                />
+                {confirmPassword && (
+                  <div className={`absolute ${isRtl ? 'right-3' : 'left-3'} top-1/2 -translate-y-1/2`}>
+                    {passwordsMatch
+                      ? <CheckCircle2 className="w-4 h-4 text-green-500" />
+                      : <AlertTriangle className="w-4 h-4 text-destructive" />
+                    }
+                  </div>
+                )}
+              </div>
+            </div>
+            <Button type="submit" className="w-full" disabled={loading}>
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
+              <span className={isRtl ? 'mr-2' : 'ml-2'}>{t('auth.saveNewPassword')}</span>
+            </Button>
+          </form>
+        </div>
+
+        <LanguageSelector />
+      </div>
+    </div>
   );
 }

@@ -1,14 +1,12 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import cookieParser from 'cookie-parser';
 import { loadConfig } from './config.js';
 import { widgetRouter } from './routes/widget.js';
 import { visitorRouter } from './routes/visitors.js';
 import { healthRouter } from './routes/health.js';
 import { emailRouter } from './routes/email.js';
 import { authSecurityRouter } from './routes/auth.js';
-import { authEmailRouter } from './routes/auth-email.js';
 import { aiRouter } from './routes/ai.js';
 import { storageRouter } from './routes/storage.js';
 import { cdnRouter } from './routes/cdn.js';
@@ -34,8 +32,7 @@ app.use(cors({
   origin: config.corsOrigins[0] === '*' ? true : config.corsOrigins,
   credentials: true,
 }));
-app.use(express.json({ limit: '50mb' }));
-app.use(cookieParser());
+app.use(express.json({ limit: '50mb' })); // Larger limit for file uploads
 
 // Attach config to requests
 app.use((req, _res, next) => {
@@ -54,10 +51,7 @@ app.use('/api/', abuseDetectionMiddleware());
 // Health (no rate limit)
 app.use('/api/health', healthRouter);
 
-// Auth-email — primary authentication endpoints (backend-mediated)
-app.use('/api/auth-email', authEmailRouter);
-
-// Auth security (legacy brute force + captcha) — strict rate limit
+// Auth security (brute force + captcha) — strict rate limit
 app.use('/api/auth', authRateLimiter, authSecurityRouter);
 
 // Widget — high-traffic rate limit

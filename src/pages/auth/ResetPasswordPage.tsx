@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
 import { useAuth } from '@/features/auth/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -11,12 +11,10 @@ export default function ResetPasswordPage() {
   const { t } = useTranslation();
   const { updatePassword } = useAuth();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -24,27 +22,10 @@ export default function ResetPasswordPage() {
     setError('');
     setLoading(true);
     const { error: err } = await updatePassword(password);
-    if (err) {
-      setError(err.message);
-    } else {
-      setSuccess(true);
-      setTimeout(() => navigate('/auth/login'), 2000);
-    }
+    if (err) setError(err.message);
+    else navigate('/app');
     setLoading(false);
   };
-
-  if (success) {
-    return (
-      <Card>
-        <CardHeader className="text-center">
-          <CardTitle>✓ {t('auth.resetPassword')}</CardTitle>
-          <CardDescription>
-            {t('auth.login') === 'Log in' ? 'Password updated successfully. Redirecting to login...' : t('auth.resetPassword')}
-          </CardDescription>
-        </CardHeader>
-      </Card>
-    );
-  }
 
   return (
     <Card>

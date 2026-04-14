@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import type { AuthProvider, AuthSession, AuthUser } from '@/types/providers';
-import { apiAuthProvider } from '@/providers/api/auth';
+import { supabaseAuthProvider } from '@/providers';
 
 interface AuthContextValue {
   user: AuthUser | null;
@@ -15,10 +15,10 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-// Default to API auth provider — fully backend-mediated
+// Default to Supabase — can be swapped via props
 export function AuthContextProvider({
   children,
-  provider = apiAuthProvider,
+  provider = supabaseAuthProvider,
 }: {
   children: React.ReactNode;
   provider?: AuthProvider;

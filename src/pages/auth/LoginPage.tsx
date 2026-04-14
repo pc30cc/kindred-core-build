@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { logClientSecurityEvent } from '@/hooks/useSecurity';
 
 export default function LoginPage() {
   const { t } = useTranslation();
@@ -29,12 +30,15 @@ export default function LoginPage() {
       setError(err.message);
       setLoading(false);
 
+      // Log failed login attempt
+      logClientSecurityEvent('login_failed', newCount >= 5 ? 'error' : 'warn', {
+        email,
+        failCount: newCount,
+      });
+
       // After 5 failures, show progressive warning
       if (newCount >= 5) {
-        setError(t('auth.login') === 'Log in'
-          ? 'Too many failed attempts. Please wait before trying again.'
-          : err.message
-        );
+        setError('Too many failed attempts. Please wait before trying again.');
       }
     } else {
       setFailCount(0);

@@ -8,11 +8,9 @@ White-label: no hardcoded brand/domain. All branding from admin.
 Multilingual: fa (RTL), en (LTR), tr (LTR). Fallback chains.
 Service role key: NEVER in frontend.
 Primary #3B82F6 (blue), clean professional SaaS design.
-Auth: backend-mediated only. No browser Supabase Auth. DB-backed sessions.
 
 ## Memories
 - [Architecture rules](mem://features/architecture) — Self-host, provider-driven, single source of truth
-- [Auth architecture](mem://features/auth-architecture) — DB-backed sessions/tokens, own email delivery, production-grade
 - [Widget system](mem://features/widget) — Crisp-style loader, server-validated bootstrap
 - [Provider architecture](mem://design/providers) — Full 14-type pluggable registry with resolution, stubs, React context
 - [i18n config](mem://features/i18n) — fa/en/tr, RTL support, fallback chains

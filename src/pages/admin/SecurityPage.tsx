@@ -94,9 +94,9 @@ export default function AdminSecurityPage() {
 
       <Tabs defaultValue="events">
         <TabsList className="bg-admin-muted">
-          <TabsTrigger value="events">Security Events</TabsTrigger>
-          <TabsTrigger value="blocked">Blocked IPs ({blockedIPs?.length || 0})</TabsTrigger>
-          <TabsTrigger value="config">Protection Config</TabsTrigger>
+          <TabsTrigger value="events" className="data-[state=active]:bg-admin-sidebar-active data-[state=active]:text-admin-foreground text-admin-muted-foreground">Security Events</TabsTrigger>
+          <TabsTrigger value="blocked" className="data-[state=active]:bg-admin-sidebar-active data-[state=active]:text-admin-foreground text-admin-muted-foreground">Blocked IPs ({blockedIPs?.length || 0})</TabsTrigger>
+          <TabsTrigger value="config" className="data-[state=active]:bg-admin-sidebar-active data-[state=active]:text-admin-foreground text-admin-muted-foreground">Protection Config</TabsTrigger>
         </TabsList>
 
         {/* Security Events Tab */}

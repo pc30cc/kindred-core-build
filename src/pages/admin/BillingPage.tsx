@@ -162,11 +162,11 @@ export default function AdminBillingPage() {
 
       <Tabs defaultValue="providers">
         <TabsList className="bg-admin-muted">
-          <TabsTrigger value="providers">Providers ({ALL_PROVIDERS.length})</TabsTrigger>
-          <TabsTrigger value="plans">Plans</TabsTrigger>
-          <TabsTrigger value="payments">Payments</TabsTrigger>
-          <TabsTrigger value="events">Events</TabsTrigger>
-          <TabsTrigger value="admin">Admin Actions</TabsTrigger>
+          <TabsTrigger value="providers" className="data-[state=active]:bg-admin-sidebar-active data-[state=active]:text-admin-foreground text-admin-muted-foreground">Providers ({ALL_PROVIDERS.length})</TabsTrigger>
+          <TabsTrigger value="plans" className="data-[state=active]:bg-admin-sidebar-active data-[state=active]:text-admin-foreground text-admin-muted-foreground">Plans</TabsTrigger>
+          <TabsTrigger value="payments" className="data-[state=active]:bg-admin-sidebar-active data-[state=active]:text-admin-foreground text-admin-muted-foreground">Payments</TabsTrigger>
+          <TabsTrigger value="events" className="data-[state=active]:bg-admin-sidebar-active data-[state=active]:text-admin-foreground text-admin-muted-foreground">Events</TabsTrigger>
+          <TabsTrigger value="admin" className="data-[state=active]:bg-admin-sidebar-active data-[state=active]:text-admin-foreground text-admin-muted-foreground">Admin Actions</TabsTrigger>
         </TabsList>
 
         {/* Providers Tab */}

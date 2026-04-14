@@ -1,4 +1,10 @@
-import React, { createContext, useContext, useEffect } from 'react';
+/**
+ * BrandingContext — now powered by RuntimeConfig.
+ * Kept for backward compatibility with existing components.
+ * Delegates all identity to the RuntimeConfigContext.
+ */
+import React, { createContext, useContext } from 'react';
+import { useRuntimeConfig } from '@/features/config/RuntimeConfigContext';
 import type { WorkspaceBranding } from '@/types/models';
 
 interface BrandingContextValue {
@@ -15,78 +21,43 @@ const BrandingContext = createContext<BrandingContextValue>({
 
 export function BrandingProvider({
   children,
-  branding,
-  isLoading = false,
+  branding: legacyBranding,
+  isLoading: legacyLoading = false,
 }: {
   children: React.ReactNode;
   branding: WorkspaceBranding | null;
   isLoading?: boolean;
 }) {
-  const platformName = branding?.platform_name || 'Platform';
+  const { config, isLoading: configLoading } = useRuntimeConfig();
 
-  // Drive document title from branding
-  useEffect(() => {
-    if (branding?.meta_title) {
-      document.title = branding.meta_title;
-    } else if (branding?.platform_name) {
-      document.title = branding.platform_name;
-    }
-  }, [branding?.meta_title, branding?.platform_name]);
+  // Build a compat WorkspaceBranding from the resolved config
+  const resolvedBranding: WorkspaceBranding | null = config ? {
+    id: '',
+    workspace_id: '',
+    platform_name: config.identity.platformName,
+    short_name: config.identity.platformName,
+    logo_url: config.branding.logoUrl,
+    favicon_url: config.branding.faviconUrl,
+    primary_color: config.branding.primaryColor,
+    accent_color: config.branding.secondaryColor,
+    support_email: config.email.senderEmail,
+    sender_name: config.email.senderName,
+    meta_title: config.identity.metaTitle,
+    meta_description: config.identity.metaDescription,
+    social_image_url: null,
+    footer_text: config.identity.footerCompanyText,
+    legal_name: config.identity.legalCompanyDisplayName,
+    canonical_base_url: config.domains.canonicalBaseUrl,
+    panel_base_url: config.domains.appBaseUrl,
+    widget_base_url: config.domains.widgetBaseUrl,
+    asset_base_url: config.domains.assetBaseUrl,
+  } : legacyBranding;
 
-  // Drive favicon from branding
-  useEffect(() => {
-    if (branding?.favicon_url) {
-      let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement | null;
-      if (!link) {
-        link = document.createElement('link');
-        link.rel = 'icon';
-        document.head.appendChild(link);
-      }
-      link.href = branding.favicon_url;
-    }
-  }, [branding?.favicon_url]);
-
-  // Drive meta description
-  useEffect(() => {
-    if (branding?.meta_description) {
-      let meta = document.querySelector("meta[name='description']") as HTMLMetaElement | null;
-      if (!meta) {
-        meta = document.createElement('meta');
-        meta.name = 'description';
-        document.head.appendChild(meta);
-      }
-      meta.content = branding.meta_description;
-    }
-  }, [branding?.meta_description]);
-
-  // Drive OG image
-  useEffect(() => {
-    if (branding?.social_image_url) {
-      let meta = document.querySelector("meta[property='og:image']") as HTMLMetaElement | null;
-      if (!meta) {
-        meta = document.createElement('meta');
-        meta.setAttribute('property', 'og:image');
-        document.head.appendChild(meta);
-      }
-      meta.content = branding.social_image_url;
-    }
-  }, [branding?.social_image_url]);
-
-  // Drive canonical URL
-  useEffect(() => {
-    if (branding?.canonical_base_url) {
-      let link = document.querySelector("link[rel='canonical']") as HTMLLinkElement | null;
-      if (!link) {
-        link = document.createElement('link');
-        link.rel = 'canonical';
-        document.head.appendChild(link);
-      }
-      link.href = branding.canonical_base_url + window.location.pathname;
-    }
-  }, [branding?.canonical_base_url]);
+  const platformName = resolvedBranding?.platform_name || legacyBranding?.platform_name || 'Platform';
+  const isLoading = configLoading || legacyLoading;
 
   return (
-    <BrandingContext.Provider value={{ branding, platformName, isLoading }}>
+    <BrandingContext.Provider value={{ branding: resolvedBranding, platformName, isLoading }}>
       {children}
     </BrandingContext.Provider>
   );

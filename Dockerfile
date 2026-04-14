@@ -1,4 +1,4 @@
-FROM node:20-alpine AS build
+FROM node:20-alpine AS frontend-build
 WORKDIR /app
 COPY package*.json ./
 RUN npm install
@@ -8,8 +8,21 @@ ARG VITE_SUPABASE_ANON_KEY
 ARG VITE_API_BASE_URL
 RUN npm run build
 
+FROM node:20-alpine AS server-build
+WORKDIR /app/server
+COPY server/package*.json ./
+RUN npm install
+COPY server/ .
+RUN npm run build
+
 FROM nginx:alpine
-COPY --from=build /app/dist /usr/share/nginx/html
+RUN apk add --no-cache nodejs
+WORKDIR /app
+COPY --from=frontend-build /app/dist /usr/share/nginx/html
+COPY --from=server-build /app/server/dist /app/server/dist
+COPY --from=server-build /app/server/node_modules /app/server/node_modules
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY docker/start.sh /start.sh
+RUN chmod +x /start.sh
 EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
+CMD ["/start.sh"]

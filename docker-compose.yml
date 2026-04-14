@@ -1,6 +1,4 @@
 # docker-compose.yml — Growth Suite (Frontend + Backend)
-# Coolify: deploy as "Docker Compose" from repo root, compose path: /docker-compose.yml
-#
 # Local usage:
 #   cp .env.docker.example .env.docker
 #   docker compose --env-file .env.docker up -d --build
@@ -35,7 +33,6 @@ services:
       - CORS_ORIGINS=${CORS_ORIGINS:-*}
       - RATE_LIMIT_WINDOW_MS=${RATE_LIMIT_WINDOW_MS:-60000}
       - RATE_LIMIT_MAX=${RATE_LIMIT_MAX:-100}
-      # Email providers (optional)
       - RESEND_API_KEY=${RESEND_API_KEY:-}
       - SENDGRID_API_KEY=${SENDGRID_API_KEY:-}
       - SMTP_HOST=${SMTP_HOST:-}

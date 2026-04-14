@@ -214,7 +214,7 @@ export function AdminProviderCard({ type }: AdminProviderCardProps) {
 
       {/* Detail Dialog — Resolution Chain & Registry */}
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <DialogContent className="max-w-lg bg-admin-card border-admin-border text-admin-foreground">
+        <DialogContent className="admin-scope max-w-lg bg-admin-card border-admin-border text-admin-foreground">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-admin-foreground">
               <ProviderIcon iconName={schema.icon} className="h-5 w-5 text-admin-accent" />
@@ -305,7 +305,7 @@ export function AdminProviderCard({ type }: AdminProviderCardProps) {
 
       {/* Config Dialog */}
       <Dialog open={configOpen} onOpenChange={setConfigOpen}>
-        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto bg-admin-card border-admin-border text-admin-foreground">
+        <DialogContent className="admin-scope max-w-lg max-h-[85vh] overflow-y-auto bg-admin-card border-admin-border text-admin-foreground">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-admin-foreground">
               <ProviderIcon iconName={schema.icon} className="h-5 w-5 text-admin-accent" />
@@ -394,7 +394,7 @@ export function AdminProviderCard({ type }: AdminProviderCardProps) {
 
       {/* Delete confirmation */}
       <AlertDialog open={deleteConfirm} onOpenChange={setDeleteConfirm}>
-        <AlertDialogContent className="bg-admin-card border-admin-border text-admin-foreground">
+        <AlertDialogContent className="admin-scope bg-admin-card border-admin-border text-admin-foreground">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-admin-foreground">Remove Global Default?</AlertDialogTitle>
             <AlertDialogDescription className="text-admin-muted-foreground">

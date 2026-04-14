@@ -3,8 +3,8 @@
  * All operations run server-side only. Secrets never leave the backend.
  */
 
-import type { ServerConfig } from '../config.js';
-import { getServiceClient } from '../supabase.js';
+import type { ServerConfig } from '../../config.js';
+import { getServiceClient } from '../../supabase.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';

@@ -1,54 +1,63 @@
 # استقرار روی Coolify
 
-## روش ۱: Docker Compose (توصیه شده)
+## تنظیمات سریع
+
+| تنظیم | مقدار |
+|--------|--------|
+| **نوع دیپلوی** | Docker Compose |
+| **مسیر فایل Compose** | `/docker-compose.yml` |
+| **Base Directory** | `/` (ریشه ریپو) |
+| **سرویس‌ها** | `frontend` (پورت 80) + `backend` (پورت 3001) |
+
+## مراحل
 
 ### ۱. ریپو را به Coolify متصل کنید
 1. در Coolify یک پروژه جدید بسازید
 2. **Add Resource → Docker Compose** را انتخاب کنید
 3. ریپوی GitHub را متصل کنید
-4. فایل `docker-compose.yml` به‌صورت خودکار شناسایی می‌شود
+4. مسیر Compose: `/docker-compose.yml`
+5. Base Directory: `/` (پیش‌فرض)
 
 ### ۲. متغیرهای محیطی را تنظیم کنید
-در بخش **Environment Variables** کولیفای، مقادیر زیر را وارد کنید:
 
-| متغیر | توضیح |
-|--------|--------|
-| `SUPABASE_URL` | آدرس پروژه Supabase |
-| `SUPABASE_ANON_KEY` | کلید عمومی Supabase |
-| `SUPABASE_SERVICE_ROLE_KEY` | کلید سرور Supabase (محرمانه) |
-| `VITE_SUPABASE_URL` | همان `SUPABASE_URL` |
-| `VITE_SUPABASE_ANON_KEY` | همان `SUPABASE_ANON_KEY` |
-| `VITE_API_BASE_URL` | آدرس بکند (مثلاً `https://api.yourdomain.com`) |
-| `CORS_ORIGINS` | دامنه‌های مجاز (مثلاً `https://yourdomain.com`) |
+| متغیر | مقدار | توضیح |
+|--------|--------|--------|
+| `SUPABASE_URL` | `https://xxx.supabase.co` | آدرس پروژه Supabase |
+| `SUPABASE_ANON_KEY` | `eyJ...` | کلید عمومی Supabase |
+| `SUPABASE_SERVICE_ROLE_KEY` | `eyJ...` | کلید سرور Supabase (محرمانه) |
+| `VITE_SUPABASE_URL` | `https://xxx.supabase.co` | همان SUPABASE_URL |
+| `VITE_SUPABASE_ANON_KEY` | `eyJ...` | همان SUPABASE_ANON_KEY |
+| `VITE_API_BASE_URL` | **خالی بگذارید** | nginx داخلی پروکسی میکنه |
+| `CORS_ORIGINS` | `https://yourdomain.com` | دامنه‌های مجاز |
 
-### ۳. دامنه‌ها را تنظیم کنید
-- **Frontend**: دامنه اصلی (مثلاً `app.yourdomain.com`) → پورت `80`
-- **Backend**: دامنه API (مثلاً `api.yourdomain.com`) → پورت `3001`
+> **مهم:** `VITE_API_BASE_URL` را **خالی** بگذارید یا اصلاً تنظیم نکنید.
+> Nginx داخل کانتینر frontend درخواست‌های `/api/*` را به سرویس `backend` پروکسی می‌کند.
+> اگر آدرس دامنه خود را بگذارید (مثلاً `https://destekly.tr`)، درخواست دوباره به خود nginx برمی‌گردد و مشکلی نیست — ولی خالی گذاشتن ساده‌تر و قابل اطمینان‌تر است.
+
+### ۳. دامنه را تنظیم کنید
+- فقط **یک دامنه** به سرویس `frontend` وصل کنید (مثلاً `destekly.tr`)
+- **نیازی به دامنه جدا برای backend نیست** — nginx پروکسی می‌کند
 
 ### ۴. دیپلوی کنید
 دکمه **Deploy** را بزنید!
 
----
+## معماری
 
-## روش ۲: دو سرویس مجزا
-
-### Frontend
-1. **Add Resource → Dockerfile**
-2. Dockerfile Path: `Dockerfile.frontend`
-3. Build Args:
-   - `VITE_SUPABASE_URL`
-   - `VITE_SUPABASE_ANON_KEY`
-   - `VITE_API_BASE_URL`
-4. Port: `80`
-
-### Backend
-1. **Add Resource → Dockerfile**
-2. Dockerfile Path: `Dockerfile.server`
-3. Environment Variables: (مطابق جدول بالا)
-4. Port: `3001`
-5. Health Check: `http://localhost:3001/api/health`
-
----
+```
+اینترنت → https://yourdomain.com
+              ↓
+         ┌─────────┐
+         │ frontend │  (nginx, پورت 80)
+         │          │
+         │  /api/*  │──→ backend:3001 (پروکسی داخلی)
+         │  /*      │──→ React SPA
+         └─────────┘
+              ↓
+         ┌─────────┐
+         │ backend  │  (Express, پورت 3001)
+         │          │──→ Supabase Cloud (دیتابیس)
+         └─────────┘
+```
 
 ## پس از دیپلوی
 
@@ -65,6 +74,10 @@ psql $DATABASE_URL -f database/migrations/004_seed_defaults.sql
 
 ## عیب‌یابی
 
-- **Frontend سفید/خالی**: مطمئن شوید `VITE_API_BASE_URL` درست تنظیم شده
-- **خطای CORS**: مقدار `CORS_ORIGINS` را بررسی کنید
-- **خطای ۵۰۲**: Health check بکند را بررسی کنید: `curl https://api.yourdomain.com/api/health`
+| مشکل | راه‌حل |
+|-------|--------|
+| Frontend سفید/خالی | `VITE_SUPABASE_URL` و `VITE_SUPABASE_ANON_KEY` را چک کنید |
+| خطای `Failed to fetch` در signup | مطمئن شوید سرویس `backend` بالا اومده: لاگ backend را چک کنید |
+| خطای CORS | مقدار `CORS_ORIGINS` را بررسی کنید |
+| nginx ریستارت میشه | لاگ frontend را چک کنید — اگر `host not found` بود، backend هنوز بالا نیومده |
+| خطای ۵۰۲ | Health check بکند: `curl https://yourdomain.com/api/health` |

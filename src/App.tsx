@@ -20,6 +20,8 @@ import SignupPage from "@/pages/auth/SignupPage";
 import ForgotPasswordPage from "@/pages/auth/ForgotPasswordPage";
 import ResetPasswordPage from "@/pages/auth/ResetPasswordPage";
 import VerifyEmailPage from "@/pages/auth/VerifyEmailPage";
+import CheckEmailPage from "@/pages/auth/CheckEmailPage";
+import EmailConfirmedPage from "@/pages/auth/EmailConfirmedPage";
 import InvitePage from "@/pages/auth/InvitePage";
 
 import OnboardingPage from "@/pages/app/OnboardingPage";

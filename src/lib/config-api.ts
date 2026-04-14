@@ -114,7 +114,7 @@ const DEFAULT_EMAIL = {
 // ─── Helper: get first row or return default ────────────────
 
 async function getFirstRow<T extends Record<string, unknown>>(table: string, defaults: T): Promise<T> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from(table)
     .select('*')
     .limit(1)
@@ -128,17 +128,16 @@ async function getFirstRow<T extends Record<string, unknown>>(table: string, def
 }
 
 async function upsertSingleRow(table: string, data: Record<string, unknown>, existingId?: string) {
-  // Remove id if present in data to avoid conflicts
   const { id: _dataId, ...rest } = data as any;
   
   if (existingId) {
-    const { error } = await supabase
+    const { error } = await (supabase as any)
       .from(table)
       .update({ ...rest, updated_at: new Date().toISOString() })
       .eq('id', existingId);
     if (error) throw new Error(`Failed to update ${table}: ${error.message}`);
   } else {
-    const { error } = await supabase
+    const { error } = await (supabase as any)
       .from(table)
       .insert({ ...rest });
     if (error) throw new Error(`Failed to insert into ${table}: ${error.message}`);

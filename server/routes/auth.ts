@@ -14,7 +14,7 @@ import {
   logSecurityEvent,
 } from '../middleware/security.js';
 import { z } from 'zod';
-import { issueVerificationEmail } from '../services/auth-email.js';
+import { issueSignupLinkEmail, issueVerificationEmail } from '../services/auth-email.js';
 
 export const authSecurityRouter = Router();
 
@@ -212,40 +212,34 @@ authSecurityRouter.post('/signup', authRateLimiter, async (req, res) => {
       return res.json({ user: updatedUserData.user || existingUser, needsEmailVerification: true, resent: true });
     }
 
-    const { data: createdUserData, error: createError } = await sb.auth.admin.createUser({
+    const signupResult = await issueSignupLinkEmail(config, {
       email: normalizedEmail,
       password,
-      email_confirm: false,
-      user_metadata: userMetadata,
+      fullName,
+      website: normalizedWebsite,
+      locale,
     });
 
-    if (createError || !createdUserData.user) {
-      return res.status(500).json({ error: createError?.message || 'Failed to create account' });
+    if (!signupResult.success || !signupResult.userId) {
+      return res.status(500).json({ error: signupResult.error || 'Failed to create account' });
     }
 
-    const createdUser = createdUserData.user;
-
     await sb.from('profiles').upsert({
-      id: createdUser.id,
+      id: signupResult.userId,
       email: normalizedEmail,
       full_name: fullName?.trim() || null,
     }, { onConflict: 'id' });
 
-    const verificationResult = await issueVerificationEmail(config, {
-      userId: createdUser.id,
-      email: normalizedEmail,
-      fullName,
-      locale,
-      ipAddress: req.ip || null,
+    return res.json({
+      user: {
+        id: signupResult.userId,
+        email: normalizedEmail,
+        email_confirmed_at: null,
+        user_metadata: userMetadata,
+        created_at: new Date().toISOString(),
+      },
+      needsEmailVerification: true,
     });
-
-    if (!verificationResult.success) {
-      await sb.from('profiles').delete().eq('id', createdUser.id);
-      await sb.auth.admin.deleteUser(createdUser.id);
-      return res.status(500).json({ error: verificationResult.error || 'Failed to send verification email' });
-    }
-
-    return res.json({ user: createdUser, needsEmailVerification: true });
   } catch (err) {
     console.error('[auth] Signup error:', err);
     return res.status(500).json({ error: 'Internal error' });

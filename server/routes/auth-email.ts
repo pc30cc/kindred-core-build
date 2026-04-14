@@ -9,7 +9,7 @@ import crypto from 'crypto';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { sendEmail } from '../services/email/index.js';
-import { issueVerificationEmail } from '../services/auth-email.js';
+import { issueRecoveryEmail, issueVerificationEmail } from '../services/auth-email.js';
 
 export const authEmailRouter = Router();
 
@@ -135,44 +135,9 @@ authEmailRouter.post('/send-reset', async (req, res) => {
       return res.json({ success: true });
     }
 
-    const userId = userData.user.id;
-
-    // Revoke existing unused reset tokens
-    await sb.from('auth_reset_tokens')
-      .update({ revoked_at: new Date().toISOString() })
-      .eq('user_id', userId)
-      .is('used_at', null)
-      .is('revoked_at', null);
-
-    const rawToken = generateToken();
-    const tokenHash = hashToken(rawToken);
-    const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1h
-
-    await sb.from('auth_reset_tokens').insert({
-      user_id: userId,
+    const result = await issueRecoveryEmail(config, {
       email,
-      token_hash: tokenHash,
-      expires_at: expiresAt,
-      ip_address: req.ip || null,
-    });
-
-    const { data: domains } = await sb.from('platform_domains').select('app_base_url').limit(1).maybeSingle();
-    const appBaseUrl = domains?.app_base_url || process.env.APP_BASE_URL || config.corsOrigins[0] || 'http://localhost:5173';
-    const resetUrl = `${appBaseUrl}/auth/reset-password?token=${rawToken}`;
-
-    const { data: wsData } = await sb.from('workspaces').select('id').limit(1).maybeSingle();
-    const workspaceId = wsData?.id || '00000000-0000-0000-0000-000000000000';
-
-    const result = await sendEmail(config, {
-      workspaceId,
-      to: email,
-      templateSlug: 'password_reset',
-      templateData: {
-        name: userData.user.user_metadata?.full_name || email.split('@')[0],
-        brand: 'Platform',
-        action_url: resetUrl,
-        email,
-      },
+      fullName: userData.user.user_metadata?.full_name,
       locale: locale || 'en',
     });
 

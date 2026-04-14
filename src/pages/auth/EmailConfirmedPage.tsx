@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
-import { useAuth } from '@/features/auth/AuthContext';
 import { Button } from '@/components/ui/button';
 import {
   CheckCircle2, Loader2, XCircle, ArrowRight, ArrowLeft,
-  Shield, Sparkles, Home, AlertTriangle, RefreshCw,
+  Shield, Sparkles, AlertTriangle, RefreshCw,
 } from 'lucide-react';
 import { LanguageSelector } from '@/components/auth/LanguageSelector';
 import { verifyEmailToken } from '@/lib/auth-email-api';

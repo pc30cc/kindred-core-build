@@ -178,3 +178,9 @@
     text-wrap: balance;
   }
 }
+
+/* Keep toggle switches LTR in RTL layouts */
+[dir="rtl"] [role="switch"],
+[dir="rtl"] [data-slot="switch"] {
+  direction: ltr;
+}

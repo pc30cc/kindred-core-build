@@ -2,6 +2,7 @@ import { Link, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Users, Building2, Plug, Server,
   Flag, Palette, Globe, FileText, CreditCard, Shield,
+  Database,
   ChevronLeft, ChevronRight, LogOut, ArrowLeft,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -20,6 +21,7 @@ const adminNav = [
   { key: 'Domains', path: '/admin/domains', icon: Globe },
   { key: 'Audit Logs', path: '/admin/audit-logs', icon: FileText },
   { key: 'Billing', path: '/admin/billing', icon: CreditCard },
+  { key: 'Database', path: '/admin/database', icon: Database },
   { key: 'Security', path: '/admin/security', icon: Shield },
 ] as const;
 

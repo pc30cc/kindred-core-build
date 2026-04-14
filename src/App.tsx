@@ -56,6 +56,7 @@ import AdminDomainsPage from "@/pages/admin/DomainsPage";
 import AdminAuditLogsPage from "@/pages/admin/AuditLogsPage";
 import AdminBillingPage from "@/pages/admin/BillingPage";
 import AdminSecurityPage from "@/pages/admin/SecurityPage";
+import AdminDatabasePage from "@/pages/admin/DatabasePage";
 import AdminBootstrapPage from "@/pages/admin/BootstrapPage";
 
 import NotFound from "@/pages/NotFound";
@@ -112,6 +113,7 @@ const App = () => (
                 <Route path="/admin/domains" element={<AdminDomainsPage />} />
                 <Route path="/admin/audit-logs" element={<AdminAuditLogsPage />} />
                 <Route path="/admin/billing" element={<AdminBillingPage />} />
+                <Route path="/admin/database" element={<AdminDatabasePage />} />
                 <Route path="/admin/security" element={<AdminSecurityPage />} />
               </Route>
 

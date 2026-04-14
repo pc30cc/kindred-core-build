@@ -200,7 +200,7 @@ export default function AdminUsersPage() {
     setActionLoading(`rm-role-${role}`);
     try {
       const { error } = await supabase.from('user_roles').delete()
-        .eq('user_id', selectedUser.id).eq('role', role);
+        .eq('user_id', selectedUser.id).eq('role', role as "admin" | "moderator" | "user");
       if (error) throw error;
       toast.success(isRtl ? 'نقش حذف شد' : 'Role removed');
       setSelectedUser({ ...selectedUser, roles: selectedUser.roles.filter((r: any) => r.role !== role) });

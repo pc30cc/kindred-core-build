@@ -130,6 +130,23 @@
   }
 }
 
+/* Admin panel scope — override semantic tokens inside admin layout */
+.admin-scope {
+  --background: var(--admin-background);
+  --foreground: var(--admin-foreground);
+  --card: var(--admin-card);
+  --card-foreground: var(--admin-card-foreground);
+  --popover: var(--admin-card);
+  --popover-foreground: var(--admin-card-foreground);
+  --muted: var(--admin-muted);
+  --muted-foreground: var(--admin-muted-foreground);
+  --accent: var(--admin-sidebar-active);
+  --accent-foreground: var(--admin-foreground);
+  --border: var(--admin-border);
+  --input: var(--admin-input);
+  --ring: var(--admin-accent);
+}
+
 @layer base {
   * {
     @apply border-border;

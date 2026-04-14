@@ -168,10 +168,10 @@ export default function AdminProvidersPage() {
       <Tabs defaultValue="grouped" className="space-y-4">
         <div className="flex items-center justify-between">
           <TabsList className="bg-admin-muted">
-            <TabsTrigger value="grouped">By Category</TabsTrigger>
-            <TabsTrigger value="all">All Providers</TabsTrigger>
+            <TabsTrigger value="grouped" className="data-[state=active]:bg-admin-sidebar-active data-[state=active]:text-admin-foreground text-admin-muted-foreground">By Category</TabsTrigger>
+            <TabsTrigger value="all" className="data-[state=active]:bg-admin-sidebar-active data-[state=active]:text-admin-foreground text-admin-muted-foreground">All Providers</TabsTrigger>
             {fallbackLog.length > 0 && (
-              <TabsTrigger value="fallback">Fallback Log ({fallbackLog.length})</TabsTrigger>
+              <TabsTrigger value="fallback" className="data-[state=active]:bg-admin-sidebar-active data-[state=active]:text-admin-foreground text-admin-muted-foreground">Fallback Log ({fallbackLog.length})</TabsTrigger>
             )}
           </TabsList>
 

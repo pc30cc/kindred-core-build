@@ -3,7 +3,7 @@ import { AdminSidebar } from './AdminSidebar';
 
 export function AdminLayout() {
   return (
-    <div className="flex h-screen overflow-hidden bg-admin text-admin-foreground">
+    <div className="admin-scope flex h-screen overflow-hidden bg-admin text-admin-foreground">
       <AdminSidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
         <header className="flex h-14 items-center justify-between border-b border-admin-border px-6">

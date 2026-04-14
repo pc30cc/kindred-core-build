@@ -7,6 +7,7 @@ import { visitorRouter } from './routes/visitors.js';
 import { healthRouter } from './routes/health.js';
 import { emailRouter } from './routes/email.js';
 import { authSecurityRouter } from './routes/auth.js';
+import { authEmailRouter } from './routes/auth-email.js';
 import { aiRouter } from './routes/ai.js';
 import { storageRouter } from './routes/storage.js';
 import { cdnRouter } from './routes/cdn.js';
@@ -53,6 +54,9 @@ app.use('/api/health', healthRouter);
 
 // Auth security (brute force + captcha) — strict rate limit
 app.use('/api/auth', authRateLimiter, authSecurityRouter);
+
+// Auth email — verification & reset via configured provider
+app.use('/api/auth-email', emailRateLimiter, authEmailRouter);
 
 // Widget — high-traffic rate limit
 app.use('/api/widget', widgetRateLimiter, widgetRouter);

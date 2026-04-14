@@ -52,6 +52,8 @@ const en = {
     inviteTitle: 'You\'ve been invited',
     inviteSubtitle: 'Accept the invitation to join the workspace.',
     acceptInvite: 'Accept invite',
+    website: 'Website address',
+    websitePlaceholder: 'yourcompany.com',
     fullName: 'Full name',
     fullNamePlaceholder: 'Enter your full name',
     passwordPlaceholder: 'At least 6 characters',

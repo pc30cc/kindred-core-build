@@ -54,6 +54,8 @@ const tr: TranslationKeys = {
     inviteTitle: 'Davet edildiniz',
     inviteSubtitle: 'Çalışma alanına katılmak için daveti kabul edin.',
     acceptInvite: 'Daveti kabul et',
+    website: 'Web sitesi adresi',
+    websitePlaceholder: 'sirketiniz.com',
     fullName: 'Tam ad',
     fullNamePlaceholder: 'Tam adınızı girin',
     passwordPlaceholder: 'En az 6 karakter',

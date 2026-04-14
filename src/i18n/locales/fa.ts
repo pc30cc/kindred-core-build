@@ -54,6 +54,8 @@ const fa: TranslationKeys = {
     inviteTitle: 'شما دعوت شده‌اید',
     inviteSubtitle: 'دعوت‌نامه را بپذیرید تا به فضای کاری بپیوندید.',
     acceptInvite: 'پذیرش دعوت',
+    website: 'آدرس وب‌سایت',
+    websitePlaceholder: 'yourcompany.com',
     fullName: 'نام کامل',
     fullNamePlaceholder: 'نام کامل خود را وارد کنید',
     passwordPlaceholder: 'حداقل ۶ کاراکتر',

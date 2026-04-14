@@ -14,6 +14,7 @@ import {
   logSecurityEvent,
 } from '../middleware/security.js';
 import { z } from 'zod';
+import { issueVerificationEmail } from '../services/auth-email.js';
 
 export const authSecurityRouter = Router();
 
@@ -26,9 +27,27 @@ const loginSchema = z.object({
 const signupSchema = z.object({
   email: z.string().email().max(255),
   password: z.string().min(8).max(255),
+  fullName: z.string().trim().max(120).optional(),
+  website: z.string().trim().min(1).max(255),
+  locale: z.string().trim().min(2).max(10).optional(),
   captchaToken: z.string().optional(),
   metadata: z.record(z.any()).optional(),
 });
+
+function normalizeWebsiteUrl(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const withProtocol = /^[a-z]+:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+
+  try {
+    const url = new URL(withProtocol);
+    if (!url.hostname || !url.hostname.includes('.')) return null;
+    return url.toString().replace(/\/$/, '');
+  } catch {
+    return null;
+  }
+}
 
 /**
  * POST /api/auth/check-brute-force
@@ -123,6 +142,112 @@ authSecurityRouter.post('/login', authRateLimiter, async (req, res) => {
     });
   } catch (err) {
     console.error('[auth] Login check error:', err);
+    return res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+/**
+ * POST /api/auth/signup
+ * Create user server-side without triggering Supabase built-in auth emails.
+ */
+authSecurityRouter.post('/signup', authRateLimiter, async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const parsed = signupSchema.safeParse(req.body);
+
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten().fieldErrors });
+    }
+
+    const { email, password, fullName, website, locale, metadata } = parsed.data;
+    const normalizedWebsite = normalizeWebsiteUrl(website);
+
+    if (!normalizedWebsite) {
+      return res.status(400).json({ error: 'Please enter a valid website URL' });
+    }
+
+    const sb = getServiceClient(config);
+    const normalizedEmail = email.trim().toLowerCase();
+    const userMetadata = {
+      full_name: fullName?.trim() || '',
+      website: normalizedWebsite,
+      ...metadata,
+    };
+
+    const { data: existingUserData } = await sb.auth.admin.getUserByEmail(normalizedEmail);
+    const existingUser = existingUserData?.user;
+
+    if (existingUser?.email_confirmed_at) {
+      return res.status(409).json({ error: 'An account with this email already exists' });
+    }
+
+    if (existingUser) {
+      const { data: updatedUserData, error: updateError } = await sb.auth.admin.updateUserById(existingUser.id, {
+        password,
+        user_metadata: userMetadata,
+      });
+
+      if (updateError) {
+        return res.status(500).json({ error: updateError.message || 'Failed to update existing account' });
+      }
+
+      await sb.from('profiles').upsert({
+        id: existingUser.id,
+        email: normalizedEmail,
+        full_name: fullName?.trim() || null,
+      }, { onConflict: 'id' });
+
+      const verificationResult = await issueVerificationEmail(config, {
+        userId: existingUser.id,
+        email: normalizedEmail,
+        fullName,
+        locale,
+        ipAddress: req.ip || null,
+      });
+
+      if (!verificationResult.success) {
+        return res.status(500).json({ error: verificationResult.error || 'Failed to send verification email' });
+      }
+
+      return res.json({ user: updatedUserData.user || existingUser, needsEmailVerification: true, resent: true });
+    }
+
+    const { data: createdUserData, error: createError } = await sb.auth.admin.createUser({
+      email: normalizedEmail,
+      password,
+      email_confirm: false,
+      user_metadata: userMetadata,
+    });
+
+    if (createError || !createdUserData.user) {
+      return res.status(500).json({ error: createError?.message || 'Failed to create account' });
+    }
+
+    const createdUser = createdUserData.user;
+
+    await sb.from('profiles').upsert({
+      id: createdUser.id,
+      email: normalizedEmail,
+      full_name: fullName?.trim() || null,
+    }, { onConflict: 'id' });
+
+    const verificationResult = await issueVerificationEmail(config, {
+      userId: createdUser.id,
+      email: normalizedEmail,
+      fullName,
+      locale,
+      ipAddress: req.ip || null,
+    });
+
+    if (!verificationResult.success) {
+      await sb.from('profiles').delete().eq('id', createdUser.id);
+      await sb.auth.admin.deleteUser(createdUser.id);
+      return res.status(500).json({ error: verificationResult.error || 'Failed to send verification email' });
+    }
+
+    return res.json({ user: createdUser, needsEmailVerification: true });
+  } catch (err) {
+    console.error('[auth] Signup error:', err);
     return res.status(500).json({ error: 'Internal error' });
   }
 });

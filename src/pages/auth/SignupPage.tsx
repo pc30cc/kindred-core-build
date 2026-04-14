@@ -12,7 +12,6 @@ import {
 } from 'lucide-react';
 import { usePlatformBrandingForLocale } from '@/hooks/usePublicBranding';
 import { LanguageSelector } from '@/components/auth/LanguageSelector';
-import { sendVerificationEmail } from '@/lib/auth-email-api';
 
 function getPasswordStrength(pw: string): { score: number; label: string; color: string } {
   let score = 0;
@@ -34,6 +33,7 @@ export default function SignupPage() {
   const brand = usePlatformBrandingForLocale(locale);
   const isRtl = dir === 'rtl';
 
+  const [website, setWebsite] = useState('');
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -72,18 +72,17 @@ export default function SignupPage() {
       const { error } = await signUp({
         email: email.trim().toLowerCase(),
         password,
+        website: website.trim(),
         fullName: fullName.trim(),
+        locale,
+        metadata: {
+          website: website.trim(),
+          locale,
+        },
       });
       if (error) {
         toast.error(t('auth.signupFailed'), { description: error.message });
         return;
-      }
-
-      // Send verification email via configured provider (not Supabase built-in)
-      try {
-        await sendVerificationEmail(email.trim().toLowerCase(), locale);
-      } catch (emailErr) {
-        console.warn('[signup] Provider email failed, Supabase fallback may apply:', emailErr);
       }
 
       toast.success(t('auth.signupSuccess'), { description: t('auth.signupSuccessDesc') });
@@ -112,6 +111,18 @@ export default function SignupPage() {
         {/* Form Card */}
         <div className="bg-card border border-border rounded-2xl p-7 space-y-5 shadow-sm">
           <form onSubmit={handleRegister} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="website" className="text-sm">{t('auth.website')}</Label>
+              <Input
+                id="website"
+                placeholder={t('auth.websitePlaceholder')}
+                value={website}
+                onChange={(e) => setWebsite(e.target.value)}
+                dir="ltr"
+                className="text-left h-11"
+                required
+              />
+            </div>
             <div className="space-y-2">
               <Label htmlFor="name" className="text-sm">{t('auth.fullName')}</Label>
               <Input

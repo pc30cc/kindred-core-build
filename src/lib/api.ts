@@ -347,4 +347,28 @@ export function checkHealth() {
   return request<{ status: string; timestamp: string }>('/api/health');
 }
 
+export function authSignUp(data: {
+  email: string;
+  password: string;
+  website: string;
+  fullName?: string;
+  locale?: string;
+  metadata?: Record<string, unknown>;
+}) {
+  return request<{
+    user: {
+      id: string;
+      email?: string;
+      email_confirmed_at?: string | null;
+      user_metadata?: Record<string, unknown>;
+      created_at?: string;
+    };
+    needsEmailVerification: boolean;
+    resent?: boolean;
+  }>('/api/auth/signup', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
 export { API_BASE };

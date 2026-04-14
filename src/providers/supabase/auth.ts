@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import type { AuthProvider, AuthUser, AuthSession, SignUpParams, SignInParams } from '@/types/providers';
+import { authSignUp } from '@/lib/api';
 
 function mapUser(u: any): AuthUser | null {
   if (!u) return null;
@@ -24,15 +25,22 @@ function mapSession(s: any): AuthSession | null {
 
 export const supabaseAuthProvider: AuthProvider = {
   async signUp({ email, password, fullName, metadata, redirectTo }: SignUpParams) {
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: { full_name: fullName, ...metadata },
-        emailRedirectTo: redirectTo ?? `${window.location.origin}/auth/email-confirmed`,
-      },
-    });
-    return { user: mapUser(data?.user), error: error ? new Error(error.message) : null };
+    void redirectTo;
+
+    try {
+      const data = await authSignUp({
+        email,
+        password,
+        website: metadata?.website as string,
+        fullName,
+        locale: (metadata?.locale as string | undefined),
+        metadata,
+      });
+
+      return { user: mapUser(data.user), error: null };
+    } catch (error) {
+      return { user: null, error: error instanceof Error ? error : new Error('Signup failed') };
+    }
   },
 
   async signIn({ email, password }: SignInParams) {

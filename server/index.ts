@@ -84,6 +84,9 @@ app.use('/api/billing', billingRouter);
 app.use('/api/admin', adminRateLimiter, adminRouter);
 app.use('/api/admin/templates', adminRateLimiter, templatesRouter);
 
+// Config — runtime config resolution + admin management
+app.use('/api/config', configRouter);
+
 // 404
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });

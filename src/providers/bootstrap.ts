@@ -5,7 +5,7 @@
 // ============================================
 
 import { providerRegistry } from './registry';
-import { supabaseAuthProvider } from './supabase/auth';
+import { apiAuthProvider } from './api/auth';
 import { supabaseDatabaseProvider } from './supabase/database';
 import { supabaseRealtimeProvider } from './supabase/realtime';
 import { createApiEmailProvider } from './email/api';

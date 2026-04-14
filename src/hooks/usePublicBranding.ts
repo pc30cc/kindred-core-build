@@ -11,8 +11,6 @@ export function usePublicBranding() {
   const { data: branding, isLoading } = useQuery({
     queryKey: ['public-branding'],
     queryFn: async () => {
-      // For public pages, load the first available branding record.
-      // In a multi-tenant setup, this could be resolved by domain.
       const { data, error } = await supabase
         .from('workspace_branding')
         .select('*')
@@ -21,7 +19,7 @@ export function usePublicBranding() {
       if (error) throw error;
       return data as WorkspaceBranding | null;
     },
-    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+    staleTime: 5 * 60 * 1000,
   });
 
   return {
@@ -29,4 +27,28 @@ export function usePublicBranding() {
     platformName: branding?.platform_name || 'Platform',
     isLoading,
   };
+}
+
+export interface PublicBrandingLocalized {
+  platform_name: string;
+  meta_title: string | null;
+  meta_description: string | null;
+  browser_title_format: string | null;
+}
+
+export function usePlatformBrandingForLocale(locale: string) {
+  const { data } = useQuery({
+    queryKey: ['platform_branding_localized', locale],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('platform_branding_localized')
+        .select('platform_name, meta_title, meta_description, browser_title_format')
+        .eq('locale', locale)
+        .maybeSingle();
+      if (error) throw error;
+      return data as PublicBrandingLocalized | null;
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+  return data;
 }

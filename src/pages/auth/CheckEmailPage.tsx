@@ -1,14 +1,30 @@
+import { useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
-import { Mail, FolderSearch, Clock, MousePointerClick, Home } from 'lucide-react';
+import { Mail, FolderSearch, Clock, MousePointerClick, Home, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { LanguageSelector } from '@/components/auth/LanguageSelector';
+import { resendVerificationEmail } from '@/lib/auth-email-api';
+import { toast } from 'sonner';
 
 export default function CheckEmailPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const email = searchParams.get('email') || '';
-  const { t, dir } = useTranslation();
+  const { t, locale, dir } = useTranslation();
+  const [resending, setResending] = useState(false);
+
+  const handleResend = async () => {
+    if (!email) return;
+    setResending(true);
+    try {
+      await resendVerificationEmail(email, locale);
+      toast.success(t('auth.verificationResent') || 'Verification email resent!');
+    } catch {
+      toast.error(t('auth.error'));
+    }
+    setResending(false);
+  };
 
   const tips = [
     { icon: FolderSearch, key: 'auth.checkEmailTipSpam' as const },
@@ -69,6 +85,18 @@ export default function CheckEmailPage() {
               {t('auth.checkEmailWrongEmail')}
             </button>
             <div className="flex gap-3 justify-center">
+              {email && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleResend}
+                  disabled={resending}
+                  className="gap-1.5"
+                >
+                  <RefreshCw className={`w-4 h-4 ${resending ? 'animate-spin' : ''}`} />
+                  {t('auth.resendEmail') || 'Resend'}
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 size="sm"

@@ -225,11 +225,7 @@ export async function issueRecoveryEmail(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const [{ actionLink }, workspaceId, brandName] = await Promise.all([
-      generateActionLink(config, {
-        type: 'recovery',
-        email: options.email,
-        redirectPath: '/auth/reset-password',
-      }),
+      generateRecoveryLink(config, options.email, '/auth/reset-password'),
       resolveWorkspaceId(config),
       resolveBrandName(config, options.locale),
     ]);

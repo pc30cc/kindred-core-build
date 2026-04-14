@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
-import { useAuth } from '@/features/auth/AuthContext';
+
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -15,7 +15,6 @@ export default function ResetPasswordPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { t, locale, dir } = useTranslation();
-  const { updatePassword } = useAuth();
   const brand = usePlatformBrandingForLocale(locale);
   const isRtl = dir === 'rtl';
 
@@ -44,21 +43,14 @@ export default function ResetPasswordPage() {
     setLoading(true);
 
     try {
-      if (token) {
-        // Custom token-based reset via configured provider
-        await resetPasswordWithToken(token, password);
-        toast.success(t('auth.passwordChanged'));
-        navigate('/auth/login');
-      } else {
-        // Supabase session-based reset (fallback)
-        const { error } = await updatePassword(password);
-        if (error) {
-          toast.error(t('auth.error'), { description: error.message });
-        } else {
-          toast.success(t('auth.passwordChanged'));
-          navigate('/app');
-        }
+      if (!token) {
+        toast.error(t('auth.error'), { description: 'No reset token provided.' });
+        setLoading(false);
+        return;
       }
+      await resetPasswordWithToken(token, password);
+      toast.success(t('auth.passwordChanged'));
+      navigate('/auth/login');
     } catch (err: any) {
       toast.error(t('auth.error'), { description: err?.message });
     }

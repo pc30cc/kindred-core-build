@@ -136,6 +136,7 @@ authEmailRouter.post('/send-reset', async (req, res) => {
     }
 
     const result = await issueRecoveryEmail(config, {
+      userId: userData.user.id,
       email,
       fullName: userData.user.user_metadata?.full_name,
       locale: locale || 'en',

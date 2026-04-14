@@ -65,7 +65,8 @@ interface SignupLinkEmailOptions {
   locale?: string;
 }
 
-interface RecoveryLinkEmailOptions {
+interface RecoveryEmailOptions {
+  userId: string;
   email: string;
   fullName?: string | null;
   locale?: string;
@@ -189,25 +190,15 @@ export async function issueSignupLinkEmail(
  */
 export async function issueRecoveryEmail(
   config: ServerConfig,
-  options: RecoveryLinkEmailOptions,
+  options: RecoveryEmailOptions,
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const sb = getServiceClient(config);
 
-    // Find user by email to get user_id
-    const { data: userData, error: userError } = await sb.auth.admin.listUsers();
-    if (userError) throw new Error(userError.message);
-
-    const user = userData?.users?.find(u => u.email === options.email);
-    if (!user) {
-      // Don't reveal if user exists — return success silently
-      return { success: true };
-    }
-
     // Revoke any existing unused reset tokens for this user
     await sb.from('auth_reset_tokens')
       .update({ revoked_at: new Date().toISOString() })
-      .eq('user_id', user.id)
+      .eq('user_id', options.userId)
       .is('used_at', null)
       .is('revoked_at', null);
 
@@ -217,7 +208,7 @@ export async function issueRecoveryEmail(
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour
 
     const { error: tokenInsertError } = await sb.from('auth_reset_tokens').insert({
-      user_id: user.id,
+      user_id: options.userId,
       email: options.email,
       token_hash: tokenHash,
       expires_at: expiresAt,

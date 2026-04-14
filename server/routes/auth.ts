@@ -118,7 +118,8 @@ authSecurityRouter.post('/login', authRateLimiter, async (req, res) => {
     // Record attempt (will be marked success/fail after result)
     // Use Supabase client to verify credentials
     const sb = getServiceClient(config);
-    const { data: loginData, error: loginError } = await sb.auth.admin.getUserByEmail(email);
+    const { data: listData, error: loginError } = await sb.auth.admin.listUsers();
+    const loginUser = listData?.users?.find(u => u.email === email) ?? null;
 
     // We don't actually perform login here — the frontend does via Supabase SDK
     // This endpoint validates brute force + captcha, then returns clearance
@@ -174,8 +175,8 @@ authSecurityRouter.post('/signup', authRateLimiter, async (req, res) => {
       ...metadata,
     };
 
-    const { data: existingUserData } = await sb.auth.admin.getUserByEmail(normalizedEmail);
-    const existingUser = existingUserData?.user;
+    const { data: listUsersData } = await sb.auth.admin.listUsers();
+    const existingUser = listUsersData?.users?.find(u => u.email === normalizedEmail) ?? null;
 
     if (existingUser?.email_confirmed_at) {
       return res.status(409).json({ error: 'An account with this email already exists' });

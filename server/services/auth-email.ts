@@ -30,6 +30,26 @@ async function resolveWorkspaceId(config: ServerConfig) {
   return workspace?.id || PLATFORM_WORKSPACE_FALLBACK;
 }
 
+async function resolveBrandName(config: ServerConfig, locale: string = 'en'): Promise<string> {
+  const sb = getServiceClient(config);
+  const { data } = await sb
+    .from('platform_branding_localized')
+    .select('platform_name')
+    .eq('locale', locale)
+    .maybeSingle();
+  if (data?.platform_name) return data.platform_name;
+  // fallback to English
+  if (locale !== 'en') {
+    const { data: fallback } = await sb
+      .from('platform_branding_localized')
+      .select('platform_name')
+      .eq('locale', 'en')
+      .maybeSingle();
+    if (fallback?.platform_name) return fallback.platform_name;
+  }
+  return 'Platform';
+}
+
 interface VerificationEmailOptions {
   userId: string;
   email: string;

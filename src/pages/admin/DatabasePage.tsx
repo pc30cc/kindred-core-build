@@ -123,7 +123,7 @@ function BackupTab() {
 
           {autoEnabled && (
             <>
-              <Separator className="bg-admin-border" />
+              <Separator className="bg-background-border" />
 
               <div className="space-y-2">
                 <Label className="text-muted-foreground">{t('admin.database.schedule')}</Label>

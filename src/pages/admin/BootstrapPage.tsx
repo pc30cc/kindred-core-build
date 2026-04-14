@@ -13,7 +13,7 @@ export default function AdminBootstrapPage() {
 
   if (authLoading || roleLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-admin">
+      <div className="flex min-h-screen items-center justify-center bg-background">
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-admin-accent border-t-transparent" />
       </div>
     );

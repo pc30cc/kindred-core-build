@@ -199,6 +199,23 @@ const fa: TranslationKeys = {
     usageControls: 'کنترل مصرف',
   },
   admin: {
+    nav: {
+      title: 'مدیریت کل',
+      dashboard: 'داشبورد',
+      users: 'کاربران',
+      workspaces: 'فضاهای کاری',
+      providers: 'ارائه‌دهندگان',
+      system: 'سیستم',
+      featureFlags: 'پرچم‌های ویژگی',
+      branding: 'برندینگ',
+      domains: 'دامنه‌ها',
+      auditLogs: 'لاگ‌های حسابرسی',
+      billing: 'صورتحساب',
+      database: 'دیتابیس',
+      security: 'امنیت',
+      backToApp: 'بازگشت به پنل',
+      controlCenter: 'مرکز کنترل پلتفرم',
+    },
     database: {
       title: 'مدیریت دیتابیس',
       backupTab: 'بک‌آپ',

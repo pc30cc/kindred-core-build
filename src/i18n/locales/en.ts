@@ -197,6 +197,23 @@ const en = {
     usageControls: 'Usage Controls',
   },
   admin: {
+    nav: {
+      title: 'Super Admin',
+      dashboard: 'Dashboard',
+      users: 'Users',
+      workspaces: 'Workspaces',
+      providers: 'Providers',
+      system: 'System',
+      featureFlags: 'Feature Flags',
+      branding: 'Branding',
+      domains: 'Domains',
+      auditLogs: 'Audit Logs',
+      billing: 'Billing',
+      database: 'Database',
+      security: 'Security',
+      backToApp: 'Back to App',
+      controlCenter: 'Platform Control Center',
+    },
     database: {
       title: 'Database Management',
       backupTab: 'Backup',

@@ -22,17 +22,35 @@ function mapSession(s: any): AuthSession | null {
   };
 }
 
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+
 export const supabaseAuthProvider: AuthProvider = {
-  async signUp({ email, password, metadata, redirectTo }: SignUpParams) {
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: metadata,
-        emailRedirectTo: redirectTo ?? window.location.origin,
-      },
-    });
-    return { user: mapUser(data?.user), error: error ? new Error(error.message) : null };
+  /**
+   * Signup via self-hosted backend — bypasses Supabase default auth emails.
+   * Backend creates user with email_confirm=false and sends verification
+   * through the self-hosted email service.
+   */
+  async signUp({ email, password, metadata }: SignUpParams) {
+    try {
+      const res = await fetch(`${API_BASE}/api/auth-email/signup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          password,
+          fullName: (metadata as any)?.full_name || '',
+          locale: document.documentElement.lang || 'en',
+        }),
+      });
+      const body = await res.json();
+      if (!res.ok) return { user: null, error: new Error(body.error || 'Signup failed') };
+      return {
+        user: body.user ? { id: body.user.id, email: body.user.email, emailVerified: false, metadata: {}, createdAt: '' } : null,
+        error: null,
+      };
+    } catch (err: any) {
+      return { user: null, error: new Error(err.message || 'Signup failed') };
+    }
   },
 
   async signIn({ email, password }: SignInParams) {
@@ -50,11 +68,25 @@ export const supabaseAuthProvider: AuthProvider = {
     return mapSession(data?.session);
   },
 
-  async resetPasswordRequest(email: string, redirectTo?: string) {
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: redirectTo ?? `${window.location.origin}/auth/reset-password`,
-    });
-    return { error: error ? new Error(error.message) : null };
+  /**
+   * Password reset via self-hosted backend — bypasses Supabase default auth emails.
+   */
+  async resetPasswordRequest(email: string) {
+    try {
+      const res = await fetch(`${API_BASE}/api/auth-email/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          locale: document.documentElement.lang || 'en',
+        }),
+      });
+      const body = await res.json();
+      if (!res.ok) return { error: new Error(body.error || 'Reset failed') };
+      return { error: null };
+    } catch (err: any) {
+      return { error: new Error(err.message || 'Reset failed') };
+    }
   },
 
   async updatePassword(newPassword: string) {

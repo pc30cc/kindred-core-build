@@ -81,6 +81,8 @@ const App = () => (
                 <Route path="/auth/forgot-password" element={<ForgotPasswordPage />} />
                 <Route path="/auth/reset-password" element={<ResetPasswordPage />} />
                 <Route path="/auth/verify-email" element={<VerifyEmailPage />} />
+                <Route path="/auth/check-email" element={<CheckEmailPage />} />
+                <Route path="/auth/email-confirmed" element={<EmailConfirmedPage />} />
                 <Route path="/auth/invite" element={<InvitePage />} />
               </Route>
 

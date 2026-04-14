@@ -203,6 +203,7 @@ const fa: TranslationKeys = {
       title: 'مدیریت کل',
       dashboard: 'داشبورد',
       users: 'کاربران',
+      roles: 'نقش‌ها',
       workspaces: 'فضاهای کاری',
       providers: 'ارائه‌دهندگان',
       system: 'سیستم',

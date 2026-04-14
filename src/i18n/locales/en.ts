@@ -201,6 +201,7 @@ const en = {
       title: 'Super Admin',
       dashboard: 'Dashboard',
       users: 'Users',
+      roles: 'Roles',
       workspaces: 'Workspaces',
       providers: 'Providers',
       system: 'System',

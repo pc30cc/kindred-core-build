@@ -5,6 +5,7 @@ import { useAuth } from '@/features/auth/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
 import {
   Eye, EyeOff, UserPlus, Loader2,
@@ -33,12 +34,11 @@ export default function SignupPage() {
   const brand = usePlatformBrandingForLocale(locale);
   const isRtl = dir === 'rtl';
 
-  const [website, setWebsite] = useState('');
-  const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const pwStrength = useMemo(() => (password ? getPasswordStrength(password) : null), [password]);
@@ -58,6 +58,10 @@ export default function SignupPage() {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!acceptedTerms) {
+      toast.error(t('auth.mustAcceptTerms'));
+      return;
+    }
     if (password !== confirmPassword) {
       toast.error(t('auth.passwordsMismatch'));
       return;
@@ -72,13 +76,9 @@ export default function SignupPage() {
       const { error } = await signUp({
         email: email.trim().toLowerCase(),
         password,
-        website: website.trim(),
-        fullName: fullName.trim(),
+        website: '',
         locale,
-        metadata: {
-          website: website.trim(),
-          locale,
-        },
+        metadata: { locale },
       });
       if (error) {
         toast.error(t('auth.signupFailed'), { description: error.message });
@@ -86,7 +86,7 @@ export default function SignupPage() {
       }
 
       toast.success(t('auth.signupSuccess'), { description: t('auth.signupSuccessDesc') });
-      navigate(`/auth/check-email?email=${encodeURIComponent(email.trim().toLowerCase())}`);
+      navigate('/app');
     } catch (err: any) {
       toast.error(t('auth.signupFailed'), { description: err?.message });
     } finally {
@@ -111,29 +111,6 @@ export default function SignupPage() {
         {/* Form Card */}
         <div className="bg-card border border-border rounded-2xl p-7 space-y-5 shadow-sm">
           <form onSubmit={handleRegister} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="website" className="text-sm">{t('auth.website')}</Label>
-              <Input
-                id="website"
-                placeholder={t('auth.websitePlaceholder')}
-                value={website}
-                onChange={(e) => setWebsite(e.target.value)}
-                dir="ltr"
-                className="text-left h-11"
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="name" className="text-sm">{t('auth.fullName')}</Label>
-              <Input
-                id="name"
-                placeholder={t('auth.fullNamePlaceholder')}
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                className="h-11"
-                required
-              />
-            </div>
             <div className="space-y-2">
               <Label htmlFor="email" className="text-sm">{t('auth.email')}</Label>
               <Input
@@ -168,7 +145,6 @@ export default function SignupPage() {
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
-              {/* Password Strength */}
               {pwStrength && (
                 <div className="space-y-1.5">
                   <div className="flex gap-1">
@@ -214,7 +190,21 @@ export default function SignupPage() {
                 <p className="text-xs text-destructive">{t('auth.passwordsMismatch')}</p>
               )}
             </div>
-            <Button type="submit" className="w-full h-11 text-sm" disabled={loading}>
+
+            {/* Terms Checkbox */}
+            <div className="flex items-start gap-2">
+              <Checkbox
+                id="terms"
+                checked={acceptedTerms}
+                onCheckedChange={(v) => setAcceptedTerms(v === true)}
+                className="mt-0.5"
+              />
+              <Label htmlFor="terms" className="text-sm text-muted-foreground leading-snug cursor-pointer">
+                {t('auth.acceptTerms')}
+              </Label>
+            </div>
+
+            <Button type="submit" className="w-full h-11 text-sm" disabled={loading || !acceptedTerms}>
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
               <span className={isRtl ? 'mr-2' : 'ml-2'}>{t('auth.signup')}</span>
             </Button>

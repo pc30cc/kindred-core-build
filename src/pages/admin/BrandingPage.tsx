@@ -667,7 +667,7 @@ function EmailSettingsSection() {
                 {saveEmailLocale.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}Save
               </Button>
             </div>
-            {LOCALES.map(l => (
+            {ALL_LOCALES.filter(l => true).slice(0, 3).map(l => (
               <TabsContent key={l.code} value={l.code} className="mt-4">
                 <div className="grid gap-4 md:grid-cols-2">
                   <FieldRow label="Sender Name" desc="Name shown in email From field" value={emailLocaleForms[l.code]?.sender_name ?? ''} onChange={(v) => { setEmailLocaleForms(p => ({ ...p, [l.code]: { ...p[l.code], sender_name: v, locale: l.code } })); setEmailLocaleDirty(p => new Set(p).add(l.code)); }} placeholder="Your Platform" />

@@ -3,7 +3,12 @@
  * instead of Supabase's built-in emails.
  */
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+const API_BASE = import.meta.env.VITE_API_BASE_URL;
+
+if (!API_BASE && import.meta.env.PROD) {
+  console.error('[auth-email-api] VITE_API_BASE_URL is not set. Auth API calls will fail.');
+}
+
 
 async function post<T>(path: string, body: Record<string, unknown>): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {

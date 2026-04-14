@@ -72,45 +72,36 @@ interface RecoveryLinkEmailOptions {
   locale?: string;
 }
 
-async function generateActionLink(
+async function generateRecoveryLink(
   config: ServerConfig,
-  params: {
-    type: 'signup' | 'recovery';
-    email: string;
-    password?: string;
-    redirectPath: string;
-    data?: Record<string, unknown>;
-  },
-): Promise<{ actionLink: string; userId?: string }> {
+  email: string,
+  redirectPath: string,
+): Promise<{ actionLink: string }> {
   const sb = getServiceClient(config);
   const appBaseUrl = await resolveAppBaseUrl(config);
-  const redirectTo = `${appBaseUrl}${params.redirectPath}`;
+  const redirectTo = `${appBaseUrl}${redirectPath}`;
 
   const { data, error } = await sb.auth.admin.generateLink({
-    type: params.type,
-    email: params.email,
-    password: params.password,
-    options: {
-      data: params.data,
-      redirectTo,
-    },
+    type: 'recovery',
+    email,
+    options: { redirectTo },
   });
 
   if (error) {
-    throw new Error(error.message || `Failed to generate ${params.type} link`);
+    throw new Error(error.message || 'Failed to generate recovery link');
   }
 
   const rawActionLink = data.properties?.action_link;
   if (!rawActionLink) {
-    throw new Error(`Missing ${params.type} action link`);
+    throw new Error('Missing recovery action link');
   }
 
   try {
     const parsed = new URL(rawActionLink);
     parsed.searchParams.set('redirect_to', redirectTo);
-    return { actionLink: parsed.toString(), userId: data.user?.id };
+    return { actionLink: parsed.toString() };
   } catch {
-    return { actionLink: rawActionLink, userId: data.user?.id };
+    return { actionLink: rawActionLink };
   }
 }
 
@@ -183,46 +174,43 @@ export async function issueSignupLinkEmail(
   options: SignupLinkEmailOptions,
 ): Promise<{ success: boolean; userId?: string; error?: string }> {
   try {
+    const sb = getServiceClient(config);
     const normalizedWebsite = options.website?.trim() || '';
-    const metadata = {
+    const userMetadata = {
       full_name: options.fullName?.trim() || '',
       website: normalizedWebsite,
       website_url: normalizedWebsite,
       locale: options.locale || 'en',
     };
 
-    const [{ actionLink, userId }, workspaceId, brandName] = await Promise.all([
-      generateActionLink(config, {
-        type: 'signup',
-        email: options.email,
-        password: options.password,
-        redirectPath: '/auth/email-confirmed',
-        data: metadata,
-      }),
-      resolveWorkspaceId(config),
-      resolveBrandName(config, options.locale),
-    ]);
-
-    const userName = options.fullName || options.email.split('@')[0];
-
-    const result = await sendEmail(config, {
-      workspaceId,
-      to: options.email,
-      templateSlug: 'email_verify',
-      templateData: {
-        name: userName,
-        brand: brandName,
-        action_url: actionLink,
-        email: options.email,
-        expiry_time: '24 hours',
-        year: new Date().getFullYear().toString(),
-        support_email: `support@${options.email.split('@')[1] || 'example.com'}`,
-      },
-      locale: options.locale || 'en',
+    // Create user server-side WITHOUT triggering Supabase auth emails
+    const { data: createData, error: createError } = await sb.auth.admin.createUser({
+      email: options.email,
+      password: options.password,
+      email_confirm: false, // Do NOT auto-confirm — we handle verification ourselves
+      user_metadata: userMetadata,
     });
 
-    if (!result.success) {
-      return { success: false, error: result.error };
+    if (createError) {
+      throw new Error(createError.message || 'Failed to create user');
+    }
+
+    const userId = createData.user?.id;
+    if (!userId) {
+      throw new Error('User creation returned no user ID');
+    }
+
+    // Use the same custom verification token system
+    const verificationResult = await issueVerificationEmail(config, {
+      userId,
+      email: options.email,
+      fullName: options.fullName,
+      locale: options.locale,
+      ipAddress: null,
+    });
+
+    if (!verificationResult.success) {
+      return { success: false, userId, error: verificationResult.error };
     }
 
     return { success: true, userId };
@@ -237,11 +225,7 @@ export async function issueRecoveryEmail(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const [{ actionLink }, workspaceId, brandName] = await Promise.all([
-      generateActionLink(config, {
-        type: 'recovery',
-        email: options.email,
-        redirectPath: '/auth/reset-password',
-      }),
+      generateRecoveryLink(config, options.email, '/auth/reset-password'),
       resolveWorkspaceId(config),
       resolveBrandName(config, options.locale),
     ]);

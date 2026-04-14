@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
-import { useAuth } from '@/features/auth/AuthContext';
 import { Button } from '@/components/ui/button';
 import {
   CheckCircle2, Loader2, XCircle, ArrowRight, ArrowLeft,
-  Shield, Sparkles, Home, AlertTriangle, RefreshCw,
+  Shield, Sparkles, AlertTriangle, RefreshCw,
 } from 'lucide-react';
 import { LanguageSelector } from '@/components/auth/LanguageSelector';
 import { verifyEmailToken } from '@/lib/auth-email-api';
@@ -15,44 +14,26 @@ export default function EmailConfirmedPage() {
   const [searchParams] = useSearchParams();
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const { t, dir } = useTranslation();
-  const { session } = useAuth();
   const isRtl = dir === 'rtl';
 
   useEffect(() => {
     const token = searchParams.get('token');
 
     const verify = async () => {
-      if (token) {
-        // Custom token verification via configured provider
-        try {
-          const result = await verifyEmailToken(token);
-          if (result.success) {
-            setStatus('success');
-            return;
-          }
-        } catch {
-          setStatus('error');
-          return;
-        }
-      }
-
-      // Fallback: check if session exists (Supabase built-in flow)
-      if (session) {
-        setStatus('success');
+      if (!token) {
+        setStatus('error');
         return;
       }
-      await new Promise(r => setTimeout(r, 2000));
-      setStatus(session ? 'success' : 'error');
+      try {
+        const result = await verifyEmailToken(token);
+        setStatus(result.success ? 'success' : 'error');
+      } catch {
+        setStatus('error');
+      }
     };
 
     verify();
-  }, [searchParams, session]);
-
-  useEffect(() => {
-    if (session && status === 'loading') {
-      setStatus('success');
-    }
-  }, [session, status]);
+  }, [searchParams]);
 
   const NavArrow = isRtl ? ArrowLeft : ArrowRight;
 

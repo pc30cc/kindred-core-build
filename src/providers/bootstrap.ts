@@ -37,18 +37,19 @@ export function bootstrapProviders(): void {
   if (bootstrapped) return;
   bootstrapped = true;
 
-  // --- Core providers (Supabase implementations) ---
-  providerRegistry.register('auth', 'supabase', supabaseAuthProvider, {
+  // --- Core auth provider (backend-mediated API) ---
+  providerRegistry.register('auth', 'api', apiAuthProvider, {
     priority: 0,
     healthCheck: async () => {
       try {
-        await supabaseAuthProvider.getSession();
-        return 'healthy';
+        const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+        const res = await fetch(`${API_BASE}/api/auth-email/session`, { credentials: 'include' });
+        return res.ok ? 'healthy' : 'down';
       } catch {
         return 'down';
       }
     },
-    meta: { vendor: 'supabase', builtIn: true },
+    meta: { vendor: 'self-hosted', builtIn: true, description: 'Backend-mediated auth via /api/auth-email' },
   });
 
   providerRegistry.register('database', 'supabase', supabaseDatabaseProvider, {
@@ -153,7 +154,7 @@ export function bootstrapProviders(): void {
   });
 
   // Set active defaults for core providers
-  providerRegistry.setActive('auth', 'supabase');
+  providerRegistry.setActive('auth', 'api');
   providerRegistry.setActive('database', 'supabase');
   providerRegistry.setActive('realtime', 'supabase');
   providerRegistry.setActive('email', 'api');

@@ -115,7 +115,11 @@ Set `CORS_ORIGINS` on the backend to your frontend domain(s).
 - No cookie-based sessions between frontend/backend
 - Frontend authenticates directly with Supabase
 - Backend validates tokens via Supabase service role
-- Email verification/reset links use the frontend domain (configured in Supabase dashboard)
+- Email verification and password reset use **fully self-hosted** custom token system
+- Verification/reset links point to the **frontend domain** (not Supabase)
+- No `supabase.co/auth/v1/verify` links are used
+
+> ⚠️ **After any auth-related backend changes**, you must **redeploy the backend** AND **rebuild the frontend** for changes to take effect.
 
 ---
 

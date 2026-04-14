@@ -127,7 +127,7 @@ export function useResolveSecurityEvent() {
 }
 
 // Log security event from frontend via self-hosted backend
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+const API_BASE = import.meta.env.VITE_API_BASE_URL;
 
 export async function logClientSecurityEvent(
   eventType: string,

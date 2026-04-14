@@ -64,7 +64,7 @@ aiRouter.post('/complete', async (req, res) => {
       return res.status(429).json({ error: 'AI rate limit exceeded. Max 60 requests/minute per workspace.' });
     }
 
-    const result = await executeAICompletion(config, parsed.data);
+    const result = await executeAICompletion(config, parsed.data as AIRequest);
     return res.json({
       text: result.text,
       model: result.model,

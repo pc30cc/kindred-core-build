@@ -133,37 +133,37 @@ export function AdminProviderCard({ type }: AdminProviderCardProps) {
   // Determine card status
   const hasGlobalDefault = !!globalConfig?.provider_name;
   const statusColor = hasGlobalDefault
-    ? 'border-primary/30'
-    : providers.some(p => p.meta?.builtIn) ? 'border-border' : 'border-amber-500/30';
+    ? 'border-admin-accent/30'
+    : providers.some(p => p.meta?.builtIn) ? 'border-admin-border' : 'border-amber-500/30';
 
   return (
     <>
-      <Card className={`bg-card ${statusColor} hover:border-primary/50 transition-colors`}>
+      <Card className={`bg-admin-card ${statusColor} hover:border-admin-accent/50 transition-colors`}>
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className={`p-2 rounded-lg ${hasGlobalDefault ? 'bg-primary/10' : 'bg-muted'}`}>
-                <ProviderIcon iconName={schema.icon} className={`h-5 w-5 ${hasGlobalDefault ? 'text-primary' : 'text-muted-foreground'}`} />
+              <div className={`p-2 rounded-lg ${hasGlobalDefault ? 'bg-admin-accent/10' : 'bg-admin-muted'}`}>
+                <ProviderIcon iconName={schema.icon} className={`h-5 w-5 ${hasGlobalDefault ? 'text-admin-accent' : 'text-admin-muted-foreground'}`} />
               </div>
               <div>
-                <CardTitle className="text-sm text-foreground flex items-center gap-2">
+                <CardTitle className="text-sm text-admin-foreground flex items-center gap-2">
                   {schema.label}
                   {hasGlobalDefault && (
-                    <Badge className="bg-primary/20 text-primary border-primary/30 text-[9px] h-4">Configured</Badge>
+                    <Badge className="bg-admin-accent/20 text-admin-accent border-admin-accent/30 text-[9px] h-4">Configured</Badge>
                   )}
                 </CardTitle>
-                <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-1">{schema.description}</p>
+                <p className="text-[11px] text-admin-muted-foreground mt-0.5 line-clamp-1">{schema.description}</p>
               </div>
             </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-2">
           {/* Effective provider */}
-          <div className="flex items-center justify-between p-2 rounded-md border border-border bg-muted/20">
+          <div className="flex items-center justify-between p-2 rounded-md border border-admin-border bg-admin-muted/20">
             <div className="flex items-center gap-2">
-              <Zap className="h-3 w-3 text-muted-foreground" />
-              <span className="text-[11px] text-muted-foreground">Runtime:</span>
-              <span className="text-xs font-medium text-foreground">{effectiveName ?? 'none'}</span>
+              <Zap className="h-3 w-3 text-admin-muted-foreground" />
+              <span className="text-[11px] text-admin-muted-foreground">Runtime:</span>
+              <span className="text-xs font-medium text-admin-foreground">{effectiveName ?? 'none'}</span>
             </div>
             {effectiveName && healthMap[effectiveName] && (
               <ProviderHealthDot health={healthMap[effectiveName].health} />
@@ -173,40 +173,39 @@ export function AdminProviderCard({ type }: AdminProviderCardProps) {
           {/* Global default info */}
           {globalConfig?.provider_name ? (
             <div className="flex items-center gap-2 text-xs">
-              <Badge variant="outline" className="text-[9px] h-4">Default</Badge>
-              <span className="font-medium">{globalConfig.provider_name}</span>
-              {/* Show non-secret config */}
+              <Badge variant="outline" className="text-[9px] h-4 border-admin-border text-admin-muted-foreground">Default</Badge>
+              <span className="font-medium text-admin-foreground">{globalConfig.provider_name}</span>
               {globalConfig.config &&
                 Object.entries(globalConfig.config as Record<string, unknown>)
                   .filter(([k]) => !k.includes('key') && !k.includes('secret') && !k.includes('pass') && !k.includes('token'))
                   .slice(0, 2)
                   .map(([k, v]) => (
-                    <span key={k} className="text-[10px] text-muted-foreground">{k}: {String(v)}</span>
+                    <span key={k} className="text-[10px] text-admin-muted-foreground">{k}: {String(v)}</span>
                   ))
               }
             </div>
           ) : (
-            <div className="text-[11px] text-muted-foreground">No explicit default — using registry fallback</div>
+            <div className="text-[11px] text-admin-muted-foreground">No explicit default — using registry fallback</div>
           )}
 
           {/* Registered count and vendor count */}
-          <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+          <div className="flex items-center justify-between text-[10px] text-admin-muted-foreground">
             <span>{providers.length} registered · {schema.vendors.length} available</span>
             {schema.allowWorkspaceOverride && (
-              <Badge variant="outline" className="text-[9px] h-4 bg-muted/50">WS Override ✓</Badge>
+              <Badge variant="outline" className="text-[9px] h-4 bg-admin-muted/50 border-admin-border text-admin-muted-foreground">WS Override ✓</Badge>
             )}
           </div>
 
           {/* Actions */}
           <div className="flex items-center gap-1 pt-1">
-            <Button variant="outline" size="sm" className="h-7 text-xs flex-1" onClick={() => setConfigOpen(true)}>
+            <Button variant="outline" size="sm" className="h-7 text-xs flex-1 border-admin-border text-admin-foreground hover:bg-admin-muted" onClick={() => setConfigOpen(true)}>
               <Settings className="h-3 w-3 me-1" />
               Configure
             </Button>
-            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={checkAllHealth} disabled={checking}>
+            <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-admin-muted-foreground hover:text-admin-foreground hover:bg-admin-muted" onClick={checkAllHealth} disabled={checking}>
               <RefreshCw className={`h-3 w-3 ${checking ? 'animate-spin' : ''}`} />
             </Button>
-            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setDetailOpen(true)}>
+            <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-admin-muted-foreground hover:text-admin-foreground hover:bg-admin-muted" onClick={() => setDetailOpen(true)}>
               <Info className="h-3 w-3" />
             </Button>
           </div>
@@ -215,35 +214,35 @@ export function AdminProviderCard({ type }: AdminProviderCardProps) {
 
       {/* Detail Dialog — Resolution Chain & Registry */}
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg bg-admin-card border-admin-border text-admin-foreground">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <ProviderIcon iconName={schema.icon} className="h-5 w-5 text-primary" />
+            <DialogTitle className="flex items-center gap-2 text-admin-foreground">
+              <ProviderIcon iconName={schema.icon} className="h-5 w-5 text-admin-accent" />
               {schema.label} — Runtime Details
             </DialogTitle>
           </DialogHeader>
 
           {/* Resolution Chain */}
           <div className="space-y-2">
-            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Resolution Chain</h4>
+            <h4 className="text-xs font-semibold text-admin-muted-foreground uppercase tracking-wide">Resolution Chain</h4>
             {resolutionChain.map((step, i) => (
               <div
                 key={i}
                 className={`flex items-center justify-between p-2 rounded-md border text-xs ${
-                  step.isActive ? 'border-primary/30 bg-primary/5' : 'border-border bg-muted/20'
+                  step.isActive ? 'border-admin-accent/30 bg-admin-accent/5' : 'border-admin-border bg-admin-muted/20'
                 }`}
               >
                 <div className="flex items-center gap-2">
                   {step.isActive ? (
-                    <ChevronRight className="h-3 w-3 text-primary" />
+                    <ChevronRight className="h-3 w-3 text-admin-accent" />
                   ) : (
-                    <ArrowDown className="h-3 w-3 text-muted-foreground" />
+                    <ArrowDown className="h-3 w-3 text-admin-muted-foreground" />
                   )}
-                  <span className={step.isActive ? 'font-medium text-primary' : 'text-muted-foreground'}>
+                  <span className={step.isActive ? 'font-medium text-admin-accent' : 'text-admin-muted-foreground'}>
                     {step.step}
                   </span>
                 </div>
-                <span className={step.isActive ? 'font-medium' : 'text-muted-foreground'}>
+                <span className={step.isActive ? 'font-medium text-admin-foreground' : 'text-admin-muted-foreground'}>
                   {step.providerName ?? '—'}
                 </span>
               </div>
@@ -252,27 +251,27 @@ export function AdminProviderCard({ type }: AdminProviderCardProps) {
 
           {/* Registry */}
           <div className="space-y-2">
-            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+            <h4 className="text-xs font-semibold text-admin-muted-foreground uppercase tracking-wide">
               Registered Providers ({providers.length})
             </h4>
             {providers.map((p) => (
               <div
                 key={p.name}
                 className={`flex items-center justify-between p-2 rounded-md border text-xs ${
-                  p.name === effectiveName ? 'border-primary/20 bg-primary/5' : 'border-border'
+                  p.name === effectiveName ? 'border-admin-accent/20 bg-admin-accent/5' : 'border-admin-border'
                 }`}
               >
                 <div className="flex items-center gap-2">
-                  <span className="font-medium">{p.name}</span>
-                  <span className="text-muted-foreground">priority: {p.priority}</span>
+                  <span className="font-medium text-admin-foreground">{p.name}</span>
+                  <span className="text-admin-muted-foreground">priority: {p.priority}</span>
                   {p.name === activeName && (
-                    <Badge variant="outline" className="text-[9px] h-4 px-1">Global Default</Badge>
+                    <Badge variant="outline" className="text-[9px] h-4 px-1 border-admin-border text-admin-muted-foreground">Global Default</Badge>
                   )}
                   {p.name === effectiveName && (
-                    <Badge className="bg-primary/20 text-primary text-[9px] h-4 px-1">Effective</Badge>
+                    <Badge className="bg-admin-accent/20 text-admin-accent text-[9px] h-4 px-1">Effective</Badge>
                   )}
                   {p.meta?.builtIn && (
-                    <Badge variant="outline" className="text-[9px] h-4 px-1 bg-muted/50">Built-in</Badge>
+                    <Badge variant="outline" className="text-[9px] h-4 px-1 bg-admin-muted/50 border-admin-border text-admin-muted-foreground">Built-in</Badge>
                   )}
                 </div>
                 <div className="flex items-center gap-1">
@@ -280,7 +279,7 @@ export function AdminProviderCard({ type }: AdminProviderCardProps) {
                     <ProviderHealthBadge health={healthMap[p.name].health} checkedAt={healthMap[p.name].checkedAt} compact />
                   )}
                   <Button
-                    variant="ghost" size="sm" className="h-6 text-[10px] px-2"
+                    variant="ghost" size="sm" className="h-6 text-[10px] px-2 text-admin-muted-foreground hover:text-admin-foreground hover:bg-admin-muted"
                     onClick={() => handleTestConnection(p.name)}
                     disabled={testingProvider === p.name}
                   >
@@ -296,33 +295,33 @@ export function AdminProviderCard({ type }: AdminProviderCardProps) {
           </div>
 
           {/* Meta info */}
-          <div className="text-[10px] text-muted-foreground space-y-1 border-t border-border pt-2">
+          <div className="text-[10px] text-admin-muted-foreground space-y-1 border-t border-admin-border pt-2">
             <p>• Workspace override: {schema.allowWorkspaceOverride ? 'Allowed' : 'Disabled'}</p>
             <p>• Available vendors: {schema.vendors.length}</p>
-            <p>• Effective provider: <strong>{effectiveName ?? 'none'}</strong></p>
+            <p>• Effective provider: <strong className="text-admin-foreground">{effectiveName ?? 'none'}</strong></p>
           </div>
         </DialogContent>
       </Dialog>
 
       {/* Config Dialog */}
       <Dialog open={configOpen} onOpenChange={setConfigOpen}>
-        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto bg-admin-card border-admin-border text-admin-foreground">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <ProviderIcon iconName={schema.icon} className="h-5 w-5 text-primary" />
+            <DialogTitle className="flex items-center gap-2 text-admin-foreground">
+              <ProviderIcon iconName={schema.icon} className="h-5 w-5 text-admin-accent" />
               Configure {schema.label}
             </DialogTitle>
           </DialogHeader>
 
           {/* Current status */}
           {globalConfig?.provider_name && (
-            <div className="p-3 rounded-md bg-muted/50 text-sm flex items-center justify-between">
+            <div className="p-3 rounded-md bg-admin-muted/50 text-sm flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="text-muted-foreground">Current default:</span>
-                <Badge variant="outline">{globalConfig.provider_name}</Badge>
+                <span className="text-admin-muted-foreground">Current default:</span>
+                <Badge variant="outline" className="border-admin-border text-admin-foreground">{globalConfig.provider_name}</Badge>
               </div>
               <Button
-                variant="ghost" size="sm" className="h-7 text-destructive text-xs"
+                variant="ghost" size="sm" className="h-7 text-red-400 text-xs hover:bg-red-500/10"
                 onClick={() => setDeleteConfirm(true)}
               >
                 <Trash2 className="h-3 w-3 me-1" />
@@ -337,9 +336,9 @@ export function AdminProviderCard({ type }: AdminProviderCardProps) {
             if (!hasLocales) {
               return (
                 <div className="space-y-1.5">
-                  <label className="text-sm font-medium">Select Vendor</label>
+                  <label className="text-sm font-medium text-admin-foreground">Select Vendor</label>
                   <Select value={selectedVendor} onValueChange={setSelectedVendor}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="bg-admin-input border-admin-border text-admin-foreground"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {schema.vendors.map((v) => (
                         <SelectItem key={v.name} value={v.name}>
@@ -360,9 +359,9 @@ export function AdminProviderCard({ type }: AdminProviderCardProps) {
 
             return (
               <div className="space-y-1.5">
-                <label className="text-sm font-medium">Select Vendor</label>
+                <label className="text-sm font-medium text-admin-foreground">Select Vendor</label>
                 <Select value={selectedVendor} onValueChange={setSelectedVendor}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="bg-admin-input border-admin-border text-admin-foreground"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {groups.map((g) => (
                       <div key={g.locale}>
@@ -395,17 +394,17 @@ export function AdminProviderCard({ type }: AdminProviderCardProps) {
 
       {/* Delete confirmation */}
       <AlertDialog open={deleteConfirm} onOpenChange={setDeleteConfirm}>
-        <AlertDialogContent>
+        <AlertDialogContent className="bg-admin-card border-admin-border text-admin-foreground">
           <AlertDialogHeader>
-            <AlertDialogTitle>Remove Global Default?</AlertDialogTitle>
-            <AlertDialogDescription>
+            <AlertDialogTitle className="text-admin-foreground">Remove Global Default?</AlertDialogTitle>
+            <AlertDialogDescription className="text-admin-muted-foreground">
               This will remove the explicit global default for {schema.label}.
               The system will fall back to priority-based resolution (built-in providers → stubs).
               Workspace overrides will not be affected.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel className="border-admin-border text-admin-foreground hover:bg-admin-muted">Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={() => removeDefault.mutate()}>
               Remove Default
             </AlertDialogAction>

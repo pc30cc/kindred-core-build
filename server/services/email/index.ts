@@ -67,7 +67,8 @@ async function resolveProviderConfig(
 }
 
 /**
- * Resolve email template by slug + locale, with fallback to 'en'.
+ * Resolve email template by slug + locale.
+ * Priority: workspace locale → global locale → workspace en → global en.
  */
 async function resolveTemplate(
   supabase: ReturnType<typeof createClient>,
@@ -75,29 +76,29 @@ async function resolveTemplate(
   slug: string,
   locale: string
 ): Promise<{ subject: string; html_body: string; text_body: string | null } | null> {
-  const { data: template } = await supabase
-    .from('email_templates')
-    .select('subject, html_body, text_body')
-    .eq('workspace_id', workspaceId)
-    .eq('slug', slug)
-    .eq('locale', locale)
-    .maybeSingle();
-
-  if (template) return template;
-
-  // Fallback to 'en'
-  if (locale !== 'en') {
-    const { data: fallback } = await supabase
+  const tryFetch = async (targetLocale: string, targetWorkspaceId: string | null) => {
+    let query = supabase
       .from('email_templates')
       .select('subject, html_body, text_body')
-      .eq('workspace_id', workspaceId)
       .eq('slug', slug)
-      .eq('locale', 'en')
-      .maybeSingle();
-    return fallback;
-  }
+      .eq('locale', targetLocale)
+      .eq('is_active', true);
 
-  return null;
+    query = targetWorkspaceId
+      ? query.eq('workspace_id', targetWorkspaceId)
+      : query.is('workspace_id', null);
+
+    const { data } = await query.maybeSingle();
+    return data;
+  };
+
+  return (
+    await tryFetch(locale, workspaceId) ||
+    await tryFetch(locale, null) ||
+    (locale !== 'en' ? await tryFetch('en', workspaceId) : null) ||
+    (locale !== 'en' ? await tryFetch('en', null) : null) ||
+    null
+  );
 }
 
 /**

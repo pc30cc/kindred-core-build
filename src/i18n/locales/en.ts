@@ -92,7 +92,7 @@ const en = {
     emailConfirmErrorRetry: 'Try signing up again to receive a new verification email.',
     acceptTerms: 'I accept the terms and conditions',
     mustAcceptTerms: 'You must accept the terms and conditions',
-    emailNotVerified: 'Your email is not verified. Please verify your email to get full access.',
+    emailNotVerified: 'Your email is not yet verified. Please verify your email to unlock full access to all features.',
   },
   nav: {
     overview: 'Overview',

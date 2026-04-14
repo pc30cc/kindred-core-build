@@ -29,15 +29,15 @@ function EmailVerificationBanner() {
   };
 
   return (
-    <div className="bg-destructive/10 border-b border-destructive/30 px-4 py-2.5 flex items-center justify-center gap-2 text-sm">
-      <AlertTriangle className="w-4 h-4 text-destructive shrink-0" />
-      <span className="text-foreground">{t('auth.emailNotVerified')}</span>
+    <div className="bg-destructive/10 border-b border-destructive/30 px-4 py-3 flex items-center justify-center gap-3 text-sm">
+      <AlertTriangle className="w-5 h-5 text-destructive shrink-0" />
+      <span className="text-foreground font-medium">{t('auth.emailNotVerified')}</span>
       <button
         onClick={handleResend}
         disabled={sending}
-        className="text-primary hover:underline font-medium disabled:opacity-50"
+        className="bg-destructive text-destructive-foreground hover:bg-destructive/90 px-3 py-1 rounded-md text-xs font-medium disabled:opacity-50 transition-colors shrink-0"
       >
-        {t('auth.resendEmail')}
+        {sending ? '...' : t('auth.resendEmail')}
       </button>
     </div>
   );

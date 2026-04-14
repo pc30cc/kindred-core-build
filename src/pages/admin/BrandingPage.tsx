@@ -656,7 +656,7 @@ function EmailSettingsSection() {
           <Tabs value={emailLocaleTab} onValueChange={setEmailLocaleTab}>
             <div className="flex items-center justify-between">
               <TabsList>
-                {LOCALES.map(l => (
+                {ALL_LOCALES.filter(l => true).slice(0, 3).map(l => (
                   <TabsTrigger key={l.code} value={l.code} className="gap-1.5">
                     {l.label}
                     {emailLocaleDirty.has(l.code) && <Badge variant="secondary" className="text-[10px] px-1 py-0">unsaved</Badge>}

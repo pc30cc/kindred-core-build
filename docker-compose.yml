@@ -1,7 +1,6 @@
-# docker-compose.yml — Growth Suite (Frontend + Backend)
-# Local usage:
-#   cp .env.docker.example .env.docker
-#   docker compose --env-file .env.docker up -d --build
+# docker-compose.yml — LOCAL DEVELOPMENT ONLY
+# For production: deploy frontend and backend as separate services in Coolify.
+# See COOLIFY_DEPLOY.md for production instructions.
 
 services:
   frontend:
@@ -11,12 +10,9 @@ services:
       args:
         VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
         VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:3001}
     ports:
       - "${FRONTEND_PORT:-80}:80"
-    depends_on:
-      backend:
-        condition: service_started
     restart: unless-stopped
 
   backend:

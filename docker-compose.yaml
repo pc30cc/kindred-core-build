@@ -1,5 +1,6 @@
-# docker-compose.yaml — Growth Suite (Frontend + Backend)
-# Coolify: deploy as "Docker Compose", compose path: /docker-compose.yaml
+# docker-compose.yaml — LOCAL DEVELOPMENT ONLY
+# For production: deploy frontend and backend as separate services in Coolify.
+# See COOLIFY_DEPLOY.md for production instructions.
 
 services:
   frontend:
@@ -9,16 +10,17 @@ services:
       args:
         VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
         VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
-    depends_on:
-      backend:
-        condition: service_started
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:3001}
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
     restart: unless-stopped
 
   backend:
     build:
       context: .
       dockerfile: Dockerfile.server
+    ports:
+      - "${BACKEND_PORT:-3001}:3001"
     environment:
       - PORT=3001
       - SUPABASE_URL=${SUPABASE_URL}
@@ -39,5 +41,3 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-    expose:
-      - "3001"

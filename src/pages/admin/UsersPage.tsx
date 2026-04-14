@@ -12,6 +12,17 @@ import { useTranslation } from '@/i18n';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import {
+  adminListUsers, adminCreateUser, adminResetPassword, adminUpdatePassword,
+  adminToggleDisable, adminConfirmEmail, adminAssignRole, adminRemoveRole,
+} from '@/lib/api';
+import {
+  Search, Edit, Ban, CheckCircle2, ShieldCheck, ShieldOff,
+  User, AtSign, Phone, Calendar, Shield, Building2, Key, KeyRound,
+  Loader2, Save, Plus, Trash2, Clock, Users, AlertTriangle, Eye, X,
+} from 'lucide-react';
+import { toast } from 'sonner';
+import { format } from 'date-fns';
+import {
   Search, Edit, Ban, CheckCircle2, ShieldCheck, ShieldOff,
   User, AtSign, Phone, Calendar, Shield, Building2, Key, KeyRound,
   Loader2, Save, Plus, Trash2, Clock, Users, AlertTriangle, Eye, X,

@@ -79,7 +79,8 @@ const RuntimeConfigContext = createContext<RuntimeConfigContextValue>({
 
 export function RuntimeConfigProvider({ children }: { children: React.ReactNode }) {
   const { locale } = useI18n();
-  const { data: workspace } = useCurrentWorkspace();
+  const workspace = useCurrentWorkspace();
+  const [config, setConfig] = useState<ResolvedConfig | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 

@@ -664,7 +664,7 @@ export type Database = {
           slug: string
           subject: string
           text_body: string | null
-          workspace_id: string
+          workspace_id: string | null
         }
         Insert: {
           html_body: string
@@ -674,7 +674,7 @@ export type Database = {
           slug: string
           subject: string
           text_body?: string | null
-          workspace_id: string
+          workspace_id?: string | null
         }
         Update: {
           html_body?: string
@@ -684,7 +684,7 @@ export type Database = {
           slug?: string
           subject?: string
           text_body?: string | null
-          workspace_id?: string
+          workspace_id?: string | null
         }
         Relationships: [
           {

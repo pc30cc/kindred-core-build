@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import cookieParser from 'cookie-parser';
 import { loadConfig } from './config.js';
 import { widgetRouter } from './routes/widget.js';
 import { visitorRouter } from './routes/visitors.js';

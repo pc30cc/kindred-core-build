@@ -23,13 +23,13 @@ function mapSession(s: any): AuthSession | null {
 }
 
 export const supabaseAuthProvider: AuthProvider = {
-  async signUp({ email, password, metadata, redirectTo }: SignUpParams) {
+  async signUp({ email, password, fullName, metadata, redirectTo }: SignUpParams) {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        data: metadata,
-        emailRedirectTo: redirectTo ?? window.location.origin,
+        data: { full_name: fullName, ...metadata },
+        emailRedirectTo: redirectTo ?? `${window.location.origin}/auth/email-confirmed`,
       },
     });
     return { user: mapUser(data?.user), error: error ? new Error(error.message) : null };

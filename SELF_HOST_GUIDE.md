@@ -164,6 +164,8 @@ server {
 ## What Is NOT Dependent on Lovable Cloud
 
 - ✅ Auth — uses your Supabase project directly
+- ✅ Email verification — fully self-hosted custom token system (no Supabase GoTrue links)
+- ✅ Password reset — fully self-hosted custom token system
 - ✅ Database — your Supabase Postgres
 - ✅ Realtime — your Supabase Realtime
 - ✅ Widget bootstrap — your own Express server (`/api/widget/config`)
@@ -174,6 +176,14 @@ server {
 - ✅ Widget loader — static file in `public/widget/loader.js`
 - ✅ Browser title, favicon, meta — driven from `workspace_branding`
 - ✅ Widget embed code — generated from branding settings
+
+## Important: Rebuild & Redeploy
+
+After making changes to auth logic, email templates, or environment variables:
+
+- **Backend**: Redeploy the backend service (Coolify / Docker restart)
+- **Frontend**: Rebuild the frontend (`npm run build`) — Vite env vars are baked in at build time
+- Both steps are required for changes to take full effect
 
 ## Widget Installation
 

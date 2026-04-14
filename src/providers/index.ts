@@ -1,3 +1,5 @@
+export { apiAuthProvider } from './api/auth';
+// Legacy — kept for non-auth Supabase features (database, realtime)
 export { supabaseAuthProvider } from './supabase/auth';
 export { supabaseDatabaseProvider } from './supabase/database';
 export { supabaseRealtimeProvider } from './supabase/realtime';

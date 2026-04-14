@@ -4,11 +4,16 @@
  * No Lovable Cloud dependency.
  */
 
+// Normalized API base:
+// - If VITE_API_BASE_URL is set, use it exactly (e.g. https://destekly.tr)
+// - If empty/unset, use relative paths (same-origin requests)
+// - NEVER fall back to localhost in production
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
+    credentials: 'include', // Always send cookies for auth
     headers: {
       'Content-Type': 'application/json',
       ...options?.headers,
@@ -22,8 +27,8 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 function authHeaders(): Record<string, string> {
-  const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-  return anonKey ? { 'Authorization': `Bearer ${anonKey}` } : {};
+  // No longer send anon key — session is cookie-based
+  return {};
 }
 
 // ─── Widget ──────────────────────────────────────────────────────

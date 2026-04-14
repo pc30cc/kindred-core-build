@@ -169,9 +169,10 @@ authEmailRouter.post('/verify-email', async (req, res) => {
       return res.status(400).json({ error: 'Token has expired' });
     }
 
-    // Confirm user's email via admin API
+    // Confirm user's email via admin API + set metadata flag
     const { error: updateError } = await sb.auth.admin.updateUserById(tokenData.user_id, {
       email_confirm: true,
+      user_metadata: { email_verified: true },
     });
 
     if (updateError) {

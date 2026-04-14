@@ -7,7 +7,9 @@ function mapUser(u: any): AuthUser | null {
   return {
     id: u.id,
     email: u.email ?? '',
-    emailVerified: !!u.email_confirmed_at,
+    // Use our custom metadata flag — email_confirm:true is set at signup
+    // just to allow login; real verification is tracked in user_metadata.
+    emailVerified: !!(u.user_metadata?.email_verified),
     metadata: u.user_metadata ?? {},
     createdAt: u.created_at ?? '',
   };

@@ -148,12 +148,15 @@ export async function issueSignupLinkEmail(
       website: normalizedWebsite,
       website_url: normalizedWebsite,
       locale: options.locale || 'en',
+      email_verified: false,
     };
 
+    // email_confirm: true allows immediate signIn, but we still send
+    // a verification email and track real verification via auth_verify_tokens.
     const { data: createData, error: createError } = await sb.auth.admin.createUser({
       email: options.email,
       password: options.password,
-      email_confirm: false,
+      email_confirm: true,
       user_metadata: userMetadata,
     });
 

@@ -24,9 +24,10 @@ function mapSession(s: any): AuthSession | null {
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
-/**
- * Safe JSON fetch — returns parsed body or throws with clear message.
- */
+function buildApiUrl(path: string): string {
+  return API_BASE ? `${API_BASE}${path}` : path;
+}
+
 async function apiFetch(url: string, options: RequestInit): Promise<any> {
   const res = await fetch(url, options);
   const contentType = res.headers.get('content-type') || '';
@@ -39,10 +40,6 @@ async function apiFetch(url: string, options: RequestInit): Promise<any> {
 }
 
 export const supabaseAuthProvider: AuthProvider = {
-  /**
-   * Signup — ONLY through self-hosted backend.
-   * Backend creates user via admin API and sends verification email.
-   */
   async signUp({ email, password, metadata }: SignUpParams) {
     try {
       const body = await apiFetch(buildApiUrl('/api/auth-email/signup'), {
@@ -64,9 +61,6 @@ export const supabaseAuthProvider: AuthProvider = {
     }
   },
 
-  /**
-   * Sign in — uses Supabase client SDK (no email sent, just session).
-   */
   async signIn({ email, password }: SignInParams) {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     return { session: mapSession(data?.session), error: error ? new Error(error.message) : null };
@@ -82,9 +76,6 @@ export const supabaseAuthProvider: AuthProvider = {
     return mapSession(data?.session);
   },
 
-  /**
-   * Password reset — ONLY through self-hosted backend.
-   */
   async resetPasswordRequest(email: string) {
     try {
       await apiFetch(buildApiUrl('/api/auth-email/reset-password'), {
@@ -101,9 +92,6 @@ export const supabaseAuthProvider: AuthProvider = {
     }
   },
 
-  /**
-   * Update password — uses Supabase client SDK (user already authenticated).
-   */
   async updatePassword(newPassword: string) {
     const { error } = await supabase.auth.updateUser({ password: newPassword });
     return { error: error ? new Error(error.message) : null };

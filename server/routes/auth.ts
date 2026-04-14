@@ -161,11 +161,7 @@ authSecurityRouter.post('/signup', authRateLimiter, async (req, res) => {
     }
 
     const { email, password, fullName, website, locale, metadata } = parsed.data;
-    const normalizedWebsite = normalizeWebsiteUrl(website);
-
-    if (!normalizedWebsite) {
-      return res.status(400).json({ error: 'Please enter a valid website URL' });
-    }
+    const normalizedWebsite = website ? normalizeWebsiteUrl(website) : null;
 
     const sb = getServiceClient(config);
     const normalizedEmail = email.trim().toLowerCase();

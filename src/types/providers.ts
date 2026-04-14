@@ -23,6 +23,7 @@ export interface AuthSession {
 export interface SignUpParams {
   email: string;
   password: string;
+  fullName?: string;
   metadata?: Record<string, unknown>;
   redirectTo?: string;
 }

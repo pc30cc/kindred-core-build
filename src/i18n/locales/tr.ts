@@ -189,7 +189,6 @@ const tr: TranslationKeys = {
     provider: 'Sağlayıcı',
     senderIdentity: 'Gönderen Kimliği',
     templates: 'Şablonlar',
-      platformSettings: 'Platform Ayarları',
     testEmail: 'Test e-postası gönder',
   },
   ai: {

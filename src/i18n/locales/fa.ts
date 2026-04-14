@@ -189,7 +189,6 @@ const fa: TranslationKeys = {
     provider: 'ارائه‌دهنده',
     senderIdentity: 'هویت فرستنده',
     templates: 'قالب‌ها',
-      platformSettings: 'تنظیمات پلتفرم',
     testEmail: 'ارسال ایمیل آزمایشی',
   },
   ai: {

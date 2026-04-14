@@ -143,14 +143,16 @@ export function AdminProviderCard({ type }: AdminProviderCardProps) {
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className={`p-2 rounded-lg ${hasGlobalDefault ? 'bg-emerald-500/10' : 'bg-admin-muted'}`}>
-                <ProviderIcon iconName={schema.icon} className={`h-5 w-5 ${hasGlobalDefault ? 'text-emerald-400' : 'text-admin-muted-foreground'}`} />
+              <div className={`p-2 rounded-lg ${isActive ? 'bg-emerald-500/10' : 'bg-admin-muted'}`}>
+                <ProviderIcon iconName={schema.icon} className={`h-5 w-5 ${isActive ? 'text-emerald-400' : 'text-admin-muted-foreground'}`} />
               </div>
               <div>
                 <CardTitle className="text-sm text-admin-foreground flex items-center gap-2">
                   {schema.label}
-                  {hasGlobalDefault && (
-                    <Badge className="bg-admin-accent/20 text-admin-accent border-admin-accent/30 text-[9px] h-4">Configured</Badge>
+                  {isActive && (
+                    <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 text-[9px] h-4">
+                      {hasGlobalDefault ? 'Configured' : 'Active'}
+                    </Badge>
                   )}
                 </CardTitle>
                 <p className="text-[11px] text-admin-muted-foreground mt-0.5 line-clamp-1">{schema.description}</p>

@@ -174,46 +174,43 @@ export async function issueSignupLinkEmail(
   options: SignupLinkEmailOptions,
 ): Promise<{ success: boolean; userId?: string; error?: string }> {
   try {
+    const sb = getServiceClient(config);
     const normalizedWebsite = options.website?.trim() || '';
-    const metadata = {
+    const userMetadata = {
       full_name: options.fullName?.trim() || '',
       website: normalizedWebsite,
       website_url: normalizedWebsite,
       locale: options.locale || 'en',
     };
 
-    const [{ actionLink, userId }, workspaceId, brandName] = await Promise.all([
-      generateActionLink(config, {
-        type: 'signup',
-        email: options.email,
-        password: options.password,
-        redirectPath: '/auth/email-confirmed',
-        data: metadata,
-      }),
-      resolveWorkspaceId(config),
-      resolveBrandName(config, options.locale),
-    ]);
-
-    const userName = options.fullName || options.email.split('@')[0];
-
-    const result = await sendEmail(config, {
-      workspaceId,
-      to: options.email,
-      templateSlug: 'email_verify',
-      templateData: {
-        name: userName,
-        brand: brandName,
-        action_url: actionLink,
-        email: options.email,
-        expiry_time: '24 hours',
-        year: new Date().getFullYear().toString(),
-        support_email: `support@${options.email.split('@')[1] || 'example.com'}`,
-      },
-      locale: options.locale || 'en',
+    // Create user server-side WITHOUT triggering Supabase auth emails
+    const { data: createData, error: createError } = await sb.auth.admin.createUser({
+      email: options.email,
+      password: options.password,
+      email_confirm: false, // Do NOT auto-confirm — we handle verification ourselves
+      user_metadata: userMetadata,
     });
 
-    if (!result.success) {
-      return { success: false, error: result.error };
+    if (createError) {
+      throw new Error(createError.message || 'Failed to create user');
+    }
+
+    const userId = createData.user?.id;
+    if (!userId) {
+      throw new Error('User creation returned no user ID');
+    }
+
+    // Use the same custom verification token system
+    const verificationResult = await issueVerificationEmail(config, {
+      userId,
+      email: options.email,
+      fullName: options.fullName,
+      locale: options.locale,
+      ipAddress: null,
+    });
+
+    if (!verificationResult.success) {
+      return { success: false, userId, error: verificationResult.error };
     }
 
     return { success: true, userId };

@@ -42,11 +42,12 @@ function useAdminUsersData() {
       const { data: roles } = await supabase.from('user_roles').select('*').in('user_id', ids);
       // Fetch workspace memberships
       const { data: members } = await supabase.from('workspace_members').select('user_id, workspace_id, role');
-      // Fetch auth data from edge function
-      const { data: authData, error: authErr } = await supabase.functions.invoke('admin-actions', {
-        body: { action: 'list_users' },
-      });
-      const authUsers = authErr ? [] : (authData?.users || []);
+      // Fetch auth data from self-hosted backend
+      let authUsers: any[] = [];
+      try {
+        const authData = await adminListUsers(1, 200);
+        authUsers = authData?.users || [];
+      } catch {}
 
       return (profiles || []).map((p: any) => {
         const authUser = authUsers.find((au: any) => au.id === p.id);

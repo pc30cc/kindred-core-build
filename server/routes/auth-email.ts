@@ -4,11 +4,10 @@
  * Uses auth_verify_tokens and auth_reset_tokens tables.
  */
 
-import { Router } from 'express';
+import { Router, type Response } from 'express';
 import crypto from 'crypto';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
-import { sendEmail } from '../services/email/index.js';
 import { issueRecoveryEmail, issueVerificationEmail } from '../services/auth-email.js';
 
 export const authEmailRouter = Router();
@@ -17,8 +16,90 @@ function hashToken(token: string): string {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
 
-function generateToken(): string {
-  return crypto.randomUUID();
+function getErrorMessage(error: unknown, fallback: string = 'Internal error'): string {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  if (typeof error === 'string' && error.trim()) return error;
+  return fallback;
+}
+
+function handleRouteError(res: Response, scope: string, error: unknown) {
+  const message = getErrorMessage(error);
+  console.error(scope, message, error);
+  return res.status(500).json({ error: message });
+}
+
+function resolveUserFullName(userMetadata: unknown, fallback: string | null = null): string | null {
+  if (userMetadata && typeof userMetadata === 'object') {
+    const fullName = (userMetadata as Record<string, unknown>).full_name;
+    if (typeof fullName === 'string' && fullName.trim()) return fullName.trim();
+  }
+
+  return fallback?.trim() || null;
+}
+
+interface AuthLookupUser {
+  id: string;
+  email: string | null;
+  emailConfirmedAt: string | null;
+  fullName: string | null;
+}
+
+async function findAuthUserByEmail(config: ServerConfig, email: string): Promise<AuthLookupUser | null> {
+  const sb = getServiceClient(config);
+  const normalizedEmail = email.trim().toLowerCase();
+
+  const { data: profile, error: profileError } = await sb
+    .from('profiles')
+    .select('id, email, full_name')
+    .eq('email', normalizedEmail)
+    .maybeSingle();
+
+  if (profileError) {
+    throw new Error(`Failed to look up profile: ${profileError.message}`);
+  }
+
+  if (profile?.id) {
+    const { data: authUserData, error: authUserError } = await sb.auth.admin.getUserById(profile.id);
+
+    if (authUserError) {
+      throw new Error(`Failed to load auth user: ${authUserError.message}`);
+    }
+
+    if (authUserData?.user) {
+      return {
+        id: authUserData.user.id,
+        email: authUserData.user.email ?? profile.email ?? normalizedEmail,
+        emailConfirmedAt: authUserData.user.email_confirmed_at ?? null,
+        fullName: resolveUserFullName(authUserData.user.user_metadata, profile.full_name ?? null),
+      };
+    }
+  }
+
+  const perPage = 200;
+
+  for (let page = 1; page <= 10; page += 1) {
+    const { data, error } = await sb.auth.admin.listUsers({ page, perPage });
+
+    if (error) {
+      throw new Error(`Failed to search auth users: ${error.message}`);
+    }
+
+    const users = data?.users ?? [];
+    const matchedUser = users.find((candidate) => candidate.email?.trim().toLowerCase() === normalizedEmail);
+
+    if (matchedUser) {
+      return {
+        id: matchedUser.id,
+        email: matchedUser.email ?? normalizedEmail,
+        emailConfirmedAt: matchedUser.email_confirmed_at ?? null,
+        fullName: resolveUserFullName(matchedUser.user_metadata, profile?.full_name ?? null),
+      };
+    }
+
+    if (users.length < perPage) break;
+  }
+
+  return null;
 }
 
 /**
@@ -32,21 +113,16 @@ authEmailRouter.post('/send-verification', async (req, res) => {
 
     if (!email) return res.status(400).json({ error: 'email is required' });
 
-    const sb = getServiceClient(config);
-
-    // Find user by email
-    const { data: userData, error: userError } = await sb.auth.admin.getUserByEmail(email);
-    if (userError || !userData?.user) {
+    const authUser = await findAuthUserByEmail(config, email);
+    if (!authUser) {
       // Don't reveal if user exists
       return res.json({ success: true });
     }
 
-    const userId = userData.user.id;
-
     const result = await issueVerificationEmail(config, {
-      userId,
-      email,
-      fullName: userData.user.user_metadata?.full_name,
+      userId: authUser.id,
+      email: authUser.email || email.trim().toLowerCase(),
+      fullName: authUser.fullName,
       locale: locale || 'en',
       ipAddress: req.ip || null,
     });
@@ -57,8 +133,7 @@ authEmailRouter.post('/send-verification', async (req, res) => {
 
     return res.json({ success: true });
   } catch (err) {
-    console.error('[auth-email] send-verification error:', err);
-    return res.status(500).json({ error: 'Internal error' });
+    return handleRouteError(res, '[auth-email] send-verification error:', err);
   }
 });
 
@@ -111,8 +186,7 @@ authEmailRouter.post('/verify-email', async (req, res) => {
 
     return res.json({ success: true, email: tokenData.email });
   } catch (err) {
-    console.error('[auth-email] verify-email error:', err);
-    return res.status(500).json({ error: 'Internal error' });
+    return handleRouteError(res, '[auth-email] verify-email error:', err);
   }
 });
 
@@ -127,18 +201,16 @@ authEmailRouter.post('/send-reset', async (req, res) => {
 
     if (!email) return res.status(400).json({ error: 'email is required' });
 
-    const sb = getServiceClient(config);
-
-    const { data: userData, error: userError } = await sb.auth.admin.getUserByEmail(email);
-    if (userError || !userData?.user) {
+    const authUser = await findAuthUserByEmail(config, email);
+    if (!authUser) {
       // Don't reveal if user exists
       return res.json({ success: true });
     }
 
     const result = await issueRecoveryEmail(config, {
-      userId: userData.user.id,
-      email,
-      fullName: userData.user.user_metadata?.full_name,
+      userId: authUser.id,
+      email: authUser.email || email.trim().toLowerCase(),
+      fullName: authUser.fullName,
       locale: locale || 'en',
     });
 
@@ -148,8 +220,7 @@ authEmailRouter.post('/send-reset', async (req, res) => {
 
     return res.json({ success: true });
   } catch (err) {
-    console.error('[auth-email] send-reset error:', err);
-    return res.status(500).json({ error: 'Internal error' });
+    return handleRouteError(res, '[auth-email] send-reset error:', err);
   }
 });
 
@@ -206,8 +277,7 @@ authEmailRouter.post('/reset-password', async (req, res) => {
 
     return res.json({ success: true });
   } catch (err) {
-    console.error('[auth-email] reset-password error:', err);
-    return res.status(500).json({ error: 'Internal error' });
+    return handleRouteError(res, '[auth-email] reset-password error:', err);
   }
 });
 
@@ -222,22 +292,20 @@ authEmailRouter.post('/resend-verification', async (req, res) => {
 
     if (!email) return res.status(400).json({ error: 'email is required' });
 
-    const sb = getServiceClient(config);
-
-    const { data: userData } = await sb.auth.admin.getUserByEmail(email);
-    if (!userData?.user) {
+    const authUser = await findAuthUserByEmail(config, email);
+    if (!authUser) {
       return res.json({ success: true }); // Don't reveal
     }
 
     // Check if already confirmed
-    if (userData.user.email_confirmed_at) {
+    if (authUser.emailConfirmedAt) {
       return res.json({ success: true, already_confirmed: true });
     }
 
     const result = await issueVerificationEmail(config, {
-      userId: userData.user.id,
-      email,
-      fullName: userData.user.user_metadata?.full_name,
+      userId: authUser.id,
+      email: authUser.email || email.trim().toLowerCase(),
+      fullName: authUser.fullName,
       locale: locale || 'en',
       ipAddress: req.ip || null,
     });
@@ -248,7 +316,6 @@ authEmailRouter.post('/resend-verification', async (req, res) => {
 
     return res.json({ success: true });
   } catch (err) {
-    console.error('[auth-email] resend-verification error:', err);
-    return res.status(500).json({ error: 'Internal error' });
+    return handleRouteError(res, '[auth-email] resend-verification error:', err);
   }
 });

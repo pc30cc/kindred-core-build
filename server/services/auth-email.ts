@@ -143,22 +143,27 @@ export async function issueVerificationEmail(
       return { success: false, error: tokenInsertError.message };
     }
 
-    const [appBaseUrl, workspaceId] = await Promise.all([
+    const [appBaseUrl, workspaceId, brandName] = await Promise.all([
       resolveAppBaseUrl(config),
       resolveWorkspaceId(config),
+      resolveBrandName(config, options.locale),
     ]);
 
     const verifyUrl = `${appBaseUrl}/auth/email-confirmed?token=${rawToken}`;
+    const userName = options.fullName || options.email.split('@')[0];
 
     const result = await sendEmail(config, {
       workspaceId,
       to: options.email,
       templateSlug: 'email_verify',
       templateData: {
-        name: options.fullName || options.email.split('@')[0],
-        brand: 'Platform',
+        name: userName,
+        brand: brandName,
         action_url: verifyUrl,
         email: options.email,
+        expiry_time: '24 hours',
+        year: new Date().getFullYear().toString(),
+        support_email: `support@${options.email.split('@')[1] || 'example.com'}`,
       },
       locale: options.locale || 'en',
     });
@@ -186,7 +191,7 @@ export async function issueSignupLinkEmail(
       locale: options.locale || 'en',
     };
 
-    const [{ actionLink, userId }, workspaceId] = await Promise.all([
+    const [{ actionLink, userId }, workspaceId, brandName] = await Promise.all([
       generateActionLink(config, {
         type: 'signup',
         email: options.email,
@@ -195,17 +200,23 @@ export async function issueSignupLinkEmail(
         data: metadata,
       }),
       resolveWorkspaceId(config),
+      resolveBrandName(config, options.locale),
     ]);
+
+    const userName = options.fullName || options.email.split('@')[0];
 
     const result = await sendEmail(config, {
       workspaceId,
       to: options.email,
       templateSlug: 'email_verify',
       templateData: {
-        name: options.fullName || options.email.split('@')[0],
-        brand: 'Platform',
+        name: userName,
+        brand: brandName,
         action_url: actionLink,
         email: options.email,
+        expiry_time: '24 hours',
+        year: new Date().getFullYear().toString(),
+        support_email: `support@${options.email.split('@')[1] || 'example.com'}`,
       },
       locale: options.locale || 'en',
     });
@@ -225,24 +236,30 @@ export async function issueRecoveryEmail(
   options: RecoveryLinkEmailOptions,
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const [{ actionLink }, workspaceId] = await Promise.all([
+    const [{ actionLink }, workspaceId, brandName] = await Promise.all([
       generateActionLink(config, {
         type: 'recovery',
         email: options.email,
         redirectPath: '/auth/reset-password',
       }),
       resolveWorkspaceId(config),
+      resolveBrandName(config, options.locale),
     ]);
+
+    const userName = options.fullName || options.email.split('@')[0];
 
     const result = await sendEmail(config, {
       workspaceId,
       to: options.email,
       templateSlug: 'password_reset',
       templateData: {
-        name: options.fullName || options.email.split('@')[0],
-        brand: 'Platform',
+        name: userName,
+        brand: brandName,
         action_url: actionLink,
         email: options.email,
+        expiry_time: '1 hour',
+        year: new Date().getFullYear().toString(),
+        support_email: `support@${options.email.split('@')[1] || 'example.com'}`,
       },
       locale: options.locale || 'en',
     });

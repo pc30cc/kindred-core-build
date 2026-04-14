@@ -5,7 +5,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
-import { executeAICompletion, testAIConnection, resolveAIConfig, type AIRequest } from '../services/ai/index.js';
+import { executeAICompletion, testAIConnection, resolveAIConfig } from '../services/ai/index.js';
 import { logSecurityEvent } from '../middleware/security.js';
 
 export const aiRouter = Router();
@@ -64,7 +64,7 @@ aiRouter.post('/complete', async (req, res) => {
       return res.status(429).json({ error: 'AI rate limit exceeded. Max 60 requests/minute per workspace.' });
     }
 
-    const result = await executeAICompletion(config, parsed.data as AIRequest);
+    const result = await executeAICompletion(config, parsed.data);
     return res.json({
       text: result.text,
       model: result.model,

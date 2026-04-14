@@ -6,15 +6,11 @@ import { widgetRouter } from './routes/widget.js';
 import { visitorRouter } from './routes/visitors.js';
 import { healthRouter } from './routes/health.js';
 import { emailRouter } from './routes/email.js';
-import { authEmailRouter } from './routes/auth-email.js';
 import { authSecurityRouter } from './routes/auth.js';
 import { aiRouter } from './routes/ai.js';
 import { storageRouter } from './routes/storage.js';
 import { cdnRouter } from './routes/cdn.js';
 import { billingRouter } from './routes/billing.js';
-import { adminRouter } from './routes/admin.js';
-import { templatesRouter } from './routes/templates.js';
-import { configRouter } from './routes/config.js';
 import {
   ipBlockMiddleware,
   authRateLimiter,
@@ -66,7 +62,6 @@ app.use('/api/visitors', visitorRateLimiter, visitorRouter);
 
 // Email — workspace-scoped rate limit
 app.use('/api/email', emailRateLimiter, emailRouter);
-app.use('/api/auth-email', authRateLimiter, authEmailRouter);
 
 // AI — auth required, workspace rate limiting built into routes
 app.use('/api/ai', aiRouter);
@@ -81,11 +76,7 @@ app.use('/api/cdn', cdnRouter);
 app.use('/api/billing', billingRouter);
 
 // Admin — moderate rate limit
-app.use('/api/admin', adminRateLimiter, adminRouter);
-app.use('/api/admin/templates', adminRateLimiter, templatesRouter);
-
-// Config — runtime config resolution + admin management
-app.use('/api/config', configRouter);
+app.use('/api/admin', adminRateLimiter);
 
 // 404
 app.use((_req, res) => {

@@ -2,7 +2,7 @@ import { Link, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Users, Building2, Plug, Server,
   Flag, Palette, Globe, FileText, CreditCard, Shield,
-  Database, UserCog, Mail, Settings,
+  Database,
   ChevronLeft, ChevronRight, LogOut, ArrowLeft, ArrowRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -14,7 +14,6 @@ import { Button } from '@/components/ui/button';
 const adminNav = [
   { key: 'dashboard', path: '/admin', icon: LayoutDashboard },
   { key: 'users', path: '/admin/users', icon: Users },
-  { key: 'roles', path: '/admin/roles', icon: UserCog },
   { key: 'workspaces', path: '/admin/workspaces', icon: Building2 },
   { key: 'providers', path: '/admin/providers', icon: Plug },
   { key: 'system', path: '/admin/system', icon: Server },
@@ -25,8 +24,6 @@ const adminNav = [
   { key: 'billing', path: '/admin/billing', icon: CreditCard },
   { key: 'database', path: '/admin/database', icon: Database },
   { key: 'security', path: '/admin/security', icon: Shield },
-  { key: 'templates', path: '/admin/templates', icon: Mail },
-  { key: 'platformSettings', path: '/admin/platform-settings', icon: Settings },
 ] as const;
 
 export function AdminSidebar() {

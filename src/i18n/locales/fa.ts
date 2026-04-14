@@ -203,7 +203,6 @@ const fa: TranslationKeys = {
       title: 'مدیریت کل',
       dashboard: 'داشبورد',
       users: 'کاربران',
-      roles: 'نقش‌ها',
       workspaces: 'فضاهای کاری',
       providers: 'ارائه‌دهندگان',
       system: 'سیستم',
@@ -215,8 +214,6 @@ const fa: TranslationKeys = {
       database: 'دیتابیس',
       security: 'امنیت',
       backToApp: 'بازگشت به پنل',
-      templates: 'قالب‌ها',
-      platformSettings: 'تنظیمات پلتفرم',
       controlCenter: 'مرکز کنترل پلتفرم',
     },
     database: {

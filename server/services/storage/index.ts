@@ -3,8 +3,8 @@
  * All operations run server-side only. Secrets never leave the backend.
  */
 
-import type { ServerConfig } from '../../config.js';
-import { getServiceClient } from '../../supabase.js';
+import type { ServerConfig } from '../config.js';
+import { getServiceClient } from '../supabase.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
@@ -74,7 +74,7 @@ async function bunnyUpload(config: StorageConfig, req: UploadRequest): Promise<S
       'AccessKey': config.apiKey!,
       'Content-Type': 'application/octet-stream',
     },
-    body: new Uint8Array(req.data) as any,
+    body: req.data,
   });
 
   if (!res.ok) {
@@ -175,7 +175,7 @@ async function s3Upload(config: StorageConfig, req: UploadRequest): Promise<Stor
   const res = await fetch(url, {
     method: 'PUT',
     headers: { ...headers, 'Content-Type': req.contentType },
-    body: new Uint8Array(req.data) as any,
+    body: req.data,
   });
 
   if (!res.ok) {

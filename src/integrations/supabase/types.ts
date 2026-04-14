@@ -465,93 +465,10 @@ export type Database = {
           },
         ]
       }
-      email_settings: {
-        Row: {
-          created_at: string | null
-          email_footer_text: string | null
-          email_logo_url: string | null
-          id: string
-          reply_to_email: string | null
-          sender_email: string | null
-          updated_at: string | null
-          workspace_id: string | null
-        }
-        Insert: {
-          created_at?: string | null
-          email_footer_text?: string | null
-          email_logo_url?: string | null
-          id?: string
-          reply_to_email?: string | null
-          sender_email?: string | null
-          updated_at?: string | null
-          workspace_id?: string | null
-        }
-        Update: {
-          created_at?: string | null
-          email_footer_text?: string | null
-          email_logo_url?: string | null
-          id?: string
-          reply_to_email?: string | null
-          sender_email?: string | null
-          updated_at?: string | null
-          workspace_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "email_settings_workspace_id_fkey"
-            columns: ["workspace_id"]
-            isOneToOne: false
-            referencedRelation: "workspaces"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      email_settings_localized: {
-        Row: {
-          created_at: string | null
-          footer_text: string | null
-          id: string
-          locale: string
-          sender_name: string | null
-          support_contact_label: string | null
-          updated_at: string | null
-          workspace_id: string | null
-        }
-        Insert: {
-          created_at?: string | null
-          footer_text?: string | null
-          id?: string
-          locale: string
-          sender_name?: string | null
-          support_contact_label?: string | null
-          updated_at?: string | null
-          workspace_id?: string | null
-        }
-        Update: {
-          created_at?: string | null
-          footer_text?: string | null
-          id?: string
-          locale?: string
-          sender_name?: string | null
-          support_contact_label?: string | null
-          updated_at?: string | null
-          workspace_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "email_settings_localized_workspace_id_fkey"
-            columns: ["workspace_id"]
-            isOneToOne: false
-            referencedRelation: "workspaces"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       email_templates: {
         Row: {
           html_body: string
           id: string
-          is_active: boolean | null
           locale: string
           slug: string
           subject: string
@@ -561,7 +478,6 @@ export type Database = {
         Insert: {
           html_body: string
           id?: string
-          is_active?: boolean | null
           locale?: string
           slug: string
           subject: string
@@ -571,7 +487,6 @@ export type Database = {
         Update: {
           html_body?: string
           id?: string
-          is_active?: boolean | null
           locale?: string
           slug?: string
           subject?: string
@@ -772,180 +687,6 @@ export type Database = {
           id?: string
           ip_address?: string
           success?: boolean
-        }
-        Relationships: []
-      }
-      platform_branding: {
-        Row: {
-          created_at: string | null
-          favicon_url: string | null
-          id: string
-          logo_url: string | null
-          primary_color: string | null
-          pwa_icon_url: string | null
-          secondary_color: string | null
-          updated_at: string | null
-        }
-        Insert: {
-          created_at?: string | null
-          favicon_url?: string | null
-          id?: string
-          logo_url?: string | null
-          primary_color?: string | null
-          pwa_icon_url?: string | null
-          secondary_color?: string | null
-          updated_at?: string | null
-        }
-        Update: {
-          created_at?: string | null
-          favicon_url?: string | null
-          id?: string
-          logo_url?: string | null
-          primary_color?: string | null
-          pwa_icon_url?: string | null
-          secondary_color?: string | null
-          updated_at?: string | null
-        }
-        Relationships: []
-      }
-      platform_branding_localized: {
-        Row: {
-          browser_title_format: string | null
-          created_at: string | null
-          footer_company_text: string | null
-          id: string
-          knowledge_base_title: string | null
-          legal_company_display_name: string | null
-          locale: string
-          meta_description: string | null
-          meta_title: string | null
-          platform_name: string
-          public_site_title: string | null
-          social_share_description: string | null
-          social_share_title: string | null
-          support_label: string | null
-          updated_at: string | null
-          widget_display_name: string | null
-        }
-        Insert: {
-          browser_title_format?: string | null
-          created_at?: string | null
-          footer_company_text?: string | null
-          id?: string
-          knowledge_base_title?: string | null
-          legal_company_display_name?: string | null
-          locale: string
-          meta_description?: string | null
-          meta_title?: string | null
-          platform_name?: string
-          public_site_title?: string | null
-          social_share_description?: string | null
-          social_share_title?: string | null
-          support_label?: string | null
-          updated_at?: string | null
-          widget_display_name?: string | null
-        }
-        Update: {
-          browser_title_format?: string | null
-          created_at?: string | null
-          footer_company_text?: string | null
-          id?: string
-          knowledge_base_title?: string | null
-          legal_company_display_name?: string | null
-          locale?: string
-          meta_description?: string | null
-          meta_title?: string | null
-          platform_name?: string
-          public_site_title?: string | null
-          social_share_description?: string | null
-          social_share_title?: string | null
-          support_label?: string | null
-          updated_at?: string | null
-          widget_display_name?: string | null
-        }
-        Relationships: []
-      }
-      platform_domains: {
-        Row: {
-          api_base_url: string | null
-          app_base_url: string | null
-          asset_base_url: string | null
-          canonical_base_url: string | null
-          created_at: string | null
-          email_base_url: string | null
-          help_center_base_url: string | null
-          id: string
-          primary_domain: string | null
-          public_base_url: string | null
-          updated_at: string | null
-          widget_base_url: string | null
-        }
-        Insert: {
-          api_base_url?: string | null
-          app_base_url?: string | null
-          asset_base_url?: string | null
-          canonical_base_url?: string | null
-          created_at?: string | null
-          email_base_url?: string | null
-          help_center_base_url?: string | null
-          id?: string
-          primary_domain?: string | null
-          public_base_url?: string | null
-          updated_at?: string | null
-          widget_base_url?: string | null
-        }
-        Update: {
-          api_base_url?: string | null
-          app_base_url?: string | null
-          asset_base_url?: string | null
-          canonical_base_url?: string | null
-          created_at?: string | null
-          email_base_url?: string | null
-          help_center_base_url?: string | null
-          id?: string
-          primary_domain?: string | null
-          public_base_url?: string | null
-          updated_at?: string | null
-          widget_base_url?: string | null
-        }
-        Relationships: []
-      }
-      platform_settings: {
-        Row: {
-          active_locales: string[]
-          created_at: string | null
-          default_locale: string
-          fallback_locale: string
-          id: string
-          panel_default_locale: string
-          site_mode: string
-          timezone: string
-          updated_at: string | null
-          widget_default_locale: string
-        }
-        Insert: {
-          active_locales?: string[]
-          created_at?: string | null
-          default_locale?: string
-          fallback_locale?: string
-          id?: string
-          panel_default_locale?: string
-          site_mode?: string
-          timezone?: string
-          updated_at?: string | null
-          widget_default_locale?: string
-        }
-        Update: {
-          active_locales?: string[]
-          created_at?: string | null
-          default_locale?: string
-          fallback_locale?: string
-          id?: string
-          panel_default_locale?: string
-          site_mode?: string
-          timezone?: string
-          updated_at?: string | null
-          widget_default_locale?: string
         }
         Relationships: []
       }
@@ -1403,74 +1144,6 @@ export type Database = {
           },
         ]
       }
-      workspace_branding_localized: {
-        Row: {
-          browser_title_format: string | null
-          created_at: string | null
-          footer_company_text: string | null
-          id: string
-          knowledge_base_title: string | null
-          legal_company_display_name: string | null
-          locale: string
-          meta_description: string | null
-          meta_title: string | null
-          platform_name: string | null
-          public_site_title: string | null
-          social_share_description: string | null
-          social_share_title: string | null
-          support_label: string | null
-          updated_at: string | null
-          widget_display_name: string | null
-          workspace_id: string
-        }
-        Insert: {
-          browser_title_format?: string | null
-          created_at?: string | null
-          footer_company_text?: string | null
-          id?: string
-          knowledge_base_title?: string | null
-          legal_company_display_name?: string | null
-          locale: string
-          meta_description?: string | null
-          meta_title?: string | null
-          platform_name?: string | null
-          public_site_title?: string | null
-          social_share_description?: string | null
-          social_share_title?: string | null
-          support_label?: string | null
-          updated_at?: string | null
-          widget_display_name?: string | null
-          workspace_id: string
-        }
-        Update: {
-          browser_title_format?: string | null
-          created_at?: string | null
-          footer_company_text?: string | null
-          id?: string
-          knowledge_base_title?: string | null
-          legal_company_display_name?: string | null
-          locale?: string
-          meta_description?: string | null
-          meta_title?: string | null
-          platform_name?: string | null
-          public_site_title?: string | null
-          social_share_description?: string | null
-          social_share_title?: string | null
-          support_label?: string | null
-          updated_at?: string | null
-          widget_display_name?: string | null
-          workspace_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "workspace_branding_localized_workspace_id_fkey"
-            columns: ["workspace_id"]
-            isOneToOne: false
-            referencedRelation: "workspaces"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       workspace_domains: {
         Row: {
           created_at: string | null
@@ -1506,62 +1179,6 @@ export type Database = {
           },
         ]
       }
-      workspace_domains_extended: {
-        Row: {
-          api_base_url: string | null
-          app_base_url: string | null
-          asset_base_url: string | null
-          canonical_base_url: string | null
-          created_at: string | null
-          email_base_url: string | null
-          help_center_base_url: string | null
-          id: string
-          primary_domain: string | null
-          public_base_url: string | null
-          updated_at: string | null
-          widget_base_url: string | null
-          workspace_id: string
-        }
-        Insert: {
-          api_base_url?: string | null
-          app_base_url?: string | null
-          asset_base_url?: string | null
-          canonical_base_url?: string | null
-          created_at?: string | null
-          email_base_url?: string | null
-          help_center_base_url?: string | null
-          id?: string
-          primary_domain?: string | null
-          public_base_url?: string | null
-          updated_at?: string | null
-          widget_base_url?: string | null
-          workspace_id: string
-        }
-        Update: {
-          api_base_url?: string | null
-          app_base_url?: string | null
-          asset_base_url?: string | null
-          canonical_base_url?: string | null
-          created_at?: string | null
-          email_base_url?: string | null
-          help_center_base_url?: string | null
-          id?: string
-          primary_domain?: string | null
-          public_base_url?: string | null
-          updated_at?: string | null
-          widget_base_url?: string | null
-          workspace_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "workspace_domains_extended_workspace_id_fkey"
-            columns: ["workspace_id"]
-            isOneToOne: true
-            referencedRelation: "workspaces"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       workspace_members: {
         Row: {
           created_at: string | null
@@ -1589,53 +1206,6 @@ export type Database = {
             foreignKeyName: "workspace_members_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
-            referencedRelation: "workspaces"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      workspace_settings: {
-        Row: {
-          active_locales: string[] | null
-          created_at: string | null
-          default_locale: string | null
-          fallback_locale: string | null
-          id: string
-          panel_default_locale: string | null
-          site_mode: string | null
-          updated_at: string | null
-          widget_default_locale: string | null
-          workspace_id: string
-        }
-        Insert: {
-          active_locales?: string[] | null
-          created_at?: string | null
-          default_locale?: string | null
-          fallback_locale?: string | null
-          id?: string
-          panel_default_locale?: string | null
-          site_mode?: string | null
-          updated_at?: string | null
-          widget_default_locale?: string | null
-          workspace_id: string
-        }
-        Update: {
-          active_locales?: string[] | null
-          created_at?: string | null
-          default_locale?: string | null
-          fallback_locale?: string | null
-          id?: string
-          panel_default_locale?: string | null
-          site_mode?: string | null
-          updated_at?: string | null
-          widget_default_locale?: string | null
-          workspace_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "workspace_settings_workspace_id_fkey"
-            columns: ["workspace_id"]
-            isOneToOne: true
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },

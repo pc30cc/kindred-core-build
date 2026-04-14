@@ -203,7 +203,6 @@ const tr: TranslationKeys = {
       title: 'Süper Yönetici',
       dashboard: 'Gösterge Paneli',
       users: 'Kullanıcılar',
-      roles: 'Roller',
       workspaces: 'Çalışma Alanları',
       providers: 'Sağlayıcılar',
       system: 'Sistem',
@@ -215,8 +214,6 @@ const tr: TranslationKeys = {
       database: 'Veritabanı',
       security: 'Güvenlik',
       backToApp: 'Uygulamaya Dön',
-      templates: 'Şablonlar',
-      platformSettings: 'Platform Ayarları',
       controlCenter: 'Platform Kontrol Merkezi',
     },
     database: {

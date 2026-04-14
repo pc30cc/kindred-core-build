@@ -201,7 +201,6 @@ const en = {
       title: 'Super Admin',
       dashboard: 'Dashboard',
       users: 'Users',
-      roles: 'Roles',
       workspaces: 'Workspaces',
       providers: 'Providers',
       system: 'System',
@@ -213,8 +212,6 @@ const en = {
       database: 'Database',
       security: 'Security',
       backToApp: 'Back to App',
-      templates: 'Templates',
-      platformSettings: 'Platform Config',
       controlCenter: 'Platform Control Center',
     },
     database: {

@@ -77,6 +77,8 @@ const fa: TranslationKeys = {
     checkEmailTipWait: 'ممکن است چند دقیقه طول بکشد تا ایمیل برسد.',
     checkEmailTipLatest: 'اگر چند بار درخواست کرده‌اید، آخرین لینک را استفاده کنید.',
     checkEmailWrongEmail: 'ایمیل اشتباه وارد کردید؟ دوباره ثبت‌نام کنید',
+    verificationResent: 'ایمیل تأیید دوباره ارسال شد!',
+    resendEmail: 'ارسال مجدد',
     emailConfirmLoading: 'در حال تأیید ایمیل...',
     emailConfirmLoadingDesc: 'لطفاً منتظر بمانید تا حساب شما تأیید شود.',
     emailConfirmSuccess: 'ایمیل تأیید شد!',

@@ -77,6 +77,8 @@ const tr: TranslationKeys = {
     checkEmailTipWait: 'Gelmesi birkaç dakika sürebilir.',
     checkEmailTipLatest: 'Birden fazla kez talep ettiyseniz en son bağlantıyı kullanın.',
     checkEmailWrongEmail: 'Yanlış e-posta mı? Tekrar kayıt olun',
+    verificationResent: 'Doğrulama e-postası tekrar gönderildi!',
+    resendEmail: 'Tekrar gönder',
     emailConfirmLoading: 'E-postanız doğrulanıyor...',
     emailConfirmLoadingDesc: 'Hesabınız doğrulanırken lütfen bekleyin.',
     emailConfirmSuccess: 'E-posta doğrulandı!',

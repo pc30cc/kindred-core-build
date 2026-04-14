@@ -189,6 +189,7 @@ const fa: TranslationKeys = {
     provider: 'ارائه‌دهنده',
     senderIdentity: 'هویت فرستنده',
     templates: 'قالب‌ها',
+      platformSettings: 'تنظیمات پلتفرم',
     testEmail: 'ارسال ایمیل آزمایشی',
   },
   ai: {
@@ -216,6 +217,7 @@ const fa: TranslationKeys = {
       security: 'امنیت',
       backToApp: 'بازگشت به پنل',
       templates: 'قالب‌ها',
+      platformSettings: 'تنظیمات پلتفرم',
       controlCenter: 'مرکز کنترل پلتفرم',
     },
     database: {

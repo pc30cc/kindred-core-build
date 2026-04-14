@@ -189,6 +189,7 @@ const tr: TranslationKeys = {
     provider: 'Sağlayıcı',
     senderIdentity: 'Gönderen Kimliği',
     templates: 'Şablonlar',
+      platformSettings: 'Platform Ayarları',
     testEmail: 'Test e-postası gönder',
   },
   ai: {
@@ -216,6 +217,7 @@ const tr: TranslationKeys = {
       security: 'Güvenlik',
       backToApp: 'Uygulamaya Dön',
       templates: 'Şablonlar',
+      platformSettings: 'Platform Ayarları',
       controlCenter: 'Platform Kontrol Merkezi',
     },
     database: {

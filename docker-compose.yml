@@ -35,6 +35,11 @@ services:
       - CORS_ORIGINS=${CORS_ORIGINS}
       - RATE_LIMIT_WINDOW_MS=${RATE_LIMIT_WINDOW_MS:-60000}
       - RATE_LIMIT_MAX=${RATE_LIMIT_MAX:-100}
+      # Auth config (required)
+      - SESSION_SECRET=${SESSION_SECRET}
+      - APP_URL=${APP_URL}
+      - APP_NAME=${APP_NAME:-Growth Suite}
+      - SYSTEM_FROM_EMAIL=${SYSTEM_FROM_EMAIL:-noreply@example.com}
       # Email providers (optional)
       - RESEND_API_KEY=${RESEND_API_KEY:-}
       - SENDGRID_API_KEY=${SENDGRID_API_KEY:-}

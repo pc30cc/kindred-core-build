@@ -2,6 +2,13 @@
  * AUTH-EMAIL ROUTES — Full backend-mediated authentication
  * The frontend NEVER calls Supabase Auth directly.
  * All auth flows go through these endpoints.
+ *
+ * Production-grade:
+ * - DB-backed sessions (auth_sessions table)
+ * - DB-backed reset/verify tokens (auth_reset_tokens, auth_verify_tokens)
+ * - Own email delivery for verification and reset
+ * - Brute force protection
+ * - Localized responses (en, fa, tr)
  */
 
 import { Router, Request, Response } from 'express';
@@ -15,7 +22,28 @@ import {
   logSecurityEvent,
 } from '../middleware/security.js';
 import { z } from 'zod';
-import crypto from 'crypto';
+
+// DB-backed auth services
+import {
+  generateSessionToken,
+  createSession,
+  getSession as getDbSession,
+  revokeSession,
+  revokeAllUserSessions,
+  SESSION_TTL_MS,
+} from '../services/auth/sessions.js';
+import {
+  createResetToken,
+  validateResetToken,
+  consumeResetToken,
+  createVerifyToken,
+  validateVerifyToken,
+  consumeVerifyToken,
+} from '../services/auth/tokens.js';
+import {
+  sendVerificationEmail,
+  sendResetEmail,
+} from '../services/auth/emails.js';
 
 export const authEmailRouter = Router();
 
@@ -25,24 +53,14 @@ function getConfig(req: Request): ServerConfig {
   return (req as any).serverConfig;
 }
 
-// Session tokens: map token → { userId, email, expiresAt }
-// In production, consider Redis or DB-backed sessions.
-const sessions = new Map<string, { userId: string; email: string; expiresAt: number }>();
-
 const SESSION_COOKIE = 'gs_session';
-const SESSION_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
 
-function createSessionToken(): string {
-  return crypto.randomBytes(48).toString('hex');
-}
-
-function setSessionCookie(res: Response, token: string) {
-  const isProduction = process.env.NODE_ENV === 'production';
+function setSessionCookie(res: Response, token: string, isProduction: boolean) {
   res.cookie(SESSION_COOKIE, token, {
     httpOnly: true,
     secure: isProduction,
-    sameSite: isProduction ? 'lax' : 'lax',
-    maxAge: SESSION_TTL,
+    sameSite: 'lax',
+    maxAge: SESSION_TTL_MS,
     path: '/',
   });
 }
@@ -51,21 +69,13 @@ function clearSessionCookie(res: Response) {
   res.clearCookie(SESSION_COOKIE, { path: '/' });
 }
 
-function getSessionFromRequest(req: Request): { userId: string; email: string } | null {
+async function getSessionFromRequest(req: Request): Promise<{ userId: string; email: string } | null> {
   const token = req.cookies?.[SESSION_COOKIE];
   if (!token) return null;
-  const session = sessions.get(token);
-  if (!session) return null;
-  if (Date.now() > session.expiresAt) {
-    sessions.delete(token);
-    return null;
-  }
-  return { userId: session.userId, email: session.email };
+  const config = getConfig(req);
+  const sb = getServiceClient(config);
+  return getDbSession(sb, token);
 }
-
-// Password reset tokens
-const resetTokens = new Map<string, { userId: string; email: string; expiresAt: number }>();
-const RESET_TTL = 30 * 60 * 1000; // 30 minutes
 
 // Localized messages
 const messages: Record<string, Record<string, string>> = {
@@ -141,6 +151,14 @@ function getLang(req: Request): string {
   return ['en', 'fa', 'tr'].includes(lang) ? lang : 'en';
 }
 
+function getAppUrl(config: ServerConfig, req: Request): string {
+  if (config.appUrl) return config.appUrl.replace(/\/$/, '');
+  // Derive from request origin as fallback
+  const proto = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+  const host = req.headers['x-forwarded-host'] || req.headers.host || '';
+  return `${proto}://${host}`;
+}
+
 // ─── Schemas ─────────────────────────────────────────────────────
 
 const signupSchema = z.object({
@@ -164,7 +182,7 @@ const resetRequestSchema = z.object({
 
 const updatePasswordSchema = z.object({
   password: z.string().min(8).max(255),
-  token: z.string().optional(), // For reset-password flow (not logged in)
+  token: z.string().optional(),
 });
 
 // ─── POST /signup ────────────────────────────────────────────────
@@ -177,18 +195,17 @@ authEmailRouter.post('/signup', authRateLimiter, async (req: Request, res: Respo
       return res.status(400).json({ error: msg(lang, 'invalidInput'), details: parsed.error.flatten().fieldErrors });
     }
 
-    const { email, password, fullName, locale } = parsed.data;
+    const { email, password, fullName } = parsed.data;
+    const normalizedEmail = email.toLowerCase().trim();
     const config = getConfig(req);
     const sb = getServiceClient(config);
 
     // Create user via Supabase Admin API
     const { data: userData, error: createError } = await sb.auth.admin.createUser({
-      email: email.toLowerCase().trim(),
+      email: normalizedEmail,
       password,
-      email_confirm: false, // Require email verification
-      user_metadata: {
-        full_name: fullName || '',
-      },
+      email_confirm: false,
+      user_metadata: { full_name: fullName || '' },
     });
 
     if (createError) {
@@ -199,21 +216,13 @@ authEmailRouter.post('/signup', authRateLimiter, async (req: Request, res: Respo
       return res.status(400).json({ error: createError.message });
     }
 
-    // Generate email verification token
-    const { data: linkData, error: linkError } = await sb.auth.admin.generateLink({
-      type: 'signup',
-      email: email.toLowerCase().trim(),
-    });
+    // Create verification token and send email
+    const verifyToken = await createVerifyToken(sb, userData.user.id, normalizedEmail, req.ip);
+    const appUrl = getAppUrl(config, req);
+    const verifyLink = `${appUrl}/auth/verify-email?token=${encodeURIComponent(verifyToken)}`;
+    await sendVerificationEmail(config, normalizedEmail, verifyLink, lang);
 
-    if (linkError) {
-      console.error('[auth-email] verification link error:', linkError.message);
-    }
-
-    // Send verification email via configured email provider
-    // For now, Supabase handles the email via generateLink.
-    // TODO: Use our own email provider when configured.
-
-    await logSecurityEvent(req, 'signup', 'info', { email });
+    await logSecurityEvent(req, 'signup', 'info', { email: normalizedEmail });
 
     return res.status(201).json({
       success: true,
@@ -221,7 +230,7 @@ authEmailRouter.post('/signup', authRateLimiter, async (req: Request, res: Respo
       user: {
         id: userData.user.id,
         email: userData.user.email,
-        emailVerified: !!userData.user.email_confirmed_at,
+        emailVerified: false,
       },
     });
   } catch (err) {
@@ -243,6 +252,7 @@ authEmailRouter.post('/login', authRateLimiter, async (req: Request, res: Respon
     const { email, password, captchaToken } = parsed.data;
     const normalizedEmail = email.toLowerCase().trim();
     const config = getConfig(req);
+    const isProduction = process.env.NODE_ENV === 'production';
 
     // Brute force check
     const bruteCheck = await checkBruteForce(req, normalizedEmail);
@@ -272,10 +282,8 @@ authEmailRouter.post('/login', authRateLimiter, async (req: Request, res: Respon
       }
     }
 
-    // Authenticate via Supabase Admin — use signInWithPassword on service client
+    // Authenticate via temporary Supabase client
     const sb = getServiceClient(config);
-
-    // We use the anon client approach: create a temporary client to validate credentials
     const { createClient } = await import('@supabase/supabase-js');
     const tempClient = createClient(config.supabaseUrl, config.supabaseAnonKey, {
       auth: { autoRefreshToken: false, persistSession: false },
@@ -290,7 +298,6 @@ authEmailRouter.post('/login', authRateLimiter, async (req: Request, res: Respon
       recordLoginAttempt(req, normalizedEmail, false);
       await logSecurityEvent(req, 'login_failed', 'warn', { email: normalizedEmail });
 
-      // Log to DB
       await sb.from('login_attempts').insert({
         ip_address: req.ip || 'unknown',
         email: normalizedEmail,
@@ -303,20 +310,23 @@ authEmailRouter.post('/login', authRateLimiter, async (req: Request, res: Respon
       });
     }
 
-    // Sign out from temp client (we don't need it)
+    // Sign out from temp client
     await tempClient.auth.signOut().catch(() => {});
 
-    // Successful login — create server session
+    // Create persistent DB session
     recordLoginAttempt(req, normalizedEmail, true);
 
-    const sessionToken = createSessionToken();
-    sessions.set(sessionToken, {
-      userId: signInData.user.id,
-      email: signInData.user.email || normalizedEmail,
-      expiresAt: Date.now() + SESSION_TTL,
-    });
+    const sessionToken = generateSessionToken();
+    await createSession(
+      sb,
+      sessionToken,
+      signInData.user.id,
+      signInData.user.email || normalizedEmail,
+      req.ip,
+      req.headers['user-agent']
+    );
 
-    setSessionCookie(res, sessionToken);
+    setSessionCookie(res, sessionToken, isProduction);
 
     await sb.from('login_attempts').insert({
       ip_address: req.ip || 'unknown',
@@ -349,7 +359,9 @@ authEmailRouter.post('/logout', async (req: Request, res: Response) => {
   const lang = getLang(req);
   const token = req.cookies?.[SESSION_COOKIE];
   if (token) {
-    sessions.delete(token);
+    const config = getConfig(req);
+    const sb = getServiceClient(config);
+    await revokeSession(sb, token).catch(() => {});
   }
   clearSessionCookie(res);
   return res.json({ success: true, message: msg(lang, 'logoutSuccess') });
@@ -358,21 +370,20 @@ authEmailRouter.post('/logout', async (req: Request, res: Response) => {
 // ─── GET /session ────────────────────────────────────────────────
 
 authEmailRouter.get('/session', async (req: Request, res: Response) => {
-  const sessionData = getSessionFromRequest(req);
+  const sessionData = await getSessionFromRequest(req);
   if (!sessionData) {
     return res.json({ authenticated: false, user: null });
   }
 
-  // Fetch fresh user data from DB
   const config = getConfig(req);
   const sb = getServiceClient(config);
 
   try {
     const { data: userData, error } = await sb.auth.admin.getUserById(sessionData.userId);
     if (error || !userData?.user) {
-      // Session references invalid user — clear it
+      // Session references invalid user — revoke it
       const token = req.cookies?.[SESSION_COOKIE];
-      if (token) sessions.delete(token);
+      if (token) await revokeSession(sb, token).catch(() => {});
       clearSessionCookie(res);
       return res.json({ authenticated: false, user: null });
     }
@@ -408,36 +419,23 @@ authEmailRouter.post('/reset-password', authRateLimiter, async (req: Request, re
     const config = getConfig(req);
     const sb = getServiceClient(config);
 
-    // Generate password reset link via Supabase Admin
-    const { data: linkData, error: linkError } = await sb.auth.admin.generateLink({
-      type: 'recovery',
-      email: normalizedEmail,
-    });
-
-    // Always return success to not leak user existence
+    // Look up user — always return success to not leak user existence
     await logSecurityEvent(req, 'reset_password_request', 'info', { email: normalizedEmail });
 
-    if (linkError) {
-      console.error('[auth-email] reset link error:', linkError.message);
-    }
+    try {
+      // getUserByEmail is available on admin API
+      const { data: userData } = await (sb.auth.admin as any).listUsers({ filter: `email.eq.${normalizedEmail}` });
+      const user = userData?.users?.[0];
 
-    // If we got a link, extract the token and store it for our own flow
-    if (linkData?.properties?.hashed_token) {
-      // Store for our own reset verification
-      const resetToken = crypto.randomBytes(32).toString('hex');
-      // Look up user
-      const { data: user } = await sb.auth.admin.getUserByEmail(normalizedEmail).catch(() => ({ data: null })) as any;
-      if (user?.user) {
-        resetTokens.set(resetToken, {
-          userId: user.user.id,
-          email: normalizedEmail,
-          expiresAt: Date.now() + RESET_TTL,
-        });
-
-        // TODO: Send email via our own email provider with reset link containing resetToken
-        // For now, Supabase handles it via generateLink
-        console.log(`[auth-email] Reset token generated for ${normalizedEmail}: use GET /api/auth-email/reset-callback?token=${resetToken}`);
+      if (user) {
+        const resetToken = await createResetToken(sb, user.id, normalizedEmail, req.ip);
+        const appUrl = getAppUrl(config, req);
+        const resetLink = `${appUrl}/auth/reset-password?token=${encodeURIComponent(resetToken)}`;
+        await sendResetEmail(config, normalizedEmail, resetLink, lang);
       }
+    } catch (lookupErr) {
+      // Silently fail — don't leak user existence
+      console.error('[auth-email] reset lookup error:', lookupErr);
     }
 
     return res.json({
@@ -468,15 +466,15 @@ authEmailRouter.post('/update-password', async (req: Request, res: Response) => 
 
     if (token) {
       // Reset-password flow with token
-      const resetData = resetTokens.get(token);
-      if (!resetData || Date.now() > resetData.expiresAt) {
+      const tokenData = await validateResetToken(sb, token);
+      if (!tokenData) {
         return res.status(400).json({ error: msg(lang, 'invalidToken') });
       }
-      userId = resetData.userId;
-      resetTokens.delete(token);
+      userId = tokenData.userId;
+      await consumeResetToken(sb, token);
     } else {
       // Authenticated user changing their own password
-      const sessionData = getSessionFromRequest(req);
+      const sessionData = await getSessionFromRequest(req);
       if (!sessionData) {
         return res.status(401).json({ error: msg(lang, 'sessionExpired') });
       }
@@ -484,14 +482,15 @@ authEmailRouter.post('/update-password', async (req: Request, res: Response) => 
     }
 
     // Update password via Supabase Admin
-    const { error: updateError } = await sb.auth.admin.updateUserById(userId, {
-      password,
-    });
-
+    const { error: updateError } = await sb.auth.admin.updateUserById(userId, { password });
     if (updateError) {
       console.error('[auth-email] update password error:', updateError.message);
       return res.status(400).json({ error: updateError.message });
     }
+
+    // Revoke all sessions for this user after password change
+    await revokeAllUserSessions(sb, userId);
+    clearSessionCookie(res);
 
     await logSecurityEvent(req, 'password_updated', 'info', { userId });
 
@@ -510,7 +509,7 @@ authEmailRouter.post('/update-password', async (req: Request, res: Response) => 
 authEmailRouter.get('/verify-email', async (req: Request, res: Response) => {
   const lang = getLang(req);
   try {
-    const { token, type } = req.query;
+    const { token } = req.query;
 
     if (!token || typeof token !== 'string') {
       return res.status(400).json({ error: msg(lang, 'invalidToken') });
@@ -519,35 +518,38 @@ authEmailRouter.get('/verify-email', async (req: Request, res: Response) => {
     const config = getConfig(req);
     const sb = getServiceClient(config);
 
-    // Verify via Supabase — verify OTP token
-    const { createClient } = await import('@supabase/supabase-js');
-    const tempClient = createClient(config.supabaseUrl, config.supabaseAnonKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
-
-    const { data, error } = await tempClient.auth.verifyOtp({
-      token_hash: token,
-      type: (type as any) || 'signup',
-    });
-
-    if (error) {
-      console.error('[auth-email] verify-email error:', error.message);
+    // Validate our own verify token
+    const tokenData = await validateVerifyToken(sb, token);
+    if (!tokenData) {
       return res.status(400).json({
         success: false,
         error: msg(lang, 'invalidToken'),
       });
     }
 
-    await logSecurityEvent(req, 'email_verified', 'info', { email: data.user?.email });
+    // Mark email as verified in Supabase
+    const { error: updateError } = await sb.auth.admin.updateUserById(tokenData.userId, {
+      email_confirm: true,
+    });
+
+    if (updateError) {
+      console.error('[auth-email] verify-email update error:', updateError.message);
+      return res.status(400).json({ success: false, error: msg(lang, 'invalidToken') });
+    }
+
+    // Consume the token (single-use)
+    await consumeVerifyToken(sb, token);
+
+    await logSecurityEvent(req, 'email_verified', 'info', { email: tokenData.email, userId: tokenData.userId });
 
     return res.json({
       success: true,
       message: msg(lang, 'emailVerified'),
-      user: data.user ? {
-        id: data.user.id,
-        email: data.user.email,
+      user: {
+        id: tokenData.userId,
+        email: tokenData.email,
         emailVerified: true,
-      } : null,
+      },
     });
   } catch (err) {
     console.error('[auth-email] verify-email exception:', err);
@@ -555,14 +557,39 @@ authEmailRouter.get('/verify-email', async (req: Request, res: Response) => {
   }
 });
 
-// ─── Cleanup expired sessions/tokens periodically ────────────────
+// ─── POST /resend-verification ───────────────────────────────────
 
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, val] of sessions) {
-    if (now > val.expiresAt) sessions.delete(key);
+authEmailRouter.post('/resend-verification', authRateLimiter, async (req: Request, res: Response) => {
+  const lang = getLang(req);
+  try {
+    const { email } = req.body;
+    if (!email || typeof email !== 'string') {
+      return res.status(400).json({ error: msg(lang, 'invalidInput') });
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+    const config = getConfig(req);
+    const sb = getServiceClient(config);
+
+    // Look up user
+    try {
+      const { data: userData } = await (sb.auth.admin as any).listUsers({ filter: `email.eq.${normalizedEmail}` });
+      const user = userData?.users?.[0];
+
+      if (user && !user.email_confirmed_at) {
+        const verifyToken = await createVerifyToken(sb, user.id, normalizedEmail, req.ip);
+        const appUrl = getAppUrl(config, req);
+        const verifyLink = `${appUrl}/auth/verify-email?token=${encodeURIComponent(verifyToken)}`;
+        await sendVerificationEmail(config, normalizedEmail, verifyLink, lang);
+      }
+    } catch {
+      // Silently fail
+    }
+
+    // Always return success
+    return res.json({ success: true, message: msg(lang, 'verificationSent') });
+  } catch (err) {
+    console.error('[auth-email] resend-verification exception:', err);
+    return res.status(500).json({ error: msg(lang, 'internalError') });
   }
-  for (const [key, val] of resetTokens) {
-    if (now > val.expiresAt) resetTokens.delete(key);
-  }
-}, 5 * 60_000);
+});

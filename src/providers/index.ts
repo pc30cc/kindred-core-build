@@ -1,6 +1,5 @@
 export { apiAuthProvider } from './api/auth';
-// Legacy — kept for non-auth Supabase features (database, realtime)
-export { supabaseAuthProvider } from './supabase/auth';
+// supabaseAuthProvider has been removed — all auth goes through backend API
 export { supabaseDatabaseProvider } from './supabase/database';
 export { supabaseRealtimeProvider } from './supabase/realtime';
 export { createApiEmailProvider } from './email/api';

@@ -203,6 +203,7 @@ const tr: TranslationKeys = {
       title: 'Süper Yönetici',
       dashboard: 'Gösterge Paneli',
       users: 'Kullanıcılar',
+      roles: 'Roller',
       workspaces: 'Çalışma Alanları',
       providers: 'Sağlayıcılar',
       system: 'Sistem',

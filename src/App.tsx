@@ -57,6 +57,7 @@ import AdminAuditLogsPage from "@/pages/admin/AuditLogsPage";
 import AdminBillingPage from "@/pages/admin/BillingPage";
 import AdminSecurityPage from "@/pages/admin/SecurityPage";
 import AdminDatabasePage from "@/pages/admin/DatabasePage";
+import AdminRolesPage from "@/pages/admin/RolesPage";
 import AdminBootstrapPage from "@/pages/admin/BootstrapPage";
 
 import NotFound from "@/pages/NotFound";
@@ -105,6 +106,7 @@ const App = () => (
               <Route element={<RequireAdmin><AdminLayout /></RequireAdmin>}>
                 <Route path="/admin" element={<AdminDashboardPage />} />
                 <Route path="/admin/users" element={<AdminUsersPage />} />
+                <Route path="/admin/roles" element={<AdminRolesPage />} />
                 <Route path="/admin/workspaces" element={<AdminWorkspacesPage />} />
                 <Route path="/admin/providers" element={<AdminProvidersPage />} />
                 <Route path="/admin/system" element={<AdminSystemPage />} />

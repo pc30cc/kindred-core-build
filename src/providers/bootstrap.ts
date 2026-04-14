@@ -77,7 +77,7 @@ export function bootstrapProviders(): void {
     priority: 5,
     healthCheck: async () => {
       try {
-        const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+        const API_BASE = import.meta.env.VITE_API_BASE_URL;
         const res = await fetch(`${API_BASE}/api/email/health`);
         return res.ok ? 'healthy' : 'down';
       } catch {

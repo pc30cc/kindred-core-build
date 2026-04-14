@@ -27,7 +27,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 function authHeaders(): Record<string, string> {
-  const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
   return anonKey ? { 'Authorization': `Bearer ${anonKey}` } : {};
 }
 

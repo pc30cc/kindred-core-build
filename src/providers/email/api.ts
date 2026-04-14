@@ -6,8 +6,8 @@
 
 import type { EmailProvider, EmailMessage } from '@/types/providers';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || '';
+const API_BASE = import.meta.env.VITE_API_BASE_URL;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
 /**
  * Creates an EmailProvider that routes through the self-hosted backend API.

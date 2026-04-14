@@ -28,7 +28,7 @@ const signupSchema = z.object({
   email: z.string().email().max(255),
   password: z.string().min(8).max(255),
   fullName: z.string().trim().max(120).optional(),
-  website: z.string().trim().min(1).max(255),
+  website: z.string().trim().max(255).optional().default(''),
   locale: z.string().trim().min(2).max(10).optional(),
   captchaToken: z.string().optional(),
   metadata: z.record(z.any()).optional(),

@@ -130,8 +130,8 @@
   }
 }
 
-/* Admin panel scope — override semantic tokens inside admin layout */
-.admin-scope {
+/* Shared panel scope — dark theme for both admin and app panels */
+.panel-scope {
   --background: var(--admin-background);
   --foreground: var(--admin-foreground);
   --card: var(--admin-card);
@@ -145,6 +145,13 @@
   --border: var(--admin-border);
   --input: var(--admin-input);
   --ring: var(--admin-accent);
+  --sidebar-background: var(--admin-sidebar);
+  --sidebar-foreground: var(--admin-sidebar-foreground);
+  --sidebar-accent: var(--admin-sidebar-active);
+  --sidebar-accent-foreground: var(--admin-foreground);
+  --sidebar-border: var(--admin-border);
+  --sidebar-muted-foreground: var(--admin-muted-foreground);
+  --sidebar-ring: var(--admin-accent);
 }
 
 @layer base {

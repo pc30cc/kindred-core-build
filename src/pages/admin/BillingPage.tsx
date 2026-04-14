@@ -72,8 +72,8 @@ export default function AdminBillingPage() {
   if (!API_BASE) {
     return (
       <div className="space-y-6">
-        <h1 className="text-2xl font-bold text-admin-foreground">Billing Management</h1>
-        <Card className="bg-admin-card border-admin-border"><CardContent className="py-8 text-center text-admin-muted-foreground">
+        <h1 className="text-2xl font-bold text-foreground">Billing Management</h1>
+        <Card className="bg-card border-border"><CardContent className="py-8 text-center text-muted-foreground">
           <AlertCircle className="w-8 h-8 mx-auto mb-2" />
           <p>Billing requires the self-hosted backend. Set VITE_API_BASE_URL.</p>
         </CardContent></Card>
@@ -84,7 +84,7 @@ export default function AdminBillingPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 className="w-6 h-6 animate-spin text-admin-muted-foreground" />
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
       </div>
     );
   }
@@ -109,51 +109,51 @@ export default function AdminBillingPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-admin-foreground">Billing Management</h1>
-      <p className="text-admin-muted-foreground text-sm">Platform-wide billing overview, plan management, and provider status.</p>
+      <h1 className="text-2xl font-bold text-foreground">Billing Management</h1>
+      <p className="text-muted-foreground text-sm">Platform-wide billing overview, plan management, and provider status.</p>
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card className="bg-admin-card border-admin-border">
+        <Card className="bg-card border-border">
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-primary/10"><Users className="w-5 h-5 text-primary" /></div>
               <div>
-                <p className="text-2xl font-bold text-admin-foreground">{overview?.totalSubscriptions || 0}</p>
-                <p className="text-xs text-admin-muted-foreground">Total Subscriptions</p>
+                <p className="text-2xl font-bold text-foreground">{overview?.totalSubscriptions || 0}</p>
+                <p className="text-xs text-muted-foreground">Total Subscriptions</p>
               </div>
             </div>
           </CardContent>
         </Card>
-        <Card className="bg-admin-card border-admin-border">
+        <Card className="bg-card border-border">
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-green-500/10"><TrendingUp className="w-5 h-5 text-green-500" /></div>
               <div>
-                <p className="text-2xl font-bold text-admin-foreground">{overview?.activeSubscriptions || 0}</p>
-                <p className="text-xs text-admin-muted-foreground">Active</p>
+                <p className="text-2xl font-bold text-foreground">{overview?.activeSubscriptions || 0}</p>
+                <p className="text-xs text-muted-foreground">Active</p>
               </div>
             </div>
           </CardContent>
         </Card>
-        <Card className="bg-admin-card border-admin-border">
+        <Card className="bg-card border-border">
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-blue-500/10"><DollarSign className="w-5 h-5 text-blue-500" /></div>
               <div>
-                <p className="text-2xl font-bold text-admin-foreground">{overview?.recentPayments?.length || 0}</p>
-                <p className="text-xs text-admin-muted-foreground">Recent Payments</p>
+                <p className="text-2xl font-bold text-foreground">{overview?.recentPayments?.length || 0}</p>
+                <p className="text-xs text-muted-foreground">Recent Payments</p>
               </div>
             </div>
           </CardContent>
         </Card>
-        <Card className="bg-admin-card border-admin-border">
+        <Card className="bg-card border-border">
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-yellow-500/10"><Activity className="w-5 h-5 text-yellow-500" /></div>
               <div>
-                <p className="text-2xl font-bold text-admin-foreground">{overview?.recentEvents?.length || 0}</p>
-                <p className="text-xs text-admin-muted-foreground">Billing Events</p>
+                <p className="text-2xl font-bold text-foreground">{overview?.recentEvents?.length || 0}</p>
+                <p className="text-xs text-muted-foreground">Billing Events</p>
               </div>
             </div>
           </CardContent>
@@ -161,36 +161,36 @@ export default function AdminBillingPage() {
       </div>
 
       <Tabs defaultValue="providers">
-        <TabsList className="bg-admin-muted">
-          <TabsTrigger value="providers" className="data-[state=active]:bg-admin-sidebar-active data-[state=active]:text-admin-foreground text-admin-muted-foreground">Providers ({ALL_PROVIDERS.length})</TabsTrigger>
-          <TabsTrigger value="plans" className="data-[state=active]:bg-admin-sidebar-active data-[state=active]:text-admin-foreground text-admin-muted-foreground">Plans</TabsTrigger>
-          <TabsTrigger value="payments" className="data-[state=active]:bg-admin-sidebar-active data-[state=active]:text-admin-foreground text-admin-muted-foreground">Payments</TabsTrigger>
-          <TabsTrigger value="events" className="data-[state=active]:bg-admin-sidebar-active data-[state=active]:text-admin-foreground text-admin-muted-foreground">Events</TabsTrigger>
-          <TabsTrigger value="admin" className="data-[state=active]:bg-admin-sidebar-active data-[state=active]:text-admin-foreground text-admin-muted-foreground">Admin Actions</TabsTrigger>
+        <TabsList className="bg-muted">
+          <TabsTrigger value="providers" className="data-[state=active]:bg-sidebar-accent data-[state=active]:text-foreground text-muted-foreground">Providers ({ALL_PROVIDERS.length})</TabsTrigger>
+          <TabsTrigger value="plans" className="data-[state=active]:bg-sidebar-accent data-[state=active]:text-foreground text-muted-foreground">Plans</TabsTrigger>
+          <TabsTrigger value="payments" className="data-[state=active]:bg-sidebar-accent data-[state=active]:text-foreground text-muted-foreground">Payments</TabsTrigger>
+          <TabsTrigger value="events" className="data-[state=active]:bg-sidebar-accent data-[state=active]:text-foreground text-muted-foreground">Events</TabsTrigger>
+          <TabsTrigger value="admin" className="data-[state=active]:bg-sidebar-accent data-[state=active]:text-foreground text-muted-foreground">Admin Actions</TabsTrigger>
         </TabsList>
 
         {/* Providers Tab */}
         <TabsContent value="providers" className="space-y-4">
           {['International', 'Iran', 'Turkey'].map(region => (
             <div key={region}>
-              <h3 className="text-sm font-semibold text-admin-muted-foreground mb-2">
+              <h3 className="text-sm font-semibold text-muted-foreground mb-2">
                 {region === 'Iran' ? '🇮🇷 Iran (IRR/Toman)' : region === 'Turkey' ? '🇹🇷 Turkey (TRY)' : '🌍 International (USD/EUR)'}
               </h3>
               <div className="grid md:grid-cols-3 gap-3">
                 {ALL_PROVIDERS.filter(p => p.region === region).map(p => (
-                  <Card key={p.name} className="bg-admin-card border-admin-border">
+                  <Card key={p.name} className="bg-card border-border">
                     <CardContent className="pt-4 pb-3">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <CreditCard className="w-4 h-4 text-admin-accent" />
-                          <span className="font-medium text-sm text-admin-foreground">{p.label}</span>
+                          <span className="font-medium text-sm text-foreground">{p.label}</span>
                         </div>
                         <Button
                           variant="ghost"
                           size="sm"
                           onClick={() => handleTestProvider(p.name)}
                           disabled={testingProvider === p.name}
-                          className="text-admin-muted-foreground hover:text-admin-foreground"
+                          className="text-muted-foreground hover:text-foreground"
                         >
                           {testingProvider === p.name ? (
                             <Loader2 className="w-3 h-3 animate-spin" />
@@ -199,7 +199,7 @@ export default function AdminBillingPage() {
                           )}
                         </Button>
                       </div>
-                      <Badge variant="outline" className="mt-2 text-xs border-admin-border">Backend Ready</Badge>
+                      <Badge variant="outline" className="mt-2 text-xs border-border">Backend Ready</Badge>
                     </CardContent>
                   </Card>
                 ))}
@@ -210,30 +210,30 @@ export default function AdminBillingPage() {
 
         {/* Plans Tab */}
         <TabsContent value="plans">
-          <Card className="bg-admin-card border-admin-border">
+          <Card className="bg-card border-border">
             <Table>
               <TableHeader>
-                <TableRow className="border-admin-border">
-                  <TableHead className="text-admin-muted-foreground">Name</TableHead>
-                  <TableHead className="text-admin-muted-foreground">Slug</TableHead>
-                  <TableHead className="text-admin-muted-foreground">USD/mo</TableHead>
-                  <TableHead className="text-admin-muted-foreground">IRR/mo</TableHead>
-                  <TableHead className="text-admin-muted-foreground">TRY/mo</TableHead>
-                  <TableHead className="text-admin-muted-foreground">EUR/mo</TableHead>
-                  <TableHead className="text-admin-muted-foreground">Free</TableHead>
-                  <TableHead className="text-admin-muted-foreground">Active</TableHead>
+                <TableRow className="border-border">
+                  <TableHead className="text-muted-foreground">Name</TableHead>
+                  <TableHead className="text-muted-foreground">Slug</TableHead>
+                  <TableHead className="text-muted-foreground">USD/mo</TableHead>
+                  <TableHead className="text-muted-foreground">IRR/mo</TableHead>
+                  <TableHead className="text-muted-foreground">TRY/mo</TableHead>
+                  <TableHead className="text-muted-foreground">EUR/mo</TableHead>
+                  <TableHead className="text-muted-foreground">Free</TableHead>
+                  <TableHead className="text-muted-foreground">Active</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {(overview?.plans || []).map((plan: any) => (
-                  <TableRow key={plan.id} className="border-admin-border hover:bg-admin-muted/50">
-                    <TableCell className="font-medium text-admin-foreground">{plan.name}</TableCell>
-                    <TableCell className="text-admin-muted-foreground">{plan.slug}</TableCell>
-                    <TableCell className="text-admin-foreground">{formatPrice(plan.prices?.USD?.monthly || 0, 'USD')}</TableCell>
-                    <TableCell className="text-admin-foreground">{(plan.prices?.IRR?.monthly || 0).toLocaleString('fa-IR')} ریال</TableCell>
-                    <TableCell className="text-admin-foreground">{formatPrice(plan.prices?.TRY?.monthly || 0, 'TRY')}</TableCell>
-                    <TableCell className="text-admin-foreground">{formatPrice(plan.prices?.EUR?.monthly || 0, 'EUR')}</TableCell>
-                    <TableCell>{plan.is_free ? <CheckCircle className="w-4 h-4 text-green-500" /> : <XCircle className="w-4 h-4 text-admin-muted-foreground" />}</TableCell>
+                  <TableRow key={plan.id} className="border-border hover:bg-muted/50">
+                    <TableCell className="font-medium text-foreground">{plan.name}</TableCell>
+                    <TableCell className="text-muted-foreground">{plan.slug}</TableCell>
+                    <TableCell className="text-foreground">{formatPrice(plan.prices?.USD?.monthly || 0, 'USD')}</TableCell>
+                    <TableCell className="text-foreground">{(plan.prices?.IRR?.monthly || 0).toLocaleString('fa-IR')} ریال</TableCell>
+                    <TableCell className="text-foreground">{formatPrice(plan.prices?.TRY?.monthly || 0, 'TRY')}</TableCell>
+                    <TableCell className="text-foreground">{formatPrice(plan.prices?.EUR?.monthly || 0, 'EUR')}</TableCell>
+                    <TableCell>{plan.is_free ? <CheckCircle className="w-4 h-4 text-green-500" /> : <XCircle className="w-4 h-4 text-muted-foreground" />}</TableCell>
                     <TableCell>{plan.is_active ? <CheckCircle className="w-4 h-4 text-green-500" /> : <XCircle className="w-4 h-4 text-red-500" />}</TableCell>
                   </TableRow>
                 ))}
@@ -244,27 +244,27 @@ export default function AdminBillingPage() {
 
         {/* Payments Tab */}
         <TabsContent value="payments">
-          <Card className="bg-admin-card border-admin-border">
+          <Card className="bg-card border-border">
             <Table>
               <TableHeader>
-                <TableRow className="border-admin-border">
-                  <TableHead className="text-admin-muted-foreground">Date</TableHead>
-                  <TableHead className="text-admin-muted-foreground">Workspace</TableHead>
-                  <TableHead className="text-admin-muted-foreground">Amount</TableHead>
-                  <TableHead className="text-admin-muted-foreground">Provider</TableHead>
-                  <TableHead className="text-admin-muted-foreground">Status</TableHead>
+                <TableRow className="border-border">
+                  <TableHead className="text-muted-foreground">Date</TableHead>
+                  <TableHead className="text-muted-foreground">Workspace</TableHead>
+                  <TableHead className="text-muted-foreground">Amount</TableHead>
+                  <TableHead className="text-muted-foreground">Provider</TableHead>
+                  <TableHead className="text-muted-foreground">Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {(overview?.recentPayments || []).length === 0 ? (
-                  <TableRow><TableCell colSpan={5} className="text-center text-admin-muted-foreground py-8">No payments yet</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-8">No payments yet</TableCell></TableRow>
                 ) : (
                   (overview?.recentPayments || []).map((p: any) => (
-                    <TableRow key={p.id} className="border-admin-border hover:bg-admin-muted/50">
-                      <TableCell className="text-admin-foreground">{new Date(p.created_at).toLocaleDateString()}</TableCell>
-                      <TableCell className="text-xs font-mono text-admin-muted-foreground">{p.workspace_id?.slice(0, 8)}...</TableCell>
-                      <TableCell className="text-admin-foreground">{formatPrice(p.amount, p.currency)}</TableCell>
-                      <TableCell className="text-admin-foreground">{p.provider_name}</TableCell>
+                    <TableRow key={p.id} className="border-border hover:bg-muted/50">
+                      <TableCell className="text-foreground">{new Date(p.created_at).toLocaleDateString()}</TableCell>
+                      <TableCell className="text-xs font-mono text-muted-foreground">{p.workspace_id?.slice(0, 8)}...</TableCell>
+                      <TableCell className="text-foreground">{formatPrice(p.amount, p.currency)}</TableCell>
+                      <TableCell className="text-foreground">{p.provider_name}</TableCell>
                       <TableCell><Badge variant={p.status === 'succeeded' ? 'default' : 'destructive'} className="text-xs">{p.status}</Badge></TableCell>
                     </TableRow>
                   ))
@@ -276,28 +276,28 @@ export default function AdminBillingPage() {
 
         {/* Events Tab */}
         <TabsContent value="events">
-          <Card className="bg-admin-card border-admin-border">
+          <Card className="bg-card border-border">
             <Table>
               <TableHeader>
-                <TableRow className="border-admin-border">
-                  <TableHead className="text-admin-muted-foreground">Time</TableHead>
-                  <TableHead className="text-admin-muted-foreground">Event</TableHead>
-                  <TableHead className="text-admin-muted-foreground">Provider</TableHead>
-                  <TableHead className="text-admin-muted-foreground">Status</TableHead>
-                  <TableHead className="text-admin-muted-foreground">Amount</TableHead>
+                <TableRow className="border-border">
+                  <TableHead className="text-muted-foreground">Time</TableHead>
+                  <TableHead className="text-muted-foreground">Event</TableHead>
+                  <TableHead className="text-muted-foreground">Provider</TableHead>
+                  <TableHead className="text-muted-foreground">Status</TableHead>
+                  <TableHead className="text-muted-foreground">Amount</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {(overview?.recentEvents || []).length === 0 ? (
-                  <TableRow><TableCell colSpan={5} className="text-center text-admin-muted-foreground py-8">No billing events</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-8">No billing events</TableCell></TableRow>
                 ) : (
                   (overview?.recentEvents || []).map((e: any) => (
-                    <TableRow key={e.id} className="border-admin-border hover:bg-admin-muted/50">
-                      <TableCell className="text-xs text-admin-muted-foreground">{new Date(e.created_at).toLocaleString()}</TableCell>
-                      <TableCell><Badge variant="outline" className="text-xs border-admin-border">{e.event_type}</Badge></TableCell>
-                      <TableCell className="text-admin-foreground">{e.provider_name}</TableCell>
-                      <TableCell className="text-admin-foreground">{e.status}</TableCell>
-                      <TableCell className="text-admin-foreground">{e.amount ? formatPrice(e.amount, e.currency || 'USD') : '—'}</TableCell>
+                    <TableRow key={e.id} className="border-border hover:bg-muted/50">
+                      <TableCell className="text-xs text-muted-foreground">{new Date(e.created_at).toLocaleString()}</TableCell>
+                      <TableCell><Badge variant="outline" className="text-xs border-border">{e.event_type}</Badge></TableCell>
+                      <TableCell className="text-foreground">{e.provider_name}</TableCell>
+                      <TableCell className="text-foreground">{e.status}</TableCell>
+                      <TableCell className="text-foreground">{e.amount ? formatPrice(e.amount, e.currency || 'USD') : '—'}</TableCell>
                     </TableRow>
                   ))
                 )}
@@ -308,12 +308,12 @@ export default function AdminBillingPage() {
 
         {/* Admin Actions Tab */}
         <TabsContent value="admin">
-          <Card className="bg-admin-card border-admin-border">
+          <Card className="bg-card border-border">
             <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2 text-admin-foreground">
+              <CardTitle className="text-base flex items-center gap-2 text-foreground">
                 <Shield className="w-4 h-4" /> Manual Plan Grant
               </CardTitle>
-              <CardDescription className="text-admin-muted-foreground">Manually assign a plan to a workspace (bypass payment).</CardDescription>
+              <CardDescription className="text-muted-foreground">Manually assign a plan to a workspace (bypass payment).</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="grid grid-cols-3 gap-3">
@@ -321,10 +321,10 @@ export default function AdminBillingPage() {
                   placeholder="Workspace ID (UUID)"
                   value={grantForm.workspaceId}
                   onChange={(e) => setGrantForm(f => ({ ...f, workspaceId: e.target.value }))}
-                  className="bg-admin-input border-admin-border text-admin-foreground placeholder:text-admin-muted-foreground"
+                  className="bg-input border-border text-foreground placeholder:text-muted-foreground"
                 />
                 <Select value={grantForm.planId} onValueChange={(v) => setGrantForm(f => ({ ...f, planId: v }))}>
-                  <SelectTrigger className="bg-admin-input border-admin-border text-admin-foreground"><SelectValue placeholder="Select plan" /></SelectTrigger>
+                  <SelectTrigger className="bg-input border-border text-foreground"><SelectValue placeholder="Select plan" /></SelectTrigger>
                   <SelectContent>
                     {(overview?.plans || []).map((p: any) => (
                       <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>

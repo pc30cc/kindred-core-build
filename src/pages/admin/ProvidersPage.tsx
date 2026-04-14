@@ -69,13 +69,13 @@ export default function AdminProvidersPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-admin-foreground">Provider Control Center</h1>
-          <p className="text-admin-muted-foreground text-sm mt-1">
+          <h1 className="text-2xl font-bold text-foreground">Provider Control Center</h1>
+          <p className="text-muted-foreground text-sm mt-1">
             Manage platform-wide provider configurations, health monitoring, and fallback chains.
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={checkAllProviders} disabled={checkingAll}
-          className="border-admin-border text-admin-foreground hover:bg-admin-muted">
+          className="border-border text-foreground hover:bg-muted">
           <RefreshCw className={`h-3.5 w-3.5 me-1 ${checkingAll ? 'animate-spin' : ''}`} />
           {checkingAll ? 'Checking...' : 'Check All Health'}
         </Button>
@@ -83,50 +83,50 @@ export default function AdminProvidersPage() {
 
       {/* Status Overview */}
       <div className="grid gap-3 grid-cols-2 md:grid-cols-4">
-        <Card className="bg-admin-card border-admin-border">
+        <Card className="bg-card border-border">
           <CardContent className="py-3 flex items-center gap-3">
             <div className="p-2 rounded-lg bg-primary/10">
               <Activity className="h-4 w-4 text-primary" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-admin-foreground">{configured}/{PROVIDER_TYPE_KEYS.length}</p>
-              <p className="text-[10px] text-admin-muted-foreground">Explicitly Configured</p>
+              <p className="text-2xl font-bold text-foreground">{configured}/{PROVIDER_TYPE_KEYS.length}</p>
+              <p className="text-[10px] text-muted-foreground">Explicitly Configured</p>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="bg-admin-card border-admin-border">
+        <Card className="bg-card border-border">
           <CardContent className="py-3 flex items-center gap-3">
             <div className="p-2 rounded-lg bg-emerald-500/10">
               <CheckCircle className="h-4 w-4 text-emerald-400" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-admin-foreground">{withEffective}</p>
-              <p className="text-[10px] text-admin-muted-foreground">With Active Provider</p>
+              <p className="text-2xl font-bold text-foreground">{withEffective}</p>
+              <p className="text-[10px] text-muted-foreground">With Active Provider</p>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="bg-admin-card border-admin-border">
+        <Card className="bg-card border-border">
           <CardContent className="py-3 flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-admin-muted">
-              <BarChart3 className="h-4 w-4 text-admin-muted-foreground" />
+            <div className="p-2 rounded-lg bg-muted">
+              <BarChart3 className="h-4 w-4 text-muted-foreground" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-admin-foreground">{totalRegistered}</p>
-              <p className="text-[10px] text-admin-muted-foreground">Total Registered</p>
+              <p className="text-2xl font-bold text-foreground">{totalRegistered}</p>
+              <p className="text-[10px] text-muted-foreground">Total Registered</p>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="bg-admin-card border-admin-border">
+        <Card className="bg-card border-border">
           <CardContent className="py-3 flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-admin-muted">
-              <Search className="h-4 w-4 text-admin-muted-foreground" />
+            <div className="p-2 rounded-lg bg-muted">
+              <Search className="h-4 w-4 text-muted-foreground" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-admin-foreground">{totalVendors}</p>
-              <p className="text-[10px] text-admin-muted-foreground">Available Vendors</p>
+              <p className="text-2xl font-bold text-foreground">{totalVendors}</p>
+              <p className="text-[10px] text-muted-foreground">Available Vendors</p>
             </div>
           </CardContent>
         </Card>
@@ -134,10 +134,10 @@ export default function AdminProvidersPage() {
 
       {/* Health overview bar */}
       {Object.keys(healthOverview).length > 0 && (
-        <Card className="bg-admin-card border-admin-border">
+        <Card className="bg-card border-border">
           <CardContent className="py-3">
             <div className="flex items-center gap-4">
-              <span className="text-xs font-medium text-admin-muted-foreground">Health Summary:</span>
+              <span className="text-xs font-medium text-muted-foreground">Health Summary:</span>
               <div className="flex items-center gap-3">
                 {healthCounts.healthy > 0 && (
                   <span className="flex items-center gap-1 text-xs text-emerald-400">
@@ -155,7 +155,7 @@ export default function AdminProvidersPage() {
                   </span>
                 )}
                 {healthCounts.unknown > 0 && (
-                  <span className="text-xs text-admin-muted-foreground">
+                  <span className="text-xs text-muted-foreground">
                     {healthCounts.unknown} unknown
                   </span>
                 )}
@@ -167,21 +167,21 @@ export default function AdminProvidersPage() {
 
       <Tabs defaultValue="grouped" className="space-y-4">
         <div className="flex items-center justify-between">
-          <TabsList className="bg-admin-muted">
-            <TabsTrigger value="grouped" className="data-[state=active]:bg-admin-sidebar-active data-[state=active]:text-admin-foreground text-admin-muted-foreground">By Category</TabsTrigger>
-            <TabsTrigger value="all" className="data-[state=active]:bg-admin-sidebar-active data-[state=active]:text-admin-foreground text-admin-muted-foreground">All Providers</TabsTrigger>
+          <TabsList className="bg-muted">
+            <TabsTrigger value="grouped" className="data-[state=active]:bg-sidebar-accent data-[state=active]:text-foreground text-muted-foreground">By Category</TabsTrigger>
+            <TabsTrigger value="all" className="data-[state=active]:bg-sidebar-accent data-[state=active]:text-foreground text-muted-foreground">All Providers</TabsTrigger>
             {fallbackLog.length > 0 && (
-              <TabsTrigger value="fallback" className="data-[state=active]:bg-admin-sidebar-active data-[state=active]:text-admin-foreground text-admin-muted-foreground">Fallback Log ({fallbackLog.length})</TabsTrigger>
+              <TabsTrigger value="fallback" className="data-[state=active]:bg-sidebar-accent data-[state=active]:text-foreground text-muted-foreground">Fallback Log ({fallbackLog.length})</TabsTrigger>
             )}
           </TabsList>
 
           <div className="relative w-64">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-admin-muted-foreground" />
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input
               placeholder="Search providers..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="h-8 text-xs pl-8 bg-admin-input border-admin-border text-admin-foreground placeholder:text-admin-muted-foreground"
+              className="h-8 text-xs pl-8 bg-input border-border text-foreground placeholder:text-muted-foreground"
             />
           </div>
         </div>
@@ -193,7 +193,7 @@ export default function AdminProvidersPage() {
             if (types.length === 0) return null;
             return (
               <div key={group.label} className="space-y-3">
-                <h3 className="text-sm font-semibold text-admin-muted-foreground uppercase tracking-wide">
+                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
                   {group.label}
                 </h3>
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -218,21 +218,21 @@ export default function AdminProvidersPage() {
         {/* Fallback log */}
         {fallbackLog.length > 0 && (
           <TabsContent value="fallback">
-            <Card className="bg-admin-card border-admin-border">
+            <Card className="bg-card border-border">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm text-admin-foreground">Provider Fallback Events</CardTitle>
+                <CardTitle className="text-sm text-foreground">Provider Fallback Events</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-2 max-h-96 overflow-y-auto">
                   {fallbackLog.slice().reverse().map((entry, i) => (
-                    <div key={i} className="flex items-center justify-between p-2 rounded-md border border-admin-border text-xs">
+                    <div key={i} className="flex items-center justify-between p-2 rounded-md border border-border text-xs">
                       <div className="flex items-center gap-2">
                         <Badge variant="outline" className="text-[9px]">{entry.type}</Badge>
                         <span className="text-red-400 line-through">{entry.failedProvider}</span>
-                        <span className="text-admin-muted-foreground">→</span>
-                        <span className="text-admin-foreground font-medium">{entry.fallbackProvider}</span>
+                        <span className="text-muted-foreground">→</span>
+                        <span className="text-foreground font-medium">{entry.fallbackProvider}</span>
                       </div>
-                      <span className="text-admin-muted-foreground">
+                      <span className="text-muted-foreground">
                         {new Date(entry.timestamp).toLocaleTimeString()}
                       </span>
                     </div>

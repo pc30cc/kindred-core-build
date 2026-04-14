@@ -38,7 +38,6 @@ async function resolveBrandName(config: ServerConfig, locale: string = 'en'): Pr
     .eq('locale', locale)
     .maybeSingle();
   if (data?.platform_name) return data.platform_name;
-  // fallback to English
   if (locale !== 'en') {
     const { data: fallback } = await sb
       .from('platform_branding_localized')
@@ -70,39 +69,6 @@ interface RecoveryLinkEmailOptions {
   email: string;
   fullName?: string | null;
   locale?: string;
-}
-
-async function generateRecoveryLink(
-  config: ServerConfig,
-  email: string,
-  redirectPath: string,
-): Promise<{ actionLink: string }> {
-  const sb = getServiceClient(config);
-  const appBaseUrl = await resolveAppBaseUrl(config);
-  const redirectTo = `${appBaseUrl}${redirectPath}`;
-
-  const { data, error } = await sb.auth.admin.generateLink({
-    type: 'recovery',
-    email,
-    options: { redirectTo },
-  });
-
-  if (error) {
-    throw new Error(error.message || 'Failed to generate recovery link');
-  }
-
-  const rawActionLink = data.properties?.action_link;
-  if (!rawActionLink) {
-    throw new Error('Missing recovery action link');
-  }
-
-  try {
-    const parsed = new URL(rawActionLink);
-    parsed.searchParams.set('redirect_to', redirectTo);
-    return { actionLink: parsed.toString() };
-  } catch {
-    return { actionLink: rawActionLink };
-  }
 }
 
 export async function issueVerificationEmail(
@@ -183,11 +149,10 @@ export async function issueSignupLinkEmail(
       locale: options.locale || 'en',
     };
 
-    // Create user server-side WITHOUT triggering Supabase auth emails
     const { data: createData, error: createError } = await sb.auth.admin.createUser({
       email: options.email,
       password: options.password,
-      email_confirm: false, // Do NOT auto-confirm — we handle verification ourselves
+      email_confirm: false,
       user_metadata: userMetadata,
     });
 
@@ -200,7 +165,6 @@ export async function issueSignupLinkEmail(
       throw new Error('User creation returned no user ID');
     }
 
-    // Use the same custom verification token system
     const verificationResult = await issueVerificationEmail(config, {
       userId,
       email: options.email,
@@ -219,17 +183,58 @@ export async function issueSignupLinkEmail(
   }
 }
 
+/**
+ * Issue a password recovery email using fully self-hosted token system.
+ * No Supabase generateLink — uses auth_reset_tokens table + custom frontend URL.
+ */
 export async function issueRecoveryEmail(
   config: ServerConfig,
   options: RecoveryLinkEmailOptions,
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const [{ actionLink }, workspaceId, brandName] = await Promise.all([
-      generateRecoveryLink(config, options.email, '/auth/reset-password'),
+    const sb = getServiceClient(config);
+
+    // Find user by email to get user_id
+    const { data: userData, error: userError } = await sb.auth.admin.listUsers();
+    if (userError) throw new Error(userError.message);
+
+    const user = userData?.users?.find(u => u.email === options.email);
+    if (!user) {
+      // Don't reveal if user exists — return success silently
+      return { success: true };
+    }
+
+    // Revoke any existing unused reset tokens for this user
+    await sb.from('auth_reset_tokens')
+      .update({ revoked_at: new Date().toISOString() })
+      .eq('user_id', user.id)
+      .is('used_at', null)
+      .is('revoked_at', null);
+
+    // Generate and store custom reset token
+    const rawToken = generateToken();
+    const tokenHash = hashToken(rawToken);
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour
+
+    const { error: tokenInsertError } = await sb.from('auth_reset_tokens').insert({
+      user_id: user.id,
+      email: options.email,
+      token_hash: tokenHash,
+      expires_at: expiresAt,
+      ip_address: null,
+    });
+
+    if (tokenInsertError) {
+      return { success: false, error: tokenInsertError.message };
+    }
+
+    const [appBaseUrl, workspaceId, brandName] = await Promise.all([
+      resolveAppBaseUrl(config),
       resolveWorkspaceId(config),
       resolveBrandName(config, options.locale),
     ]);
 
+    const resetUrl = `${appBaseUrl}/auth/reset-password?token=${rawToken}`;
     const userName = options.fullName || options.email.split('@')[0];
 
     const result = await sendEmail(config, {
@@ -239,7 +244,7 @@ export async function issueRecoveryEmail(
       templateData: {
         name: userName,
         brand: brandName,
-        action_url: actionLink,
+        action_url: resetUrl,
         email: options.email,
         expiry_time: '1 hour',
         year: new Date().getFullYear().toString(),

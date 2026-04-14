@@ -30,7 +30,7 @@ function getPasswordStrength(pw: string): { score: number; label: string; color:
 export default function SignupPage() {
   const navigate = useNavigate();
   const { t, locale, dir } = useTranslation();
-  const { signUp } = useAuth();
+  const { signUp, signIn } = useAuth();
   const brand = usePlatformBrandingForLocale(locale);
   const isRtl = dir === 'rtl';
 
@@ -72,9 +72,10 @@ export default function SignupPage() {
     }
 
     setLoading(true);
+    const trimmedEmail = email.trim().toLowerCase();
     try {
       const { error } = await signUp({
-        email: email.trim().toLowerCase(),
+        email: trimmedEmail,
         password,
         website: '',
         locale,
@@ -85,7 +86,16 @@ export default function SignupPage() {
         return;
       }
 
-      toast.success(t('auth.signupSuccess'), { description: t('auth.signupSuccessDesc') });
+      // Sign in immediately after signup to create a client session
+      const { error: signInError } = await signIn({ email: trimmedEmail, password });
+      if (signInError) {
+        // Signup succeeded but auto-login failed — send to check-email
+        toast.success(t('auth.signupSuccess'), { description: t('auth.signupSuccessDesc') });
+        navigate(`/auth/check-email?email=${encodeURIComponent(trimmedEmail)}`);
+        return;
+      }
+
+      toast.success(t('auth.signupSuccess'));
       navigate('/app');
     } catch (err: any) {
       toast.error(t('auth.signupFailed'), { description: err?.message });

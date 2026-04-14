@@ -142,8 +142,8 @@ export function AdminProviderCard({ type }: AdminProviderCardProps) {
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className={`p-2 rounded-lg ${hasGlobalDefault ? 'bg-admin-accent/10' : 'bg-admin-muted'}`}>
-                <ProviderIcon iconName={schema.icon} className={`h-5 w-5 ${hasGlobalDefault ? 'text-admin-accent' : 'text-admin-muted-foreground'}`} />
+              <div className={`p-2 rounded-lg ${hasGlobalDefault ? 'bg-emerald-500/10' : 'bg-admin-muted'}`}>
+                <ProviderIcon iconName={schema.icon} className={`h-5 w-5 ${hasGlobalDefault ? 'text-emerald-400' : 'text-admin-muted-foreground'}`} />
               </div>
               <div>
                 <CardTitle className="text-sm text-admin-foreground flex items-center gap-2">

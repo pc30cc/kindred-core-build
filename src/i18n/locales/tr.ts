@@ -215,6 +215,7 @@ const tr: TranslationKeys = {
       database: 'Veritabanı',
       security: 'Güvenlik',
       backToApp: 'Uygulamaya Dön',
+      templates: 'Şablonlar',
       controlCenter: 'Platform Kontrol Merkezi',
     },
     database: {

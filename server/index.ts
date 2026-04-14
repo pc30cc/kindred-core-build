@@ -33,7 +33,8 @@ app.use(cors({
   origin: config.corsOrigins[0] === '*' ? true : config.corsOrigins,
   credentials: true,
 }));
-app.use(express.json({ limit: '50mb' })); // Larger limit for file uploads
+app.use(express.json({ limit: '50mb' }));
+app.use(cookieParser());
 
 // Attach config to requests
 app.use((req, _res, next) => {

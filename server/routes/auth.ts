@@ -241,8 +241,9 @@ authSecurityRouter.post('/signup', authRateLimiter, async (req, res) => {
       needsEmailVerification: true,
     });
   } catch (err) {
-    console.error('[auth] Signup error:', err);
-    return res.status(500).json({ error: 'Internal error' });
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[auth] Signup error:', message, err);
+    return res.status(500).json({ error: message || 'Internal error' });
   }
 });
 

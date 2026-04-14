@@ -88,7 +88,7 @@ export default function EmailConfirmedPage() {
                   size="lg"
                   className="w-full h-12 text-base font-semibold rounded-xl gap-2"
                 >
-                  {t('auth.goToPanel')}
+                  {t('auth.login')}
                   <NavArrow className="w-5 h-5" />
                 </Button>
               </div>

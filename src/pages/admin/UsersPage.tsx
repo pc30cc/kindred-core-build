@@ -141,10 +141,7 @@ export default function AdminUsersPage() {
     if (!selectedUser?.email) return;
     setActionLoading('reset-pw');
     try {
-      const { data, error } = await supabase.functions.invoke('admin-actions', {
-        body: { action: 'reset_password', userId: selectedUser.id, email: selectedUser.email },
-      });
-      if (error || data?.error) throw new Error(data?.error || 'Error');
+      await adminResetPassword(selectedUser.email);
       toast.success(isRtl ? 'لینک ریست پسورد ایجاد شد' : 'Password reset link generated');
     } catch (e: any) { toast.error(e.message); }
     setActionLoading(null);
@@ -157,10 +154,7 @@ export default function AdminUsersPage() {
     }
     setActionLoading('update-pw');
     try {
-      const { data, error } = await supabase.functions.invoke('admin-actions', {
-        body: { action: 'update_password', userId: selectedUser.id, password: newPassword },
-      });
-      if (error || data?.error) throw new Error(data?.error || 'Error');
+      await adminUpdatePassword(selectedUser.id, newPassword);
       toast.success(isRtl ? 'رمز عبور تغییر کرد' : 'Password changed');
       setNewPassword('');
     } catch (e: any) { toast.error(e.message); }

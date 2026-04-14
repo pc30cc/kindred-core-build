@@ -89,10 +89,16 @@ export default function SignupPage() {
       // Sign in immediately after signup to create a client session
       const { error: signInError } = await signIn({ email: trimmedEmail, password });
       if (signInError) {
-        // Signup succeeded but auto-login failed — send to check-email
-        toast.success(t('auth.signupSuccess'), { description: t('auth.signupSuccessDesc') });
-        navigate(`/auth/check-email?email=${encodeURIComponent(trimmedEmail)}`);
-        return;
+        // Auto-login failed — try once more after a short delay
+        console.warn('[signup] Auto-login failed, retrying...', signInError.message);
+        await new Promise(r => setTimeout(r, 500));
+        const { error: retryError } = await signIn({ email: trimmedEmail, password });
+        if (retryError) {
+          console.error('[signup] Auto-login retry failed:', retryError.message);
+          toast.error(t('auth.signupSuccess'), { description: 'Please log in manually.' });
+          navigate('/auth/login');
+          return;
+        }
       }
 
       toast.success(t('auth.signupSuccess'));

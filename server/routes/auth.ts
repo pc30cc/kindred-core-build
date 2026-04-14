@@ -217,8 +217,14 @@ authSecurityRouter.post('/signup', authRateLimiter, async (req, res) => {
       locale,
     });
 
-    if (!signupResult.success || !signupResult.userId) {
+    if (!signupResult.userId) {
       return res.status(500).json({ error: signupResult.error || 'Failed to create account' });
+    }
+
+    // If user was created but verification email failed, still succeed —
+    // user can resend verification later from the panel banner.
+    if (!signupResult.success && signupResult.userId) {
+      console.warn('[auth] Signup succeeded but verification email failed:', signupResult.error);
     }
 
     await sb.from('profiles').upsert({

@@ -42,6 +42,10 @@ export const supabaseAuthProvider: AuthProvider = {
           locale: document.documentElement.lang || 'en',
         }),
       });
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        return { user: null, error: new Error('Backend server is not reachable. Please ensure the self-hosted backend is running.') };
+      }
       const body = await res.json();
       if (!res.ok) return { user: null, error: new Error(body.error || 'Signup failed') };
       return {
@@ -81,6 +85,10 @@ export const supabaseAuthProvider: AuthProvider = {
           locale: document.documentElement.lang || 'en',
         }),
       });
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        return { error: new Error('Backend server is not reachable. Please ensure the self-hosted backend is running.') };
+      }
       const body = await res.json();
       if (!res.ok) return { error: new Error(body.error || 'Reset failed') };
       return { error: null };

@@ -298,11 +298,13 @@ authEmailRouter.post('/login', authRateLimiter, async (req: Request, res: Respon
       recordLoginAttempt(req, normalizedEmail, false);
       await logSecurityEvent(req, 'login_failed', 'warn', { email: normalizedEmail });
 
-      await sb.from('login_attempts').insert({
-        ip_address: req.ip || 'unknown',
-        email: normalizedEmail,
-        success: false,
-      }).catch(() => {});
+      try {
+        await sb.from('login_attempts').insert({
+          ip_address: req.ip || 'unknown',
+          email: normalizedEmail,
+          success: false,
+        });
+      } catch (_) {}
 
       return res.status(401).json({
         error: msg(lang, 'invalidCredentials'),
@@ -328,11 +330,13 @@ authEmailRouter.post('/login', authRateLimiter, async (req: Request, res: Respon
 
     setSessionCookie(res, sessionToken, isProduction);
 
-    await sb.from('login_attempts').insert({
-      ip_address: req.ip || 'unknown',
-      email: normalizedEmail,
-      success: true,
-    }).catch(() => {});
+    try {
+      await sb.from('login_attempts').insert({
+        ip_address: req.ip || 'unknown',
+        email: normalizedEmail,
+        success: true,
+      });
+    } catch (_) {}
 
     await logSecurityEvent(req, 'login_success', 'info', { email: normalizedEmail });
 

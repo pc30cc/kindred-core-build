@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { toast } from '@/hooks/use-toast';
 import {
   MessageSquare, MessageCircle, Headphones, HelpCircle, Smile, Zap, Heart, Send,
-  Rocket, Sparkles, HandMetal, Bot, ShieldCheck, Phone, Globe, Star, Megaphone, Check, Save, Loader2,
+  Rocket, Sparkles, HandMetal, Bot, ShieldCheck, Phone, Globe, Star, Megaphone, Check, Save, Loader2, X,
 } from 'lucide-react';
 
 const COLORS = ['#14b8a6', '#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#22c55e', '#ef4444', '#6366f1'];

@@ -18,7 +18,7 @@
 (function() {
   'use strict';
 
-  var LOADER_VERSION = '2026-04-15-build-2';
+  var LOADER_VERSION = '2026-04-15-build-3';
   console.log('[Widget] Loader version: ' + LOADER_VERSION);
 
   var GS = window.__gs || [];
@@ -145,8 +145,8 @@
         knowledgeBase: false,
         visitorTracking: false,
       },
-      runtimeUrl: safeAssetBase + '/widget/runtime.js',
-      styleUrl: safeAssetBase + '/widget/runtime.css'
+      runtimeUrl: safeAssetBase + '/widget/runtime.js?v=' + LOADER_VERSION,
+      styleUrl: safeAssetBase + '/widget/runtime.css?v=' + LOADER_VERSION
     };
   }
 

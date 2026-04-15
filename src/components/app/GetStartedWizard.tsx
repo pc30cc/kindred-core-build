@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation, type TranslationKey } from '@/i18n';
 import { useBrandingContext } from '@/features/branding/BrandingContext';
+import { useWorkspacePath } from '@/hooks/useWorkspace';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import {
@@ -16,7 +17,7 @@ interface WizardTask {
   icon: React.ReactNode;
   titleKey: TranslationKey;
   descKey: TranslationKey;
-  link: string;
+  subPath: string;
   trialDays?: number;
   featured?: boolean;
   featureIcons?: React.ReactNode[];
@@ -25,25 +26,25 @@ interface WizardTask {
 const SECTION_TASKS: Record<string, WizardTask[]> = {
   connect: [
     {
-      key: 'install_widget', icon: <Code className="w-5 h-5" />, titleKey: 'wizard.installWidget', descKey: 'wizard.installWidgetDesc', link: '/app/widget', trialDays: 6, featured: true,
+      key: 'install_widget', icon: <Code className="w-5 h-5" />, titleKey: 'wizard.installWidget', descKey: 'wizard.installWidgetDesc', subPath: '/widget', trialDays: 6, featured: true,
       featureIcons: [<MessageSquare key="1" className="w-5 h-5" />, <Globe key="2" className="w-5 h-5" />, <Blocks key="3" className="w-5 h-5" />],
     },
     {
-      key: 'connect_channels', icon: <MessageSquare className="w-5 h-5" />, titleKey: 'wizard.connectChannels', descKey: 'wizard.connectChannelsDesc', link: '/app/settings/providers', trialDays: 3, featured: true,
+      key: 'connect_channels', icon: <MessageSquare className="w-5 h-5" />, titleKey: 'wizard.connectChannels', descKey: 'wizard.connectChannelsDesc', subPath: '/settings/providers', trialDays: 3, featured: true,
       featureIcons: [<Mail key="1" className="w-5 h-5" />, <MessageSquare key="2" className="w-5 h-5" />],
     },
-    { key: 'connect_email', icon: <Mail className="w-5 h-5" />, titleKey: 'wizard.connectEmail', descKey: 'wizard.connectEmailDesc', link: '/app/email', trialDays: 2 },
-    { key: 'mobile_app', icon: <Smartphone className="w-5 h-5" />, titleKey: 'wizard.mobileApp', descKey: 'wizard.mobileAppDesc', link: '#', trialDays: 2 },
+    { key: 'connect_email', icon: <Mail className="w-5 h-5" />, titleKey: 'wizard.connectEmail', descKey: 'wizard.connectEmailDesc', subPath: '/email', trialDays: 2 },
+    { key: 'mobile_app', icon: <Smartphone className="w-5 h-5" />, titleKey: 'wizard.mobileApp', descKey: 'wizard.mobileAppDesc', subPath: '#', trialDays: 2 },
   ],
   customize: [
-    { key: 'customize_widget', icon: <Palette className="w-5 h-5" />, titleKey: 'wizard.customizeWidget', descKey: 'wizard.customizeWidgetDesc', link: '/app/widget', trialDays: 2 },
-    { key: 'knowledge_base', icon: <BookOpen className="w-5 h-5" />, titleKey: 'wizard.knowledgeBase', descKey: 'wizard.knowledgeBaseDesc', link: '/app/knowledge-base', trialDays: 4 },
-    { key: 'setup_ai', icon: <Bot className="w-5 h-5" />, titleKey: 'wizard.setupAI', descKey: 'wizard.setupAIDesc', link: '/app/ai', trialDays: 2 },
+    { key: 'customize_widget', icon: <Palette className="w-5 h-5" />, titleKey: 'wizard.customizeWidget', descKey: 'wizard.customizeWidgetDesc', subPath: '/widget', trialDays: 2 },
+    { key: 'knowledge_base', icon: <BookOpen className="w-5 h-5" />, titleKey: 'wizard.knowledgeBase', descKey: 'wizard.knowledgeBaseDesc', subPath: '/knowledge-base', trialDays: 4 },
+    { key: 'setup_ai', icon: <Bot className="w-5 h-5" />, titleKey: 'wizard.setupAI', descKey: 'wizard.setupAIDesc', subPath: '/ai', trialDays: 2 },
   ],
   grow: [
-    { key: 'shortcuts', icon: <Zap className="w-5 h-5" />, titleKey: 'wizard.shortcuts', descKey: 'wizard.shortcutsDesc', link: '/app/settings/general', trialDays: 2 },
-    { key: 'invite_team', icon: <Users className="w-5 h-5" />, titleKey: 'wizard.inviteTeam', descKey: 'wizard.inviteTeamDesc', link: '/app/team', trialDays: 2 },
-    { key: 'import_contacts', icon: <Download className="w-5 h-5" />, titleKey: 'wizard.importContacts', descKey: 'wizard.importContactsDesc', link: '/app/contacts', trialDays: 2 },
+    { key: 'shortcuts', icon: <Zap className="w-5 h-5" />, titleKey: 'wizard.shortcuts', descKey: 'wizard.shortcutsDesc', subPath: '/settings/general', trialDays: 2 },
+    { key: 'invite_team', icon: <Users className="w-5 h-5" />, titleKey: 'wizard.inviteTeam', descKey: 'wizard.inviteTeamDesc', subPath: '/team', trialDays: 2 },
+    { key: 'import_contacts', icon: <Download className="w-5 h-5" />, titleKey: 'wizard.importContacts', descKey: 'wizard.importContactsDesc', subPath: '/contacts', trialDays: 2 },
   ],
 };
 

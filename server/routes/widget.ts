@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { getServiceClient } from '../supabase.js';
 import type { ServerConfig } from '../config.js';
+import { isOriginAllowed } from '../utils/domain.js';
 
 export const widgetRouter = Router();
 
@@ -43,15 +44,7 @@ widgetRouter.get('/config', async (req: Request, res: Response) => {
 
     // Validate origin against allowed domains
     if (origin && widget.allowed_domains && widget.allowed_domains.length > 0) {
-      const originHost = new URL(origin).hostname;
-      const allowed = widget.allowed_domains.some((d: string) => {
-        if (d.startsWith('*.')) {
-          return originHost.endsWith(d.slice(1)) || originHost === d.slice(2);
-        }
-        return originHost === d;
-      });
-
-      if (!allowed) {
+      if (!isOriginAllowed(origin, widget.allowed_domains, widget.allow_subdomains ?? false)) {
         return res.status(403).json({ error: 'Origin not allowed' });
       }
     }
@@ -118,7 +111,7 @@ widgetRouter.post('/validate-origin', async (req: Request, res: Response) => {
 
   const { data: widget } = await supabase
     .from('widget_settings')
-    .select('allowed_domains, enabled')
+    .select('allowed_domains, allow_subdomains, enabled')
     .eq('workspace_id', workspace_id)
     .single();
 
@@ -130,13 +123,6 @@ widgetRouter.post('/validate-origin', async (req: Request, res: Response) => {
     return res.json({ valid: true });
   }
 
-  const originHost = new URL(origin).hostname;
-  const allowed = widget.allowed_domains.some((d: string) => {
-    if (d.startsWith('*.')) {
-      return originHost.endsWith(d.slice(1)) || originHost === d.slice(2);
-    }
-    return originHost === d;
-  });
-
+  const allowed = isOriginAllowed(origin, widget.allowed_domains, widget.allow_subdomains ?? false);
   res.json({ valid: allowed, reason: allowed ? null : 'origin_not_allowed' });
 });

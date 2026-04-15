@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { createHash } from 'crypto';
 import { getServiceClient } from '../supabase.js';
 import type { ServerConfig } from '../config.js';
+import { isOriginAllowed } from '../utils/domain.js';
 
 export const visitorRouter = Router();
 
@@ -39,7 +40,9 @@ visitorRouter.post('/track', async (req: Request, res: Response) => {
     // Validate workspace exists and has tracking enabled
     const { data: widget } = await supabase
       .from('widget_settings')
-      .select('visitor_tracking_enabled, allowed_domains')
+      .select('visitor_tracking_enabled, allowed_domains, allow_subdomains')
+      .eq('workspace_id', data.workspace_id)
+      .single();
       .eq('workspace_id', data.workspace_id)
       .single();
 
@@ -47,20 +50,10 @@ visitorRouter.post('/track', async (req: Request, res: Response) => {
       return res.status(403).json({ error: 'Visitor tracking not enabled' });
     }
 
-    // Validate origin
     const origin = req.headers.origin || req.headers.referer;
     if (origin && widget.allowed_domains && widget.allowed_domains.length > 0) {
-      try {
-        const originHost = new URL(origin).hostname;
-        const allowed = widget.allowed_domains.some((d: string) => {
-          if (d.startsWith('*.')) return originHost.endsWith(d.slice(1));
-          return originHost === d;
-        });
-        if (!allowed) {
-          return res.status(403).json({ error: 'Origin not allowed' });
-        }
-      } catch {
-        // Invalid origin URL, allow if can't parse
+      if (!isOriginAllowed(origin, widget.allowed_domains, widget.allow_subdomains ?? false)) {
+        return res.status(403).json({ error: 'Origin not allowed' });
       }
     }
 

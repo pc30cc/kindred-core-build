@@ -157,6 +157,7 @@ export interface WidgetSettings {
   logo_url: string | null;
   position: 'bottom-right' | 'bottom-left';
   allowed_domains: string[];
+  allow_subdomains: boolean;
   chat_enabled: boolean;
   kb_enabled: boolean;
   visitor_tracking_enabled: boolean;

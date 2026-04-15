@@ -44,7 +44,7 @@ export default function WidgetPage() {
   const widgetAssetBaseUrl = branding?.widget_base_url || widgetLoaderBaseUrl;
   const widgetApiBaseUrl = branding?.widget_api_base_url || platformDomains?.api_base_url || '';
   const primaryColor = widget?.primary_color || branding?.primary_color || '#3B82F6';
-  const loaderVersion = '2026-04-15-build-2';
+  const loaderVersion = '2026-04-15-build-3';
   const loaderScriptUrl = `${widgetLoaderBaseUrl || 'https://widget.example.com'}/widget/loader.js?v=${encodeURIComponent(loaderVersion)}`;
 
   const windowEmbedCode = `<script type="text/javascript">

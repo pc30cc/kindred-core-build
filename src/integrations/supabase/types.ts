@@ -2223,6 +2223,10 @@ export type Database = {
           }
       admin_security_stats: { Args: never; Returns: Json }
       bootstrap_admin: { Args: { _user_id: string }; Returns: boolean }
+      check_workspace_entitlement: {
+        Args: { _feature: string; _workspace_id: string }
+        Returns: Json
+      }
       cleanup_expired_auth_tokens: { Args: never; Returns: undefined }
       count_recent_login_failures: {
         Args: { _email: string; _ip: string; _window_minutes?: number }

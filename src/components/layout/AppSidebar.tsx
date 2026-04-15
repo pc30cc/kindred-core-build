@@ -372,7 +372,6 @@ export function AppSidebar() {
             </SelectContent>
           </Select>
         </div>
-        </button>
       </div>
     </aside>
   );

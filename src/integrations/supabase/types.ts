@@ -945,6 +945,75 @@ export type Database = {
         }
         Relationships: []
       }
+      plan_change_log: {
+        Row: {
+          change_type: string
+          changed_by: string | null
+          created_at: string
+          id: string
+          metadata: Json | null
+          new_plan_id: string | null
+          old_plan_id: string | null
+          workspace_id: string
+        }
+        Insert: {
+          change_type?: string
+          changed_by?: string | null
+          created_at?: string
+          id?: string
+          metadata?: Json | null
+          new_plan_id?: string | null
+          old_plan_id?: string | null
+          workspace_id: string
+        }
+        Update: {
+          change_type?: string
+          changed_by?: string | null
+          created_at?: string
+          id?: string
+          metadata?: Json | null
+          new_plan_id?: string | null
+          old_plan_id?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plan_change_log_new_plan_id_fkey"
+            columns: ["new_plan_id"]
+            isOneToOne: false
+            referencedRelation: "billing_plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plan_change_log_new_plan_id_fkey"
+            columns: ["new_plan_id"]
+            isOneToOne: false
+            referencedRelation: "billing_plans_public"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plan_change_log_old_plan_id_fkey"
+            columns: ["old_plan_id"]
+            isOneToOne: false
+            referencedRelation: "billing_plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plan_change_log_old_plan_id_fkey"
+            columns: ["old_plan_id"]
+            isOneToOne: false
+            referencedRelation: "billing_plans_public"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plan_change_log_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       platform_branding: {
         Row: {
           created_at: string | null
@@ -1746,6 +1815,44 @@ export type Database = {
           },
         ]
       }
+      workspace_channel_overrides: {
+        Row: {
+          admin_notes: string | null
+          channel_key: string
+          created_at: string
+          enabled: boolean
+          id: string
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          admin_notes?: string | null
+          channel_key: string
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          admin_notes?: string | null
+          channel_key?: string
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workspace_channel_overrides_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       workspace_domains: {
         Row: {
           created_at: string | null
@@ -1919,6 +2026,44 @@ export type Database = {
           },
         ]
       }
+      workspace_module_overrides: {
+        Row: {
+          admin_notes: string | null
+          created_at: string
+          enabled: boolean
+          id: string
+          module_key: string
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          admin_notes?: string | null
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          module_key: string
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          admin_notes?: string | null
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          module_key?: string
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workspace_module_overrides_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       workspace_provider_settings: {
         Row: {
           config: Json
@@ -2083,6 +2228,62 @@ export type Database = {
           },
         ]
       }
+      workspace_usage_counters: {
+        Row: {
+          ai_credits_balance: number
+          ai_credits_used: number
+          ai_requests_count: number
+          conversations_count: number
+          created_at: string
+          email_sent_count: number
+          id: string
+          messages_count: number
+          period: string
+          storage_bytes: number
+          updated_at: string
+          visitors_count: number
+          workspace_id: string
+        }
+        Insert: {
+          ai_credits_balance?: number
+          ai_credits_used?: number
+          ai_requests_count?: number
+          conversations_count?: number
+          created_at?: string
+          email_sent_count?: number
+          id?: string
+          messages_count?: number
+          period?: string
+          storage_bytes?: number
+          updated_at?: string
+          visitors_count?: number
+          workspace_id: string
+        }
+        Update: {
+          ai_credits_balance?: number
+          ai_credits_used?: number
+          ai_requests_count?: number
+          conversations_count?: number
+          created_at?: string
+          email_sent_count?: number
+          id?: string
+          messages_count?: number
+          period?: string
+          storage_bytes?: number
+          updated_at?: string
+          visitors_count?: number
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workspace_usage_counters_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       workspaces: {
         Row: {
           account_id: string | null
@@ -2226,6 +2427,14 @@ export type Database = {
           }
       admin_security_stats: { Args: never; Returns: Json }
       bootstrap_admin: { Args: { _user_id: string }; Returns: boolean }
+      check_channel_access: {
+        Args: { _channel_key: string; _workspace_id: string }
+        Returns: Json
+      }
+      check_module_access: {
+        Args: { _module_key: string; _workspace_id: string }
+        Returns: Json
+      }
       check_workspace_entitlement: {
         Args: { _feature: string; _workspace_id: string }
         Returns: Json
@@ -2244,6 +2453,10 @@ export type Database = {
         }
         Returns: string
       }
+      deduct_ai_credits: {
+        Args: { _credits?: number; _period?: string; _workspace_id: string }
+        Returns: Json
+      }
       generate_short_id: { Args: { prefix?: string }; Returns: string }
       get_account_role: {
         Args: { _account_id: string; _user_id: string }
@@ -2260,6 +2473,10 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
+      }
+      increment_usage_counter: {
+        Args: { _amount?: number; _counter_name: string; _workspace_id: string }
+        Returns: undefined
       }
       is_account_member: {
         Args: { _account_id: string; _user_id: string }

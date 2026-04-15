@@ -225,7 +225,11 @@ function WorkspaceDetailView({
           </h3>
           <div className="space-y-2">
             {detail.members?.map((m: any) => (
-              <div key={m.id} className="flex items-center justify-between rounded-lg border px-3 py-2">
+              <button
+                key={m.id}
+                onClick={() => setSelectedMember(m)}
+                className="flex items-center justify-between rounded-lg border px-3 py-2 w-full text-start hover:bg-muted/50 transition-colors"
+              >
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
                     <span className="text-xs font-semibold text-primary">
@@ -238,11 +242,14 @@ function WorkspaceDetailView({
                   </div>
                 </div>
                 <Badge variant={m.role === 'owner' ? 'default' : 'secondary'}>{m.role}</Badge>
-              </div>
+              </button>
             ))}
           </div>
         </CardContent>
       </Card>
+
+      {/* Member Detail Dialog */}
+      <MemberDetailDialog member={selectedMember} onClose={() => setSelectedMember(null)} />
 
       {/* Branding & Widget side by side */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

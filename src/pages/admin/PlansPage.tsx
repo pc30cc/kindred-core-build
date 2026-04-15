@@ -243,14 +243,14 @@ function PlanFormDialog({ plan, onClose, locales }: { plan?: any; onClose: () =>
                 <div>
                   <Label className="text-xs">Payment Gateway ({loc})</Label>
                   <Select
-                    value={form.localized[loc]?.billing_provider || ''}
-                    onValueChange={v => updateLocalized(loc, 'billing_provider', v)}
+                    value={form.localized[loc]?.billing_provider || '__none__'}
+                    onValueChange={v => updateLocalized(loc, 'billing_provider', v === '__none__' ? '' : v)}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select gateway" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">None (use default)</SelectItem>
+                      <SelectItem value="__none__">None (use default)</SelectItem>
                       {BILLING_PROVIDERS.map(bp => (
                         <SelectItem key={bp.value} value={bp.value}>{bp.label}</SelectItem>
                       ))}

@@ -1,10 +1,8 @@
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useOnlineVisitors } from '@/hooks/useVisitors';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Eye, Globe, Monitor, Clock } from 'lucide-react';
+import { Eye, Globe, Monitor, Clock, MapPin, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export default function VisitorsPage() {
@@ -13,83 +11,119 @@ export default function VisitorsPage() {
   const { data: visitors, isLoading } = useOnlineVisitors(workspace?.id);
 
   const statusColors: Record<string, string> = {
-    online: 'bg-success text-success-foreground',
-    idle: 'bg-warning text-warning-foreground',
+    online: 'bg-success/15 text-success border border-success/20',
+    idle: 'bg-warning/15 text-warning border border-warning/20',
     offline: 'bg-muted text-muted-foreground',
+  };
+  const statusDots: Record<string, string> = {
+    online: 'bg-success',
+    idle: 'bg-warning',
+    offline: 'bg-muted-foreground',
   };
 
   const onlineCount = visitors?.filter(v => v.status === 'online').length ?? 0;
   const idleCount = visitors?.filter(v => v.status === 'idle').length ?? 0;
+  const totalCount = visitors?.length ?? 0;
+
+  const statCards = [
+    { label: t('visitors.online'), value: onlineCount, icon: Eye, color: 'text-success', bg: 'bg-success/10', pulse: true },
+    { label: t('visitors.idle'), value: idleCount, icon: Clock, color: 'text-warning', bg: 'bg-warning/10' },
+    { label: 'Total', value: totalCount, icon: Users, color: 'text-info', bg: 'bg-info/10' },
+  ];
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <h1 className="text-2xl font-bold text-foreground">{t('visitors.title')}</h1>
-
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">{t('visitors.online')}</CardTitle>
-            <div className="h-2 w-2 rounded-full bg-success animate-pulse" />
-          </CardHeader>
-          <CardContent><p className="text-3xl font-bold text-foreground">{onlineCount}</p></CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">{t('visitors.idle')}</CardTitle>
-            <Clock className="h-4 w-4 text-warning" />
-          </CardHeader>
-          <CardContent><p className="text-3xl font-bold text-foreground">{idleCount}</p></CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Total</CardTitle>
-            <Eye className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent><p className="text-3xl font-bold text-foreground">{visitors?.length ?? 0}</p></CardContent>
-        </Card>
+      <div>
+        <h1 className="page-header">{t('visitors.title')}</h1>
+        <p className="page-subtitle">Track real-time visitors on your website</p>
       </div>
 
-      <Card>
-        <CardContent className="p-0">
-          {isLoading ? (
-            <div className="p-8 text-center text-muted-foreground">{t('common.loading')}</div>
-          ) : !visitors?.length ? (
-            <div className="p-8 text-center">
-              <Eye className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
-              <p className="text-muted-foreground">{t('visitors.noVisitors')}</p>
+      {/* Stat Cards */}
+      <div className="grid grid-cols-3 gap-3">
+        {statCards.map((stat) => (
+          <div key={stat.label} className="stat-card">
+            <div className="flex items-center justify-between mb-3">
+              <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${stat.bg}`}>
+                <stat.icon className={`w-4 h-4 ${stat.color}`} />
+              </div>
+              {stat.pulse && <div className="h-2 w-2 rounded-full bg-success animate-pulse" />}
             </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t('visitors.status')}</TableHead>
-                  <TableHead>{t('visitors.currentPage')}</TableHead>
-                  <TableHead>{t('visitors.browser')}</TableHead>
-                  <TableHead>{t('visitors.device')}</TableHead>
-                  <TableHead>{t('visitors.source')}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {visitors.map(v => (
-                  <TableRow key={v.id}>
-                    <TableCell>
-                      <Badge className={cn('text-xs', statusColors[v.status])}>
-                        {t(`visitors.${v.status}` as any)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="max-w-[200px] truncate font-mono text-xs">
-                      {v.current_page || v.visitor_sessions?.current_page || '—'}
-                    </TableCell>
-                    <TableCell className="text-sm">{v.visitor_sessions?.browser || '—'}</TableCell>
-                    <TableCell className="text-sm">{v.visitor_sessions?.device || '—'}</TableCell>
-                    <TableCell className="text-sm truncate max-w-[150px]">{v.visitor_sessions?.referrer || '—'}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+            <div className="text-2xl font-bold text-foreground">{stat.value}</div>
+            <div className="text-xs text-muted-foreground mt-1">{stat.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Visitor List */}
+      <div className="card-elevated">
+        <div className="px-5 py-4 border-b border-border flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <Globe className="w-4 h-4 text-primary" />
+            Active Sessions
+          </h2>
+          <span className="text-xs text-muted-foreground">{totalCount} visitors</span>
+        </div>
+
+        {isLoading ? (
+          <div className="p-8 space-y-3">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="animate-pulse flex items-center gap-3 px-5 py-3">
+                <div className="w-8 h-8 rounded-full bg-muted" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-3 bg-muted rounded w-40" />
+                  <div className="h-2.5 bg-muted rounded w-28" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : !visitors?.length ? (
+          <div className="py-16 text-center">
+            <Eye className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />
+            <p className="text-sm font-medium text-foreground mb-1">{t('visitors.noVisitors')}</p>
+            <p className="text-xs text-muted-foreground">Visitors will appear here when they browse your site</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-border/50">
+            {visitors.map(v => (
+              <div key={v.id} className="px-5 py-3.5 hover:bg-muted/30 transition-colors flex items-center gap-4">
+                {/* Status indicator */}
+                <div className="relative">
+                  <div className="w-9 h-9 rounded-full bg-secondary flex items-center justify-center">
+                    <Monitor className="w-4 h-4 text-muted-foreground" />
+                  </div>
+                  <div className={cn('absolute -bottom-0.5 -end-0.5 w-3 h-3 rounded-full border-2 border-card', statusDots[v.status])} />
+                </div>
+
+                {/* Info */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="text-sm font-medium text-foreground truncate">
+                      {v.visitor_sessions?.browser || 'Unknown'} — {v.visitor_sessions?.device || 'Desktop'}
+                    </span>
+                    <Badge className={cn('text-[10px] px-1.5 py-0', statusColors[v.status])}>
+                      {t(`visitors.${v.status}` as any)}
+                    </Badge>
+                  </div>
+                  <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                    {v.current_page && (
+                      <span className="flex items-center gap-1 truncate max-w-[200px]">
+                        <Globe className="w-3 h-3 shrink-0" />
+                        {v.current_page || v.visitor_sessions?.current_page}
+                      </span>
+                    )}
+                    {v.visitor_sessions?.referrer && (
+                      <span className="flex items-center gap-1 truncate max-w-[150px]">
+                        <MapPin className="w-3 h-3 shrink-0" />
+                        {v.visitor_sessions.referrer}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

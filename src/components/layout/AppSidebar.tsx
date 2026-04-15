@@ -394,5 +394,7 @@ export function AppSidebar() {
         </div>
       </div>
     </aside>
+    <CreateWorkspaceDialog open={createWsOpen} onOpenChange={setCreateWsOpen} />
+    </>
   );
 }

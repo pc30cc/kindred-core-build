@@ -83,6 +83,7 @@ export function AppSidebar() {
   const companyLetter = companyName.charAt(0).toUpperCase();
 
   return (
+    <>
     <aside className="flex h-screen w-[220px] flex-col bg-sidebar border-e border-sidebar-border">
       {/* Workspace header with dropdown */}
       <div className="relative px-3 pt-4 pb-2" ref={wsMenuRef}>

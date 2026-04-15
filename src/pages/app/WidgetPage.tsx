@@ -10,17 +10,17 @@ import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { Copy, Check, Code, ExternalLink, Globe, Info } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Badge } from '@/components/ui/badge';
+import { Copy, Check, Code, ExternalLink, Globe, Info, Palette, Settings, Shield, Eye, MessageSquare } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 
-/** Strip protocol, www, trailing slash to get bare domain */
 function normalizeDomainInput(input: string): string {
   let raw = input.trim();
   raw = raw.replace(/^https?:\/\//i, '');
   raw = raw.replace(/^www\./i, '');
   raw = raw.replace(/\/+$/, '');
-  raw = raw.toLowerCase();
-  return raw;
+  return raw.toLowerCase();
 }
 
 function isValidDomain(d: string): boolean {
@@ -38,6 +38,7 @@ export default function WidgetPage() {
   const [domainError, setDomainError] = useState('');
 
   const widgetBaseUrl = branding?.widget_base_url || window.location.origin;
+  const primaryColor = widget?.primary_color || branding?.primary_color || '#3B82F6';
 
   const embedCode = `<script type="text/javascript">
   window.__gs = [];
@@ -65,18 +66,15 @@ export default function WidgetPage() {
   const handleAddDomain = () => {
     const normalized = normalizeDomainInput(newDomain);
     if (!normalized) return;
-
     if (!isValidDomain(normalized)) {
       setDomainError('Please enter a valid domain (e.g. example.com)');
       return;
     }
-
     const current = widget?.allowed_domains || [];
     if (current.includes(normalized)) {
       setDomainError('This domain is already added');
       return;
     }
-
     setDomainError('');
     updateWidget.mutate({ allowed_domains: [...current, normalized] } as any);
     setNewDomain('');
@@ -92,207 +90,291 @@ export default function WidgetPage() {
   }
 
   return (
-    <div className="space-y-6 animate-fade-in max-w-3xl">
-      <h1 className="text-2xl font-bold text-foreground">{t('widget.title')}</h1>
+    <div className="animate-fade-in">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="page-header">{t('widget.title')}</h1>
+          <p className="page-subtitle mt-1">Configure and customize the chat widget for your website</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge variant={widget?.enabled ? 'default' : 'secondary'} className="text-xs">
+            {widget?.enabled ? 'Active' : 'Inactive'}
+          </Badge>
+          <Switch
+            checked={widget?.enabled ?? false}
+            onCheckedChange={v => handleToggle('enabled', v)}
+          />
+        </div>
+      </div>
 
-      {/* Enable/Disable */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-base">{t('widget.title')}</CardTitle>
-              <CardDescription>Enable or disable the widget on your website</CardDescription>
-            </div>
-            <Switch
-              checked={widget?.enabled ?? false}
-              onCheckedChange={v => handleToggle('enabled', v)}
-            />
-          </div>
-        </CardHeader>
-      </Card>
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
+        {/* Main config area */}
+        <div className="space-y-6">
+          <Tabs defaultValue="appearance" className="space-y-4">
+            <TabsList className="bg-secondary/50 border border-border">
+              <TabsTrigger value="appearance" className="gap-1.5 text-xs"><Palette className="h-3.5 w-3.5" />Appearance</TabsTrigger>
+              <TabsTrigger value="behavior" className="gap-1.5 text-xs"><Settings className="h-3.5 w-3.5" />Behavior</TabsTrigger>
+              <TabsTrigger value="domains" className="gap-1.5 text-xs"><Shield className="h-3.5 w-3.5" />Domains</TabsTrigger>
+              <TabsTrigger value="install" className="gap-1.5 text-xs"><Code className="h-3.5 w-3.5" />Install</TabsTrigger>
+            </TabsList>
 
-      {/* Embed Code */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Code className="h-4 w-4" /> {t('widget.embedCode')}
-          </CardTitle>
-          <CardDescription>
-            {t('widget.installInstructions')}
-            {branding?.widget_base_url && (
-              <span className="flex items-center gap-1 mt-1 text-xs">
-                <ExternalLink className="h-3 w-3" />
-                Widget URL: {branding.widget_base_url}
-              </span>
-            )}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="relative">
-            <pre className="bg-muted rounded-md p-4 text-xs overflow-x-auto font-mono whitespace-pre">
-              {embedCode}
-            </pre>
-            <Button size="sm" variant="outline" className="absolute top-2 end-2" onClick={handleCopy}>
-              {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-              <span className="ms-1">{copied ? t('common.copied') : t('common.copy')}</span>
-            </Button>
-          </div>
-          {!branding?.widget_base_url && (
-            <p className="text-xs text-warning mt-2">
-              ⚠ Widget Base URL not configured. Go to Settings → Branding to set it for production.
+            {/* ─── Appearance ─── */}
+            <TabsContent value="appearance">
+              <Card className="card-elevated">
+                <CardContent className="p-6 space-y-5">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="text-xs font-medium">{t('widget.primaryColor')}</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          type="color"
+                          value={primaryColor}
+                          onChange={e => updateWidget.mutate({ primary_color: e.target.value } as any)}
+                          className="w-12 h-10 p-1 cursor-pointer"
+                        />
+                        <Input
+                          value={primaryColor}
+                          onChange={e => updateWidget.mutate({ primary_color: e.target.value } as any)}
+                          className="font-mono text-xs"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs font-medium">{t('widget.position')}</Label>
+                      <Select
+                        value={widget?.position || 'bottom-right'}
+                        onValueChange={v => updateWidget.mutate({ position: v } as any)}
+                      >
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="bottom-right">↘ Bottom Right</SelectItem>
+                          <SelectItem value="bottom-left">↙ Bottom Left</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium">{t('widget.launcherText')}</Label>
+                    <Input
+                      value={widget?.launcher_text || ''}
+                      onChange={e => updateWidget.mutate({ launcher_text: e.target.value } as any)}
+                      placeholder={platformName}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium">{t('widget.welcomeMessage')}</Label>
+                    <Textarea
+                      value={widget?.welcome_message || ''}
+                      onChange={e => updateWidget.mutate({ welcome_message: e.target.value } as any)}
+                      rows={3}
+                      placeholder="Hi there 👋 How can we help?"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium">Widget Language</Label>
+                    <Select
+                      value={widget?.locale || 'en'}
+                      onValueChange={v => updateWidget.mutate({ locale: v } as any)}
+                    >
+                      <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="en">English</SelectItem>
+                        <SelectItem value="fa">فارسی</SelectItem>
+                        <SelectItem value="tr">Türkçe</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* ─── Behavior ─── */}
+            <TabsContent value="behavior">
+              <Card className="card-elevated">
+                <CardContent className="p-6 space-y-5">
+                  {[
+                    { key: 'chat_enabled', label: 'Live Chat', icon: MessageSquare, default: true },
+                    { key: 'kb_enabled', label: 'Knowledge Base', icon: Globe, default: true },
+                    { key: 'visitor_tracking_enabled', label: 'Visitor Tracking', icon: Eye, default: true },
+                  ].map(feature => (
+                    <div key={feature.key} className="flex items-center justify-between py-2 border-b border-border last:border-0">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-lg bg-primary/10">
+                          <feature.icon className="h-4 w-4 text-primary" />
+                        </div>
+                        <Label className="text-sm">{feature.label}</Label>
+                      </div>
+                      <Switch
+                        checked={(widget as any)?.[feature.key] ?? feature.default}
+                        onCheckedChange={v => handleToggle(feature.key, v)}
+                      />
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* ─── Domains ─── */}
+            <TabsContent value="domains">
+              <Card className="card-elevated">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Globe className="h-4 w-4" /> {t('widget.allowedDomains')}
+                  </CardTitle>
+                  <CardDescription>
+                    Restrict widget loading to specific domains. Leave empty to allow all.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-start gap-2 bg-muted/50 rounded-lg p-3 text-xs text-muted-foreground">
+                    <Info className="h-4 w-4 mt-0.5 shrink-0" />
+                    <p>Enter a domain like <strong>example.com</strong>. Protocols and <strong>www</strong> variants are automatically supported.</p>
+                  </div>
+
+                  <div className="space-y-1">
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="example.com"
+                        value={newDomain}
+                        onChange={e => { setNewDomain(e.target.value); setDomainError(''); }}
+                        onKeyDown={e => e.key === 'Enter' && handleAddDomain()}
+                      />
+                      <Button onClick={handleAddDomain} variant="outline" size="sm" className="shrink-0">Add</Button>
+                    </div>
+                    {domainError && <p className="text-xs text-destructive">{domainError}</p>}
+                  </div>
+
+                  <div className="space-y-2">
+                    {widget?.allowed_domains?.map(domain => (
+                      <div key={domain} className="flex items-center justify-between bg-muted/50 rounded-lg px-3 py-2.5 border border-border">
+                        <div>
+                          <span className="text-sm font-mono">{domain}</span>
+                          <span className="text-xs text-muted-foreground ms-2">(+ www.{domain})</span>
+                        </div>
+                        <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => handleRemoveDomain(domain)}>Remove</Button>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center justify-between pt-3 border-t border-border">
+                    <div className="space-y-0.5">
+                      <Label className="text-sm">Allow subdomains</Label>
+                      <p className="text-xs text-muted-foreground">
+                        e.g. app.example.com, shop.example.com
+                      </p>
+                    </div>
+                    <Switch
+                      checked={widget?.allow_subdomains ?? false}
+                      onCheckedChange={v => handleToggle('allow_subdomains', v)}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* ─── Install ─── */}
+            <TabsContent value="install">
+              <Card className="card-elevated">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Code className="h-4 w-4" /> {t('widget.embedCode')}
+                  </CardTitle>
+                  <CardDescription>
+                    {t('widget.installInstructions')}
+                    {branding?.widget_base_url && (
+                      <span className="flex items-center gap-1 mt-1 text-xs">
+                        <ExternalLink className="h-3 w-3" />
+                        Widget URL: {branding.widget_base_url}
+                      </span>
+                    )}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="relative">
+                    <pre className="bg-muted rounded-lg p-4 text-xs overflow-x-auto font-mono whitespace-pre border border-border">
+                      {embedCode}
+                    </pre>
+                    <Button size="sm" variant="outline" className="absolute top-2 end-2" onClick={handleCopy}>
+                      {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                      <span className="ms-1 text-xs">{copied ? t('common.copied') : t('common.copy')}</span>
+                    </Button>
+                  </div>
+                  {!branding?.widget_base_url && (
+                    <p className="text-xs text-warning mt-3 flex items-center gap-1.5">
+                      <Info className="h-3.5 w-3.5" />
+                      Widget Base URL not configured. Go to Settings → Branding for production.
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
+        </div>
+
+        {/* Live Preview */}
+        <div className="hidden lg:block">
+          <div className="sticky top-6">
+            <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1.5">
+              <Eye className="h-3.5 w-3.5" /> Live Preview
             </p>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Appearance */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">{t('widget.appearance')}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>{t('widget.primaryColor')}</Label>
-              <div className="flex gap-2">
-                <Input
-                  type="color"
-                  value={widget?.primary_color || branding?.primary_color || '#3B82F6'}
-                  onChange={e => updateWidget.mutate({ primary_color: e.target.value } as any)}
-                  className="w-12 h-10 p-1"
-                />
-                <Input
-                  value={widget?.primary_color || branding?.primary_color || '#3B82F6'}
-                  onChange={e => updateWidget.mutate({ primary_color: e.target.value } as any)}
-                />
+            <div className="relative bg-muted/30 border border-border rounded-xl overflow-hidden" style={{ height: 520 }}>
+              {/* Mini website preview */}
+              <div className="p-4 space-y-3">
+                <div className="h-4 w-3/4 bg-muted rounded" />
+                <div className="h-3 w-full bg-muted/60 rounded" />
+                <div className="h-3 w-5/6 bg-muted/60 rounded" />
+                <div className="h-24 w-full bg-muted/40 rounded-lg mt-4" />
+                <div className="h-3 w-2/3 bg-muted/60 rounded" />
+                <div className="h-3 w-full bg-muted/60 rounded" />
               </div>
-            </div>
-            <div className="space-y-2">
-              <Label>{t('widget.position')}</Label>
-              <Select
-                value={widget?.position || 'bottom-right'}
-                onValueChange={v => updateWidget.mutate({ position: v } as any)}
+
+              {/* Widget launcher preview */}
+              <div
+                className="absolute flex items-center justify-center rounded-full shadow-lg cursor-default"
+                style={{
+                  width: 48,
+                  height: 48,
+                  background: primaryColor,
+                  color: '#fff',
+                  bottom: 16,
+                  ...(widget?.position === 'bottom-left' ? { left: 16 } : { right: 16 }),
+                }}
               >
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="bottom-right">Bottom Right</SelectItem>
-                  <SelectItem value="bottom-left">Bottom Left</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="space-y-2">
-            <Label>{t('widget.launcherText')}</Label>
-            <Input
-              value={widget?.launcher_text || ''}
-              onChange={e => updateWidget.mutate({ launcher_text: e.target.value } as any)}
-              placeholder={platformName}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>{t('widget.welcomeMessage')}</Label>
-            <Textarea
-              value={widget?.welcome_message || ''}
-              onChange={e => updateWidget.mutate({ welcome_message: e.target.value } as any)}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>Locale</Label>
-            <Select
-              value={widget?.locale || 'en'}
-              onValueChange={v => updateWidget.mutate({ locale: v } as any)}
-            >
-              <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="en">English</SelectItem>
-                <SelectItem value="fa">فارسی</SelectItem>
-                <SelectItem value="tr">Türkçe</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Features */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">{t('widget.behavior')}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <Label>Live Chat</Label>
-            <Switch checked={widget?.chat_enabled ?? true} onCheckedChange={v => handleToggle('chat_enabled', v)} />
-          </div>
-          <div className="flex items-center justify-between">
-            <Label>Knowledge Base</Label>
-            <Switch checked={widget?.kb_enabled ?? true} onCheckedChange={v => handleToggle('kb_enabled', v)} />
-          </div>
-          <div className="flex items-center justify-between">
-            <Label>Visitor Tracking</Label>
-            <Switch checked={widget?.visitor_tracking_enabled ?? true} onCheckedChange={v => handleToggle('visitor_tracking_enabled', v)} />
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Allowed Domains */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Globe className="h-4 w-4" /> {t('widget.allowedDomains')}
-          </CardTitle>
-          <CardDescription>
-            Restrict widget loading to specific domains. Leave empty to allow all.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {/* Helper info */}
-          <div className="flex items-start gap-2 bg-muted/50 rounded-md p-3 text-xs text-muted-foreground">
-            <Info className="h-4 w-4 mt-0.5 shrink-0" />
-            <div>
-              <p>Enter a domain like <strong>example.com</strong>. Protocols (http/https) and <strong>www</strong> variants are automatically supported — no need to add them separately.</p>
-            </div>
-          </div>
-
-          <div className="space-y-1">
-            <div className="flex gap-2">
-              <Input
-                placeholder="example.com"
-                value={newDomain}
-                onChange={e => { setNewDomain(e.target.value); setDomainError(''); }}
-                onKeyDown={e => e.key === 'Enter' && handleAddDomain()}
-              />
-              <Button onClick={handleAddDomain} variant="outline">Add</Button>
-            </div>
-            {domainError && <p className="text-xs text-destructive">{domainError}</p>}
-          </div>
-
-          {widget?.allowed_domains?.map(domain => (
-            <div key={domain} className="flex items-center justify-between bg-muted rounded px-3 py-2">
-              <div>
-                <span className="text-sm font-mono">{domain}</span>
-                <span className="text-xs text-muted-foreground ms-2">
-                  (+ www.{domain})
-                </span>
+                <MessageSquare className="h-5 w-5" />
               </div>
-              <Button variant="ghost" size="sm" onClick={() => handleRemoveDomain(domain)}>Remove</Button>
-            </div>
-          ))}
 
-          {/* Subdomain toggle */}
-          <div className="flex items-center justify-between pt-2 border-t border-border">
-            <div className="space-y-0.5">
-              <Label className="text-sm">Allow subdomains</Label>
-              <p className="text-xs text-muted-foreground">
-                When enabled, subdomains like app.example.com or shop.example.com are also allowed.
-              </p>
+              {/* Mini chat panel preview */}
+              <div
+                className="absolute bg-card border border-border rounded-xl shadow-xl overflow-hidden"
+                style={{
+                  width: 240,
+                  height: 300,
+                  bottom: 72,
+                  ...(widget?.position === 'bottom-left' ? { left: 16 } : { right: 16 }),
+                }}
+              >
+                <div className="p-3 text-white text-xs font-semibold" style={{ background: primaryColor }}>
+                  {widget?.launcher_text || platformName || 'Support'}
+                  <p className="text-[10px] font-normal opacity-80 mt-0.5">
+                    {(widget?.welcome_message || 'How can we help?').slice(0, 50)}
+                  </p>
+                </div>
+                <div className="p-3 space-y-2 flex-1">
+                  <div className="bg-muted rounded-lg p-2 text-[10px] text-muted-foreground max-w-[85%]">Hi! How can we help?</div>
+                </div>
+                <div className="border-t border-border p-2">
+                  <div className="bg-muted rounded-full h-6 px-3 flex items-center">
+                    <span className="text-[9px] text-muted-foreground">Type a message...</span>
+                  </div>
+                </div>
+              </div>
             </div>
-            <Switch
-              checked={widget?.allow_subdomains ?? false}
-              onCheckedChange={v => handleToggle('allow_subdomains', v)}
-            />
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   );
 }

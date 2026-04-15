@@ -6,8 +6,31 @@ export interface Profile {
   full_name: string | null;
   avatar_url: string | null;
   preferred_locale: string | null;
+  company_name: string | null;
+  website_domain: string | null;
+  main_goal: string | null;
+  ai_mode: string | null;
+  signup_locale: string | null;
+  signup_ip: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface Account {
+  id: string;
+  name: string;
+  slug: string;
+  owner_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AccountMember {
+  id: string;
+  account_id: string;
+  user_id: string;
+  role: 'owner' | 'admin' | 'member';
+  created_at: string;
 }
 
 export interface Workspace {
@@ -15,6 +38,7 @@ export interface Workspace {
   name: string;
   slug: string;
   owner_id: string;
+  account_id: string | null;
   default_locale: string;
   panel_locale: string;
   widget_locale: string;

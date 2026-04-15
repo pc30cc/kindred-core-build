@@ -1,14 +1,13 @@
 /**
- * BrandingGate: Wraps app routes to auto-load branding from the current workspace.
- * Prevents the need to manually pass branding={null} from App.tsx.
+ * BrandingGate: Wraps app routes to auto-load branding from the active workspace.
  */
 import React from 'react';
-import { useCurrentWorkspace } from '@/hooks/useWorkspace';
+import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { useBranding } from '@/hooks/useBranding';
 import { BrandingProvider } from './BrandingContext';
 
 export function BrandingGate({ children }: { children: React.ReactNode }) {
-  const workspace = useCurrentWorkspace();
+  const { workspace } = useActiveWorkspace();
   const { data: branding, isLoading } = useBranding(workspace?.id);
 
   return (

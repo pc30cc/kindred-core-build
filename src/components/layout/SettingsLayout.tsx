@@ -1,7 +1,8 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
+import { useWorkspacePath } from '@/hooks/useWorkspace';
 import { cn } from '@/lib/utils';
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   User, CreditCard, Settings, MessageSquare, Inbox, Mail,
   BookOpen, BarChart3, ChevronDown, ChevronLeft, ChevronRight,
@@ -12,68 +13,42 @@ interface SettingsGroup {
   key: string;
   label: string;
   icon: React.ElementType;
-  items: { key: string; label: string; path: string }[];
+  items: { key: string; label: string; subPath: string }[];
 }
 
-const settingsGroups: SettingsGroup[] = [
+const settingsGroupsDef: SettingsGroup[] = [
   {
-    key: 'account',
-    label: 'Account',
-    icon: User,
+    key: 'account', label: 'Account', icon: User,
+    items: [{ key: 'profile', label: 'Profile', subPath: '/settings/profile' }],
+  },
+  {
+    key: 'billing', label: 'Billing', icon: CreditCard,
+    items: [{ key: 'billing', label: 'Billing & Plans', subPath: '/billing' }],
+  },
+  {
+    key: 'workspace', label: 'Workspace Settings', icon: Settings,
     items: [
-      { key: 'profile', label: 'Profile', path: '/app/settings/profile' },
+      { key: 'general', label: 'General', subPath: '/settings/general' },
+      { key: 'branding', label: 'Branding', subPath: '/settings/branding' },
+      { key: 'domains', label: 'Domains', subPath: '/settings/domains' },
+      { key: 'team', label: 'Team Members', subPath: '/team' },
     ],
   },
   {
-    key: 'billing',
-    label: 'Billing',
-    icon: CreditCard,
-    items: [
-      { key: 'billing', label: 'Billing & Plans', path: '/app/billing' },
-    ],
+    key: 'chatbox', label: 'Chatbox Settings', icon: MessageSquare,
+    items: [{ key: 'widget', label: 'Widget', subPath: '/widget' }],
   },
   {
-    key: 'workspace',
-    label: 'Workspace Settings',
-    icon: Settings,
-    items: [
-      { key: 'general', label: 'General', path: '/app/settings/general' },
-      { key: 'branding', label: 'Branding', path: '/app/settings/branding' },
-      { key: 'domains', label: 'Domains', path: '/app/settings/domains' },
-      { key: 'team', label: 'Team Members', path: '/app/team' },
-    ],
+    key: 'inbox', label: 'Inbox Settings', icon: Inbox,
+    items: [{ key: 'providers', label: 'Providers', subPath: '/settings/providers' }],
   },
   {
-    key: 'chatbox',
-    label: 'Chatbox Settings',
-    icon: MessageSquare,
-    items: [
-      { key: 'widget', label: 'Widget', path: '/app/widget' },
-    ],
+    key: 'email', label: 'Email Settings', icon: Mail,
+    items: [{ key: 'email', label: 'Email', subPath: '/email' }],
   },
   {
-    key: 'inbox',
-    label: 'Inbox Settings',
-    icon: Inbox,
-    items: [
-      { key: 'providers', label: 'Providers', path: '/app/settings/providers' },
-    ],
-  },
-  {
-    key: 'email',
-    label: 'Email Settings',
-    icon: Mail,
-    items: [
-      { key: 'email', label: 'Email', path: '/app/email' },
-    ],
-  },
-  {
-    key: 'knowledgeBase',
-    label: 'Knowledge Base',
-    icon: BookOpen,
-    items: [
-      { key: 'translations', label: 'Translations', path: '/app/settings/translations' },
-    ],
+    key: 'knowledgeBase', label: 'Knowledge Base', icon: BookOpen,
+    items: [{ key: 'translations', label: 'Translations', subPath: '/settings/translations' }],
   },
 ];
 
@@ -81,8 +56,18 @@ export function SettingsLayout() {
   const { t } = useTranslation();
   const location = useLocation();
   const navigate = useNavigate();
+  const wsPath = useWorkspacePath();
+
+  // Build resolved paths
+  const settingsGroups = useMemo(() =>
+    settingsGroupsDef.map(g => ({
+      ...g,
+      items: g.items.map(i => ({ ...i, path: wsPath(i.subPath) })),
+    })),
+    [wsPath]
+  );
+
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(() => {
-    // Auto-expand group containing current path
     const initial: Record<string, boolean> = {};
     settingsGroups.forEach(g => {
       if (g.items.some(i => location.pathname === i.path || location.pathname.startsWith(i.path))) {
@@ -105,7 +90,7 @@ export function SettingsLayout() {
         {/* Header */}
         <div className="sticky top-0 bg-card/80 backdrop-blur-sm border-b border-border/40 px-5 py-4 flex items-center gap-3">
           <button
-            onClick={() => navigate('/app')}
+            onClick={() => navigate(wsPath(''))}
             className="p-1 rounded-md hover:bg-accent/50 text-muted-foreground transition-colors"
           >
             <ChevronLeft className="h-4 w-4" />

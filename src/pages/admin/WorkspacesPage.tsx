@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -12,8 +12,8 @@ import {
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import {
-  Building2, Users, MessageSquare, BookUser, Eye, Trash2,
-  Globe, Palette, Bot, Loader2, ChevronRight, Shield,
+  Building2, Users, MessageSquare, BookUser, Trash2,
+  Globe, Palette, Bot, Loader2, Shield, ArrowLeft,
 } from 'lucide-react';
 
 export default function AdminWorkspacesPage() {
@@ -29,7 +29,6 @@ export default function AdminWorkspacesPage() {
   const { data: detail, isLoading: detailLoading } = useAdminWorkspaceDetail(selectedId);
   const deleteMutation = useAdminDeleteWorkspace();
 
-  const selectedWs = workspaces?.find(w => w.id === selectedId);
   const deleteWs = workspaces?.find(w => w.id === deleteId);
 
   const handleDelete = async () => {
@@ -45,6 +44,19 @@ export default function AdminWorkspacesPage() {
     }
   };
 
+  // Detail view (inline, not dialog)
+  if (selectedId) {
+    return (
+      <WorkspaceDetailView
+        detail={detail}
+        loading={detailLoading}
+        onBack={() => setSelectedId(null)}
+        onDelete={(id) => setDeleteId(id)}
+      />
+    );
+  }
+
+  // List view
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -62,14 +74,14 @@ export default function AdminWorkspacesPage() {
                 <TableHead>Owner</TableHead>
                 <TableHead>Members</TableHead>
                 <TableHead>Created</TableHead>
-                <TableHead className="w-[100px]">Actions</TableHead>
+                <TableHead className="w-[80px]" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading && (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
-                    <Loader2 className="h-5 w-5 animate-spin mx-auto" />
+                  <TableCell colSpan={6} className="text-center py-8">
+                    <Loader2 className="h-5 w-5 animate-spin mx-auto text-muted-foreground" />
                   </TableCell>
                 </TableRow>
               )}
@@ -103,21 +115,13 @@ export default function AdminWorkspacesPage() {
                     {format(new Date(w.created_at), 'yyyy-MM-dd')}
                   </TableCell>
                   <TableCell>
-                    <div className="flex items-center gap-1">
-                      <Button
-                        variant="ghost" size="icon"
-                        onClick={(e) => { e.stopPropagation(); setSelectedId(w.id); }}
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost" size="icon"
-                        className="text-destructive hover:text-destructive"
-                        onClick={(e) => { e.stopPropagation(); setDeleteId(w.id); }}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
+                    <Button
+                      variant="ghost" size="icon"
+                      className="text-destructive hover:text-destructive"
+                      onClick={(e) => { e.stopPropagation(); setDeleteId(w.id); }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </TableCell>
                 </TableRow>
               ))}
@@ -133,180 +137,226 @@ export default function AdminWorkspacesPage() {
         <Button variant="outline" size="sm" disabled={!workspaces || workspaces.length < limit} onClick={() => setPage(p => p + 1)}>Next</Button>
       </div>
 
-      {/* Workspace Detail Dialog */}
-      <Dialog open={!!selectedId} onOpenChange={(open) => { if (!open) setSelectedId(null); }}>
-        <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Building2 className="h-5 w-5 text-primary" />
-              {selectedWs?.name || 'Workspace Details'}
-            </DialogTitle>
-            <DialogDescription>
-              {selectedWs?.slug && <code className="text-xs bg-muted px-1.5 py-0.5 rounded">{selectedWs.slug}</code>}
-            </DialogDescription>
-          </DialogHeader>
-
-          {detailLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-6 w-6 animate-spin text-primary" />
-            </div>
-          ) : detail ? (
-            <div className="space-y-6">
-              {/* Stats */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <StatCard icon={Users} label="Members" value={detail.members?.length ?? 0} />
-                <StatCard icon={BookUser} label="Contacts" value={detail.contact_count} />
-                <StatCard icon={MessageSquare} label="Conversations" value={detail.conversation_count} />
-                <StatCard icon={Globe} label="Locale" value={detail.workspace?.default_locale || 'en'} />
-              </div>
-
-              <Separator />
-
-              {/* Members */}
-              <div>
-                <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
-                  <Users className="h-4 w-4 text-muted-foreground" />
-                  Members
-                </h3>
-                <div className="space-y-2">
-                  {detail.members?.map((m: any) => (
-                    <div key={m.id} className="flex items-center justify-between rounded-lg border px-3 py-2">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-                          <span className="text-xs font-semibold text-primary">
-                            {(m.full_name || m.email || '?').charAt(0).toUpperCase()}
-                          </span>
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium">{m.full_name || '—'}</p>
-                          <p className="text-xs text-muted-foreground">{m.email}</p>
-                        </div>
-                      </div>
-                      <Badge variant={m.role === 'owner' ? 'default' : 'secondary'}>
-                        {m.role}
-                      </Badge>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <Separator />
-
-              {/* Branding */}
-              {detail.branding && (
-                <div>
-                  <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
-                    <Palette className="h-4 w-4 text-muted-foreground" />
-                    Branding
-                  </h3>
-                  <div className="grid grid-cols-2 gap-3 text-sm">
-                    <InfoRow label="Platform Name" value={detail.branding.platform_name} />
-                    <InfoRow label="Primary Color" value={detail.branding.primary_color} color />
-                    <InfoRow label="Accent Color" value={detail.branding.accent_color} color />
-                    <InfoRow label="Support Email" value={detail.branding.support_email} />
-                  </div>
-                </div>
-              )}
-
-              <Separator />
-
-              {/* Widget */}
-              {detail.widget_settings && (
-                <div>
-                  <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
-                    <Bot className="h-4 w-4 text-muted-foreground" />
-                    Widget Settings
-                  </h3>
-                  <div className="grid grid-cols-2 gap-3 text-sm">
-                    <InfoRow label="Enabled" value={detail.widget_settings.enabled ? 'Yes' : 'No'} />
-                    <InfoRow label="Chat" value={detail.widget_settings.chat_enabled ? 'Yes' : 'No'} />
-                    <InfoRow label="KB" value={detail.widget_settings.kb_enabled ? 'Yes' : 'No'} />
-                    <InfoRow label="Position" value={detail.widget_settings.position} />
-                    <InfoRow label="Visitor Tracking" value={detail.widget_settings.visitor_tracking_enabled ? 'Yes' : 'No'} />
-                    <InfoRow label="Color" value={detail.widget_settings.primary_color} color />
-                  </div>
-                </div>
-              )}
-
-              <Separator />
-
-              {/* Workspace Info */}
-              <div>
-                <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
-                  <Shield className="h-4 w-4 text-muted-foreground" />
-                  Details
-                </h3>
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                  <InfoRow label="ID" value={detail.workspace?.id} />
-                  <InfoRow label="Owner ID" value={detail.workspace?.owner_id} />
-                  <InfoRow label="Account ID" value={detail.workspace?.account_id} />
-                  <InfoRow label="Created" value={detail.workspace?.created_at ? format(new Date(detail.workspace.created_at), 'yyyy-MM-dd HH:mm') : '—'} />
-                </div>
-              </div>
-
-              {/* Delete button */}
-              <div className="pt-2">
-                <Button
-                  variant="destructive"
-                  className="w-full"
-                  onClick={() => { setDeleteId(selectedId); }}
-                >
-                  <Trash2 className="h-4 w-4 me-2" />
-                  Delete this workspace
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <p className="text-center text-muted-foreground py-8">Workspace not found</p>
-          )}
-        </DialogContent>
-      </Dialog>
-
       {/* Delete Confirmation Dialog */}
-      <Dialog open={!!deleteId} onOpenChange={(open) => { if (!open) { setDeleteId(null); setDeleteConfirm(''); } }}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-destructive flex items-center gap-2">
-              <Trash2 className="h-5 w-5" />
-              Delete Workspace
-            </DialogTitle>
-            <DialogDescription>
-              This will permanently delete <strong>{deleteWs?.name}</strong> and all its data including contacts, conversations, members, and settings. This action cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-3 pt-2">
-            <p className="text-sm text-muted-foreground">
-              Type <code className="bg-muted px-1.5 py-0.5 rounded font-semibold text-destructive">{deleteWs?.slug}</code> to confirm:
-            </p>
-            <input
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              placeholder={deleteWs?.slug}
-              value={deleteConfirm}
-              onChange={e => setDeleteConfirm(e.target.value)}
-              autoFocus
-            />
-          </div>
-
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" onClick={() => { setDeleteId(null); setDeleteConfirm(''); }}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              disabled={deleteConfirm !== deleteWs?.slug || deleteMutation.isPending}
-              onClick={handleDelete}
-            >
-              {deleteMutation.isPending && <Loader2 className="h-4 w-4 animate-spin me-2" />}
-              Delete permanently
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <DeleteDialog
+        deleteWs={deleteWs}
+        deleteId={deleteId}
+        deleteConfirm={deleteConfirm}
+        setDeleteConfirm={setDeleteConfirm}
+        onClose={() => { setDeleteId(null); setDeleteConfirm(''); }}
+        onDelete={handleDelete}
+        isPending={deleteMutation.isPending}
+      />
     </div>
   );
 }
 
+/* ─── Workspace Detail (inline view) ─── */
+function WorkspaceDetailView({
+  detail, loading, onBack, onDelete,
+}: {
+  detail: any;
+  loading: boolean;
+  onBack: () => void;
+  onDelete: (id: string) => void;
+}) {
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-24">
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (!detail) {
+    return (
+      <div className="space-y-4">
+        <Button variant="ghost" onClick={onBack} className="gap-2">
+          <ArrowLeft className="h-4 w-4" /> Back to list
+        </Button>
+        <p className="text-center text-muted-foreground py-12">Workspace not found</p>
+      </div>
+    );
+  }
+
+  const ws = detail.workspace;
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center gap-4">
+        <Button variant="ghost" size="icon" onClick={onBack}>
+          <ArrowLeft className="h-5 w-5" />
+        </Button>
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+            <Building2 className="h-5 w-5 text-primary" />
+          </div>
+          <div className="min-w-0">
+            <h1 className="text-xl font-bold truncate">{ws?.name}</h1>
+            <code className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{ws?.slug}</code>
+          </div>
+        </div>
+        <Button
+          variant="destructive" size="sm"
+          onClick={() => onDelete(ws?.id)}
+          className="gap-2 shrink-0"
+        >
+          <Trash2 className="h-4 w-4" />
+          Delete
+        </Button>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <StatCard icon={Users} label="Members" value={detail.members?.length ?? 0} />
+        <StatCard icon={BookUser} label="Contacts" value={detail.contact_count} />
+        <StatCard icon={MessageSquare} label="Conversations" value={detail.conversation_count} />
+        <StatCard icon={Globe} label="Locale" value={ws?.default_locale || 'en'} />
+      </div>
+
+      {/* Members */}
+      <Card>
+        <CardContent className="p-4 space-y-3">
+          <h3 className="text-sm font-semibold flex items-center gap-2">
+            <Users className="h-4 w-4 text-muted-foreground" />
+            Members ({detail.members?.length ?? 0})
+          </h3>
+          <div className="space-y-2">
+            {detail.members?.map((m: any) => (
+              <div key={m.id} className="flex items-center justify-between rounded-lg border px-3 py-2">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                    <span className="text-xs font-semibold text-primary">
+                      {(m.full_name || m.email || '?').charAt(0).toUpperCase()}
+                    </span>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium">{m.full_name || '—'}</p>
+                    <p className="text-xs text-muted-foreground">{m.email}</p>
+                  </div>
+                </div>
+                <Badge variant={m.role === 'owner' ? 'default' : 'secondary'}>{m.role}</Badge>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Branding & Widget side by side */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {detail.branding && (
+          <Card>
+            <CardContent className="p-4 space-y-3">
+              <h3 className="text-sm font-semibold flex items-center gap-2">
+                <Palette className="h-4 w-4 text-muted-foreground" />
+                Branding
+              </h3>
+              <div className="space-y-2 text-sm">
+                <InfoRow label="Platform Name" value={detail.branding.platform_name} />
+                <InfoRow label="Primary Color" value={detail.branding.primary_color} color />
+                <InfoRow label="Accent Color" value={detail.branding.accent_color} color />
+                <InfoRow label="Support Email" value={detail.branding.support_email} />
+                <InfoRow label="Legal Name" value={detail.branding.legal_name} />
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {detail.widget_settings && (
+          <Card>
+            <CardContent className="p-4 space-y-3">
+              <h3 className="text-sm font-semibold flex items-center gap-2">
+                <Bot className="h-4 w-4 text-muted-foreground" />
+                Widget Settings
+              </h3>
+              <div className="space-y-2 text-sm">
+                <InfoRow label="Enabled" value={detail.widget_settings.enabled ? 'Yes' : 'No'} />
+                <InfoRow label="Chat" value={detail.widget_settings.chat_enabled ? 'Yes' : 'No'} />
+                <InfoRow label="KB" value={detail.widget_settings.kb_enabled ? 'Yes' : 'No'} />
+                <InfoRow label="Position" value={detail.widget_settings.position} />
+                <InfoRow label="Tracking" value={detail.widget_settings.visitor_tracking_enabled ? 'Yes' : 'No'} />
+                <InfoRow label="Color" value={detail.widget_settings.primary_color} color />
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+
+      {/* Meta info */}
+      <Card>
+        <CardContent className="p-4 space-y-3">
+          <h3 className="text-sm font-semibold flex items-center gap-2">
+            <Shield className="h-4 w-4 text-muted-foreground" />
+            Technical Details
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+            <InfoRow label="Workspace ID" value={ws?.id} />
+            <InfoRow label="Owner ID" value={ws?.owner_id} />
+            <InfoRow label="Account ID" value={ws?.account_id} />
+            <InfoRow label="Created" value={ws?.created_at ? format(new Date(ws.created_at), 'yyyy-MM-dd HH:mm') : '—'} />
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+/* ─── Delete Confirmation Dialog ─── */
+function DeleteDialog({
+  deleteWs, deleteId, deleteConfirm, setDeleteConfirm, onClose, onDelete, isPending,
+}: {
+  deleteWs: any;
+  deleteId: string | null;
+  deleteConfirm: string;
+  setDeleteConfirm: (v: string) => void;
+  onClose: () => void;
+  onDelete: () => void;
+  isPending: boolean;
+}) {
+  return (
+    <Dialog open={!!deleteId} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-destructive flex items-center gap-2">
+            <Trash2 className="h-5 w-5" />
+            Delete Workspace
+          </DialogTitle>
+          <DialogDescription>
+            This will permanently delete <strong>{deleteWs?.name}</strong> and all its data. This action cannot be undone.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3 pt-2">
+          <p className="text-sm text-muted-foreground">
+            Type <code className="bg-muted px-1.5 py-0.5 rounded font-semibold text-destructive">{deleteWs?.slug}</code> to confirm:
+          </p>
+          <input
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            placeholder={deleteWs?.slug}
+            value={deleteConfirm}
+            onChange={e => setDeleteConfirm(e.target.value)}
+            autoFocus
+          />
+        </div>
+
+        <DialogFooter className="gap-2 sm:gap-0">
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button
+            variant="destructive"
+            disabled={deleteConfirm !== deleteWs?.slug || isPending}
+            onClick={onDelete}
+          >
+            {isPending && <Loader2 className="h-4 w-4 animate-spin me-2" />}
+            Delete permanently
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* ─── Small helpers ─── */
 function StatCard({ icon: Icon, label, value }: { icon: any; label: string; value: string | number }) {
   return (
     <div className="rounded-lg border bg-card p-3 text-center">

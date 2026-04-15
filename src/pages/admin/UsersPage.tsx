@@ -14,7 +14,7 @@ import {
 } from '@/hooks/useAdmin';
 import { supabase } from '@/lib/supabase';
 import {
-  adminSendResetLink, adminChangePassword, adminBlockUser, adminGetUserStatus,
+  adminSendResetLink, adminChangePassword, adminBlockUser, adminGetUserStatus, adminImpersonateUser,
 } from '@/lib/api';
 import { format } from 'date-fns';
 import { toast } from 'sonner';

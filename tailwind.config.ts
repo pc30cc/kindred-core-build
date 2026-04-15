@@ -14,8 +14,8 @@ export default {
     },
     extend: {
       fontFamily: {
-        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
-        rtl: ['Vazirmatn', 'Inter', 'system-ui', 'sans-serif'],
+        sans: ['var(--font-primary)', 'Inter', 'system-ui', '-apple-system', 'sans-serif'],
+        rtl: ['var(--font-primary)', 'Vazirmatn', 'Inter', 'system-ui', 'sans-serif'],
       },
       colors: {
         border: "hsl(var(--border))",

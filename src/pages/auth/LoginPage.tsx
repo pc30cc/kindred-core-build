@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
 import { useAuth } from '@/features/auth/AuthContext';
@@ -24,20 +24,6 @@ export default function LoginPage() {
       navigate(params.get('redirect') || '/app', { replace: true });
     }
   }, [user, authLoading, navigate, params]);
-
-  // Load widget script
-  const widgetLoaded = useRef(false);
-  useEffect(() => {
-    if (widgetLoaded.current) return;
-    widgetLoaded.current = true;
-    (window as any).__gs = [];
-    (window as any).__gs_id = '6ee40d07-32a3-4594-8a5f-d439f81afa5b';
-    const s = document.createElement('script');
-    s.src = 'https://destekly.tr/widget/loader.js';
-    s.async = true;
-    document.head.appendChild(s);
-    return () => { s.remove(); };
-  }, []);
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -67,9 +53,7 @@ export default function LoginPage() {
 
   return (
     <div className="fixed inset-0 flex" dir={dir}>
-      {/* Left side — Form */}
       <div className={`flex-1 flex flex-col bg-background overflow-y-auto ${isRtl ? 'order-2' : 'order-1'}`}>
-        {/* Top bar */}
         <div className="flex items-center justify-between px-8 py-5 shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center">
@@ -80,7 +64,6 @@ export default function LoginPage() {
           <LanguageSelector />
         </div>
 
-        {/* Form area */}
         <div className="flex-1 flex items-center justify-center px-6 pb-12">
           <div className="w-full max-w-[420px] space-y-8">
             <div className="space-y-2">
@@ -158,16 +141,13 @@ export default function LoginPage() {
         </div>
       </div>
 
-      {/* Right side — Illustration panel (hidden on mobile) */}
       <div className={`hidden lg:flex w-[42%] xl:w-[45%] relative overflow-hidden ${isRtl ? 'order-1' : 'order-2'}`}
         style={{ background: 'linear-gradient(135deg, hsl(221 83% 53%), hsl(250 80% 55%), hsl(221 83% 45%))' }}
       >
-        {/* Decorative blurred shapes */}
         <div className="absolute -top-24 -right-24 w-80 h-80 rounded-full bg-white/10 blur-3xl" />
         <div className="absolute bottom-0 -left-20 w-[500px] h-[500px] rounded-full bg-white/5 blur-2xl" />
         <div className="absolute top-1/3 right-16 w-48 h-48 rounded-full bg-white/8 blur-xl" />
 
-        {/* Grid pattern overlay */}
         <div className="absolute inset-0 opacity-[0.03]"
           style={{
             backgroundImage: 'radial-gradient(circle, white 1px, transparent 1px)',
@@ -195,7 +175,6 @@ export default function LoginPage() {
             />
           </div>
 
-          {/* Feature pills */}
           <div className="mt-8 flex flex-wrap justify-center gap-2">
             {['Live Chat', 'Smart Inbox', 'Analytics', 'Automation'].map((feature) => (
               <span key={feature} className="px-3 py-1.5 text-xs font-medium text-white/90 bg-white/10 rounded-full backdrop-blur-sm border border-white/10">

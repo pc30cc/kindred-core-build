@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useConversations, useConversationMessages, useSendMessage, useUpdateConversation } from '@/hooks/useConversations';
@@ -8,19 +8,24 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Textarea } from '@/components/ui/textarea';
 import {
-  Inbox, Send, CheckCircle, Filter, Plus, MessageSquare,
-  ChevronDown, Mail, Globe, Smartphone, ArrowRight,
-  Search, MoreHorizontal, Archive, Tag, UserCheck,
-  AlertCircle, Clock, CheckCircle2, Star,
+  Inbox, Send, CheckCircle2, Filter, Plus, MessageSquare,
+  ChevronDown, Search, MoreHorizontal, Archive,
+  UserCheck, AlertCircle, Clock, Star, X,
+  Mail, Phone, Globe, User, Eye, ChevronLeft, ChevronRight,
+  Loader2, Bot, Copy, Paperclip, RefreshCw,
+  MessageCircle, Hash,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { toast } from '@/hooks/use-toast';
 
+// ─── Constants ───
 const statusColors: Record<string, string> = {
   open: 'bg-success/15 text-success border-success/20',
   pending: 'bg-warning/15 text-warning border-warning/20',
   resolved: 'bg-info/15 text-info border-info/20',
-  closed: 'bg-muted text-muted-foreground',
+  closed: 'bg-muted text-muted-foreground border-border',
 };
 const statusDots: Record<string, string> = {
   open: 'bg-success',
@@ -28,26 +33,36 @@ const statusDots: Record<string, string> = {
   resolved: 'bg-info',
   closed: 'bg-muted-foreground',
 };
+const priorityColors: Record<string, string> = {
+  low: 'text-muted-foreground', normal: 'text-info', high: 'text-warning', urgent: 'text-destructive',
+};
+
+type FilterStatus = 'all' | 'open' | 'pending' | 'resolved' | 'closed';
+type SidebarTab = 'info' | 'activity';
 
 export default function InboxPage() {
   const { t, dir } = useTranslation();
   const { user } = useAuth();
   const workspace = useCurrentWorkspace();
   const { platformName } = useBrandingContext();
-  const [filter, setFilter] = useState('all');
+  const [filter, setFilter] = useState<FilterStatus>('open');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [message, setMessage] = useState('');
   const [search, setSearch] = useState('');
+  const [showSidebar, setShowSidebar] = useState(true);
+  const [sidebarTab, setSidebarTab] = useState<SidebarTab>('info');
+  const [showMobileList, setShowMobileList] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
 
-  const { data: conversations, isLoading } = useConversations(workspace?.id, filter);
+  const { data: conversations, isLoading } = useConversations(workspace?.id, filter === 'all' ? undefined : filter);
   const { data: rawMessages } = useConversationMessages(selectedId ?? undefined);
   const sendMessage = useSendMessage(selectedId ?? undefined);
   const updateConv = useUpdateConversation();
 
   const selected = conversations?.find(c => c.id === selectedId);
 
-  // Auto-scroll to bottom on new messages
+  // Auto-scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [rawMessages?.length]);
@@ -67,7 +82,7 @@ export default function InboxPage() {
   const timeAgo = (date: string) => {
     const diff = Date.now() - new Date(date).getTime();
     const mins = Math.floor(diff / 60000);
-    if (mins < 1) return 'now';
+    if (mins < 1) return t('inbox.now') || 'now';
     if (mins < 60) return `${mins}m`;
     const hrs = Math.floor(mins / 60);
     if (hrs < 24) return `${hrs}h`;
@@ -75,227 +90,519 @@ export default function InboxPage() {
     return `${days}d`;
   };
 
-  const filteredConvos = conversations?.filter(c => {
-    if (!search) return true;
-    const name = c.contacts?.name || c.contacts?.email || c.subject || '';
-    return name.toLowerCase().includes(search.toLowerCase());
-  });
+  const statusCounts = useMemo(() => {
+    if (!conversations) return {};
+    return conversations.reduce((acc: Record<string, number>, c) => {
+      acc[c.status ?? 'open'] = (acc[c.status ?? 'open'] || 0) + 1;
+      return acc;
+    }, {});
+  }, [conversations]);
+
+  const filteredConvos = useMemo(() => {
+    if (!conversations) return [];
+    return conversations.filter(c => {
+      if (!search) return true;
+      const name = c.contacts?.name || c.contacts?.email || c.subject || '';
+      return name.toLowerCase().includes(search.toLowerCase());
+    });
+  }, [conversations, search]);
+
+  const statusLabels: Record<string, string> = {
+    open: t('inbox.open') || 'Open',
+    pending: t('inbox.pending') || 'Pending',
+    resolved: t('inbox.resolved') || 'Resolved',
+    closed: t('inbox.closed') || 'Closed',
+  };
 
   return (
     <div className="flex h-full" dir={dir}>
-      {/* Left panel — conversation list */}
-      <div className="w-[380px] shrink-0 border-e border-border flex flex-col bg-card">
-        {/* Search */}
-        <div className="px-4 py-3 border-b border-border">
+      {/* ═══════ LEFT: Conversation List ═══════ */}
+      <div className={cn(
+        'w-full md:w-[340px] lg:w-[380px] shrink-0 border-e border-border flex flex-col bg-card',
+        selectedId && !showMobileList ? 'hidden md:flex' : 'flex'
+      )}>
+        {/* Header */}
+        <div className="p-3 border-b border-border space-y-2.5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Inbox className="w-[18px] h-[18px] text-primary" />
+              <h2 className="text-[0.9rem] font-bold text-foreground">{t('inbox.title') || 'Inbox'}</h2>
+              <span className="text-[10px] bg-primary/15 text-primary px-1.5 py-0.5 rounded-full font-semibold">
+                {conversations?.length || 0}
+              </span>
+            </div>
+            <div className="flex items-center gap-1">
+              <button className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors">
+                <RefreshCw className="w-3.5 h-3.5" />
+              </button>
+              <button className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors">
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Search */}
           <div className="relative">
-            <Search className="absolute start-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <Search className={cn('absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground', dir === 'rtl' ? 'right-2.5' : 'left-2.5')} />
             <Input
-              className="ps-9 h-9 text-sm rounded-lg bg-secondary border-0"
-              placeholder="Search conversations..."
+              placeholder={t('inbox.search') || 'Search conversations...'}
               value={search}
               onChange={e => setSearch(e.target.value)}
+              className={cn('h-8 text-xs bg-secondary/50 border-transparent focus:border-primary/30', dir === 'rtl' ? 'pr-8' : 'pl-8')}
+              dir={dir}
             />
+          </div>
+
+          {/* Filter tabs */}
+          <div className="flex gap-1 overflow-x-auto pb-0.5 scrollbar-hide">
+            {(['open', 'pending', 'resolved', 'closed', 'all'] as FilterStatus[]).map(s => {
+              const count = s === 'all' ? (conversations?.length || 0) : (statusCounts[s] || 0);
+              const isActive = filter === s;
+              const dotColor = s === 'open' ? 'bg-success' : s === 'pending' ? 'bg-warning' : s === 'resolved' ? 'bg-info' : s === 'closed' ? 'bg-muted-foreground' : 'bg-primary';
+              return (
+                <button
+                  key={s}
+                  onClick={() => setFilter(s)}
+                  className={cn(
+                    'flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[10px] font-semibold transition-all whitespace-nowrap border',
+                    isActive
+                      ? 'bg-primary/10 text-primary border-primary/25 shadow-sm'
+                      : 'bg-transparent text-muted-foreground border-transparent hover:bg-secondary/60 hover:text-foreground'
+                  )}
+                >
+                  {s !== 'all' && <span className={cn('w-1.5 h-1.5 rounded-full', isActive ? dotColor : 'bg-muted-foreground/30')} />}
+                  {s === 'all' ? (t('inbox.all') || 'All') : statusLabels[s]}
+                  {count > 0 && (
+                    <span className={cn(
+                      'text-[9px] min-w-[16px] h-4 flex items-center justify-center rounded-full px-1 font-bold',
+                      isActive ? 'bg-primary/20 text-primary' : 'bg-secondary text-muted-foreground'
+                    )}>{count}</span>
+                  )}
+                </button>
+              );
+            })}
           </div>
         </div>
 
-        {/* Toolbar */}
-        <div className="flex items-center gap-2 px-4 py-2 border-b border-border/50">
-          <button className="flex items-center gap-1.5 text-xs font-medium text-foreground bg-secondary hover:bg-secondary/80 rounded-lg px-2.5 py-1.5 transition-colors">
-            {t('inbox.all')}
-            <ChevronDown className="h-3 w-3 text-muted-foreground" />
-          </button>
-          <button className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1.5">
-            <Filter className="h-3 w-3" />
-            <span>{t('inbox.filters')}</span>
-          </button>
-          <div className="flex-1" />
-          <button className="w-7 h-7 flex items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors">
-            <Plus className="h-3.5 w-3.5" />
-          </button>
-        </div>
-
-        {/* Conversations */}
+        {/* Conversation items */}
         <ScrollArea className="flex-1">
           {isLoading ? (
-            <div className="p-4 space-y-2">
-              {[1, 2, 3, 4].map(i => (
-                <div key={i} className="animate-pulse flex items-center gap-3 px-3 py-3">
-                  <div className="w-10 h-10 rounded-full bg-muted" />
-                  <div className="flex-1 space-y-2">
-                    <div className="h-3.5 bg-muted rounded w-28" />
-                    <div className="h-3 bg-muted rounded w-44" />
-                  </div>
-                </div>
-              ))}
+            <div className="flex items-center justify-center py-16">
+              <Loader2 className="w-5 h-5 animate-spin text-primary" />
             </div>
           ) : !filteredConvos?.length ? (
             <div className="py-16 text-center">
-              <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mx-auto mb-3">
-                <Inbox className="h-5 w-5 text-muted-foreground" />
-              </div>
-              <p className="text-sm font-medium text-foreground mb-1">{t('inbox.noMessages')}</p>
-              <p className="text-xs text-muted-foreground">Conversations will appear here</p>
+              <MessageSquare className="w-10 h-10 mx-auto mb-3 text-muted-foreground/20" />
+              <p className="text-xs text-muted-foreground">{t('inbox.noMessages') || 'No conversations'}</p>
             </div>
           ) : (
             filteredConvos.map(conv => {
               const isActive = selectedId === conv.id;
               const name = conv.contacts?.name || conv.contacts?.email || conv.subject || `#${conv.id.slice(0, 8)}`;
-              const unread = conv.status === 'open';
+              const hasUnread = conv.status === 'open';
+
               return (
-                <button
+                <div
                   key={conv.id}
+                  onClick={() => { setSelectedId(conv.id); setShowMobileList(false); }}
                   className={cn(
-                    'w-full text-start flex items-start gap-3 px-4 py-3.5 transition-colors border-b border-border/30',
-                    isActive ? 'bg-primary/5 border-s-2 border-s-primary' : 'hover:bg-muted/30'
+                    'group/item px-3 py-3.5 cursor-pointer transition-all border-b border-border/30',
+                    isActive
+                      ? 'bg-primary/[0.08] border-s-2 border-s-primary'
+                      : hasUnread
+                        ? 'bg-primary/[0.03] hover:bg-primary/[0.06]'
+                        : 'hover:bg-secondary/50'
                   )}
-                  onClick={() => setSelectedId(conv.id)}
+                  dir={dir}
                 >
-                  {/* Avatar */}
-                  <div className="relative">
-                    <div className={cn(
-                      'w-10 h-10 rounded-full shrink-0 flex items-center justify-center text-sm font-semibold',
-                      isActive ? 'bg-primary text-primary-foreground' : 'bg-primary/10 text-primary'
-                    )}>
-                      {conv.contacts?.avatar_url ? (
-                        <img src={conv.contacts.avatar_url} className="w-10 h-10 rounded-full object-cover" alt="" />
-                      ) : (
-                        getInitials(conv.contacts?.name, conv.contacts?.email)
+                  <div className="flex items-start gap-3">
+                    {/* Avatar */}
+                    <div className="relative shrink-0">
+                      <div className={cn(
+                        'w-11 h-11 rounded-full flex items-center justify-center text-sm font-semibold shadow-sm',
+                        isActive ? 'bg-primary text-primary-foreground' : 'bg-primary/10 text-primary'
+                      )}>
+                        {conv.contacts?.avatar_url ? (
+                          <img src={conv.contacts.avatar_url} className="w-11 h-11 rounded-full object-cover" alt="" />
+                        ) : (
+                          getInitials(conv.contacts?.name, conv.contacts?.email)
+                        )}
+                      </div>
+                      {hasUnread && (
+                        <div className="absolute -top-0.5 -end-0.5 w-3 h-3 rounded-full bg-primary border-2 border-card animate-pulse" />
                       )}
                     </div>
-                    {unread && (
-                      <div className="absolute -top-0.5 -end-0.5 w-3 h-3 rounded-full bg-primary border-2 border-card" />
-                    )}
-                  </div>
 
-                  {/* Content */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-2 mb-0.5">
-                      <span className={cn('text-sm truncate', unread ? 'font-semibold text-foreground' : 'font-medium text-foreground')}>
-                        {name}
-                      </span>
-                      <span className="text-[10px] text-muted-foreground shrink-0">
-                        {conv.updated_at ? timeAgo(conv.updated_at) : ''}
-                      </span>
-                    </div>
-                    <p className={cn('text-xs truncate', unread ? 'text-foreground/80' : 'text-muted-foreground')}>
-                      {conv.subject || t('inbox.noMessages')}
-                    </p>
-                    <div className="flex items-center gap-1.5 mt-1">
-                      <Badge className={cn('text-[9px] px-1 py-0 border', statusColors[conv.status ?? 'open'])}>
-                        {conv.status}
-                      </Badge>
+                    {/* Content */}
+                    <div className={cn('flex-1 min-w-0', dir === 'rtl' ? 'text-right' : 'text-left')}>
+                      {/* Row 1: Name + time */}
+                      <div className="flex items-center justify-between mb-0.5">
+                        <span className={cn('text-[13px] truncate', hasUnread ? 'font-semibold text-foreground' : 'font-medium text-foreground/80')}>
+                          {name}
+                        </span>
+                        <span className={cn(
+                          'text-[11px] shrink-0',
+                          dir === 'rtl' ? 'mr-2' : 'ml-2',
+                          hasUnread ? 'text-primary font-semibold' : 'text-muted-foreground'
+                        )} dir="ltr">
+                          {conv.updated_at ? timeAgo(conv.updated_at) : ''}
+                        </span>
+                      </div>
+                      {/* Row 2: Subject */}
+                      <p className={cn('text-[12px] truncate mb-1.5 leading-relaxed', hasUnread ? 'text-foreground font-medium' : 'text-muted-foreground')}>
+                        {conv.subject || t('inbox.noMessages')}
+                      </p>
+                      {/* Row 3: Status badges */}
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className={cn('text-[10px] px-2 py-0.5 rounded-full font-medium border', statusColors[conv.status ?? 'open'])}>
+                          {statusLabels[conv.status ?? 'open']}
+                        </span>
+                        {hasUnread && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-primary/10 text-primary">
+                            {t('inbox.unread') || 'Unread'}
+                          </span>
+                        )}
+                        {conv.assigned_to && (
+                          <span className="text-[10px] text-muted-foreground/50 flex items-center gap-0.5">
+                            <UserCheck className="w-3 h-3" />
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </button>
+                </div>
               );
             })
           )}
         </ScrollArea>
       </div>
 
-      {/* Right panel — message thread or empty state */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {!selectedId ? (
-          <div className="flex-1 flex items-center justify-center bg-background">
-            <div className="text-center">
-              <div className="w-16 h-16 rounded-2xl bg-primary mx-auto mb-4 flex items-center justify-center" style={{ boxShadow: 'var(--shadow-glow)' }}>
-                <MessageSquare className="h-8 w-8 text-primary-foreground" />
-              </div>
-              <h2 className="text-xl font-semibold text-foreground">{platformName || 'Inbox'}</h2>
-              <p className="text-sm text-muted-foreground mt-1">Select a conversation to start replying</p>
+      {/* ═══════ CENTER: Chat Panel ═══════ */}
+      <div className={cn(
+        'flex-1 flex flex-col min-w-0',
+        !selectedId || showMobileList ? 'hidden md:flex' : 'flex'
+      )}>
+        {!selected ? (
+          <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground bg-background">
+            <div className="w-16 h-16 rounded-2xl bg-primary mx-auto mb-4 flex items-center justify-center" style={{ boxShadow: 'var(--shadow-glow)' }}>
+              <MessageCircle className="h-8 w-8 text-primary-foreground" />
             </div>
+            <h2 className="text-lg font-semibold text-foreground">{platformName || 'Inbox'}</h2>
+            <p className="text-sm text-muted-foreground mt-1">{t('inbox.selectConversation') || 'Select a conversation to start replying'}</p>
           </div>
         ) : (
           <>
-            {/* Header */}
-            <div className="px-6 py-3.5 border-b border-border flex items-center justify-between bg-card" style={{ boxShadow: 'var(--shadow-card)' }}>
-              <div className="flex items-center gap-3 min-w-0">
+            {/* ── Chat Header — Desktop ── */}
+            <div className="hidden md:flex px-4 py-2.5 border-b border-border items-center justify-between shrink-0 bg-card/50">
+              <div className="flex items-center gap-2.5">
                 <div className="relative">
-                  <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                    <span className="text-sm font-semibold text-primary">
-                      {getInitials(selected?.contacts?.name, selected?.contacts?.email)}
-                    </span>
+                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                    {selected.contacts?.avatar_url ? (
+                      <img src={selected.contacts.avatar_url} className="w-10 h-10 rounded-full object-cover" alt="" />
+                    ) : (
+                      <span className="text-sm font-semibold text-primary">
+                        {getInitials(selected.contacts?.name, selected.contacts?.email)}
+                      </span>
+                    )}
                   </div>
-                  <div className={cn('absolute -bottom-0.5 -end-0.5 w-2.5 h-2.5 rounded-full border-2 border-card', statusDots[selected?.status ?? 'open'])} />
+                  <div className={cn('absolute -bottom-0.5 -end-0.5 w-2.5 h-2.5 rounded-full border-2 border-card', statusDots[selected.status ?? 'open'])} />
                 </div>
-                <div className="min-w-0">
-                  <h3 className="text-sm font-semibold text-foreground truncate">
-                    {selected?.contacts?.name || selected?.subject || `#${selectedId.slice(0, 8)}`}
-                  </h3>
-                  <p className="text-xs text-muted-foreground truncate">{selected?.contacts?.email}</p>
+                <div>
+                  <div className="text-[13px] font-bold text-foreground">
+                    {selected.contacts?.name || selected.subject || `#${selectedId.slice(0, 8)}`}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground">{selected.contacts?.email}</div>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <Badge className={cn('text-[10px] border', statusColors[selected?.status ?? 'open'])}>
-                  {selected?.status}
+              <div className="flex items-center gap-1.5">
+                <Badge className={cn('text-[10px] border', statusColors[selected.status ?? 'open'])}>
+                  {statusLabels[selected.status ?? 'open']}
                 </Badge>
-                {selected?.status === 'open' && (
-                  <Button size="sm" variant="outline" className="gap-1.5 text-xs h-8 rounded-lg" onClick={() => updateConv.mutate({ id: selectedId, status: 'resolved' })}>
-                    <CheckCircle className="h-3.5 w-3.5" />
-                    {t('inbox.resolve')}
+                {selected.status === 'open' && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => updateConv.mutate({ id: selectedId, status: 'resolved' })}
+                    className="h-7 px-2.5 text-[10px] font-semibold bg-success/10 border-success/20 text-success hover:bg-success/20"
+                  >
+                    <CheckCircle2 className={cn('w-3 h-3', dir === 'rtl' ? 'ml-1' : 'mr-1')} />
+                    {t('inbox.resolve') || 'Resolve'}
                   </Button>
                 )}
-                {selected?.status === 'resolved' && (
-                  <Button size="sm" variant="outline" className="text-xs h-8 rounded-lg" onClick={() => updateConv.mutate({ id: selectedId, status: 'open' })}>
-                    {t('inbox.reopen')}
+                {selected.status === 'resolved' && (
+                  <Button size="sm" variant="outline" className="text-xs h-7" onClick={() => updateConv.mutate({ id: selectedId, status: 'open' })}>
+                    {t('inbox.reopen') || 'Reopen'}
                   </Button>
                 )}
-                <Button size="icon" variant="ghost" className="h-8 w-8">
-                  <MoreHorizontal className="h-4 w-4" />
-                </Button>
+                <button
+                  onClick={() => setShowSidebar(!showSidebar)}
+                  className={cn(
+                    'p-1.5 rounded-md transition-colors',
+                    showSidebar ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
+                  )}
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                </button>
+                <button className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors">
+                  <MoreHorizontal className="w-3.5 h-3.5" />
+                </button>
               </div>
             </div>
 
-            {/* Messages */}
-            <ScrollArea className="flex-1 bg-background">
-              <div className="max-w-3xl mx-auto p-6 space-y-3">
-                {rawMessages?.map(msg => (
-                  <div
-                    key={msg.id}
-                    className={cn(
-                      'max-w-[75%] rounded-2xl px-4 py-2.5 text-sm transition-all',
-                      msg.sender_type === 'agent'
-                        ? 'ms-auto bg-primary text-primary-foreground rounded-br-md'
-                        : 'bg-card border border-border rounded-bl-md'
-                    )}
-                    style={{ boxShadow: msg.sender_type === 'agent' ? undefined : 'var(--shadow-card)' }}
-                  >
-                    <p className="leading-relaxed">{msg.body}</p>
-                    <p className={cn(
-                      'text-[10px] mt-1',
-                      msg.sender_type === 'agent' ? 'opacity-70' : 'text-muted-foreground'
-                    )}>
-                      {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </p>
-                  </div>
-                ))}
-                <div ref={messagesEndRef} />
+            {/* ── Chat Header — Mobile ── */}
+            <div className="md:hidden flex items-center gap-2 px-3 py-2.5 bg-card/60 border-b border-border/50 shrink-0">
+              <button onClick={() => { setSelectedId(null); setShowMobileList(true); }} className="p-1.5 rounded-xl hover:bg-secondary text-muted-foreground transition-colors">
+                {dir === 'rtl' ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
+              </button>
+              <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                <span className="text-sm font-semibold text-primary">
+                  {getInitials(selected.contacts?.name, selected.contacts?.email)}
+                </span>
               </div>
-            </ScrollArea>
+              <div className="flex-1 min-w-0">
+                <div className="text-[13px] font-bold text-foreground truncate">
+                  {selected.contacts?.name || selected.subject || `#${selectedId.slice(0, 8)}`}
+                </div>
+                <div className="text-[10px] text-muted-foreground flex items-center gap-1">
+                  <span className={cn('px-1.5 py-0.5 rounded-full text-[9px] font-medium border', statusColors[selected.status ?? 'open'])}>
+                    {statusLabels[selected.status ?? 'open']}
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-1">
+                {selected.status === 'open' && (
+                  <button onClick={() => updateConv.mutate({ id: selectedId, status: 'resolved' })} className="p-2 rounded-xl text-success hover:bg-success/10 transition-colors">
+                    <CheckCircle2 className="w-5 h-5" />
+                  </button>
+                )}
+                <button onClick={() => setShowSidebar(!showSidebar)} className="p-2 rounded-xl text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors">
+                  <Eye className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
 
-            {/* Input */}
-            <div className="px-6 py-4 border-t border-border bg-card">
-              <div className="flex items-center gap-3 max-w-3xl mx-auto">
-                <Input
-                  placeholder={t('inbox.typeMessage')}
+            {/* ── Messages Area ── */}
+            <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 bg-background" ref={messagesContainerRef}>
+              {rawMessages?.map(msg => {
+                const isAgent = msg.sender_type === 'agent';
+                return (
+                  <div key={msg.id} className={cn('flex gap-2.5 group', isAgent ? 'flex-row' : 'flex-row-reverse')}>
+                    {/* Avatar */}
+                    {isAgent ? (
+                      <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-1 bg-primary/15 text-primary shadow-sm">
+                        <Bot className="w-4 h-4" />
+                      </div>
+                    ) : (
+                      <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-1 bg-secondary text-secondary-foreground shadow-sm">
+                        <User className="w-4 h-4" />
+                      </div>
+                    )}
+                    <div className="max-w-[75%]">
+                      <div className={cn('text-[10px] text-muted-foreground mb-0.5', isAgent ? '' : 'text-start')}>
+                        {isAgent ? (t('inbox.support') || 'Support') : (selected?.contacts?.name || t('inbox.visitor') || 'Visitor')}
+                        <span className="mx-1 opacity-40">•</span>
+                        {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </div>
+                      <div className={cn(
+                        'rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed',
+                        isAgent
+                          ? 'bg-primary/10 text-foreground rounded-es-sm'
+                          : 'bg-secondary text-foreground rounded-ee-sm'
+                      )}>
+                        <p>{msg.body}</p>
+                      </div>
+                      {/* Copy action */}
+                      <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1 mt-0.5">
+                        <button
+                          onClick={() => { navigator.clipboard.writeText(msg.body); toast({ title: 'Copied!' }); }}
+                          className="text-muted-foreground hover:text-foreground p-0.5 rounded"
+                        >
+                          <Copy className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              <div ref={messagesEndRef} />
+            </div>
+
+            {/* ── Input Area ── */}
+            <div className="border-t border-border px-3 py-2.5 bg-card/50 shrink-0" dir={dir}>
+              <div className={cn(
+                'flex gap-2 items-end rounded-xl border p-1.5 transition-colors border-border bg-secondary/30'
+              )}>
+                <button className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors shrink-0">
+                  <Paperclip className="w-4 h-4" />
+                </button>
+                <Textarea
+                  placeholder={t('inbox.typeMessage') || 'Type a message...'}
                   value={message}
                   onChange={e => setMessage(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSend()}
-                  className="flex-1 rounded-xl border-border h-10 text-sm"
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSend();
+                    }
+                  }}
+                  className="min-h-[36px] max-h-24 resize-none border-0 bg-transparent text-[15px] focus-visible:ring-0 p-1"
+                  rows={1}
+                  dir={dir}
                 />
                 <Button
                   onClick={handleSend}
-                  disabled={sendMessage.isPending || !message.trim()}
                   size="icon"
-                  className="h-10 w-10 rounded-xl shrink-0"
+                  disabled={!message.trim() || sendMessage.isPending}
+                  className="h-9 w-9 rounded-lg shrink-0"
                 >
-                  <Send className="h-4 w-4" />
+                  {sendMessage.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                 </Button>
+              </div>
+              <div className="text-[9px] text-muted-foreground/50 mt-1">
+                {t('inbox.enterToSend') || 'Enter to send · Shift+Enter for new line'}
               </div>
             </div>
           </>
         )}
       </div>
+
+      {/* ═══════ RIGHT: Contact Sidebar ═══════ */}
+      {selected && showSidebar && (
+        <div className={cn(
+          'hidden lg:flex w-[280px] border-s border-border flex-col bg-card/40 shrink-0 overflow-hidden'
+        )}>
+          {/* Sidebar tabs */}
+          <div className="flex border-b border-border bg-card/60">
+            {([
+              { id: 'info' as SidebarTab, label: t('inbox.info') || 'Info', icon: User },
+              { id: 'activity' as SidebarTab, label: t('inbox.activity') || 'Activity', icon: Clock },
+            ]).map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setSidebarTab(tab.id)}
+                className={cn(
+                  'flex-1 flex items-center justify-center gap-1.5 py-2.5 text-[11px] font-semibold transition-all border-b-2',
+                  sidebarTab === tab.id
+                    ? 'border-primary text-primary bg-primary/5'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
+                )}
+              >
+                <tab.icon className="w-3.5 h-3.5" />
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          <ScrollArea className="flex-1">
+            {sidebarTab === 'info' && (
+              <div className="p-3 space-y-2.5" dir={dir}>
+                {/* Contact Hero */}
+                <div className="rounded-xl bg-gradient-to-b from-primary/5 to-transparent border border-border/50 p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="relative shrink-0">
+                      <div className="w-12 h-12 rounded-xl bg-secondary ring-2 ring-primary/20 flex items-center justify-center text-sm font-bold text-secondary-foreground overflow-hidden">
+                        {selected.contacts?.avatar_url ? (
+                          <img src={selected.contacts.avatar_url} className="w-full h-full object-cover" alt="" />
+                        ) : (
+                          getInitials(selected.contacts?.name, selected.contacts?.email)
+                        )}
+                      </div>
+                      <div className={cn(
+                        'absolute -bottom-0.5 -end-0.5 w-2.5 h-2.5 rounded-full border-2 border-card',
+                        statusDots[selected.status ?? 'open']
+                      )} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <h3 className="text-sm font-bold text-foreground truncate">
+                        {selected.contacts?.name || `#${selectedId?.slice(0, 8)}`}
+                      </h3>
+                      <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+                        <span className={cn('text-[9px] px-1.5 py-0.5 rounded-full border font-medium', statusColors[selected.status ?? 'open'])}>
+                          {statusLabels[selected.status ?? 'open']}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Contact Details */}
+                <div className="rounded-xl border border-border/50 bg-card/60 divide-y divide-border/20">
+                  {selected.contacts?.email && (
+                    <div className="flex items-center gap-2.5 px-3 py-2.5 group/row hover:bg-secondary/20">
+                      <Mail className="w-3.5 h-3.5 text-primary shrink-0" />
+                      <span className="text-[11px] text-foreground truncate flex-1 font-medium" dir="ltr">{selected.contacts.email}</span>
+                      <button
+                        onClick={() => { navigator.clipboard.writeText(selected.contacts?.email || ''); toast({ title: 'Copied!' }); }}
+                        className="opacity-0 group-hover/row:opacity-100 text-muted-foreground hover:text-foreground"
+                      >
+                        <Copy className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Stats */}
+                <div className="rounded-xl border border-border/50 bg-card/60 p-2.5">
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <div className="bg-secondary/30 rounded-lg py-2 px-2 text-center border border-border/20">
+                      <div className="text-base font-extrabold text-foreground">{rawMessages?.length || 0}</div>
+                      <div className="text-[9px] text-muted-foreground">{t('inbox.messages') || 'Messages'}</div>
+                    </div>
+                    <div className="bg-secondary/30 rounded-lg py-2 px-2 text-center border border-border/20">
+                      <div className="text-xs font-extrabold text-foreground">{selected.created_at ? timeAgo(selected.created_at) : '—'}</div>
+                      <div className="text-[9px] text-muted-foreground">{t('inbox.duration') || 'Duration'}</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Tags */}
+                {selected.tags && selected.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {selected.tags.map((tag: string) => (
+                      <span key={tag} className="text-xs px-2 py-1 rounded-lg bg-secondary/40 text-muted-foreground border border-border/40 font-medium">
+                        <Hash className="w-3 h-3 inline text-primary/50" />{tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {/* Priority + Assign */}
+                <div className="rounded-xl border border-border/50 bg-card/60 overflow-hidden">
+                  <div className="px-3 py-2 border-b border-border/30 bg-secondary/15">
+                    <h4 className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">{t('inbox.details') || 'Details'}</h4>
+                  </div>
+                  <div className="divide-y divide-border/20">
+                    <div className="flex items-center justify-between px-3 py-2">
+                      <span className="text-[11px] text-muted-foreground">{t('inbox.priority') || 'Priority'}</span>
+                      <span className={cn('text-[11px] font-medium capitalize', priorityColors[selected.priority ?? 'normal'])}>
+                        {selected.priority ?? 'normal'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between px-3 py-2">
+                      <span className="text-[11px] text-muted-foreground">{t('inbox.status') || 'Status'}</span>
+                      <span className="text-[11px] font-medium text-foreground capitalize">{selected.status}</span>
+                    </div>
+                    <div className="flex items-center justify-between px-3 py-2">
+                      <span className="text-[11px] text-muted-foreground">{t('inbox.created') || 'Created'}</span>
+                      <span className="text-[11px] font-medium text-foreground" dir="ltr">
+                        {selected.created_at ? new Date(selected.created_at).toLocaleDateString() : '—'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {sidebarTab === 'activity' && (
+              <div className="p-3" dir={dir}>
+                <div className="py-12 text-center text-xs text-muted-foreground">
+                  {t('inbox.noActivity') || 'No activity recorded yet'}
+                </div>
+              </div>
+            )}
+          </ScrollArea>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useWidgetSettings, useUpdateWidgetSettings } from '@/hooks/useWidgetSettings';
 import { useBrandingContext } from '@/features/branding/BrandingContext';
+import { usePlatformDomains } from '@/hooks/usePlatformBranding';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { Copy, Check, Code, ExternalLink, Globe, Info, Palette, Settings, Shield, Eye, MessageSquare } from 'lucide-react';
+import { Copy, Check, Code, ExternalLink, Globe, Info, Palette, Settings, Shield, Eye, MessageSquare, Bug, Link2 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 
 function normalizeDomainInput(input: string): string {
@@ -32,31 +33,51 @@ export default function WidgetPage() {
   const workspace = useCurrentWorkspace();
   const { data: widget, isLoading } = useWidgetSettings(workspace?.id);
   const { branding, platformName } = useBrandingContext();
+  const { data: platformDomains } = usePlatformDomains();
   const updateWidget = useUpdateWidgetSettings(workspace?.id);
-  const [copied, setCopied] = useState(false);
+  const [copiedVariant, setCopiedVariant] = useState<'window' | 'script' | null>(null);
   const [newDomain, setNewDomain] = useState('');
   const [domainError, setDomainError] = useState('');
 
-  const widgetBaseUrl = branding?.widget_base_url || window.location.origin;
+  const widgetPublicBaseUrl = branding?.widget_public_base_url || branding?.widget_base_url || platformDomains?.widget_base_url || platformDomains?.public_base_url || window.location.origin;
+  const widgetLoaderBaseUrl = branding?.widget_loader_base_url || branding?.widget_base_url || platformDomains?.widget_base_url || widgetPublicBaseUrl;
+  const widgetAssetBaseUrl = branding?.widget_base_url || widgetLoaderBaseUrl;
+  const widgetApiBaseUrl = branding?.widget_api_base_url || platformDomains?.api_base_url || '';
   const primaryColor = widget?.primary_color || branding?.primary_color || '#3B82F6';
 
-  const embedCode = `<script type="text/javascript">
+  const windowEmbedCode = `<script type="text/javascript">
   window.__gs = [];
   window.__gs_id = "${workspace?.id || 'YOUR_WORKSPACE_ID'}";
+  window.__gs_api_base = "${widgetApiBaseUrl || 'https://api.example.com'}";
   (function(){
     var d = document;
     var s = d.createElement("script");
-    s.src = "${widgetBaseUrl}/widget/loader.js";
+    s.src = "${widgetLoaderBaseUrl || 'https://widget.example.com'}/widget/loader.js";
+    s.setAttribute("data-asset-base", "${widgetAssetBaseUrl || 'https://widget.example.com'}");
     s.async = 1;
     d.getElementsByTagName("head")[0].appendChild(s);
   })();
 </script>`;
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(embedCode);
-    setCopied(true);
+  const scriptTagEmbedCode = `<script
+  src="${widgetLoaderBaseUrl || 'https://widget.example.com'}/widget/loader.js"
+  data-workspace-id="${workspace?.id || 'YOUR_WORKSPACE_ID'}"
+  data-api-base="${widgetApiBaseUrl || 'https://api.example.com'}"
+  data-asset-base="${widgetAssetBaseUrl || 'https://widget.example.com'}"
+  async
+></script>`;
+
+  const embedPreview = useMemo(() => ({
+    loader: `${widgetLoaderBaseUrl || '—'}/widget/loader.js`,
+    api: widgetApiBaseUrl || '—',
+    asset: widgetAssetBaseUrl || '—',
+  }), [widgetApiBaseUrl, widgetAssetBaseUrl, widgetLoaderBaseUrl]);
+
+  const handleCopy = (variant: 'window' | 'script') => {
+    navigator.clipboard.writeText(variant === 'window' ? windowEmbedCode : scriptTagEmbedCode);
+    setCopiedVariant(variant);
     toast({ title: t('common.copied') });
-    setTimeout(() => setCopied(false), 2000);
+    setTimeout(() => setCopiedVariant(null), 2000);
   };
 
   const handleToggle = (field: string, value: boolean) => {
@@ -115,6 +136,7 @@ export default function WidgetPage() {
               <TabsTrigger value="appearance" className="gap-1.5 text-xs"><Palette className="h-3.5 w-3.5" />Appearance</TabsTrigger>
               <TabsTrigger value="behavior" className="gap-1.5 text-xs"><Settings className="h-3.5 w-3.5" />Behavior</TabsTrigger>
               <TabsTrigger value="domains" className="gap-1.5 text-xs"><Shield className="h-3.5 w-3.5" />Domains</TabsTrigger>
+              <TabsTrigger value="deployment" className="gap-1.5 text-xs"><Link2 className="h-3.5 w-3.5" />Deployment</TabsTrigger>
               <TabsTrigger value="install" className="gap-1.5 text-xs"><Code className="h-3.5 w-3.5" />Install</TabsTrigger>
             </TabsList>
 
@@ -275,8 +297,57 @@ export default function WidgetPage() {
               </Card>
             </TabsContent>
 
+            <TabsContent value="deployment">
+              <Card className="card-elevated">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Link2 className="h-4 w-4" /> Widget deployment settings
+                  </CardTitle>
+                  <CardDescription>
+                    These values are controlled from workspace branding and platform domains. Assets always load from the widget domain, API calls always go to the API domain.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label className="text-xs font-medium">Widget Public Base URL</Label>
+                      <Input value={widgetPublicBaseUrl || ''} readOnly />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs font-medium">Widget Loader Base URL</Label>
+                      <Input value={widgetLoaderBaseUrl || ''} readOnly />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs font-medium">Widget Asset Base URL</Label>
+                      <Input value={widgetAssetBaseUrl || ''} readOnly />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs font-medium">Widget API Base URL</Label>
+                      <Input value={widgetApiBaseUrl || ''} readOnly />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between rounded-lg border border-border bg-muted/30 px-4 py-3">
+                    <div className="space-y-0.5">
+                      <Label className="text-sm flex items-center gap-2"><Bug className="h-3.5 w-3.5" /> Debug mode</Label>
+                      <p className="text-xs text-muted-foreground">Temporary loader/runtime console logs for bootstrap and asset issues.</p>
+                    </div>
+                    <Switch checked={widget?.debug_mode ?? false} onCheckedChange={v => handleToggle('debug_mode', v)} />
+                  </div>
+
+                  <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-2 text-sm">
+                    <p className="font-medium text-foreground">Resolution summary</p>
+                    <p className="text-muted-foreground">Loader URL: <span className="font-mono text-foreground">{embedPreview.loader}</span></p>
+                    <p className="text-muted-foreground">API base: <span className="font-mono text-foreground">{embedPreview.api}</span></p>
+                    <p className="text-muted-foreground">Asset base: <span className="font-mono text-foreground">{embedPreview.asset}</span></p>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
             {/* ─── Install ─── */}
             <TabsContent value="install">
+              <div className="space-y-4">
               <Card className="card-elevated">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base flex items-center gap-2">
@@ -284,10 +355,10 @@ export default function WidgetPage() {
                   </CardTitle>
                   <CardDescription>
                     {t('widget.installInstructions')}
-                    {branding?.widget_base_url && (
+                    {widgetLoaderBaseUrl && (
                       <span className="flex items-center gap-1 mt-1 text-xs">
                         <ExternalLink className="h-3 w-3" />
-                        Widget URL: {branding.widget_base_url}
+                        Loader URL: {widgetLoaderBaseUrl}
                       </span>
                     )}
                   </CardDescription>
@@ -295,21 +366,44 @@ export default function WidgetPage() {
                 <CardContent>
                   <div className="relative">
                     <pre className="bg-muted rounded-lg p-4 text-xs overflow-x-auto font-mono whitespace-pre border border-border">
-                      {embedCode}
+                      {windowEmbedCode}
                     </pre>
-                    <Button size="sm" variant="outline" className="absolute top-2 end-2" onClick={handleCopy}>
-                      {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                      <span className="ms-1 text-xs">{copied ? t('common.copied') : t('common.copy')}</span>
+                    <Button size="sm" variant="outline" className="absolute top-2 end-2" onClick={() => handleCopy('window')}>
+                      {copiedVariant === 'window' ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                      <span className="ms-1 text-xs">{copiedVariant === 'window' ? t('common.copied') : t('common.copy')}</span>
                     </Button>
                   </div>
-                  {!branding?.widget_base_url && (
+                </CardContent>
+              </Card>
+
+              <Card className="card-elevated">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Code className="h-4 w-4" /> Script tag version
+                  </CardTitle>
+                  <CardDescription>
+                    Use this version if you prefer a single script tag with explicit API and asset bases.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="relative">
+                    <pre className="bg-muted rounded-lg p-4 text-xs overflow-x-auto font-mono whitespace-pre border border-border">
+                      {scriptTagEmbedCode}
+                    </pre>
+                    <Button size="sm" variant="outline" className="absolute top-2 end-2" onClick={() => handleCopy('script')}>
+                      {copiedVariant === 'script' ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                      <span className="ms-1 text-xs">{copiedVariant === 'script' ? t('common.copied') : t('common.copy')}</span>
+                    </Button>
+                  </div>
+                  {!widgetLoaderBaseUrl && (
                     <p className="text-xs text-warning mt-3 flex items-center gap-1.5">
                       <Info className="h-3.5 w-3.5" />
-                      Widget Base URL not configured. Go to Settings → Branding for production.
+                      Widget deployment URLs are not configured yet. Set them in Branding and platform domain settings before going live.
                     </p>
                   )}
                 </CardContent>
               </Card>
+              </div>
             </TabsContent>
           </Tabs>
         </div>

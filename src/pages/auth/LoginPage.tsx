@@ -52,11 +52,11 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex" dir={dir}>
+    <div className="fixed inset-0 flex" dir={dir}>
       {/* Left side — Form */}
-      <div className="flex-1 flex flex-col bg-background">
+      <div className={`flex-1 flex flex-col bg-background overflow-y-auto ${isRtl ? 'order-2' : 'order-1'}`}>
         {/* Top bar */}
-        <div className="flex items-center justify-between px-8 py-5">
+        <div className="flex items-center justify-between px-8 py-5 shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center">
               <span className="text-sm font-black text-primary-foreground">{brandLetter}</span>
@@ -108,7 +108,7 @@ export default function LoginPage() {
                     onChange={(e) => setPassword(e.target.value)}
                     required
                     dir="ltr"
-                    className={`h-12 text-left bg-background border-border ${isRtl ? 'pr-11' : 'pr-11'}`}
+                    className="h-12 text-left bg-background border-border pr-11"
                   />
                   <button
                     type="button"
@@ -145,23 +145,33 @@ export default function LoginPage() {
       </div>
 
       {/* Right side — Illustration panel (hidden on mobile) */}
-      <div className="hidden lg:flex w-[480px] xl:w-[540px] relative overflow-hidden bg-gradient-to-br from-primary/90 via-primary to-[hsl(var(--primary)/0.8)]">
-        {/* Decorative circles */}
-        <div className="absolute -top-20 -right-20 w-72 h-72 rounded-full bg-white/5" />
-        <div className="absolute -bottom-32 -left-16 w-96 h-96 rounded-full bg-white/5" />
-        <div className="absolute top-1/4 right-10 w-40 h-40 rounded-full bg-white/5" />
+      <div className={`hidden lg:flex w-[42%] xl:w-[45%] relative overflow-hidden ${isRtl ? 'order-1' : 'order-2'}`}
+        style={{ background: 'linear-gradient(135deg, hsl(221 83% 53%), hsl(250 80% 55%), hsl(221 83% 45%))' }}
+      >
+        {/* Decorative blurred shapes */}
+        <div className="absolute -top-24 -right-24 w-80 h-80 rounded-full bg-white/10 blur-3xl" />
+        <div className="absolute bottom-0 -left-20 w-[500px] h-[500px] rounded-full bg-white/5 blur-2xl" />
+        <div className="absolute top-1/3 right-16 w-48 h-48 rounded-full bg-white/8 blur-xl" />
 
-        <div className="relative z-10 flex flex-col justify-center items-center p-10 text-center w-full">
-          <div className="space-y-6 max-w-sm">
-            <h2 className="text-2xl xl:text-3xl font-bold text-primary-foreground leading-tight">
+        {/* Grid pattern overlay */}
+        <div className="absolute inset-0 opacity-[0.03]"
+          style={{
+            backgroundImage: 'radial-gradient(circle, white 1px, transparent 1px)',
+            backgroundSize: '24px 24px',
+          }}
+        />
+
+        <div className="relative z-10 flex flex-col justify-center items-center p-12 text-center w-full">
+          <div className="space-y-5 max-w-md">
+            <h2 className="text-3xl xl:text-4xl font-bold text-white leading-tight">
               {t('auth.loginPromoTitle')}
             </h2>
-            <p className="text-primary-foreground/80 text-sm leading-relaxed">
+            <p className="text-white/70 text-base leading-relaxed">
               {t('auth.loginPromoSubtitle')}
             </p>
           </div>
 
-          <div className="mt-8 w-full max-w-[400px] rounded-2xl overflow-hidden shadow-2xl ring-1 ring-white/10">
+          <div className="mt-10 w-full max-w-md rounded-2xl overflow-hidden shadow-2xl ring-1 ring-white/20 transform hover:scale-[1.02] transition-transform duration-500">
             <img
               src={loginIllustration}
               alt="Platform preview"
@@ -169,6 +179,15 @@ export default function LoginPage() {
               width={960}
               height={1080}
             />
+          </div>
+
+          {/* Feature pills */}
+          <div className="mt-8 flex flex-wrap justify-center gap-2">
+            {['Live Chat', 'Smart Inbox', 'Analytics', 'Automation'].map((feature) => (
+              <span key={feature} className="px-3 py-1.5 text-xs font-medium text-white/90 bg-white/10 rounded-full backdrop-blur-sm border border-white/10">
+                {feature}
+              </span>
+            ))}
           </div>
         </div>
       </div>

@@ -1,5 +1,6 @@
 // ============================================
-// FEATURE GATING MIDDLEWARE — Backend enforcement of plan limits
+// FEATURE GATING MIDDLEWARE — Backend enforcement of plan limits,
+// modules, channels, AI credits. Strictly fail-closed.
 // ============================================
 
 import { Request, Response, NextFunction } from 'express';
@@ -9,11 +10,10 @@ interface EntitlementResult {
   allowed: boolean;
   limit?: number;
   plan?: string;
+  reason?: string;
 }
 
-/**
- * Cache entitlement results for 60 seconds to avoid DB hammering.
- */
+// ─── Cache ───
 const cache = new Map<string, { result: EntitlementResult; expiresAt: number }>();
 const CACHE_TTL = 60_000;
 
@@ -22,18 +22,27 @@ function cacheKey(workspaceId: string, feature: string): string {
 }
 
 export function clearEntitlementCache(workspaceId?: string): void {
-  if (!workspaceId) {
-    cache.clear();
-    return;
-  }
+  if (!workspaceId) { cache.clear(); return; }
   for (const key of cache.keys()) {
     if (key.startsWith(workspaceId)) cache.delete(key);
   }
 }
 
-/**
- * Check entitlement via the DB function.
- */
+function extractWorkspaceId(req: Request): string | undefined {
+  return (req.body as any)?.workspaceId
+    || (req.body as any)?.workspace_id
+    || (req.query as any)?.workspaceId
+    || (req.query as any)?.workspace_id
+    || (req.params as any)?.workspaceId;
+}
+
+function getSupabaseClient(req: Request) {
+  const config = (req as any).serverConfig;
+  if (!config?.supabaseUrl || !config?.supabaseServiceRoleKey) return null;
+  return { client: createClient(config.supabaseUrl, config.supabaseServiceRoleKey), config };
+}
+
+// ─── Core entitlement check ───
 export async function checkEntitlementFromDB(
   supabaseUrl: string,
   serviceRoleKey: string,
@@ -44,123 +53,275 @@ export async function checkEntitlementFromDB(
   const cached = cache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.result;
 
-  const supabase = createClient(supabaseUrl, serviceRoleKey);
-  const { data, error } = await supabase.rpc('check_workspace_entitlement', {
-    _workspace_id: workspaceId,
-    _feature: feature,
-  });
+  try {
+    const supabase = createClient(supabaseUrl, serviceRoleKey);
+    const { data, error } = await supabase.rpc('check_workspace_entitlement', {
+      _workspace_id: workspaceId,
+      _feature: feature,
+    });
 
-  if (error) {
-    console.error('[FeatureGating] RPC error:', error.message);
-    // FAIL-CLOSED: deny on error
-    return { allowed: false, plan: 'error' };
+    if (error) {
+      console.error('[FeatureGating] RPC error:', error.message);
+      return { allowed: false, plan: 'error', reason: 'rpc_error' };
+    }
+
+    const result: EntitlementResult = {
+      allowed: data?.allowed ?? false,
+      limit: data?.limit,
+      plan: data?.plan,
+      reason: data?.reason,
+    };
+
+    cache.set(key, { result, expiresAt: Date.now() + CACHE_TTL });
+    return result;
+  } catch (err: any) {
+    console.error('[FeatureGating] Exception:', err.message);
+    return { allowed: false, plan: 'error', reason: 'exception' };
   }
-
-  const result: EntitlementResult = {
-    allowed: data?.allowed ?? false,
-    limit: data?.limit,
-    plan: data?.plan,
-  };
-
-  cache.set(key, { result, expiresAt: Date.now() + CACHE_TTL });
-  return result;
 }
 
+// ─── Module access (plan + override) ───
+export async function checkModuleAccess(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  workspaceId: string,
+  moduleKey: string
+): Promise<EntitlementResult> {
+  try {
+    const supabase = createClient(supabaseUrl, serviceRoleKey);
+    const { data, error } = await supabase.rpc('check_module_access', {
+      _workspace_id: workspaceId,
+      _module_key: moduleKey,
+    });
+    if (error) {
+      console.error('[ModuleGating] RPC error:', error.message);
+      return { allowed: false, reason: 'rpc_error' };
+    }
+    return { allowed: data?.allowed ?? false, plan: data?.plan, reason: data?.source };
+  } catch {
+    return { allowed: false, reason: 'exception' };
+  }
+}
+
+// ─── Channel access (plan + override) ───
+export async function checkChannelAccess(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  workspaceId: string,
+  channelKey: string
+): Promise<EntitlementResult> {
+  try {
+    const supabase = createClient(supabaseUrl, serviceRoleKey);
+    const { data, error } = await supabase.rpc('check_channel_access', {
+      _workspace_id: workspaceId,
+      _channel_key: channelKey,
+    });
+    if (error) {
+      console.error('[ChannelGating] RPC error:', error.message);
+      return { allowed: false, reason: 'rpc_error' };
+    }
+    return { allowed: data?.allowed ?? false, plan: data?.plan, reason: data?.source };
+  } catch {
+    return { allowed: false, reason: 'exception' };
+  }
+}
+
+// ─── AI credit deduction (atomic) ───
+export async function deductAICredits(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  workspaceId: string,
+  credits: number = 1
+): Promise<{ success: boolean; credits_used?: number; credits_limit?: number; credits_remaining?: number; reason?: string }> {
+  try {
+    const supabase = createClient(supabaseUrl, serviceRoleKey);
+    const { data, error } = await supabase.rpc('deduct_ai_credits', {
+      _workspace_id: workspaceId,
+      _credits: credits,
+    });
+    if (error) {
+      console.error('[AICredits] RPC error:', error.message);
+      return { success: false, reason: 'rpc_error' };
+    }
+    return data || { success: false, reason: 'no_response' };
+  } catch {
+    return { success: false, reason: 'exception' };
+  }
+}
+
+// ─── Increment usage counter ───
+export async function incrementUsage(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  workspaceId: string,
+  counter: string,
+  amount: number = 1
+): Promise<void> {
+  try {
+    const supabase = createClient(supabaseUrl, serviceRoleKey);
+    await supabase.rpc('increment_usage_counter', {
+      _workspace_id: workspaceId,
+      _counter_name: counter,
+      _amount: amount,
+    });
+  } catch (err: any) {
+    console.error('[UsageTracking] Error:', err.message);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// Express Middleware Factories
+// ═══════════════════════════════════════════════════════════
+
 /**
- * Express middleware factory — blocks request if feature is not allowed.
- *
- * Usage:
- *   router.post('/ai/chat', requireFeature('ai_assistant'), handler);
- *
- * Expects `workspaceId` in req.body, req.query, or req.params.
+ * Require a feature entitlement from the plan.
  */
 export function requireFeature(feature: string) {
   return async (req: Request, res: Response, next: NextFunction) => {
-    const config = (req as any).serverConfig;
-    if (!config) return next(); // No server config = skip gating
+    const sb = getSupabaseClient(req);
+    if (!sb) return next();
 
-    const workspaceId =
-      (req.body as any)?.workspaceId ||
-      (req.body as any)?.workspace_id ||
-      (req.query as any)?.workspaceId ||
-      (req.query as any)?.workspace_id ||
-      (req.params as any)?.workspaceId;
-
+    const workspaceId = extractWorkspaceId(req);
     if (!workspaceId) {
       return res.status(400).json({ error: 'Missing workspaceId for feature check' });
     }
 
-    const result = await checkEntitlementFromDB(
-      config.supabaseUrl,
-      config.supabaseServiceRoleKey,
-      workspaceId,
-      feature
-    );
+    const result = await checkEntitlementFromDB(sb.config.supabaseUrl, sb.config.supabaseServiceRoleKey, workspaceId, feature);
 
     if (!result.allowed) {
       return res.status(403).json({
         error: 'Feature not available on your current plan',
-        feature,
-        plan: result.plan,
-        upgrade_required: true,
+        feature, plan: result.plan, reason: result.reason, upgrade_required: true,
       });
     }
 
-    // Attach entitlement info to request for downstream use
     (req as any).entitlement = result;
     next();
   };
 }
 
 /**
- * Check a numeric limit (e.g., max agents, max AI credits).
- * `currentUsageFn` is called to get the current usage count.
+ * Require a module to be enabled (plan + admin override).
+ */
+export function requireModule(moduleKey: string) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    const sb = getSupabaseClient(req);
+    if (!sb) return next();
+
+    const workspaceId = extractWorkspaceId(req);
+    if (!workspaceId) {
+      return res.status(400).json({ error: 'Missing workspaceId for module check' });
+    }
+
+    const result = await checkModuleAccess(sb.config.supabaseUrl, sb.config.supabaseServiceRoleKey, workspaceId, moduleKey);
+
+    if (!result.allowed) {
+      return res.status(403).json({
+        error: `Module '${moduleKey}' is not enabled`,
+        module: moduleKey, plan: result.plan, upgrade_required: true,
+      });
+    }
+
+    next();
+  };
+}
+
+/**
+ * Require a channel to be enabled (plan + admin override).
+ */
+export function requireChannel(channelKey: string) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    const sb = getSupabaseClient(req);
+    if (!sb) return next();
+
+    const workspaceId = extractWorkspaceId(req);
+    if (!workspaceId) {
+      return res.status(400).json({ error: 'Missing workspaceId for channel check' });
+    }
+
+    const result = await checkChannelAccess(sb.config.supabaseUrl, sb.config.supabaseServiceRoleKey, workspaceId, channelKey);
+
+    if (!result.allowed) {
+      return res.status(403).json({
+        error: `Channel '${channelKey}' is not available on your plan`,
+        channel: channelKey, upgrade_required: true,
+      });
+    }
+
+    next();
+  };
+}
+
+/**
+ * Require AI credits before allowing AI request. Deducts atomically.
+ */
+export function requireAICredits(credits: number = 1) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    const sb = getSupabaseClient(req);
+    if (!sb) return next();
+
+    const workspaceId = extractWorkspaceId(req);
+    if (!workspaceId) {
+      return res.status(400).json({ error: 'Missing workspaceId for AI credit check' });
+    }
+
+    const result = await deductAICredits(sb.config.supabaseUrl, sb.config.supabaseServiceRoleKey, workspaceId, credits);
+
+    if (!result.success) {
+      return res.status(403).json({
+        error: 'AI credits exhausted or AI not available on your plan',
+        reason: result.reason,
+        credits_used: result.credits_used,
+        credits_limit: result.credits_limit,
+        upgrade_required: true,
+      });
+    }
+
+    (req as any).aiCredits = result;
+    next();
+  };
+}
+
+/**
+ * Check a numeric limit (e.g., max agents) against current usage.
  */
 export function requireLimit(
   feature: string,
   currentUsageFn: (req: Request, workspaceId: string) => Promise<number>
 ) {
   return async (req: Request, res: Response, next: NextFunction) => {
-    const config = (req as any).serverConfig;
-    if (!config) return next();
+    const sb = getSupabaseClient(req);
+    if (!sb) return next();
 
-    const workspaceId =
-      (req.body as any)?.workspaceId ||
-      (req.body as any)?.workspace_id ||
-      (req.query as any)?.workspaceId ||
-      (req.query as any)?.workspace_id ||
-      (req.params as any)?.workspaceId;
-
+    const workspaceId = extractWorkspaceId(req);
     if (!workspaceId) {
       return res.status(400).json({ error: 'Missing workspaceId for limit check' });
     }
 
-    const result = await checkEntitlementFromDB(
-      config.supabaseUrl,
-      config.supabaseServiceRoleKey,
-      workspaceId,
-      feature
-    );
+    const result = await checkEntitlementFromDB(sb.config.supabaseUrl, sb.config.supabaseServiceRoleKey, workspaceId, feature);
 
     if (!result.allowed) {
       return res.status(403).json({
         error: 'Feature not available on your current plan',
-        feature,
-        plan: result.plan,
-        upgrade_required: true,
+        feature, plan: result.plan, upgrade_required: true,
       });
     }
 
-    // If there's a limit, check current usage
     if (result.limit !== undefined && result.limit !== -1) {
-      const currentUsage = await currentUsageFn(req, workspaceId);
+      let currentUsage: number;
+      try {
+        currentUsage = await currentUsageFn(req, workspaceId);
+      } catch {
+        // FAIL-CLOSED: if we can't determine usage, deny
+        return res.status(403).json({
+          error: 'Could not determine current usage',
+          feature, upgrade_required: true,
+        });
+      }
       if (currentUsage >= result.limit) {
         return res.status(403).json({
           error: `Limit reached: ${feature}`,
-          feature,
-          plan: result.plan,
-          limit: result.limit,
-          used: currentUsage,
+          feature, plan: result.plan, limit: result.limit, used: currentUsage,
           upgrade_required: true,
         });
       }
@@ -194,7 +355,6 @@ export async function getWorkspacePlanInfo(
 
   let plan = sub?.billing_plans;
 
-  // Fallback to free plan
   if (!plan || !sub || !['active', 'trialing'].includes(sub.status)) {
     const { data: freePlan } = await supabase
       .from('billing_plans')

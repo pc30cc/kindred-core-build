@@ -1,5 +1,6 @@
 /**
- * AI API Routes — server-side only, all secrets stay on backend
+ * AI API Routes — server-side only, all secrets stay on backend.
+ * Now with AI credit deduction, module gating, and usage tracking.
  */
 
 import { Router } from 'express';
@@ -7,12 +8,13 @@ import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { executeAICompletion, testAIConnection, resolveAIConfig } from '../services/ai/index.js';
 import { logSecurityEvent } from '../middleware/security.js';
+import { requireModule, requireAICredits, incrementUsage } from '../middleware/featureGating.js';
 
 export const aiRouter = Router();
 
 // Rate limit tracking per workspace
 const wsUsageCounters = new Map<string, { count: number; windowStart: number }>();
-const AI_RATE_LIMIT = 60; // requests per minute per workspace
+const AI_RATE_LIMIT = 60;
 const AI_WINDOW = 60_000;
 
 function checkAIRateLimit(workspaceId: string): boolean {
@@ -37,13 +39,14 @@ const completionSchema = z.object({
 
 /**
  * POST /api/ai/complete
- * Execute AI completion through resolved provider.
+ * 1. requireModule('ai_assistant') — checks plan + override
+ * 2. requireAICredits(1) — atomically deducts 1 credit, blocks if exhausted
+ * 3. rate limit + execution
  */
-aiRouter.post('/complete', async (req, res) => {
+aiRouter.post('/complete', requireModule('ai_assistant'), requireAICredits(1), async (req, res) => {
   try {
     const config: ServerConfig = (req as any).serverConfig;
 
-    // Auth check
     const authHeader = req.headers.authorization;
     const token = authHeader?.replace('Bearer ', '');
     if (token !== config.supabaseAnonKey && token !== config.supabaseServiceRoleKey) {
@@ -55,7 +58,6 @@ aiRouter.post('/complete', async (req, res) => {
       return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten().fieldErrors });
     }
 
-    // Rate limit
     if (!checkAIRateLimit(parsed.data.workspaceId)) {
       await logSecurityEvent(req, 'rate_limited', 'warn', {
         endpoint: '/api/ai/complete',
@@ -65,6 +67,10 @@ aiRouter.post('/complete', async (req, res) => {
     }
 
     const result = await executeAICompletion(config, parsed.data);
+
+    // Track usage
+    incrementUsage(config.supabaseUrl, config.supabaseServiceRoleKey, parsed.data.workspaceId, 'ai_requests_count');
+
     return res.json({
       text: result.text,
       model: result.model,
@@ -75,6 +81,7 @@ aiRouter.post('/complete', async (req, res) => {
         totalTokens: result.totalTokens,
       },
       latencyMs: result.latencyMs,
+      credits: (req as any).aiCredits,
     });
   } catch (err: any) {
     console.error('[ai] Completion error:', err.message);
@@ -91,8 +98,7 @@ const testSchema = z.object({
 });
 
 /**
- * POST /api/ai/test
- * Test AI provider connection with a minimal completion.
+ * POST /api/ai/test — Test AI provider connection.
  */
 aiRouter.post('/test', async (req, res) => {
   try {
@@ -122,8 +128,7 @@ aiRouter.post('/test', async (req, res) => {
 });
 
 /**
- * GET /api/ai/config/:workspaceId
- * Get resolved AI provider info (without secrets) for a workspace.
+ * GET /api/ai/config/:workspaceId — Get resolved AI provider info.
  */
 aiRouter.get('/config/:workspaceId', async (req, res) => {
   try {
@@ -144,7 +149,6 @@ aiRouter.get('/config/:workspaceId', async (req, res) => {
       model: aiConfig.model,
       maxTokens: aiConfig.maxTokens,
       temperature: aiConfig.temperature,
-      // Never expose API key
     });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });

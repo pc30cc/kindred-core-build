@@ -23,7 +23,13 @@ export function getRequestOrigin(req: Request): string | null {
 
 export function getBootstrapOrigin(req: Request): string | null {
   const queryOrigin = typeof req.query.origin === 'string' ? req.query.origin : null;
-  return queryOrigin || getRequestOrigin(req);
+  if (queryOrigin) return queryOrigin;
+
+  const requestOrigin = getRequestOrigin(req);
+  if (requestOrigin) return requestOrigin;
+
+  const referer = req.headers.referer;
+  return typeof referer === 'string' && referer.length > 0 ? referer : null;
 }
 
 export function getLoaderAssetBase(req: Request): string | null {
@@ -61,12 +67,28 @@ export function normalizeBaseUrl(input: string | null | undefined): string | nul
 
 export function resolveWidgetAssetBase(options: {
   widgetBaseUrl?: string | null;
+  widgetLoaderBaseUrl?: string | null;
+  widgetPublicBaseUrl?: string | null;
   assetBaseUrl?: string | null;
   loaderAssetBase?: string | null;
 }) {
   return normalizeBaseUrl(options.widgetBaseUrl)
+    || normalizeBaseUrl(options.widgetLoaderBaseUrl)
+    || normalizeBaseUrl(options.widgetPublicBaseUrl)
     || normalizeBaseUrl(options.loaderAssetBase)
     || normalizeBaseUrl(options.assetBaseUrl)
+    || null;
+}
+
+export function resolveWidgetApiBase(options: {
+  widgetApiBaseUrl?: string | null;
+  platformApiBaseUrl?: string | null;
+  requestBaseUrl?: string | null;
+  allowRequestFallback?: boolean;
+}) {
+  return normalizeBaseUrl(options.widgetApiBaseUrl)
+    || normalizeBaseUrl(options.platformApiBaseUrl)
+    || (options.allowRequestFallback ? normalizeBaseUrl(options.requestBaseUrl) : null)
     || null;
 }
 

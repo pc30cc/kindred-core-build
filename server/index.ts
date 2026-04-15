@@ -13,6 +13,7 @@ import { storageRouter } from './routes/storage.js';
 import { cdnRouter } from './routes/cdn.js';
 import { billingRouter } from './routes/billing.js';
 import { adminRouter } from './routes/admin.js';
+import { widgetCorsMiddleware } from './middleware/widgetCors.js';
 import {
   ipBlockMiddleware,
   authRateLimiter,
@@ -59,11 +60,11 @@ app.use('/api/auth', authRateLimiter, authSecurityRouter);
 // Auth email — verification & reset via configured provider
 app.use('/api/auth-email', emailRateLimiter, authEmailRouter);
 
-// Widget — high-traffic rate limit
-app.use('/api/widget', widgetRateLimiter, widgetRouter);
+// Widget — dynamic CORS + rate limit
+app.use('/api/widget', widgetCorsMiddleware(), widgetRateLimiter, widgetRouter);
 
-// Visitor tracking — high-traffic rate limit
-app.use('/api/visitors', visitorRateLimiter, visitorRouter);
+// Visitor tracking — dynamic CORS + rate limit
+app.use('/api/visitors', widgetCorsMiddleware(), visitorRateLimiter, visitorRouter);
 
 // Email — workspace-scoped rate limit
 app.use('/api/email', emailRateLimiter, emailRouter);

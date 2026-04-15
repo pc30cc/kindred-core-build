@@ -14,6 +14,65 @@ export type Database = {
   }
   public: {
     Tables: {
+      account_members: {
+        Row: {
+          account_id: string
+          created_at: string
+          id: string
+          role: string
+          user_id: string
+        }
+        Insert: {
+          account_id: string
+          created_at?: string
+          id?: string
+          role?: string
+          user_id: string
+        }
+        Update: {
+          account_id?: string
+          created_at?: string
+          id?: string
+          role?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "account_members_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      accounts: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          owner_id: string
+          slug: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          owner_id: string
+          slug: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          owner_id?: string
+          slug?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       ai_usage_logs: {
         Row: {
           completion_tokens: number | null
@@ -1844,6 +1903,7 @@ export type Database = {
       }
       workspaces: {
         Row: {
+          account_id: string | null
           created_at: string | null
           default_locale: string | null
           id: string
@@ -1855,6 +1915,7 @@ export type Database = {
           widget_locale: string | null
         }
         Insert: {
+          account_id?: string | null
           created_at?: string | null
           default_locale?: string | null
           id?: string
@@ -1866,6 +1927,7 @@ export type Database = {
           widget_locale?: string | null
         }
         Update: {
+          account_id?: string | null
           created_at?: string | null
           default_locale?: string | null
           id?: string
@@ -1876,7 +1938,15 @@ export type Database = {
           updated_at?: string | null
           widget_locale?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "workspaces_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
@@ -1929,6 +1999,19 @@ export type Database = {
         Args: { _email: string; _ip: string; _window_minutes?: number }
         Returns: number
       }
+      create_workspace_atomic: {
+        Args: {
+          _account_id: string
+          _name: string
+          _slug: string
+          _user_id: string
+        }
+        Returns: string
+      }
+      get_account_role: {
+        Args: { _account_id: string; _user_id: string }
+        Returns: string
+      }
       get_workspace_role: {
         Args: { _user_id: string; _workspace_id: string }
         Returns: Database["public"]["Enums"]["workspace_role"]
@@ -1940,10 +2023,18 @@ export type Database = {
         }
         Returns: boolean
       }
+      is_account_member: {
+        Args: { _account_id: string; _user_id: string }
+        Returns: boolean
+      }
       is_ip_blocked: { Args: { _ip: string }; Returns: boolean }
       is_workspace_member: {
         Args: { _user_id: string; _workspace_id: string }
         Returns: boolean
+      }
+      provision_account_on_signup: {
+        Args: { _user_id: string }
+        Returns: undefined
       }
     }
     Enums: {

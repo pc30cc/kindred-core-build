@@ -1,3 +1,4 @@
+import * as React from 'react';
 import { useI18n } from '@/i18n';
 import type { Locale } from '@/i18n/config';
 import { LOCALE_CONFIG } from '@/i18n/config';
@@ -8,13 +9,20 @@ const LOCALE_LABELS: Record<string, string> = {
   tr: 'Türkçe',
 };
 
-export function LanguageSelector() {
+export const LanguageSelector = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(function LanguageSelector(
+  { className, ...props },
+  ref,
+) {
   const { locale, setLocale } = useI18n();
 
   const locales = Object.keys(LOCALE_CONFIG) as Locale[];
 
   return (
-    <div className="flex items-center justify-center gap-3 flex-wrap">
+    <div
+      ref={ref}
+      className={['flex items-center justify-center gap-3 flex-wrap', className].filter(Boolean).join(' ')}
+      {...props}
+    >
       {locales.map((loc) => (
         <button
           key={loc}
@@ -30,4 +38,4 @@ export function LanguageSelector() {
       ))}
     </div>
   );
-}
+});

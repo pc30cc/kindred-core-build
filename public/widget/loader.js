@@ -18,6 +18,9 @@
 (function() {
   'use strict';
 
+  var LOADER_VERSION = '2026-04-15-build-2';
+  console.log('[Widget] Loader version: ' + LOADER_VERSION);
+
   var GS = window.__gs || [];
   var WORKSPACE_ID = window.__gs_id || null;
   var RESOLVE_BY_ORIGIN = !WORKSPACE_ID;
@@ -219,6 +222,7 @@
 
   function bootstrap() {
     WORKSPACE_ID = getWorkspaceId();
+    RESOLVE_BY_ORIGIN = !WORKSPACE_ID;
     var assetBase = getAssetBase();
     var apiBase = getApiBase();
     var origin = window.location.origin;

@@ -44,6 +44,8 @@ export default function WidgetPage() {
   const widgetAssetBaseUrl = branding?.widget_base_url || widgetLoaderBaseUrl;
   const widgetApiBaseUrl = branding?.widget_api_base_url || platformDomains?.api_base_url || '';
   const primaryColor = widget?.primary_color || branding?.primary_color || '#3B82F6';
+  const loaderVersion = '2026-04-15-build-2';
+  const loaderScriptUrl = `${widgetLoaderBaseUrl || 'https://widget.example.com'}/widget/loader.js?v=${encodeURIComponent(loaderVersion)}`;
 
   const windowEmbedCode = `<script type="text/javascript">
   window.__gs = [];
@@ -52,7 +54,7 @@ export default function WidgetPage() {
   (function(){
     var d = document;
     var s = d.createElement("script");
-    s.src = "${widgetLoaderBaseUrl || 'https://widget.example.com'}/widget/loader.js";
+    s.src = "${loaderScriptUrl}";
     s.setAttribute("data-asset-base", "${widgetAssetBaseUrl || 'https://widget.example.com'}");
     s.async = 1;
     d.getElementsByTagName("head")[0].appendChild(s);
@@ -60,7 +62,7 @@ export default function WidgetPage() {
 </script>`;
 
   const scriptTagEmbedCode = `<script
-  src="${widgetLoaderBaseUrl || 'https://widget.example.com'}/widget/loader.js"
+  src="${loaderScriptUrl}"
   data-workspace-id="${workspace?.id || 'YOUR_WORKSPACE_ID'}"
   data-api-base="${widgetApiBaseUrl || 'https://api.example.com'}"
   data-asset-base="${widgetAssetBaseUrl || 'https://widget.example.com'}"
@@ -68,10 +70,10 @@ export default function WidgetPage() {
 ></script>`;
 
   const embedPreview = useMemo(() => ({
-    loader: `${widgetLoaderBaseUrl || '—'}/widget/loader.js`,
+    loader: loaderScriptUrl,
     api: widgetApiBaseUrl || '—',
     asset: widgetAssetBaseUrl || '—',
-  }), [widgetApiBaseUrl, widgetAssetBaseUrl, widgetLoaderBaseUrl]);
+  }), [loaderScriptUrl, widgetApiBaseUrl, widgetAssetBaseUrl]);
 
   const handleCopy = (variant: 'window' | 'script') => {
     navigator.clipboard.writeText(variant === 'window' ? windowEmbedCode : scriptTagEmbedCode);

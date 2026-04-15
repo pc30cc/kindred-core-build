@@ -22,8 +22,10 @@
         var d = document;
         var s = d.createElement('script');
         var apiBase = '%VITE_API_BASE_URL%';
-        s.src = window.location.origin + '/widget/loader.js';
+        var widgetLoaderVersion = '2026-04-15-build-2';
+        s.src = window.location.origin + '/widget/loader.js?v=' + encodeURIComponent(widgetLoaderVersion);
         s.async = 1;
+        s.setAttribute('data-asset-base', window.location.origin.replace(/\/$/, ''));
         if (apiBase && apiBase.indexOf('%VITE_') !== 0) {
           s.setAttribute('data-api-base', apiBase.replace(/\/$/, ''));
         }

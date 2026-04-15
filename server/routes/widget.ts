@@ -12,6 +12,7 @@ import {
   resolveWidgetAssetBase,
   resolveWorkspaceIdFromOrigin,
 } from '../services/widget/public.js';
+import { getWidgetAssetName, getLoaderVersion } from '../services/widget/manifest.js';
 
 export const widgetRouter = Router();
 
@@ -88,6 +89,10 @@ widgetRouter.get('/config', async (req: Request, res: Response) => {
       loaderAssetBase: getLoaderAssetBase(req),
     });
 
+    const runtimeJsName = getWidgetAssetName('runtime.js');
+    const runtimeCssName = getWidgetAssetName('runtime.css');
+    const loaderVersion = getLoaderVersion();
+
     const widgetConfig = {
       enabled: true,
       workspaceId: resolvedWorkspaceId,
@@ -101,13 +106,14 @@ widgetRouter.get('/config', async (req: Request, res: Response) => {
       welcomeMessage: widget.welcome_message || 'Hello! How can we help you?',
       position: widget.position || 'bottom-right',
       locale: widget.locale || 'en',
+      loaderVersion,
       features: {
         chat: widget.chat_enabled ?? true,
         knowledgeBase: widget.kb_enabled ?? true,
         visitorTracking: widget.visitor_tracking_enabled ?? true,
       },
-      runtimeUrl: assetBase ? `${assetBase}/widget/runtime.js` : null,
-      styleUrl: assetBase ? `${assetBase}/widget/runtime.css` : null,
+      runtimeUrl: assetBase ? `${assetBase}/widget/${runtimeJsName}` : null,
+      styleUrl: assetBase ? `${assetBase}/widget/${runtimeCssName}` : null,
     };
 
     res.json(widgetConfig);

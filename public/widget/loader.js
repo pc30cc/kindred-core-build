@@ -63,150 +63,37 @@
     }
   }
 
-  function getLoaderBase() {
+  function getApiBase() {
     var scripts = document.getElementsByTagName('script');
     for (var i = scripts.length - 1; i >= 0; i--) {
       var src = scripts[i].src || '';
       if (src.indexOf('/widget/loader.js') !== -1) {
+        // Strip /widget/loader.js to get the base URL
         return src.replace(/\/widget\/loader\.js.*$/, '');
       }
     }
     return '';
   }
 
-  function parseUrl(url) {
-    var anchor = document.createElement('a');
-    anchor.href = url;
-    return anchor;
-  }
-
-  function isIpAddress(hostname) {
-    return /^\d{1,3}(\.\d{1,3}){3}$/.test(hostname);
-  }
-
-  function deriveApiBase(loaderBase) {
-    if (!loaderBase) {
-      return '';
-    }
-
-    var parsed = parseUrl(loaderBase);
-    var protocol = parsed.protocol || window.location.protocol;
-    var hostname = parsed.hostname || '';
-    var port = parsed.port ? ':' + parsed.port : '';
-
-    if (!hostname || hostname === 'localhost' || isIpAddress(hostname) || hostname.indexOf('.') === -1) {
-      return loaderBase;
-    }
-
-    if (hostname.indexOf('api.') === 0) {
-      return protocol + '//' + hostname + port;
-    }
-
-    if (hostname.indexOf('www.') === 0) {
-      return protocol + '//api.' + hostname.substring(4) + port;
-    }
-
-    return protocol + '//api.' + hostname + port;
-  }
-
-  function uniqueBases(values) {
-    var result = [];
-    for (var i = 0; i < values.length; i++) {
-      if (values[i] && result.indexOf(values[i]) === -1) {
-        result.push(values[i]);
-      }
-    }
-    return result;
-  }
-
-  function fetchConfig(configBases, workspaceId, origin) {
-    var lastError = null;
-
-    function attempt(index) {
-      if (index >= configBases.length) {
-        return Promise.reject(lastError || new Error('Widget config base not found.'));
-      }
-
-      var base = configBases[index];
-      var configUrl = base + '/api/widget/config?workspace_id=' + encodeURIComponent(workspaceId) + '&origin=' + encodeURIComponent(origin);
-
-      return fetch(configUrl)
-        .then(function(res) {
-          var contentType = res.headers.get('content-type') || '';
-          if (!res.ok) throw new Error('Widget config failed: ' + res.status);
-          if (contentType.indexOf('application/json') === -1) {
-            throw new Error('Widget config returned non-JSON response.');
-          }
-          return res.json();
-        })
-        .then(function(config) {
-          return {
-            apiBase: base,
-            config: config,
-          };
-        })
-        .catch(function(err) {
-          lastError = err;
-          return attempt(index + 1);
-        });
-    }
-
-    return attempt(0);
-  }
-
-  function loadStyle(url) {
-    if (!url || document.querySelector('link[data-gs-widget-style]')) {
-      return;
-    }
-
-    var link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = url;
-    link.setAttribute('data-gs-widget-style', 'true');
-    document.head.appendChild(link);
-  }
-
-  function loadRuntime(url, config) {
-    if (!url) {
-      console.warn('[Widget] Missing runtime URL.');
-      return;
-    }
-
-    var script = document.createElement('script');
-    script.src = url;
-    script.async = true;
-    script.setAttribute('data-gs-widget-runtime', 'true');
-    script.onload = function() {
-      if (window.__gs_runtime) {
-        widget = window.__gs_runtime.init(config);
-        ready = true;
-        processQueue();
-      }
-    };
-    script.onerror = function() {
-      console.warn('[Widget] Failed to load runtime:', url);
-    };
-    document.head.appendChild(script);
-  }
-
   function bootstrap() {
-    var assetBase = getLoaderBase();
-    var apiBase = deriveApiBase(assetBase);
+    var apiBase = getApiBase();
     var origin = window.location.origin;
-    var configBases = uniqueBases([apiBase, assetBase]);
+    var configUrl = apiBase + '/api/widget/config?workspace_id=' + encodeURIComponent(WORKSPACE_ID) + '&origin=' + encodeURIComponent(origin);
 
-    fetchConfig(configBases, WORKSPACE_ID, origin)
-      .then(function(result) {
-        var config = result.config;
-        var resolvedApiBase = result.apiBase;
-
+    fetch(configUrl)
+      .then(function(res) {
+        if (!res.ok) throw new Error('Widget config failed: ' + res.status);
+        return res.json();
+      })
+      .then(function(config) {
         if (!config.enabled) return;
 
-        if (resolvedApiBase && config.features && config.features.visitorTracking) {
+        // Visitor tracking
+        if (config.features && config.features.visitorTracking) {
           var visitorId = localStorage.getItem('__gs_vid') || generateId();
           localStorage.setItem('__gs_vid', visitorId);
 
-          fetch(resolvedApiBase + '/api/visitors/track', {
+          fetch(apiBase + '/api/visitors/track', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -220,16 +107,32 @@
             })
           }).then(function(r) { return r.json(); }).then(function(data) {
             if (data.session_id) {
-              startHeartbeat(resolvedApiBase, config.workspaceId, data.session_id);
+              startHeartbeat(apiBase, config.workspaceId, data.session_id);
             }
           }).catch(function() {});
         }
 
-        var runtimeUrl = assetBase ? assetBase + '/widget/runtime.js' : config.runtimeUrl;
-        var styleUrl = assetBase ? assetBase + '/widget/widget.css' : config.styleUrl;
+        // Load runtime script if available
+        if (config.runtimeUrl) {
+          var script = document.createElement('script');
+          script.src = config.runtimeUrl;
+          script.async = true;
+          script.onload = function() {
+            if (window.__gs_runtime) {
+              widget = window.__gs_runtime.init(config);
+              ready = true;
+              processQueue();
+            }
+          };
+          document.head.appendChild(script);
+        }
 
-        loadStyle(styleUrl);
-        loadRuntime(runtimeUrl, config);
+        if (config.styleUrl) {
+          var link = document.createElement('link');
+          link.rel = 'stylesheet';
+          link.href = config.styleUrl;
+          document.head.appendChild(link);
+        }
       })
       .catch(function(err) {
         console.warn('[Widget] Bootstrap failed:', err.message);

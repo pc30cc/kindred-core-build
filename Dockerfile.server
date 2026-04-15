@@ -8,7 +8,6 @@ RUN npm install
 
 # Copy server source code
 COPY server/ .
-COPY public/widget ./public/widget
 
 EXPOSE 3001
 

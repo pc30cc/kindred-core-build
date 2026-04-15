@@ -43,6 +43,8 @@ visitorRouter.post('/track', async (req: Request, res: Response) => {
       .select('visitor_tracking_enabled, allowed_domains, allow_subdomains')
       .eq('workspace_id', data.workspace_id)
       .single();
+      .eq('workspace_id', data.workspace_id)
+      .single();
 
     if (!widget || !widget.visitor_tracking_enabled) {
       return res.status(403).json({ error: 'Visitor tracking not enabled' });

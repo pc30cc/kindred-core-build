@@ -9,7 +9,6 @@ import { toast } from 'sonner';
 import { Eye, EyeOff, Loader2, ArrowRight } from 'lucide-react';
 import { usePlatformBrandingForLocale } from '@/hooks/usePublicBranding';
 import { LanguageSelector } from '@/components/auth/LanguageSelector';
-import { LoginSupportWidget } from '@/components/auth/LoginSupportWidget';
 import loginIllustration from '@/assets/login-illustration.jpg';
 
 export default function LoginPage() {
@@ -185,13 +184,6 @@ export default function LoginPage() {
           </div>
         </div>
       </div>
-
-      <LoginSupportWidget
-        brandLetter={brandLetter}
-        brandName={brandName}
-        isRtl={isRtl}
-        locale={locale}
-      />
     </div>
   );
 }

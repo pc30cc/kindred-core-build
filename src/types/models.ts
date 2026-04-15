@@ -152,7 +152,6 @@ export interface WidgetSettings {
   workspace_id: string;
   enabled: boolean;
   primary_color: string;
-  secondary_color: string | null;
   launcher_text: string | null;
   welcome_message: string | null;
   logo_url: string | null;
@@ -163,27 +162,6 @@ export interface WidgetSettings {
   kb_enabled: boolean;
   visitor_tracking_enabled: boolean;
   locale: string;
-  // Theme & appearance
-  theme: string;
-  fab_icon: string;
-  fab_shape: string;
-  fab_label: string | null;
-  fab_scale: number;
-  fab_icon_color: string;
-  fab_text_color: string;
-  fab_animation: boolean;
-  fab_help_icon: string;
-  fab_chat_label: string | null;
-  fab_help_label: string | null;
-  auto_open_delay: number;
-  show_logo: boolean;
-  offline_message: string | null;
-  placeholder_text: string | null;
-  greeting_message: string | null;
-  default_mode: string;
-  support_mode: string;
-  widget_language: string;
-  mobile_behavior: string;
 }
 
 export interface KnowledgeBaseArticle {

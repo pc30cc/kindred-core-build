@@ -52,12 +52,12 @@ export async function checkEntitlementFromDB(
 
   if (error) {
     console.error('[FeatureGating] RPC error:', error.message);
-    // Fail-open: allow on error to avoid blocking users
-    return { allowed: true, plan: 'error' };
+    // FAIL-CLOSED: deny on error
+    return { allowed: false, plan: 'error' };
   }
 
   const result: EntitlementResult = {
-    allowed: data?.allowed ?? true,
+    allowed: data?.allowed ?? false,
     limit: data?.limit,
     plan: data?.plan,
   };

@@ -233,14 +233,14 @@ export async function checkEntitlement(
       .eq('slug', 'free')
       .maybeSingle();
 
-    if (!freePlan) return { allowed: true }; // No plans = all features available
+    if (!freePlan) return { allowed: false }; // FAIL-CLOSED: no plans = deny
 
     const entitlements = freePlan.entitlements as Record<string, boolean> || {};
     const limits = freePlan.limits as Record<string, number> || {};
 
     if (feature in entitlements) return { allowed: entitlements[feature] };
     if (feature in limits) return { allowed: true, limit: limits[feature] };
-    return { allowed: false };
+    return { allowed: false }; // FAIL-CLOSED: feature not in plan = deny
   }
 
   // Get plan entitlements
@@ -250,12 +250,12 @@ export async function checkEntitlement(
     .eq('id', sub.plan_id)
     .maybeSingle();
 
-  if (!plan) return { allowed: true };
+  if (!plan) return { allowed: false }; // FAIL-CLOSED: missing plan = deny
 
   const entitlements = plan.entitlements as Record<string, boolean> || {};
   const limits = plan.limits as Record<string, number> || {};
 
   if (feature in entitlements) return { allowed: entitlements[feature] };
   if (feature in limits) return { allowed: true, limit: limits[feature] };
-  return { allowed: true };
+  return { allowed: false }; // FAIL-CLOSED: feature not in plan = deny
 }

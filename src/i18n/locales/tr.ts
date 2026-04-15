@@ -84,6 +84,8 @@ const tr: TranslationKeys = {
     resendCooldown: '{minutes} dk sonra tekrar deneyin',
     loginPromoTitle: 'Tüm görüşmelerinizi tek bir yerden yönetin',
     loginPromoSubtitle: 'Akıllı gelen kutusu, canlı sohbet ve güçlü otomasyon araçlarıyla müşteri desteğini kolaylaştırın.',
+    signupPromoTitle: 'Harika destek sunan binlerce takıma katılın',
+    signupPromoSubtitle: 'Ücretsiz hesabınızı oluşturun ve dakikalar içinde müşterilerinizle bağlantı kurmaya başlayın.',
     emailConfirmLoading: 'E-postanız doğrulanıyor...',
     emailConfirmLoadingDesc: 'Hesabınız doğrulanırken lütfen bekleyin.',
     emailConfirmSuccess: 'E-posta doğrulandı!',

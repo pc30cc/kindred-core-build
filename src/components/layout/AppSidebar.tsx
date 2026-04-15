@@ -68,6 +68,7 @@ export function AppSidebar() {
     { key: 'visitors', path: '/visitors', icon: Eye },
     { key: 'contacts', path: '/contacts', icon: Users },
     { key: 'knowledgeBase', path: '/knowledge-base', icon: BookOpen },
+    { key: 'team', path: '/team', icon: UserCog },
   ] as const;
 
   const bottomNav = [

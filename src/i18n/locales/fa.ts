@@ -371,6 +371,11 @@ const fa: TranslationKeys = {
     permWebhook: 'وبهوک‌ها',
     permWidget: 'تنظیمات ویجت',
     permViewOnly: 'فقط مشاهده',
+    billing: 'مالی',
+    permBillingDashboard: 'داشبورد مالی',
+    permSubscriptions: 'اشتراک‌ها',
+    permInvoices: 'فاکتورها',
+    permPayments: 'پرداخت‌ها',
   },
   email: {
     title: 'ایمیل',

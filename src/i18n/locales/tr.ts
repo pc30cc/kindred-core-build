@@ -371,6 +371,11 @@ const tr: TranslationKeys = {
     permWebhook: 'Webhooklar',
     permWidget: 'Widget Ayarları',
     permViewOnly: 'Sadece İzleme',
+    billing: 'Faturalandırma',
+    permBillingDashboard: 'Faturalandırma Paneli',
+    permSubscriptions: 'Abonelikler',
+    permInvoices: 'Faturalar',
+    permPayments: 'Ödemeler',
   },
   email: {
     title: 'E-posta',

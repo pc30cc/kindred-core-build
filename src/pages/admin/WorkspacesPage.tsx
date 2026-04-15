@@ -26,7 +26,7 @@ export default function AdminWorkspacesPage() {
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState('newest');
   const deferredSearch = useDeferredValue(search);
-  const limit = 25;
+  const [limit, setLimit] = useState(30);
   const { data: workspaces, isLoading } = useAdminWorkspaces(limit, page * limit, deferredSearch, sort);
   const { data: count } = useAdminWorkspaceCount();
 
@@ -91,6 +91,18 @@ export default function AdminWorkspacesPage() {
             <SelectItem value="oldest">Oldest first</SelectItem>
             <SelectItem value="most_members">Most members</SelectItem>
             <SelectItem value="most_active">Most active</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={String(limit)} onValueChange={v => { setLimit(Number(v)); setPage(0); }}>
+          <SelectTrigger className="w-full sm:w-[120px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="10">10 per page</SelectItem>
+            <SelectItem value="20">20 per page</SelectItem>
+            <SelectItem value="30">30 per page</SelectItem>
+            <SelectItem value="50">50 per page</SelectItem>
+            <SelectItem value="100">100 per page</SelectItem>
           </SelectContent>
         </Select>
       </div>

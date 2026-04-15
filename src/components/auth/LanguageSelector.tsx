@@ -9,17 +9,13 @@ const LOCALE_LABELS: Record<string, string> = {
   tr: 'Türkçe',
 };
 
-export const LanguageSelector = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(function LanguageSelector(
-  { className, ...props },
-  ref,
-) {
+export function LanguageSelector({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   const { locale, setLocale } = useI18n();
 
   const locales = Object.keys(LOCALE_CONFIG) as Locale[];
 
   return (
     <div
-      ref={ref}
       className={['flex items-center justify-center gap-3 flex-wrap', className].filter(Boolean).join(' ')}
       {...props}
     >
@@ -38,4 +34,4 @@ export const LanguageSelector = React.forwardRef<HTMLDivElement, React.HTMLAttri
       ))}
     </div>
   );
-});
+}

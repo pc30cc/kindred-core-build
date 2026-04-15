@@ -17,7 +17,10 @@ import { toast } from 'sonner';
 import {
   Users, UserPlus, Shield, Loader2, Copy, Trash2,
   Crown, MoreHorizontal, Mail, Clock, Search, UserCog,
+  Ban, RotateCcw, Calendar,
 } from 'lucide-react';
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL;
 
 const roleColors: Record<string, string> = {
   owner: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
@@ -56,22 +59,42 @@ const rolePermissionKeys: Record<string, string[]> = {
   viewer: ['permViewOnly'],
 };
 
+type ExpirationOption = '10d' | '20d' | '30d' | '1m' | 'none' | 'custom';
+
+function getExpiresAt(option: ExpirationOption, customDate?: string): string | null {
+  const now = new Date();
+  switch (option) {
+    case '10d': return new Date(now.getTime() + 10 * 86400000).toISOString();
+    case '20d': return new Date(now.getTime() + 20 * 86400000).toISOString();
+    case '30d': return new Date(now.getTime() + 30 * 86400000).toISOString();
+    case '1m': {
+      const d = new Date(now);
+      d.setMonth(d.getMonth() + 1);
+      return d.toISOString();
+    }
+    case 'none': return null;
+    case 'custom': return customDate ? new Date(customDate).toISOString() : null;
+    default: return new Date(now.getTime() + 30 * 86400000).toISOString();
+  }
+}
+
 export default function TeamPage() {
   const { t } = useTranslation();
   const { user } = useAuth();
   const { workspace } = useActiveWorkspace();
   const queryClient = useQueryClient();
 
-  const [activeSection, setActiveSection] = useState<'members' | 'roles'>('members');
+  const [activeSection, setActiveSection] = useState<'members' | 'invitations' | 'roles'>('members');
   const [inviteRole, setInviteRole] = useState('agent');
-  const [inviteMaxUses, setInviteMaxUses] = useState(1);
+  const [inviteExpiration, setInviteExpiration] = useState<ExpirationOption>('30d');
+  const [inviteCustomDate, setInviteCustomDate] = useState('');
+  const [inviteEmail, setInviteEmail] = useState('');
   const [inviteLink, setInviteLink] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
 
   const wsId = workspace?.id;
 
   const getRoleLabel = (role: string) => {
-    const key = role as keyof typeof t;
     return (t as any)(`team.${role}`) || role;
   };
 
@@ -116,14 +139,23 @@ export default function TeamPage() {
   // Generate invite
   const generateInvite = useMutation({
     mutationFn: async () => {
+      const expiresAt = getExpiresAt(inviteExpiration, inviteCustomDate);
+
+      const insertData: any = {
+        workspace_id: wsId!,
+        role: inviteRole as any,
+        created_by: user!.id,
+        max_uses: 0, // Time-based, not usage-based
+        invited_email: inviteEmail.trim() || null,
+      };
+
+      if (expiresAt) {
+        insertData.expires_at = expiresAt;
+      }
+
       const { data, error } = await supabase
         .from('workspace_invitations')
-        .insert({
-          workspace_id: wsId!,
-          role: inviteRole as any,
-          created_by: user!.id,
-          max_uses: inviteMaxUses,
-        })
+        .insert(insertData)
         .select()
         .single();
       if (error) throw error;
@@ -133,10 +165,56 @@ export default function TeamPage() {
       const link = `${window.location.origin}/auth/invite?token=${data.token}`;
       setInviteLink(link);
       navigator.clipboard.writeText(link);
-      toast.success(t('team.linkCopied'));
+      toast.success(t('team.inviteCreated'));
+
+      // Send invitation email if email is provided
+      if (inviteEmail.trim() && API_BASE) {
+        sendInviteEmail(data.token, inviteEmail.trim(), data.role);
+      }
+
       queryClient.invalidateQueries({ queryKey: ['ws-invitations'] });
+      setInviteEmail('');
     },
     onError: (e: any) => toast.error(e.message),
+  });
+
+  // Send invite email via self-hosted backend
+  const sendInviteEmail = async (token: string, email: string, role: string) => {
+    try {
+      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+      const link = `${window.location.origin}/auth/invite?token=${token}`;
+      await fetch(`${API_BASE}/api/email/send`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${anonKey}`,
+        },
+        body: JSON.stringify({
+          workspaceId: wsId,
+          to: email,
+          subject: `You've been invited to ${workspace?.name}`,
+          html: buildInviteEmailHtml(workspace?.name || '', role, user?.email || '', link),
+          from: undefined, // Let backend resolve from config
+        }),
+      });
+    } catch (err) {
+      console.warn('[team] Failed to send invite email:', err);
+    }
+  };
+
+  // Revoke invite
+  const revokeInvite = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from('workspace_invitations')
+        .update({ revoked_at: new Date().toISOString() } as any)
+        .eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success(t('team.inviteRevoked'));
+      queryClient.invalidateQueries({ queryKey: ['ws-invitations'] });
+    },
   });
 
   // Delete invite
@@ -149,6 +227,18 @@ export default function TeamPage() {
       toast.success(t('team.inviteDeleted'));
       queryClient.invalidateQueries({ queryKey: ['ws-invitations'] });
     },
+  });
+
+  // Resend invite email
+  const resendInviteEmail = useMutation({
+    mutationFn: async (inv: any) => {
+      if (!inv.invited_email) throw new Error('No email associated with this invitation');
+      await sendInviteEmail(inv.token, inv.invited_email, inv.role);
+    },
+    onSuccess: () => {
+      toast.success(t('team.inviteResent'));
+    },
+    onError: (e: any) => toast.error(e.message),
   });
 
   // Update member role
@@ -192,6 +282,16 @@ export default function TeamPage() {
   }, {} as Record<string, number>);
   roleStats['owner'] = members.filter((m: any) => m.role === 'owner').length;
 
+  // Split invitations
+  const activeInvites = invitations.filter((inv: any) => {
+    const expired = inv.expires_at && new Date(inv.expires_at) < new Date();
+    return !expired && !inv.revoked_at;
+  });
+  const inactiveInvites = invitations.filter((inv: any) => {
+    const expired = inv.expires_at && new Date(inv.expires_at) < new Date();
+    return expired || inv.revoked_at;
+  });
+
   if (!workspace) {
     return (
       <div className="flex items-center justify-center py-24">
@@ -224,6 +324,19 @@ export default function TeamPage() {
           <Users className="w-4 h-4" />{t('team.tabMembers')}
         </button>
         <button
+          onClick={() => setActiveSection('invitations')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+            activeSection === 'invitations' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
+          }`}
+        >
+          <Mail className="w-4 h-4" />{t('team.tabInvitations')}
+          {activeInvites.length > 0 && (
+            <span className="ml-1 px-1.5 py-0.5 text-[10px] rounded-full bg-primary-foreground/20">
+              {activeInvites.length}
+            </span>
+          )}
+        </button>
+        <button
           onClick={() => setActiveSection('roles')}
           className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
             activeSection === 'roles' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
@@ -233,6 +346,7 @@ export default function TeamPage() {
         </button>
       </div>
 
+      {/* ═══════════ Members Tab ═══════════ */}
       {activeSection === 'members' && (
         <>
           {/* Stats Cards */}
@@ -240,57 +354,8 @@ export default function TeamPage() {
             <StatCard icon={Users} label={t('team.totalMembers')} value={members.length} />
             <StatCard icon={Crown} label={t('team.admins')} value={members.filter((m: any) => ['owner', 'admin'].includes(m.role)).length} />
             <StatCard icon={UserCog} label={t('team.operators')} value={roleStats['agent'] || 0} />
-            <StatCard icon={Mail} label={t('team.activeInvites')} value={invitations.filter((inv: any) => new Date(inv.expires_at) > new Date()).length} />
+            <StatCard icon={Mail} label={t('team.activeInvites')} value={activeInvites.length} />
           </div>
-
-          {/* Invite Section */}
-          <Card>
-            <CardContent className="p-6 space-y-4">
-              <div className="flex items-center gap-2">
-                <UserPlus className="w-5 h-5 text-primary" />
-                <h3 className="text-sm font-semibold">{t('team.inviteNew')}</h3>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-                <div className="space-y-2">
-                  <Label className="text-xs">{t('team.inviteRole')}</Label>
-                  <Select value={inviteRole} onValueChange={setInviteRole}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {assignableRoles.map(r => (
-                        <SelectItem key={r} value={r}>{getRoleLabel(r)}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-xs">{t('team.inviteMaxUses')}</Label>
-                  <Select value={String(inviteMaxUses)} onValueChange={v => setInviteMaxUses(Number(v))}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="1">{t('team.inviteMax1')}</SelectItem>
-                      <SelectItem value="5">{t('team.inviteMax5')}</SelectItem>
-                      <SelectItem value="10">{t('team.inviteMax10')}</SelectItem>
-                      <SelectItem value="0">{t('team.inviteMaxUnlimited')}</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="sm:col-span-2 flex items-end">
-                  <Button onClick={() => generateInvite.mutate()} disabled={generateInvite.isPending} className="w-full gap-2">
-                    {generateInvite.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
-                    {t('team.generateLink')}
-                  </Button>
-                </div>
-              </div>
-              {inviteLink && (
-                <div className="flex items-center gap-2 p-3 rounded-lg bg-primary/5 border border-primary/20">
-                  <Input value={inviteLink} readOnly dir="ltr" className="text-left font-mono text-xs flex-1" />
-                  <Button size="sm" variant="outline" onClick={() => { navigator.clipboard.writeText(inviteLink); toast.success(t('team.linkCopied')); }}>
-                    <Copy className="w-4 h-4" />
-                  </Button>
-                </div>
-              )}
-            </CardContent>
-          </Card>
 
           {/* Members List */}
           <Card>
@@ -352,62 +417,137 @@ export default function TeamPage() {
               </div>
             )}
           </Card>
+        </>
+      )}
+
+      {/* ═══════════ Invitations Tab ═══════════ */}
+      {activeSection === 'invitations' && (
+        <>
+          {/* Create Invitation */}
+          <Card>
+            <CardContent className="p-6 space-y-4">
+              <div className="flex items-center gap-2">
+                <UserPlus className="w-5 h-5 text-primary" />
+                <h3 className="text-sm font-semibold">{t('team.inviteNew')}</h3>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="space-y-2">
+                  <Label className="text-xs">{t('team.inviteEmail')}</Label>
+                  <Input
+                    type="email"
+                    value={inviteEmail}
+                    onChange={e => setInviteEmail(e.target.value)}
+                    placeholder="user@example.com"
+                    dir="ltr"
+                    className="text-left text-xs"
+                  />
+                  <p className="text-[10px] text-muted-foreground">{t('team.inviteEmailHint')}</p>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs">{t('team.inviteRole')}</Label>
+                  <Select value={inviteRole} onValueChange={setInviteRole}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {assignableRoles.map(r => (
+                        <SelectItem key={r} value={r}>{getRoleLabel(r)}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs">{t('team.inviteExpiration')}</Label>
+                  <Select value={inviteExpiration} onValueChange={(v) => setInviteExpiration(v as ExpirationOption)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="10d">{t('team.expire10Days')}</SelectItem>
+                      <SelectItem value="20d">{t('team.expire20Days')}</SelectItem>
+                      <SelectItem value="30d">{t('team.expire30Days')}</SelectItem>
+                      <SelectItem value="1m">{t('team.expire1Month')}</SelectItem>
+                      <SelectItem value="none">{t('team.expireNone')}</SelectItem>
+                      <SelectItem value="custom">{t('team.expireCustom')}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {inviteExpiration === 'custom' && (
+                  <div className="space-y-2">
+                    <Label className="text-xs">&nbsp;</Label>
+                    <Input
+                      type="datetime-local"
+                      value={inviteCustomDate}
+                      onChange={e => setInviteCustomDate(e.target.value)}
+                      dir="ltr"
+                      className="text-left text-xs"
+                    />
+                  </div>
+                )}
+              </div>
+              <Button onClick={() => generateInvite.mutate()} disabled={generateInvite.isPending} className="w-full sm:w-auto gap-2">
+                {generateInvite.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
+                {t('team.generateLink')}
+              </Button>
+              {inviteLink && (
+                <div className="flex items-center gap-2 p-3 rounded-lg bg-primary/5 border border-primary/20">
+                  <Input value={inviteLink} readOnly dir="ltr" className="text-left font-mono text-xs flex-1" />
+                  <Button size="sm" variant="outline" onClick={() => { navigator.clipboard.writeText(inviteLink); toast.success(t('team.linkCopied')); }}>
+                    <Copy className="w-4 h-4" />
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
           {/* Active Invitations */}
-          {invitations.length > 0 && (
+          <Card>
+            <div className="p-4 border-b border-border">
+              <h3 className="text-sm font-semibold">{t('team.activeInvitations')}</h3>
+            </div>
+            {activeInvites.length === 0 ? (
+              <p className="text-center text-muted-foreground py-8">{t('team.noInvitations')}</p>
+            ) : (
+              <div className="divide-y divide-border">
+                {activeInvites.map((inv: any) => (
+                  <InvitationRow
+                    key={inv.id}
+                    inv={inv}
+                    getRoleLabel={getRoleLabel}
+                    onCopy={() => { navigator.clipboard.writeText(`${window.location.origin}/auth/invite?token=${inv.token}`); toast.success(t('team.linkCopied')); }}
+                    onRevoke={() => revokeInvite.mutate(inv.id)}
+                    onResend={inv.invited_email ? () => resendInviteEmail.mutate(inv) : undefined}
+                    onDelete={() => deleteInvite.mutate(inv.id)}
+                    t={t}
+                    active
+                  />
+                ))}
+              </div>
+            )}
+          </Card>
+
+          {/* Expired / Revoked Invitations */}
+          {inactiveInvites.length > 0 && (
             <Card>
               <div className="p-4 border-b border-border">
-                <h3 className="text-sm font-semibold">{t('team.inviteLinks')}</h3>
+                <h3 className="text-sm font-semibold">{t('team.expiredInvitations')}</h3>
               </div>
               <div className="divide-y divide-border">
-                {invitations.map((inv: any) => {
-                  const expired = new Date(inv.expires_at) < new Date();
-                  const exhausted = inv.max_uses > 0 && inv.use_count >= inv.max_uses;
-                  const active = !expired && !exhausted;
-                  return (
-                    <div key={inv.id} className="flex items-center gap-4 px-5 py-3 hover:bg-muted/50 transition-colors">
-                      <div className={`w-2 h-2 rounded-full shrink-0 ${active ? 'bg-emerald-500' : 'bg-destructive'}`} />
-                      <div className="flex-1 min-w-0">
-                        <div className="text-xs font-mono text-muted-foreground truncate">...{inv.token.slice(-16)}</div>
-                        <div className="text-xs text-muted-foreground mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1">
-                          <span>{getRoleLabel(inv.role)}</span>
-                          <span>•</span>
-                          <span>{inv.use_count}/{inv.max_uses || '∞'} {t('team.uses')}</span>
-                          <span>•</span>
-                          <span className="flex items-center gap-1">
-                            <Clock className="w-3 h-3" />
-                            {new Date(inv.expires_at).toLocaleDateString()}
-                          </span>
-                        </div>
-                      </div>
-                      <Badge variant={active ? 'outline' : 'secondary'} className="text-[10px] shrink-0">
-                        {expired ? t('team.inviteExpired') : exhausted ? t('team.inviteExhausted') : t('team.inviteActive')}
-                      </Badge>
-                      <div className="flex gap-1 shrink-0">
-                        {active && (
-                          <button
-                            onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/auth/invite?token=${inv.token}`); toast.success(t('team.linkCopied')); }}
-                            className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-                          >
-                            <Copy className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                        <button
-                          onClick={() => deleteInvite.mutate(inv.id)}
-                          className="p-1.5 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
+                {inactiveInvites.map((inv: any) => (
+                  <InvitationRow
+                    key={inv.id}
+                    inv={inv}
+                    getRoleLabel={getRoleLabel}
+                    onCopy={() => {}}
+                    onRevoke={() => {}}
+                    onDelete={() => deleteInvite.mutate(inv.id)}
+                    t={t}
+                    active={false}
+                  />
+                ))}
               </div>
             </Card>
           )}
         </>
       )}
 
+      {/* ═══════════ Roles Tab ═══════════ */}
       {activeSection === 'roles' && (
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">{t('team.rolesDesc')}</p>
@@ -444,6 +584,7 @@ export default function TeamPage() {
 }
 
 /* ─── Helpers ─── */
+
 function StatCard({ icon: Icon, label, value }: { icon: any; label: string; value: number }) {
   return (
     <div className="rounded-lg border bg-card p-4">
@@ -452,6 +593,96 @@ function StatCard({ icon: Icon, label, value }: { icon: any; label: string; valu
         <span className="text-xs">{label}</span>
       </div>
       <div className="text-2xl font-bold">{value}</div>
+    </div>
+  );
+}
+
+function InvitationRow({ inv, getRoleLabel, onCopy, onRevoke, onResend, onDelete, t, active }: {
+  inv: any;
+  getRoleLabel: (r: string) => string;
+  onCopy: () => void;
+  onRevoke: () => void;
+  onResend?: () => void;
+  onDelete: () => void;
+  t: (key: string) => string;
+  active: boolean;
+}) {
+  const expired = inv.expires_at && new Date(inv.expires_at) < new Date();
+  const revoked = !!inv.revoked_at;
+  const statusLabel = revoked ? t('team.inviteRevoked_status') :
+                      expired ? t('team.inviteExpired') :
+                      t('team.inviteActive');
+
+  return (
+    <div className="flex items-center gap-4 px-5 py-3 hover:bg-muted/50 transition-colors">
+      <div className={`w-2 h-2 rounded-full shrink-0 ${active ? 'bg-emerald-500' : 'bg-destructive'}`} />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-mono text-muted-foreground truncate">...{inv.token.slice(-16)}</span>
+          {inv.invited_email && (
+            <span className="text-xs text-muted-foreground flex items-center gap-1">
+              <Mail className="w-3 h-3" />
+              {inv.invited_email}
+            </span>
+          )}
+        </div>
+        <div className="text-xs text-muted-foreground mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span>{getRoleLabel(inv.role)}</span>
+          <span>•</span>
+          <span className="flex items-center gap-1">
+            <Clock className="w-3 h-3" />
+            {inv.expires_at
+              ? new Date(inv.expires_at).toLocaleDateString()
+              : t('team.expireNone')
+            }
+          </span>
+          {inv.use_count > 0 && (
+            <>
+              <span>•</span>
+              <span>{inv.use_count} {t('team.uses')}</span>
+            </>
+          )}
+        </div>
+      </div>
+      <Badge variant={active ? 'outline' : 'secondary'} className="text-[10px] shrink-0">
+        {statusLabel}
+      </Badge>
+      <div className="flex gap-1 shrink-0">
+        {active && (
+          <>
+            <button
+              onClick={onCopy}
+              className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+              title={t('common.copy')}
+            >
+              <Copy className="w-3.5 h-3.5" />
+            </button>
+            {onResend && (
+              <button
+                onClick={onResend}
+                className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+                title={t('team.resendEmail')}
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+              </button>
+            )}
+            <button
+              onClick={onRevoke}
+              className="p-1.5 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+              title={t('team.revokeInvite')}
+            >
+              <Ban className="w-3.5 h-3.5" />
+            </button>
+          </>
+        )}
+        <button
+          onClick={onDelete}
+          className="p-1.5 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+          title={t('common.delete')}
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      </div>
     </div>
   );
 }
@@ -490,4 +721,24 @@ function MemberActions({ currentRole, getRoleLabel, onChangeRole, onRemove, t }:
       </DropdownMenuContent>
     </DropdownMenu>
   );
+}
+
+function buildInviteEmailHtml(workspaceName: string, role: string, inviterEmail: string, link: string) {
+  return `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+      <h2 style="color: #1a1a1a; margin-bottom: 16px;">You've been invited to join ${workspaceName}</h2>
+      <p style="color: #555; font-size: 14px; line-height: 1.6;">
+        <strong>${inviterEmail}</strong> has invited you to join <strong>${workspaceName}</strong> as <strong>${role}</strong>.
+      </p>
+      <div style="margin: 24px 0;">
+        <a href="${link}" style="display: inline-block; padding: 12px 24px; background-color: #3b82f6; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 14px;">
+          Accept Invitation
+        </a>
+      </div>
+      <p style="color: #999; font-size: 12px;">
+        If you can't click the button, copy this link:<br/>
+        <a href="${link}" style="color: #3b82f6; word-break: break-all;">${link}</a>
+      </p>
+    </div>
+  `;
 }

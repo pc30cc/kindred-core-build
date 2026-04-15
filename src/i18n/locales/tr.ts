@@ -248,7 +248,6 @@ const tr: TranslationKeys = {
     created: 'Oluşturulma',
     noActivity: 'Henüz aktivite kaydedilmedi',
   },
-  },
   contacts: {
     title: 'Kişiler',
     addContact: 'Kişi ekle',

@@ -248,7 +248,6 @@ const fa: TranslationKeys = {
     created: 'ایجاد شده',
     noActivity: 'هنوز فعالیتی ثبت نشده',
   },
-  },
   contacts: {
     title: 'مخاطبین',
     addContact: 'افزودن مخاطب',

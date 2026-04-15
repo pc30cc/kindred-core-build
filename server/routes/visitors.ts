@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { createHash } from 'crypto';
 import { getServiceClient } from '../supabase.js';
 import type { ServerConfig } from '../config.js';
-import { isOriginAllowed } from '../utils/domain.js';
+import { isWorkspaceOriginAllowed } from '../services/widget/public.js';
 
 export const visitorRouter = Router();
 
@@ -48,11 +48,13 @@ visitorRouter.post('/track', async (req: Request, res: Response) => {
       return res.status(403).json({ error: 'Visitor tracking not enabled' });
     }
 
-    const origin = req.headers.origin || req.headers.referer;
-    if (origin && widget.allowed_domains && widget.allowed_domains.length > 0) {
-      if (!isOriginAllowed(origin, widget.allowed_domains, widget.allow_subdomains ?? false)) {
-        return res.status(403).json({ error: 'Origin not allowed' });
-      }
+    const origin = typeof req.headers.origin === 'string'
+      ? req.headers.origin
+      : typeof req.headers.referer === 'string'
+        ? req.headers.referer
+        : null;
+    if (!(await isWorkspaceOriginAllowed(config, data.workspace_id, origin))) {
+      return res.status(403).json({ error: 'Origin not allowed' });
     }
 
     // Upsert visitor session (update last_seen if exists within last 30 min)

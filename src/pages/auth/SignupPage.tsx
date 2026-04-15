@@ -75,7 +75,7 @@ export default function SignupPage() {
         fullName: fullName || undefined,
         website: websiteDomain.trim(),
         locale,
-        metadata: { locale, companyName: companyName.trim(), mainGoal, aiMode },
+        metadata: { locale, companyName: companyName.trim(), websiteDomain: websiteDomain.trim(), mainGoal, aiMode },
       });
       if (error) {
         toast.error(t('auth.signupFailed'), { description: error.message });

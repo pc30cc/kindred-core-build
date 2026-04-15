@@ -473,6 +473,7 @@ const en = {
       domains: 'Domains',
       auditLogs: 'Audit Logs',
       billing: 'Billing',
+      plans: 'Plans',
       database: 'Database',
       security: 'Security',
       backToApp: 'Back to App',

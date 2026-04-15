@@ -41,7 +41,7 @@ export default function InboxPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const { data: conversations, isLoading } = useConversations(workspace?.id, filter);
-  const { data: messages: rawMessages } = useConversationMessages(selectedId ?? undefined);
+  const { data: rawMessages } = useConversationMessages(selectedId ?? undefined);
   const sendMessage = useSendMessage(selectedId ?? undefined);
   const updateConv = useUpdateConversation();
 

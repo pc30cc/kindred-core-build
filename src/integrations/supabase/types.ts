@@ -2007,33 +2007,19 @@ export type Database = {
         Args: { _workspace_id: string }
         Returns: boolean
       }
+      admin_get_user_detail: { Args: { _user_id: string }; Returns: Json }
       admin_get_workspace_detail: {
         Args: { _workspace_id: string }
         Returns: Json
       }
       admin_list_profiles: {
-        Args: { _limit?: number; _offset?: number }
-        Returns: {
-          ai_mode: string | null
-          avatar_url: string | null
-          company_name: string | null
-          created_at: string | null
-          email: string
-          full_name: string | null
-          id: string
-          main_goal: string | null
-          preferred_locale: string | null
-          signup_ip: string | null
-          signup_locale: string | null
-          updated_at: string | null
-          website_domain: string | null
-        }[]
-        SetofOptions: {
-          from: "*"
-          to: "profiles"
-          isOneToOne: false
-          isSetofReturn: true
+        Args: {
+          _limit?: number
+          _offset?: number
+          _search?: string
+          _sort?: string
         }
+        Returns: Json
       }
       admin_list_workspaces:
         | {

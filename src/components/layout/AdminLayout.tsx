@@ -10,7 +10,7 @@ export function AdminLayout() {
   const { t } = useTranslation();
 
   return (
-    <div dir={dir} className="admin-scope flex h-screen overflow-hidden bg-background text-foreground">
+    <div dir={dir} className="app-scope flex h-screen overflow-hidden bg-background text-foreground">
       <AdminSidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
         <header className="flex h-14 items-center justify-between border-b border-border px-6">

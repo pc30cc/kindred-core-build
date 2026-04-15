@@ -111,7 +111,7 @@ widgetRouter.post('/validate-origin', async (req: Request, res: Response) => {
 
   const { data: widget } = await supabase
     .from('widget_settings')
-    .select('allowed_domains, enabled')
+    .select('allowed_domains, allow_subdomains, enabled')
     .eq('workspace_id', workspace_id)
     .single();
 

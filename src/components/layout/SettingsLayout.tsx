@@ -39,8 +39,8 @@ const settingsGroupsDef: SettingsGroup[] = [
     items: [{ key: 'widget', label: 'Widget', subPath: '/widget' }],
   },
   {
-    key: 'inbox', label: 'Inbox Settings', icon: Inbox,
-    items: [{ key: 'providers', label: 'Providers', subPath: '/settings/providers' }],
+    key: 'integrations', label: 'Integrations', icon: Plug,
+    items: [{ key: 'providers', label: 'Provider Settings', subPath: '/settings/providers' }],
   },
   {
     key: 'email', label: 'Email Settings', icon: Mail,

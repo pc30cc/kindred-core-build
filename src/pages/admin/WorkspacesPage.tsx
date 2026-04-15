@@ -390,3 +390,141 @@ function InfoRow({ label, value, color }: { label: string; value: string | null 
     </div>
   );
 }
+
+/* ─── Member Detail Dialog ─── */
+function MemberDetailDialog({ member, onClose }: { member: any; onClose: () => void }) {
+  const { data: profile, isLoading } = useQuery({
+    queryKey: ['admin-member-profile', member?.user_id],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('admin_list_profiles', {
+        _limit: 1,
+        _offset: 0,
+      });
+      if (error) throw error;
+      // Filter to find the specific user
+      const all = data as any[];
+      return all.find((p: any) => p.id === member?.user_id) || null;
+    },
+    enabled: !!member?.user_id,
+  });
+
+  // Fetch full profile directly
+  const { data: fullProfile } = useQuery({
+    queryKey: ['admin-member-full-profile', member?.user_id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', member!.user_id)
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!member?.user_id,
+  });
+
+  const p = fullProfile;
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast.success('Copied to clipboard');
+  };
+
+  return (
+    <Dialog open={!!member} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Users className="h-5 w-5 text-primary" />
+            Member Details
+          </DialogTitle>
+        </DialogHeader>
+
+        {!p ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-5 w-5 animate-spin text-primary" />
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {/* Avatar & name header */}
+            <div className="flex items-center gap-4 pb-2">
+              <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                <span className="text-xl font-bold text-primary">
+                  {(p.full_name || p.email || '?').charAt(0).toUpperCase()}
+                </span>
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-lg font-semibold truncate">{p.full_name || '—'}</p>
+                <p className="text-sm text-muted-foreground truncate">{p.email}</p>
+                <Badge variant={member?.role === 'owner' ? 'default' : 'secondary'} className="mt-1">
+                  {member?.role}
+                </Badge>
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Info rows */}
+            <div className="space-y-2 text-sm">
+              <DetailRow
+                icon={Mail}
+                label="Email"
+                value={p.email}
+                onCopy={() => copyToClipboard(p.email)}
+              />
+              <DetailRow icon={Building2} label="Company" value={p.company_name} />
+              <DetailRow icon={Globe} label="Website" value={p.website_domain} />
+              <DetailRow icon={Globe} label="Preferred Locale" value={p.preferred_locale} />
+              <DetailRow icon={Globe} label="Signup Locale" value={p.signup_locale} />
+              <DetailRow icon={Bot} label="AI Mode" value={p.ai_mode} />
+              <DetailRow icon={MapPin} label="Signup IP" value={p.signup_ip} />
+              <DetailRow
+                icon={Calendar}
+                label="Joined"
+                value={p.created_at ? format(new Date(p.created_at), 'yyyy-MM-dd HH:mm') : null}
+              />
+              <DetailRow
+                icon={Calendar}
+                label="Member Since"
+                value={member?.created_at ? format(new Date(member.created_at), 'yyyy-MM-dd HH:mm') : null}
+              />
+            </div>
+
+            <Separator />
+
+            {/* User ID */}
+            <div className="flex items-center justify-between rounded-md bg-muted/50 px-3 py-2">
+              <span className="text-xs text-muted-foreground">User ID</span>
+              <button
+                onClick={() => copyToClipboard(p.id)}
+                className="flex items-center gap-1.5 text-xs font-mono text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <span className="truncate max-w-[200px]">{p.id}</span>
+                <Copy className="h-3 w-3 shrink-0" />
+              </button>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function DetailRow({ icon: Icon, label, value, onCopy }: { icon: any; label: string; value: string | null | undefined; onCopy?: () => void }) {
+  return (
+    <div className="flex items-center justify-between rounded-md bg-muted/50 px-3 py-2">
+      <span className="flex items-center gap-2 text-muted-foreground">
+        <Icon className="h-3.5 w-3.5" />
+        {label}
+      </span>
+      <span className="font-medium flex items-center gap-1.5">
+        <span className="truncate max-w-[200px]">{value || '—'}</span>
+        {onCopy && value && (
+          <button onClick={onCopy} className="text-muted-foreground hover:text-foreground transition-colors">
+            <Copy className="h-3 w-3" />
+          </button>
+        )}
+      </span>
+    </div>
+  );
+}

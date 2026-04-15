@@ -7,10 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
-import {
-  Eye, EyeOff, Loader2, ArrowRight,
-  CheckCircle2, AlertTriangle, ShieldCheck,
-} from 'lucide-react';
+import { Eye, EyeOff, Loader2, ArrowRight, ShieldCheck } from 'lucide-react';
 import { usePlatformBrandingForLocale } from '@/hooks/usePublicBranding';
 import { LanguageSelector } from '@/components/auth/LanguageSelector';
 import signupIllustration from '@/assets/signup-illustration.jpg';
@@ -35,15 +32,15 @@ export default function SignupPage() {
   const brand = usePlatformBrandingForLocale(locale);
   const isRtl = dir === 'rtl';
 
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const pwStrength = useMemo(() => (password ? getPasswordStrength(password) : null), [password]);
-  const passwordsMatch = confirmPassword.length > 0 && password === confirmPassword;
 
   const brandName = useMemo(() => brand?.platform_name || 'App', [brand]);
   const brandLetter = useMemo(() => brandName.charAt(0), [brandName]);
@@ -61,10 +58,6 @@ export default function SignupPage() {
       toast.error(t('auth.mustAcceptTerms'));
       return;
     }
-    if (password !== confirmPassword) {
-      toast.error(t('auth.passwordsMismatch'));
-      return;
-    }
     if (password.length < 6) {
       toast.error(t('auth.passwordMinLength'));
       return;
@@ -72,10 +65,12 @@ export default function SignupPage() {
 
     setLoading(true);
     const trimmedEmail = email.trim().toLowerCase();
+    const fullName = `${firstName.trim()} ${lastName.trim()}`.trim();
     try {
       const { error } = await signUp({
         email: trimmedEmail,
         password,
+        fullName: fullName || undefined,
         website: '',
         locale,
         metadata: { locale },
@@ -130,10 +125,56 @@ export default function SignupPage() {
               <p className="text-muted-foreground">{t('auth.signupSubtitle')}</p>
             </div>
 
+            {/* Divider */}
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t border-border" />
+              </div>
+              <div className="relative flex justify-center text-xs">
+                <span className="bg-background px-3 text-muted-foreground">{t('auth.orContinueWith')}</span>
+              </div>
+            </div>
+
             <form onSubmit={handleRegister} className="space-y-4">
+              {/* First name + Last name side by side */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label htmlFor="firstName" className="text-foreground">
+                    {t('auth.firstName')} <span className="text-destructive">*</span>
+                  </Label>
+                  <Input
+                    id="firstName"
+                    type="text"
+                    placeholder={t('auth.firstNamePlaceholder')}
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                    className="h-12 bg-background border-border"
+                    required
+                    maxLength={60}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="lastName" className="text-foreground">
+                    {t('auth.lastName')} <span className="text-destructive">*</span>
+                  </Label>
+                  <Input
+                    id="lastName"
+                    type="text"
+                    placeholder={t('auth.lastNamePlaceholder')}
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                    className="h-12 bg-background border-border"
+                    required
+                    maxLength={60}
+                  />
+                </div>
+              </div>
+
               {/* Email */}
               <div className="space-y-2">
-                <Label htmlFor="email" className="text-foreground">{t('auth.email')}</Label>
+                <Label htmlFor="email" className="text-foreground">
+                  {t('auth.email')} <span className="text-destructive">*</span>
+                </Label>
                 <Input
                   id="email"
                   type="email"
@@ -143,12 +184,15 @@ export default function SignupPage() {
                   dir="ltr"
                   className="h-12 text-left bg-background border-border"
                   required
+                  maxLength={255}
                 />
               </div>
 
               {/* Password */}
               <div className="space-y-2">
-                <Label htmlFor="password" className="text-foreground">{t('auth.password')}</Label>
+                <Label htmlFor="password" className="text-foreground">
+                  {t('auth.password')} <span className="text-destructive">*</span>
+                </Label>
                 <div className="relative">
                   <Input
                     id="password"
@@ -159,6 +203,7 @@ export default function SignupPage() {
                     dir="ltr"
                     className="h-12 text-left bg-background border-border pr-11"
                     required
+                    maxLength={255}
                   />
                   <button
                     type="button"
@@ -188,34 +233,6 @@ export default function SignupPage() {
                 )}
               </div>
 
-              {/* Confirm Password */}
-              <div className="space-y-2">
-                <Label htmlFor="confirm" className="text-foreground">{t('auth.confirmPassword')}</Label>
-                <div className="relative">
-                  <Input
-                    id="confirm"
-                    type="password"
-                    placeholder={t('auth.confirmPasswordPlaceholder')}
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    dir="ltr"
-                    className={`h-12 text-left bg-background border-border pr-11 ${confirmPassword && !passwordsMatch ? 'border-destructive/50 focus-visible:ring-destructive/30' : ''}`}
-                    required
-                  />
-                  {confirmPassword && (
-                    <div className={`absolute ${isRtl ? 'left-3' : 'right-3'} top-1/2 -translate-y-1/2`}>
-                      {passwordsMatch
-                        ? <CheckCircle2 className="w-4 h-4 text-green-500" />
-                        : <AlertTriangle className="w-4 h-4 text-destructive" />
-                      }
-                    </div>
-                  )}
-                </div>
-                {confirmPassword && !passwordsMatch && (
-                  <p className="text-xs text-destructive">{t('auth.passwordsMismatch')}</p>
-                )}
-              </div>
-
               {/* Terms */}
               <div className="flex items-start gap-2">
                 <Checkbox
@@ -234,7 +251,7 @@ export default function SignupPage() {
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
                   <>
-                    {t('auth.signup')}
+                    {t('auth.continue')}
                     <ArrowRight className="w-4 h-4" />
                   </>
                 )}
@@ -257,12 +274,10 @@ export default function SignupPage() {
       <div className={`hidden lg:flex w-[42%] xl:w-[45%] relative overflow-hidden ${isRtl ? 'order-1' : 'order-2'}`}
         style={{ background: 'linear-gradient(135deg, hsl(250 80% 55%), hsl(280 70% 50%), hsl(250 80% 45%))' }}
       >
-        {/* Decorative blurred shapes */}
         <div className="absolute -top-24 -right-24 w-80 h-80 rounded-full bg-white/10 blur-3xl" />
         <div className="absolute bottom-0 -left-20 w-[500px] h-[500px] rounded-full bg-white/5 blur-2xl" />
         <div className="absolute top-1/3 right-16 w-48 h-48 rounded-full bg-white/8 blur-xl" />
 
-        {/* Grid pattern overlay */}
         <div className="absolute inset-0 opacity-[0.03]"
           style={{
             backgroundImage: 'radial-gradient(circle, white 1px, transparent 1px)',
@@ -290,7 +305,6 @@ export default function SignupPage() {
             />
           </div>
 
-          {/* Trust badges */}
           <div className="mt-8 flex flex-wrap justify-center gap-2">
             {['Free Forever', 'No Credit Card', 'Setup in 2 min', 'Secure'].map((badge) => (
               <span key={badge} className="px-3 py-1.5 text-xs font-medium text-white/90 bg-white/10 rounded-full backdrop-blur-sm border border-white/10">

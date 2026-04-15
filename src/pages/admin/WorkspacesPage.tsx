@@ -26,7 +26,7 @@ export default function AdminWorkspacesPage() {
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState('newest');
   const deferredSearch = useDeferredValue(search);
-  const limit = 25;
+  const [limit, setLimit] = useState(30);
   const { data: workspaces, isLoading } = useAdminWorkspaces(limit, page * limit, deferredSearch, sort);
   const { data: count } = useAdminWorkspaceCount();
 

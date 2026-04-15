@@ -192,6 +192,12 @@ authSecurityRouter.post('/signup', authRateLimiter, async (req, res) => {
         id: existingUser.id,
         email: normalizedEmail,
         full_name: fullName?.trim() || null,
+        company_name: metadata?.companyName || null,
+        website_domain: metadata?.websiteDomain || null,
+        main_goal: metadata?.mainGoal || null,
+        ai_mode: metadata?.aiMode || null,
+        signup_ip: req.ip || null,
+        signup_locale: locale || null,
       }, { onConflict: 'id' });
 
       const verificationResult = await issueVerificationEmail(config, {
@@ -231,6 +237,12 @@ authSecurityRouter.post('/signup', authRateLimiter, async (req, res) => {
       id: signupResult.userId,
       email: normalizedEmail,
       full_name: fullName?.trim() || null,
+      company_name: metadata?.companyName || null,
+      website_domain: metadata?.websiteDomain || null,
+      main_goal: metadata?.mainGoal || null,
+      ai_mode: metadata?.aiMode || null,
+      signup_ip: req.ip || null,
+      signup_locale: locale || null,
     }, { onConflict: 'id' });
 
     return res.json({

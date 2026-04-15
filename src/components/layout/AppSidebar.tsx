@@ -314,7 +314,7 @@ export function AppSidebar() {
             <div className="border-t border-border my-1" />
 
             <RouterLink
-              to="/app/settings/profile"
+              to={wsPath('/settings/profile')}
               onClick={() => setUserMenuOpen(false)}
               className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-foreground hover:bg-accent transition-colors"
             >
@@ -322,7 +322,7 @@ export function AppSidebar() {
               <span>{t('nav.manageAccount') || 'Manage account'}</span>
             </RouterLink>
             <RouterLink
-              to="/app/settings/general"
+              to={wsPath('/settings/general')}
               onClick={() => setUserMenuOpen(false)}
               className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-foreground hover:bg-accent transition-colors"
             >

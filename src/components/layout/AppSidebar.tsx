@@ -15,6 +15,7 @@ import { useAuth } from '@/features/auth/AuthContext';
 import { useIsGlobalAdmin } from '@/hooks/useAdmin';
 import { useBrandingContext } from '@/features/branding/BrandingContext';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
+import { useProfile } from '@/hooks/useProfile';
 import { useMemo, useState, useRef, useEffect } from 'react';
 
 const mainNav = [

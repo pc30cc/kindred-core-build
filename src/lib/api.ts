@@ -354,9 +354,10 @@ export function checkHealth() {
 
 // ─── Admin User Management ──────────────────────────────────────
 
-function adminAuthHeaders(): Record<string, string> {
-  // Use the actual user session token for admin verification
-  const token = localStorage.getItem('sb-session-token') || '';
+async function getAdminAuthHeaders(): Promise<Record<string, string>> {
+  const { supabase } = await import('@/lib/supabase');
+  const { data } = await supabase.auth.getSession();
+  const token = data?.session?.access_token || '';
   return { 'Authorization': `Bearer ${token}` };
 }
 

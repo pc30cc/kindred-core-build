@@ -112,27 +112,26 @@
           }).catch(function() {});
         }
 
-        // Load runtime script if available
-        if (config.runtimeUrl) {
-          var script = document.createElement('script');
-          script.src = config.runtimeUrl;
-          script.async = true;
-          script.onload = function() {
-            if (window.__gs_runtime) {
-              widget = window.__gs_runtime.init(config);
-              ready = true;
-              processQueue();
-            }
-          };
-          document.head.appendChild(script);
-        }
+        // Load runtime CSS + JS — use config URLs or derive from apiBase
+        var runtimeCss = config.styleUrl || (apiBase + '/widget/runtime.css');
+        var runtimeJs = config.runtimeUrl || (apiBase + '/widget/runtime.js');
 
-        if (config.styleUrl) {
-          var link = document.createElement('link');
-          link.rel = 'stylesheet';
-          link.href = config.styleUrl;
-          document.head.appendChild(link);
-        }
+        var link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = runtimeCss;
+        document.head.appendChild(link);
+
+        var script = document.createElement('script');
+        script.src = runtimeJs;
+        script.async = true;
+        script.onload = function() {
+          if (window.__gs_runtime) {
+            widget = window.__gs_runtime.init(config);
+            ready = true;
+            processQueue();
+          }
+        };
+        document.head.appendChild(script);
       })
       .catch(function(err) {
         console.warn('[Widget] Bootstrap failed:', err.message);

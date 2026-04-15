@@ -352,6 +352,53 @@ export function checkHealth() {
   return request<{ status: string; timestamp: string }>('/api/health');
 }
 
+// ─── Admin User Management ──────────────────────────────────────
+
+function adminAuthHeaders(): Record<string, string> {
+  // Use the actual user session token for admin verification
+  const token = localStorage.getItem('sb-session-token') || '';
+  return { 'Authorization': `Bearer ${token}` };
+}
+
+export function adminSendResetLink(email: string) {
+  return request<{ success: boolean }>('/api/admin/send-reset-link', {
+    method: 'POST',
+    headers: adminAuthHeaders(),
+    body: JSON.stringify({ email }),
+  });
+}
+
+export function adminChangePassword(userId: string, newPassword: string) {
+  return request<{ success: boolean }>('/api/admin/change-password', {
+    method: 'POST',
+    headers: adminAuthHeaders(),
+    body: JSON.stringify({ userId, newPassword }),
+  });
+}
+
+export function adminBlockUser(userId: string, blocked: boolean) {
+  return request<{ success: boolean; blocked: boolean }>('/api/admin/block-user', {
+    method: 'POST',
+    headers: adminAuthHeaders(),
+    body: JSON.stringify({ userId, blocked }),
+  });
+}
+
+export function adminGetUserStatus(userId: string) {
+  return request<{
+    id: string;
+    email: string;
+    email_confirmed_at: string | null;
+    banned_until: string | null;
+    last_sign_in_at: string | null;
+    created_at: string;
+  }>('/api/admin/user-status', {
+    method: 'POST',
+    headers: adminAuthHeaders(),
+    body: JSON.stringify({ userId }),
+  });
+}
+
 export function authSignUp(data: {
   email: string;
   password: string;

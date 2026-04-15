@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
 import { useAuth } from '@/features/auth/AuthContext';
 import { toast } from 'sonner';
@@ -13,6 +13,7 @@ import signupIllustration from '@/assets/signup-illustration.jpg';
 const TOTAL_STEPS = 3;
 
 export default function SignupPage() {
+  const [params] = useSearchParams();
   const navigate = useNavigate();
   const { t, locale, dir } = useTranslation();
   const { signUp, signIn } = useAuth();
@@ -96,7 +97,7 @@ export default function SignupPage() {
       }
 
       toast.success(t('auth.signupSuccess'));
-      navigate('/app');
+      navigate(params.get('redirect') || '/app');
     } catch (err: any) {
       toast.error(t('auth.signupFailed'), { description: err?.message });
     } finally {

@@ -53,6 +53,7 @@ const ALL_TASKS = [...SECTION_TASKS.connect, ...SECTION_TASKS.customize, ...SECT
 export default function GetStartedWizard() {
   const { t } = useTranslation();
   const { platformName } = useBrandingContext();
+  const wsPath = useWorkspacePath();
   const [hidden, setHidden] = useState(false);
   const [completedTasks] = useState<string[]>([]);
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({ connect: true, customize: false, grow: false });
@@ -130,7 +131,7 @@ export default function GetStartedWizard() {
                         <h4 className="text-sm font-semibold text-foreground mb-1">{t(task.titleKey)}</h4>
                         <p className="text-xs text-muted-foreground leading-relaxed mb-4">{t(task.descKey)}</p>
                         <Button size="sm" asChild className="gap-1.5 shadow-sm">
-                          <Link to={task.link}>
+                          <Link to={task.subPath === '#' ? '#' : wsPath(task.subPath)}>
                             {t('wizard.getStarted')} <ArrowRight className="w-3 h-3" />
                           </Link>
                         </Button>
@@ -156,7 +157,7 @@ export default function GetStartedWizard() {
                       </div>
                     </div>
                     <Button size="sm" variant="outline" asChild className="gap-1 shrink-0">
-                      <Link to={task.link}>
+                      <Link to={task.subPath === '#' ? '#' : wsPath(task.subPath)}>
                         {t('wizard.getStarted')} <ArrowRight className="w-3 h-3" />
                       </Link>
                     </Button>

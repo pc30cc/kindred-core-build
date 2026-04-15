@@ -1,0 +1,1 @@
+ALTER TYPE public.workspace_role ADD VALUE IF NOT EXISTS 'billing';

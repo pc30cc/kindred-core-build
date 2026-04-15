@@ -304,6 +304,26 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
           <ScrollText className="h-4 w-4" />
           Login Logs
         </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-2"
+          disabled={impersonateLoading}
+          onClick={async () => {
+            try {
+              setImpersonateLoading(true);
+              const { url } = await adminImpersonateUser(userId);
+              window.open(url, '_blank');
+            } catch (err: any) {
+              toast.error(err.message || 'Failed to impersonate');
+            } finally {
+              setImpersonateLoading(false);
+            }
+          }}
+        >
+          {impersonateLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}
+          Login as User
+        </Button>
       </div>
 
       {/* Stats */}

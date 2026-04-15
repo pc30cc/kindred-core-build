@@ -20,7 +20,7 @@ import {
   Zap,
   type LucideIcon,
 } from 'lucide-react';
-import { fetchWidgetConfig } from '@/lib/api';
+import { supabase } from '@/lib/supabase';
 
 type LoginSupportWidgetProps = {
   brandLetter: string;
@@ -28,8 +28,6 @@ type LoginSupportWidgetProps = {
   isRtl: boolean;
   locale: string;
 };
-
-type LoginWidgetConfig = Awaited<ReturnType<typeof fetchWidgetConfig>>;
 
 type ThemeSurface = {
   badgeBackground: string;
@@ -55,6 +53,7 @@ const copyByLocale = {
     title: 'Support is here',
     body: 'If you have any questions before signing in, our team is ready to help.',
     status: 'Online now',
+    placeholder: 'Type a message…',
   },
   fa: {
     launcher: 'چت پشتیبانی',
@@ -62,6 +61,7 @@ const copyByLocale = {
     title: 'پشتیبانی در دسترس است',
     body: 'اگر قبل از ورود سوالی دارید، تیم پشتیبانی آماده کمک به شماست.',
     status: 'الان آنلاین هستیم',
+    placeholder: 'پیام خود را بنویسید…',
   },
   tr: {
     launcher: 'Destek sohbeti',
@@ -69,6 +69,7 @@ const copyByLocale = {
     title: 'Destek burada',
     body: 'Giriş yapmadan önce bir sorunuz varsa ekibimiz size yardımcı olmaya hazır.',
     status: 'Şu an çevrimiçi',
+    placeholder: 'Mesajınızı yazın…',
   },
 } as const;
 
@@ -275,42 +276,44 @@ function getLauncherRadius(shape: string) {
 export function LoginSupportWidget({ brandLetter, brandName, isRtl, locale }: LoginSupportWidgetProps) {
   const [open, setOpen] = useState(false);
   const [visible, setVisible] = useState(false);
-  const [widgetConfig, setWidgetConfig] = useState<LoginWidgetConfig | null>(null);
+  const [widgetData, setWidgetData] = useState<any>(null);
   const [widgetDisabled, setWidgetDisabled] = useState(false);
+  const [message, setMessage] = useState('');
 
-  const copy = useMemo(() => {
-    const normalizedLocale = locale.toLowerCase().startsWith('fa')
-      ? 'fa'
-      : locale.toLowerCase().startsWith('tr')
-        ? 'tr'
-        : 'en';
-
-    return copyByLocale[normalizedLocale];
+  const normalizedLocale = useMemo(() => {
+    if (locale.toLowerCase().startsWith('fa')) return 'fa';
+    if (locale.toLowerCase().startsWith('tr')) return 'tr';
+    return 'en';
   }, [locale]);
 
+  const copy = copyByLocale[normalizedLocale];
+
+  // Fetch widget settings directly from Supabase (no external API dependency)
   useEffect(() => {
     const workspaceId = (window as Window & { __gs_id?: string }).__gs_id;
     if (!workspaceId) return;
 
     let cancelled = false;
 
-    fetchWidgetConfig(workspaceId, window.location.origin)
-      .then((config) => {
+    supabase
+      .from('widget_settings')
+      .select('*')
+      .eq('workspace_id', workspaceId)
+      .single()
+      .then(({ data, error }) => {
         if (cancelled) return;
-        setWidgetDisabled(config.enabled === false);
-        if (config.enabled !== false) {
-          setWidgetConfig(config);
+        if (error || !data) {
+          setWidgetDisabled(true);
+          return;
         }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setWidgetDisabled(false);
+        if (!data.enabled) {
+          setWidgetDisabled(true);
+          return;
         }
+        setWidgetData(data);
       });
 
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
@@ -320,10 +323,7 @@ export function LoginSupportWidget({ brandLetter, brandName, isRtl, locale }: Lo
       const existingWidget = document.querySelector('.gs-widget-root');
       const shouldShowFallback = !existingWidget;
       setVisible(shouldShowFallback);
-
-      if (!shouldShowFallback) {
-        setOpen(false);
-      }
+      if (!shouldShowFallback) setOpen(false);
     };
 
     syncVisibility();
@@ -333,31 +333,29 @@ export function LoginSupportWidget({ brandLetter, brandName, isRtl, locale }: Lo
     observer.observe(document.body, { childList: true, subtree: true });
 
     return () => {
-      if (timeoutId) {
-        window.clearTimeout(timeoutId);
-      }
+      if (timeoutId) window.clearTimeout(timeoutId);
       observer.disconnect();
     };
   }, []);
 
-  const resolvedBrandName = widgetConfig?.branding.platformName || brandName;
+  const primaryColor = widgetData?.primary_color || '#3B82F6';
+  const secondaryColor = widgetData?.secondary_color || '#6366f1';
+  const themeId = widgetData?.theme || 'modern';
+  const fabShape = widgetData?.fab_shape || 'circle';
+  const fabScale = (widgetData?.fab_scale || 100) / 100;
+  const fabIconColor = widgetData?.fab_icon_color || '#ffffff';
+  const fabTextColor = widgetData?.fab_text_color || '#ffffff';
+  const showLogo = widgetData?.show_logo !== false;
+  const resolvedBrandName = brandName;
   const resolvedBrandLetter = (resolvedBrandName.charAt(0) || brandLetter).toUpperCase();
-  const primaryColor = widgetConfig?.branding.primaryColor || 'hsl(var(--primary))';
-  const secondaryColor = widgetConfig?.branding.secondaryColor || primaryColor;
-  const launcherText = widgetConfig?.branding.launcherText || copy.hint;
-  const welcomeMessage = widgetConfig?.branding.welcomeMessage || copy.title;
-  const greetingMessage = widgetConfig?.branding.greetingMessage || copy.body;
-  const placeholderText = widgetConfig?.branding.placeholderText || copy.launcher;
-  const themeId = widgetConfig?.theme?.id || 'modern';
-  const fabShape = widgetConfig?.theme?.fabShape || 'circle';
-  const fabScale = (widgetConfig?.theme?.fabScale || 100) / 100;
-  const fabIconColor = widgetConfig?.theme?.fabIconColor || '#ffffff';
-  const fabTextColor = widgetConfig?.theme?.fabTextColor || '#ffffff';
-  const showLogo = widgetConfig?.theme?.showLogo !== false;
-  const isLeftPosition = (widgetConfig?.position || (isRtl ? 'bottom-left' : 'bottom-right')) === 'bottom-left';
+  const launcherText = widgetData?.launcher_text || copy.hint;
+  const welcomeMessage = widgetData?.welcome_message || copy.title;
+  const greetingMessage = widgetData?.greeting_message || copy.body;
+  const placeholderText = widgetData?.placeholder_text || copy.placeholder;
+  const isLeftPosition = (widgetData?.position || (isRtl ? 'bottom-left' : 'bottom-right')) === 'bottom-left';
   const surface = useMemo(() => getThemeSurface(themeId, primaryColor, secondaryColor), [themeId, primaryColor, secondaryColor]);
-  const FabIcon = iconMap[widgetConfig?.theme?.fabIcon || 'chat'] || MessageCircle;
-  const HelpIcon = iconMap[widgetConfig?.theme?.fabHelpIcon || 'help_circle'] || HelpCircle;
+  const FabIcon = iconMap[widgetData?.fab_icon || 'chat'] || MessageCircle;
+  const HelpIcon = iconMap[widgetData?.fab_help_icon || 'help_circle'] || HelpCircle;
 
   if (!visible || widgetDisabled) {
     return null;
@@ -383,9 +381,9 @@ export function LoginSupportWidget({ brandLetter, brandName, isRtl, locale }: Lo
             style={{ background: surface.headerBackground, color: '#ffffff' }}
           >
             <div className="flex min-w-0 items-center gap-3">
-              {showLogo && widgetConfig?.branding.logoUrl ? (
+              {showLogo && widgetData?.logo_url ? (
                 <img
-                  src={widgetConfig.branding.logoUrl}
+                  src={widgetData.logo_url}
                   alt={resolvedBrandName}
                   className="h-10 w-10 shrink-0 rounded-2xl object-cover"
                 />
@@ -405,7 +403,7 @@ export function LoginSupportWidget({ brandLetter, brandName, isRtl, locale }: Lo
 
             <button
               type="button"
-              aria-label={copy.launcher}
+              aria-label="Close"
               onClick={() => setOpen(false)}
               className="inline-flex h-9 w-9 items-center justify-center rounded-full transition-colors"
               style={{ background: 'rgba(255,255,255,0.14)', color: '#ffffff' }}
@@ -433,8 +431,8 @@ export function LoginSupportWidget({ brandLetter, brandName, isRtl, locale }: Lo
             >
               <input
                 type="text"
-                readOnly
-                value=""
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
                 placeholder={placeholderText}
                 aria-label={placeholderText}
                 className="h-10 flex-1 bg-transparent px-2 text-sm outline-none placeholder:opacity-70"
@@ -442,7 +440,7 @@ export function LoginSupportWidget({ brandLetter, brandName, isRtl, locale }: Lo
               />
               <button
                 type="button"
-                aria-label={copy.launcher}
+                aria-label="Send"
                 className="inline-flex h-10 w-10 items-center justify-center rounded-full"
                 style={{ background: primaryColor, color: fabIconColor }}
               >
@@ -457,7 +455,7 @@ export function LoginSupportWidget({ brandLetter, brandName, isRtl, locale }: Lo
         <div className={`flex items-center gap-2 ${isRtl ? 'flex-row-reverse' : ''}`}>
           <button
             type="button"
-            onClick={() => setOpen((current) => !current)}
+            onClick={() => setOpen((c) => !c)}
             className="inline-flex items-center gap-2 px-4 py-3 text-sm font-semibold shadow-2xl transition-transform hover:scale-[1.02]"
             style={{
               background: primaryColor,
@@ -466,11 +464,11 @@ export function LoginSupportWidget({ brandLetter, brandName, isRtl, locale }: Lo
             }}
           >
             <FabIcon className="h-4 w-4" />
-            <span>{widgetConfig?.theme?.fabChatLabel || 'Chat'}</span>
+            <span>{widgetData?.fab_chat_label || 'Chat'}</span>
           </button>
           <button
             type="button"
-            onClick={() => setOpen((current) => !current)}
+            onClick={() => setOpen((c) => !c)}
             className="inline-flex items-center gap-2 px-4 py-3 text-sm font-semibold shadow-2xl transition-transform hover:scale-[1.02]"
             style={{
               background: secondaryColor,
@@ -479,7 +477,7 @@ export function LoginSupportWidget({ brandLetter, brandName, isRtl, locale }: Lo
             }}
           >
             <HelpIcon className="h-4 w-4" />
-            <span>{widgetConfig?.theme?.fabHelpLabel || 'Help'}</span>
+            <span>{widgetData?.fab_help_label || 'Help'}</span>
           </button>
         </div>
       ) : (
@@ -500,7 +498,7 @@ export function LoginSupportWidget({ brandLetter, brandName, isRtl, locale }: Lo
           <button
             type="button"
             aria-label={copy.launcher}
-            onClick={() => setOpen((current) => !current)}
+            onClick={() => setOpen((c) => !c)}
             className="inline-flex min-h-14 items-center justify-center gap-2 px-4 shadow-2xl transition-transform hover:scale-[1.03]"
             style={{
               background: primaryColor,
@@ -514,7 +512,7 @@ export function LoginSupportWidget({ brandLetter, brandName, isRtl, locale }: Lo
             <FabIcon className="h-5 w-5 shrink-0" />
             {fabShape === 'pill' && (
               <span className="text-sm font-semibold" style={{ color: fabTextColor }}>
-                {widgetConfig?.theme?.fabLabel || launcherText}
+                {widgetData?.fab_label || launcherText}
               </span>
             )}
           </button>

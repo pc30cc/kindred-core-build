@@ -1,11 +1,33 @@
+/**
+ * Widget API — Full-featured widget backend
+ * 
+ * Adapted from WebYar Growth Suite widget system.
+ * 
+ * Endpoints:
+ *  - POST /bootstrap        — Public. Issues HMAC session token
+ *  - GET  /config           — Token-secured. Full widget config
+ *  - GET  /poll             — Token-secured. Poll messages
+ *  - GET  /history          — Token-secured. Conversation history
+ *  - GET  /help-articles    — Token-secured. KB articles
+ *  - POST /message          — Token-secured. Send message + AI auto-reply
+ *  - POST /track            — Token-secured. Visitor tracking event
+ *  - PUT  /action           — Token-secured. Heartbeat, typing, reopen, CSAT
+ *  - POST /upload           — Token-secured. File upload
+ *  - POST /session/refresh  — Refresh expiring token
+ *  - GET  /manifest         — Token-secured. Versioned runtime manifest
+ *  - POST /validate-origin  — Origin validation check
+ *  - GET  /kb               — Legacy KB endpoint (kept for compat)
+ */
+
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
+import crypto from 'crypto';
 import { getServiceClient } from '../supabase.js';
 import type { ServerConfig } from '../config.js';
 import {
   getLoaderAssetBase,
   getRequestBaseUrl,
-  getRequestOrigin,
+  getRequestOrigin as getRequestOriginPublic,
   getWorkspaceOriginRules,
   isWorkspaceOriginAllowed,
   resolveWidgetApiBase,
@@ -13,54 +35,225 @@ import {
   resolveWorkspaceIdFromOrigin,
 } from '../services/widget/public.js';
 import { getWidgetAssetName, getLoaderVersion } from '../services/widget/manifest.js';
+import {
+  createSessionToken,
+  verifySessionToken,
+  verifyTokenForRefresh,
+  enforceWidgetToken,
+  enforceOrigin,
+  widgetRateLimit,
+  widgetSecurityCors,
+  resolveWorkspaceId,
+  verifyConversationOwnership,
+  getClientIp,
+  getRequestOrigin,
+} from '../services/widget/security.js';
+import { resolveAIConfig, executeAICompletion } from '../services/ai/index.js';
 
 export const widgetRouter = Router();
 
-// ============================================
-// GET /api/widget/config
-// Widget bootstrap endpoint — server-validated
-// ============================================
-const configQuerySchema = z.object({
-  workspace_id: z.string().uuid().optional(),
-  origin: z.string().url(),
-  loader_origin: z.string().url().optional(),
+// ─── CORS preflight for all widget routes ───
+widgetRouter.use(widgetSecurityCors);
+
+// ─── Default widget settings ───
+const DEFAULT_WIDGET_SETTINGS = {
+  enabled: true,
+  primary_color: '#3B82F6',
+  secondary_color: '#6366f1',
+  greeting_message: '',
+  welcome_message: 'Hello! How can we help you?',
+  placeholder_text: '',
+  position: 'bottom-right',
+  show_logo: true,
+  offline_message: '',
+  auto_open_delay: 0,
+  theme: 'modern',
+  fab_icon: 'chat',
+  fab_shape: 'circle',
+  fab_label: '',
+  fab_scale: 100,
+  fab_icon_color: '#ffffff',
+  fab_text_color: '#ffffff',
+  default_mode: 'chat',
+  chat_enabled: true,
+  kb_enabled: true,
+  visitor_tracking_enabled: true,
+  support_mode: 'human_first',
+  widget_language: 'auto',
+  mobile_behavior: 'bottom_sheet',
+  locale: 'en',
+};
+
+// ═══════════════════════════════════════════════
+// POST /bootstrap — Public. Issues session token
+// ═══════════════════════════════════════════════
+widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), async (req: Request, res: Response) => {
+  try {
+    const config = (req as any).serverConfig as ServerConfig;
+    const supabase = getServiceClient(config);
+    const { workspace_id } = req.body || {};
+
+    const requestOrigin = getRequestOrigin(req) || (() => {
+      try { return new URL(req.headers['referer'] as string || '').origin; } catch { return null; }
+    })();
+
+    // Resolve workspace: explicit ID or by origin
+    const resolvedWorkspaceId = workspace_id || (requestOrigin ? await resolveWorkspaceIdFromOrigin(config, requestOrigin) : null);
+
+    if (!resolvedWorkspaceId) {
+      return res.status(400).json({ error: 'workspace_id required or origin must be mapped', code: 'MISSING_WORKSPACE' });
+    }
+
+    // Verify workspace exists
+    const { data: workspace } = await supabase
+      .from('workspaces')
+      .select('id, name')
+      .eq('id', resolvedWorkspaceId)
+      .maybeSingle();
+
+    if (!workspace) {
+      return res.status(404).json({ disabled: true, error: 'Workspace not found' });
+    }
+
+    // Check widget enabled
+    const { data: widgetSettings } = await supabase
+      .from('widget_settings')
+      .select('enabled, allowed_domains, allow_subdomains')
+      .eq('workspace_id', resolvedWorkspaceId)
+      .maybeSingle();
+
+    if (widgetSettings?.enabled === false) {
+      return res.json({ disabled: true, fallback: true });
+    }
+
+    // Origin validation
+    if (requestOrigin && widgetSettings) {
+      const originRules = await getWorkspaceOriginRules(config, resolvedWorkspaceId);
+      if (originRules.domains.length > 0) {
+        const allowed = await isWorkspaceOriginAllowed(config, resolvedWorkspaceId, requestOrigin);
+        if (!allowed) {
+          // Allow localhost for dev
+          const isLocalDev = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(requestOrigin);
+          if (!isLocalDev) {
+            console.warn(`[widget-bootstrap] Origin rejected: ${requestOrigin} for workspace ${resolvedWorkspaceId}`);
+            return res.status(403).json({ error: 'Origin not authorized', code: 'ORIGIN_DENIED' });
+          }
+        }
+      }
+    }
+
+    // Issue session token
+    const sessionToken = createSessionToken(resolvedWorkspaceId, requestOrigin || '');
+    const tokenInfo = verifySessionToken(sessionToken);
+
+    // Set CORS
+    if (requestOrigin) {
+      res.header('Access-Control-Allow-Origin', requestOrigin);
+      res.header('Access-Control-Allow-Credentials', 'false');
+    }
+
+    // No-cache
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.set('Pragma', 'no-cache');
+
+    // Get branding for platform display name
+    const { data: branding } = await supabase
+      .from('workspace_branding')
+      .select('platform_name')
+      .eq('workspace_id', resolvedWorkspaceId)
+      .maybeSingle();
+
+    return res.json({
+      session_token: sessionToken,
+      workspace_id: resolvedWorkspaceId,
+      workspace_name: workspace.name,
+      expires_at: tokenInfo.valid && tokenInfo.expiresAt ? new Date(tokenInfo.expiresAt * 1000).toISOString() : null,
+      platform_display_name: branding?.platform_name || '',
+      version: '3.0.0',
+    });
+  } catch (err: any) {
+    console.error('[widget-bootstrap] Error:', err.message);
+    return res.status(500).json({ error: 'Bootstrap failed' });
+  }
 });
 
-widgetRouter.get('/config', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
-  const parsed = configQuerySchema.safeParse(req.query);
+// ═══════════════════════════════════════════════
+// POST /session/refresh — Secure token renewal
+// ═══════════════════════════════════════════════
+widgetRouter.post('/session/refresh', widgetRateLimit('refresh'), async (req: Request, res: Response) => {
+  try {
+    const currentToken = req.headers['x-widget-token'] as string;
+    if (!currentToken) {
+      return res.status(401).json({ error: 'Current session token required', code: 'MISSING_TOKEN' });
+    }
 
-  if (!parsed.success) {
-    return res.status(400).json({ error: 'Invalid parameters', details: parsed.error.flatten().fieldErrors });
+    const tokenData = verifyTokenForRefresh(currentToken);
+    if (!tokenData.valid && !tokenData.workspaceId) {
+      return res.status(403).json({
+        error: tokenData.reason === 'expired_beyond_grace' ? 'Session expired beyond refresh window' : 'Invalid session token',
+        code: tokenData.reason === 'expired_beyond_grace' ? 'TOKEN_EXPIRED' : 'INVALID_TOKEN',
+      });
+    }
+
+    const workspaceId = tokenData.workspaceId;
+    const tokenOrigin = tokenData.origin || '';
+
+    if (!workspaceId) {
+      return res.status(403).json({ error: 'Invalid token — no workspace', code: 'INVALID_TOKEN' });
+    }
+
+    const requestOrigin = getRequestOrigin(req) || '';
+    if (tokenOrigin && requestOrigin && tokenOrigin.toLowerCase() !== requestOrigin.toLowerCase()) {
+      return res.status(403).json({ error: 'Origin mismatch', code: 'ORIGIN_MISMATCH' });
+    }
+
+    const newToken = createSessionToken(workspaceId, tokenOrigin || requestOrigin);
+    const newResult = verifySessionToken(newToken);
+
+    if (requestOrigin) {
+      res.header('Access-Control-Allow-Origin', requestOrigin);
+    }
+
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+
+    return res.json({
+      session_token: newToken,
+      workspace_id: workspaceId,
+      expires_at: newResult.expiresAt ? new Date(newResult.expiresAt * 1000).toISOString() : null,
+    });
+  } catch (err: any) {
+    console.error('[session-refresh] Error:', err.message);
+    return res.status(500).json({ error: 'Session refresh failed' });
   }
+});
 
-  const { workspace_id, origin } = parsed.data;
+// ═══════════════════════════════════════════════
+// All routes below require valid session token
+// ═══════════════════════════════════════════════
+widgetRouter.use(enforceWidgetToken);
+widgetRouter.use(enforceOrigin);
+
+// ═══════════════════════════════════════════════
+// GET /config — Full widget configuration
+// ═══════════════════════════════════════════════
+widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = resolveWorkspaceId(req, res, req.query.workspace_id as string);
+  if (res.headersSent) return;
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
+
   const supabase = getServiceClient(config);
 
   try {
-    const resolvedWorkspaceId = workspace_id || await resolveWorkspaceIdFromOrigin(config, origin);
-
-    if (!resolvedWorkspaceId) {
-      return res.status(404).json({ error: 'No widget workspace mapped to this domain' });
-    }
-
     const [{ data: widget, error }, { data: branding }, { data: platformDomains }, originRules] = await Promise.all([
-      supabase
-        .from('widget_settings')
-        .select('*')
-        .eq('workspace_id', resolvedWorkspaceId)
-        .single(),
-      supabase
-        .from('workspace_branding')
+      supabase.from('widget_settings').select('*').eq('workspace_id', workspaceId).maybeSingle(),
+      supabase.from('workspace_branding')
         .select('platform_name, logo_url, primary_color, widget_base_url, widget_public_base_url, widget_loader_base_url, widget_api_base_url, asset_base_url')
-        .eq('workspace_id', resolvedWorkspaceId)
-        .maybeSingle(),
-      supabase
-        .from('platform_domains')
+        .eq('workspace_id', workspaceId).maybeSingle(),
+      supabase.from('platform_domains')
         .select('api_base_url, widget_base_url, asset_base_url, public_base_url')
-        .limit(1)
-        .maybeSingle(),
-      getWorkspaceOriginRules(config, resolvedWorkspaceId),
+        .limit(1).maybeSingle(),
+      getWorkspaceOriginRules(config, workspaceId),
     ]);
 
     if (error || !widget) {
@@ -71,8 +264,23 @@ widgetRouter.get('/config', async (req: Request, res: Response) => {
       return res.json({ enabled: false });
     }
 
-    if (originRules.domains.length && !(await isWorkspaceOriginAllowed(config, resolvedWorkspaceId, origin))) {
-      return res.status(403).json({ error: 'Origin not allowed' });
+    const ws = { ...DEFAULT_WIDGET_SETTINGS, ...widget };
+
+    // Get workspace info + team members
+    const { data: workspace } = await supabase
+      .from('workspaces').select('name').eq('id', workspaceId).maybeSingle();
+
+    const { data: members } = await supabase
+      .from('workspace_members').select('user_id').eq('workspace_id', workspaceId).limit(4);
+
+    let teamMembers: Array<{ name: string; avatar: string | null }> = [];
+    if (members?.length) {
+      const { data: profiles } = await supabase
+        .from('profiles').select('full_name, avatar_url')
+        .in('id', members.map((m: any) => m.user_id));
+      if (profiles) {
+        teamMembers = profiles.map((p: any) => ({ name: p.full_name || 'Operator', avatar: p.avatar_url }));
+      }
     }
 
     const apiBase = resolveWidgetApiBase({
@@ -95,52 +303,670 @@ widgetRouter.get('/config', async (req: Request, res: Response) => {
 
     const widgetConfig = {
       enabled: true,
-      workspaceId: resolvedWorkspaceId,
+      workspaceId,
       apiBase,
       assetBase,
-      debugMode: widget.debug_mode ?? false,
+      debugMode: ws.debug_mode ?? false,
       brandName: branding?.platform_name || 'Support',
-      primaryColor: widget.primary_color || branding?.primary_color || '#3B82F6',
-      logoUrl: widget.logo_url || branding?.logo_url || null,
-      launcherText: widget.launcher_text || 'Chat with us',
-      welcomeMessage: widget.welcome_message || 'Hello! How can we help you?',
-      position: widget.position || 'bottom-right',
-      locale: widget.locale || 'en',
+      primaryColor: ws.primary_color || branding?.primary_color || '#3B82F6',
+      secondaryColor: ws.secondary_color || '#6366f1',
+      logoUrl: ws.logo_url || branding?.logo_url || null,
+      launcherText: ws.launcher_text || 'Chat with us',
+      welcomeMessage: ws.welcome_message || 'Hello! How can we help you?',
+      greetingMessage: ws.greeting_message || '',
+      placeholderText: ws.placeholder_text || '',
+      offlineMessage: ws.offline_message || '',
+      position: ws.position || 'bottom-right',
+      locale: ws.locale || 'en',
+      widgetLanguage: ws.widget_language || 'auto',
       loaderVersion,
-      features: {
-        chat: widget.chat_enabled ?? true,
-        knowledgeBase: widget.kb_enabled ?? true,
-        visitorTracking: widget.visitor_tracking_enabled ?? true,
+      theme: ws.theme || 'modern',
+      fab: {
+        icon: ws.fab_icon || 'chat',
+        helpIcon: ws.fab_help_icon || 'help_circle',
+        shape: ws.fab_shape || 'circle',
+        label: ws.fab_label || '',
+        chatLabel: ws.fab_chat_label || '',
+        helpLabel: ws.fab_help_label || '',
+        scale: ws.fab_scale ?? 100,
+        iconColor: ws.fab_icon_color || '#ffffff',
+        textColor: ws.fab_text_color || '#ffffff',
+        animation: ws.fab_animation ?? true,
       },
+      features: {
+        chat: ws.chat_enabled ?? true,
+        knowledgeBase: ws.kb_enabled ?? true,
+        visitorTracking: ws.visitor_tracking_enabled ?? true,
+      },
+      supportMode: ws.support_mode || 'human_first',
+      defaultMode: ws.default_mode || 'chat',
+      mobileBehavior: ws.mobile_behavior || 'bottom_sheet',
+      autoOpenDelay: ws.auto_open_delay || 0,
+      showLogo: ws.show_logo ?? true,
+      workspaceName: workspace?.name || '',
+      teamMembers,
+      onlineOperators: 0, // TODO: Add operator presence tracking
       runtimeUrl: assetBase ? `${assetBase}/widget/${runtimeJsName}` : null,
       styleUrl: assetBase ? `${assetBase}/widget/${runtimeCssName}` : null,
     };
 
     res.json(widgetConfig);
-  } catch (err) {
+  } catch (err: any) {
     console.error('Widget config error:', err);
     res.status(500).json({ error: 'Internal error' });
   }
 });
 
-// ============================================
-// POST /api/widget/validate-origin
-// Server-side origin validation
-// ============================================
-const validateOriginSchema = z.object({
-  workspace_id: z.string().uuid(),
-  origin: z.string().url(),
+// ═══════════════════════════════════════════════
+// GET /poll — Poll for new messages
+// ═══════════════════════════════════════════════
+widgetRouter.get('/poll', widgetRateLimit('poll'), async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = resolveWorkspaceId(req, res, req.query.workspace_id as string);
+  if (res.headersSent) return;
+  if (!workspaceId) return res.json({ status: 'unknown', messages: [], conversation_id: null });
+
+  const conversationId = req.query.conversation_id as string;
+  const visitorId = req.query.visitor_id as string || null;
+  const sessionId = req.query.session_id as string || null;
+  const supabase = getServiceClient(config);
+
+  try {
+    let conv: any = null;
+    let activeConversationId: string | null = null;
+
+    // Try direct conversation lookup with ownership verification
+    if (conversationId) {
+      const ownership = await verifyConversationOwnership(config, conversationId, workspaceId, visitorId, sessionId);
+      if (ownership.valid && ownership.conversation) {
+        conv = ownership.conversation;
+        activeConversationId = conv.id;
+      }
+    }
+
+    // Fallback: find by visitor_id via visitor_sessions
+    if (!conv && visitorId) {
+      const { data: session } = await supabase
+        .from('visitor_sessions').select('id')
+        .eq('workspace_id', workspaceId).eq('visitor_id', visitorId)
+        .order('last_seen_at', { ascending: false }).limit(1).maybeSingle();
+
+      if (session) {
+        const { data: fc } = await supabase
+          .from('conversations').select('id, status, assigned_to, updated_at, contact_id, visitor_session_id, workspace_id')
+          .eq('workspace_id', workspaceId).eq('visitor_session_id', session.id)
+          .order('updated_at', { ascending: false }).limit(1).maybeSingle();
+
+        if (fc) { conv = fc; activeConversationId = fc.id; }
+      }
+    }
+
+    // Fallback: find by contact metadata
+    if (!conv && visitorId) {
+      const { data: contact } = await supabase
+        .from('contacts').select('id')
+        .eq('workspace_id', workspaceId)
+        .contains('metadata', { visitor_id: visitorId })
+        .limit(1).maybeSingle();
+
+      if (contact) {
+        const { data: fc } = await supabase
+          .from('conversations').select('id, status, assigned_to, updated_at, contact_id, visitor_session_id, workspace_id')
+          .eq('workspace_id', workspaceId).eq('contact_id', contact.id)
+          .order('updated_at', { ascending: false }).limit(1).maybeSingle();
+
+        if (fc) { conv = fc; activeConversationId = fc.id; }
+      }
+    }
+
+    if (!conv) {
+      return res.json({ status: 'unknown', messages: [], operator: null, operator_typing: false, conversation_id: null });
+    }
+
+    const { data: msgs } = await supabase
+      .from('conversation_messages')
+      .select('id, body, sender_type, created_at, metadata')
+      .eq('conversation_id', activeConversationId)
+      .order('created_at', { ascending: false })
+      .limit(200);
+
+    const messages = (msgs || []).slice().reverse().map((m: any) => ({
+      id: m.id,
+      role: m.sender_type === 'contact' ? 'visitor' : m.sender_type === 'system' ? 'system' : 'agent',
+      text: m.body,
+      time: m.created_at,
+      metadata: m.metadata,
+    }));
+
+    let operatorInfo = null;
+    if (conv.assigned_to) {
+      const { data: profile } = await supabase
+        .from('profiles').select('full_name, avatar_url')
+        .eq('id', conv.assigned_to).maybeSingle();
+      if (profile) operatorInfo = { name: profile.full_name, avatar: profile.avatar_url };
+    }
+
+    return res.json({
+      status: conv.status || 'unknown',
+      messages,
+      operator: operatorInfo,
+      operator_typing: false,
+      conversation_id: activeConversationId,
+    });
+  } catch (err: any) {
+    console.error('[widget-poll] Error:', err.message);
+    res.status(500).json({ error: 'Poll failed' });
+  }
 });
 
+// ═══════════════════════════════════════════════
+// GET /history — Conversation history
+// ═══════════════════════════════════════════════
+widgetRouter.get('/history', widgetRateLimit('poll'), async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = resolveWorkspaceId(req, res, req.query.workspace_id as string);
+  if (res.headersSent) return;
+
+  const conversationId = req.query.conversation_id as string;
+  const visitorId = req.query.visitor_id as string || null;
+  const sessionId = req.query.session_id as string || null;
+
+  if (!conversationId || !workspaceId) {
+    return res.status(400).json({ error: 'conversation_id and workspace_id required' });
+  }
+
+  const ownership = await verifyConversationOwnership(config, conversationId, workspaceId, visitorId, sessionId);
+  if (!ownership.valid) {
+    return res.status(403).json({ error: 'Access denied to this conversation', code: 'CONVERSATION_ACCESS_DENIED' });
+  }
+
+  const supabase = getServiceClient(config);
+  const { data: msgs } = await supabase
+    .from('conversation_messages')
+    .select('id, body, sender_type, created_at, metadata')
+    .eq('conversation_id', conversationId)
+    .order('created_at', { ascending: false })
+    .limit(200);
+
+  const messages = (msgs || []).slice().reverse().map((m: any) => ({
+    id: m.id,
+    role: m.sender_type === 'contact' ? 'visitor' : m.sender_type === 'system' ? 'system' : 'agent',
+    text: m.body,
+    time: m.created_at,
+    metadata: m.metadata,
+  }));
+
+  return res.json({ messages });
+});
+
+// ═══════════════════════════════════════════════
+// GET /help-articles — Knowledge base articles
+// ═══════════════════════════════════════════════
+widgetRouter.get('/help-articles', widgetRateLimit('default'), async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = resolveWorkspaceId(req, res, req.query.workspace_id as string);
+  if (res.headersSent) return;
+  if (!workspaceId) return res.json({ articles: [] });
+
+  const supabase = getServiceClient(config);
+  const search = (req.query.search as string) || '';
+  const locale = (req.query.locale as string) || '';
+  const limit = Math.min(parseInt(req.query.limit as string || '20'), 50);
+
+  try {
+    let query = supabase
+      .from('knowledge_base_articles')
+      .select('id, title, slug, content, excerpt, locale')
+      .eq('workspace_id', workspaceId)
+      .eq('status', 'published')
+      .order('sort_order', { ascending: true })
+      .limit(limit);
+
+    if (locale) query = query.eq('locale', locale);
+    if (search) query = query.or(`title.ilike.%${search}%,content.ilike.%${search}%`);
+
+    const { data: articles } = await query;
+    return res.json({ articles: articles || [] });
+  } catch (err: any) {
+    console.error('[widget-help] Error:', err.message);
+    res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+// ═══════════════════════════════════════════════
+// POST /message — Send message + AI auto-reply
+// ═══════════════════════════════════════════════
+const messageSchema = z.object({
+  workspace_id: z.string().uuid().optional(),
+  conversation_id: z.string().uuid().optional().nullable(),
+  message: z.string().min(1).max(5000),
+  visitor_id: z.string().min(1).max(255).optional(),
+  visitor_name: z.string().max(200).optional(),
+  visitor_email: z.string().email().optional().nullable(),
+  visitor_phone: z.string().max(30).optional().nullable(),
+  session_id: z.string().uuid().optional().nullable(),
+  force_new_conversation: z.boolean().optional(),
+});
+
+widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = messageSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid parameters', details: parsed.error.flatten().fieldErrors });
+  }
+
+  const body = parsed.data;
+  const workspaceId = resolveWorkspaceId(req, res, body.workspace_id);
+  if (res.headersSent) return;
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
+
+  const supabase = getServiceClient(config);
+
+  try {
+    // Verify widget is enabled
+    const { data: widget } = await supabase
+      .from('widget_settings').select('enabled, chat_enabled')
+      .eq('workspace_id', workspaceId).maybeSingle();
+
+    if (!widget?.enabled || widget.chat_enabled === false) {
+      return res.status(403).json({ error: 'Chat not enabled' });
+    }
+
+    let convId = body.conversation_id || null;
+
+    // Verify conversation ownership if provided
+    if (convId) {
+      const ownership = await verifyConversationOwnership(config, convId, workspaceId, body.visitor_id, body.session_id);
+      if (!ownership.valid) {
+        convId = null; // Will create new conversation
+      } else {
+        const conv = ownership.conversation;
+        if (['closed', 'resolved', 'pending'].includes(conv.status)) {
+          await supabase.from('conversations')
+            .update({ status: 'open', updated_at: new Date().toISOString() })
+            .eq('id', convId);
+        }
+      }
+    }
+
+    // Try to find existing conversation by visitor identity
+    if (!convId && body.visitor_id && !body.force_new_conversation) {
+      // By session
+      if (body.session_id) {
+        const { data: existingConv } = await supabase
+          .from('conversations').select('id')
+          .eq('workspace_id', workspaceId).eq('visitor_session_id', body.session_id)
+          .in('status', ['open', 'pending'])
+          .order('updated_at', { ascending: false }).limit(1).maybeSingle();
+        if (existingConv) convId = existingConv.id;
+      }
+
+      // By contact metadata
+      if (!convId) {
+        const { data: contact } = await supabase
+          .from('contacts').select('id')
+          .eq('workspace_id', workspaceId)
+          .contains('metadata', { visitor_id: body.visitor_id })
+          .limit(1).maybeSingle();
+
+        if (contact) {
+          const { data: existingConv } = await supabase
+            .from('conversations').select('id')
+            .eq('workspace_id', workspaceId).eq('contact_id', contact.id)
+            .order('updated_at', { ascending: false }).limit(1).maybeSingle();
+          if (existingConv) {
+            convId = existingConv.id;
+            await supabase.from('conversations')
+              .update({ status: 'open', updated_at: new Date().toISOString() })
+              .eq('id', convId);
+          }
+        }
+      }
+    }
+
+    // Create new conversation
+    if (!convId) {
+      // Find or create contact
+      let contactId: string | null = null;
+
+      if (body.visitor_id) {
+        const { data: existingContact } = await supabase
+          .from('contacts').select('id')
+          .eq('workspace_id', workspaceId)
+          .contains('metadata', { visitor_id: body.visitor_id })
+          .limit(1).maybeSingle();
+        contactId = existingContact?.id || null;
+      }
+
+      if (!contactId && (body.visitor_name || body.visitor_email || body.visitor_id)) {
+        const { data: newContact } = await supabase
+          .from('contacts').insert({
+            workspace_id: workspaceId,
+            name: body.visitor_name || 'Visitor',
+            email: body.visitor_email || null,
+            phone: body.visitor_phone || null,
+            metadata: { visitor_id: body.visitor_id, source: 'widget' },
+          }).select('id').single();
+        contactId = newContact?.id || null;
+      }
+
+      const { data: conv, error: convErr } = await supabase
+        .from('conversations').insert({
+          workspace_id: workspaceId,
+          status: 'open',
+          priority: 'normal',
+          subject: body.message.slice(0, 80),
+          contact_id: contactId,
+          visitor_session_id: body.session_id || null,
+          updated_at: new Date().toISOString(),
+        }).select('id').single();
+
+      if (convErr) throw convErr;
+      convId = conv!.id;
+    }
+
+    // Insert visitor message
+    const { error: msgErr } = await supabase
+      .from('conversation_messages').insert({
+        conversation_id: convId,
+        body: body.message,
+        sender_type: 'contact',
+        metadata: { source: 'widget', visitor_id: body.visitor_id, session_id: body.session_id },
+      });
+    if (msgErr) throw msgErr;
+
+    await supabase.from('conversations')
+      .update({ updated_at: new Date().toISOString() })
+      .eq('id', convId);
+
+    // AI auto-reply attempt
+    let reply: string | null = null;
+    try {
+      const aiConfig = await resolveAIConfig(config, workspaceId);
+      if (aiConfig) {
+        // Get conversation history for context
+        const { data: history } = await supabase
+          .from('conversation_messages')
+          .select('body, sender_type, created_at')
+          .eq('conversation_id', convId)
+          .order('created_at', { ascending: true })
+          .limit(20);
+
+        // Get KB articles for context
+        const { data: kbArticles } = await supabase
+          .from('knowledge_base_articles')
+          .select('title, content')
+          .eq('workspace_id', workspaceId)
+          .eq('status', 'published')
+          .limit(5);
+
+        const kbContext = kbArticles?.length
+          ? '\n\nKnowledge Base:\n' + kbArticles.map((a: any) => `- ${a.title}: ${(a.content || '').slice(0, 300)}`).join('\n')
+          : '';
+
+        const { data: wsInfo } = await supabase
+          .from('workspaces').select('name').eq('id', workspaceId).maybeSingle();
+
+        const systemPrompt = `You are a helpful support assistant for "${wsInfo?.name || 'this company'}".
+Answer customer questions concisely and helpfully.
+If you cannot answer, say so politely.${kbContext}`;
+
+        const prompt = (history || []).map((m: any) =>
+          `${m.sender_type === 'contact' ? 'Customer' : 'Agent'}: ${m.body}`
+        ).join('\n');
+
+        const aiResponse = await executeAICompletion(config, {
+          workspaceId,
+          prompt,
+          systemPrompt,
+          maxTokens: 300,
+          temperature: 0.7,
+        });
+
+        if (aiResponse.text) {
+          reply = aiResponse.text;
+          await supabase.from('conversation_messages').insert({
+            conversation_id: convId,
+            body: reply,
+            sender_type: 'agent',
+            metadata: { source: 'ai_auto_reply', provider: aiResponse.provider, model: aiResponse.model },
+          });
+        }
+      }
+    } catch (aiErr: any) {
+      console.warn('[widget-message] AI auto-reply failed:', aiErr.message);
+    }
+
+    return res.json({ conversation_id: convId, status: 'sent', reply });
+  } catch (err: any) {
+    console.error('[widget-message] Error:', err.message);
+    res.status(500).json({ error: 'Message send failed' });
+  }
+});
+
+// ═══════════════════════════════════════════════
+// POST /track — Visitor tracking event
+// ═══════════════════════════════════════════════
+widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = resolveWorkspaceId(req, res, req.body?.workspace_id);
+  if (res.headersSent) return;
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
+
+  const supabase = getServiceClient(config);
+  const { event_type, visitor_id, session_id, page_url, page_title, referrer } = req.body;
+
+  try {
+    if (event_type === 'page_view' || event_type === 'heartbeat') {
+      const clientIp = getClientIp(req);
+      const ipHash = crypto.createHash('sha256').update(clientIp).digest('hex').slice(0, 16);
+
+      // Check for existing recent session
+      const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+      const { data: existing } = await supabase
+        .from('visitor_sessions').select('id')
+        .eq('workspace_id', workspaceId).eq('visitor_id', visitor_id || '')
+        .gte('last_seen_at', thirtyMinAgo)
+        .order('last_seen_at', { ascending: false }).limit(1).maybeSingle();
+
+      if (existing) {
+        await supabase.from('visitor_sessions')
+          .update({ current_page: page_url || null, last_seen_at: new Date().toISOString() })
+          .eq('id', existing.id);
+
+        await supabase.from('visitor_presence')
+          .update({ status: 'online', current_page: page_url || null, updated_at: new Date().toISOString() })
+          .eq('visitor_session_id', existing.id);
+      } else if (visitor_id) {
+        const { data: newSession } = await supabase
+          .from('visitor_sessions').insert({
+            workspace_id: workspaceId,
+            visitor_id,
+            current_page: page_url || null,
+            referrer: referrer || null,
+            ip_hash: ipHash,
+          }).select('id').maybeSingle();
+
+        if (newSession) {
+          await supabase.from('visitor_presence').insert({
+            workspace_id: workspaceId,
+            visitor_session_id: newSession.id,
+            status: 'online',
+            current_page: page_url || null,
+          });
+        }
+      }
+    }
+
+    return res.json({ ok: true });
+  } catch (err: any) {
+    console.error('[widget-track] Error:', err.message);
+    res.json({ ok: true }); // Don't fail on tracking errors
+  }
+});
+
+// ═══════════════════════════════════════════════
+// PUT /action — Heartbeat, Typing, Reopen, CSAT
+// ═══════════════════════════════════════════════
+widgetRouter.put('/action', widgetRateLimit('default'), async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = resolveWorkspaceId(req, res, req.body?.workspace_id);
+  if (res.headersSent) return;
+
+  const { action, conversation_id, visitor_id, session_id } = req.body;
+  const supabase = getServiceClient(config);
+
+  try {
+    if (action === 'heartbeat' && conversation_id) {
+      const ownership = await verifyConversationOwnership(config, conversation_id, workspaceId!, visitor_id, session_id);
+      if (!ownership.valid) return res.status(403).json({ error: 'Access denied', code: 'CONVERSATION_ACCESS_DENIED' });
+      await supabase.from('conversations').update({ updated_at: new Date().toISOString() }).eq('id', conversation_id);
+      return res.json({ ok: true });
+    }
+
+    if (action === 'typing' && conversation_id) {
+      const ownership = await verifyConversationOwnership(config, conversation_id, workspaceId!, visitor_id, session_id);
+      if (!ownership.valid) return res.status(403).json({ error: 'Access denied', code: 'CONVERSATION_ACCESS_DENIED' });
+      // Broadcast typing event via Supabase Realtime
+      const channel = supabase.channel(`typing:${conversation_id}`);
+      await channel.send({ type: 'broadcast', event: 'typing', payload: { who: 'visitor', timestamp: new Date().toISOString() } });
+      supabase.removeChannel(channel);
+      return res.json({ ok: true });
+    }
+
+    if (action === 'reopen_conversation' && conversation_id && workspaceId) {
+      const ownership = await verifyConversationOwnership(config, conversation_id, workspaceId, visitor_id, session_id);
+      if (!ownership.valid) return res.json({ ok: false, not_found: true });
+      const conv = ownership.conversation;
+      if (['closed', 'resolved', 'pending'].includes(conv.status)) {
+        await supabase.from('conversations')
+          .update({ status: 'open', updated_at: new Date().toISOString() })
+          .eq('id', conversation_id);
+      }
+      return res.json({ ok: true, status: 'open' });
+    }
+
+    if (action === 'resolve_visitor' && workspaceId) {
+      let knownContact = null;
+      let activeConvId = null;
+
+      if (visitor_id) {
+        const { data: contact } = await supabase
+          .from('contacts').select('id, name, email, phone')
+          .eq('workspace_id', workspaceId)
+          .contains('metadata', { visitor_id })
+          .limit(1).maybeSingle();
+
+        if (contact) {
+          knownContact = { name: contact.name, email: contact.email, phone: contact.phone };
+          const { data: conv } = await supabase
+            .from('conversations').select('id')
+            .eq('workspace_id', workspaceId).eq('contact_id', contact.id)
+            .order('updated_at', { ascending: false }).limit(1).maybeSingle();
+          if (conv) activeConvId = conv.id;
+        }
+      }
+
+      return res.json({ known_contact: knownContact, conversation_id: activeConvId, visitor_id });
+    }
+
+    return res.status(400).json({ error: 'Unknown action' });
+  } catch (err: any) {
+    console.error('[widget-action] Error:', err.message);
+    res.status(500).json({ error: 'Action failed' });
+  }
+});
+
+// ═══════════════════════════════════════════════
+// GET /manifest — Versioned runtime manifest
+// ═══════════════════════════════════════════════
+const RUNTIME_VERSION = '3.0.0';
+const RUNTIME_BUILD_HASH = crypto.createHash('md5')
+  .update(RUNTIME_VERSION + Date.now().toString())
+  .digest('hex')
+  .slice(0, 8);
+
+widgetRouter.get('/manifest', widgetRateLimit('bootstrap'), async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = resolveWorkspaceId(req, res, req.query.workspace_id as string);
+  if (res.headersSent) return;
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
+
+  const supabase = getServiceClient(config);
+
+  try {
+    const { data: widgetData } = await supabase
+      .from('widget_settings')
+      .select('enabled, chat_enabled, kb_enabled, visitor_tracking_enabled, widget_language, theme')
+      .eq('workspace_id', workspaceId)
+      .maybeSingle();
+
+    if (widgetData?.enabled === false) {
+      return res.json({ disabled: true });
+    }
+
+    const ws = { ...DEFAULT_WIDGET_SETTINGS, ...widgetData };
+
+    const chatEnabled = ws.chat_enabled !== false;
+    const kbEnabled = ws.kb_enabled !== false;
+    const trackingEnabled = ws.visitor_tracking_enabled !== false;
+
+    const deliveryOrigin = `${req.protocol}://${req.get('host')}`;
+    const v = RUNTIME_BUILD_HASH;
+
+    const modules: Array<{ id: string; enabled: boolean; url: string }> = [];
+    if (trackingEnabled) {
+      modules.push({ id: 'visitors', enabled: true, url: `${deliveryOrigin}/widget/modules/visitors.js?v=${v}` });
+    }
+    if (chatEnabled) {
+      modules.push({ id: 'chat', enabled: true, url: `${deliveryOrigin}/widget/modules/chat.js?v=${v}` });
+    }
+    if (kbEnabled) {
+      modules.push({ id: 'help-center', enabled: true, url: `${deliveryOrigin}/widget/modules/help-center.js?v=${v}` });
+    }
+
+    const runtimeJsName = getWidgetAssetName('runtime.js');
+    const runtimeCssName = getWidgetAssetName('runtime.css');
+
+    const manifest = {
+      version: RUNTIME_VERSION,
+      build: v,
+      runtime_entry: `${deliveryOrigin}/widget/${runtimeJsName}?v=${v}`,
+      styles: [`${deliveryOrigin}/widget/${runtimeCssName}?v=${v}`],
+      modules,
+      locale: {
+        default: ws.widget_language === 'auto' ? ws.locale : ws.widget_language,
+        available: ['en', 'fa', 'tr'],
+      },
+      theme: { id: ws.theme || 'modern' },
+      features: {
+        chat: chatEnabled,
+        knowledge_base: kbEnabled,
+        tracking: trackingEnabled,
+      },
+      config_url: `${deliveryOrigin}/api/widget/config?workspace_id=${workspaceId}`,
+      created_at: new Date().toISOString(),
+    };
+
+    res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
+    return res.json(manifest);
+  } catch (err: any) {
+    console.error('[widget-manifest] Error:', err.message);
+    return res.status(500).json({ error: 'Manifest generation failed' });
+  }
+});
+
+// ═══════════════════════════════════════════════
+// POST /validate-origin — Origin validation
+// ═══════════════════════════════════════════════
 widgetRouter.post('/validate-origin', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
-  const parsed = validateOriginSchema.safeParse(req.body);
+  const { workspace_id, origin } = req.body;
 
-  if (!parsed.success) {
+  if (!workspace_id || !origin) {
     return res.status(400).json({ error: 'Invalid parameters' });
   }
 
-  const { workspace_id, origin } = parsed.data;
   const supabase = getServiceClient(config);
 
   const { data: widget } = await supabase
@@ -157,6 +983,9 @@ widgetRouter.post('/validate-origin', async (req: Request, res: Response) => {
   res.json({ valid: allowed, reason: allowed ? null : 'origin_not_allowed' });
 });
 
+// ═══════════════════════════════════════════════
+// GET /kb — Legacy knowledge base endpoint
+// ═══════════════════════════════════════════════
 const kbQuerySchema = z.object({
   workspace_id: z.string().uuid(),
   locale: z.string().min(2).max(10).optional(),
@@ -168,28 +997,13 @@ widgetRouter.get('/kb', async (req: Request, res: Response) => {
   const parsed = kbQuerySchema.safeParse(req.query);
 
   if (!parsed.success) {
-    return res.status(400).json({ error: 'Invalid parameters', details: parsed.error.flatten().fieldErrors });
+    return res.status(400).json({ error: 'Invalid parameters' });
   }
 
   const { workspace_id, locale, limit } = parsed.data;
   const supabase = getServiceClient(config);
 
   try {
-    const origin = getRequestOrigin(req);
-    const { data: widget } = await supabase
-      .from('widget_settings')
-      .select('enabled, kb_enabled')
-      .eq('workspace_id', workspace_id)
-      .maybeSingle();
-
-    if (!widget?.enabled || widget.kb_enabled === false) {
-      return res.status(403).json({ error: 'Knowledge base not enabled' });
-    }
-
-    if (!(await isWorkspaceOriginAllowed(config, workspace_id, origin))) {
-      return res.status(403).json({ error: 'Origin not allowed' });
-    }
-
     let query = supabase
       .from('knowledge_base_articles')
       .select('id, title, excerpt, slug, locale')
@@ -198,9 +1012,7 @@ widgetRouter.get('/kb', async (req: Request, res: Response) => {
       .order('sort_order', { ascending: true })
       .limit(limit);
 
-    if (locale) {
-      query = query.eq('locale', locale);
-    }
+    if (locale) query = query.eq('locale', locale);
 
     const { data: articles, error: kbError } = await query;
     if (kbError) throw kbError;
@@ -208,102 +1020,6 @@ widgetRouter.get('/kb', async (req: Request, res: Response) => {
     res.json({ articles: articles || [] });
   } catch (err) {
     console.error('Widget KB error:', err);
-    res.status(500).json({ error: 'Internal error' });
-  }
-});
-
-const messageSchema = z.object({
-  workspace_id: z.string().uuid(),
-  visitor_id: z.string().min(1).max(255),
-  session_id: z.string().uuid().optional(),
-  body: z.string().min(1).max(5000),
-});
-
-widgetRouter.post('/message', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
-  const parsed = messageSchema.safeParse(req.body);
-
-  if (!parsed.success) {
-    return res.status(400).json({ error: 'Invalid parameters', details: parsed.error.flatten().fieldErrors });
-  }
-
-  const { workspace_id, visitor_id, session_id, body } = parsed.data;
-  const supabase = getServiceClient(config);
-
-  try {
-    const origin = getRequestOrigin(req);
-    const { data: widget } = await supabase
-      .from('widget_settings')
-      .select('enabled, chat_enabled')
-      .eq('workspace_id', workspace_id)
-      .maybeSingle();
-
-    if (!widget?.enabled || widget.chat_enabled === false) {
-      return res.status(403).json({ error: 'Chat not enabled' });
-    }
-
-    if (!(await isWorkspaceOriginAllowed(config, workspace_id, origin))) {
-      return res.status(403).json({ error: 'Origin not allowed' });
-    }
-
-    let conversationId: string | null = null;
-
-    if (session_id) {
-      const { data: existingConversation, error: lookupError } = await supabase
-        .from('conversations')
-        .select('id')
-        .eq('workspace_id', workspace_id)
-        .eq('visitor_session_id', session_id)
-        .in('status', ['open', 'pending'])
-        .order('updated_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (lookupError) throw lookupError;
-      conversationId = existingConversation?.id || null;
-    }
-
-    if (!conversationId) {
-      const { data: newConversation, error: createError } = await supabase
-        .from('conversations')
-        .insert({
-          workspace_id,
-          visitor_session_id: session_id || null,
-          status: 'open',
-          priority: 'normal',
-          subject: 'Widget conversation',
-          updated_at: new Date().toISOString(),
-        })
-        .select('id')
-        .single();
-
-      if (createError) throw createError;
-      conversationId = newConversation.id;
-    }
-
-    const { error: messageError } = await supabase
-      .from('conversation_messages')
-      .insert({
-        conversation_id: conversationId,
-        body,
-        sender_type: 'contact',
-        metadata: {
-          source: 'widget',
-          visitor_id,
-          session_id: session_id || null,
-        },
-      });
-
-    if (messageError) throw messageError;
-
-    await supabase
-      .from('conversations')
-      .update({ updated_at: new Date().toISOString() })
-      .eq('id', conversationId);
-
-    res.json({ ok: true, conversation_id: conversationId, reply: null });
-  } catch (err) {
-    console.error('Widget message error:', err);
     res.status(500).json({ error: 'Internal error' });
   }
 });

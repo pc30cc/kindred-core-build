@@ -14,7 +14,9 @@ import { toast } from 'sonner';
 import {
   Building2, Users, MessageSquare, BookUser, Trash2,
   Globe, Palette, Bot, Loader2, Shield, ArrowLeft,
+  Mail, Calendar, MapPin, MonitorSmartphone, Copy,
 } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
 
 export default function AdminWorkspacesPage() {
   const [page, setPage] = useState(0);

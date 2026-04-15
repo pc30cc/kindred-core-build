@@ -68,11 +68,45 @@
     for (var i = scripts.length - 1; i >= 0; i--) {
       var src = scripts[i].src || '';
       if (src.indexOf('/widget/loader.js') !== -1) {
-        // Strip /widget/loader.js to get the base URL
         return src.replace(/\/widget\/loader\.js.*$/, '');
       }
     }
     return '';
+  }
+
+  function loadStyle(url) {
+    if (!url || document.querySelector('link[data-gs-widget-style]')) {
+      return;
+    }
+
+    var link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = url;
+    link.setAttribute('data-gs-widget-style', 'true');
+    document.head.appendChild(link);
+  }
+
+  function loadRuntime(url, config) {
+    if (!url) {
+      console.warn('[Widget] Missing runtime URL.');
+      return;
+    }
+
+    var script = document.createElement('script');
+    script.src = url;
+    script.async = true;
+    script.setAttribute('data-gs-widget-runtime', 'true');
+    script.onload = function() {
+      if (window.__gs_runtime) {
+        widget = window.__gs_runtime.init(config);
+        ready = true;
+        processQueue();
+      }
+    };
+    script.onerror = function() {
+      console.warn('[Widget] Failed to load runtime:', url);
+    };
+    document.head.appendChild(script);
   }
 
   function bootstrap() {
@@ -88,7 +122,6 @@
       .then(function(config) {
         if (!config.enabled) return;
 
-        // Visitor tracking
         if (config.features && config.features.visitorTracking) {
           var visitorId = localStorage.getItem('__gs_vid') || generateId();
           localStorage.setItem('__gs_vid', visitorId);
@@ -112,27 +145,11 @@
           }).catch(function() {});
         }
 
-        // Load runtime script if available
-        if (config.runtimeUrl) {
-          var script = document.createElement('script');
-          script.src = config.runtimeUrl;
-          script.async = true;
-          script.onload = function() {
-            if (window.__gs_runtime) {
-              widget = window.__gs_runtime.init(config);
-              ready = true;
-              processQueue();
-            }
-          };
-          document.head.appendChild(script);
-        }
+        var runtimeUrl = apiBase ? apiBase + '/widget/runtime.js' : config.runtimeUrl;
+        var styleUrl = apiBase ? apiBase + '/widget/widget.css' : config.styleUrl;
 
-        if (config.styleUrl) {
-          var link = document.createElement('link');
-          link.rel = 'stylesheet';
-          link.href = config.styleUrl;
-          document.head.appendChild(link);
-        }
+        loadStyle(styleUrl);
+        loadRuntime(runtimeUrl, config);
       })
       .catch(function(err) {
         console.warn('[Widget] Bootstrap failed:', err.message);

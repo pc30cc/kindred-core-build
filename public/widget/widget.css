@@ -1,0 +1,209 @@
+.gs-widget-root {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 2147483000;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 12px;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  line-height: 1.4;
+}
+
+.gs-widget-root.gs-pos-bottom-left {
+  left: 24px;
+  right: auto;
+  align-items: flex-start;
+}
+
+.gs-launcher-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.gs-widget-root.gs-pos-bottom-left .gs-launcher-row {
+  flex-direction: row-reverse;
+}
+
+.gs-launcher-label {
+  max-width: 220px;
+  padding: 10px 14px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 999px;
+  background: #ffffff;
+  color: #0f172a;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.16);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.gs-launcher {
+  width: 60px;
+  height: 60px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--gs-primary, #3b82f6);
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.24);
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.gs-launcher:hover {
+  transform: translateY(-1px) scale(1.02);
+  box-shadow: 0 22px 48px rgba(15, 23, 42, 0.28);
+}
+
+.gs-launcher:focus-visible,
+.gs-close-button:focus-visible {
+  outline: 3px solid rgba(59, 130, 246, 0.3);
+  outline-offset: 2px;
+}
+
+.gs-launcher-icon,
+.gs-launcher-icon svg {
+  width: 26px;
+  height: 26px;
+  display: block;
+}
+
+.gs-panel {
+  width: min(360px, calc(100vw - 32px));
+  display: none;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 24px;
+  background: #ffffff;
+  box-shadow: 0 26px 60px rgba(15, 23, 42, 0.22);
+}
+
+.gs-widget-root.gs-open .gs-panel {
+  display: flex;
+}
+
+.gs-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px;
+  background: var(--gs-primary, #3b82f6);
+  color: #ffffff;
+}
+
+.gs-panel-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.gs-panel-logo {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.gs-panel-title-wrap {
+  min-width: 0;
+}
+
+.gs-panel-title {
+  display: block;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.gs-panel-subtitle {
+  margin: 4px 0 0;
+  font-size: 13px;
+  opacity: 0.88;
+}
+
+.gs-close-button {
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.gs-panel-body {
+  padding: 18px;
+  color: #0f172a;
+}
+
+.gs-panel-message {
+  margin: 0 0 16px;
+  font-size: 15px;
+}
+
+.gs-status-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.05);
+  color: #334155;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.gs-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #22c55e;
+}
+
+.gs-panel-footer {
+  padding: 0 18px 18px;
+}
+
+.gs-panel-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--gs-primary, #3b82f6);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+@media (max-width: 640px) {
+  .gs-widget-root {
+    right: 16px;
+    bottom: 16px;
+  }
+
+  .gs-widget-root.gs-pos-bottom-left {
+    left: 16px;
+  }
+
+  .gs-launcher-label {
+    display: none;
+  }
+
+  .gs-panel {
+    width: min(360px, calc(100vw - 24px));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gs-launcher {
+    transition: none;
+  }
+}

@@ -26,19 +26,24 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: CreateWorkspaceDia
     if (!name.trim() || !account?.id) return;
 
     try {
-      await createWorkspace.mutateAsync({
+      const newWsId = await createWorkspace.mutateAsync({
         accountId: account.id,
         name: name.trim(),
       });
+
+      // Fetch the new workspace slug and navigate directly to it
+      const { data: newWs } = await supabase
+        .from('workspaces')
+        .select('slug')
+        .eq('id', newWsId)
+        .single();
 
       toast.success('Workspace created successfully');
       setName('');
       setDomain('');
       onOpenChange(false);
 
-      // Navigate to /app which will redirect to the new workspace
-      // after query invalidation picks it up
-      setTimeout(() => navigate('/app'), 300);
+      navigate(newWs?.slug ? `/app/w/${newWs.slug}` : '/app');
     } catch (err: any) {
       toast.error(err?.message || 'Failed to create workspace');
     }

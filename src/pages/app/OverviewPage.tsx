@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
 import { MessageSquare, Eye, Activity, Zap, ArrowRight } from 'lucide-react';
+import GetStartedWizard from '@/components/app/GetStartedWizard';
 
 export default function OverviewPage() {
   const { t } = useTranslation();
@@ -33,6 +34,9 @@ export default function OverviewPage() {
       <h1 className="text-2xl font-bold text-foreground">
         {t('dashboard.welcomeBack')}{workspace ? ` — ${workspace.name}` : ''}
       </h1>
+
+      {/* Get Started Wizard */}
+      <GetStartedWizard />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {stats.map((s, i) => (

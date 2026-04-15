@@ -2003,6 +2003,14 @@ export type Database = {
     Functions: {
       admin_count_profiles: { Args: never; Returns: number }
       admin_count_workspaces: { Args: never; Returns: number }
+      admin_delete_workspace: {
+        Args: { _workspace_id: string }
+        Returns: boolean
+      }
+      admin_get_workspace_detail: {
+        Args: { _workspace_id: string }
+        Returns: Json
+      }
       admin_list_profiles: {
         Args: { _limit?: number; _offset?: number }
         Returns: {

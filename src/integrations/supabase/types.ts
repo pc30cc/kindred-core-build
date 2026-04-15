@@ -1457,6 +1457,7 @@ export type Database = {
       }
       widget_settings: {
         Row: {
+          allow_subdomains: boolean
           allowed_domains: string[] | null
           chat_enabled: boolean | null
           created_at: string | null
@@ -1474,6 +1475,7 @@ export type Database = {
           workspace_id: string
         }
         Insert: {
+          allow_subdomains?: boolean
           allowed_domains?: string[] | null
           chat_enabled?: boolean | null
           created_at?: string | null
@@ -1491,6 +1493,7 @@ export type Database = {
           workspace_id: string
         }
         Update: {
+          allow_subdomains?: boolean
           allowed_domains?: string[] | null
           chat_enabled?: boolean | null
           created_at?: string | null

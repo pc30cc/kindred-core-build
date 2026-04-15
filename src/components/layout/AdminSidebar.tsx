@@ -53,7 +53,7 @@ export function AdminSidebar() {
     >
       <div className="flex h-14 items-center justify-between px-4 border-b border-border">
         {!collapsed && (
-          <span className="text-sm font-bold tracking-wide text-admin-accent uppercase">
+          <span className="text-sm font-bold tracking-wide text-primary uppercase">
             {t('admin.nav.title' as any)}
           </span>
         )}

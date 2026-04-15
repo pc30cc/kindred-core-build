@@ -1,0 +1,8 @@
+
+ALTER TABLE public.profiles
+  ADD COLUMN IF NOT EXISTS company_name TEXT,
+  ADD COLUMN IF NOT EXISTS website_domain TEXT,
+  ADD COLUMN IF NOT EXISTS main_goal TEXT,
+  ADD COLUMN IF NOT EXISTS ai_mode TEXT,
+  ADD COLUMN IF NOT EXISTS signup_ip TEXT,
+  ADD COLUMN IF NOT EXISTS signup_locale TEXT;

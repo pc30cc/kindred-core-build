@@ -5,11 +5,11 @@ import { useContacts, useCreateContact, useDeleteContact } from '@/hooks/useCont
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Trash2, User } from 'lucide-react';
+import { Plus, Trash2, User, Users, Mail, Phone, Search } from 'lucide-react';
 
 export default function ContactsPage() {
   const { t } = useTranslation();
@@ -19,6 +19,7 @@ export default function ContactsPage() {
   const deleteContact = useDeleteContact();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ name: '', email: '', phone: '' });
+  const [search, setSearch] = useState('');
 
   const handleCreate = async () => {
     await createContact.mutateAsync(form);
@@ -26,18 +27,26 @@ export default function ContactsPage() {
     setOpen(false);
   };
 
+  const filtered = contacts?.filter(c =>
+    !search || [c.name, c.email, c.phone].some(f => f?.toLowerCase().includes(search.toLowerCase()))
+  );
+
+  const withEmail = contacts?.filter(c => c.email)?.length || 0;
+  const withPhone = contacts?.filter(c => c.phone)?.length || 0;
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-foreground">{t('contacts.title')}</h1>
+        <div>
+          <h1 className="page-header">{t('contacts.title')}</h1>
+          <p className="page-subtitle mt-1">Manage your contacts and leads</p>
+        </div>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
             <Button><Plus className="h-4 w-4 me-2" />{t('contacts.addContact')}</Button>
           </DialogTrigger>
           <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{t('contacts.addContact')}</DialogTitle>
-            </DialogHeader>
+            <DialogHeader><DialogTitle>{t('contacts.addContact')}</DialogTitle></DialogHeader>
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label>{t('contacts.name')}</Label>
@@ -62,14 +71,53 @@ export default function ContactsPage() {
         </Dialog>
       </div>
 
-      <Card>
+      {/* Stat cards */}
+      <div className="grid grid-cols-3 gap-4">
+        <div className="stat-card">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-lg bg-primary/10"><Users className="h-5 w-5 text-primary" /></div>
+            <div>
+              <p className="text-2xl font-bold text-foreground">{contacts?.length || 0}</p>
+              <p className="text-xs text-muted-foreground">Total Contacts</p>
+            </div>
+          </div>
+        </div>
+        <div className="stat-card">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-lg bg-info/10"><Mail className="h-5 w-5 text-info" /></div>
+            <div>
+              <p className="text-2xl font-bold text-foreground">{withEmail}</p>
+              <p className="text-xs text-muted-foreground">With Email</p>
+            </div>
+          </div>
+        </div>
+        <div className="stat-card">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-lg bg-success/10"><Phone className="h-5 w-5 text-success" /></div>
+            <div>
+              <p className="text-2xl font-bold text-foreground">{withPhone}</p>
+              <p className="text-xs text-muted-foreground">With Phone</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <Card className="card-elevated">
+        <div className="flex items-center justify-between p-4 border-b border-border">
+          <h3 className="text-sm font-semibold">All Contacts</h3>
+          <div className="relative w-64">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search contacts..." className="pl-9 text-xs" />
+          </div>
+        </div>
         <CardContent className="p-0">
           {isLoading ? (
             <div className="p-8 text-center text-muted-foreground">{t('common.loading')}</div>
-          ) : !contacts?.length ? (
-            <div className="p-8 text-center">
-              <User className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
-              <p className="text-muted-foreground">{t('contacts.noContacts')}</p>
+          ) : !filtered?.length ? (
+            <div className="p-12 text-center">
+              <User className="h-12 w-12 text-muted-foreground/30 mx-auto mb-3" />
+              <p className="text-muted-foreground font-medium">{t('contacts.noContacts')}</p>
+              <p className="text-xs text-muted-foreground mt-1">Add your first contact to get started</p>
             </div>
           ) : (
             <Table>
@@ -79,27 +127,30 @@ export default function ContactsPage() {
                   <TableHead>{t('contacts.email')}</TableHead>
                   <TableHead>{t('contacts.phone')}</TableHead>
                   <TableHead>{t('contacts.tags')}</TableHead>
-                  <TableHead className="w-16">{t('common.actions')}</TableHead>
+                  <TableHead className="w-16" />
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {contacts.map(contact => (
-                  <TableRow key={contact.id}>
-                    <TableCell className="font-medium">{contact.name || '—'}</TableCell>
-                    <TableCell>{contact.email || '—'}</TableCell>
-                    <TableCell>{contact.phone || '—'}</TableCell>
+                {filtered.map(contact => (
+                  <TableRow key={contact.id} className="hover:bg-muted/30">
+                    <TableCell>
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                          <span className="text-xs font-semibold text-primary">{(contact.name || '?').charAt(0).toUpperCase()}</span>
+                        </div>
+                        <span className="font-medium text-sm">{contact.name || '—'}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{contact.email || '—'}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{contact.phone || '—'}</TableCell>
                     <TableCell>
                       {contact.tags?.map(tag => (
-                        <Badge key={tag} variant="secondary" className="me-1">{tag}</Badge>
+                        <Badge key={tag} variant="secondary" className="me-1 text-[10px]">{tag}</Badge>
                       ))}
                     </TableCell>
                     <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => deleteContact.mutate(contact.id)}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => deleteContact.mutate(contact.id)}>
+                        <Trash2 className="h-3.5 w-3.5 text-destructive" />
                       </Button>
                     </TableCell>
                   </TableRow>

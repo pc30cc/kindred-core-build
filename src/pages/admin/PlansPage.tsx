@@ -250,7 +250,7 @@ function PlanFormDialog({ plan, onClose, locales }: { plan?: any; onClose: () =>
                       <SelectValue placeholder="Select gateway" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">None (use default)</SelectItem>
+                      <SelectItem value="__none__">None (use default)</SelectItem>
                       {BILLING_PROVIDERS.map(bp => (
                         <SelectItem key={bp.value} value={bp.value}>{bp.label}</SelectItem>
                       ))}

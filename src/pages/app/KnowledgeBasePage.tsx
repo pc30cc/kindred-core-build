@@ -39,7 +39,7 @@ function calcSeoScore(form: FormData) {
 }
 
 export default function KnowledgeBasePage() {
-  const { t, dir, isRtl } = useTranslation();
+  const { t, dir } = useTranslation();
   const workspace = useCurrentWorkspace();
   const [locale, setLocale] = useState('en');
   const [statusFilter, setStatusFilter] = useState('all');

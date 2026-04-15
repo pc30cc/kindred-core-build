@@ -128,7 +128,10 @@ export function AppSidebar() {
             })}
 
             <div className="border-t border-border mt-1.5 pt-1.5">
-              <button className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-foreground hover:bg-accent rounded-md transition-colors">
+              <button
+                onClick={() => { setWsMenuOpen(false); setCreateWsOpen(true); }}
+                className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-foreground hover:bg-accent rounded-md transition-colors"
+              >
                 <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
                   <Plus className="h-3.5 w-3.5 text-primary" />
                 </div>

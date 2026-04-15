@@ -19,12 +19,8 @@
   'use strict';
 
   var GS = window.__gs || [];
-  var WORKSPACE_ID = window.__gs_id;
-
-  if (!WORKSPACE_ID) {
-    console.warn('[Widget] Missing workspace ID. Set window.__gs_id before loading.');
-    return;
-  }
+  var WORKSPACE_ID = window.__gs_id || null;
+  var RESOLVE_BY_ORIGIN = !WORKSPACE_ID;
 
   var queue = [];
   var ready = false;
@@ -104,7 +100,13 @@
     var assetBase = getAssetBase();
     var apiBase = getApiBase(assetBase);
     var origin = window.location.origin;
-    var configUrl = apiBase + '/api/widget/config?workspace_id=' + encodeURIComponent(WORKSPACE_ID) + '&origin=' + encodeURIComponent(origin);
+    var params = new URLSearchParams({ origin: origin });
+
+    if (WORKSPACE_ID) {
+      params.set('workspace_id', WORKSPACE_ID);
+    }
+
+    var configUrl = apiBase + '/api/widget/config?' + params.toString();
 
     fetch(configUrl)
       .then(function(res) {
@@ -114,10 +116,13 @@
       .then(function(config) {
         if (!config.enabled) return;
 
+        WORKSPACE_ID = config.workspaceId || WORKSPACE_ID;
+        window.__gs_id = WORKSPACE_ID;
+        window.__gs._id = WORKSPACE_ID;
+
         var runtimeApiBase = (config.apiBase || apiBase || '').replace(/\/$/, '');
 
-        // Visitor tracking
-        if (config.features && config.features.visitorTracking && runtimeApiBase) {
+        if (config.features && config.features.visitorTracking && runtimeApiBase && WORKSPACE_ID) {
           var visitorId = localStorage.getItem('__gs_vid') || generateId();
           localStorage.setItem('__gs_vid', visitorId);
 
@@ -125,7 +130,7 @@
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              workspace_id: config.workspaceId,
+              workspace_id: WORKSPACE_ID,
               visitor_id: visitorId,
               current_page: window.location.pathname,
               referrer: document.referrer || null,
@@ -135,12 +140,11 @@
             })
           }).then(function(r) { return r.json(); }).then(function(data) {
             if (data.session_id) {
-              startHeartbeat(runtimeApiBase, config.workspaceId, data.session_id);
+              startHeartbeat(runtimeApiBase, WORKSPACE_ID, data.session_id);
             }
           }).catch(function() {});
         }
 
-        // Load runtime CSS + JS — prefer explicit asset URLs, else loader asset base
         var runtimeCss = config.styleUrl || (assetBase + '/widget/runtime.css');
         var runtimeJs = config.runtimeUrl || (assetBase + '/widget/runtime.js');
 

@@ -18,8 +18,7 @@
     <script type="text/javascript">
       (function () {
         if (window.location.pathname !== '/auth/login') return;
-        window.__gs = [];
-        window.__gs_id = '6ee40d07-32a3-4594-8a5f-d439f81afa5b';
+        window.__gs = window.__gs || [];
         var d = document;
         var s = d.createElement('script');
         var apiBase = '%VITE_API_BASE_URL%';

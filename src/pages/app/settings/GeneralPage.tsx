@@ -31,7 +31,7 @@ export default function SettingsGeneralPage() {
   if (!workspace) return <div className="p-8 text-center text-muted-foreground">{t('common.loading')}</div>;
 
   return (
-    <div className="space-y-6 animate-fade-in max-w-3xl">
+    <div className="space-y-6 animate-fade-in">
       <h1 className="text-2xl font-bold text-foreground">{t('settings.general')}</h1>
 
       <Card>

@@ -100,51 +100,64 @@ export function AppSidebar() {
 
         {/* Dropdown menu */}
         {wsMenuOpen && (
-          <div className="absolute start-3 end-3 top-full mt-1 z-50 bg-popover border border-border rounded-xl shadow-xl py-2 animate-fade-in">
-            {/* Current workspace info */}
-            <div className="px-3 pb-2 mb-1.5 border-b border-border">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center shrink-0">
-                  <span className="text-xs font-bold text-primary-foreground">{companyLetter}</span>
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-foreground truncate">{companyName}</p>
-                  <p className="text-[11px] text-muted-foreground truncate">{workspaceDomain}</p>
-                </div>
-              </div>
-            </div>
-
-            <button className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-foreground hover:bg-accent rounded-md mx-0 transition-colors">
-              <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                <UserPlus className="h-3.5 w-3.5 text-primary" />
-              </div>
-              <div className="text-start">
-                <p className="text-[13px] font-medium">Invite an operator</p>
-                <p className="text-[11px] text-muted-foreground">Add teammates to this workspace</p>
-              </div>
-            </button>
-
-            <button className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-foreground hover:bg-accent rounded-md mx-0 transition-colors">
-              <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                <Plus className="h-3.5 w-3.5 text-primary" />
-              </div>
-              <div className="text-start">
-                <p className="text-[13px] font-medium">Create a new workspace</p>
-                <p className="text-[11px] text-muted-foreground">Start a separate project</p>
-              </div>
-            </button>
+          <div className="absolute start-3 end-3 top-full mt-1 z-50 bg-popover border border-border rounded-xl shadow-xl py-2 animate-fade-in max-h-[60vh] overflow-y-auto">
+            {/* Workspace list */}
+            {workspaces.map(ws => {
+              const isCurrentWs = workspace?.id === ws.id;
+              return (
+                <button
+                  key={ws.id}
+                  onClick={() => { navigate(`/app/w/${ws.slug}`); setWsMenuOpen(false); }}
+                  className={cn(
+                    'flex items-center gap-2.5 w-full px-3 py-2 text-sm rounded-md transition-colors',
+                    isCurrentWs ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-accent'
+                  )}
+                >
+                  <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center shrink-0">
+                    <span className="text-xs font-bold text-primary-foreground">{ws.name.charAt(0).toUpperCase()}</span>
+                  </div>
+                  <div className="min-w-0 flex-1 text-start">
+                    <p className="text-[13px] font-medium truncate">{ws.name}</p>
+                    <p className="text-[11px] text-muted-foreground truncate">{ws.slug}</p>
+                  </div>
+                  {isCurrentWs && <Check className="h-4 w-4 text-primary shrink-0" />}
+                </button>
+              );
+            })}
 
             <div className="border-t border-border mt-1.5 pt-1.5">
-              <a
-                href={`https://${workspaceDomain}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground rounded-md transition-colors"
-              >
-                <ExternalLink className="h-3.5 w-3.5" />
-                <span className="text-[13px]">Visit website</span>
-              </a>
+              <button className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-foreground hover:bg-accent rounded-md transition-colors">
+                <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                  <Plus className="h-3.5 w-3.5 text-primary" />
+                </div>
+                <div className="text-start">
+                  <p className="text-[13px] font-medium">{t('nav.createWorkspace') || 'Create a new workspace'}</p>
+                </div>
+              </button>
+
+              <button className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-foreground hover:bg-accent rounded-md transition-colors">
+                <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                  <UserPlus className="h-3.5 w-3.5 text-primary" />
+                </div>
+                <div className="text-start">
+                  <p className="text-[13px] font-medium">{t('nav.inviteOperator') || 'Invite an operator'}</p>
+                </div>
+              </button>
             </div>
+
+            {workspaceDomain && (
+              <div className="border-t border-border mt-1.5 pt-1.5">
+                <a
+                  href={`https://${workspaceDomain}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground rounded-md transition-colors"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  <span className="text-[13px]">{workspaceDomain}</span>
+                </a>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -152,10 +165,10 @@ export function AppSidebar() {
       {/* Get Started button */}
       <div className="px-3 mb-1">
         <Link
-          to="/app"
+          to={wsPath('')}
           className={cn(
             'flex items-center justify-between rounded-lg px-3 py-2 text-sm font-semibold transition-all',
-            isActive('/app')
+            isActive('')
               ? 'bg-primary text-primary-foreground shadow-sm'
               : 'bg-primary/10 text-primary hover:bg-primary/15'
           )}
@@ -171,10 +184,10 @@ export function AppSidebar() {
       {/* Inbox section */}
       <div className="px-3 mt-2">
         <Link
-          to="/app/inbox"
+          to={wsPath('/inbox')}
           className={cn(
             'flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-all',
-            isActive('/app/inbox')
+            isActive('/inbox')
               ? 'bg-sidebar-accent text-sidebar-accent-foreground'
               : 'text-sidebar-foreground hover:bg-sidebar-accent/50'
           )}
@@ -183,15 +196,14 @@ export function AppSidebar() {
           <span>{t('nav.inbox')}</span>
         </Link>
 
-        {/* Sub-inbox items — only visible when inbox is active */}
-        {isActive('/app/inbox') && (
+        {isActive('/inbox') && (
           <div className="ms-5 mt-0.5 space-y-0.5 border-s border-sidebar-border ps-3">
             <p className="text-[11px] font-medium text-sidebar-muted-foreground uppercase tracking-wider px-2 pt-1.5 pb-1">Default Inboxes</p>
             <Link
-              to="/app/inbox"
+              to={wsPath('/inbox')}
               className={cn(
                 'flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] transition-colors',
-                location.pathname === '/app/inbox'
+                location.pathname === wsPath('/inbox')
                   ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
                   : 'text-sidebar-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground'
               )}
@@ -218,7 +230,7 @@ export function AppSidebar() {
         {mainNav.map(item => (
           <Link
             key={item.key}
-            to={item.path}
+            to={wsPath(item.path)}
             className={cn(
               'flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-all',
               isActive(item.path)

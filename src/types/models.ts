@@ -82,6 +82,9 @@ export interface WorkspaceBranding {
   canonical_base_url: string | null;
   panel_base_url: string | null;
   widget_base_url: string | null;
+  widget_public_base_url: string | null;
+  widget_loader_base_url: string | null;
+  widget_api_base_url: string | null;
   asset_base_url: string | null;
 }
 
@@ -162,6 +165,7 @@ export interface WidgetSettings {
   kb_enabled: boolean;
   visitor_tracking_enabled: boolean;
   locale: string;
+  debug_mode: boolean;
 }
 
 export interface KnowledgeBaseArticle {

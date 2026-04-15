@@ -1462,6 +1462,7 @@ export type Database = {
           auto_open_delay: number | null
           chat_enabled: boolean | null
           created_at: string | null
+          debug_mode: boolean
           default_mode: string | null
           enabled: boolean | null
           fab_animation: boolean | null
@@ -1501,6 +1502,7 @@ export type Database = {
           auto_open_delay?: number | null
           chat_enabled?: boolean | null
           created_at?: string | null
+          debug_mode?: boolean
           default_mode?: string | null
           enabled?: boolean | null
           fab_animation?: boolean | null
@@ -1540,6 +1542,7 @@ export type Database = {
           auto_open_delay?: number | null
           chat_enabled?: boolean | null
           created_at?: string | null
+          debug_mode?: boolean
           default_mode?: string | null
           enabled?: boolean | null
           fab_animation?: boolean | null
@@ -1604,7 +1607,10 @@ export type Database = {
           social_image_url: string | null
           support_email: string | null
           updated_at: string | null
+          widget_api_base_url: string | null
           widget_base_url: string | null
+          widget_loader_base_url: string | null
+          widget_public_base_url: string | null
           workspace_id: string
         }
         Insert: {
@@ -1627,7 +1633,10 @@ export type Database = {
           social_image_url?: string | null
           support_email?: string | null
           updated_at?: string | null
+          widget_api_base_url?: string | null
           widget_base_url?: string | null
+          widget_loader_base_url?: string | null
+          widget_public_base_url?: string | null
           workspace_id: string
         }
         Update: {
@@ -1650,7 +1659,10 @@ export type Database = {
           social_image_url?: string | null
           support_email?: string | null
           updated_at?: string | null
+          widget_api_base_url?: string | null
           widget_base_url?: string | null
+          widget_loader_base_url?: string | null
+          widget_public_base_url?: string | null
           workspace_id?: string
         }
         Relationships: [

@@ -19,6 +19,12 @@
     var locale = config.locale || 'en';
     var apiBase = config.apiBase || '';
     var workspaceId = config.workspaceId || '';
+    var debugMode = !!config.debugMode;
+
+    function debugLog(message, payload) {
+      if (!debugMode) return;
+      console.info('[Widget Runtime]', message, payload || '');
+    }
 
     // State
     var isOpen = false;
@@ -118,7 +124,8 @@
 
       // Send to API
       if (apiBase && workspaceId) {
-        fetch(apiBase + '/api/widget/message?workspace_id=' + encodeURIComponent(workspaceId), {
+        debugLog('Sending message request', { apiBase: apiBase, workspaceId: workspaceId });
+        fetch(apiBase + '/api/widget/message', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -127,13 +134,16 @@
             session_id: localStorage.getItem('__gs_sid') || undefined,
             body: text,
           })
-        }).then(function(r) { return r.json(); })
+        }).then(function(r) {
+          debugLog('Message response status', r.status);
+          return r.json();
+        })
         .then(function(data) {
           if (data.reply) {
             messages.push({ body: data.reply, sender: 'operator', time: new Date() });
             renderBody();
           }
-        }).catch(function() {});
+        }).catch(function(err) { debugLog('Message request failed', err); });
       }
     }
 
@@ -185,12 +195,16 @@
 
     // Load KB articles
     if (kbEnabled && apiBase && workspaceId) {
+      debugLog('Loading KB articles', { apiBase: apiBase, workspaceId: workspaceId, locale: locale });
       fetch(apiBase + '/api/widget/kb?workspace_id=' + encodeURIComponent(workspaceId) + '&locale=' + encodeURIComponent(locale))
-        .then(function(r) { return r.json(); })
+        .then(function(r) {
+          debugLog('KB response status', r.status);
+          return r.json();
+        })
         .then(function(data) {
           kbArticles = data.articles || [];
           if (activeTab === 'help') renderBody();
-        }).catch(function() {});
+        }).catch(function(err) { debugLog('KB request failed', err); });
     }
 
     // Initial render

@@ -17,6 +17,7 @@ function getWorkspaceId(req: Request): string | null {
   return (
     (req.query.workspace_id as string) ||
     (req.body?.workspace_id as string) ||
+    (req.body?.workspaceId as string) ||
     null
   );
 }

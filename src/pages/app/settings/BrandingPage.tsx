@@ -37,7 +37,10 @@ export default function SettingsBrandingPage() {
     { key: 'legal_name', label: 'Legal Company Name', desc: 'For structured data and legal pages' },
     { key: 'canonical_base_url', label: 'Canonical Base URL', desc: 'Primary domain for canonical URLs (e.g. https://example.com)' },
     { key: 'panel_base_url', label: 'Panel Base URL', desc: 'Dashboard/admin panel URL' },
-    { key: 'widget_base_url', label: 'Widget Base URL', desc: 'Widget CDN/loader URL' },
+    { key: 'widget_public_base_url', label: 'Widget Public Base URL', desc: 'Public website origin serving widget assets' },
+    { key: 'widget_loader_base_url', label: 'Widget Loader Base URL', desc: 'Origin used for /widget/loader.js' },
+    { key: 'widget_base_url', label: 'Widget Asset Base URL', desc: 'Origin used for runtime.js/runtime.css' },
+    { key: 'widget_api_base_url', label: 'Widget API Base URL', desc: 'Backend API origin for /api/widget/*' },
     { key: 'asset_base_url', label: 'Asset/CDN Base URL', desc: 'Static assets CDN URL' },
   ];
 

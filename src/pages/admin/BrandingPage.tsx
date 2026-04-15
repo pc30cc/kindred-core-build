@@ -491,9 +491,9 @@ const DOMAIN_FIELDS: { key: keyof PlatformDomains; label: string; desc?: string;
   { key: 'canonical_base_url', label: 'Canonical Base URL', desc: 'For SEO canonical tags', placeholder: 'https://example.com' },
   { key: 'app_base_url', label: 'App / Panel URL', placeholder: 'https://app.example.com' },
   { key: 'api_base_url', label: 'API Base URL', placeholder: 'https://api.example.com' },
-  { key: 'widget_base_url', label: 'Widget Base URL', desc: 'Widget CDN/loader', placeholder: 'https://widget.example.com' },
-  { key: 'asset_base_url', label: 'Asset / CDN URL', placeholder: 'https://cdn.example.com' },
-  { key: 'public_base_url', label: 'Public Site URL', placeholder: 'https://example.com' },
+  { key: 'public_base_url', label: 'Widget Public Base URL', desc: 'Frontend origin that serves /widget/*', placeholder: 'https://destekly.tr' },
+  { key: 'widget_base_url', label: 'Widget Loader Base URL', desc: 'Base origin used to load loader.js and runtime assets by default', placeholder: 'https://destekly.tr' },
+  { key: 'asset_base_url', label: 'Widget Asset Base URL', desc: 'Optional CDN/static origin for runtime.js/runtime.css', placeholder: 'https://destekly.tr' },
   { key: 'help_center_base_url', label: 'Help Center URL', placeholder: 'https://help.example.com' },
   { key: 'email_base_url', label: 'Email Base URL', desc: 'Links inside emails', placeholder: 'https://example.com' },
 ];
@@ -527,7 +527,7 @@ function DomainUrlsSection() {
             {update.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}Save
           </Button>
         </div>
-        <CardDescription>Base URLs used across emails, widgets, SEO, and public pages.</CardDescription>
+        <CardDescription>Base URLs used across split frontend/backend widget deployments, emails, SEO, and public pages.</CardDescription>
       </CardHeader>
       <CardContent>
         <div className="grid gap-5 md:grid-cols-2">

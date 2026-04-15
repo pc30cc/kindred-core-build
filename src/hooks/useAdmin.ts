@@ -18,25 +18,53 @@ export function useIsGlobalAdmin() {
   });
 }
 
-export function useAdminProfiles(limit = 50, offset = 0) {
+export function useAdminProfiles(limit = 50, offset = 0, search = '', sort = 'newest') {
   return useQuery({
-    queryKey: ['admin-profiles', limit, offset],
+    queryKey: ['admin-profiles', limit, offset, search, sort],
     queryFn: async () => {
       const { data, error } = await supabase.rpc('admin_list_profiles', {
         _limit: limit,
         _offset: offset,
+        _search: search,
+        _sort: sort,
       });
       if (error) throw error;
-      return data as Array<{
+      return (data as Array<{
         id: string;
         email: string;
         full_name: string | null;
         avatar_url: string | null;
+        company_name: string | null;
+        website_domain: string | null;
+        ai_mode: string | null;
         preferred_locale: string | null;
+        signup_locale: string | null;
+        signup_ip: string | null;
         created_at: string | null;
         updated_at: string | null;
-      }>;
+        workspace_count: number;
+        roles: string[];
+      }>) ?? [];
     },
+  });
+}
+
+export function useAdminUserDetail(userId: string | null) {
+  return useQuery({
+    queryKey: ['admin-user-detail', userId],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('admin_get_user_detail', {
+        _user_id: userId!,
+      });
+      if (error) throw error;
+      return data as {
+        profile: any;
+        roles: string[];
+        workspaces: Array<{ id: string; name: string; slug: string; role: string; created_at: string }>;
+        account: { id: string; name: string; slug: string; role: string } | null;
+      };
+    },
+    enabled: !!userId,
   });
 }
 

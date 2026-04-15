@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -10,17 +10,33 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Separator } from '@/components/ui/separator';
 import { useAdminPlans, useCreatePlan, useUpdatePlan, useDeletePlan, useAdminSubscriptions, useAssignPlan, useRevokePlan } from '@/hooks/usePlans';
 import { useAdminWorkspaces } from '@/hooks/useAdmin';
 import { supabase } from '@/lib/supabase';
-import { Plus, Edit2, Trash2, Shield, CreditCard, Users, Loader2, CheckCircle, XCircle, Crown, Globe, Languages } from 'lucide-react';
+import {
+  Plus, Edit2, Trash2, Shield, CreditCard, Users, Loader2,
+  CheckCircle2, XCircle, Crown, Globe, Languages,
+  MessageSquare, BookOpen, Bot, Eye, Mail, Zap, BarChart3,
+  Radio, Palette, Code2, Phone, HelpCircle,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { useQuery } from '@tanstack/react-query';
 
-const DEFAULT_FEATURES = [
-  'chat', 'knowledge_base', 'ai_assistant', 'visitor_tracking',
-  'email_campaigns', 'automation', 'analytics', 'omnichannel',
-  'custom_branding', 'api_access', 'voice_video', 'help_center',
+// ─── Feature definitions with icons & labels ───
+const FEATURE_DEFS = [
+  { key: 'chat', label: 'Chat', icon: MessageSquare },
+  { key: 'knowledge_base', label: 'Knowledge Base', icon: BookOpen },
+  { key: 'ai_assistant', label: 'AI Assistant', icon: Bot },
+  { key: 'visitor_tracking', label: 'Visitor Tracking', icon: Eye },
+  { key: 'email_campaigns', label: 'Email Campaigns', icon: Mail },
+  { key: 'automation', label: 'Automation', icon: Zap },
+  { key: 'analytics', label: 'Analytics', icon: BarChart3 },
+  { key: 'omnichannel', label: 'Omnichannel', icon: Radio },
+  { key: 'custom_branding', label: 'Custom Branding', icon: Palette },
+  { key: 'api_access', label: 'API Access', icon: Code2 },
+  { key: 'voice_video', label: 'Voice & Video', icon: Phone },
+  { key: 'help_center', label: 'Help Center', icon: HelpCircle },
 ];
 
 const DEFAULT_LIMITS = [
@@ -34,11 +50,12 @@ const DEFAULT_LIMITS = [
 
 const CURRENCIES = ['USD', 'EUR', 'TRY', 'IRR'];
 
-interface LocalizedPlan {
-  name: string;
-  description: string;
-  billing_provider?: string;
-}
+const LOCALE_LABELS: Record<string, string> = {
+  en: '🇬🇧 English', tr: '🇹🇷 Türkçe', fa: '🇮🇷 فارسی',
+  de: '🇩🇪 Deutsch', fr: '🇫🇷 Français', ar: '🇸🇦 العربية',
+};
+
+interface LocalizedPlan { name: string; description: string; }
 
 interface PlanFormData {
   name: string;
@@ -62,99 +79,53 @@ function usePlatformLocales() {
     queryFn: async () => {
       const { data } = await supabase
         .from('platform_settings')
-        .select('active_locales, locale_billing_providers')
+        .select('active_locales')
         .limit(1)
         .maybeSingle();
-      return {
-        locales: (data?.active_locales || ['en']) as string[],
-        localeBillingProviders: (data?.locale_billing_providers || {}) as Record<string, string>,
-      };
+      return { locales: (data?.active_locales || ['en']) as string[] };
     },
   });
 }
 
-const LOCALE_LABELS: Record<string, string> = {
-  en: '🇬🇧 English',
-  tr: '🇹🇷 Türkçe',
-  fa: '🇮🇷 فارسی',
-  de: '🇩🇪 Deutsch',
-  fr: '🇫🇷 Français',
-  ar: '🇸🇦 العربية',
-};
-
-const BILLING_PROVIDERS = [
-  { value: 'stripe', label: 'Stripe' },
-  { value: 'paddle', label: 'Paddle' },
-  { value: 'paypal', label: 'PayPal' },
-  { value: 'lemon_squeezy', label: 'Lemon Squeezy' },
-  { value: 'iyzico', label: 'iyzico' },
-  { value: 'paytr', label: 'PayTR' },
-  { value: 'sipay', label: 'Sipay' },
-  { value: 'paratika', label: 'Paratika' },
-  { value: 'craftgate', label: 'Craftgate' },
-  { value: 'zarinpal', label: 'ZarinPal' },
-  { value: 'idpay', label: 'IDPay' },
-  { value: 'nextpay', label: 'NextPay' },
-  { value: 'payping', label: 'PayPing' },
-  { value: 'zibal', label: 'Zibal' },
-  { value: 'sep_shaparak', label: 'SEP (Shaparak)' },
-];
-
 function emptyPlan(locales: string[]): PlanFormData {
   return {
-    name: '',
-    slug: '',
-    description: '',
-    is_free: false,
-    is_active: true,
-    sort_order: 0,
-    trial_days: 0,
+    name: '', slug: '', description: '',
+    is_free: false, is_active: true, sort_order: 0, trial_days: 0,
     default_currency: 'USD',
     prices: Object.fromEntries(CURRENCIES.map(c => [c, { monthly: 0, yearly: 0 }])),
-    entitlements: Object.fromEntries(DEFAULT_FEATURES.map(f => [f, false])),
+    entitlements: Object.fromEntries(FEATURE_DEFS.map(f => [f.key, false])),
     limits: Object.fromEntries(DEFAULT_LIMITS.map(l => [l.key, l.default])),
     provider_price_ids: {},
-    localized: Object.fromEntries(locales.map(l => [l, { name: '', description: '', billing_provider: '' }])),
+    localized: Object.fromEntries(locales.map(l => [l, { name: '', description: '' }])),
   };
 }
 
 function planToForm(plan: any, locales: string[]): PlanFormData {
   const existingLocalized = (plan.localized || {}) as Record<string, LocalizedPlan>;
   return {
-    name: plan.name || '',
-    slug: plan.slug || '',
-    description: plan.description || '',
-    is_free: plan.is_free || false,
-    is_active: plan.is_active !== false,
-    sort_order: plan.sort_order || 0,
-    trial_days: plan.trial_days || 0,
+    name: plan.name || '', slug: plan.slug || '', description: plan.description || '',
+    is_free: plan.is_free || false, is_active: plan.is_active !== false,
+    sort_order: plan.sort_order || 0, trial_days: plan.trial_days || 0,
     default_currency: plan.default_currency || 'USD',
-    prices: {
-      ...Object.fromEntries(CURRENCIES.map(c => [c, { monthly: 0, yearly: 0 }])),
-      ...(plan.prices || {}),
-    },
-    entitlements: { ...Object.fromEntries(DEFAULT_FEATURES.map(f => [f, false])), ...(plan.entitlements || {}) },
+    prices: { ...Object.fromEntries(CURRENCIES.map(c => [c, { monthly: 0, yearly: 0 }])), ...(plan.prices || {}) },
+    entitlements: { ...Object.fromEntries(FEATURE_DEFS.map(f => [f.key, false])), ...(plan.entitlements || {}) },
     limits: { ...Object.fromEntries(DEFAULT_LIMITS.map(l => [l.key, l.default])), ...(plan.limits || {}) },
     provider_price_ids: plan.provider_price_ids || {},
-    localized: Object.fromEntries(locales.map(l => [
-      l,
-      existingLocalized[l] || { name: '', description: '', billing_provider: '' },
-    ])),
+    localized: Object.fromEntries(locales.map(l => [l, existingLocalized[l] || { name: '', description: '' }])),
   };
 }
 
+// ─── Plan Form Dialog ───
 function PlanFormDialog({ plan, onClose, locales }: { plan?: any; onClose: () => void; locales: string[] }) {
   const [form, setForm] = useState<PlanFormData>(plan ? planToForm(plan, locales) : emptyPlan(locales));
-  const [localeTab, setLocaleTab] = useState(locales[0] || 'en');
+  const [activeSection, setActiveSection] = useState('general');
   const createPlan = useCreatePlan();
   const updatePlan = useUpdatePlan();
   const isEdit = !!plan?.id;
+  const isPending = createPlan.isPending || updatePlan.isPending;
 
   async function handleSubmit() {
-    if (!form.name || !form.slug) {
-      toast.error('Name and slug are required');
-      return;
-    }
+    if (!form.name || !form.slug) { toast.error('Name and slug are required'); return; }
     try {
       if (isEdit) {
         await updatePlan.mutateAsync({ planId: plan.id, ...form });
@@ -164,200 +135,215 @@ function PlanFormDialog({ plan, onClose, locales }: { plan?: any; onClose: () =>
         toast.success('Plan created');
       }
       onClose();
-    } catch (e: any) {
-      toast.error(e.message);
-    }
+    } catch (e: any) { toast.error(e.message); }
   }
-
-  const isPending = createPlan.isPending || updatePlan.isPending;
 
   function updateLocalized(locale: string, field: string, value: string) {
-    setForm(f => ({
-      ...f,
-      localized: {
-        ...f.localized,
-        [locale]: { ...f.localized[locale], [field]: value },
-      },
-    }));
+    setForm(f => ({ ...f, localized: { ...f.localized, [locale]: { ...f.localized[locale], [field]: value } } }));
   }
 
+  const sections = [
+    { id: 'general', label: 'General' },
+    { id: 'features', label: 'Features' },
+    { id: 'limits', label: 'Limits' },
+    { id: 'pricing', label: 'Pricing' },
+    { id: 'locales', label: 'Translations' },
+  ];
+
   return (
-    <div className="space-y-6 max-h-[70vh] overflow-y-auto pr-2">
-      {/* Basic Info */}
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <Label>Default Name</Label>
-          <Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Pro" />
-        </div>
-        <div>
-          <Label>Slug</Label>
-          <Input value={form.slug} onChange={e => setForm(f => ({ ...f, slug: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_') }))} placeholder="pro" disabled={isEdit} />
-        </div>
-        <div className="col-span-2">
-          <Label>Default Description</Label>
-          <Textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Best for growing teams" rows={2} />
-        </div>
-        <div>
-          <Label>Sort Order</Label>
-          <Input type="number" value={form.sort_order} onChange={e => setForm(f => ({ ...f, sort_order: parseInt(e.target.value) || 0 }))} />
-        </div>
-        <div>
-          <Label>Trial Days</Label>
-          <Input type="number" value={form.trial_days} onChange={e => setForm(f => ({ ...f, trial_days: parseInt(e.target.value) || 0 }))} />
-        </div>
-        <div className="flex items-center gap-3">
-          <Switch checked={form.is_free} onCheckedChange={v => setForm(f => ({ ...f, is_free: v }))} />
-          <Label>Free Plan</Label>
-        </div>
-        <div className="flex items-center gap-3">
-          <Switch checked={form.is_active} onCheckedChange={v => setForm(f => ({ ...f, is_active: v }))} />
-          <Label>Active</Label>
-        </div>
+    <div className="flex flex-col max-h-[75vh]">
+      {/* Section nav */}
+      <div className="flex gap-1 border-b border-border pb-2 mb-4 overflow-x-auto">
+        {sections.map(s => (
+          <Button
+            key={s.id}
+            variant={activeSection === s.id ? 'default' : 'ghost'}
+            size="sm"
+            className="text-xs shrink-0"
+            onClick={() => setActiveSection(s.id)}
+          >
+            {s.label}
+          </Button>
+        ))}
       </div>
 
-      {/* Per-Locale Configuration */}
-      <div>
-        <h3 className="text-sm font-semibold text-foreground mb-2 flex items-center gap-2">
-          <Languages className="w-4 h-4" /> Per-Locale Settings
-        </h3>
-        <Tabs value={localeTab} onValueChange={setLocaleTab}>
-          <TabsList className="bg-muted mb-3">
-            {locales.map(loc => (
-              <TabsTrigger key={loc} value={loc} className="data-[state=active]:bg-sidebar-accent data-[state=active]:text-foreground text-muted-foreground text-xs">
-                {LOCALE_LABELS[loc] || loc.toUpperCase()}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-          {locales.map(loc => (
-            <TabsContent key={loc} value={loc} className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-xs">Plan Name ({loc})</Label>
-                  <Input
-                    value={form.localized[loc]?.name || ''}
-                    onChange={e => updateLocalized(loc, 'name', e.target.value)}
-                    placeholder={`Plan name in ${loc}`}
-                    dir={loc === 'fa' || loc === 'ar' ? 'rtl' : 'ltr'}
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs">Payment Gateway ({loc})</Label>
-                  <Select
-                    value={form.localized[loc]?.billing_provider || '__none__'}
-                    onValueChange={v => updateLocalized(loc, 'billing_provider', v === '__none__' ? '' : v)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select gateway" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">None (use default)</SelectItem>
-                      {BILLING_PROVIDERS.map(bp => (
-                        <SelectItem key={bp.value} value={bp.value}>{bp.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="col-span-2">
-                  <Label className="text-xs">Description ({loc})</Label>
-                  <Textarea
-                    value={form.localized[loc]?.description || ''}
-                    onChange={e => updateLocalized(loc, 'description', e.target.value)}
-                    placeholder={`Description in ${loc}`}
-                    rows={2}
-                    dir={loc === 'fa' || loc === 'ar' ? 'rtl' : 'ltr'}
-                  />
-                </div>
+      <div className="overflow-y-auto flex-1 pr-1 space-y-4">
+        {/* General */}
+        {activeSection === 'general' && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Plan Name</Label>
+                <Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Pro" />
               </div>
-            </TabsContent>
-          ))}
-        </Tabs>
-      </div>
+              <div>
+                <Label>Slug</Label>
+                <Input value={form.slug} onChange={e => setForm(f => ({ ...f, slug: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_') }))} placeholder="pro" disabled={isEdit} />
+              </div>
+            </div>
+            <div>
+              <Label>Description</Label>
+              <Textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} rows={2} placeholder="Best for growing teams" />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Sort Order</Label>
+                <Input type="number" value={form.sort_order} onChange={e => setForm(f => ({ ...f, sort_order: parseInt(e.target.value) || 0 }))} />
+              </div>
+              <div>
+                <Label>Trial Days</Label>
+                <Input type="number" value={form.trial_days} onChange={e => setForm(f => ({ ...f, trial_days: parseInt(e.target.value) || 0 }))} />
+              </div>
+            </div>
+            <Separator />
+            <div className="flex gap-6">
+              <div className="flex items-center gap-2">
+                <Switch checked={form.is_free} onCheckedChange={v => setForm(f => ({ ...f, is_free: v }))} />
+                <Label>Free Plan</Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Switch checked={form.is_active} onCheckedChange={v => setForm(f => ({ ...f, is_active: v }))} />
+                <Label>Active</Label>
+              </div>
+            </div>
+          </div>
+        )}
 
-      {/* Pricing */}
-      <div>
-        <h3 className="text-sm font-semibold text-foreground mb-2">Pricing</h3>
-        <div className="grid grid-cols-2 gap-3">
-          {CURRENCIES.map(cur => (
-            <Card key={cur} className="bg-muted/30">
-              <CardContent className="pt-3 pb-3 space-y-2">
-                <p className="text-xs font-semibold text-muted-foreground">{cur}</p>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <Label className="text-xs">Monthly</Label>
-                    <Input
-                      type="number"
-                      value={form.prices[cur]?.monthly || 0}
-                      onChange={e => setForm(f => ({
-                        ...f,
-                        prices: { ...f.prices, [cur]: { ...f.prices[cur], monthly: parseInt(e.target.value) || 0 } },
-                      }))}
-                    />
+        {/* Features */}
+        {activeSection === 'features' && (
+          <div className="space-y-1">
+            <p className="text-xs text-muted-foreground mb-3">Toggle which features are included in this plan.</p>
+            <div className="grid grid-cols-1 gap-0.5">
+              {FEATURE_DEFS.map(feat => {
+                const Icon = feat.icon;
+                const enabled = form.entitlements[feat.key] || false;
+                return (
+                  <div
+                    key={feat.key}
+                    className={`flex items-center justify-between px-3 py-2.5 rounded-lg border transition-colors cursor-pointer ${enabled ? 'border-primary/30 bg-primary/5' : 'border-transparent bg-muted/30 hover:bg-muted/50'}`}
+                    onClick={() => setForm(f => ({ ...f, entitlements: { ...f.entitlements, [feat.key]: !enabled } }))}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Icon className={`w-4 h-4 ${enabled ? 'text-primary' : 'text-muted-foreground'}`} />
+                      <span className={`text-sm font-medium ${enabled ? 'text-foreground' : 'text-muted-foreground'}`}>{feat.label}</span>
+                    </div>
+                    <Switch checked={enabled} onCheckedChange={v => setForm(f => ({ ...f, entitlements: { ...f.entitlements, [feat.key]: v } }))} />
                   </div>
-                  <div>
-                    <Label className="text-xs">Yearly</Label>
-                    <Input
-                      type="number"
-                      value={form.prices[cur]?.yearly || 0}
-                      onChange={e => setForm(f => ({
-                        ...f,
-                        prices: { ...f.prices, [cur]: { ...f.prices[cur], yearly: parseInt(e.target.value) || 0 } },
-                      }))}
-                    />
-                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Limits */}
+        {activeSection === 'limits' && (
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground">Set numeric limits. Use <code className="bg-muted px-1 rounded">-1</code> for unlimited.</p>
+            <div className="grid grid-cols-2 gap-3">
+              {DEFAULT_LIMITS.map(lim => (
+                <div key={lim.key} className="space-y-1">
+                  <Label className="text-xs">{lim.label}</Label>
+                  <Input
+                    type="number"
+                    value={form.limits[lim.key] ?? lim.default}
+                    onChange={e => setForm(f => ({ ...f, limits: { ...f.limits, [lim.key]: parseInt(e.target.value) || 0 } }))}
+                  />
                 </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </div>
-
-      {/* Feature Entitlements */}
-      <div>
-        <h3 className="text-sm font-semibold text-foreground mb-2">Feature Entitlements</h3>
-        <div className="grid grid-cols-2 gap-2">
-          {DEFAULT_FEATURES.map(feat => (
-            <div key={feat} className="flex items-center gap-2 py-1">
-              <Switch
-                checked={form.entitlements[feat] || false}
-                onCheckedChange={v => setForm(f => ({
-                  ...f,
-                  entitlements: { ...f.entitlements, [feat]: v },
-                }))}
-              />
-              <span className="text-sm text-foreground">{feat.replace(/_/g, ' ')}</span>
+              ))}
             </div>
-          ))}
-        </div>
-      </div>
+          </div>
+        )}
 
-      {/* Limits */}
-      <div>
-        <h3 className="text-sm font-semibold text-foreground mb-2">Limits <span className="text-muted-foreground text-xs">(-1 = unlimited)</span></h3>
-        <div className="grid grid-cols-2 gap-3">
-          {DEFAULT_LIMITS.map(lim => (
-            <div key={lim.key}>
-              <Label className="text-xs">{lim.label}</Label>
-              <Input
-                type="number"
-                value={form.limits[lim.key] ?? lim.default}
-                onChange={e => setForm(f => ({
-                  ...f,
-                  limits: { ...f.limits, [lim.key]: parseInt(e.target.value) || 0 },
-                }))}
-              />
+        {/* Pricing */}
+        {activeSection === 'pricing' && (
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground">Set pricing per currency. Payment gateway is auto-selected based on locale provider settings.</p>
+            <div className="grid grid-cols-2 gap-3">
+              {CURRENCIES.map(cur => (
+                <Card key={cur} className="bg-muted/20 border-border">
+                  <CardContent className="pt-3 pb-3 space-y-2">
+                    <p className="text-xs font-bold text-foreground">{cur}</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <Label className="text-[11px]">Monthly</Label>
+                        <Input type="number" value={form.prices[cur]?.monthly || 0}
+                          onChange={e => setForm(f => ({ ...f, prices: { ...f.prices, [cur]: { ...f.prices[cur], monthly: parseInt(e.target.value) || 0 } } }))} />
+                      </div>
+                      <div>
+                        <Label className="text-[11px]">Yearly</Label>
+                        <Input type="number" value={form.prices[cur]?.yearly || 0}
+                          onChange={e => setForm(f => ({ ...f, prices: { ...f.prices, [cur]: { ...f.prices[cur], yearly: parseInt(e.target.value) || 0 } } }))} />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
-          ))}
-        </div>
+          </div>
+        )}
+
+        {/* Translations */}
+        {activeSection === 'locales' && (
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground">Localized plan names and descriptions per language.</p>
+            {locales.map(loc => (
+              <Card key={loc} className="bg-muted/20 border-border">
+                <CardContent className="pt-3 pb-3 space-y-2">
+                  <p className="text-xs font-bold text-foreground">{LOCALE_LABELS[loc] || loc.toUpperCase()}</p>
+                  <div className="grid grid-cols-1 gap-2">
+                    <div>
+                      <Label className="text-[11px]">Plan Name</Label>
+                      <Input
+                        value={form.localized[loc]?.name || ''}
+                        onChange={e => updateLocalized(loc, 'name', e.target.value)}
+                        placeholder={`Plan name in ${loc}`}
+                        dir={loc === 'fa' || loc === 'ar' ? 'rtl' : 'ltr'}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-[11px]">Description</Label>
+                      <Textarea
+                        value={form.localized[loc]?.description || ''}
+                        onChange={e => updateLocalized(loc, 'description', e.target.value)}
+                        placeholder={`Description in ${loc}`}
+                        rows={2}
+                        dir={loc === 'fa' || loc === 'ar' ? 'rtl' : 'ltr'}
+                      />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
       </div>
 
-      <Button onClick={handleSubmit} disabled={isPending} className="w-full">
-        {isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-        {isEdit ? 'Update Plan' : 'Create Plan'}
-      </Button>
+      {/* Submit */}
+      <div className="pt-4 border-t border-border mt-4">
+        <Button onClick={handleSubmit} disabled={isPending} className="w-full">
+          {isPending && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+          {isEdit ? 'Update Plan' : 'Create Plan'}
+        </Button>
+      </div>
     </div>
   );
 }
 
+// ─── Feature chip for plan cards ───
+function FeatureChip({ featureKey, enabled }: { featureKey: string; enabled: boolean }) {
+  const def = FEATURE_DEFS.find(f => f.key === featureKey);
+  if (!def) return null;
+  const Icon = def.icon;
+  return (
+    <div className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition-colors ${enabled ? 'bg-primary/10 text-primary border border-primary/20' : 'bg-muted/50 text-muted-foreground border border-transparent'}`}>
+      <Icon className="w-3 h-3" />
+      {def.label}
+      {enabled ? <CheckCircle2 className="w-3 h-3 ml-0.5" /> : <XCircle className="w-3 h-3 ml-0.5 opacity-40" />}
+    </div>
+  );
+}
+
+// ─── Main Page ───
 export default function AdminPlansPage() {
   const { data: plans, isLoading } = useAdminPlans();
   const { data: subscriptions } = useAdminSubscriptions();
@@ -378,13 +364,8 @@ export default function AdminPlansPage() {
   }
 
   async function handleDelete(planId: string) {
-    if (!confirm('Deactivate this plan? Existing subscribers will not be affected.')) return;
-    try {
-      await deletePlan.mutateAsync(planId);
-      toast.success('Plan deactivated');
-    } catch (e: any) {
-      toast.error(e.message);
-    }
+    if (!confirm('Deactivate this plan?')) return;
+    try { await deletePlan.mutateAsync(planId); toast.success('Plan deactivated'); } catch (e: any) { toast.error(e.message); }
   }
 
   async function handleAssign() {
@@ -393,34 +374,28 @@ export default function AdminPlansPage() {
       await assignPlan.mutateAsync({ workspaceId: assignForm.workspaceId, planId: assignForm.planId });
       toast.success('Plan assigned');
       setAssignForm({ workspaceId: '', planId: '' });
-    } catch (e: any) {
-      toast.error(e.message);
-    }
+    } catch (e: any) { toast.error(e.message); }
   }
 
   async function handleRevoke(wsId: string) {
     if (!confirm('Revoke this workspace subscription?')) return;
-    try {
-      await revokePlan.mutateAsync(wsId);
-      toast.success('Subscription revoked');
-    } catch (e: any) {
-      toast.error(e.message);
-    }
+    try { await revokePlan.mutateAsync(wsId); toast.success('Revoked'); } catch (e: any) { toast.error(e.message); }
   }
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Plan Management</h1>
-          <p className="text-muted-foreground text-sm">Create, edit, and manage subscription plans with per-locale titles, pricing, and payment gateways.</p>
+          <p className="text-muted-foreground text-sm">Manage subscription plans, features, and pricing. Payment gateways are auto-selected per locale from Provider settings.</p>
         </div>
         <Dialog open={showCreate} onOpenChange={setShowCreate}>
           <DialogTrigger asChild>
             <Button><Plus className="w-4 h-4 mr-2" /> Create Plan</Button>
           </DialogTrigger>
           <DialogContent className="max-w-2xl">
-            <DialogHeader><DialogTitle>Create Plan</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle>Create New Plan</DialogTitle></DialogHeader>
             <PlanFormDialog onClose={() => setShowCreate(false)} locales={locales} />
           </DialogContent>
         </Dialog>
@@ -429,115 +404,136 @@ export default function AdminPlansPage() {
       <Tabs defaultValue="plans">
         <TabsList className="bg-muted">
           <TabsTrigger value="plans" className="data-[state=active]:bg-sidebar-accent data-[state=active]:text-foreground text-muted-foreground">
-            Plans ({plans?.length || 0})
+            <CreditCard className="w-3.5 h-3.5 mr-1.5" /> Plans ({plans?.length || 0})
           </TabsTrigger>
           <TabsTrigger value="subscriptions" className="data-[state=active]:bg-sidebar-accent data-[state=active]:text-foreground text-muted-foreground">
-            Subscriptions ({subscriptions?.length || 0})
+            <Users className="w-3.5 h-3.5 mr-1.5" /> Subscriptions ({subscriptions?.length || 0})
           </TabsTrigger>
           <TabsTrigger value="assign" className="data-[state=active]:bg-sidebar-accent data-[state=active]:text-foreground text-muted-foreground">
-            Assign Plan
+            <Shield className="w-3.5 h-3.5 mr-1.5" /> Assign Plan
           </TabsTrigger>
         </TabsList>
 
-        {/* Plans Tab */}
+        {/* ─── Plans Tab ─── */}
         <TabsContent value="plans" className="space-y-4">
-          <div className="grid gap-4">
-            {(plans || []).map((plan: any) => {
-              const localized = (plan.localized || {}) as Record<string, LocalizedPlan>;
-              return (
-                <Card key={plan.id} className={`bg-card border-border ${!plan.is_active ? 'opacity-50' : ''}`}>
-                  <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <Crown className="w-5 h-5 text-primary" />
-                        <div>
-                          <CardTitle className="text-base">{plan.name}</CardTitle>
-                          <CardDescription>{plan.slug} {plan.is_free && <Badge variant="secondary" className="ml-2">Free</Badge>}</CardDescription>
+          {(!plans || plans.length === 0) ? (
+            <Card className="bg-card border-border">
+              <CardContent className="py-16 text-center text-muted-foreground">
+                <CreditCard className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                <p className="text-lg font-medium">No plans yet</p>
+                <p className="text-sm">Click "Create Plan" to get started.</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid gap-4">
+              {(plans || []).map((plan: any) => {
+                const localized = (plan.localized || {}) as Record<string, LocalizedPlan>;
+                const entitlements = (plan.entitlements || {}) as Record<string, boolean>;
+                const limits = (plan.limits || {}) as Record<string, number>;
+                const enabledCount = Object.values(entitlements).filter(Boolean).length;
+
+                return (
+                  <Card key={plan.id} className={`bg-card border-border transition-opacity ${!plan.is_active ? 'opacity-50' : ''}`}>
+                    <CardHeader className="pb-2">
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${plan.is_free ? 'bg-muted' : 'bg-primary/10'}`}>
+                            <Crown className={`w-5 h-5 ${plan.is_free ? 'text-muted-foreground' : 'text-primary'}`} />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <CardTitle className="text-lg">{plan.name}</CardTitle>
+                              <Badge variant="outline" className="text-[10px] font-mono">{plan.slug}</Badge>
+                              {plan.is_free && <Badge variant="secondary" className="text-[10px]">Free</Badge>}
+                              {plan.trial_days > 0 && <Badge variant="outline" className="text-[10px]">{plan.trial_days}d trial</Badge>}
+                            </div>
+                            <CardDescription className="text-xs mt-0.5">{plan.description || 'No description'}</CardDescription>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Badge variant={plan.is_active ? 'default' : 'destructive'} className="text-[10px]">
+                            {plan.is_active ? 'Active' : 'Inactive'}
+                          </Badge>
+                          <Dialog open={editPlan?.id === plan.id} onOpenChange={v => !v && setEditPlan(null)}>
+                            <DialogTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditPlan(plan)}>
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </Button>
+                            </DialogTrigger>
+                            <DialogContent className="max-w-2xl">
+                              <DialogHeader><DialogTitle>Edit: {plan.name}</DialogTitle></DialogHeader>
+                              <PlanFormDialog plan={plan} onClose={() => setEditPlan(null)} locales={locales} />
+                            </DialogContent>
+                          </Dialog>
+                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleDelete(plan.id)} disabled={deletePlan.isPending}>
+                            <Trash2 className="w-3.5 h-3.5 text-destructive" />
+                          </Button>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Badge variant={plan.is_active ? 'default' : 'destructive'}>
-                          {plan.is_active ? 'Active' : 'Inactive'}
-                        </Badge>
-                        <Dialog open={editPlan?.id === plan.id} onOpenChange={v => !v && setEditPlan(null)}>
-                          <DialogTrigger asChild>
-                            <Button variant="ghost" size="sm" onClick={() => setEditPlan(plan)}>
-                              <Edit2 className="w-4 h-4" />
-                            </Button>
-                          </DialogTrigger>
-                          <DialogContent className="max-w-2xl">
-                            <DialogHeader><DialogTitle>Edit Plan: {plan.name}</DialogTitle></DialogHeader>
-                            <PlanFormDialog plan={plan} onClose={() => setEditPlan(null)} locales={locales} />
-                          </DialogContent>
-                        </Dialog>
-                        <Button variant="ghost" size="sm" onClick={() => handleDelete(plan.id)} disabled={deletePlan.isPending}>
-                          <Trash2 className="w-4 h-4 text-destructive" />
-                        </Button>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    {/* Per-locale names */}
-                    {Object.keys(localized).length > 0 && (
-                      <div className="flex flex-wrap gap-2 mb-3">
-                        {Object.entries(localized).map(([loc, data]) => (
-                          data.name ? (
-                            <Badge key={loc} variant="outline" className="text-xs gap-1">
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      {/* Locales */}
+                      {Object.keys(localized).some(l => localized[l]?.name) && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {Object.entries(localized).map(([loc, data]) => data.name ? (
+                            <Badge key={loc} variant="outline" className="text-[11px] gap-1 font-normal">
                               <Globe className="w-3 h-3" />
-                              {LOCALE_LABELS[loc] || loc}: {data.name}
-                              {data.billing_provider && <span className="text-muted-foreground ml-1">({data.billing_provider})</span>}
+                              {LOCALE_LABELS[loc]?.split(' ')[0] || loc} {data.name}
                             </Badge>
-                          ) : null
-                        ))}
+                          ) : null)}
+                        </div>
+                      )}
+
+                      {/* Pricing summary */}
+                      {!plan.is_free && (
+                        <div className="flex flex-wrap gap-3">
+                          {CURRENCIES.map(cur => {
+                            const p = plan.prices?.[cur];
+                            if (!p?.monthly && !p?.yearly) return null;
+                            return (
+                              <div key={cur} className="bg-muted/40 rounded-lg px-3 py-1.5 text-sm">
+                                <span className="font-bold text-foreground">{cur}</span>
+                                <span className="text-muted-foreground ml-1.5">{p.monthly?.toLocaleString()}/mo</span>
+                                {p.yearly > 0 && <span className="text-muted-foreground"> · {p.yearly?.toLocaleString()}/yr</span>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* Feature entitlements */}
+                      <div>
+                        <p className="text-[11px] text-muted-foreground mb-1.5 font-medium">
+                          Features ({enabledCount}/{FEATURE_DEFS.length})
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {FEATURE_DEFS.map(feat => (
+                            <FeatureChip key={feat.key} featureKey={feat.key} enabled={entitlements[feat.key] || false} />
+                          ))}
+                        </div>
                       </div>
-                    )}
 
-                    {/* Pricing summary */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      {CURRENCIES.map(cur => {
-                        const p = plan.prices?.[cur];
-                        if (!p?.monthly && !p?.yearly) return null;
-                        return (
-                          <div key={cur} className="text-sm">
-                            <span className="text-muted-foreground">{cur}:</span>{' '}
-                            <span className="text-foreground font-medium">{p.monthly}/mo</span>
-                            {p.yearly ? <span className="text-muted-foreground"> · {p.yearly}/yr</span> : null}
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    <div className="mt-3 flex flex-wrap gap-1">
-                      {Object.entries(plan.entitlements || {}).map(([k, v]) => (
-                        <Badge key={k} variant={v ? 'default' : 'outline'} className="text-xs">
-                          {v ? <CheckCircle className="w-3 h-3 mr-1" /> : <XCircle className="w-3 h-3 mr-1" />}
-                          {k.replace(/_/g, ' ')}
-                        </Badge>
-                      ))}
-                    </div>
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {Object.entries(plan.limits || {}).map(([k, v]) => (
-                        <Badge key={k} variant="secondary" className="text-xs">
-                          {k.replace(/_/g, ' ')}: {(v as number) === -1 ? '∞' : String(v)}
-                        </Badge>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-            {(!plans || plans.length === 0) && (
-              <Card className="bg-card border-border">
-                <CardContent className="py-12 text-center text-muted-foreground">
-                  <CreditCard className="w-8 h-8 mx-auto mb-2 opacity-40" />
-                  <p>No plans created yet. Click "Create Plan" to get started.</p>
-                </CardContent>
-              </Card>
-            )}
-          </div>
+                      {/* Limits */}
+                      <div className="flex flex-wrap gap-1.5">
+                        {DEFAULT_LIMITS.map(lim => {
+                          const val = limits[lim.key];
+                          if (val === undefined) return null;
+                          return (
+                            <Badge key={lim.key} variant="secondary" className="text-[11px] font-normal">
+                              {lim.label}: {val === -1 ? '∞' : val?.toLocaleString()}
+                            </Badge>
+                          );
+                        })}
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
         </TabsContent>
 
-        {/* Subscriptions Tab */}
+        {/* ─── Subscriptions Tab ─── */}
         <TabsContent value="subscriptions">
           <Card className="bg-card border-border">
             <Table>
@@ -568,7 +564,7 @@ export default function AdminPlansPage() {
                       {sub.current_period_end ? new Date(sub.current_period_end).toLocaleDateString() : '—'}
                     </TableCell>
                     <TableCell>
-                      <Button variant="ghost" size="sm" onClick={() => handleRevoke(sub.workspace_id)} className="text-destructive">
+                      <Button variant="ghost" size="sm" onClick={() => handleRevoke(sub.workspace_id)} className="text-destructive text-xs">
                         Revoke
                       </Button>
                     </TableCell>
@@ -579,13 +575,11 @@ export default function AdminPlansPage() {
           </Card>
         </TabsContent>
 
-        {/* Assign Tab */}
+        {/* ─── Assign Tab ─── */}
         <TabsContent value="assign">
           <Card className="bg-card border-border">
             <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <Shield className="w-4 h-4" /> Assign Plan to Workspace
-              </CardTitle>
+              <CardTitle className="text-base flex items-center gap-2"><Shield className="w-4 h-4" /> Assign Plan to Workspace</CardTitle>
               <CardDescription>Manually assign a plan (bypasses payment).</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">

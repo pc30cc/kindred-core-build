@@ -8,12 +8,13 @@ import {
   Inbox, Users, Eye, BookOpen, MessageSquare,
   Bot, Settings, Rocket, Search, Package,
   LogOut, Shield, ChevronDown, UserPlus, Plus,
-  Zap, ShieldAlert,
+  Zap, ShieldAlert, ExternalLink,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useIsGlobalAdmin } from '@/hooks/useAdmin';
 import { useBrandingContext } from '@/features/branding/BrandingContext';
+import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useMemo, useState, useRef, useEffect } from 'react';
 
 const mainNav = [
@@ -61,7 +62,9 @@ export function AppSidebar() {
 
   const userName = (user?.metadata?.full_name as string) || user?.email?.split('@')[0] || '';
   const userEmail = user?.email || '';
-  const workspaceDomain = (user?.metadata?.websiteDomain as string) || 'workspace.app';
+  const companyName = (user?.metadata?.companyName as string) || workspace?.name || platformName || 'Workspace';
+  const workspaceDomain = (user?.metadata?.websiteDomain as string) || 'yoursite.com';
+  const companyLetter = companyName.charAt(0).toUpperCase();
 
   return (
     <aside className="flex h-screen w-[220px] flex-col bg-sidebar border-e border-sidebar-border">

@@ -1893,6 +1893,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "workspace_subscriptions_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "billing_plans_public"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "workspace_subscriptions_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: true
@@ -1950,7 +1957,48 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      billing_plans_public: {
+        Row: {
+          default_currency: string | null
+          description: string | null
+          entitlements: Json | null
+          id: string | null
+          is_free: boolean | null
+          limits: Json | null
+          name: string | null
+          prices: Json | null
+          slug: string | null
+          sort_order: number | null
+          trial_days: number | null
+        }
+        Insert: {
+          default_currency?: string | null
+          description?: string | null
+          entitlements?: Json | null
+          id?: string | null
+          is_free?: boolean | null
+          limits?: Json | null
+          name?: string | null
+          prices?: Json | null
+          slug?: string | null
+          sort_order?: number | null
+          trial_days?: number | null
+        }
+        Update: {
+          default_currency?: string | null
+          description?: string | null
+          entitlements?: Json | null
+          id?: string | null
+          is_free?: boolean | null
+          limits?: Json | null
+          name?: string | null
+          prices?: Json | null
+          slug?: string | null
+          sort_order?: number | null
+          trial_days?: number | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       admin_count_profiles: { Args: never; Returns: number }

@@ -7,6 +7,7 @@ import { usePlatformBrandingForLocale } from '@/hooks/usePublicBranding';
 import { LanguageSelector } from '@/components/auth/LanguageSelector';
 import SignupStepAccount from '@/components/auth/SignupStepAccount';
 import SignupStepCompany from '@/components/auth/SignupStepCompany';
+import SignupStepAI from '@/components/auth/SignupStepAI';
 import signupIllustration from '@/assets/signup-illustration.jpg';
 
 const TOTAL_STEPS = 3;
@@ -31,6 +32,7 @@ export default function SignupPage() {
   const [companyName, setCompanyName] = useState('');
   const [websiteDomain, setWebsiteDomain] = useState('');
   const [mainGoal, setMainGoal] = useState('');
+  const [aiMode, setAiMode] = useState<'ai_first' | 'human_first' | ''>('');
 
   const [loading, setLoading] = useState(false);
 
@@ -51,10 +53,17 @@ export default function SignupPage() {
     setStep(2);
   };
 
-  // Step 2: register + create workspace
-  const handleStep2 = async (e: React.FormEvent) => {
+  // Step 2: validate & go to step 3
+  const handleStep2 = (e: React.FormEvent) => {
     e.preventDefault();
     if (!companyName.trim()) return;
+    setStep(3);
+  };
+
+  // Step 3: register + create workspace
+  const handleStep3 = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!aiMode) return;
 
     setLoading(true);
     const trimmedEmail = email.trim().toLowerCase();
@@ -66,7 +75,7 @@ export default function SignupPage() {
         fullName: fullName || undefined,
         website: websiteDomain.trim(),
         locale,
-        metadata: { locale, companyName: companyName.trim(), mainGoal },
+        metadata: { locale, companyName: companyName.trim(), mainGoal, aiMode },
       });
       if (error) {
         toast.error(t('auth.signupFailed'), { description: error.message });
@@ -97,11 +106,15 @@ export default function SignupPage() {
 
   const stepTitle = step === 1
     ? t('auth.signupStep1Title')
-    : t('auth.signupStep2Title');
+    : step === 2
+    ? t('auth.signupStep2Title')
+    : t('auth.signupStep3Title');
 
   const stepSubtitle = step === 1
     ? t('auth.signupStep1Subtitle', { brand: brandName })
-    : t('auth.signupStep2Subtitle');
+    : step === 2
+    ? t('auth.signupStep2Subtitle')
+    : t('auth.step3Subtitle');
 
   return (
     <div className="fixed inset-0 flex" dir={dir}>
@@ -184,7 +197,14 @@ export default function SignupPage() {
                 companyName={companyName} setCompanyName={setCompanyName}
                 websiteDomain={websiteDomain} setWebsiteDomain={setWebsiteDomain}
                 mainGoal={mainGoal} setMainGoal={setMainGoal}
-                loading={loading} onSubmit={handleStep2} brandName={brandName}
+                loading={false} onSubmit={handleStep2} brandName={brandName}
+              />
+            )}
+
+            {step === 3 && (
+              <SignupStepAI
+                aiMode={aiMode} setAiMode={setAiMode}
+                loading={loading} onSubmit={handleStep3} brandName={brandName}
               />
             )}
           </div>

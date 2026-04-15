@@ -29,6 +29,23 @@ function getRequestBaseUrl(req: Request) {
   return host ? `${protocol}://${host}` : '';
 }
 
+function getDefaultWidgetAssetBaseUrl(req: Request) {
+  const requestBaseUrl = getRequestBaseUrl(req);
+  if (!requestBaseUrl) return '';
+
+  try {
+    const url = new URL(requestBaseUrl);
+
+    if (url.hostname.toLowerCase().startsWith('api.')) {
+      url.hostname = url.hostname.slice(4);
+    }
+
+    return url.toString().replace(/\/+$/, '');
+  } catch {
+    return requestBaseUrl;
+  }
+}
+
 // ============================================
 // GET /api/widget/config
 // Widget bootstrap endpoint — server-validated
@@ -76,7 +93,7 @@ widgetRouter.get('/config', async (req: Request, res: Response) => {
       .eq('workspace_id', workspace_id)
       .single();
 
-    const assetBaseUrl = normalizeBaseUrl(branding?.widget_base_url) || getRequestBaseUrl(req);
+    const assetBaseUrl = normalizeBaseUrl(branding?.widget_base_url) || getDefaultWidgetAssetBaseUrl(req);
 
     const widgetConfig = {
       enabled: true,

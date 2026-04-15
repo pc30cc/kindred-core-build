@@ -174,6 +174,7 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
   const [resetLinkLoading, setResetLinkLoading] = useState(false);
   const [blockLoading, setBlockLoading] = useState(false);
   const [loginLogsDialog, setLoginLogsDialog] = useState(false);
+  const [impersonateLoading, setImpersonateLoading] = useState(false);
 
   // Get auth status (banned, etc.)
   const { data: authStatus, refetch: refetchStatus } = useQuery({

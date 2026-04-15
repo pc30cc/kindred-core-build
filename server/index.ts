@@ -12,6 +12,7 @@ import { aiRouter } from './routes/ai.js';
 import { storageRouter } from './routes/storage.js';
 import { cdnRouter } from './routes/cdn.js';
 import { billingRouter } from './routes/billing.js';
+import { plansRouter } from './routes/plans.js';
 import { adminRouter } from './routes/admin.js';
 import { widgetCorsMiddleware } from './middleware/widgetCors.js';
 import {
@@ -80,6 +81,9 @@ app.use('/api/cdn', cdnRouter);
 
 // Billing — checkout, webhooks, subscription management
 app.use('/api/billing', billingRouter);
+
+// Plans & Feature Gating
+app.use('/api/plans', plansRouter);
 
 // Admin — moderate rate limit
 app.use('/api/admin', adminRateLimiter, adminRouter);

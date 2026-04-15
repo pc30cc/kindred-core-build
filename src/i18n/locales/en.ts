@@ -42,8 +42,6 @@ const en = {
     lastName: 'Last name',
     firstNamePlaceholder: 'First name',
     lastNamePlaceholder: 'Last name',
-    websiteLabel: 'Website',
-    websitePlaceholder: 'https://yourcompany.com',
     continue: 'Continue',
     signupFailed: 'Registration failed',
     signupSuccess: 'Registration successful!',

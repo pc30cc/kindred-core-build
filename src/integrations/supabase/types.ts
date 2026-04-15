@@ -1762,7 +1762,9 @@ export type Database = {
           created_by: string
           expires_at: string
           id: string
+          invited_email: string | null
           max_uses: number
+          revoked_at: string | null
           role: Database["public"]["Enums"]["workspace_role"]
           token: string
           use_count: number
@@ -1773,7 +1775,9 @@ export type Database = {
           created_by: string
           expires_at?: string
           id?: string
+          invited_email?: string | null
           max_uses?: number
+          revoked_at?: string | null
           role?: Database["public"]["Enums"]["workspace_role"]
           token?: string
           use_count?: number
@@ -1784,7 +1788,9 @@ export type Database = {
           created_by?: string
           expires_at?: string
           id?: string
+          invited_email?: string | null
           max_uses?: number
+          revoked_at?: string | null
           role?: Database["public"]["Enums"]["workspace_role"]
           token?: string
           use_count?: number

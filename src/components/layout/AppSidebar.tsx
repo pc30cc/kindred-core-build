@@ -130,32 +130,34 @@ export function AppSidebar() {
           <span>{t('nav.inbox')}</span>
         </Link>
 
-        {/* Sub-inbox items */}
-        <div className="ms-5 mt-0.5 space-y-0.5 border-s border-sidebar-border ps-3">
-          <p className="text-[11px] font-medium text-sidebar-muted-foreground uppercase tracking-wider px-2 pt-1.5 pb-1">Default Inboxes</p>
-          <Link
-            to="/app/inbox"
-            className={cn(
-              'flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] transition-colors',
-              location.pathname === '/app/inbox'
-                ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
-                : 'text-sidebar-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground'
-            )}
-          >
-            <MessageSquare className="h-3.5 w-3.5 shrink-0" />
-            <span>Main Inbox</span>
-          </Link>
+        {/* Sub-inbox items — only visible when inbox is active */}
+        {isActive('/app/inbox') && (
+          <div className="ms-5 mt-0.5 space-y-0.5 border-s border-sidebar-border ps-3">
+            <p className="text-[11px] font-medium text-sidebar-muted-foreground uppercase tracking-wider px-2 pt-1.5 pb-1">Default Inboxes</p>
+            <Link
+              to="/app/inbox"
+              className={cn(
+                'flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] transition-colors',
+                location.pathname === '/app/inbox'
+                  ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
+                  : 'text-sidebar-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground'
+              )}
+            >
+              <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+              <span>Main Inbox</span>
+            </Link>
 
-          <p className="text-[11px] font-medium text-sidebar-muted-foreground uppercase tracking-wider px-2 pt-2 pb-1">Other Inboxes</p>
-          <button className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] text-sidebar-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground transition-colors w-full">
-            <Zap className="h-3.5 w-3.5 shrink-0" />
-            <span>Automated</span>
-          </button>
-          <button className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] text-sidebar-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground transition-colors w-full">
-            <ShieldAlert className="h-3.5 w-3.5 shrink-0" />
-            <span>Spam</span>
-          </button>
-        </div>
+            <p className="text-[11px] font-medium text-sidebar-muted-foreground uppercase tracking-wider px-2 pt-2 pb-1">Other Inboxes</p>
+            <button className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] text-sidebar-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground transition-colors w-full">
+              <Zap className="h-3.5 w-3.5 shrink-0" />
+              <span>Automated</span>
+            </button>
+            <button className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] text-sidebar-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground transition-colors w-full">
+              <ShieldAlert className="h-3.5 w-3.5 shrink-0" />
+              <span>Spam</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Main navigation */}

@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useState, useDeferredValue } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import {
   useAdminWorkspaces, useAdminWorkspaceCount,
@@ -15,14 +17,17 @@ import { toast } from 'sonner';
 import {
   Building2, Users, MessageSquare, BookUser, Trash2,
   Globe, Palette, Bot, Loader2, Shield, ArrowLeft,
-  Mail, Calendar, MapPin, MonitorSmartphone, Copy,
+  Mail, Calendar, MapPin, MonitorSmartphone, Copy, Search,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
 export default function AdminWorkspacesPage() {
   const [page, setPage] = useState(0);
+  const [search, setSearch] = useState('');
+  const [sort, setSort] = useState('newest');
+  const deferredSearch = useDeferredValue(search);
   const limit = 25;
-  const { data: workspaces, isLoading } = useAdminWorkspaces(limit, page * limit);
+  const { data: workspaces, isLoading } = useAdminWorkspaces(limit, page * limit, deferredSearch, sort);
   const { data: count } = useAdminWorkspaceCount();
 
   const [selectedId, setSelectedId] = useState<string | null>(null);

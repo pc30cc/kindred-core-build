@@ -15,6 +15,16 @@ const configQuerySchema = z.object({
   origin: z.string().url().optional(),
 });
 
+function getRequestBaseUrl(req: Request): string {
+  const forwardedProto = req.headers['x-forwarded-proto'];
+  const forwardedHost = req.headers['x-forwarded-host'];
+
+  const proto = (Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto?.split(',')[0]) || req.protocol;
+  const host = (Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost?.split(',')[0]) || req.get('host') || 'localhost';
+
+  return `${proto}://${host}`.replace(/\/$/, '');
+}
+
 widgetRouter.get('/config', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
   const parsed = configQuerySchema.safeParse(req.query);
@@ -27,7 +37,6 @@ widgetRouter.get('/config', async (req: Request, res: Response) => {
   const supabase = getServiceClient(config);
 
   try {
-    // Fetch widget settings
     const { data: widget, error } = await supabase
       .from('widget_settings')
       .select('*')
@@ -42,31 +51,30 @@ widgetRouter.get('/config', async (req: Request, res: Response) => {
       return res.json({ enabled: false });
     }
 
-    // Validate origin against allowed domains
     if (origin && widget.allowed_domains && widget.allowed_domains.length > 0) {
       if (!isOriginAllowed(origin, widget.allowed_domains, widget.allow_subdomains ?? false)) {
         return res.status(403).json({ error: 'Origin not allowed' });
       }
     }
 
-    // Fetch workspace branding
     const { data: branding } = await supabase
       .from('workspace_branding')
       .select('platform_name, logo_url, primary_color, widget_base_url')
       .eq('workspace_id', workspace_id)
       .single();
 
-    // Build runtime-safe widget config (no secrets)
+    const apiBase = getRequestBaseUrl(req);
+    const assetBase = (branding?.widget_base_url || '').replace(/\/$/, '') || null;
+
     const widgetConfig = {
       enabled: true,
       workspaceId: workspace_id,
-      branding: {
-        platformName: branding?.platform_name || 'Support',
-        primaryColor: widget.primary_color || branding?.primary_color || '#3B82F6',
-        logoUrl: widget.logo_url || branding?.logo_url || null,
-        launcherText: widget.launcher_text || 'Chat with us',
-        welcomeMessage: widget.welcome_message || 'Hello! How can we help you?',
-      },
+      apiBase,
+      brandName: branding?.platform_name || 'Support',
+      primaryColor: widget.primary_color || branding?.primary_color || '#3B82F6',
+      logoUrl: widget.logo_url || branding?.logo_url || null,
+      launcherText: widget.launcher_text || 'Chat with us',
+      welcomeMessage: widget.welcome_message || 'Hello! How can we help you?',
       position: widget.position || 'bottom-right',
       locale: widget.locale || 'en',
       features: {
@@ -74,12 +82,8 @@ widgetRouter.get('/config', async (req: Request, res: Response) => {
         knowledgeBase: widget.kb_enabled ?? true,
         visitorTracking: widget.visitor_tracking_enabled ?? true,
       },
-      runtimeUrl: branding?.widget_base_url
-        ? `${branding.widget_base_url}/runtime.js`
-        : null,
-      styleUrl: branding?.widget_base_url
-        ? `${branding.widget_base_url}/widget.css`
-        : null,
+      runtimeUrl: assetBase ? `${assetBase}/widget/runtime.js` : null,
+      styleUrl: assetBase ? `${assetBase}/widget/runtime.css` : null,
     };
 
     res.json(widgetConfig);

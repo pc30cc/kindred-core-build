@@ -60,6 +60,21 @@ export function extractHostname(origin: string): string | null {
 }
 
 /**
+ * Allow Lovable preview/share URLs and local development origins to load the widget
+ * without requiring them to be explicitly whitelisted in workspace settings.
+ */
+export function isTrustedPreviewOrigin(originUrl: string): boolean {
+  const hostname = extractHostname(originUrl);
+  if (!hostname) return false;
+
+  if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0') {
+    return true;
+  }
+
+  return hostname.endsWith('.lovableproject.com') || hostname.endsWith('.lovable.app');
+}
+
+/**
  * Check if an incoming origin is allowed by the workspace's domain list.
  *
  * Rules:

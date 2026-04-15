@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { getServiceClient } from '../supabase.js';
 import type { ServerConfig } from '../config.js';
-import { isOriginAllowed } from '../utils/domain.js';
+import { isOriginAllowed, isTrustedPreviewOrigin } from '../utils/domain.js';
 
 export const widgetRouter = Router();
 
@@ -82,7 +82,7 @@ widgetRouter.get('/config', async (req: Request, res: Response) => {
     }
 
     if (origin && widget.allowed_domains && widget.allowed_domains.length > 0) {
-      if (!isOriginAllowed(origin, widget.allowed_domains, widget.allow_subdomains ?? false)) {
+      if (!isTrustedPreviewOrigin(origin) && !isOriginAllowed(origin, widget.allowed_domains, widget.allow_subdomains ?? false)) {
         return res.status(403).json({ error: 'Origin not allowed' });
       }
     }
@@ -155,6 +155,10 @@ widgetRouter.post('/validate-origin', async (req: Request, res: Response) => {
 
   if (!widget.allowed_domains || widget.allowed_domains.length === 0) {
     return res.json({ valid: true });
+  }
+
+  if (isTrustedPreviewOrigin(origin)) {
+    return res.json({ valid: true, reason: 'trusted_preview' });
   }
 
   const allowed = isOriginAllowed(origin, widget.allowed_domains, widget.allow_subdomains ?? false);

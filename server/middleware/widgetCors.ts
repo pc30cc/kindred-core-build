@@ -5,7 +5,7 @@
  */
 
 import { Request, Response, NextFunction } from 'express';
-import { extractHostname, isOriginAllowed } from '../utils/domain.js';
+import { isOriginAllowed, isTrustedPreviewOrigin } from '../utils/domain.js';
 import { getServiceClient } from '../supabase.js';
 import type { ServerConfig } from '../config.js';
 
@@ -63,7 +63,7 @@ export function widgetCorsMiddleware() {
       const { domains, allowSubs } = await getWidgetDomains(config, workspaceId);
 
       // If no domains configured, allow all (open mode)
-      if (!domains.length || isOriginAllowed(origin, domains, allowSubs)) {
+      if (isTrustedPreviewOrigin(origin) || !domains.length || isOriginAllowed(origin, domains, allowSubs)) {
         res.setHeader('Access-Control-Allow-Origin', origin);
         res.setHeader('Access-Control-Allow-Credentials', 'true');
         res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');

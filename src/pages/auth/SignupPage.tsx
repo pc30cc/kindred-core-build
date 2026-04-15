@@ -13,6 +13,7 @@ import signupIllustration from '@/assets/signup-illustration.jpg';
 const TOTAL_STEPS = 3;
 
 export default function SignupPage() {
+  const [params] = useSearchParams();
   const navigate = useNavigate();
   const { t, locale, dir } = useTranslation();
   const { signUp, signIn } = useAuth();

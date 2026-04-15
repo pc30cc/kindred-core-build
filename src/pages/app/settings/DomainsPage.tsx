@@ -64,7 +64,7 @@ export default function SettingsDomainsPage() {
   });
 
   return (
-    <div className="space-y-6 animate-fade-in max-w-3xl">
+    <div className="space-y-6 animate-fade-in">
       <h1 className="text-2xl font-bold text-foreground">{t('settings.domains')}</h1>
 
       <Card>

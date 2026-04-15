@@ -19,6 +19,7 @@ import { useBrandingContext } from '@/features/branding/BrandingContext';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useProfile } from '@/hooks/useProfile';
 import { useMemo, useState, useRef, useEffect } from 'react';
+import { Link as RouterLink } from 'react-router-dom';
 
 const mainNav = [
   { key: 'ai', path: '/app/ai', icon: Bot },

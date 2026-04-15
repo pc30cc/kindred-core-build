@@ -20,6 +20,7 @@ import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import { useProfile } from '@/hooks/useProfile';
 import { useMemo, useState, useRef, useEffect } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
+import { CreateWorkspaceDialog } from '@/features/workspace/CreateWorkspaceDialog';
 
 export function AppSidebar() {
   const { t, dir } = useTranslation();
@@ -34,6 +35,7 @@ export function AppSidebar() {
   const wsPath = useWorkspacePath();
   const [wsMenuOpen, setWsMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [createWsOpen, setCreateWsOpen] = useState(false);
   const wsMenuRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
@@ -81,6 +83,7 @@ export function AppSidebar() {
   const companyLetter = companyName.charAt(0).toUpperCase();
 
   return (
+    <>
     <aside className="flex h-screen w-[220px] flex-col bg-sidebar border-e border-sidebar-border">
       {/* Workspace header with dropdown */}
       <div className="relative px-3 pt-4 pb-2" ref={wsMenuRef}>
@@ -126,7 +129,10 @@ export function AppSidebar() {
             })}
 
             <div className="border-t border-border mt-1.5 pt-1.5">
-              <button className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-foreground hover:bg-accent rounded-md transition-colors">
+              <button
+                onClick={() => { setWsMenuOpen(false); setCreateWsOpen(true); }}
+                className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-foreground hover:bg-accent rounded-md transition-colors"
+              >
                 <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
                   <Plus className="h-3.5 w-3.5 text-primary" />
                 </div>
@@ -389,5 +395,7 @@ export function AppSidebar() {
         </div>
       </div>
     </aside>
+    <CreateWorkspaceDialog open={createWsOpen} onOpenChange={setCreateWsOpen} />
+    </>
   );
 }

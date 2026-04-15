@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import path from 'node:path';
 import { loadConfig } from './config.js';
 import { widgetRouter } from './routes/widget.js';
 import { visitorRouter } from './routes/visitors.js';
@@ -28,6 +29,7 @@ import {
 const config = loadConfig();
 
 const app = express();
+const widgetAssetDir = path.resolve(process.cwd(), 'public/widget');
 
 // Security headers
 app.use(helmet());
@@ -42,6 +44,20 @@ app.use((req, _res, next) => {
   (req as any).serverConfig = config;
   next();
 });
+
+// Widget static assets also served from the API container so older cached loaders
+// that resolve runtime/css from api.<domain> keep working.
+app.use('/widget', express.static(widgetAssetDir, {
+  fallthrough: true,
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('loader.js')) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      return;
+    }
+
+    res.setHeader('Cache-Control', 'public, max-age=2592000, immutable');
+  },
+}));
 
 // Global: IP blocking check
 app.use('/api/', ipBlockMiddleware());

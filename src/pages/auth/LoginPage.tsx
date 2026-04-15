@@ -10,7 +10,6 @@ import { Eye, EyeOff, Loader2, ArrowRight } from 'lucide-react';
 import { usePlatformBrandingForLocale } from '@/hooks/usePublicBranding';
 import { LanguageSelector } from '@/components/auth/LanguageSelector';
 import loginIllustration from '@/assets/login-illustration.jpg';
-import { PlatformWidget } from '@/components/PlatformWidget';
 
 export default function LoginPage() {
   const [params] = useSearchParams();
@@ -25,9 +24,6 @@ export default function LoginPage() {
       navigate(params.get('redirect') || '/app', { replace: true });
     }
   }, [user, authLoading, navigate, params]);
-
-
-
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -56,8 +52,6 @@ export default function LoginPage() {
   };
 
   return (
-    <>
-    <PlatformWidget />
     <div className="fixed inset-0 flex" dir={dir}>
       {/* Left side — Form */}
       <div className={`flex-1 flex flex-col bg-background overflow-y-auto ${isRtl ? 'order-2' : 'order-1'}`}>
@@ -198,6 +192,5 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
-    </>
   );
 }

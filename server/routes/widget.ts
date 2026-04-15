@@ -299,8 +299,9 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
 
     const runtimeJsName = getWidgetAssetName('runtime.js');
     const runtimeCssName = getWidgetAssetName('runtime.css');
+    const chatModuleName = getWidgetAssetName('runtime-chat.js');
+    const kbModuleName = getWidgetAssetName('runtime-kb.js');
     const loaderVersion = getLoaderVersion();
-
     const widgetConfig = {
       enabled: true,
       workspaceId,

@@ -97,7 +97,7 @@ export default function SignupPage() {
       }
 
       toast.success(t('auth.signupSuccess'));
-      navigate('/app');
+      navigate(params.get('redirect') || '/app');
     } catch (err: any) {
       toast.error(t('auth.signupFailed'), { description: err?.message });
     } finally {

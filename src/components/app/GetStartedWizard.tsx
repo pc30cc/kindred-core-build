@@ -14,8 +14,8 @@ import {
 interface WizardTask {
   key: string;
   icon: React.ReactNode;
-  titleKey: string;
-  descKey: string;
+  titleKey: TranslationKey;
+  descKey: TranslationKey;
   link: string;
   trialDays?: number;
   featured?: boolean;

@@ -19,7 +19,6 @@ import {
   Crown, MoreHorizontal, Mail, Clock, Search, UserCog,
   Ban, RotateCcw, Calendar,
 } from 'lucide-react';
-import { PersianDatePicker } from '@/components/ui/persian-date-picker';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL;
 
@@ -469,13 +468,15 @@ export default function TeamPage() {
                     </SelectContent>
                   </Select>
                 </div>
-              {inviteExpiration === 'custom' && (
+                {inviteExpiration === 'custom' && (
                   <div className="space-y-2">
                     <Label className="text-xs">&nbsp;</Label>
-                    <PersianDatePicker
+                    <Input
+                      type="datetime-local"
                       value={inviteCustomDate}
-                      onChange={setInviteCustomDate}
-                      minDate={new Date()}
+                      onChange={e => setInviteCustomDate(e.target.value)}
+                      dir="ltr"
+                      className="text-left text-xs"
                     />
                   </div>
                 )}

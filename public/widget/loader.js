@@ -75,6 +75,12 @@
     return null;
   }
 
+  function getWorkspaceId() {
+    var loaderScript = getLoaderScript();
+    var scriptWorkspaceId = loaderScript && loaderScript.getAttribute('data-workspace-id');
+    return window.__gs_id || scriptWorkspaceId || null;
+  }
+
   function getAssetBase() {
     var loaderScript = getLoaderScript();
     var explicitAssetBase = loaderScript && loaderScript.getAttribute('data-asset-base');
@@ -201,6 +207,7 @@
   }
 
   function bootstrap() {
+    WORKSPACE_ID = getWorkspaceId();
     var assetBase = getAssetBase();
     var apiBase = getApiBase();
     var origin = window.location.origin;

@@ -313,6 +313,7 @@ const en = {
     seo_manager: 'SEO Manager',
     analyst: 'Analyst',
     developer: 'Developer',
+    billing: 'Billing',
     removeMember: 'Remove member',
     noMembers: 'No team members yet',
     tabMembers: 'Members',
@@ -369,6 +370,10 @@ const en = {
     permWebhook: 'Webhooks',
     permWidget: 'Widget Config',
     permViewOnly: 'View Only',
+    permBillingDashboard: 'Billing Dashboard',
+    permSubscriptions: 'Subscriptions',
+    permInvoices: 'Invoices',
+    permPayments: 'Payments',
   },
   email: {
     title: 'Email',

@@ -30,12 +30,13 @@ const roleColors: Record<string, string> = {
   seo_manager: 'bg-orange-500/10 text-orange-400 border-orange-500/20',
   analyst: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20',
   developer: 'bg-lime-500/10 text-lime-400 border-lime-500/20',
+  billing: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
   viewer: 'bg-secondary text-muted-foreground border-border',
 };
 
 const assignableRoles = [
   'admin', 'team_lead', 'agent', 'sales_agent', 'support_agent',
-  'marketing_manager', 'seo_manager', 'analyst', 'developer', 'viewer',
+  'marketing_manager', 'seo_manager', 'analyst', 'developer', 'billing', 'viewer',
 ];
 
 const allRolesWithOwner = ['owner', ...assignableRoles];
@@ -51,6 +52,7 @@ const rolePermissionKeys: Record<string, string[]> = {
   seo_manager: ['permSeoDashboard', 'permKeywords', 'permPages'],
   analyst: ['permReports', 'permVisitorAnalytics'],
   developer: ['permApi', 'permWebhook', 'permWidget'],
+  billing: ['permBillingDashboard', 'permSubscriptions', 'permInvoices', 'permPayments'],
   viewer: ['permViewOnly'],
 };
 

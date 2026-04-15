@@ -213,7 +213,7 @@ export function AppSidebar() {
             <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
               <span className="text-xs font-semibold text-primary">{userName.charAt(0).toUpperCase()}</span>
             </div>
-            <div className="absolute -bottom-0.5 -end-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-sidebar" />
+            <div className="absolute -bottom-0.5 -end-0.5 w-2.5 h-2.5 rounded-full bg-success border-2 border-sidebar" />
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-xs font-medium text-sidebar-foreground truncate">{userName}</p>

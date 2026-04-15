@@ -400,6 +400,14 @@ export async function adminGetUserStatus(userId: string) {
   });
 }
 
+export async function adminImpersonateUser(userId: string) {
+  return request<{ url: string }>('/api/admin/impersonate', {
+    method: 'POST',
+    headers: await getAdminAuthHeaders(),
+    body: JSON.stringify({ userId }),
+  });
+}
+
 export function authSignUp(data: {
   email: string;
   password: string;

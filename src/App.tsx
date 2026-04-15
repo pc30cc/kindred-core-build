@@ -10,6 +10,7 @@ import { RequireAuth } from "@/features/auth/RequireAuth";
 import { RequireAdmin } from "@/features/admin/RequireAdmin";
 import { BrandingGate } from "@/features/branding/BrandingGate";
 import { PlatformBrandingGate } from "@/features/branding/PlatformBrandingGate";
+import { WorkspaceRedirect } from "@/features/workspace/WorkspaceRedirect";
 
 import { AuthLayout } from "@/components/layout/AuthLayout";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -25,7 +26,6 @@ import CheckEmailPage from "@/pages/auth/CheckEmailPage";
 import EmailConfirmedPage from "@/pages/auth/EmailConfirmedPage";
 import InvitePage from "@/pages/auth/InvitePage";
 
-import OnboardingPage from "@/pages/app/OnboardingPage";
 import OverviewPage from "@/pages/app/OverviewPage";
 import InboxPage from "@/pages/app/InboxPage";
 import ContactsPage from "@/pages/app/ContactsPage";
@@ -61,6 +61,33 @@ import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
 
+/** Workspace-scoped app pages (shared between /app/w/:slug/* routes) */
+function WorkspacePages() {
+  return (
+    <>
+      <Route index element={<OverviewPage />} />
+      <Route path="inbox" element={<InboxPage />} />
+      <Route path="contacts" element={<ContactsPage />} />
+      <Route path="visitors" element={<VisitorsPage />} />
+      <Route path="knowledge-base" element={<KnowledgeBasePage />} />
+      <Route path="widget" element={<WidgetPage />} />
+      <Route path="ai" element={<AIPage />} />
+      <Route path="email" element={<EmailPage />} />
+      <Route path="team" element={<TeamPage />} />
+      <Route path="billing" element={<BillingPage />} />
+      <Route path="settings" element={<SettingsLayout />}>
+        <Route index element={<Navigate to="general" replace />} />
+        <Route path="general" element={<SettingsGeneralPage />} />
+        <Route path="branding" element={<SettingsBrandingPage />} />
+        <Route path="domains" element={<SettingsDomainsPage />} />
+        <Route path="providers" element={<SettingsProvidersPage />} />
+        <Route path="translations" element={<SettingsTranslationsPage />} />
+        <Route path="profile" element={<SettingsProfilePage />} />
+      </Route>
+    </>
+  );
+}
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <I18nProvider>
@@ -87,11 +114,6 @@ const App = () => (
                 <Route path="/auth/invite" element={<InvitePage />} />
               </Route>
 
-              {/* Onboarding */}
-              <Route path="/onboarding" element={
-                <RequireAuth><OnboardingPage /></RequireAuth>
-              } />
-
               {/* Admin Bootstrap */}
               <Route path="/admin/bootstrap" element={
                 <RequireAuth><AdminBootstrapPage /></RequireAuth>
@@ -113,26 +135,15 @@ const App = () => (
                 <Route path="/admin/security" element={<AdminSecurityPage />} />
               </Route>
 
-              {/* App (protected) */}
+              {/* /app → redirect to first workspace */}
+              <Route path="/app" element={
+                <RequireAuth><WorkspaceRedirect /></RequireAuth>
+              } />
+
+              {/* Workspace-scoped app (route-based active workspace) */}
               <Route element={<RequireAuth><BrandingGate><AppLayout /></BrandingGate></RequireAuth>}>
-                <Route path="/app" element={<OverviewPage />} />
-                <Route path="/app/inbox" element={<InboxPage />} />
-                <Route path="/app/contacts" element={<ContactsPage />} />
-                <Route path="/app/visitors" element={<VisitorsPage />} />
-                <Route path="/app/knowledge-base" element={<KnowledgeBasePage />} />
-                <Route path="/app/widget" element={<WidgetPage />} />
-                <Route path="/app/ai" element={<AIPage />} />
-                <Route path="/app/email" element={<EmailPage />} />
-                <Route path="/app/team" element={<TeamPage />} />
-                <Route path="/app/billing" element={<BillingPage />} />
-                <Route path="/app/settings" element={<SettingsLayout />}>
-                  <Route index element={<Navigate to="/app/settings/general" replace />} />
-                  <Route path="general" element={<SettingsGeneralPage />} />
-                  <Route path="branding" element={<SettingsBrandingPage />} />
-                  <Route path="domains" element={<SettingsDomainsPage />} />
-                  <Route path="providers" element={<SettingsProvidersPage />} />
-                  <Route path="translations" element={<SettingsTranslationsPage />} />
-                  <Route path="profile" element={<SettingsProfilePage />} />
+                <Route path="/app/w/:slug/*" element={null}>
+                  {WorkspacePages()}
                 </Route>
               </Route>
 

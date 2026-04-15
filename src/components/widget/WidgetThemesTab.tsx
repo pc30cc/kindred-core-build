@@ -147,9 +147,104 @@ export default function WidgetThemesTab() {
   if (isLoading) return <div className="p-8 text-center text-muted-foreground">{t('common.loading')}</div>;
 
   const currentFabIcon = FAB_ICONS.find(i => i.id === localSettings.fab_icon)?.icon || MessageSquare;
+  const helpFabIcon = FAB_ICONS.find(i => i.id === localSettings.fab_help_icon)?.icon || HelpCircle;
+  const currentThemeDef = THEMES.find(t => t.id === localSettings.theme) || THEMES[0];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 relative">
+      {/* Live Preview - Sticky */}
+      <Card className="sticky top-4 z-10 border-primary/30 bg-card/95 backdrop-blur-sm">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
+            پیش‌نمایش زنده ویجت
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-end justify-between gap-4">
+            {/* Mini chat panel preview */}
+            <div className="flex-1 max-w-[280px]">
+              <div className="rounded-xl overflow-hidden border" style={{
+                background: currentThemeDef.chatBg,
+                borderColor: currentThemeDef.style === 'dark' ? '#1e2538' : '#e2e8f0',
+              }}>
+                <div className="h-10 flex items-center px-3 gap-2" style={{ background: localSettings.primary_color }}>
+                  {localSettings.show_logo && (
+                    <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center">
+                      <span className="text-white text-[10px] font-bold">W</span>
+                    </div>
+                  )}
+                  <div className="flex-1">
+                    <div className="h-2 rounded bg-white/40 max-w-[70px]" />
+                    <div className="h-1.5 rounded bg-white/20 max-w-[50px] mt-1" />
+                  </div>
+                  <div className="w-5 h-5 rounded-full flex items-center justify-center bg-white/10">
+                    <X className="w-3 h-3 text-white/60" />
+                  </div>
+                </div>
+                <div className="p-2.5 space-y-1.5">
+                  <div className="flex gap-1.5 items-start">
+                    <div className="w-4 h-4 rounded-full flex-shrink-0" style={{ background: localSettings.primary_color + '30' }} />
+                    <div className="h-6 rounded-xl flex-1 max-w-[70%]" style={{ background: currentThemeDef.msgBg }} />
+                  </div>
+                  <div className="flex justify-end">
+                    <div className="h-5 rounded-xl w-[50%]" style={{ background: localSettings.primary_color }} />
+                  </div>
+                </div>
+                <div className="h-8 flex items-center px-2.5 gap-2 border-t" style={{
+                  background: currentThemeDef.inputBg,
+                  borderColor: currentThemeDef.style === 'dark' ? '#ffffff10' : '#e2e8f0',
+                }}>
+                  <div className="flex-1 h-4 rounded" style={{ background: currentThemeDef.style === 'dark' ? '#ffffff08' : '#00000008' }} />
+                  <div className="w-5 h-5 rounded-full flex items-center justify-center" style={{ background: localSettings.primary_color }}>
+                    <Send className="w-2.5 h-2.5 text-white" />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* FAB preview */}
+            <div className="flex flex-col items-center gap-2">
+              <span className="text-[10px] text-muted-foreground">دکمه ویجت</span>
+              {localSettings.fab_shape === 'dual' ? (
+                <div className="flex items-center gap-0.5">
+                  <div className="flex items-center gap-1 px-2.5 py-2 rounded-s-2xl text-white text-[10px] font-semibold" style={{ background: localSettings.primary_color }}>
+                    {(() => { const FabIc = currentFabIcon; return <FabIc className="w-3.5 h-3.5" style={{ color: localSettings.fab_icon_color }} />; })()}
+                    <span style={{ color: localSettings.fab_text_color }}>{localSettings.fab_chat_label || 'Chat'}</span>
+                  </div>
+                  <div className="flex items-center gap-1 px-2.5 py-2 rounded-e-2xl text-white text-[10px] font-semibold" style={{ background: localSettings.secondary_color }}>
+                    {(() => { const HelpIc = helpFabIcon; return <HelpIc className="w-3.5 h-3.5" style={{ color: localSettings.fab_icon_color }} />; })()}
+                    <span style={{ color: localSettings.fab_text_color }}>{localSettings.fab_help_label || 'Help'}</span>
+                  </div>
+                </div>
+              ) : (
+                <div
+                  className={`flex items-center justify-center shadow-lg ${localSettings.fab_animation ? 'animate-bounce' : ''}`}
+                  style={{
+                    background: localSettings.primary_color,
+                    borderRadius: localSettings.fab_shape === 'circle' ? '50%' : localSettings.fab_shape === 'pill' ? '28px' : '14px',
+                    width: localSettings.fab_shape === 'pill' ? 'auto' : `${Math.round(56 * localSettings.fab_scale / 100)}px`,
+                    height: `${Math.round(56 * localSettings.fab_scale / 100)}px`,
+                    paddingLeft: localSettings.fab_shape === 'pill' ? '14px' : undefined,
+                    paddingRight: localSettings.fab_shape === 'pill' ? '18px' : undefined,
+                    gap: localSettings.fab_shape === 'pill' ? '6px' : undefined,
+                    transform: `scale(${localSettings.fab_scale / 100})`,
+                  }}
+                >
+                  {(() => { const FabIc = currentFabIcon; return <FabIc className="w-6 h-6" style={{ color: localSettings.fab_icon_color }} />; })()}
+                  {localSettings.fab_shape === 'pill' && (
+                    <span className="text-xs font-semibold whitespace-nowrap" style={{ color: localSettings.fab_text_color }}>
+                      {localSettings.fab_label || 'Chat'}
+                    </span>
+                  )}
+                </div>
+              )}
+              <span className="text-[9px] text-muted-foreground">قالب: {currentThemeDef.name}</span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Theme Selector */}
       <Card>
         <CardHeader>

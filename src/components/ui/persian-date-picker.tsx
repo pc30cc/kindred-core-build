@@ -1,23 +1,30 @@
 import { useState } from 'react';
-import DatePicker, { DateObject } from 'react-multi-date-picker';
-import persian from 'react-multi-date-picker/calendars/persian';
-import persian_fa from 'react-multi-date-picker/locales/persian_fa';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Button } from '@/components/ui/button';
+import { CalendarIcon } from 'lucide-react';
+import jalaali from 'jalaali-js';
+
+function toJalaaliStr(date: Date): string {
+  const j = jalaali.toJalaali(date.getFullYear(), date.getMonth() + 1, date.getDate());
+  return `${j.jy}/${String(j.jm).padStart(2, '0')}/${String(j.jd).padStart(2, '0')}`;
+}
 
 interface PersianDatePickerProps {
-  value: string; // ISO string or datetime-local format
+  value: string;
   onChange: (isoString: string) => void;
   className?: string;
-  placeholder?: string;
   minDate?: Date;
 }
 
-export function PersianDatePicker({ value, onChange, className, placeholder, minDate }: PersianDatePickerProps) {
+export function PersianDatePicker({ value, onChange, className, minDate }: PersianDatePickerProps) {
   const { locale } = useTranslation();
   const isPersian = locale === 'fa';
+  const [open, setOpen] = useState(false);
 
-  const dateValue = value ? new DateObject(new Date(value)) : undefined;
+  const selectedDate = value ? new Date(value) : undefined;
 
   if (!isPersian) {
     return (
@@ -27,7 +34,7 @@ export function PersianDatePicker({ value, onChange, className, placeholder, min
         onChange={e => onChange(e.target.value)}
         dir="ltr"
         className={cn(
-          "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 text-left text-xs",
+          "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 text-left text-xs",
           className
         )}
         min={minDate ? minDate.toISOString().slice(0, 16) : undefined}
@@ -35,33 +42,49 @@ export function PersianDatePicker({ value, onChange, className, placeholder, min
     );
   }
 
+  const displayText = selectedDate ? toJalaaliStr(selectedDate) : 'تاریخ را انتخاب کنید';
+
   return (
-    <DatePicker
-      value={dateValue}
-      onChange={(date: DateObject) => {
-        if (date) {
-          const jsDate = date.toDate();
-          onChange(jsDate.toISOString());
-        }
-      }}
-      calendar={persian}
-      locale={persian_fa}
-      calendarPosition="bottom-right"
-      minDate={minDate ? new DateObject(minDate) : undefined}
-      format="YYYY/MM/DD HH:mm"
-      plugins={[]}
-      placeholder={placeholder || 'تاریخ را انتخاب کنید'}
-      style={{
-        width: '100%',
-        height: '40px',
-        borderRadius: '6px',
-        fontSize: '12px',
-        padding: '0 12px',
-        border: '1px solid hsl(var(--input))',
-        backgroundColor: 'hsl(var(--background))',
-        color: 'hsl(var(--foreground))',
-      }}
-      containerStyle={{ width: '100%' }}
-    />
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          className={cn(
+            "w-full justify-start text-right font-normal text-xs",
+            !selectedDate && "text-muted-foreground",
+            className
+          )}
+        >
+          <CalendarIcon className="ml-2 h-4 w-4" />
+          {displayText}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-0" align="start">
+        <Calendar
+          mode="single"
+          selected={selectedDate}
+          onSelect={(date) => {
+            if (date) {
+              onChange(date.toISOString());
+              setOpen(false);
+            }
+          }}
+          disabled={(date) => minDate ? date < minDate : false}
+          initialFocus
+          className="p-3 pointer-events-auto"
+          formatters={{
+            formatCaption: (date) => {
+              const j = jalaali.toJalaali(date.getFullYear(), date.getMonth() + 1, date.getDate());
+              const months = ['فروردین','اردیبهشت','خرداد','تیر','مرداد','شهریور','مهر','آبان','آذر','دی','بهمن','اسفند'];
+              return `${months[j.jm - 1]} ${j.jy}`;
+            },
+            formatDay: (date) => {
+              const j = jalaali.toJalaali(date.getFullYear(), date.getMonth() + 1, date.getDate());
+              return String(j.jd);
+            },
+          }}
+        />
+      </PopoverContent>
+    </Popover>
   );
 }

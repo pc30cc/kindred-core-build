@@ -8,7 +8,9 @@ import {
   Inbox, Users, Eye, BookOpen, MessageSquare,
   Bot, Settings, Rocket, Search, Package,
   LogOut, Shield, ChevronDown, UserPlus, Plus,
-  Zap, ShieldAlert, ExternalLink,
+  Zap, ShieldAlert, ExternalLink, Bell, EyeOff,
+  Clock, UserCog, Building2, HelpCircle, Sparkles,
+  AlertCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/features/auth/AuthContext';
@@ -17,6 +19,7 @@ import { useBrandingContext } from '@/features/branding/BrandingContext';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useProfile } from '@/hooks/useProfile';
 import { useMemo, useState, useRef, useEffect } from 'react';
+import { Link as RouterLink } from 'react-router-dom';
 
 const mainNav = [
   { key: 'ai', path: '/app/ai', icon: Bot },
@@ -41,20 +44,25 @@ export function AppSidebar() {
   const workspace = useCurrentWorkspace();
   const { data: profile } = useProfile();
   const [wsMenuOpen, setWsMenuOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const wsMenuRef = useRef<HTMLDivElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
 
   const brandLetter = useMemo(() => (platformName || 'A').charAt(0), [platformName]);
 
-  // Close workspace menu on outside click
+  // Close menus on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (wsMenuRef.current && !wsMenuRef.current.contains(e.target as Node)) {
         setWsMenuOpen(false);
       }
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false);
+      }
     };
-    if (wsMenuOpen) document.addEventListener('mousedown', handler);
+    if (wsMenuOpen || userMenuOpen) document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
-  }, [wsMenuOpen]);
+  }, [wsMenuOpen, userMenuOpen]);
 
   const isActive = (path: string) => {
     if (path === '/app') return location.pathname === '/app';
@@ -250,39 +258,122 @@ export function AppSidebar() {
         )}
       </div>
 
-      {/* User profile + language + logout */}
-      <div className="border-t border-sidebar-border px-3 py-3 space-y-2">
-        <div className="flex items-center gap-2.5 px-1">
+      {/* User profile — click to open menu */}
+      <div className="relative border-t border-sidebar-border px-3 py-3" ref={userMenuRef}>
+        {/* User menu dropdown — opens upward */}
+        {userMenuOpen && (
+          <div className="absolute start-2 end-2 bottom-full mb-2 z-50 bg-popover border border-border rounded-xl shadow-2xl py-1 animate-fade-in max-h-[70vh] overflow-y-auto">
+            {/* User info header */}
+            <div className="px-4 py-3 border-b border-border flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center shrink-0">
+                <span className="text-sm font-bold text-primary-foreground">{userName.charAt(0).toUpperCase()}</span>
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-foreground truncate">{userName}</p>
+                <p className="text-xs text-muted-foreground truncate">{userEmail}</p>
+              </div>
+            </div>
+
+            {/* Verify email alert */}
+            <button className="flex items-center gap-3 w-full px-4 py-2.5 text-sm hover:bg-accent transition-colors">
+              <AlertCircle className="h-4 w-4 text-warning shrink-0" />
+              <span className="text-warning font-medium">{t('auth.verifyEmail')}</span>
+            </button>
+
+            <div className="border-t border-border my-1" />
+
+            {/* Main actions */}
+            <button className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-foreground hover:bg-accent transition-colors">
+              <Bell className="h-4 w-4 text-muted-foreground" />
+              <span>{t('nav.viewAlerts') || 'View alerts'}</span>
+            </button>
+            <button className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-foreground hover:bg-accent transition-colors">
+              <EyeOff className="h-4 w-4 text-muted-foreground" />
+              <span>{t('nav.invisibleMode') || 'Enable invisible mode'}</span>
+            </button>
+            <button className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-foreground hover:bg-accent transition-colors">
+              <Clock className="h-4 w-4 text-muted-foreground" />
+              <span>{t('nav.availability') || 'Availability settings'}</span>
+            </button>
+
+            <div className="border-t border-border my-1" />
+
+            <RouterLink
+              to="/app/settings/profile"
+              onClick={() => setUserMenuOpen(false)}
+              className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-foreground hover:bg-accent transition-colors"
+            >
+              <UserCog className="h-4 w-4 text-muted-foreground" />
+              <span>{t('nav.manageAccount') || 'Manage account'}</span>
+            </RouterLink>
+            <RouterLink
+              to="/app/settings/general"
+              onClick={() => setUserMenuOpen(false)}
+              className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-foreground hover:bg-accent transition-colors"
+            >
+              <Building2 className="h-4 w-4 text-muted-foreground" />
+              <span>{t('nav.workspaceSettings') || 'Workspace settings'}</span>
+            </RouterLink>
+            <button className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-foreground hover:bg-accent transition-colors">
+              <UserPlus className="h-4 w-4 text-muted-foreground" />
+              <span>{t('nav.inviteOperator') || 'Invite an operator'}</span>
+            </button>
+
+            <div className="border-t border-border my-1" />
+
+            <button className="flex items-center gap-3 w-full px-4 py-2.5 text-sm hover:bg-accent transition-colors">
+              <HelpCircle className="h-4 w-4 text-primary" />
+              <span className="text-primary font-medium">{t('nav.getHelp') || `Get help using ${platformName}`}</span>
+            </button>
+            <button className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-foreground hover:bg-accent transition-colors">
+              <Sparkles className="h-4 w-4 text-muted-foreground" />
+              <span>{t('nav.whatsNew') || "What's new?"}</span>
+            </button>
+
+            <div className="border-t border-border my-1" />
+
+            {/* Language selector */}
+            <div className="px-4 py-2">
+              <Select value={locale} onValueChange={(v) => setLocale(v as Locale)}>
+                <SelectTrigger className="h-8 text-xs w-full border-border">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SUPPORTED_LOCALES.map(l => (
+                    <SelectItem key={l} value={l}>{LOCALE_CONFIG[l].nativeLabel}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="border-t border-border my-1" />
+
+            <button
+              onClick={() => { setUserMenuOpen(false); signOut(); }}
+              className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-destructive hover:bg-destructive/10 transition-colors"
+            >
+              <LogOut className="h-4 w-4" />
+              <span>{t('auth.logout')}</span>
+            </button>
+          </div>
+        )}
+
+        {/* Clickable user row */}
+        <button
+          onClick={() => setUserMenuOpen(!userMenuOpen)}
+          className="flex items-center gap-2.5 w-full rounded-lg px-1 py-1 hover:bg-sidebar-accent/50 transition-colors"
+        >
           <div className="relative">
             <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
               <span className="text-xs font-semibold text-primary">{userName.charAt(0).toUpperCase()}</span>
             </div>
             <div className="absolute -bottom-0.5 -end-0.5 w-2.5 h-2.5 rounded-full bg-success border-2 border-sidebar" />
           </div>
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1 text-start">
             <p className="text-xs font-medium text-sidebar-foreground truncate">{userName}</p>
             <p className="text-[11px] text-sidebar-muted-foreground truncate">{userEmail}</p>
           </div>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <Select value={locale} onValueChange={(v) => setLocale(v as Locale)}>
-            <SelectTrigger className="h-7 text-xs flex-1 border-sidebar-border">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {SUPPORTED_LOCALES.map(l => (
-                <SelectItem key={l} value={l}>{LOCALE_CONFIG[l].nativeLabel}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <button
-            onClick={signOut}
-            className="h-7 w-7 flex items-center justify-center rounded-md text-sidebar-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors shrink-0"
-            title={t('auth.logout')}
-          >
-            <LogOut className="h-3.5 w-3.5" />
-          </button>
-        </div>
+        </button>
       </div>
     </aside>
   );

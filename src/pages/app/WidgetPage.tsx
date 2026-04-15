@@ -10,8 +10,22 @@ import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { Copy, Check, Code, ExternalLink } from 'lucide-react';
+import { Copy, Check, Code, ExternalLink, Globe, Info } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+
+/** Strip protocol, www, trailing slash to get bare domain */
+function normalizeDomainInput(input: string): string {
+  let raw = input.trim();
+  raw = raw.replace(/^https?:\/\//i, '');
+  raw = raw.replace(/^www\./i, '');
+  raw = raw.replace(/\/+$/, '');
+  raw = raw.toLowerCase();
+  return raw;
+}
+
+function isValidDomain(d: string): boolean {
+  return /^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/.test(d);
+}
 
 export default function WidgetPage() {
   const { t } = useTranslation();
@@ -21,8 +35,8 @@ export default function WidgetPage() {
   const updateWidget = useUpdateWidgetSettings(workspace?.id);
   const [copied, setCopied] = useState(false);
   const [newDomain, setNewDomain] = useState('');
+  const [domainError, setDomainError] = useState('');
 
-  // Widget base URL comes from branding settings — fully configurable
   const widgetBaseUrl = branding?.widget_base_url || window.location.origin;
 
   const embedCode = `<script type="text/javascript">
@@ -49,9 +63,22 @@ export default function WidgetPage() {
   };
 
   const handleAddDomain = () => {
-    if (!newDomain.trim()) return;
+    const normalized = normalizeDomainInput(newDomain);
+    if (!normalized) return;
+
+    if (!isValidDomain(normalized)) {
+      setDomainError('Please enter a valid domain (e.g. example.com)');
+      return;
+    }
+
     const current = widget?.allowed_domains || [];
-    updateWidget.mutate({ allowed_domains: [...current, newDomain.trim()] } as any);
+    if (current.includes(normalized)) {
+      setDomainError('This domain is already added');
+      return;
+    }
+
+    setDomainError('');
+    updateWidget.mutate({ allowed_domains: [...current, normalized] } as any);
     setNewDomain('');
   };
 
@@ -84,7 +111,7 @@ export default function WidgetPage() {
         </CardHeader>
       </Card>
 
-      {/* Embed Code — uses branding-driven widget base URL */}
+      {/* Embed Code */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
@@ -210,25 +237,60 @@ export default function WidgetPage() {
       {/* Allowed Domains */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">{t('widget.allowedDomains')}</CardTitle>
-          <CardDescription>Restrict widget loading to specific domains. Leave empty to allow all.</CardDescription>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Globe className="h-4 w-4" /> {t('widget.allowedDomains')}
+          </CardTitle>
+          <CardDescription>
+            Restrict widget loading to specific domains. Leave empty to allow all.
+          </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex gap-2">
-            <Input
-              placeholder="example.com"
-              value={newDomain}
-              onChange={e => setNewDomain(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleAddDomain()}
-            />
-            <Button onClick={handleAddDomain} variant="outline">Add</Button>
+        <CardContent className="space-y-4">
+          {/* Helper info */}
+          <div className="flex items-start gap-2 bg-muted/50 rounded-md p-3 text-xs text-muted-foreground">
+            <Info className="h-4 w-4 mt-0.5 shrink-0" />
+            <div>
+              <p>Enter a domain like <strong>example.com</strong>. Protocols (http/https) and <strong>www</strong> variants are automatically supported — no need to add them separately.</p>
+            </div>
           </div>
+
+          <div className="space-y-1">
+            <div className="flex gap-2">
+              <Input
+                placeholder="example.com"
+                value={newDomain}
+                onChange={e => { setNewDomain(e.target.value); setDomainError(''); }}
+                onKeyDown={e => e.key === 'Enter' && handleAddDomain()}
+              />
+              <Button onClick={handleAddDomain} variant="outline">Add</Button>
+            </div>
+            {domainError && <p className="text-xs text-destructive">{domainError}</p>}
+          </div>
+
           {widget?.allowed_domains?.map(domain => (
             <div key={domain} className="flex items-center justify-between bg-muted rounded px-3 py-2">
-              <span className="text-sm font-mono">{domain}</span>
+              <div>
+                <span className="text-sm font-mono">{domain}</span>
+                <span className="text-xs text-muted-foreground ms-2">
+                  (+ www.{domain})
+                </span>
+              </div>
               <Button variant="ghost" size="sm" onClick={() => handleRemoveDomain(domain)}>Remove</Button>
             </div>
           ))}
+
+          {/* Subdomain toggle */}
+          <div className="flex items-center justify-between pt-2 border-t border-border">
+            <div className="space-y-0.5">
+              <Label className="text-sm">Allow subdomains</Label>
+              <p className="text-xs text-muted-foreground">
+                When enabled, subdomains like app.example.com or shop.example.com are also allowed.
+              </p>
+            </div>
+            <Switch
+              checked={widget?.allow_subdomains ?? false}
+              onCheckedChange={v => handleToggle('allow_subdomains', v)}
+            />
+          </div>
         </CardContent>
       </Card>
     </div>

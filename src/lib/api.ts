@@ -361,31 +361,31 @@ async function getAdminAuthHeaders(): Promise<Record<string, string>> {
   return { 'Authorization': `Bearer ${token}` };
 }
 
-export function adminSendResetLink(email: string) {
+export async function adminSendResetLink(email: string) {
   return request<{ success: boolean }>('/api/admin/send-reset-link', {
     method: 'POST',
-    headers: adminAuthHeaders(),
+    headers: await getAdminAuthHeaders(),
     body: JSON.stringify({ email }),
   });
 }
 
-export function adminChangePassword(userId: string, newPassword: string) {
+export async function adminChangePassword(userId: string, newPassword: string) {
   return request<{ success: boolean }>('/api/admin/change-password', {
     method: 'POST',
-    headers: adminAuthHeaders(),
+    headers: await getAdminAuthHeaders(),
     body: JSON.stringify({ userId, newPassword }),
   });
 }
 
-export function adminBlockUser(userId: string, blocked: boolean) {
+export async function adminBlockUser(userId: string, blocked: boolean) {
   return request<{ success: boolean; blocked: boolean }>('/api/admin/block-user', {
     method: 'POST',
-    headers: adminAuthHeaders(),
+    headers: await getAdminAuthHeaders(),
     body: JSON.stringify({ userId, blocked }),
   });
 }
 
-export function adminGetUserStatus(userId: string) {
+export async function adminGetUserStatus(userId: string) {
   return request<{
     id: string;
     email: string;
@@ -395,7 +395,7 @@ export function adminGetUserStatus(userId: string) {
     created_at: string;
   }>('/api/admin/user-status', {
     method: 'POST',
-    headers: adminAuthHeaders(),
+    headers: await getAdminAuthHeaders(),
     body: JSON.stringify({ userId }),
   });
 }

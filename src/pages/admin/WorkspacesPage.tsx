@@ -160,6 +160,7 @@ function WorkspaceDetailView({
   onBack: () => void;
   onDelete: (id: string) => void;
 }) {
+  const [selectedMember, setSelectedMember] = useState<any>(null);
   if (loading) {
     return (
       <div className="flex items-center justify-center py-24">

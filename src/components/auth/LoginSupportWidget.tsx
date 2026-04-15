@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { MessageCircle, X } from 'lucide-react';
+import { fetchWidgetConfig } from '@/lib/api';
 
 type LoginSupportWidgetProps = {
   brandLetter: string;

@@ -42,12 +42,35 @@ export function fetchWidgetConfig(workspaceId: string, origin?: string) {
     branding: {
       platformName: string;
       primaryColor: string;
+      secondaryColor: string;
       logoUrl: string | null;
       launcherText: string;
       welcomeMessage: string;
+      greetingMessage: string;
+      placeholderText: string;
+      offlineMessage: string;
     };
     position: string;
     locale: string;
+    theme: {
+      id: string;
+      fabIcon: string;
+      fabShape: string;
+      fabLabel: string;
+      fabScale: number;
+      fabIconColor: string;
+      fabTextColor: string;
+      fabAnimation: boolean;
+      fabHelpIcon: string;
+      fabChatLabel: string;
+      fabHelpLabel: string;
+      showLogo: boolean;
+      autoOpenDelay: number;
+      defaultMode: string;
+      supportMode: string;
+      widgetLanguage: string;
+      mobileBehavior: string;
+    };
     features: { chat: boolean; knowledgeBase: boolean; visitorTracking: boolean };
     runtimeUrl: string | null;
     styleUrl: string | null;

@@ -56,6 +56,8 @@ export default function LoginPage() {
   };
 
   return (
+    <>
+    <PlatformWidget />
     <div className="fixed inset-0 flex" dir={dir}>
       {/* Left side — Form */}
       <div className={`flex-1 flex flex-col bg-background overflow-y-auto ${isRtl ? 'order-2' : 'order-1'}`}>

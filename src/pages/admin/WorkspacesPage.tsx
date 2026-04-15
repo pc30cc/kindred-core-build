@@ -67,9 +67,32 @@ export default function AdminWorkspacesPage() {
   // List view
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <h1 className="text-2xl font-bold text-foreground">Workspaces</h1>
         <span className="text-sm text-muted-foreground">{count ?? 0} total</span>
+      </div>
+
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search by name, slug or email..."
+            value={search}
+            onChange={e => { setSearch(e.target.value); setPage(0); }}
+            className="pl-9"
+          />
+        </div>
+        <Select value={sort} onValueChange={v => { setSort(v); setPage(0); }}>
+          <SelectTrigger className="w-full sm:w-[200px]">
+            <SelectValue placeholder="Sort by" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="newest">Newest first</SelectItem>
+            <SelectItem value="oldest">Oldest first</SelectItem>
+            <SelectItem value="most_members">Most members</SelectItem>
+            <SelectItem value="most_active">Most active</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       <Card>

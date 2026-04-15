@@ -50,16 +50,19 @@ export function AppSidebar() {
 
   const brandLetter = useMemo(() => (platformName || 'A').charAt(0), [platformName]);
 
-  // Close workspace menu on outside click
+  // Close menus on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (wsMenuRef.current && !wsMenuRef.current.contains(e.target as Node)) {
         setWsMenuOpen(false);
       }
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false);
+      }
     };
-    if (wsMenuOpen) document.addEventListener('mousedown', handler);
+    if (wsMenuOpen || userMenuOpen) document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
-  }, [wsMenuOpen]);
+  }, [wsMenuOpen, userMenuOpen]);
 
   const isActive = (path: string) => {
     if (path === '/app') return location.pathname === '/app';

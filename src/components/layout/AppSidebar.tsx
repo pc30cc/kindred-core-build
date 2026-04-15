@@ -15,6 +15,7 @@ import { useAuth } from '@/features/auth/AuthContext';
 import { useIsGlobalAdmin } from '@/hooks/useAdmin';
 import { useBrandingContext } from '@/features/branding/BrandingContext';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
+import { useProfile } from '@/hooks/useProfile';
 import { useMemo, useState, useRef, useEffect } from 'react';
 
 const mainNav = [
@@ -38,6 +39,7 @@ export function AppSidebar() {
   const { data: isAdmin } = useIsGlobalAdmin();
   const { platformName } = useBrandingContext();
   const workspace = useCurrentWorkspace();
+  const { data: profile } = useProfile();
   const [wsMenuOpen, setWsMenuOpen] = useState(false);
   const wsMenuRef = useRef<HTMLDivElement>(null);
 
@@ -63,8 +65,8 @@ export function AppSidebar() {
 
   const userName = (user?.metadata?.full_name as string) || user?.email?.split('@')[0] || '';
   const userEmail = user?.email || '';
-  const companyName = (user?.metadata?.companyName as string) || workspace?.name || platformName || 'Workspace';
-  const workspaceDomain = (user?.metadata?.websiteDomain as string) || 'yoursite.com';
+  const companyName = profile?.company_name || (user?.metadata?.companyName as string) || workspace?.name || platformName || 'Workspace';
+  const workspaceDomain = profile?.website_domain || (user?.metadata?.websiteDomain as string) || '';
   const companyLetter = companyName.charAt(0).toUpperCase();
 
   return (

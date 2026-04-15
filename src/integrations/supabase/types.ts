@@ -1068,31 +1068,49 @@ export type Database = {
       }
       profiles: {
         Row: {
+          ai_mode: string | null
           avatar_url: string | null
+          company_name: string | null
           created_at: string | null
           email: string
           full_name: string | null
           id: string
+          main_goal: string | null
           preferred_locale: string | null
+          signup_ip: string | null
+          signup_locale: string | null
           updated_at: string | null
+          website_domain: string | null
         }
         Insert: {
+          ai_mode?: string | null
           avatar_url?: string | null
+          company_name?: string | null
           created_at?: string | null
           email: string
           full_name?: string | null
           id: string
+          main_goal?: string | null
           preferred_locale?: string | null
+          signup_ip?: string | null
+          signup_locale?: string | null
           updated_at?: string | null
+          website_domain?: string | null
         }
         Update: {
+          ai_mode?: string | null
           avatar_url?: string | null
+          company_name?: string | null
           created_at?: string | null
           email?: string
           full_name?: string | null
           id?: string
+          main_goal?: string | null
           preferred_locale?: string | null
+          signup_ip?: string | null
+          signup_locale?: string | null
           updated_at?: string | null
+          website_domain?: string | null
         }
         Relationships: []
       }
@@ -1870,13 +1888,19 @@ export type Database = {
       admin_list_profiles: {
         Args: { _limit?: number; _offset?: number }
         Returns: {
+          ai_mode: string | null
           avatar_url: string | null
+          company_name: string | null
           created_at: string | null
           email: string
           full_name: string | null
           id: string
+          main_goal: string | null
           preferred_locale: string | null
+          signup_ip: string | null
+          signup_locale: string | null
           updated_at: string | null
+          website_domain: string | null
         }[]
         SetofOptions: {
           from: "*"

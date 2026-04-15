@@ -1,68 +1,114 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { API_BASE } from '@/lib/api';
-
-async function planRequest<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}/api/plans${path}`, {
-    ...options,
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(body.error || `API error: ${res.status}`);
-  }
-  return res.json();
-}
+import { supabase } from '@/lib/supabase';
 
 // ─── Public hooks ───
 
 export function usePlans() {
   return useQuery({
     queryKey: ['plans'],
-    queryFn: () => planRequest<{ plans: any[] }>('/'),
-    select: (d) => d.plans,
-    enabled: !!API_BASE,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('billing_plans')
+        .select('*')
+        .eq('is_active', true)
+        .order('sort_order');
+      if (error) throw error;
+      return data ?? [];
+    },
   });
 }
 
 export function useWorkspacePlan(workspaceId: string | undefined) {
   return useQuery({
     queryKey: ['workspace-plan', workspaceId],
-    queryFn: () => planRequest<{
-      plan: any;
-      subscription: any;
-      entitlements: Record<string, boolean>;
-      limits: Record<string, number>;
-    }>(`/workspace/${workspaceId}`),
-    enabled: !!API_BASE && !!workspaceId,
+    queryFn: async () => {
+      // Get subscription
+      const { data: sub } = await supabase
+        .from('workspace_subscriptions')
+        .select('*, billing_plans(*)')
+        .eq('workspace_id', workspaceId!)
+        .maybeSingle();
+
+      let plan = sub?.billing_plans;
+      if (!plan || !sub || !['active', 'trialing'].includes(sub.status || '')) {
+        const { data: freePlan } = await supabase
+          .from('billing_plans')
+          .select('*')
+          .eq('slug', 'free')
+          .eq('is_active', true)
+          .maybeSingle();
+        plan = freePlan;
+      }
+
+      return {
+        plan: plan || null,
+        subscription: sub ? { ...sub, billing_plans: undefined } : null,
+        entitlements: (plan?.entitlements as Record<string, boolean>) || {},
+        limits: (plan?.limits as Record<string, number>) || {},
+      };
+    },
+    enabled: !!workspaceId,
   });
 }
 
 export function useFeatureCheck(workspaceId: string | undefined, feature: string) {
   return useQuery({
     queryKey: ['feature-check', workspaceId, feature],
-    queryFn: () => planRequest<{ allowed: boolean; limit?: number; plan?: string }>(
-      `/check?workspaceId=${workspaceId}&feature=${feature}`
-    ),
-    enabled: !!API_BASE && !!workspaceId && !!feature,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('check_workspace_entitlement', {
+        _workspace_id: workspaceId!,
+        _feature: feature,
+      });
+      if (error) throw error;
+      return data as { allowed: boolean; limit?: number; plan?: string };
+    },
+    enabled: !!workspaceId && !!feature,
     staleTime: 60_000,
   });
 }
 
-// ─── Admin hooks ───
+// ─── Admin hooks (using Supabase directly) ───
 
 export function useAdminPlans() {
   return useQuery({
     queryKey: ['admin-plans'],
-    queryFn: () => planRequest<{ plans: any[] }>('/admin/all'),
-    select: (d) => d.plans,
-    enabled: !!API_BASE,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('billing_plans')
+        .select('*')
+        .order('sort_order');
+      if (error) throw error;
+      return data ?? [];
+    },
   });
 }
 
 export function useCreatePlan() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (plan: any) => planRequest('/admin', { method: 'POST', body: JSON.stringify(plan) }),
+    mutationFn: async (plan: any) => {
+      const { data, error } = await supabase
+        .from('billing_plans')
+        .insert({
+          name: plan.name,
+          slug: plan.slug,
+          description: plan.description || null,
+          prices: plan.prices || {},
+          entitlements: plan.entitlements || {},
+          limits: plan.limits || {},
+          localized: plan.localized || {},
+          is_free: plan.is_free || false,
+          is_active: plan.is_active !== false,
+          sort_order: plan.sort_order || 0,
+          trial_days: plan.trial_days || 0,
+          default_currency: plan.default_currency || 'USD',
+          provider_price_ids: plan.provider_price_ids || {},
+        })
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin-plans'] });
       qc.invalidateQueries({ queryKey: ['plans'] });
@@ -73,8 +119,17 @@ export function useCreatePlan() {
 export function useUpdatePlan() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ planId, ...updates }: any) =>
-      planRequest(`/admin/${planId}`, { method: 'PUT', body: JSON.stringify(updates) }),
+    mutationFn: async ({ planId, ...updates }: any) => {
+      const { id, created_at, ...clean } = updates;
+      const { data, error } = await supabase
+        .from('billing_plans')
+        .update({ ...clean, updated_at: new Date().toISOString() })
+        .eq('id', planId)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin-plans'] });
       qc.invalidateQueries({ queryKey: ['plans'] });
@@ -86,7 +141,13 @@ export function useUpdatePlan() {
 export function useDeletePlan() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (planId: string) => planRequest(`/admin/${planId}`, { method: 'DELETE' }),
+    mutationFn: async (planId: string) => {
+      const { error } = await supabase
+        .from('billing_plans')
+        .update({ is_active: false, updated_at: new Date().toISOString() })
+        .eq('id', planId);
+      if (error) throw error;
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin-plans'] });
       qc.invalidateQueries({ queryKey: ['plans'] });
@@ -97,8 +158,23 @@ export function useDeletePlan() {
 export function useAssignPlan() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: { workspaceId: string; planId: string; status?: string; expiresAt?: string }) =>
-      planRequest('/admin/assign', { method: 'POST', body: JSON.stringify(data) }),
+    mutationFn: async (data: { workspaceId: string; planId: string; status?: string; expiresAt?: string }) => {
+      const { data: result, error } = await supabase
+        .from('workspace_subscriptions')
+        .upsert({
+          workspace_id: data.workspaceId,
+          plan_id: data.planId,
+          provider_name: 'manual',
+          status: data.status || 'active',
+          current_period_start: new Date().toISOString(),
+          current_period_end: data.expiresAt || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'workspace_id' })
+        .select()
+        .single();
+      if (error) throw error;
+      return result;
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin-subscriptions'] });
       qc.invalidateQueries({ queryKey: ['workspace-plan'] });
@@ -109,8 +185,13 @@ export function useAssignPlan() {
 export function useRevokePlan() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (workspaceId: string) =>
-      planRequest('/admin/revoke', { method: 'POST', body: JSON.stringify({ workspaceId }) }),
+    mutationFn: async (workspaceId: string) => {
+      const { error } = await supabase
+        .from('workspace_subscriptions')
+        .delete()
+        .eq('workspace_id', workspaceId);
+      if (error) throw error;
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin-subscriptions'] });
       qc.invalidateQueries({ queryKey: ['workspace-plan'] });
@@ -121,8 +202,13 @@ export function useRevokePlan() {
 export function useAdminSubscriptions() {
   return useQuery({
     queryKey: ['admin-subscriptions'],
-    queryFn: () => planRequest<{ subscriptions: any[] }>('/admin/subscriptions'),
-    select: (d) => d.subscriptions,
-    enabled: !!API_BASE,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('workspace_subscriptions')
+        .select('*, billing_plans(name, slug)')
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
   });
 }

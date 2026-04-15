@@ -393,6 +393,7 @@ export type Database = {
           is_active: boolean | null
           is_free: boolean | null
           limits: Json
+          localized: Json
           name: string
           prices: Json
           provider_price_ids: Json
@@ -410,6 +411,7 @@ export type Database = {
           is_active?: boolean | null
           is_free?: boolean | null
           limits?: Json
+          localized?: Json
           name: string
           prices?: Json
           provider_price_ids?: Json
@@ -427,6 +429,7 @@ export type Database = {
           is_active?: boolean | null
           is_free?: boolean | null
           limits?: Json
+          localized?: Json
           name?: string
           prices?: Json
           provider_price_ids?: Json

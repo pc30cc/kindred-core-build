@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -12,8 +12,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAdminPlans, useCreatePlan, useUpdatePlan, useDeletePlan, useAdminSubscriptions, useAssignPlan, useRevokePlan } from '@/hooks/usePlans';
 import { useAdminWorkspaces } from '@/hooks/useAdmin';
-import { Plus, Edit2, Trash2, Shield, CreditCard, Users, Loader2, CheckCircle, XCircle, Crown } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
+import { Plus, Edit2, Trash2, Shield, CreditCard, Users, Loader2, CheckCircle, XCircle, Crown, Globe, Languages } from 'lucide-react';
 import { toast } from 'sonner';
+import { useQuery } from '@tanstack/react-query';
 
 const DEFAULT_FEATURES = [
   'chat', 'knowledge_base', 'ai_assistant', 'visitor_tracking',
@@ -32,6 +34,12 @@ const DEFAULT_LIMITS = [
 
 const CURRENCIES = ['USD', 'EUR', 'TRY', 'IRR'];
 
+interface LocalizedPlan {
+  name: string;
+  description: string;
+  billing_provider?: string;
+}
+
 interface PlanFormData {
   name: string;
   slug: string;
@@ -45,9 +53,54 @@ interface PlanFormData {
   entitlements: Record<string, boolean>;
   limits: Record<string, number>;
   provider_price_ids: Record<string, any>;
+  localized: Record<string, LocalizedPlan>;
 }
 
-function emptyPlan(): PlanFormData {
+function usePlatformLocales() {
+  return useQuery({
+    queryKey: ['platform-settings-locales'],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('platform_settings')
+        .select('active_locales, locale_billing_providers')
+        .limit(1)
+        .maybeSingle();
+      return {
+        locales: (data?.active_locales || ['en']) as string[],
+        localeBillingProviders: (data?.locale_billing_providers || {}) as Record<string, string>,
+      };
+    },
+  });
+}
+
+const LOCALE_LABELS: Record<string, string> = {
+  en: '🇬🇧 English',
+  tr: '🇹🇷 Türkçe',
+  fa: '🇮🇷 فارسی',
+  de: '🇩🇪 Deutsch',
+  fr: '🇫🇷 Français',
+  ar: '🇸🇦 العربية',
+};
+
+const BILLING_PROVIDERS = [
+  { value: 'stripe', label: 'Stripe' },
+  { value: 'paddle', label: 'Paddle' },
+  { value: 'paypal', label: 'PayPal' },
+  { value: 'lemon_squeezy', label: 'Lemon Squeezy' },
+  { value: 'iyzico', label: 'iyzico' },
+  { value: 'paytr', label: 'PayTR' },
+  { value: 'sipay', label: 'Sipay' },
+  { value: 'paratika', label: 'Paratika' },
+  { value: 'craftgate', label: 'Craftgate' },
+  { value: 'zarinpal', label: 'ZarinPal' },
+  { value: 'idpay', label: 'IDPay' },
+  { value: 'nextpay', label: 'NextPay' },
+  { value: 'payping', label: 'PayPing' },
+  { value: 'zibal', label: 'Zibal' },
+  { value: 'sep_shaparak', label: 'SEP (Shaparak)' },
+];
+
+function emptyPlan(locales: string[]): PlanFormData {
   return {
     name: '',
     slug: '',
@@ -57,14 +110,16 @@ function emptyPlan(): PlanFormData {
     sort_order: 0,
     trial_days: 0,
     default_currency: 'USD',
-    prices: { USD: { monthly: 0, yearly: 0 }, EUR: { monthly: 0, yearly: 0 }, TRY: { monthly: 0, yearly: 0 }, IRR: { monthly: 0, yearly: 0 } },
+    prices: Object.fromEntries(CURRENCIES.map(c => [c, { monthly: 0, yearly: 0 }])),
     entitlements: Object.fromEntries(DEFAULT_FEATURES.map(f => [f, false])),
     limits: Object.fromEntries(DEFAULT_LIMITS.map(l => [l.key, l.default])),
     provider_price_ids: {},
+    localized: Object.fromEntries(locales.map(l => [l, { name: '', description: '', billing_provider: '' }])),
   };
 }
 
-function planToForm(plan: any): PlanFormData {
+function planToForm(plan: any, locales: string[]): PlanFormData {
+  const existingLocalized = (plan.localized || {}) as Record<string, LocalizedPlan>;
   return {
     name: plan.name || '',
     slug: plan.slug || '',
@@ -75,19 +130,22 @@ function planToForm(plan: any): PlanFormData {
     trial_days: plan.trial_days || 0,
     default_currency: plan.default_currency || 'USD',
     prices: {
-      USD: plan.prices?.USD || { monthly: 0, yearly: 0 },
-      EUR: plan.prices?.EUR || { monthly: 0, yearly: 0 },
-      TRY: plan.prices?.TRY || { monthly: 0, yearly: 0 },
-      IRR: plan.prices?.IRR || { monthly: 0, yearly: 0 },
+      ...Object.fromEntries(CURRENCIES.map(c => [c, { monthly: 0, yearly: 0 }])),
+      ...(plan.prices || {}),
     },
     entitlements: { ...Object.fromEntries(DEFAULT_FEATURES.map(f => [f, false])), ...(plan.entitlements || {}) },
     limits: { ...Object.fromEntries(DEFAULT_LIMITS.map(l => [l.key, l.default])), ...(plan.limits || {}) },
     provider_price_ids: plan.provider_price_ids || {},
+    localized: Object.fromEntries(locales.map(l => [
+      l,
+      existingLocalized[l] || { name: '', description: '', billing_provider: '' },
+    ])),
   };
 }
 
-function PlanFormDialog({ plan, onClose }: { plan?: any; onClose: () => void }) {
-  const [form, setForm] = useState<PlanFormData>(plan ? planToForm(plan) : emptyPlan());
+function PlanFormDialog({ plan, onClose, locales }: { plan?: any; onClose: () => void; locales: string[] }) {
+  const [form, setForm] = useState<PlanFormData>(plan ? planToForm(plan, locales) : emptyPlan(locales));
+  const [localeTab, setLocaleTab] = useState(locales[0] || 'en');
   const createPlan = useCreatePlan();
   const updatePlan = useUpdatePlan();
   const isEdit = !!plan?.id;
@@ -113,12 +171,22 @@ function PlanFormDialog({ plan, onClose }: { plan?: any; onClose: () => void }) 
 
   const isPending = createPlan.isPending || updatePlan.isPending;
 
+  function updateLocalized(locale: string, field: string, value: string) {
+    setForm(f => ({
+      ...f,
+      localized: {
+        ...f.localized,
+        [locale]: { ...f.localized[locale], [field]: value },
+      },
+    }));
+  }
+
   return (
     <div className="space-y-6 max-h-[70vh] overflow-y-auto pr-2">
       {/* Basic Info */}
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <Label>Name</Label>
+          <Label>Default Name</Label>
           <Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Pro" />
         </div>
         <div>
@@ -126,7 +194,7 @@ function PlanFormDialog({ plan, onClose }: { plan?: any; onClose: () => void }) 
           <Input value={form.slug} onChange={e => setForm(f => ({ ...f, slug: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_') }))} placeholder="pro" disabled={isEdit} />
         </div>
         <div className="col-span-2">
-          <Label>Description</Label>
+          <Label>Default Description</Label>
           <Textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Best for growing teams" rows={2} />
         </div>
         <div>
@@ -145,6 +213,64 @@ function PlanFormDialog({ plan, onClose }: { plan?: any; onClose: () => void }) 
           <Switch checked={form.is_active} onCheckedChange={v => setForm(f => ({ ...f, is_active: v }))} />
           <Label>Active</Label>
         </div>
+      </div>
+
+      {/* Per-Locale Configuration */}
+      <div>
+        <h3 className="text-sm font-semibold text-foreground mb-2 flex items-center gap-2">
+          <Languages className="w-4 h-4" /> Per-Locale Settings
+        </h3>
+        <Tabs value={localeTab} onValueChange={setLocaleTab}>
+          <TabsList className="bg-muted mb-3">
+            {locales.map(loc => (
+              <TabsTrigger key={loc} value={loc} className="data-[state=active]:bg-sidebar-accent data-[state=active]:text-foreground text-muted-foreground text-xs">
+                {LOCALE_LABELS[loc] || loc.toUpperCase()}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+          {locales.map(loc => (
+            <TabsContent key={loc} value={loc} className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Plan Name ({loc})</Label>
+                  <Input
+                    value={form.localized[loc]?.name || ''}
+                    onChange={e => updateLocalized(loc, 'name', e.target.value)}
+                    placeholder={`Plan name in ${loc}`}
+                    dir={loc === 'fa' || loc === 'ar' ? 'rtl' : 'ltr'}
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Payment Gateway ({loc})</Label>
+                  <Select
+                    value={form.localized[loc]?.billing_provider || ''}
+                    onValueChange={v => updateLocalized(loc, 'billing_provider', v)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select gateway" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">None (use default)</SelectItem>
+                      {BILLING_PROVIDERS.map(bp => (
+                        <SelectItem key={bp.value} value={bp.value}>{bp.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="col-span-2">
+                  <Label className="text-xs">Description ({loc})</Label>
+                  <Textarea
+                    value={form.localized[loc]?.description || ''}
+                    onChange={e => updateLocalized(loc, 'description', e.target.value)}
+                    placeholder={`Description in ${loc}`}
+                    rows={2}
+                    dir={loc === 'fa' || loc === 'ar' ? 'rtl' : 'ltr'}
+                  />
+                </div>
+              </div>
+            </TabsContent>
+          ))}
+        </Tabs>
       </div>
 
       {/* Pricing */}
@@ -236,9 +362,12 @@ export default function AdminPlansPage() {
   const { data: plans, isLoading } = useAdminPlans();
   const { data: subscriptions } = useAdminSubscriptions();
   const { data: workspaces } = useAdminWorkspaces();
+  const { data: platformConfig } = usePlatformLocales();
   const deletePlan = useDeletePlan();
   const assignPlan = useAssignPlan();
   const revokePlan = useRevokePlan();
+
+  const locales = platformConfig?.locales || ['en'];
 
   const [editPlan, setEditPlan] = useState<any>(null);
   const [showCreate, setShowCreate] = useState(false);
@@ -284,7 +413,7 @@ export default function AdminPlansPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Plan Management</h1>
-          <p className="text-muted-foreground text-sm">Create, edit, and manage subscription plans. Assign plans to workspaces.</p>
+          <p className="text-muted-foreground text-sm">Create, edit, and manage subscription plans with per-locale titles, pricing, and payment gateways.</p>
         </div>
         <Dialog open={showCreate} onOpenChange={setShowCreate}>
           <DialogTrigger asChild>
@@ -292,7 +421,7 @@ export default function AdminPlansPage() {
           </DialogTrigger>
           <DialogContent className="max-w-2xl">
             <DialogHeader><DialogTitle>Create Plan</DialogTitle></DialogHeader>
-            <PlanFormDialog onClose={() => setShowCreate(false)} />
+            <PlanFormDialog onClose={() => setShowCreate(false)} locales={locales} />
           </DialogContent>
         </Dialog>
       </div>
@@ -313,71 +442,90 @@ export default function AdminPlansPage() {
         {/* Plans Tab */}
         <TabsContent value="plans" className="space-y-4">
           <div className="grid gap-4">
-            {(plans || []).map((plan: any) => (
-              <Card key={plan.id} className={`bg-card border-border ${!plan.is_active ? 'opacity-50' : ''}`}>
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <Crown className="w-5 h-5 text-primary" />
-                      <div>
-                        <CardTitle className="text-base">{plan.name}</CardTitle>
-                        <CardDescription>{plan.slug} {plan.is_free && <Badge variant="secondary" className="ml-2">Free</Badge>}</CardDescription>
+            {(plans || []).map((plan: any) => {
+              const localized = (plan.localized || {}) as Record<string, LocalizedPlan>;
+              return (
+                <Card key={plan.id} className={`bg-card border-border ${!plan.is_active ? 'opacity-50' : ''}`}>
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <Crown className="w-5 h-5 text-primary" />
+                        <div>
+                          <CardTitle className="text-base">{plan.name}</CardTitle>
+                          <CardDescription>{plan.slug} {plan.is_free && <Badge variant="secondary" className="ml-2">Free</Badge>}</CardDescription>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant={plan.is_active ? 'default' : 'destructive'}>
+                          {plan.is_active ? 'Active' : 'Inactive'}
+                        </Badge>
+                        <Dialog open={editPlan?.id === plan.id} onOpenChange={v => !v && setEditPlan(null)}>
+                          <DialogTrigger asChild>
+                            <Button variant="ghost" size="sm" onClick={() => setEditPlan(plan)}>
+                              <Edit2 className="w-4 h-4" />
+                            </Button>
+                          </DialogTrigger>
+                          <DialogContent className="max-w-2xl">
+                            <DialogHeader><DialogTitle>Edit Plan: {plan.name}</DialogTitle></DialogHeader>
+                            <PlanFormDialog plan={plan} onClose={() => setEditPlan(null)} locales={locales} />
+                          </DialogContent>
+                        </Dialog>
+                        <Button variant="ghost" size="sm" onClick={() => handleDelete(plan.id)} disabled={deletePlan.isPending}>
+                          <Trash2 className="w-4 h-4 text-destructive" />
+                        </Button>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Badge variant={plan.is_active ? 'default' : 'destructive'}>
-                        {plan.is_active ? 'Active' : 'Inactive'}
-                      </Badge>
-                      <Dialog open={editPlan?.id === plan.id} onOpenChange={v => !v && setEditPlan(null)}>
-                        <DialogTrigger asChild>
-                          <Button variant="ghost" size="sm" onClick={() => setEditPlan(plan)}>
-                            <Edit2 className="w-4 h-4" />
-                          </Button>
-                        </DialogTrigger>
-                        <DialogContent className="max-w-2xl">
-                          <DialogHeader><DialogTitle>Edit Plan: {plan.name}</DialogTitle></DialogHeader>
-                          <PlanFormDialog plan={plan} onClose={() => setEditPlan(null)} />
-                        </DialogContent>
-                      </Dialog>
-                      <Button variant="ghost" size="sm" onClick={() => handleDelete(plan.id)} disabled={deletePlan.isPending}>
-                        <Trash2 className="w-4 h-4 text-destructive" />
-                      </Button>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  </CardHeader>
+                  <CardContent>
+                    {/* Per-locale names */}
+                    {Object.keys(localized).length > 0 && (
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        {Object.entries(localized).map(([loc, data]) => (
+                          data.name ? (
+                            <Badge key={loc} variant="outline" className="text-xs gap-1">
+                              <Globe className="w-3 h-3" />
+                              {LOCALE_LABELS[loc] || loc}: {data.name}
+                              {data.billing_provider && <span className="text-muted-foreground ml-1">({data.billing_provider})</span>}
+                            </Badge>
+                          ) : null
+                        ))}
+                      </div>
+                    )}
+
                     {/* Pricing summary */}
-                    {CURRENCIES.map(cur => {
-                      const p = plan.prices?.[cur];
-                      if (!p?.monthly && !p?.yearly) return null;
-                      return (
-                        <div key={cur} className="text-sm">
-                          <span className="text-muted-foreground">{cur}:</span>{' '}
-                          <span className="text-foreground font-medium">{p.monthly}/mo</span>
-                          {p.yearly ? <span className="text-muted-foreground"> · {p.yearly}/yr</span> : null}
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-1">
-                    {Object.entries(plan.entitlements || {}).map(([k, v]) => (
-                      <Badge key={k} variant={v ? 'default' : 'outline'} className="text-xs">
-                        {v ? <CheckCircle className="w-3 h-3 mr-1" /> : <XCircle className="w-3 h-3 mr-1" />}
-                        {k.replace(/_/g, ' ')}
-                      </Badge>
-                    ))}
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {Object.entries(plan.limits || {}).map(([k, v]) => (
-                      <Badge key={k} variant="secondary" className="text-xs">
-                        {k.replace(/_/g, ' ')}: {(v as number) === -1 ? '∞' : String(v)}
-                      </Badge>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      {CURRENCIES.map(cur => {
+                        const p = plan.prices?.[cur];
+                        if (!p?.monthly && !p?.yearly) return null;
+                        return (
+                          <div key={cur} className="text-sm">
+                            <span className="text-muted-foreground">{cur}:</span>{' '}
+                            <span className="text-foreground font-medium">{p.monthly}/mo</span>
+                            {p.yearly ? <span className="text-muted-foreground"> · {p.yearly}/yr</span> : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-1">
+                      {Object.entries(plan.entitlements || {}).map(([k, v]) => (
+                        <Badge key={k} variant={v ? 'default' : 'outline'} className="text-xs">
+                          {v ? <CheckCircle className="w-3 h-3 mr-1" /> : <XCircle className="w-3 h-3 mr-1" />}
+                          {k.replace(/_/g, ' ')}
+                        </Badge>
+                      ))}
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {Object.entries(plan.limits || {}).map(([k, v]) => (
+                        <Badge key={k} variant="secondary" className="text-xs">
+                          {k.replace(/_/g, ' ')}: {(v as number) === -1 ? '∞' : String(v)}
+                        </Badge>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
             {(!plans || plans.length === 0) && (
               <Card className="bg-card border-border">
                 <CardContent className="py-12 text-center text-muted-foreground">

@@ -14,14 +14,14 @@ import {
 } from '@/hooks/useAdmin';
 import { supabase } from '@/lib/supabase';
 import {
-  adminSendResetLink, adminChangePassword, adminBlockUser, adminGetUserStatus,
+  adminSendResetLink, adminChangePassword, adminBlockUser, adminGetUserStatus, adminImpersonateUser,
 } from '@/lib/api';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import {
   Users, Loader2, ArrowLeft, Mail, Calendar, MapPin,
   Globe, Bot, Building2, Copy, Search, Shield, Briefcase, Link2,
-  KeyRound, Send, Ban, ScrollText, CheckCircle2, XCircle, Clock,
+  KeyRound, Send, Ban, ScrollText, CheckCircle2, XCircle, Clock, LogIn,
 } from 'lucide-react';
 
 export default function AdminUsersPage() {
@@ -174,6 +174,7 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
   const [resetLinkLoading, setResetLinkLoading] = useState(false);
   const [blockLoading, setBlockLoading] = useState(false);
   const [loginLogsDialog, setLoginLogsDialog] = useState(false);
+  const [impersonateLoading, setImpersonateLoading] = useState(false);
 
   // Get auth status (banned, etc.)
   const { data: authStatus, refetch: refetchStatus } = useQuery({
@@ -302,6 +303,26 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
         <Button variant="outline" size="sm" className="gap-2" onClick={() => setLoginLogsDialog(true)}>
           <ScrollText className="h-4 w-4" />
           Login Logs
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-2"
+          disabled={impersonateLoading}
+          onClick={async () => {
+            try {
+              setImpersonateLoading(true);
+              const { url } = await adminImpersonateUser(userId);
+              window.open(url, '_blank');
+            } catch (err: any) {
+              toast.error(err.message || 'Failed to impersonate');
+            } finally {
+              setImpersonateLoading(false);
+            }
+          }}
+        >
+          {impersonateLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}
+          Login as User
         </Button>
       </div>
 

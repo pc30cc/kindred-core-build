@@ -2012,6 +2012,10 @@ export type Database = {
         Args: { _workspace_id: string }
         Returns: Json
       }
+      admin_list_login_attempts: {
+        Args: { _email: string; _limit?: number }
+        Returns: Json
+      }
       admin_list_profiles: {
         Args: {
           _limit?: number

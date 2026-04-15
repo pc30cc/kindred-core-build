@@ -1,21 +1,27 @@
 import { useState, useDeferredValue } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import {
   useAdminProfiles, useAdminProfileCount, useAdminUserDetail,
   useAdminUserRoles, useAssignRole, useRemoveRole,
 } from '@/hooks/useAdmin';
+import { supabase } from '@/lib/supabase';
+import {
+  adminSendResetLink, adminChangePassword, adminBlockUser, adminGetUserStatus,
+} from '@/lib/api';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import {
   Users, Loader2, ArrowLeft, Mail, Calendar, MapPin,
   Globe, Bot, Building2, Copy, Search, Shield, Briefcase, Link2,
+  KeyRound, Send, Ban, ScrollText, CheckCircle2, XCircle, Clock,
 } from 'lucide-react';
 
 export default function AdminUsersPage() {
@@ -30,7 +36,6 @@ export default function AdminUsersPage() {
 
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 
-  // Detail view
   if (selectedUserId) {
     return (
       <UserDetailView
@@ -47,7 +52,6 @@ export default function AdminUsersPage() {
         <span className="text-sm text-muted-foreground">{count ?? 0} total</span>
       </div>
 
-      {/* Search & Sort & Per-page */}
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -82,7 +86,6 @@ export default function AdminUsersPage() {
         </Select>
       </div>
 
-      {/* Table */}
       <Card>
         <CardContent className="p-0">
           <Table>
@@ -130,19 +133,13 @@ export default function AdminUsersPage() {
                   <TableCell className="text-sm text-muted-foreground">{p.company_name || '—'}</TableCell>
                   <TableCell>
                     <div className="flex gap-1 flex-wrap">
-                      {(!p.roles || p.roles.length === 0) && (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      )}
+                      {(!p.roles || p.roles.length === 0) && <span className="text-xs text-muted-foreground">—</span>}
                       {p.roles?.map((r: string) => (
-                        <Badge key={r} variant={r === 'admin' ? 'destructive' : 'secondary'} className="text-xs">
-                          {r}
-                        </Badge>
+                        <Badge key={r} variant={r === 'admin' ? 'destructive' : 'secondary'} className="text-xs">{r}</Badge>
                       ))}
                     </div>
                   </TableCell>
-                  <TableCell>
-                    <Badge variant="secondary">{p.workspace_count}</Badge>
-                  </TableCell>
+                  <TableCell><Badge variant="secondary">{p.workspace_count}</Badge></TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {p.created_at ? format(new Date(p.created_at), 'yyyy-MM-dd') : '—'}
                   </TableCell>
@@ -153,7 +150,6 @@ export default function AdminUsersPage() {
         </CardContent>
       </Card>
 
-      {/* Pagination */}
       <div className="flex justify-between items-center">
         <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>Previous</Button>
         <span className="text-sm text-muted-foreground">Page {page + 1}</span>
@@ -163,18 +159,79 @@ export default function AdminUsersPage() {
   );
 }
 
-/* ─── User Detail (inline view) ─── */
+/* ─── User Detail View ─── */
 function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void }) {
-  const { data: detail, isLoading } = useAdminUserDetail(userId);
-  const { data: roles } = useAdminUserRoles(userId);
+  const { data: detail, isLoading, refetch } = useAdminUserDetail(userId);
+  const { data: roles, refetch: refetchRoles } = useAdminUserRoles(userId);
   const assignRole = useAssignRole();
   const removeRole = useRemoveRole();
+
   const [roleDialog, setRoleDialog] = useState(false);
   const [selectedRole, setSelectedRole] = useState('');
+  const [passwordDialog, setPasswordDialog] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [passwordLoading, setPasswordLoading] = useState(false);
+  const [resetLinkLoading, setResetLinkLoading] = useState(false);
+  const [blockLoading, setBlockLoading] = useState(false);
+  const [loginLogsDialog, setLoginLogsDialog] = useState(false);
+
+  // Get auth status (banned, etc.)
+  const { data: authStatus, refetch: refetchStatus } = useQuery({
+    queryKey: ['admin-user-auth-status', userId],
+    queryFn: () => adminGetUserStatus(userId),
+    enabled: !!userId,
+    retry: false,
+  });
+
+  const isBanned = authStatus?.banned_until && new Date(authStatus.banned_until) > new Date();
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     toast.success('Copied to clipboard');
+  };
+
+  const handleSendResetLink = async () => {
+    if (!detail?.profile?.email) return;
+    setResetLinkLoading(true);
+    try {
+      await adminSendResetLink(detail.profile.email);
+      toast.success('Password reset link sent');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to send reset link');
+    } finally {
+      setResetLinkLoading(false);
+    }
+  };
+
+  const handleChangePassword = async () => {
+    if (!newPassword || newPassword.length < 8) {
+      toast.error('Password must be at least 8 characters');
+      return;
+    }
+    setPasswordLoading(true);
+    try {
+      await adminChangePassword(userId, newPassword);
+      toast.success('Password changed successfully');
+      setPasswordDialog(false);
+      setNewPassword('');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to change password');
+    } finally {
+      setPasswordLoading(false);
+    }
+  };
+
+  const handleToggleBlock = async () => {
+    setBlockLoading(true);
+    try {
+      const result = await adminBlockUser(userId, !isBanned);
+      toast.success(result.blocked ? 'User blocked' : 'User unblocked');
+      refetchStatus();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update user');
+    } finally {
+      setBlockLoading(false);
+    }
   };
 
   if (isLoading) {
@@ -213,10 +270,39 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
             </span>
           </div>
           <div className="min-w-0">
-            <h1 className="text-xl font-bold truncate">{p.full_name || '—'}</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-bold truncate">{p.full_name || '—'}</h1>
+              {isBanned && <Badge variant="destructive" className="shrink-0">Blocked</Badge>}
+            </div>
             <p className="text-sm text-muted-foreground truncate">{p.email}</p>
           </div>
         </div>
+      </div>
+
+      {/* Action Buttons */}
+      <div className="flex flex-wrap gap-2">
+        <Button variant="outline" size="sm" className="gap-2" onClick={handleSendResetLink} disabled={resetLinkLoading}>
+          {resetLinkLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+          Send Reset Link
+        </Button>
+        <Button variant="outline" size="sm" className="gap-2" onClick={() => setPasswordDialog(true)}>
+          <KeyRound className="h-4 w-4" />
+          Change Password
+        </Button>
+        <Button
+          variant={isBanned ? 'outline' : 'destructive'}
+          size="sm"
+          className="gap-2"
+          onClick={handleToggleBlock}
+          disabled={blockLoading}
+        >
+          {blockLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4" />}
+          {isBanned ? 'Unblock User' : 'Block User'}
+        </Button>
+        <Button variant="outline" size="sm" className="gap-2" onClick={() => setLoginLogsDialog(true)}>
+          <ScrollText className="h-4 w-4" />
+          Login Logs
+        </Button>
       </div>
 
       {/* Stats */}
@@ -227,6 +313,44 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
         <StatCard icon={Bot} label="AI Mode" value={p.ai_mode || '—'} />
       </div>
 
+      {/* Auth Status */}
+      {authStatus && (
+        <Card>
+          <CardContent className="p-4 space-y-3">
+            <h3 className="text-sm font-semibold flex items-center gap-2">
+              <Shield className="h-4 w-4 text-muted-foreground" />
+              Auth Status
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+              <div className="flex items-center justify-between rounded-md bg-muted/50 px-3 py-2">
+                <span className="text-muted-foreground">Email Verified</span>
+                <span className="flex items-center gap-1.5">
+                  {authStatus.email_confirmed_at
+                    ? <><CheckCircle2 className="h-3.5 w-3.5 text-green-500" /> Yes</>
+                    : <><XCircle className="h-3.5 w-3.5 text-destructive" /> No</>}
+                </span>
+              </div>
+              <div className="flex items-center justify-between rounded-md bg-muted/50 px-3 py-2">
+                <span className="text-muted-foreground">Status</span>
+                <Badge variant={isBanned ? 'destructive' : 'secondary'}>
+                  {isBanned ? 'Blocked' : 'Active'}
+                </Badge>
+              </div>
+              <DetailRow
+                icon={Clock}
+                label="Last Sign In"
+                value={authStatus.last_sign_in_at ? format(new Date(authStatus.last_sign_in_at), 'yyyy-MM-dd HH:mm') : null}
+              />
+              <DetailRow
+                icon={Calendar}
+                label="Auth Created"
+                value={authStatus.created_at ? format(new Date(authStatus.created_at), 'yyyy-MM-dd HH:mm') : null}
+              />
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Roles Management */}
       <Card>
         <CardContent className="p-4 space-y-3">
@@ -235,14 +359,10 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
               <Shield className="h-4 w-4 text-muted-foreground" />
               Roles
             </h3>
-            <Button size="sm" variant="outline" onClick={() => setRoleDialog(true)}>
-              + Assign Role
-            </Button>
+            <Button size="sm" variant="outline" onClick={() => setRoleDialog(true)}>+ Assign Role</Button>
           </div>
           <div className="flex gap-2 flex-wrap">
-            {currentRoles.length === 0 && (
-              <span className="text-sm text-muted-foreground">No roles assigned</span>
-            )}
+            {currentRoles.length === 0 && <span className="text-sm text-muted-foreground">No roles assigned</span>}
             {currentRoles.map((role: string) => (
               <Badge
                 key={role}
@@ -272,11 +392,7 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
             <DetailRow icon={Globe} label="Signup Locale" value={p.signup_locale} />
             <DetailRow icon={Bot} label="AI Mode" value={p.ai_mode} />
             <DetailRow icon={MapPin} label="Signup IP" value={p.signup_ip} />
-            <DetailRow
-              icon={Calendar}
-              label="Joined"
-              value={p.created_at ? format(new Date(p.created_at), 'yyyy-MM-dd HH:mm') : null}
-            />
+            <DetailRow icon={Calendar} label="Joined" value={p.created_at ? format(new Date(p.created_at), 'yyyy-MM-dd HH:mm') : null} />
           </div>
         </CardContent>
       </Card>
@@ -293,10 +409,7 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
               <p className="text-sm text-muted-foreground">No workspaces</p>
             )}
             {detail.workspaces?.map((ws: any) => (
-              <div
-                key={ws.id}
-                className="flex items-center justify-between rounded-lg border px-3 py-2"
-              >
+              <div key={ws.id} className="flex items-center justify-between rounded-lg border px-3 py-2">
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
                     <Building2 className="h-4 w-4 text-primary" />
@@ -351,6 +464,35 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
         </CardContent>
       </Card>
 
+      {/* Change Password Dialog */}
+      <Dialog open={passwordDialog} onOpenChange={setPasswordDialog}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <KeyRound className="h-5 w-5" />
+              Change Password
+            </DialogTitle>
+            <DialogDescription>
+              Set a new password for <strong>{p.email}</strong>
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            type="password"
+            placeholder="New password (min 8 characters)"
+            value={newPassword}
+            onChange={e => setNewPassword(e.target.value)}
+            autoFocus
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setPasswordDialog(false); setNewPassword(''); }}>Cancel</Button>
+            <Button onClick={handleChangePassword} disabled={passwordLoading || newPassword.length < 8}>
+              {passwordLoading && <Loader2 className="h-4 w-4 animate-spin me-2" />}
+              Change Password
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Assign Role Dialog */}
       <Dialog open={roleDialog} onOpenChange={setRoleDialog}>
         <DialogContent className="sm:max-w-sm">
@@ -384,7 +526,82 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Login Logs Dialog */}
+      <LoginLogsDialog
+        open={loginLogsDialog}
+        onClose={() => setLoginLogsDialog(false)}
+        email={p.email}
+      />
     </div>
+  );
+}
+
+/* ─── Login Logs Dialog ─── */
+function LoginLogsDialog({ open, onClose, email }: { open: boolean; onClose: () => void; email: string }) {
+  const { data: logs, isLoading } = useQuery({
+    queryKey: ['admin-login-logs', email],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('admin_list_login_attempts', {
+        _email: email,
+        _limit: 50,
+      });
+      if (error) throw error;
+      return data as Array<{
+        id: string;
+        email: string;
+        ip_address: string;
+        success: boolean;
+        created_at: string;
+      }>;
+    },
+    enabled: open && !!email,
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={o => { if (!o) onClose(); }}>
+      <DialogContent className="sm:max-w-lg max-h-[80vh]">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <ScrollText className="h-5 w-5" />
+            Login Logs
+          </DialogTitle>
+          <DialogDescription>
+            Recent login attempts for <strong>{email}</strong>
+          </DialogDescription>
+        </DialogHeader>
+
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-5 w-5 animate-spin text-primary" />
+          </div>
+        ) : !logs || logs.length === 0 ? (
+          <p className="text-center text-muted-foreground py-8">No login attempts found</p>
+        ) : (
+          <div className="max-h-[50vh] overflow-y-auto space-y-2">
+            {logs.map((log: any) => (
+              <div
+                key={log.id}
+                className="flex items-center justify-between rounded-md border px-3 py-2 text-sm"
+              >
+                <div className="flex items-center gap-3">
+                  {log.success
+                    ? <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+                    : <XCircle className="h-4 w-4 text-destructive shrink-0" />}
+                  <div>
+                    <p className="font-medium">{log.success ? 'Successful' : 'Failed'}</p>
+                    <p className="text-xs text-muted-foreground">IP: {log.ip_address}</p>
+                  </div>
+                </div>
+                <span className="text-xs text-muted-foreground whitespace-nowrap">
+                  {format(new Date(log.created_at), 'yyyy-MM-dd HH:mm:ss')}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 

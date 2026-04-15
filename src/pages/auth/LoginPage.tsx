@@ -10,6 +10,7 @@ import { Eye, EyeOff, Loader2, ArrowRight } from 'lucide-react';
 import { usePlatformBrandingForLocale } from '@/hooks/usePublicBranding';
 import { LanguageSelector } from '@/components/auth/LanguageSelector';
 import loginIllustration from '@/assets/login-illustration.jpg';
+import { supabase } from '@/lib/supabase';
 
 export default function LoginPage() {
   const [params] = useSearchParams();
@@ -24,6 +25,32 @@ export default function LoginPage() {
       navigate(params.get('redirect') || '/app', { replace: true });
     }
   }, [user, authLoading, navigate, params]);
+
+  // Inject widget for testing — loads first active workspace's widget
+  useEffect(() => {
+    let scriptEl: HTMLScriptElement | null = null;
+    (async () => {
+      const { data } = await supabase
+        .from('workspaces')
+        .select('id')
+        .limit(1)
+        .maybeSingle();
+      if (!data?.id) return;
+
+      (window as any).__gs = [];
+      (window as any).__gs_id = data.id;
+      scriptEl = document.createElement('script');
+      scriptEl.src = `${window.location.origin}/widget/loader.js`;
+      scriptEl.async = true;
+      document.head.appendChild(scriptEl);
+    })();
+
+    return () => {
+      if (scriptEl) scriptEl.remove();
+      delete (window as any).__gs;
+      delete (window as any).__gs_id;
+    };
+  }, []);
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

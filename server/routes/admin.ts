@@ -149,3 +149,40 @@ adminRouter.post('/user-status', async (req, res) => {
     res.status(400).json({ error: err.message || 'Failed to get user status' });
   }
 });
+
+// ─── Impersonate User (generate magic link) ──────────────────────
+const impersonateSchema = z.object({
+  userId: z.string().uuid(),
+});
+
+adminRouter.post('/impersonate', async (req, res) => {
+  try {
+    const { userId } = impersonateSchema.parse(req.body);
+    const config: ServerConfig = (req as any).serverConfig;
+    const sb = getServiceClient(config);
+
+    // Get user email
+    const { data: { user }, error: userErr } = await sb.auth.admin.getUserById(userId);
+    if (userErr || !user?.email) {
+      return res.status(400).json({ error: userErr?.message || 'User not found' });
+    }
+
+    // Generate a magic link for the user
+    const { data, error } = await sb.auth.admin.generateLink({
+      type: 'magiclink',
+      email: user.email,
+    });
+
+    if (error || !data) {
+      return res.status(400).json({ error: error?.message || 'Failed to generate link' });
+    }
+
+    // Build the verification URL using the hashed_token
+    const redirectBase = config.corsOrigins[0] !== '*' ? config.corsOrigins[0] : 'http://localhost:5173';
+    const verifyUrl = `${config.supabaseUrl}/auth/v1/verify?token=${data.properties.hashed_token}&type=magiclink&redirect_to=${encodeURIComponent(redirectBase + '/app')}`;
+
+    res.json({ url: verifyUrl });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Failed to impersonate user' });
+  }
+});

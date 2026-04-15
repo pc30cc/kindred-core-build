@@ -1,6 +1,8 @@
 import { Outlet } from 'react-router-dom';
 import { AppSidebar } from './AppSidebar';
 import { useI18n } from '@/i18n';
+import { useActiveWorkspace } from '@/hooks/useWorkspace';
+import { WorkspaceNotFound } from '@/features/workspace/WorkspaceNotFound';
 import { useAuth } from '@/features/auth/AuthContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { Locale } from '@/i18n/config';

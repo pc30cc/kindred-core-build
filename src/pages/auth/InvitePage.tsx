@@ -66,7 +66,7 @@ export default function InvitePage() {
         <Card className="w-full max-w-md">
           <CardContent className="p-8 text-center space-y-4">
             <CheckCircle2 className="h-12 w-12 text-primary mx-auto" />
-            <h2 className="text-xl font-bold">{t('auth.inviteAccepted') || 'Invitation Accepted!'}</h2>
+            <h2 className="text-xl font-bold">Invitation Accepted!</h2>
             <p className="text-muted-foreground">
               You joined <strong>{success.workspace_name}</strong> as <Badge variant="secondary">{success.role}</Badge>
             </p>

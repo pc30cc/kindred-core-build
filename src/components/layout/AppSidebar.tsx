@@ -44,7 +44,9 @@ export function AppSidebar() {
   const workspace = useCurrentWorkspace();
   const { data: profile } = useProfile();
   const [wsMenuOpen, setWsMenuOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const wsMenuRef = useRef<HTMLDivElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
 
   const brandLetter = useMemo(() => (platformName || 'A').charAt(0), [platformName]);
 

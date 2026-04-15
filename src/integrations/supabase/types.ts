@@ -1459,55 +1459,118 @@ export type Database = {
         Row: {
           allow_subdomains: boolean
           allowed_domains: string[] | null
+          auto_open_delay: number | null
           chat_enabled: boolean | null
           created_at: string | null
+          default_mode: string | null
           enabled: boolean | null
+          fab_animation: boolean | null
+          fab_chat_label: string | null
+          fab_help_icon: string | null
+          fab_help_label: string | null
+          fab_icon: string | null
+          fab_icon_color: string | null
+          fab_label: string | null
+          fab_scale: number | null
+          fab_shape: string | null
+          fab_text_color: string | null
+          greeting_message: string | null
           id: string
           kb_enabled: boolean | null
           launcher_text: string | null
           locale: string | null
           logo_url: string | null
+          mobile_behavior: string | null
+          offline_message: string | null
+          placeholder_text: string | null
           position: string | null
           primary_color: string | null
+          secondary_color: string | null
+          show_logo: boolean | null
+          support_mode: string | null
+          theme: string | null
           updated_at: string | null
           visitor_tracking_enabled: boolean | null
           welcome_message: string | null
+          widget_language: string | null
           workspace_id: string
         }
         Insert: {
           allow_subdomains?: boolean
           allowed_domains?: string[] | null
+          auto_open_delay?: number | null
           chat_enabled?: boolean | null
           created_at?: string | null
+          default_mode?: string | null
           enabled?: boolean | null
+          fab_animation?: boolean | null
+          fab_chat_label?: string | null
+          fab_help_icon?: string | null
+          fab_help_label?: string | null
+          fab_icon?: string | null
+          fab_icon_color?: string | null
+          fab_label?: string | null
+          fab_scale?: number | null
+          fab_shape?: string | null
+          fab_text_color?: string | null
+          greeting_message?: string | null
           id?: string
           kb_enabled?: boolean | null
           launcher_text?: string | null
           locale?: string | null
           logo_url?: string | null
+          mobile_behavior?: string | null
+          offline_message?: string | null
+          placeholder_text?: string | null
           position?: string | null
           primary_color?: string | null
+          secondary_color?: string | null
+          show_logo?: boolean | null
+          support_mode?: string | null
+          theme?: string | null
           updated_at?: string | null
           visitor_tracking_enabled?: boolean | null
           welcome_message?: string | null
+          widget_language?: string | null
           workspace_id: string
         }
         Update: {
           allow_subdomains?: boolean
           allowed_domains?: string[] | null
+          auto_open_delay?: number | null
           chat_enabled?: boolean | null
           created_at?: string | null
+          default_mode?: string | null
           enabled?: boolean | null
+          fab_animation?: boolean | null
+          fab_chat_label?: string | null
+          fab_help_icon?: string | null
+          fab_help_label?: string | null
+          fab_icon?: string | null
+          fab_icon_color?: string | null
+          fab_label?: string | null
+          fab_scale?: number | null
+          fab_shape?: string | null
+          fab_text_color?: string | null
+          greeting_message?: string | null
           id?: string
           kb_enabled?: boolean | null
           launcher_text?: string | null
           locale?: string | null
           logo_url?: string | null
+          mobile_behavior?: string | null
+          offline_message?: string | null
+          placeholder_text?: string | null
           position?: string | null
           primary_color?: string | null
+          secondary_color?: string | null
+          show_logo?: boolean | null
+          support_mode?: string | null
+          theme?: string | null
           updated_at?: string | null
           visitor_tracking_enabled?: boolean | null
           welcome_message?: string | null
+          widget_language?: string | null
           workspace_id?: string
         }
         Relationships: [

@@ -33,7 +33,7 @@ export default function LoginPage() {
     (window as any).__gs = [];
     (window as any).__gs_id = '6ee40d07-32a3-4594-8a5f-d439f81afa5b';
     const s = document.createElement('script');
-    s.src = 'https://f2fb5a2c-a9db-40ac-bf0b-0d4b7476a58a.lovableproject.com/widget/loader.js';
+    s.src = 'https://destekly.tr/widget/loader.js';
     s.async = true;
     document.head.appendChild(s);
     return () => { s.remove(); };

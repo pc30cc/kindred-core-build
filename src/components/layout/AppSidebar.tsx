@@ -8,7 +8,9 @@ import {
   Inbox, Users, Eye, BookOpen, MessageSquare,
   Bot, Settings, Rocket, Search, Package,
   LogOut, Shield, ChevronDown, UserPlus, Plus,
-  Zap, ShieldAlert, ExternalLink,
+  Zap, ShieldAlert, ExternalLink, Bell, EyeOff,
+  Clock, UserCog, Building2, HelpCircle, Sparkles,
+  AlertCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/features/auth/AuthContext';

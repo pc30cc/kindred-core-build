@@ -1,36 +1,47 @@
 /**
- * Widget Loader — Crisp-style thin loader.
- * Served as static asset. Bootstraps widget via backend API.
+ * Widget Loader v2 — Ultra-light launcher-first architecture.
  *
- * Install on customer site:
- * <script type="text/javascript">
- *   window.__gs = [];
+ * Responsibilities (Layer 1):
+ *  1. Resolve apiBase / assetBase
+ *  2. Fetch minimal bootstrap config
+ *  3. Render launcher icon immediately
+ *  4. Lazy-load runtime shell on first interaction
+ *
+ * Install:
+ * <script>
  *   window.__gs_id = "WORKSPACE_ID";
- *   (function(){
- *     var d = document;
- *     var s = d.createElement("script");
- *     s.src = "https://your-widget-domain.com/widget/loader.js";
- *     s.async = 1;
- *     d.getElementsByTagName("head")[0].appendChild(s);
- *   })();
+ *   (function(){var s=document.createElement("script");
+ *   s.src="https://your-domain.com/widget/loader.js";s.async=1;
+ *   document.head.appendChild(s);})();
  * </script>
  */
-(function() {
+(function () {
   'use strict';
 
-  var LOADER_VERSION = '2026-04-15-build-3';
-  console.log('[Widget] Loader version: ' + LOADER_VERSION);
+  var LOADER_VERSION = '2026-04-15-build-5';
+  var DEBUG = false;
+  var _t0 = Date.now();
 
+  function log(msg, data) {
+    if (!DEBUG) return;
+    console.info('[Widget]', msg, data !== undefined ? data : '');
+  }
+
+  log('Loader version: ' + LOADER_VERSION);
+  log('Loader start', _t0);
+
+  // ─── Queued commands ───
   var GS = window.__gs || [];
-  var WORKSPACE_ID = window.__gs_id || null;
-  var RESOLVE_BY_ORIGIN = !WORKSPACE_ID;
-
   var queue = [];
-  var ready = false;
   var widget = null;
+  var ready = false;
+
+  if (Array.isArray(GS)) {
+    for (var i = 0; i < GS.length; i++) queue.push(GS[i]);
+  }
 
   function processQueue() {
-    while (queue.length > 0) {
+    while (queue.length) {
       var cmd = queue.shift();
       if (widget && typeof widget[cmd[0]] === 'function') {
         widget[cmd[0]].apply(widget, cmd.slice(1));
@@ -39,256 +50,344 @@
   }
 
   window.__gs = {
-    push: function() {
+    push: function () {
       var args = Array.prototype.slice.call(arguments);
-      if (ready && widget) {
-        for (var i = 0; i < args.length; i++) {
-          if (typeof widget[args[i][0]] === 'function') {
-            widget[args[i][0]].apply(widget, args[i].slice(1));
-          }
-        }
-      } else {
-        for (var j = 0; j < arguments.length; j++) {
-          queue.push(arguments[j]);
+      for (var i = 0; i < args.length; i++) {
+        if (ready && widget && typeof widget[args[i][0]] === 'function') {
+          widget[args[i][0]].apply(widget, args[i].slice(1));
+        } else {
+          queue.push(args[i]);
         }
       }
     },
-    _id: WORKSPACE_ID
+    _id: null,
   };
 
-  if (Array.isArray(GS)) {
-    for (var i = 0; i < GS.length; i++) {
-      queue.push(GS[i]);
-    }
-  }
-
+  // ─── Resolve script element ───
   function getLoaderScript() {
     if (document.currentScript && (document.currentScript.src || '').indexOf('/widget/loader.js') !== -1) {
       return document.currentScript;
     }
-
     var scripts = document.getElementsByTagName('script');
     for (var i = scripts.length - 1; i >= 0; i--) {
-      var src = scripts[i].src || '';
-      if (src.indexOf('/widget/loader.js') !== -1) {
-        return scripts[i];
-      }
+      if ((scripts[i].src || '').indexOf('/widget/loader.js') !== -1) return scripts[i];
     }
-
     return null;
   }
 
+  var _loaderScript = getLoaderScript();
+
+  function attr(name) {
+    return _loaderScript && _loaderScript.getAttribute(name);
+  }
+
   function getWorkspaceId() {
-    var loaderScript = getLoaderScript();
-    var scriptWorkspaceId = loaderScript && loaderScript.getAttribute('data-workspace-id');
-    return window.__gs_id || scriptWorkspaceId || null;
+    return window.__gs_id || attr('data-workspace-id') || null;
   }
 
   function getAssetBase() {
-    var loaderScript = getLoaderScript();
-    var explicitAssetBase = loaderScript && loaderScript.getAttribute('data-asset-base');
-    if (explicitAssetBase && explicitAssetBase.indexOf('%VITE_') !== 0) {
-      return explicitAssetBase.replace(/\/$/, '');
-    }
-    var src = loaderScript && loaderScript.src ? loaderScript.src : '';
+    var explicit = attr('data-asset-base');
+    if (explicit && explicit.indexOf('%VITE_') !== 0) return explicit.replace(/\/$/, '');
+    var src = _loaderScript && _loaderScript.src ? _loaderScript.src : '';
     return src ? src.replace(/\/widget\/loader\.js.*$/, '') : '';
   }
 
   function getApiBase() {
-    var loaderScript = getLoaderScript();
-    if (window.__gs_api_base && typeof window.__gs_api_base === 'string' && window.__gs_api_base.indexOf('%VITE_') !== 0) {
+    if (window.__gs_api_base && typeof window.__gs_api_base === 'string' && window.__gs_api_base.indexOf('%VITE_') !== 0)
       return window.__gs_api_base.replace(/\/$/, '');
-    }
-
-    var configured = loaderScript && loaderScript.getAttribute('data-api-base');
-    if (configured && configured.indexOf('%VITE_') !== 0) {
-      return configured.replace(/\/$/, '');
-    }
-
+    var configured = attr('data-api-base');
+    if (configured && configured.indexOf('%VITE_') !== 0) return configured.replace(/\/$/, '');
     return '';
   }
 
-  function logDebug(message, payload) {
-    console.info('[Widget]', message, payload || '');
+  // ─── Inline launcher CSS (critical path — no external request) ───
+  var LAUNCHER_CSS =
+    '.__gs-launcher{position:fixed;z-index:2147483646;display:flex;align-items:center;justify-content:center;' +
+    'width:56px;height:56px;border-radius:50%;border:none;cursor:pointer;' +
+    'box-shadow:0 4px 20px -4px rgba(0,0,0,.25),0 0 0 1px rgba(0,0,0,.05);' +
+    'transition:transform .25s cubic-bezier(.34,1.56,.64,1),box-shadow .2s ease;background:var(--gs-primary,#3B82F6);color:#fff}' +
+    '.__gs-launcher:hover{transform:scale(1.08);box-shadow:0 6px 28px -4px rgba(0,0,0,.3)}' +
+    '.__gs-launcher:active{transform:scale(.96)}' +
+    '.__gs-launcher.bottom-right{bottom:24px;right:24px}' +
+    '.__gs-launcher.bottom-left{bottom:24px;left:24px}' +
+    '.__gs-launcher svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;transition:transform .2s ease}' +
+    '.__gs-launcher.open svg.chat-icon{display:none}.__gs-launcher:not(.open) svg.close-icon{display:none}' +
+    '.__gs-badge{position:absolute;top:-2px;right:-2px;min-width:18px;height:18px;border-radius:9px;' +
+    'background:#EF4444;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;' +
+    'padding:0 5px;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.15)}' +
+    '@media(max-width:480px){.__gs-launcher{width:50px;height:50px}}';
+
+  // ─── Inject inline style ───
+  var styleEl = document.createElement('style');
+  styleEl.textContent = LAUNCHER_CSS;
+  document.head.appendChild(styleEl);
+
+  // ─── State ───
+  var WORKSPACE_ID = null;
+  var sessionToken = null;
+  var configData = null;
+  var runtimeLoaded = false;
+  var runtimeLoading = false;
+
+  // ─── Render launcher immediately ───
+  function renderLauncher(color, position) {
+    var posClass = position === 'bottom-left' ? 'bottom-left' : 'bottom-right';
+    var container = document.createElement('div');
+    container.className = '__gs-widget';
+    container.style.cssText = '--gs-primary:' + (color || '#3B82F6');
+    document.body.appendChild(container);
+
+    var launcher = document.createElement('button');
+    launcher.className = '__gs-launcher ' + posClass;
+    launcher.setAttribute('aria-label', 'Open chat');
+    launcher.innerHTML =
+      '<svg class="chat-icon" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>' +
+      '<svg class="close-icon" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>';
+    container.appendChild(launcher);
+
+    log('Launcher rendered', Date.now() - _t0 + 'ms');
+    return { container: container, launcher: launcher };
   }
 
-  function logError(message, payload) {
-    console.error('[Widget]', message, payload || '');
-  }
+  // ─── Bootstrap ───
+  function bootstrap() {
+    WORKSPACE_ID = getWorkspaceId();
+    var assetBase = getAssetBase();
+    var apiBase = getApiBase();
 
-  function getBootstrapMode(workspaceId) {
-    return workspaceId ? 'explicit-workspace' : 'origin-resolved';
-  }
-
-  function isPreviewHost(hostname) {
-    return /lovableproject\.com$/i.test(hostname || '') || /lovable\.app$/i.test(hostname || '');
-  }
-
-  function getPreviewFallbackConfig(assetBase, apiBase) {
-    var safeAssetBase = (assetBase || '').replace(/\/$/, '');
-    if (!safeAssetBase) return null;
-
-    return {
-      enabled: true,
-      workspaceId: WORKSPACE_ID,
-      apiBase: (apiBase || '').replace(/\/$/, ''),
-      assetBase: safeAssetBase,
-      brandName: document.title || 'Support',
-      primaryColor: '#3B82F6',
-      logoUrl: null,
-      launcherText: 'Chat with us',
-      welcomeMessage: 'Hello! How can we help you?',
-      position: 'bottom-right',
-      locale: document.documentElement.lang || 'en',
-      features: {
-        chat: false,
-        knowledgeBase: false,
-        visitorTracking: false,
-      },
-      runtimeUrl: safeAssetBase + '/widget/runtime.js?v=' + LOADER_VERSION,
-      styleUrl: safeAssetBase + '/widget/runtime.css?v=' + LOADER_VERSION
-    };
-  }
-
-  function mountWidget(config, assetBase, apiBase) {
-    WORKSPACE_ID = config.workspaceId || WORKSPACE_ID;
-    window.__gs_id = WORKSPACE_ID;
     window.__gs._id = WORKSPACE_ID;
 
-    logDebug('Bootstrap resolved mode:', getBootstrapMode(WORKSPACE_ID));
-    logDebug('Resolved workspace ID:', WORKSPACE_ID || '(resolved later by backend response)');
+    log('Workspace ID:', WORKSPACE_ID || '(none)');
+    log('apiBase:', apiBase || '(empty)');
+    log('assetBase:', assetBase || '(empty)');
 
-    var runtimeApiBase = (config.apiBase || apiBase || '').replace(/\/$/, '');
-    var runtimeAssetBase = (config.assetBase || assetBase || '').replace(/\/$/, '');
-    logDebug('Selected apiBase:', runtimeApiBase || '(empty)');
-    logDebug('Selected assetBase:', runtimeAssetBase || '(empty)');
+    // Render launcher immediately with defaults
+    var els = renderLauncher('#3B82F6', 'bottom-right');
 
-    if (config.features && config.features.visitorTracking && runtimeApiBase && WORKSPACE_ID) {
-      var visitorId = localStorage.getItem('__gs_vid') || generateId();
-      localStorage.setItem('__gs_vid', visitorId);
-
-      fetch(runtimeApiBase + '/api/visitors/track?workspace_id=' + encodeURIComponent(WORKSPACE_ID), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          workspace_id: WORKSPACE_ID,
-          visitor_id: visitorId,
-          current_page: window.location.pathname,
-          referrer: document.referrer || null,
-          browser: detectBrowser(),
-          device: detectDevice(),
-          os: detectOS()
-        })
-      }).then(function(r) { return r.json(); }).then(function(data) {
-        if (data.session_id) {
-          localStorage.setItem('__gs_sid', data.session_id);
-          startHeartbeat(runtimeApiBase, WORKSPACE_ID, data.session_id);
-        }
-      }).catch(function() {});
-    }
-
-    var runtimeCss = config.styleUrl || (runtimeAssetBase ? runtimeAssetBase + '/widget/runtime.css' : '');
-    var runtimeJs = config.runtimeUrl || (runtimeAssetBase ? runtimeAssetBase + '/widget/runtime.js' : '');
-    logDebug('Runtime assets:', { runtimeUrl: runtimeJs, styleUrl: runtimeCss });
-
-    if (!runtimeCss || !runtimeJs) {
-      console.warn('[Widget] Missing runtime asset URLs in widget config.', config);
+    if (!apiBase) {
+      log('No apiBase — launcher only mode');
       return;
     }
 
-    var link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = runtimeCss;
-    link.onerror = function() {
-      logError('Runtime stylesheet failed to load:', runtimeCss);
-    };
-    document.head.appendChild(link);
+    // Bootstrap request — get session token
+    var bootstrapUrl = apiBase + '/api/widget/bootstrap';
+    var bootstrapBody = JSON.stringify({
+      workspace_id: WORKSPACE_ID,
+      origin: window.location.origin,
+    });
+
+    log('Bootstrap URL:', bootstrapUrl);
+    var _tConfig = Date.now();
+
+    fetch(bootstrapUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: bootstrapBody,
+    })
+      .then(function (r) {
+        log('Bootstrap status:', r.status, '(' + (Date.now() - _tConfig) + 'ms)');
+        if (!r.ok) throw new Error('Bootstrap failed: ' + r.status);
+        return r.json();
+      })
+      .then(function (data) {
+        if (data.disabled) {
+          log('Widget disabled');
+          els.container.remove();
+          return;
+        }
+
+        sessionToken = data.session_token;
+        WORKSPACE_ID = data.workspace_id || WORKSPACE_ID;
+        window.__gs._id = WORKSPACE_ID;
+
+        log('Session token acquired');
+
+        // Fetch full config (token-secured)
+        return fetch(apiBase + '/api/widget/config?workspace_id=' + encodeURIComponent(WORKSPACE_ID), {
+          headers: { 'X-Widget-Token': sessionToken },
+        });
+      })
+      .then(function (r) {
+        if (!r) return;
+        log('Config response:', r.status, '(' + (Date.now() - _tConfig) + 'ms)');
+        if (!r.ok) throw new Error('Config fetch failed: ' + r.status);
+        return r.json();
+      })
+      .then(function (config) {
+        if (!config || !config.enabled) return;
+
+        configData = config;
+        configData._sessionToken = sessionToken;
+        configData._apiBase = apiBase;
+        configData._assetBase = assetBase;
+        DEBUG = !!config.debugMode;
+
+        // Update launcher appearance from config
+        els.container.style.cssText = '--gs-primary:' + (config.primaryColor || '#3B82F6');
+        var posClass = config.position === 'bottom-left' ? 'bottom-left' : 'bottom-right';
+        els.launcher.className = '__gs-launcher ' + posClass;
+
+        log('Config loaded. Features:', config.features);
+
+        // Attach click handler — lazy loads runtime
+        els.launcher.addEventListener('click', function () {
+          onLauncherClick(els, config, apiBase, assetBase);
+        });
+
+        // Deferred: visitor tracking (non-blocking, after idle)
+        if (config.features && config.features.visitorTracking) {
+          scheduleDeferred(function () {
+            startTracking(apiBase, WORKSPACE_ID, sessionToken);
+          });
+        }
+
+        // Process any queued commands
+        widget = {
+          open: function () { onLauncherClick(els, config, apiBase, assetBase); },
+          close: function () { if (window.__gs_runtime && window.__gs_runtime._instance) window.__gs_runtime._instance.close(); },
+          toggle: function () { onLauncherClick(els, config, apiBase, assetBase); },
+          setUnread: function (count) { setUnreadBadge(els.launcher, count); },
+        };
+        ready = true;
+        processQueue();
+      })
+      .catch(function (err) {
+        log('Bootstrap error:', err);
+      });
+  }
+
+  // ─── Launcher click → lazy load runtime ───
+  var isOpen = false;
+  function onLauncherClick(els, config, apiBase, assetBase) {
+    if (runtimeLoaded && window.__gs_runtime && window.__gs_runtime._instance) {
+      window.__gs_runtime._instance.toggle();
+      isOpen = !isOpen;
+      els.launcher.classList.toggle('open', isOpen);
+      return;
+    }
+
+    if (runtimeLoading) return;
+    runtimeLoading = true;
+
+    log('Loading runtime shell...');
+    var _tRuntime = Date.now();
+
+    // Load CSS + JS in parallel
+    var runtimeCss = config.styleUrl || (assetBase ? assetBase + '/widget/runtime.css' : '');
+    var runtimeJs = config.runtimeUrl || (assetBase ? assetBase + '/widget/runtime.js' : '');
+
+    if (!runtimeJs) {
+      log('No runtime URL');
+      runtimeLoading = false;
+      return;
+    }
+
+    var cssLoaded = !runtimeCss;
+    var jsLoaded = false;
+
+    function onBothLoaded() {
+      if (!cssLoaded || !jsLoaded) return;
+      log('Runtime loaded', (Date.now() - _tRuntime) + 'ms');
+      runtimeLoaded = true;
+      runtimeLoading = false;
+
+      if (window.__gs_runtime && window.__gs_runtime.init) {
+        widget = window.__gs_runtime.init(config, els);
+        window.__gs_runtime._instance = widget;
+        ready = true;
+        isOpen = true;
+        els.launcher.classList.add('open');
+        processQueue();
+      }
+    }
+
+    if (runtimeCss) {
+      var link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = runtimeCss;
+      link.onload = function () { cssLoaded = true; onBothLoaded(); };
+      link.onerror = function () { cssLoaded = true; onBothLoaded(); };
+      document.head.appendChild(link);
+    }
 
     var script = document.createElement('script');
     script.src = runtimeJs;
     script.async = true;
-    script.onload = function() {
-      if (window.__gs_runtime) {
-          widget = window.__gs_runtime.init(config);
-        ready = true;
-        processQueue();
-      }
-    };
-    script.onerror = function() {
-      logError('Runtime script failed to load:', runtimeJs);
+    script.onload = function () { jsLoaded = true; onBothLoaded(); };
+    script.onerror = function () {
+      log('Runtime script failed to load');
+      runtimeLoading = false;
     };
     document.head.appendChild(script);
   }
 
-  function bootstrap() {
-    WORKSPACE_ID = getWorkspaceId();
-    RESOLVE_BY_ORIGIN = !WORKSPACE_ID;
-    var assetBase = getAssetBase();
-    var apiBase = getApiBase();
-    var origin = window.location.origin;
-    var bootstrapMode = getBootstrapMode(WORKSPACE_ID);
-    var params = new URLSearchParams({ origin: origin });
-
-    logDebug('Workspace ID found:', WORKSPACE_ID || '(none)');
-    logDebug('Bootstrap mode:', bootstrapMode);
-    logDebug('Selected apiBase:', apiBase || '(empty)');
-    logDebug('Selected assetBase:', assetBase || '(empty)');
-
-    if (assetBase) {
-      params.set('loader_origin', assetBase);
+  // ─── Unread badge ───
+  function setUnreadBadge(launcher, count) {
+    var existing = launcher.querySelector('.__gs-badge');
+    if (existing) existing.remove();
+    if (count > 0) {
+      var badge = document.createElement('span');
+      badge.className = '__gs-badge';
+      badge.textContent = count > 9 ? '9+' : String(count);
+      launcher.appendChild(badge);
     }
+  }
 
-    if (WORKSPACE_ID) {
-      params.set('workspace_id', WORKSPACE_ID);
+  // ─── Deferred execution (non-blocking) ───
+  function scheduleDeferred(fn) {
+    if (typeof requestIdleCallback === 'function') {
+      requestIdleCallback(fn, { timeout: 5000 });
+    } else {
+      setTimeout(fn, 2000);
     }
+  }
 
-    if (!apiBase) {
-      logError('No apiBase resolved. Use window.__gs_api_base, data-api-base, or admin widget API base.');
-      if (!isPreviewHost(window.location.hostname)) return;
-    }
+  // ─── Visitor tracking (background, non-blocking) ───
+  function startTracking(apiBase, workspaceId, token) {
+    if (!apiBase || !workspaceId) return;
 
-    var configUrl = (apiBase || '') + '/api/widget/config?' + params.toString();
-    logDebug('Config URL:', configUrl);
+    var visitorId = localStorage.getItem('__gs_vid') || generateId();
+    localStorage.setItem('__gs_vid', visitorId);
 
-    fetch(configUrl)
-      .then(function(res) {
-        logDebug('Config fetch status:', { status: res.status, ok: res.ok });
-        if (!res.ok) throw new Error('Widget config failed: ' + res.status);
-        return res.json();
-      })
-      .then(function(config) {
-        if (!config.enabled) return;
-        logDebug('Config resolved workspace:', config.workspaceId || '(none)');
-        logDebug('Resolved config bases:', { apiBase: config.apiBase, assetBase: config.assetBase, runtimeUrl: config.runtimeUrl, styleUrl: config.styleUrl });
-        mountWidget(config, assetBase, apiBase);
-      })
-      .catch(function(err) {
-        logError('Bootstrap failed:', err);
+    log('Tracking: visitor', visitorId);
 
-        if (isPreviewHost(window.location.hostname)) {
-          var fallbackConfig = getPreviewFallbackConfig(assetBase, apiBase);
-          if (fallbackConfig) {
-            console.info('[Widget] Using preview fallback config.');
-            mountWidget(fallbackConfig, assetBase, apiBase);
-          }
+    fetch(apiBase + '/api/widget/track', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Widget-Token': token },
+      body: JSON.stringify({
+        workspace_id: workspaceId,
+        visitor_id: visitorId,
+        event: 'page_view',
+        current_page: window.location.pathname,
+        referrer: document.referrer || null,
+        browser: detectBrowser(),
+        device: /Mobi|Android/i.test(navigator.userAgent) ? 'Mobile' : 'Desktop',
+        os: detectOS(),
+      }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.session_id) {
+          localStorage.setItem('__gs_sid', data.session_id);
+          // Heartbeat every 30s — deferred, non-blocking
+          setInterval(function () {
+            fetch(apiBase + '/api/widget/action', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json', 'X-Widget-Token': token },
+              body: JSON.stringify({
+                workspace_id: workspaceId,
+                action: 'heartbeat',
+                session_id: data.session_id,
+                current_page: window.location.pathname,
+              }),
+            }).catch(function () {});
+          }, 30000);
         }
-      });
+      })
+      .catch(function () {});
   }
 
-  function startHeartbeat(apiBase, workspaceId, sessionId) {
-    setInterval(function() {
-      fetch(apiBase + '/api/visitors/heartbeat?workspace_id=' + encodeURIComponent(workspaceId), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          workspace_id: workspaceId,
-          session_id: sessionId,
-          current_page: window.location.pathname
-        })
-      }).catch(function() {});
-    }, 30000);
-  }
-
+  // ─── Utils ───
   function generateId() {
     return 'v_' + Math.random().toString(36).substr(2, 9) + Date.now().toString(36);
   }
@@ -302,10 +401,6 @@
     return 'Other';
   }
 
-  function detectDevice() {
-    return /Mobi|Android/i.test(navigator.userAgent) ? 'Mobile' : 'Desktop';
-  }
-
   function detectOS() {
     var ua = navigator.userAgent;
     if (ua.indexOf('Win') > -1) return 'Windows';
@@ -316,6 +411,7 @@
     return 'Other';
   }
 
+  // ─── Boot ───
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', bootstrap);
   } else {

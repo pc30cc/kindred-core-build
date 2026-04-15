@@ -1,11 +1,10 @@
 #!/usr/bin/env node
 /**
  * Widget Asset Hasher
- * 
- * Copies public/widget/runtime.js and runtime.css into dist/widget/
- * with content-hash filenames (e.g. runtime.a1b2c3d4.js).
- * Emits dist/widget/widget-manifest.json mapping logical names to hashed filenames.
- * 
+ *
+ * Copies widget assets into dist/widget/ with content-hash filenames.
+ * Emits dist/widget/widget-manifest.json.
+ *
  * Run after `vite build`:
  *   node scripts/widget-hash.js
  */
@@ -17,17 +16,20 @@ const ROOT = resolve(import.meta.dirname, '..');
 const SRC_DIR = join(ROOT, 'public', 'widget');
 const OUT_DIR = join(ROOT, 'dist', 'widget');
 
-const FILES = ['runtime.js', 'runtime.css'];
+// Files that get content-hashed filenames
+const HASHED_FILES = ['runtime.js', 'runtime.css', 'runtime-chat.js', 'runtime-kb.js'];
+
+// Files copied as-is (stable entry points)
+const STABLE_FILES = ['loader.js'];
 
 function contentHash(buf) {
   return createHash('md5').update(buf).digest('hex').slice(0, 8);
 }
 
-// Clean old hashed runtime files
 function cleanOldHashed() {
   if (!existsSync(OUT_DIR)) return;
   for (const f of readdirSync(OUT_DIR)) {
-    if (/^runtime\.[a-f0-9]{8}\.(js|css)$/.test(f)) {
+    if (/^runtime[a-z-]*\.[a-f0-9]{8}\.(js|css)$/.test(f)) {
       unlinkSync(join(OUT_DIR, f));
     }
   }
@@ -38,7 +40,8 @@ cleanOldHashed();
 
 const manifest = {};
 
-for (const file of FILES) {
+// Hash runtime files
+for (const file of HASHED_FILES) {
   const src = join(SRC_DIR, file);
   if (!existsSync(src)) {
     console.warn(`[widget-hash] Skipping missing file: ${file}`);
@@ -49,21 +52,26 @@ for (const file of FILES) {
   const ext = file.split('.').pop();
   const base = file.replace(`.${ext}`, '');
   const hashedName = `${base}.${hash}.${ext}`;
-  
+
   writeFileSync(join(OUT_DIR, hashedName), buf);
   manifest[file] = hashedName;
   console.log(`[widget-hash] ${file} → ${hashedName}`);
 }
 
-// Also copy loader.js (unhashed, stable entry point)
+// Copy stable files
+for (const file of STABLE_FILES) {
+  const src = join(SRC_DIR, file);
+  if (!existsSync(src)) continue;
+  copyFileSync(src, join(OUT_DIR, file));
+  const buf = readFileSync(src);
+  manifest[file] = file;
+  console.log(`[widget-hash] ${file} copied`);
+}
+
+// Loader version from its content hash
 const loaderSrc = join(SRC_DIR, 'loader.js');
 if (existsSync(loaderSrc)) {
-  copyFileSync(loaderSrc, join(OUT_DIR, 'loader.js'));
-  // Generate a version string from loader content hash for embed code
-  const loaderBuf = readFileSync(loaderSrc);
-  manifest['loader.js'] = 'loader.js';
-  manifest['loaderVersion'] = contentHash(loaderBuf);
-  console.log(`[widget-hash] loader.js copied (version: ${manifest['loaderVersion']})`);
+  manifest['loaderVersion'] = contentHash(readFileSync(loaderSrc));
 }
 
 const manifestPath = join(OUT_DIR, 'widget-manifest.json');

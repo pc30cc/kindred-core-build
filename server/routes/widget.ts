@@ -299,8 +299,9 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
 
     const runtimeJsName = getWidgetAssetName('runtime.js');
     const runtimeCssName = getWidgetAssetName('runtime.css');
+    const chatModuleName = getWidgetAssetName('runtime-chat.js');
+    const kbModuleName = getWidgetAssetName('runtime-kb.js');
     const loaderVersion = getLoaderVersion();
-
     const widgetConfig = {
       enabled: true,
       workspaceId,
@@ -348,6 +349,10 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       onlineOperators: 0, // TODO: Add operator presence tracking
       runtimeUrl: assetBase ? `${assetBase}/widget/${runtimeJsName}` : null,
       styleUrl: assetBase ? `${assetBase}/widget/${runtimeCssName}` : null,
+      modules: {
+        chat: assetBase ? `${assetBase}/widget/${chatModuleName}` : null,
+        kb: assetBase ? `${assetBase}/widget/${kbModuleName}` : null,
+      },
     };
 
     res.json(widgetConfig);

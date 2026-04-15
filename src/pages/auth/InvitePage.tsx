@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useSearchParams, useNavigate, Link } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
 import { useAuth } from '@/features/auth/AuthContext';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
@@ -39,6 +39,12 @@ interface InviteInfo {
   already_member: boolean;
 }
 
+// Use `tt` as untyped accessor since invite keys are dynamic
+const tt = (t: any, key: string, fallback: string) => {
+  const val = t(key);
+  return val === key ? fallback : val;
+};
+
 export default function InvitePage() {
   const { t } = useTranslation();
   const { user, isLoading: authLoading } = useAuth();
@@ -52,7 +58,6 @@ export default function InvitePage() {
 
   const inviteRedirectUrl = `/auth/invite?token=${encodeURIComponent(token || '')}`;
 
-  // Determine state from info + auth
   const resolveState = useCallback((data: InviteInfo | null, hasUser: boolean): InviteState => {
     if (!data) return 'invalid';
     if (data.revoked) return 'revoked';
@@ -63,28 +68,20 @@ export default function InvitePage() {
     return 'ready';
   }, []);
 
-  // Fetch invitation info
   useEffect(() => {
-    if (!token) {
-      setState('invalid');
-      return;
-    }
+    if (!token) { setState('invalid'); return; }
     if (authLoading) return;
 
     supabase.rpc('get_invitation_info', { _token: token })
       .then(({ data, error }) => {
-        if (error || !data) {
-          setState('invalid');
-          return;
-        }
+        if (error || !data) { setState('invalid'); return; }
         const inviteData = data as unknown as InviteInfo;
         setInfo(inviteData);
         setState(resolveState(inviteData, !!user));
       });
   }, [token, user, authLoading, resolveState]);
 
-  // Accept invitation
-  const handleAccept = async () => {
+  const handleAccept = useCallback(async () => {
     if (!token || !user) return;
     setState('accepting');
     try {
@@ -94,24 +91,24 @@ export default function InvitePage() {
       setAcceptResult(result);
       if (result.already_member) {
         setState('already_member');
-        toast.info(t('invite.alreadyMember') || 'You are already a member of this workspace');
+        toast.info(tt(t, 'invite.alreadyMember', 'You are already a member of this workspace'));
       } else {
         setState('accepted');
-        toast.success(t('invite.accepted') || `Joined ${result.workspace_name}`);
+        toast.success(tt(t, 'invite.accepted', `Joined ${result.workspace_name}`));
       }
     } catch (err: any) {
       toast.error(err.message);
       setState('ready');
     }
-  };
+  }, [token, user, t]);
 
-  // Auto-accept after login redirect (user just logged in with token preserved)
+  // Auto-accept after login redirect
   useEffect(() => {
     if (state === 'ready' && user && token && sessionStorage.getItem('invite_auto_accept') === token) {
       sessionStorage.removeItem('invite_auto_accept');
       handleAccept();
     }
-  }, [state, user, token]);
+  }, [state, user, token, handleAccept]);
 
   const goToWorkspace = () => {
     const slug = acceptResult?.workspace_slug || info?.workspace_slug;
@@ -130,13 +127,10 @@ export default function InvitePage() {
   };
 
   const handleLogout = async () => {
-    const { useAuth: _useAuth } = await import('@/features/auth/AuthContext');
-    // We need to sign out then redirect back
     await supabase.auth.signOut();
     navigate(`/auth/login?redirect=${encodeURIComponent(inviteRedirectUrl)}`);
   };
 
-  // ─── Loading ───
   if (state === 'loading' || authLoading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -145,23 +139,22 @@ export default function InvitePage() {
     );
   }
 
-  // ─── Accepted ───
   if (state === 'accepted') {
     return (
       <div className="flex items-center justify-center min-h-[60vh] px-4">
         <Card className="w-full max-w-md">
           <CardContent className="p-8 text-center space-y-4">
             <CheckCircle2 className="h-12 w-12 text-primary mx-auto" />
-            <h2 className="text-xl font-bold">{t('invite.successTitle') || 'Invitation Accepted!'}</h2>
+            <h2 className="text-xl font-bold">{tt(t, 'invite.successTitle', 'Invitation Accepted!')}</h2>
             <p className="text-muted-foreground">
-              {t('invite.joinedAs') || 'You joined'}{' '}
+              {tt(t, 'invite.joinedAs', 'You joined')}{' '}
               <strong>{acceptResult?.workspace_name}</strong>{' '}
-              {t('invite.asRole') || 'as'}{' '}
+              {tt(t, 'invite.asRole', 'as')}{' '}
               <Badge variant="secondary">{acceptResult?.role}</Badge>
             </p>
             <Button onClick={goToWorkspace} className="w-full gap-2">
               <ArrowRight className="w-4 h-4" />
-              {t('invite.goToWorkspace') || 'Go to Workspace'}
+              {tt(t, 'invite.goToWorkspace', 'Go to Workspace')}
             </Button>
           </CardContent>
         </Card>
@@ -169,21 +162,20 @@ export default function InvitePage() {
     );
   }
 
-  // ─── Already Member ───
   if (state === 'already_member') {
     return (
       <div className="flex items-center justify-center min-h-[60vh] px-4">
         <Card className="w-full max-w-md">
           <CardContent className="p-8 text-center space-y-4">
             <CheckCircle2 className="h-12 w-12 text-primary mx-auto" />
-            <h2 className="text-xl font-bold">{t('invite.alreadyMemberTitle') || 'Already a Member'}</h2>
+            <h2 className="text-xl font-bold">{tt(t, 'invite.alreadyMemberTitle', 'Already a Member')}</h2>
             <p className="text-muted-foreground">
-              {t('invite.alreadyMemberDesc') || 'You are already a member of'}{' '}
+              {tt(t, 'invite.alreadyMemberDesc', 'You are already a member of')}{' '}
               <strong>{info?.workspace_name}</strong>
             </p>
             <Button onClick={goToWorkspace} className="w-full gap-2">
               <ArrowRight className="w-4 h-4" />
-              {t('invite.openWorkspace') || 'Open Workspace'}
+              {tt(t, 'invite.openWorkspace', 'Open Workspace')}
             </Button>
           </CardContent>
         </Card>
@@ -191,17 +183,16 @@ export default function InvitePage() {
     );
   }
 
-  // ─── Invalid / Expired / Revoked ───
   if (state === 'invalid' || state === 'expired' || state === 'revoked') {
     const icon = state === 'expired' ? <Clock className="h-12 w-12 text-amber-500 mx-auto" /> :
                  state === 'revoked' ? <ShieldAlert className="h-12 w-12 text-destructive mx-auto" /> :
                  <XCircle className="h-12 w-12 text-destructive mx-auto" />;
-    const title = state === 'expired' ? (t('invite.expiredTitle') || 'Invitation Expired') :
-                  state === 'revoked' ? (t('invite.revokedTitle') || 'Invitation Revoked') :
-                  (t('invite.invalidTitle') || 'Invalid Invitation');
-    const desc = state === 'expired' ? (t('invite.expiredDesc') || 'This invitation has expired. Please request a new one.') :
-                 state === 'revoked' ? (t('invite.revokedDesc') || 'This invitation has been revoked by the workspace admin.') :
-                 (t('invite.invalidDesc') || 'This invitation link is not valid or has been removed.');
+    const title = state === 'expired' ? tt(t, 'invite.expiredTitle', 'Invitation Expired') :
+                  state === 'revoked' ? tt(t, 'invite.revokedTitle', 'Invitation Revoked') :
+                  tt(t, 'invite.invalidTitle', 'Invalid Invitation');
+    const desc = state === 'expired' ? tt(t, 'invite.expiredDesc', 'This invitation has expired.') :
+                 state === 'revoked' ? tt(t, 'invite.revokedDesc', 'This invitation has been revoked.') :
+                 tt(t, 'invite.invalidDesc', 'This invitation link is not valid.');
 
     return (
       <div className="flex items-center justify-center min-h-[60vh] px-4">
@@ -211,7 +202,7 @@ export default function InvitePage() {
             <h2 className="text-xl font-bold">{title}</h2>
             <p className="text-muted-foreground">{desc}</p>
             <Button variant="outline" onClick={() => navigate('/auth/login')}>
-              {t('invite.goToLogin') || 'Go to Login'}
+              {tt(t, 'invite.goToLogin', 'Go to Login')}
             </Button>
           </CardContent>
         </Card>
@@ -219,32 +210,31 @@ export default function InvitePage() {
     );
   }
 
-  // ─── Wrong Account ───
   if (state === 'wrong_account') {
     return (
       <div className="flex items-center justify-center min-h-[60vh] px-4">
         <Card className="w-full max-w-md">
           <CardHeader className="text-center">
             <AlertTriangle className="h-12 w-12 text-amber-500 mx-auto mb-2" />
-            <CardTitle>{t('invite.wrongAccountTitle') || 'Wrong Account'}</CardTitle>
+            <CardTitle>{tt(t, 'invite.wrongAccountTitle', 'Wrong Account')}</CardTitle>
             <CardDescription>
-              {t('invite.wrongAccountDesc') || 'This invitation is for a different email address.'}
+              {tt(t, 'invite.wrongAccountDesc', 'This invitation is for a different email address.')}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2 text-sm">
               <div className="flex justify-between rounded-md bg-muted/50 px-3 py-2">
-                <span className="text-muted-foreground">{t('invite.invitedEmail') || 'Invited Email'}</span>
+                <span className="text-muted-foreground">{tt(t, 'invite.invitedEmail', 'Invited Email')}</span>
                 <span className="font-medium">{info?.invited_email}</span>
               </div>
               <div className="flex justify-between rounded-md bg-muted/50 px-3 py-2">
-                <span className="text-muted-foreground">{t('invite.loggedInAs') || 'Logged in as'}</span>
+                <span className="text-muted-foreground">{tt(t, 'invite.loggedInAs', 'Logged in as')}</span>
                 <span className="font-medium">{user?.email}</span>
               </div>
             </div>
             <Button onClick={handleLogout} variant="outline" className="w-full gap-2">
               <LogIn className="w-4 h-4" />
-              {t('invite.switchAccount') || 'Log in with another account'}
+              {tt(t, 'invite.switchAccount', 'Log in with another account')}
             </Button>
           </CardContent>
         </Card>
@@ -252,7 +242,6 @@ export default function InvitePage() {
     );
   }
 
-  // ─── Login Required ───
   if (state === 'login_required') {
     return (
       <div className="flex items-center justify-center min-h-[60vh] px-4">
@@ -261,25 +250,25 @@ export default function InvitePage() {
             <div className="w-14 h-14 rounded-xl bg-primary/10 flex items-center justify-center mx-auto mb-2">
               <Building2 className="h-7 w-7 text-primary" />
             </div>
-            <CardTitle>{t('invite.title') || 'Workspace Invitation'}</CardTitle>
+            <CardTitle>{tt(t, 'invite.title', 'Workspace Invitation')}</CardTitle>
             <CardDescription>
-              {t('invite.invitedTo') || "You've been invited to join"}{' '}
+              {tt(t, 'invite.invitedTo', "You've been invited to join")}{' '}
               <strong>{info?.workspace_name}</strong>
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <InviteDetails info={info!} t={t} />
+            {info && <InviteDetails info={info} />}
             <div className="space-y-2">
               <p className="text-center text-sm text-muted-foreground">
-                {t('invite.loginRequired') || 'Please log in or sign up to accept this invitation.'}
+                {tt(t, 'invite.loginRequired', 'Please log in or sign up to accept this invitation.')}
               </p>
               <Button onClick={handleLoginRedirect} className="w-full gap-2">
                 <LogIn className="w-4 h-4" />
-                {t('invite.loginToAccept') || 'Log in to Accept'}
+                {tt(t, 'invite.loginToAccept', 'Log in to Accept')}
               </Button>
               <Button onClick={handleSignupRedirect} variant="outline" className="w-full gap-2">
                 <UserPlus className="w-4 h-4" />
-                {t('invite.signupToAccept') || 'Sign up to Accept'}
+                {tt(t, 'invite.signupToAccept', 'Sign up to Accept')}
               </Button>
             </div>
           </CardContent>
@@ -296,21 +285,21 @@ export default function InvitePage() {
           <div className="w-14 h-14 rounded-xl bg-primary/10 flex items-center justify-center mx-auto mb-2">
             <Building2 className="h-7 w-7 text-primary" />
           </div>
-          <CardTitle>{t('invite.title') || 'Workspace Invitation'}</CardTitle>
+          <CardTitle>{tt(t, 'invite.title', 'Workspace Invitation')}</CardTitle>
           <CardDescription>
-            {t('invite.invitedTo') || "You've been invited to join"}{' '}
+            {tt(t, 'invite.invitedTo', "You've been invited to join")}{' '}
             <strong>{info?.workspace_name}</strong>
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <InviteDetails info={info!} t={t} />
+          {info && <InviteDetails info={info} />}
           <Button
             onClick={handleAccept}
             disabled={state === 'accepting'}
             className="w-full gap-2"
           >
             {state === 'accepting' && <Loader2 className="h-4 w-4 animate-spin" />}
-            {t('invite.accept') || 'Accept Invitation'}
+            {tt(t, 'invite.accept', 'Accept Invitation')}
           </Button>
         </CardContent>
       </Card>
@@ -318,36 +307,35 @@ export default function InvitePage() {
   );
 }
 
-function InviteDetails({ info, t }: { info: InviteInfo; t: (key: string) => string }) {
+function InviteDetails({ info }: { info: InviteInfo }) {
   return (
     <div className="space-y-2 text-sm">
       <div className="flex justify-between rounded-md bg-muted/50 px-3 py-2">
-        <span className="text-muted-foreground">{t('invite.workspace') || 'Workspace'}</span>
+        <span className="text-muted-foreground">Workspace</span>
         <span className="font-medium">{info.workspace_name}</span>
       </div>
       <div className="flex justify-between rounded-md bg-muted/50 px-3 py-2">
-        <span className="text-muted-foreground">{t('invite.role') || 'Role'}</span>
+        <span className="text-muted-foreground">Role</span>
         <Badge variant="secondary">{info.role}</Badge>
       </div>
       {(info.inviter_name || info.inviter_email) && (
         <div className="flex justify-between rounded-md bg-muted/50 px-3 py-2">
-          <span className="text-muted-foreground">{t('invite.invitedBy') || 'Invited by'}</span>
+          <span className="text-muted-foreground">Invited by</span>
           <span className="font-medium">{info.inviter_name || info.inviter_email}</span>
         </div>
       )}
-      {info.expires_at && (
+      {info.expires_at ? (
         <div className="flex justify-between rounded-md bg-muted/50 px-3 py-2">
-          <span className="text-muted-foreground">{t('invite.expires') || 'Expires'}</span>
+          <span className="text-muted-foreground">Expires</span>
           <span className="font-medium flex items-center gap-1">
             <Clock className="w-3 h-3" />
             {new Date(info.expires_at).toLocaleDateString()}
           </span>
         </div>
-      )}
-      {!info.expires_at && (
+      ) : (
         <div className="flex justify-between rounded-md bg-muted/50 px-3 py-2">
-          <span className="text-muted-foreground">{t('invite.expires') || 'Expires'}</span>
-          <span className="font-medium text-emerald-500">{t('invite.noExpiration') || 'No expiration'}</span>
+          <span className="text-muted-foreground">Expires</span>
+          <span className="font-medium text-emerald-500">No expiration</span>
         </div>
       )}
     </div>

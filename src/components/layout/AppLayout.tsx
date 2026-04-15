@@ -10,7 +10,7 @@ import { resendVerificationEmail } from '@/lib/auth-email-api';
 import { toast } from 'sonner';
 import { useState, useEffect } from 'react';
 
-const RESEND_COOLDOWN_MS = 60 * 60 * 1000; // 60 minutes
+const RESEND_COOLDOWN_MS = 60 * 60 * 1000;
 const RESEND_LS_KEY = 'verification_resend_at';
 
 function getResendCooldownRemaining(): number {
@@ -79,23 +79,11 @@ export function AppLayout() {
   const showVerificationBanner = user && !user.emailVerified;
 
   return (
-    <div dir={dir} className="panel-scope flex h-screen overflow-hidden bg-background text-foreground">
+    <div dir={dir} className="app-scope flex h-screen overflow-hidden bg-background text-foreground">
       <AppSidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
         {showVerificationBanner && <EmailVerificationBanner />}
-        <header className="flex h-14 items-center justify-end gap-4 border-b border-border px-6">
-          <Select value={locale} onValueChange={(v) => setLocale(v as Locale)}>
-            <SelectTrigger className="w-32">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {SUPPORTED_LOCALES.map(l => (
-                <SelectItem key={l} value={l}>{LOCALE_CONFIG[l].nativeLabel}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </header>
-        <main className="flex-1 overflow-y-auto p-6">
+        <main className="flex-1 overflow-y-auto">
           <Outlet />
         </main>
       </div>

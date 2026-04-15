@@ -51,25 +51,29 @@ export function useAdminProfileCount() {
   });
 }
 
-export function useAdminWorkspaces(limit = 50, offset = 0) {
+export function useAdminWorkspaces(limit = 50, offset = 0, search = '', sort = 'newest') {
   return useQuery({
-    queryKey: ['admin-workspaces', limit, offset],
+    queryKey: ['admin-workspaces', limit, offset, search, sort],
     queryFn: async () => {
       const { data, error } = await supabase.rpc('admin_list_workspaces', {
         _limit: limit,
         _offset: offset,
+        _search: search,
+        _sort: sort,
       });
       if (error) throw error;
-      return data as Array<{
+      return (data as Array<{
         id: string;
         name: string;
         slug: string;
         owner_id: string;
         owner_email: string;
         member_count: number;
+        contact_count: number;
+        conversation_count: number;
         created_at: string;
         updated_at: string;
-      }>;
+      }>) ?? [];
     },
   });
 }

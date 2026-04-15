@@ -35,6 +35,7 @@ export function AppSidebar() {
   const wsPath = useWorkspacePath();
   const [wsMenuOpen, setWsMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [createWsOpen, setCreateWsOpen] = useState(false);
   const wsMenuRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
 

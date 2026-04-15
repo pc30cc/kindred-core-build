@@ -130,7 +130,7 @@ export default function TeamPage() {
       return data;
     },
     onSuccess: (data: any) => {
-      const link = `${window.location.origin}/invite?token=${data.token}`;
+      const link = `${window.location.origin}/auth/invite?token=${data.token}`;
       setInviteLink(link);
       navigator.clipboard.writeText(link);
       toast.success(t('team.linkCopied'));
@@ -386,7 +386,7 @@ export default function TeamPage() {
                       <div className="flex gap-1 shrink-0">
                         {active && (
                           <button
-                            onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/invite?token=${inv.token}`); toast.success(t('team.linkCopied')); }}
+                            onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/auth/invite?token=${inv.token}`); toast.success(t('team.linkCopied')); }}
                             className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
                           >
                             <Copy className="w-3.5 h-3.5" />

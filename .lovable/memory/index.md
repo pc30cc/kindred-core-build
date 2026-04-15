@@ -1,19 +1,13 @@
 # Project Memory
 
 ## Core
-Self-host-first SaaS platform. No Lovable Cloud dependency.
-External Supabase: bdycuenbjztkgnaqonfm.supabase.co
-Provider-driven architecture — all business logic via interfaces.
-White-label: no hardcoded brand/domain. All branding from admin.
-Multilingual: fa (RTL), en (LTR), tr (LTR). Fallback chains.
-Service role key: NEVER in frontend.
-Primary #3B82F6 (blue), clean professional SaaS design.
-Account = billing unit; Workspace = operational unit. Route-based: /app/w/:slug/*.
+Self-hosted backend (Express), no cloud dependency. Provider-based architecture, 14 types.
+Supabase for DB/auth. Dark theme. No Edge Functions without approval.
+Dashboard removed — do not re-add.
 
 ## Memories
-- [Architecture rules](mem://features/architecture) — Self-host, provider-driven, single source of truth
-- [Workspace architecture](mem://features/workspace-architecture) — Crisp-like accounts, route-based workspaces, auto-provisioning
-- [Widget system](mem://features/widget) — Crisp-style loader, server-validated bootstrap
-- [Provider architecture](mem://design/providers) — Full 14-type pluggable registry with resolution, stubs, React context
-- [i18n config](mem://features/i18n) — fa/en/tr, RTL support, fallback chains
-- [Global Super Admin](mem://features/admin-panel) — /admin/* panel, bootstrap, RequireAdmin guard, 11 pages
+- [Workspace architecture](mem://features/workspace-architecture) — Multi-tenant workspace system with accounts, members, roles
+- [Admin panel](mem://features/admin-panel) — Global super admin at /admin/*, 12 pages, RequireAdmin guard
+- [Provider architecture](mem://design/providers) — 14 provider types, registry, resolution, fallback, React context
+- [Architecture rules](mem://features/architecture) — Self-host-first, provider-driven, no dual paths
+- [Plan & Feature Gating](mem://features/plan-system) — Dynamic plans, backend enforcement, workspace subscriptions, admin CRUD

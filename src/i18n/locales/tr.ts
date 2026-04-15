@@ -475,6 +475,7 @@ const tr: TranslationKeys = {
       domains: 'Alan Adları',
       auditLogs: 'Denetim Günlükleri',
       billing: 'Faturalandırma',
+      plans: 'Planlar',
       database: 'Veritabanı',
       security: 'Güvenlik',
       backToApp: 'Uygulamaya Dön',

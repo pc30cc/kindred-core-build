@@ -475,6 +475,7 @@ const fa: TranslationKeys = {
       domains: 'دامنه‌ها',
       auditLogs: 'لاگ‌های حسابرسی',
       billing: 'صورتحساب',
+      plans: 'پلن‌ها',
       database: 'دیتابیس',
       security: 'امنیت',
       backToApp: 'بازگشت به پنل',

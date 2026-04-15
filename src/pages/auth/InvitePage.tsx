@@ -137,7 +137,7 @@ export default function InvitePage() {
           {!user && (
             <div className="text-center space-y-2">
               <p className="text-sm text-muted-foreground">Please log in to accept this invitation.</p>
-              <Button onClick={() => navigate(`/auth/login?redirect=/invite?token=${token}`)} className="w-full">
+              <Button onClick={() => navigate(`/auth/login?redirect=${encodeURIComponent(`/auth/invite?token=${token}`)}`)} className="w-full">
                 Log in to Accept
               </Button>
             </div>

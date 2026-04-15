@@ -37,6 +37,7 @@ export function AppSidebar() {
   const { signOut, user } = useAuth();
   const { data: isAdmin } = useIsGlobalAdmin();
   const { platformName } = useBrandingContext();
+  const workspace = useCurrentWorkspace();
   const [wsMenuOpen, setWsMenuOpen] = useState(false);
   const wsMenuRef = useRef<HTMLDivElement>(null);
 

@@ -145,8 +145,8 @@
         knowledgeBase: false,
         visitorTracking: false,
       },
-      runtimeUrl: safeAssetBase + '/widget/runtime.js',
-      styleUrl: safeAssetBase + '/widget/runtime.css'
+      runtimeUrl: safeAssetBase + '/widget/runtime.js?v=' + LOADER_VERSION,
+      styleUrl: safeAssetBase + '/widget/runtime.css?v=' + LOADER_VERSION
     };
   }
 

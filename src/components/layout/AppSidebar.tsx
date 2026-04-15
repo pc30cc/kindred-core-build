@@ -332,22 +332,6 @@ export function AppSidebar() {
 
             <div className="border-t border-border my-1" />
 
-            {/* Language selector */}
-            <div className="px-4 py-2">
-              <Select value={locale} onValueChange={(v) => setLocale(v as Locale)}>
-                <SelectTrigger className="h-8 text-xs w-full border-border">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {SUPPORTED_LOCALES.map(l => (
-                    <SelectItem key={l} value={l}>{LOCALE_CONFIG[l].nativeLabel}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="border-t border-border my-1" />
-
             <button
               onClick={() => { setUserMenuOpen(false); signOut(); }}
               className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-destructive hover:bg-destructive/10 transition-colors"
@@ -374,6 +358,20 @@ export function AppSidebar() {
             <p className="text-[11px] text-sidebar-muted-foreground truncate">{userEmail}</p>
           </div>
         </button>
+
+        {/* Language selector — always visible below user */}
+        <div className="mt-2">
+          <Select value={locale} onValueChange={(v) => setLocale(v as Locale)}>
+            <SelectTrigger className="h-7 text-xs w-full border-sidebar-border">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SUPPORTED_LOCALES.map(l => (
+                <SelectItem key={l} value={l}>{LOCALE_CONFIG[l].nativeLabel}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
     </aside>
   );

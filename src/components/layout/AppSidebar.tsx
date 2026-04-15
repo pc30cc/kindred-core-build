@@ -8,12 +8,13 @@ import {
   Inbox, Users, Eye, BookOpen, MessageSquare,
   Bot, Settings, Rocket, Search, Package,
   LogOut, Shield, ChevronDown, UserPlus, Plus,
-  Zap, ShieldAlert,
+  Zap, ShieldAlert, ExternalLink,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useIsGlobalAdmin } from '@/hooks/useAdmin';
 import { useBrandingContext } from '@/features/branding/BrandingContext';
+import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useMemo, useState, useRef, useEffect } from 'react';
 
 const mainNav = [
@@ -36,6 +37,7 @@ export function AppSidebar() {
   const { signOut, user } = useAuth();
   const { data: isAdmin } = useIsGlobalAdmin();
   const { platformName } = useBrandingContext();
+  const workspace = useCurrentWorkspace();
   const [wsMenuOpen, setWsMenuOpen] = useState(false);
   const wsMenuRef = useRef<HTMLDivElement>(null);
 
@@ -61,7 +63,9 @@ export function AppSidebar() {
 
   const userName = (user?.metadata?.full_name as string) || user?.email?.split('@')[0] || '';
   const userEmail = user?.email || '';
-  const workspaceDomain = (user?.metadata?.websiteDomain as string) || 'workspace.app';
+  const companyName = (user?.metadata?.companyName as string) || workspace?.name || platformName || 'Workspace';
+  const workspaceDomain = (user?.metadata?.websiteDomain as string) || 'yoursite.com';
+  const companyLetter = companyName.charAt(0).toUpperCase();
 
   return (
     <aside className="flex h-screen w-[220px] flex-col bg-sidebar border-e border-sidebar-border">
@@ -72,10 +76,10 @@ export function AppSidebar() {
           className="flex items-center gap-2.5 w-full rounded-lg px-2 py-2 hover:bg-sidebar-accent/50 transition-colors"
         >
           <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center shrink-0">
-            <span className="text-sm font-bold text-primary-foreground">{brandLetter}</span>
+            <span className="text-sm font-bold text-primary-foreground">{companyLetter}</span>
           </div>
           <div className="min-w-0 text-start flex-1">
-            <p className="text-sm font-semibold text-sidebar-foreground truncate">{platformName || 'Workspace'}</p>
+            <p className="text-sm font-semibold text-sidebar-foreground truncate">{companyName}</p>
             <p className="text-[11px] text-sidebar-muted-foreground truncate">{workspaceDomain}</p>
           </div>
           <ChevronDown className={cn('h-3.5 w-3.5 text-sidebar-muted-foreground shrink-0 transition-transform', wsMenuOpen && 'rotate-180')} />
@@ -83,15 +87,51 @@ export function AppSidebar() {
 
         {/* Dropdown menu */}
         {wsMenuOpen && (
-          <div className="absolute start-3 end-3 top-full mt-1 z-50 bg-popover border border-border rounded-xl shadow-lg py-1.5 animate-fade-in">
-            <button className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-foreground hover:bg-accent transition-colors">
-              <UserPlus className="h-4 w-4 text-muted-foreground" />
-              <span>Invite an operator</span>
+          <div className="absolute start-3 end-3 top-full mt-1 z-50 bg-popover border border-border rounded-xl shadow-xl py-2 animate-fade-in">
+            {/* Current workspace info */}
+            <div className="px-3 pb-2 mb-1.5 border-b border-border">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center shrink-0">
+                  <span className="text-xs font-bold text-primary-foreground">{companyLetter}</span>
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-foreground truncate">{companyName}</p>
+                  <p className="text-[11px] text-muted-foreground truncate">{workspaceDomain}</p>
+                </div>
+              </div>
+            </div>
+
+            <button className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-foreground hover:bg-accent rounded-md mx-0 transition-colors">
+              <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                <UserPlus className="h-3.5 w-3.5 text-primary" />
+              </div>
+              <div className="text-start">
+                <p className="text-[13px] font-medium">Invite an operator</p>
+                <p className="text-[11px] text-muted-foreground">Add teammates to this workspace</p>
+              </div>
             </button>
-            <button className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-foreground hover:bg-accent transition-colors">
-              <Plus className="h-4 w-4 text-muted-foreground" />
-              <span>Create a new workspace</span>
+
+            <button className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-foreground hover:bg-accent rounded-md mx-0 transition-colors">
+              <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                <Plus className="h-3.5 w-3.5 text-primary" />
+              </div>
+              <div className="text-start">
+                <p className="text-[13px] font-medium">Create a new workspace</p>
+                <p className="text-[11px] text-muted-foreground">Start a separate project</p>
+              </div>
             </button>
+
+            <div className="border-t border-border mt-1.5 pt-1.5">
+              <a
+                href={`https://${workspaceDomain}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground rounded-md transition-colors"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+                <span className="text-[13px]">Visit website</span>
+              </a>
+            </div>
           </div>
         )}
       </div>

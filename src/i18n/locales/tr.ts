@@ -44,8 +44,6 @@ const tr: TranslationKeys = {
     lastName: 'Soyad',
     firstNamePlaceholder: 'Ad',
     lastNamePlaceholder: 'Soyad',
-    websiteLabel: 'Web sitesi',
-    websitePlaceholder: 'https://yourcompany.com',
     continue: 'Devam',
     signupFailed: 'Kayıt başarısız',
     signupSuccess: 'Kayıt başarılı!',

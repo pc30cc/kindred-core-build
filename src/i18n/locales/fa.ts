@@ -44,8 +44,6 @@ const fa: TranslationKeys = {
     lastName: 'نام خانوادگی',
     firstNamePlaceholder: 'نام',
     lastNamePlaceholder: 'نام خانوادگی',
-    websiteLabel: 'وب‌سایت',
-    websitePlaceholder: 'https://yourcompany.com',
     continue: 'ادامه',
     signupFailed: 'ثبت‌نام ناموفق بود',
     signupSuccess: 'ثبت‌نام با موفقیت انجام شد!',

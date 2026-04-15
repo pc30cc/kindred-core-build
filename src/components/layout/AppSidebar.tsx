@@ -142,14 +142,18 @@ export function AppSidebar() {
                 </div>
               </button>
 
-              <button className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-foreground hover:bg-accent rounded-md transition-colors">
+              <RouterLink
+                to={wsPath('/team')}
+                className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-foreground hover:bg-accent rounded-md transition-colors"
+                onClick={() => setWsMenuOpen(false)}
+              >
                 <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
                   <UserPlus className="h-3.5 w-3.5 text-primary" />
                 </div>
                 <div className="text-start">
                   <p className="text-[13px] font-medium">{t('nav.inviteOperator') || 'Invite an operator'}</p>
                 </div>
-              </button>
+              </RouterLink>
             </div>
 
             {workspaceDomain && (

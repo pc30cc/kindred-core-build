@@ -424,7 +424,10 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
                     <code className="text-xs text-muted-foreground bg-muted px-1 py-0.5 rounded">{ws.slug}</code>
                   </div>
                 </div>
-                <Badge variant={ws.role === 'owner' ? 'default' : 'secondary'}>{ws.role}</Badge>
+                <div className="flex items-center gap-2">
+                  <Badge variant={ws.role === 'owner' ? 'default' : 'secondary'}>{ws.role}</Badge>
+                  <span className="text-[10px] text-muted-foreground">(workspace role)</span>
+                </div>
               </div>
             ))}
           </div>

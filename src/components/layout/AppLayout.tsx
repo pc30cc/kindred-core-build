@@ -1,6 +1,8 @@
 import { Outlet } from 'react-router-dom';
 import { AppSidebar } from './AppSidebar';
 import { useI18n } from '@/i18n';
+import { useActiveWorkspace } from '@/hooks/useWorkspace';
+import { WorkspaceNotFound } from '@/features/workspace/WorkspaceNotFound';
 import { useAuth } from '@/features/auth/AuthContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { Locale } from '@/i18n/config';
@@ -74,9 +76,15 @@ function EmailVerificationBanner() {
 }
 
 export function AppLayout() {
-  const { locale, dir, setLocale } = useI18n();
+  const { dir } = useI18n();
   const { user } = useAuth();
+  const { workspace, notFound, isLoading } = useActiveWorkspace();
   const showVerificationBanner = user && !user.emailVerified;
+
+  // Strict: if slug doesn't match any workspace, show 404
+  if (!isLoading && notFound) {
+    return <WorkspaceNotFound />;
+  }
 
   return (
     <div dir={dir} className="app-scope flex h-screen overflow-hidden bg-background text-foreground">

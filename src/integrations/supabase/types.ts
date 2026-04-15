@@ -2008,6 +2008,7 @@ export type Database = {
         }
         Returns: string
       }
+      generate_short_id: { Args: { prefix?: string }; Returns: string }
       get_account_role: {
         Args: { _account_id: string; _user_id: string }
         Returns: string

@@ -8,7 +8,7 @@ import { SUPPORTED_LOCALES, LOCALE_CONFIG } from '@/i18n/config';
 import { AlertTriangle } from 'lucide-react';
 import { resendVerificationEmail } from '@/lib/auth-email-api';
 import { toast } from 'sonner';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 const RESEND_COOLDOWN_MS = 60 * 60 * 1000; // 60 minutes
 const RESEND_LS_KEY = 'verification_resend_at';
@@ -30,11 +30,10 @@ function EmailVerificationBanner() {
   const { user } = useAuth();
   const [cooldownMs, setCooldownMs] = useState(() => getResendCooldownRemaining());
 
-  // Tick cooldown every 30s
-  useState(() => {
+  useEffect(() => {
     const id = setInterval(() => setCooldownMs(getResendCooldownRemaining()), 30_000);
     return () => clearInterval(id);
-  });
+  }, []);
 
   const isCoolingDown = cooldownMs > 0;
 

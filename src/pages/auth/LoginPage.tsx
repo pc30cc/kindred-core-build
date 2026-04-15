@@ -6,9 +6,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { Eye, EyeOff, LogIn, Loader2 } from 'lucide-react';
+import { Eye, EyeOff, Loader2, ArrowRight } from 'lucide-react';
 import { usePlatformBrandingForLocale } from '@/hooks/usePublicBranding';
 import { LanguageSelector } from '@/components/auth/LanguageSelector';
+import loginIllustration from '@/assets/login-illustration.jpg';
 
 export default function LoginPage() {
   const [params] = useSearchParams();
@@ -29,10 +30,8 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const brandLetter = useMemo(() => {
-    const name = brand?.platform_name || 'App';
-    return name.charAt(0);
-  }, [brand]);
+  const brandName = useMemo(() => brand?.platform_name || 'App', [brand]);
+  const brandLetter = useMemo(() => brandName.charAt(0), [brandName]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -53,76 +52,144 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4" dir={dir}>
-      <div className="w-full max-w-md space-y-8">
-        {/* Header */}
-        <div className="text-center space-y-2">
-          <div className="w-14 h-14 rounded-xl bg-primary mx-auto flex items-center justify-center">
-            <span className="text-2xl font-black text-primary-foreground">{brandLetter}</span>
+    <div className="fixed inset-0 flex" dir={dir}>
+      {/* Left side — Form */}
+      <div className={`flex-1 flex flex-col bg-background overflow-y-auto ${isRtl ? 'order-2' : 'order-1'}`}>
+        {/* Top bar */}
+        <div className="flex items-center justify-between px-8 py-5 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center">
+              <span className="text-sm font-black text-primary-foreground">{brandLetter}</span>
+            </div>
+            <span className="text-lg font-semibold text-foreground">{brandName}</span>
           </div>
-          <h1 className="text-2xl font-bold text-foreground">{t('auth.loginTitle')}</h1>
-          <p className="text-sm text-muted-foreground">{t('auth.loginSubtitle')}</p>
+          <LanguageSelector />
         </div>
 
-        {/* Form Card */}
-        <div className="bg-card border border-border rounded-xl p-6 space-y-5 shadow-sm">
-          <form onSubmit={handleLogin} className="space-y-4">
+        {/* Form area */}
+        <div className="flex-1 flex items-center justify-center px-6 pb-12">
+          <div className="w-full max-w-[420px] space-y-8">
             <div className="space-y-2">
-              <Label htmlFor="email">{t('auth.email')}</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="email@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                dir="ltr"
-                className="text-left"
-              />
+              <h1 className="text-3xl font-bold text-foreground tracking-tight">{t('auth.loginTitle')}</h1>
+              <p className="text-muted-foreground">{t('auth.loginSubtitle')}</p>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">{t('auth.password')}</Label>
-              <div className="relative">
+
+            <form onSubmit={handleLogin} className="space-y-5">
+              <div className="space-y-2">
+                <Label htmlFor="email" className="text-foreground">{t('auth.email')}</Label>
                 <Input
-                  id="password"
-                  type={showPassword ? 'text' : 'password'}
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  id="email"
+                  type="email"
+                  placeholder="you@company.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
                   required
                   dir="ltr"
-                  className={`text-left ${isRtl ? 'pr-10' : 'pl-10'}`}
+                  className="h-12 text-left bg-background border-border"
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className={`absolute ${isRtl ? 'right-3' : 'left-3'} top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground`}
-                >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
               </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="password" className="text-foreground">{t('auth.password')}</Label>
+                  <Link
+                    to="/auth/forgot-password"
+                    className="text-xs text-primary hover:underline font-medium"
+                  >
+                    {t('auth.forgotPassword')}
+                  </Link>
+                </div>
+                <div className="relative">
+                  <Input
+                    id="password"
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    dir="ltr"
+                    className="h-12 text-left bg-background border-border pr-11"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className={`absolute ${isRtl ? 'left-3' : 'right-3'} top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors`}
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <Button type="submit" className="w-full h-12 text-base font-semibold gap-2" disabled={loading}>
+                {loading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <>
+                    {t('auth.login')}
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
+              </Button>
+            </form>
+
+            <div className="pt-2 text-center">
+              <p className="text-sm text-muted-foreground">
+                {t('auth.noAccount')}{' '}
+                <Link to="/auth/signup" className="text-primary hover:underline font-semibold">
+                  {t('auth.signup')}
+                </Link>
+              </p>
             </div>
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogIn className="w-4 h-4" />}
-              <span className={isRtl ? 'mr-2' : 'ml-2'}>{t('auth.login')}</span>
-            </Button>
-          </form>
+          </div>
         </div>
+      </div>
 
-        {/* Footer links */}
-        <div className="text-center space-y-3">
-          <p className="text-base text-muted-foreground">
-            {t('auth.noAccount')}{' '}
-            <Link to="/auth/signup" className="text-primary hover:underline font-medium">
-              {t('auth.signup')}
-            </Link>
-          </p>
-          <Link to="/auth/forgot-password" className="text-base text-primary hover:underline font-medium">
-            {t('auth.forgotPassword')}
-          </Link>
+      {/* Right side — Illustration panel (hidden on mobile) */}
+      <div className={`hidden lg:flex w-[42%] xl:w-[45%] relative overflow-hidden ${isRtl ? 'order-1' : 'order-2'}`}
+        style={{ background: 'linear-gradient(135deg, hsl(221 83% 53%), hsl(250 80% 55%), hsl(221 83% 45%))' }}
+      >
+        {/* Decorative blurred shapes */}
+        <div className="absolute -top-24 -right-24 w-80 h-80 rounded-full bg-white/10 blur-3xl" />
+        <div className="absolute bottom-0 -left-20 w-[500px] h-[500px] rounded-full bg-white/5 blur-2xl" />
+        <div className="absolute top-1/3 right-16 w-48 h-48 rounded-full bg-white/8 blur-xl" />
+
+        {/* Grid pattern overlay */}
+        <div className="absolute inset-0 opacity-[0.03]"
+          style={{
+            backgroundImage: 'radial-gradient(circle, white 1px, transparent 1px)',
+            backgroundSize: '24px 24px',
+          }}
+        />
+
+        <div className="relative z-10 flex flex-col justify-center items-center p-12 text-center w-full">
+          <div className="space-y-5 max-w-md">
+            <h2 className="text-3xl xl:text-4xl font-bold text-white leading-tight">
+              {t('auth.loginPromoTitle')}
+            </h2>
+            <p className="text-white/70 text-base leading-relaxed">
+              {t('auth.loginPromoSubtitle')}
+            </p>
+          </div>
+
+          <div className="mt-10 w-full max-w-md rounded-2xl overflow-hidden shadow-2xl ring-1 ring-white/20 transform hover:scale-[1.02] transition-transform duration-500">
+            <img
+              src={loginIllustration}
+              alt="Platform preview"
+              className="w-full h-auto object-cover"
+              width={960}
+              height={1080}
+            />
+          </div>
+
+          {/* Feature pills */}
+          <div className="mt-8 flex flex-wrap justify-center gap-2">
+            {['Live Chat', 'Smart Inbox', 'Analytics', 'Automation'].map((feature) => (
+              <span key={feature} className="px-3 py-1.5 text-xs font-medium text-white/90 bg-white/10 rounded-full backdrop-blur-sm border border-white/10">
+                {feature}
+              </span>
+            ))}
+          </div>
         </div>
-
-        <LanguageSelector />
       </div>
     </div>
   );

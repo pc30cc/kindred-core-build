@@ -82,6 +82,8 @@ const tr: TranslationKeys = {
     verificationResent: 'Doğrulama e-postası tekrar gönderildi!',
     resendEmail: 'Tekrar gönder',
     resendCooldown: '{minutes} dk sonra tekrar deneyin',
+    loginPromoTitle: 'Tüm görüşmelerinizi tek bir yerden yönetin',
+    loginPromoSubtitle: 'Akıllı gelen kutusu, canlı sohbet ve güçlü otomasyon araçlarıyla müşteri desteğini kolaylaştırın.',
     emailConfirmLoading: 'E-postanız doğrulanıyor...',
     emailConfirmLoadingDesc: 'Hesabınız doğrulanırken lütfen bekleyin.',
     emailConfirmSuccess: 'E-posta doğrulandı!',

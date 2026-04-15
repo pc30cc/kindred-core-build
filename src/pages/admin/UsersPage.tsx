@@ -21,7 +21,7 @@ import { toast } from 'sonner';
 import {
   Users, Loader2, ArrowLeft, Mail, Calendar, MapPin,
   Globe, Bot, Building2, Copy, Search, Shield, Briefcase, Link2,
-  KeyRound, Send, Ban, ScrollText, CheckCircle2, XCircle, Clock,
+  KeyRound, Send, Ban, ScrollText, CheckCircle2, XCircle, Clock, LogIn,
 } from 'lucide-react';
 
 export default function AdminUsersPage() {

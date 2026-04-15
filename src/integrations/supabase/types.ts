@@ -2035,19 +2035,29 @@ export type Database = {
           isSetofReturn: true
         }
       }
-      admin_list_workspaces: {
-        Args: { _limit?: number; _offset?: number }
-        Returns: {
-          created_at: string
-          id: string
-          member_count: number
-          name: string
-          owner_email: string
-          owner_id: string
-          slug: string
-          updated_at: string
-        }[]
-      }
+      admin_list_workspaces:
+        | {
+            Args: { _limit?: number; _offset?: number }
+            Returns: {
+              created_at: string
+              id: string
+              member_count: number
+              name: string
+              owner_email: string
+              owner_id: string
+              slug: string
+              updated_at: string
+            }[]
+          }
+        | {
+            Args: {
+              _limit?: number
+              _offset?: number
+              _search?: string
+              _sort?: string
+            }
+            Returns: Json
+          }
       admin_security_stats: { Args: never; Returns: Json }
       bootstrap_admin: { Args: { _user_id: string }; Returns: boolean }
       cleanup_expired_auth_tokens: { Args: never; Returns: undefined }

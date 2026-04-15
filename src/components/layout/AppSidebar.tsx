@@ -336,10 +336,14 @@ export function AppSidebar() {
               <Building2 className="h-4 w-4 text-muted-foreground" />
               <span>{t('nav.workspaceSettings') || 'Workspace settings'}</span>
             </RouterLink>
-            <button className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-foreground hover:bg-accent transition-colors">
+            <RouterLink
+              to={wsPath('/team')}
+              className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-foreground hover:bg-accent transition-colors"
+              onClick={() => setUserMenuOpen(false)}
+            >
               <UserPlus className="h-4 w-4 text-muted-foreground" />
               <span>{t('nav.inviteOperator') || 'Invite an operator'}</span>
-            </button>
+            </RouterLink>
 
             <div className="border-t border-border my-1" />
 

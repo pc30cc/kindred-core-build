@@ -8,6 +8,7 @@ import {
   getRequestOrigin,
   getWorkspaceOriginRules,
   isWorkspaceOriginAllowed,
+  resolveWidgetApiBase,
   resolveWidgetAssetBase,
   resolveWorkspaceIdFromOrigin,
 } from '../services/widget/public.js';
@@ -42,7 +43,7 @@ widgetRouter.get('/config', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'No widget workspace mapped to this domain' });
     }
 
-    const [{ data: widget, error }, { data: branding }, originRules] = await Promise.all([
+    const [{ data: widget, error }, { data: branding }, { data: platformDomains }, originRules] = await Promise.all([
       supabase
         .from('widget_settings')
         .select('*')
@@ -50,8 +51,13 @@ widgetRouter.get('/config', async (req: Request, res: Response) => {
         .single(),
       supabase
         .from('workspace_branding')
-        .select('platform_name, logo_url, primary_color, widget_base_url, asset_base_url')
+        .select('platform_name, logo_url, primary_color, widget_base_url, widget_public_base_url, widget_loader_base_url, widget_api_base_url, asset_base_url')
         .eq('workspace_id', resolvedWorkspaceId)
+        .maybeSingle(),
+      supabase
+        .from('platform_domains')
+        .select('api_base_url, widget_base_url, asset_base_url, public_base_url')
+        .limit(1)
         .maybeSingle(),
       getWorkspaceOriginRules(config, resolvedWorkspaceId),
     ]);
@@ -68,9 +74,16 @@ widgetRouter.get('/config', async (req: Request, res: Response) => {
       return res.status(403).json({ error: 'Origin not allowed' });
     }
 
-    const apiBase = getRequestBaseUrl(req);
+    const apiBase = resolveWidgetApiBase({
+      widgetApiBaseUrl: branding?.widget_api_base_url,
+      platformApiBaseUrl: platformDomains?.api_base_url,
+      requestBaseUrl: getRequestBaseUrl(req),
+      allowRequestFallback: !branding?.widget_api_base_url && !platformDomains?.api_base_url,
+    });
     const assetBase = resolveWidgetAssetBase({
       widgetBaseUrl: branding?.widget_base_url,
+      widgetLoaderBaseUrl: branding?.widget_loader_base_url,
+      widgetPublicBaseUrl: branding?.widget_public_base_url || platformDomains?.widget_base_url || platformDomains?.public_base_url,
       assetBaseUrl: branding?.asset_base_url,
       loaderAssetBase: getLoaderAssetBase(req),
     });
@@ -80,6 +93,7 @@ widgetRouter.get('/config', async (req: Request, res: Response) => {
       workspaceId: resolvedWorkspaceId,
       apiBase,
       assetBase,
+      debugMode: widget.debug_mode ?? false,
       brandName: branding?.platform_name || 'Support',
       primaryColor: widget.primary_color || branding?.primary_color || '#3B82F6',
       logoUrl: widget.logo_url || branding?.logo_url || null,

@@ -145,6 +145,7 @@ visitorRouter.post('/track', async (req: Request, res: Response) => {
 // Presence heartbeat
 // ============================================
 const heartbeatSchema = z.object({
+  workspace_id: z.string().uuid().optional(),
   session_id: z.string().uuid(),
   current_page: z.string().max(2048).optional(),
   status: z.enum(['online', 'idle']).optional().default('online'),
@@ -158,10 +159,21 @@ visitorRouter.post('/heartbeat', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Invalid data' });
   }
 
-  const { session_id, current_page, status } = parsed.data;
+  const { session_id, current_page, status, workspace_id } = parsed.data;
   const supabase = getServiceClient(config);
 
   try {
+    if (workspace_id) {
+      const origin = typeof req.headers.origin === 'string'
+        ? req.headers.origin
+        : typeof req.headers.referer === 'string'
+          ? req.headers.referer
+          : null;
+      if (!(await isWorkspaceOriginAllowed(config, workspace_id, origin))) {
+        return res.status(403).json({ error: 'Origin not allowed' });
+      }
+    }
+
     await supabase
       .from('visitor_sessions')
       .update({

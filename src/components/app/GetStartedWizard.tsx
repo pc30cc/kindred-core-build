@@ -62,7 +62,7 @@ export default function GetStartedWizard() {
     setExpandedSections(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const renderSection = (sectionKey: string, titleKey: string, tasks: WizardTask[]) => {
+  const renderSection = (sectionKey: string, titleKey: TranslationKey, tasks: WizardTask[]) => {
     const isOpen = expandedSections[sectionKey];
     return (
       <div key={sectionKey} className="border border-border rounded-xl overflow-hidden">

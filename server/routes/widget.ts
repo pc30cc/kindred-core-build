@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { getServiceClient } from '../supabase.js';
 import type { ServerConfig } from '../config.js';
-import { isOriginAllowed } from '../utils/domain.js';
+import { isOriginAllowed, normalizeDomain, extractHostname } from '../utils/domain.js';
 
 export const widgetRouter = Router();
 
@@ -11,8 +11,8 @@ export const widgetRouter = Router();
 // Widget bootstrap endpoint — server-validated
 // ============================================
 const configQuerySchema = z.object({
-  workspace_id: z.string().uuid(),
-  origin: z.string().url().optional(),
+  workspace_id: z.string().uuid().optional(),
+  origin: z.string().url(),
 });
 
 function getRequestBaseUrl(req: Request): string {
@@ -37,10 +37,36 @@ widgetRouter.get('/config', async (req: Request, res: Response) => {
   const supabase = getServiceClient(config);
 
   try {
+    const originHost = extractHostname(origin);
+    if (!originHost) {
+      return res.status(400).json({ error: 'Invalid origin' });
+    }
+
+    let resolvedWorkspaceId = workspace_id || null;
+
+    if (!resolvedWorkspaceId) {
+      const normalizedHost = normalizeDomain(originHost);
+      const { data: domainRows, error: domainError } = await supabase
+        .from('workspace_domains')
+        .select('workspace_id, domain, verified, is_primary')
+        .eq('verified', true);
+
+      if (domainError) {
+        throw domainError;
+      }
+
+      const matched = (domainRows || []).find((row: any) => normalizeDomain(row.domain) === normalizedHost);
+      if (!matched) {
+        return res.status(404).json({ error: 'No widget workspace mapped to this domain' });
+      }
+
+      resolvedWorkspaceId = matched.workspace_id;
+    }
+
     const { data: widget, error } = await supabase
       .from('widget_settings')
       .select('*')
-      .eq('workspace_id', workspace_id)
+      .eq('workspace_id', resolvedWorkspaceId)
       .single();
 
     if (error || !widget) {
@@ -51,16 +77,18 @@ widgetRouter.get('/config', async (req: Request, res: Response) => {
       return res.json({ enabled: false });
     }
 
-    if (origin && widget.allowed_domains && widget.allowed_domains.length > 0) {
-      if (!isOriginAllowed(origin, widget.allowed_domains, widget.allow_subdomains ?? false)) {
-        return res.status(403).json({ error: 'Origin not allowed' });
-      }
+    const effectiveAllowedDomains = (widget.allowed_domains && widget.allowed_domains.length > 0)
+      ? widget.allowed_domains
+      : [originHost];
+
+    if (!isOriginAllowed(origin, effectiveAllowedDomains, widget.allow_subdomains ?? false)) {
+      return res.status(403).json({ error: 'Origin not allowed' });
     }
 
     const { data: branding } = await supabase
       .from('workspace_branding')
       .select('platform_name, logo_url, primary_color, widget_base_url')
-      .eq('workspace_id', workspace_id)
+      .eq('workspace_id', resolvedWorkspaceId)
       .single();
 
     const apiBase = getRequestBaseUrl(req);
@@ -68,7 +96,7 @@ widgetRouter.get('/config', async (req: Request, res: Response) => {
 
     const widgetConfig = {
       enabled: true,
-      workspaceId: workspace_id,
+      workspaceId: resolvedWorkspaceId,
       apiBase,
       brandName: branding?.platform_name || 'Support',
       primaryColor: widget.primary_color || branding?.primary_color || '#3B82F6',
@@ -82,8 +110,8 @@ widgetRouter.get('/config', async (req: Request, res: Response) => {
         knowledgeBase: widget.kb_enabled ?? true,
         visitorTracking: widget.visitor_tracking_enabled ?? true,
       },
-      runtimeUrl: assetBase ? `${assetBase}/widget/runtime.js` : null,
-      styleUrl: assetBase ? `${assetBase}/widget/runtime.css` : null,
+      runtimeUrl: assetBase ? `${assetBase}/widget/runtime.js` : `${apiBase}/widget/runtime.js`,
+      styleUrl: assetBase ? `${assetBase}/widget/runtime.css` : `${apiBase}/widget/runtime.css`,
     };
 
     res.json(widgetConfig);

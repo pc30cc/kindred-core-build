@@ -77,23 +77,30 @@
 
   function getAssetBase() {
     var loaderScript = getLoaderScript();
+    var explicitAssetBase = loaderScript && loaderScript.getAttribute('data-asset-base');
+    if (explicitAssetBase && explicitAssetBase.indexOf('%VITE_') !== 0) {
+      return explicitAssetBase.replace(/\/$/, '');
+    }
     var src = loaderScript && loaderScript.src ? loaderScript.src : '';
     return src ? src.replace(/\/widget\/loader\.js.*$/, '') : '';
   }
 
-  function getApiBase(assetBase) {
+  function getApiBase() {
     var loaderScript = getLoaderScript();
-    var configured = loaderScript && loaderScript.getAttribute('data-api-base');
-
-    if (configured && configured.indexOf('%VITE_') !== 0) {
-      return configured.replace(/\/$/, '');
-    }
-
     if (window.__gs_api_base && typeof window.__gs_api_base === 'string' && window.__gs_api_base.indexOf('%VITE_') !== 0) {
       return window.__gs_api_base.replace(/\/$/, '');
     }
 
-    return assetBase;
+    var configured = loaderScript && loaderScript.getAttribute('data-api-base');
+    if (configured && configured.indexOf('%VITE_') !== 0) {
+      return configured.replace(/\/$/, '');
+    }
+
+    return '';
+  }
+
+  function logDebug(message, payload) {
+    console.info('[Widget]', message, payload || '');
   }
 
   function isPreviewHost(hostname) {
@@ -132,6 +139,9 @@
     window.__gs._id = WORKSPACE_ID;
 
     var runtimeApiBase = (config.apiBase || apiBase || '').replace(/\/$/, '');
+    var runtimeAssetBase = (config.assetBase || assetBase || '').replace(/\/$/, '');
+    logDebug('Selected apiBase:', runtimeApiBase || '(empty)');
+    logDebug('Selected assetBase:', runtimeAssetBase || '(empty)');
 
     if (config.features && config.features.visitorTracking && runtimeApiBase && WORKSPACE_ID) {
       var visitorId = localStorage.getItem('__gs_vid') || generateId();
@@ -157,12 +167,12 @@
       }).catch(function() {});
     }
 
-    var runtimeCss = config.styleUrl || (assetBase + '/widget/runtime.css');
-    var runtimeJs = config.runtimeUrl || (assetBase + '/widget/runtime.js');
-    console.info('[Widget] Runtime assets:', { runtimeUrl: runtimeJs, styleUrl: runtimeCss });
+    var runtimeCss = config.styleUrl || (runtimeAssetBase ? runtimeAssetBase + '/widget/runtime.css' : '');
+    var runtimeJs = config.runtimeUrl || (runtimeAssetBase ? runtimeAssetBase + '/widget/runtime.js' : '');
+    logDebug('Runtime assets:', { runtimeUrl: runtimeJs, styleUrl: runtimeCss });
 
     if (!runtimeCss || !runtimeJs) {
-      console.warn('[Widget] Missing runtime asset URLs in widget config.');
+      console.warn('[Widget] Missing runtime asset URLs in widget config.', config);
       return;
     }
 
@@ -179,7 +189,7 @@
     script.async = true;
     script.onload = function() {
       if (window.__gs_runtime) {
-        widget = window.__gs_runtime.init(config);
+          widget = window.__gs_runtime.init(config);
         ready = true;
         processQueue();
       }
@@ -192,7 +202,7 @@
 
   function bootstrap() {
     var assetBase = getAssetBase();
-    var apiBase = getApiBase(assetBase);
+    var apiBase = getApiBase();
     var origin = window.location.origin;
     var params = new URLSearchParams({ origin: origin });
 
@@ -204,17 +214,23 @@
       params.set('workspace_id', WORKSPACE_ID);
     }
 
-    var configUrl = apiBase + '/api/widget/config?' + params.toString();
-    console.info('[Widget] Config URL:', configUrl);
+    if (!apiBase) {
+      console.error('[Widget] No apiBase resolved. Use window.__gs_api_base, data-api-base, or admin widget API base.');
+      if (!isPreviewHost(window.location.hostname)) return;
+    }
+
+    var configUrl = (apiBase || '') + '/api/widget/config?' + params.toString();
+    logDebug('Config URL:', configUrl);
 
     fetch(configUrl)
       .then(function(res) {
-        console.info('[Widget] Config fetch status:', res.status, res.ok);
+        logDebug('Config fetch status:', { status: res.status, ok: res.ok });
         if (!res.ok) throw new Error('Widget config failed: ' + res.status);
         return res.json();
       })
       .then(function(config) {
         if (!config.enabled) return;
+        logDebug('Resolved config bases:', { apiBase: config.apiBase, assetBase: config.assetBase, runtimeUrl: config.runtimeUrl, styleUrl: config.styleUrl });
         mountWidget(config, assetBase, apiBase);
       })
       .catch(function(err) {

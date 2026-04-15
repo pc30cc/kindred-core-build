@@ -96,6 +96,100 @@
     return assetBase;
   }
 
+  function isPreviewHost(hostname) {
+    return /lovableproject\.com$/i.test(hostname || '') || /lovable\.app$/i.test(hostname || '');
+  }
+
+  function getPreviewFallbackConfig(assetBase, apiBase) {
+    var safeAssetBase = (assetBase || '').replace(/\/$/, '');
+    if (!safeAssetBase) return null;
+
+    return {
+      enabled: true,
+      workspaceId: WORKSPACE_ID,
+      apiBase: (apiBase || '').replace(/\/$/, ''),
+      assetBase: safeAssetBase,
+      brandName: document.title || 'Support',
+      primaryColor: '#3B82F6',
+      logoUrl: null,
+      launcherText: 'Chat with us',
+      welcomeMessage: 'Hello! How can we help you?',
+      position: 'bottom-right',
+      locale: document.documentElement.lang || 'en',
+      features: {
+        chat: false,
+        knowledgeBase: false,
+        visitorTracking: false,
+      },
+      runtimeUrl: safeAssetBase + '/widget/runtime.js',
+      styleUrl: safeAssetBase + '/widget/runtime.css'
+    };
+  }
+
+  function mountWidget(config, assetBase, apiBase) {
+    WORKSPACE_ID = config.workspaceId || WORKSPACE_ID;
+    window.__gs_id = WORKSPACE_ID;
+    window.__gs._id = WORKSPACE_ID;
+
+    var runtimeApiBase = (config.apiBase || apiBase || '').replace(/\/$/, '');
+
+    if (config.features && config.features.visitorTracking && runtimeApiBase && WORKSPACE_ID) {
+      var visitorId = localStorage.getItem('__gs_vid') || generateId();
+      localStorage.setItem('__gs_vid', visitorId);
+
+      fetch(runtimeApiBase + '/api/visitors/track?workspace_id=' + encodeURIComponent(WORKSPACE_ID), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          workspace_id: WORKSPACE_ID,
+          visitor_id: visitorId,
+          current_page: window.location.pathname,
+          referrer: document.referrer || null,
+          browser: detectBrowser(),
+          device: detectDevice(),
+          os: detectOS()
+        })
+      }).then(function(r) { return r.json(); }).then(function(data) {
+        if (data.session_id) {
+          localStorage.setItem('__gs_sid', data.session_id);
+          startHeartbeat(runtimeApiBase, WORKSPACE_ID, data.session_id);
+        }
+      }).catch(function() {});
+    }
+
+    var runtimeCss = config.styleUrl || (assetBase + '/widget/runtime.css');
+    var runtimeJs = config.runtimeUrl || (assetBase + '/widget/runtime.js');
+    console.info('[Widget] Runtime assets:', { runtimeUrl: runtimeJs, styleUrl: runtimeCss });
+
+    if (!runtimeCss || !runtimeJs) {
+      console.warn('[Widget] Missing runtime asset URLs in widget config.');
+      return;
+    }
+
+    var link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = runtimeCss;
+    link.onerror = function() {
+      console.warn('[Widget] Runtime stylesheet failed to load:', runtimeCss);
+    };
+    document.head.appendChild(link);
+
+    var script = document.createElement('script');
+    script.src = runtimeJs;
+    script.async = true;
+    script.onload = function() {
+      if (window.__gs_runtime) {
+        widget = window.__gs_runtime.init(config);
+        ready = true;
+        processQueue();
+      }
+    };
+    script.onerror = function() {
+      console.warn('[Widget] Runtime script failed to load:', runtimeJs);
+    };
+    document.head.appendChild(script);
+  }
+
   function bootstrap() {
     var assetBase = getAssetBase();
     var apiBase = getApiBase(assetBase);
@@ -121,71 +215,18 @@
       })
       .then(function(config) {
         if (!config.enabled) return;
-
-        WORKSPACE_ID = config.workspaceId || WORKSPACE_ID;
-        window.__gs_id = WORKSPACE_ID;
-        window.__gs._id = WORKSPACE_ID;
-
-        var runtimeApiBase = (config.apiBase || apiBase || '').replace(/\/$/, '');
-
-        if (config.features && config.features.visitorTracking && runtimeApiBase && WORKSPACE_ID) {
-          var visitorId = localStorage.getItem('__gs_vid') || generateId();
-          localStorage.setItem('__gs_vid', visitorId);
-
-          fetch(runtimeApiBase + '/api/visitors/track?workspace_id=' + encodeURIComponent(WORKSPACE_ID), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              workspace_id: WORKSPACE_ID,
-              visitor_id: visitorId,
-              current_page: window.location.pathname,
-              referrer: document.referrer || null,
-              browser: detectBrowser(),
-              device: detectDevice(),
-              os: detectOS()
-            })
-          }).then(function(r) { return r.json(); }).then(function(data) {
-            if (data.session_id) {
-              localStorage.setItem('__gs_sid', data.session_id);
-              startHeartbeat(runtimeApiBase, WORKSPACE_ID, data.session_id);
-            }
-          }).catch(function() {});
-        }
-
-        var runtimeCss = config.styleUrl || (assetBase + '/widget/runtime.css');
-        var runtimeJs = config.runtimeUrl || (assetBase + '/widget/runtime.js');
-        console.info('[Widget] Runtime assets:', { runtimeUrl: runtimeJs, styleUrl: runtimeCss });
-
-        if (!runtimeCss || !runtimeJs) {
-          console.warn('[Widget] Missing runtime asset URLs in widget config.');
-          return;
-        }
-
-        var link = document.createElement('link');
-        link.rel = 'stylesheet';
-        link.href = runtimeCss;
-        link.onerror = function() {
-          console.warn('[Widget] Runtime stylesheet failed to load:', runtimeCss);
-        };
-        document.head.appendChild(link);
-
-        var script = document.createElement('script');
-        script.src = runtimeJs;
-        script.async = true;
-        script.onload = function() {
-          if (window.__gs_runtime) {
-            widget = window.__gs_runtime.init(config);
-            ready = true;
-            processQueue();
-          }
-        };
-        script.onerror = function() {
-          console.warn('[Widget] Runtime script failed to load:', runtimeJs);
-        };
-        document.head.appendChild(script);
+        mountWidget(config, assetBase, apiBase);
       })
       .catch(function(err) {
         console.warn('[Widget] Bootstrap failed:', err);
+
+        if (isPreviewHost(window.location.hostname)) {
+          var fallbackConfig = getPreviewFallbackConfig(assetBase, apiBase);
+          if (fallbackConfig) {
+            console.info('[Widget] Using preview fallback config.');
+            mountWidget(fallbackConfig, assetBase, apiBase);
+          }
+        }
       });
   }
 

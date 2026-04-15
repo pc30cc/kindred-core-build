@@ -82,6 +82,8 @@ const en = {
     resendCooldown: 'Retry in {minutes} min',
     loginPromoTitle: 'Manage all your conversations in one place',
     loginPromoSubtitle: 'Streamline customer support with smart inbox, live chat, and powerful automation tools.',
+    signupPromoTitle: 'Join thousands of teams delivering great support',
+    signupPromoSubtitle: 'Create your free account and start connecting with your customers in minutes.',
     emailConfirmLoading: 'Verifying your email...',
     emailConfirmLoadingDesc: 'Please wait while we verify your account.',
     emailConfirmSuccess: 'Email verified!',

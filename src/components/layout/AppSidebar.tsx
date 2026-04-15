@@ -20,6 +20,7 @@ import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import { useProfile } from '@/hooks/useProfile';
 import { useMemo, useState, useRef, useEffect } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
+import { CreateWorkspaceDialog } from '@/features/workspace/CreateWorkspaceDialog';
 
 export function AppSidebar() {
   const { t, dir } = useTranslation();

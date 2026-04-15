@@ -63,20 +63,46 @@
     }
   }
 
-  function getApiBase() {
+  function getLoaderScript() {
+    if (document.currentScript && (document.currentScript.src || '').indexOf('/widget/loader.js') !== -1) {
+      return document.currentScript;
+    }
+
     var scripts = document.getElementsByTagName('script');
     for (var i = scripts.length - 1; i >= 0; i--) {
       var src = scripts[i].src || '';
       if (src.indexOf('/widget/loader.js') !== -1) {
-        // Strip /widget/loader.js to get the base URL
-        return src.replace(/\/widget\/loader\.js.*$/, '');
+        return scripts[i];
       }
     }
-    return '';
+
+    return null;
+  }
+
+  function getAssetBase() {
+    var loaderScript = getLoaderScript();
+    var src = loaderScript && loaderScript.src ? loaderScript.src : '';
+    return src ? src.replace(/\/widget\/loader\.js.*$/, '') : '';
+  }
+
+  function getApiBase(assetBase) {
+    var loaderScript = getLoaderScript();
+    var configured = loaderScript && loaderScript.getAttribute('data-api-base');
+
+    if (configured && configured.indexOf('%VITE_') !== 0) {
+      return configured.replace(/\/$/, '');
+    }
+
+    if (window.__gs_api_base && typeof window.__gs_api_base === 'string' && window.__gs_api_base.indexOf('%VITE_') !== 0) {
+      return window.__gs_api_base.replace(/\/$/, '');
+    }
+
+    return assetBase;
   }
 
   function bootstrap() {
-    var apiBase = getApiBase();
+    var assetBase = getAssetBase();
+    var apiBase = getApiBase(assetBase);
     var origin = window.location.origin;
     var configUrl = apiBase + '/api/widget/config?workspace_id=' + encodeURIComponent(WORKSPACE_ID) + '&origin=' + encodeURIComponent(origin);
 
@@ -88,12 +114,14 @@
       .then(function(config) {
         if (!config.enabled) return;
 
+        var runtimeApiBase = (config.apiBase || apiBase || '').replace(/\/$/, '');
+
         // Visitor tracking
-        if (config.features && config.features.visitorTracking) {
+        if (config.features && config.features.visitorTracking && runtimeApiBase) {
           var visitorId = localStorage.getItem('__gs_vid') || generateId();
           localStorage.setItem('__gs_vid', visitorId);
 
-          fetch(apiBase + '/api/visitors/track', {
+          fetch(runtimeApiBase + '/api/visitors/track', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -107,14 +135,14 @@
             })
           }).then(function(r) { return r.json(); }).then(function(data) {
             if (data.session_id) {
-              startHeartbeat(apiBase, config.workspaceId, data.session_id);
+              startHeartbeat(runtimeApiBase, config.workspaceId, data.session_id);
             }
           }).catch(function() {});
         }
 
-        // Load runtime CSS + JS — use config URLs or derive from apiBase
-        var runtimeCss = config.styleUrl || (apiBase + '/widget/runtime.css');
-        var runtimeJs = config.runtimeUrl || (apiBase + '/widget/runtime.js');
+        // Load runtime CSS + JS — prefer explicit asset URLs, else loader asset base
+        var runtimeCss = config.styleUrl || (assetBase + '/widget/runtime.css');
+        var runtimeJs = config.runtimeUrl || (assetBase + '/widget/runtime.js');
 
         var link = document.createElement('link');
         link.rel = 'stylesheet';

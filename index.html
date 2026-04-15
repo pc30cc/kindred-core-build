@@ -22,8 +22,12 @@
         window.__gs_id = '6ee40d07-32a3-4594-8a5f-d439f81afa5b';
         var d = document;
         var s = d.createElement('script');
+        var apiBase = '%VITE_API_BASE_URL%';
         s.src = window.location.origin + '/widget/loader.js';
         s.async = 1;
+        if (apiBase && apiBase.indexOf('%VITE_') !== 0) {
+          s.setAttribute('data-api-base', apiBase.replace(/\/$/, ''));
+        }
         d.getElementsByTagName('head')[0].appendChild(s);
       })();
     </script>

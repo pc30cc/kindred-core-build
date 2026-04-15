@@ -93,6 +93,18 @@ export default function AdminWorkspacesPage() {
             <SelectItem value="most_active">Most active</SelectItem>
           </SelectContent>
         </Select>
+        <Select value={String(limit)} onValueChange={v => { setLimit(Number(v)); setPage(0); }}>
+          <SelectTrigger className="w-full sm:w-[120px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="10">10 per page</SelectItem>
+            <SelectItem value="20">20 per page</SelectItem>
+            <SelectItem value="30">30 per page</SelectItem>
+            <SelectItem value="50">50 per page</SelectItem>
+            <SelectItem value="100">100 per page</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       <Card>

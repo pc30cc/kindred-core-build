@@ -18,7 +18,7 @@
 (function() {
   'use strict';
 
-  var LOADER_VERSION = '2026-04-15-build-2';
+  var LOADER_VERSION = '2026-04-15-build-3';
   console.log('[Widget] Loader version: ' + LOADER_VERSION);
 
   var GS = window.__gs || [];

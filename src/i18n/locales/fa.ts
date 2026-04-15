@@ -82,6 +82,8 @@ const fa: TranslationKeys = {
     verificationResent: 'ایمیل تأیید دوباره ارسال شد!',
     resendEmail: 'ارسال مجدد',
     resendCooldown: 'ارسال مجدد تا {minutes} دقیقه دیگر',
+    loginPromoTitle: 'تمام مکالمات خود را در یک جا مدیریت کنید',
+    loginPromoSubtitle: 'پشتیبانی مشتریان را با صندوق ورودی هوشمند، چت زنده و ابزارهای اتوماسیون قدرتمند ساده‌تر کنید.',
     emailConfirmLoading: 'در حال تأیید ایمیل...',
     emailConfirmLoadingDesc: 'لطفاً منتظر بمانید تا حساب شما تأیید شود.',
     emailConfirmSuccess: 'ایمیل تأیید شد!',

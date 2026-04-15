@@ -80,6 +80,8 @@ const en = {
     verificationResent: 'Verification email resent!',
     resendEmail: 'Resend',
     resendCooldown: 'Retry in {minutes} min',
+    loginPromoTitle: 'Manage all your conversations in one place',
+    loginPromoSubtitle: 'Streamline customer support with smart inbox, live chat, and powerful automation tools.',
     emailConfirmLoading: 'Verifying your email...',
     emailConfirmLoadingDesc: 'Please wait while we verify your account.',
     emailConfirmSuccess: 'Email verified!',

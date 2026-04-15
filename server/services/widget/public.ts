@@ -1,0 +1,170 @@
+import type { Request } from 'express';
+import type { ServerConfig } from '../../config.js';
+import { getServiceClient } from '../../supabase.js';
+import { extractHostname, isOriginAllowed, normalizeDomain } from '../../utils/domain.js';
+
+const CACHE_TTL = 60_000;
+
+const workspaceByHostCache = new Map<string, { workspaceId: string | null; ts: number }>();
+const originRulesCache = new Map<string, { domains: string[]; allowSubdomains: boolean; ts: number }>();
+
+function isFresh(ts: number) {
+  return Date.now() - ts < CACHE_TTL;
+}
+
+function uniqueStrings(values: Array<string | null | undefined>) {
+  return Array.from(new Set(values.filter((value): value is string => !!value && value.trim().length > 0)));
+}
+
+export function getRequestOrigin(req: Request): string | null {
+  const origin = req.headers.origin;
+  return typeof origin === 'string' && origin.length > 0 ? origin : null;
+}
+
+export function getBootstrapOrigin(req: Request): string | null {
+  const queryOrigin = typeof req.query.origin === 'string' ? req.query.origin : null;
+  return queryOrigin || getRequestOrigin(req);
+}
+
+export function getLoaderAssetBase(req: Request): string | null {
+  if (typeof req.query.loader_origin === 'string') {
+    return normalizeBaseUrl(req.query.loader_origin);
+  }
+
+  if (typeof req.query.asset_base === 'string') {
+    return normalizeBaseUrl(req.query.asset_base);
+  }
+
+  return null;
+}
+
+export function getRequestBaseUrl(req: Request): string {
+  const forwardedProto = req.headers['x-forwarded-proto'];
+  const forwardedHost = req.headers['x-forwarded-host'];
+
+  const proto = (Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto?.split(',')[0]) || req.protocol;
+  const host = (Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost?.split(',')[0]) || req.get('host') || 'localhost';
+
+  return `${proto}://${host}`.replace(/\/$/, '');
+}
+
+export function normalizeBaseUrl(input: string | null | undefined): string | null {
+  if (!input) return null;
+
+  try {
+    const url = new URL(input.trim());
+    return `${url.protocol}//${url.host}${url.pathname}`.replace(/\/$/, '');
+  } catch {
+    return null;
+  }
+}
+
+export function resolveWidgetAssetBase(options: {
+  widgetBaseUrl?: string | null;
+  assetBaseUrl?: string | null;
+  loaderAssetBase?: string | null;
+}) {
+  return normalizeBaseUrl(options.widgetBaseUrl)
+    || normalizeBaseUrl(options.loaderAssetBase)
+    || normalizeBaseUrl(options.assetBaseUrl)
+    || null;
+}
+
+export async function resolveWorkspaceIdFromOrigin(config: ServerConfig, origin: string | null): Promise<string | null> {
+  if (!origin) return null;
+
+  const originHost = extractHostname(origin);
+  if (!originHost) return null;
+
+  const normalizedHost = normalizeDomain(originHost);
+  const cached = workspaceByHostCache.get(normalizedHost);
+  if (cached && isFresh(cached.ts)) {
+    return cached.workspaceId;
+  }
+
+  const supabase = getServiceClient(config);
+  const { data: domainRows, error } = await supabase
+    .from('workspace_domains')
+    .select('workspace_id, domain, verified')
+    .eq('verified', true);
+
+  if (error) throw error;
+
+  const rows = (domainRows || []).map((row: any) => ({
+    workspace_id: row.workspace_id as string,
+    domain: normalizeDomain(row.domain),
+  }));
+
+  const exactMatch = rows.find((row) => row.domain === normalizedHost);
+  if (exactMatch) {
+    workspaceByHostCache.set(normalizedHost, { workspaceId: exactMatch.workspace_id, ts: Date.now() });
+    return exactMatch.workspace_id;
+  }
+
+  const candidates = rows.filter((row) => normalizedHost.endsWith(`.${row.domain}`));
+  if (!candidates.length) {
+    workspaceByHostCache.set(normalizedHost, { workspaceId: null, ts: Date.now() });
+    return null;
+  }
+
+  const workspaceIds = Array.from(new Set(candidates.map((row) => row.workspace_id)));
+  const { data: widgetRows, error: widgetError } = await supabase
+    .from('widget_settings')
+    .select('workspace_id, allow_subdomains')
+    .in('workspace_id', workspaceIds);
+
+  if (widgetError) throw widgetError;
+
+  const allowSubdomainMap = new Map((widgetRows || []).map((row: any) => [row.workspace_id as string, !!row.allow_subdomains]));
+  const matched = candidates
+    .filter((row) => allowSubdomainMap.get(row.workspace_id))
+    .sort((a, b) => b.domain.length - a.domain.length)[0];
+
+  const workspaceId = matched?.workspace_id || null;
+  workspaceByHostCache.set(normalizedHost, { workspaceId, ts: Date.now() });
+  return workspaceId;
+}
+
+export async function getWorkspaceOriginRules(config: ServerConfig, workspaceId: string) {
+  const cached = originRulesCache.get(workspaceId);
+  if (cached && isFresh(cached.ts)) {
+    return { domains: cached.domains, allowSubdomains: cached.allowSubdomains };
+  }
+
+  const supabase = getServiceClient(config);
+  const [{ data: widgetData, error: widgetError }, { data: domainData, error: domainError }] = await Promise.all([
+    supabase
+      .from('widget_settings')
+      .select('allowed_domains, allow_subdomains')
+      .eq('workspace_id', workspaceId)
+      .maybeSingle(),
+    supabase
+      .from('workspace_domains')
+      .select('domain, verified')
+      .eq('workspace_id', workspaceId)
+      .eq('verified', true),
+  ]);
+
+  if (widgetError) throw widgetError;
+  if (domainError) throw domainError;
+
+  const domains = uniqueStrings([
+    ...((widgetData?.allowed_domains as string[] | null) || []),
+    ...((domainData || []).map((row: any) => row.domain)),
+  ]);
+
+  const result = {
+    domains,
+    allowSubdomains: widgetData?.allow_subdomains ?? false,
+  };
+
+  originRulesCache.set(workspaceId, { ...result, ts: Date.now() });
+  return result;
+}
+
+export async function isWorkspaceOriginAllowed(config: ServerConfig, workspaceId: string, origin: string | null) {
+  if (!origin) return true;
+
+  const { domains, allowSubdomains } = await getWorkspaceOriginRules(config, workspaceId);
+  return !domains.length || isOriginAllowed(origin, domains, allowSubdomains);
+}

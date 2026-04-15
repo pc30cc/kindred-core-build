@@ -118,12 +118,13 @@
 
       // Send to API
       if (apiBase && workspaceId) {
-        fetch(apiBase + '/api/widget/message', {
+        fetch(apiBase + '/api/widget/message?workspace_id=' + encodeURIComponent(workspaceId), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             workspace_id: workspaceId,
             visitor_id: localStorage.getItem('__gs_vid') || '',
+            session_id: localStorage.getItem('__gs_sid') || undefined,
             body: text,
           })
         }).then(function(r) { return r.json(); })
@@ -184,7 +185,7 @@
 
     // Load KB articles
     if (kbEnabled && apiBase && workspaceId) {
-      fetch(apiBase + '/api/widget/kb?workspace_id=' + encodeURIComponent(workspaceId))
+      fetch(apiBase + '/api/widget/kb?workspace_id=' + encodeURIComponent(workspaceId) + '&locale=' + encodeURIComponent(locale))
         .then(function(r) { return r.json(); })
         .then(function(data) {
           kbArticles = data.articles || [];

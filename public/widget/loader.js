@@ -102,14 +102,20 @@
     var origin = window.location.origin;
     var params = new URLSearchParams({ origin: origin });
 
+    if (assetBase) {
+      params.set('loader_origin', assetBase);
+    }
+
     if (WORKSPACE_ID) {
       params.set('workspace_id', WORKSPACE_ID);
     }
 
     var configUrl = apiBase + '/api/widget/config?' + params.toString();
+    console.info('[Widget] Config URL:', configUrl);
 
     fetch(configUrl)
       .then(function(res) {
+        console.info('[Widget] Config fetch status:', res.status, res.ok);
         if (!res.ok) throw new Error('Widget config failed: ' + res.status);
         return res.json();
       })
@@ -126,7 +132,7 @@
           var visitorId = localStorage.getItem('__gs_vid') || generateId();
           localStorage.setItem('__gs_vid', visitorId);
 
-          fetch(runtimeApiBase + '/api/visitors/track', {
+          fetch(runtimeApiBase + '/api/visitors/track?workspace_id=' + encodeURIComponent(WORKSPACE_ID), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -140,6 +146,7 @@
             })
           }).then(function(r) { return r.json(); }).then(function(data) {
             if (data.session_id) {
+              localStorage.setItem('__gs_sid', data.session_id);
               startHeartbeat(runtimeApiBase, WORKSPACE_ID, data.session_id);
             }
           }).catch(function() {});
@@ -147,10 +154,19 @@
 
         var runtimeCss = config.styleUrl || (assetBase + '/widget/runtime.css');
         var runtimeJs = config.runtimeUrl || (assetBase + '/widget/runtime.js');
+        console.info('[Widget] Runtime assets:', { runtimeUrl: runtimeJs, styleUrl: runtimeCss });
+
+        if (!runtimeCss || !runtimeJs) {
+          console.warn('[Widget] Missing runtime asset URLs in widget config.');
+          return;
+        }
 
         var link = document.createElement('link');
         link.rel = 'stylesheet';
         link.href = runtimeCss;
+        link.onerror = function() {
+          console.warn('[Widget] Runtime stylesheet failed to load:', runtimeCss);
+        };
         document.head.appendChild(link);
 
         var script = document.createElement('script');
@@ -163,16 +179,19 @@
             processQueue();
           }
         };
+        script.onerror = function() {
+          console.warn('[Widget] Runtime script failed to load:', runtimeJs);
+        };
         document.head.appendChild(script);
       })
       .catch(function(err) {
-        console.warn('[Widget] Bootstrap failed:', err.message);
+        console.warn('[Widget] Bootstrap failed:', err);
       });
   }
 
   function startHeartbeat(apiBase, workspaceId, sessionId) {
     setInterval(function() {
-      fetch(apiBase + '/api/visitors/heartbeat', {
+      fetch(apiBase + '/api/visitors/heartbeat?workspace_id=' + encodeURIComponent(workspaceId), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

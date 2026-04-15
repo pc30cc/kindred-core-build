@@ -197,7 +197,14 @@ export default function SignupPage() {
                 companyName={companyName} setCompanyName={setCompanyName}
                 websiteDomain={websiteDomain} setWebsiteDomain={setWebsiteDomain}
                 mainGoal={mainGoal} setMainGoal={setMainGoal}
-                loading={loading} onSubmit={handleStep2} brandName={brandName}
+                loading={false} onSubmit={handleStep2} brandName={brandName}
+              />
+            )}
+
+            {step === 3 && (
+              <SignupStepAI
+                aiMode={aiMode} setAiMode={setAiMode}
+                loading={loading} onSubmit={handleStep3} brandName={brandName}
               />
             )}
           </div>

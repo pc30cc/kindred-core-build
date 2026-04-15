@@ -130,8 +130,8 @@
   }
 }
 
-/* Shared panel scope — dark theme for both admin and app panels */
-.panel-scope {
+/* Admin panel scope — dark theme for admin only */
+.admin-scope {
   --background: var(--admin-background);
   --foreground: var(--admin-foreground);
   --card: var(--admin-card);
@@ -156,6 +156,39 @@
   --sidebar-border: var(--admin-border);
   --sidebar-muted-foreground: var(--admin-muted-foreground);
   --sidebar-ring: var(--admin-accent);
+}
+
+/* App panel scope — light professional theme */
+.app-scope {
+  --background: 210 20% 98%;
+  --foreground: 222 47% 11%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 11%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 47% 11%;
+  --primary: 221 83% 53%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 214 32% 94%;
+  --secondary-foreground: 222 47% 11%;
+  --muted: 214 20% 94%;
+  --muted-foreground: 215 16% 47%;
+  --accent: 221 83% 96%;
+  --accent-foreground: 221 83% 40%;
+  --border: 214 25% 90%;
+  --input: 214 25% 90%;
+  --ring: 221 83% 53%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+
+  --sidebar-background: 0 0% 100%;
+  --sidebar-foreground: 222 47% 11%;
+  --sidebar-primary: 221 83% 53%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 221 83% 96%;
+  --sidebar-accent-foreground: 221 83% 40%;
+  --sidebar-border: 214 25% 92%;
+  --sidebar-ring: 221 83% 53%;
+  --sidebar-muted-foreground: 215 16% 52%;
 }
 
 @layer base {

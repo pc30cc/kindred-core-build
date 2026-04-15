@@ -45,7 +45,7 @@ export function AppSidebar() {
     return location.pathname.startsWith(path);
   };
 
-  const userName = user?.fullName || user?.email?.split('@')[0] || '';
+  const userName = (user?.metadata?.full_name as string) || user?.email?.split('@')[0] || '';
   const userEmail = user?.email || '';
 
   return (

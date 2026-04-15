@@ -85,6 +85,45 @@ export function useAdminWorkspaceCount() {
   });
 }
 
+export function useAdminWorkspaceDetail(workspaceId: string | null) {
+  return useQuery({
+    queryKey: ['admin-workspace-detail', workspaceId],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('admin_get_workspace_detail', {
+        _workspace_id: workspaceId!,
+      });
+      if (error) throw error;
+      return data as {
+        workspace: any;
+        members: Array<{ id: string; user_id: string; role: string; created_at: string; email: string; full_name: string | null }>;
+        branding: any;
+        widget_settings: any;
+        contact_count: number;
+        conversation_count: number;
+      };
+    },
+    enabled: !!workspaceId,
+  });
+}
+
+export function useAdminDeleteWorkspace() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (workspaceId: string) => {
+      const { data, error } = await supabase.rpc('admin_delete_workspace', {
+        _workspace_id: workspaceId,
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-workspaces'] });
+      qc.invalidateQueries({ queryKey: ['admin-workspace-count'] });
+      qc.invalidateQueries({ queryKey: ['admin-workspace-detail'] });
+    },
+  });
+}
+
 export function useAdminUserRoles(userId: string) {
   return useQuery({
     queryKey: ['admin-user-roles', userId],

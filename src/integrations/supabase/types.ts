@@ -1760,7 +1760,7 @@ export type Database = {
         Row: {
           created_at: string
           created_by: string
-          expires_at: string
+          expires_at: string | null
           id: string
           invited_email: string | null
           max_uses: number
@@ -1773,7 +1773,7 @@ export type Database = {
         Insert: {
           created_at?: string
           created_by: string
-          expires_at?: string
+          expires_at?: string | null
           id?: string
           invited_email?: string | null
           max_uses?: number
@@ -1786,7 +1786,7 @@ export type Database = {
         Update: {
           created_at?: string
           created_by?: string
-          expires_at?: string
+          expires_at?: string | null
           id?: string
           invited_email?: string | null
           max_uses?: number

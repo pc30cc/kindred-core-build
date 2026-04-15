@@ -1,4 +1,4 @@
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
 import { useI18n } from '@/i18n';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -10,39 +10,28 @@ import {
   LogOut, Shield, ChevronDown, UserPlus, Plus,
   Zap, ShieldAlert, ExternalLink, Bell, EyeOff,
   Clock, UserCog, Building2, HelpCircle, Sparkles,
-  AlertCircle,
+  AlertCircle, Check,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useIsGlobalAdmin } from '@/hooks/useAdmin';
 import { useBrandingContext } from '@/features/branding/BrandingContext';
-import { useCurrentWorkspace } from '@/hooks/useWorkspace';
+import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import { useProfile } from '@/hooks/useProfile';
 import { useMemo, useState, useRef, useEffect } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
-
-const mainNav = [
-  { key: 'ai', path: '/app/ai', icon: Bot },
-  { key: 'visitors', path: '/app/visitors', icon: Eye },
-  { key: 'contacts', path: '/app/contacts', icon: Users },
-  { key: 'knowledgeBase', path: '/app/knowledge-base', icon: BookOpen },
-] as const;
-
-const bottomNav = [
-  { key: 'search', path: '#', icon: Search },
-  { key: 'widget', path: '/app/widget', icon: Package },
-  { key: 'settings', path: '/app/settings/general', icon: Settings },
-] as const;
 
 export function AppSidebar() {
   const { t, dir } = useTranslation();
   const { locale, setLocale } = useI18n();
   const location = useLocation();
+  const navigate = useNavigate();
   const { signOut, user } = useAuth();
   const { data: isAdmin } = useIsGlobalAdmin();
   const { platformName } = useBrandingContext();
-  const workspace = useCurrentWorkspace();
+  const { workspace, workspaces } = useActiveWorkspace();
   const { data: profile } = useProfile();
+  const wsPath = useWorkspacePath();
   const [wsMenuOpen, setWsMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const wsMenuRef = useRef<HTMLDivElement>(null);
@@ -64,17 +53,31 @@ export function AppSidebar() {
     return () => document.removeEventListener('mousedown', handler);
   }, [wsMenuOpen, userMenuOpen]);
 
-  const isActive = (path: string) => {
-    if (path === '/app') return location.pathname === '/app';
-    if (path === '/app/settings/general') return location.pathname.startsWith('/app/settings');
-    if (path === '/app/inbox') return location.pathname.startsWith('/app/inbox');
-    return location.pathname.startsWith(path);
+  const isActive = (subPath: string) => {
+    const fullPath = wsPath(subPath);
+    if (subPath === '') return location.pathname === fullPath;
+    if (subPath === '/settings') return location.pathname.includes('/settings');
+    if (subPath === '/inbox') return location.pathname.includes('/inbox');
+    return location.pathname.includes(subPath);
   };
+
+  const mainNav = [
+    { key: 'ai', path: '/ai', icon: Bot },
+    { key: 'visitors', path: '/visitors', icon: Eye },
+    { key: 'contacts', path: '/contacts', icon: Users },
+    { key: 'knowledgeBase', path: '/knowledge-base', icon: BookOpen },
+  ] as const;
+
+  const bottomNav = [
+    { key: 'search', path: '#', icon: Search },
+    { key: 'widget', path: '/widget', icon: Package },
+    { key: 'settings', path: '/settings/general', icon: Settings },
+  ] as const;
 
   const userName = (user?.metadata?.full_name as string) || user?.email?.split('@')[0] || '';
   const userEmail = user?.email || '';
-  const companyName = profile?.company_name || (user?.metadata?.companyName as string) || workspace?.name || platformName || 'Workspace';
-  const workspaceDomain = profile?.website_domain || (user?.metadata?.websiteDomain as string) || '';
+  const companyName = profile?.company_name || workspace?.name || platformName || 'Workspace';
+  const workspaceDomain = profile?.website_domain || '';
   const companyLetter = companyName.charAt(0).toUpperCase();
 
   return (

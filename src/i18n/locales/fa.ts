@@ -81,6 +81,7 @@ const fa: TranslationKeys = {
     checkEmailWrongEmail: 'ایمیل اشتباه وارد کردید؟ دوباره ثبت‌نام کنید',
     verificationResent: 'ایمیل تأیید دوباره ارسال شد!',
     resendEmail: 'ارسال مجدد',
+    resendCooldown: 'ارسال مجدد تا {minutes} دقیقه دیگر',
     emailConfirmLoading: 'در حال تأیید ایمیل...',
     emailConfirmLoadingDesc: 'لطفاً منتظر بمانید تا حساب شما تأیید شود.',
     emailConfirmSuccess: 'ایمیل تأیید شد!',

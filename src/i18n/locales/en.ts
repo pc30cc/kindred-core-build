@@ -79,6 +79,7 @@ const en = {
     checkEmailWrongEmail: 'Wrong email? Sign up again',
     verificationResent: 'Verification email resent!',
     resendEmail: 'Resend',
+    resendCooldown: 'Retry in {minutes} min',
     emailConfirmLoading: 'Verifying your email...',
     emailConfirmLoadingDesc: 'Please wait while we verify your account.',
     emailConfirmSuccess: 'Email verified!',

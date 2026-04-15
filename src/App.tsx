@@ -14,6 +14,7 @@ import { PlatformBrandingGate } from "@/features/branding/PlatformBrandingGate";
 import { AuthLayout } from "@/components/layout/AuthLayout";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { AdminLayout } from "@/components/layout/AdminLayout";
+import { SettingsLayout } from "@/components/layout/SettingsLayout";
 
 import LoginPage from "@/pages/auth/LoginPage";
 import SignupPage from "@/pages/auth/SignupPage";
@@ -124,12 +125,15 @@ const App = () => (
                 <Route path="/app/email" element={<EmailPage />} />
                 <Route path="/app/team" element={<TeamPage />} />
                 <Route path="/app/billing" element={<BillingPage />} />
-                <Route path="/app/settings/general" element={<SettingsGeneralPage />} />
-                <Route path="/app/settings/branding" element={<SettingsBrandingPage />} />
-                <Route path="/app/settings/domains" element={<SettingsDomainsPage />} />
-                <Route path="/app/settings/providers" element={<SettingsProvidersPage />} />
-                <Route path="/app/settings/translations" element={<SettingsTranslationsPage />} />
-                <Route path="/app/settings/profile" element={<SettingsProfilePage />} />
+                <Route path="/app/settings" element={<SettingsLayout />}>
+                  <Route index element={<Navigate to="/app/settings/general" replace />} />
+                  <Route path="general" element={<SettingsGeneralPage />} />
+                  <Route path="branding" element={<SettingsBrandingPage />} />
+                  <Route path="domains" element={<SettingsDomainsPage />} />
+                  <Route path="providers" element={<SettingsProvidersPage />} />
+                  <Route path="translations" element={<SettingsTranslationsPage />} />
+                  <Route path="profile" element={<SettingsProfilePage />} />
+                </Route>
               </Route>
 
               <Route path="*" element={<NotFound />} />

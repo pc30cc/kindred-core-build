@@ -42,7 +42,7 @@ export default function SettingsBrandingPage() {
   ];
 
   return (
-    <div className="space-y-6 animate-fade-in max-w-3xl">
+    <div className="space-y-6 animate-fade-in">
       <h1 className="text-2xl font-bold text-foreground">{t('settings.branding')}</h1>
 
       {fields.map(field => (

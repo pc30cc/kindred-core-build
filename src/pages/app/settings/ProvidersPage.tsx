@@ -121,7 +121,7 @@ export default function SettingsProvidersPage() {
   };
 
   return (
-    <div className="space-y-6 animate-fade-in max-w-3xl">
+    <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">{t('settings.providers')}</h1>

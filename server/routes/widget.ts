@@ -6,6 +6,29 @@ import { isOriginAllowed } from '../utils/domain.js';
 
 export const widgetRouter = Router();
 
+function normalizeBaseUrl(value?: string | null) {
+  if (!value) return '';
+  return value.replace(/\/widget\/?$/i, '').replace(/\/+$/, '');
+}
+
+function getRequestBaseUrl(req: Request) {
+  const forwardedProtoHeader = req.headers['x-forwarded-proto'];
+  const forwardedHostHeader = req.headers['x-forwarded-host'];
+
+  const forwardedProto = Array.isArray(forwardedProtoHeader)
+    ? forwardedProtoHeader[0]
+    : forwardedProtoHeader?.toString().split(',')[0]?.trim();
+
+  const forwardedHost = Array.isArray(forwardedHostHeader)
+    ? forwardedHostHeader[0]
+    : forwardedHostHeader?.toString().split(',')[0]?.trim();
+
+  const protocol = forwardedProto || req.protocol || 'https';
+  const host = forwardedHost || req.get('host') || '';
+
+  return host ? `${protocol}://${host}` : '';
+}
+
 // ============================================
 // GET /api/widget/config
 // Widget bootstrap endpoint — server-validated
@@ -27,7 +50,6 @@ widgetRouter.get('/config', async (req: Request, res: Response) => {
   const supabase = getServiceClient(config);
 
   try {
-    // Fetch widget settings
     const { data: widget, error } = await supabase
       .from('widget_settings')
       .select('*')
@@ -42,21 +64,20 @@ widgetRouter.get('/config', async (req: Request, res: Response) => {
       return res.json({ enabled: false });
     }
 
-    // Validate origin against allowed domains
     if (origin && widget.allowed_domains && widget.allowed_domains.length > 0) {
       if (!isOriginAllowed(origin, widget.allowed_domains, widget.allow_subdomains ?? false)) {
         return res.status(403).json({ error: 'Origin not allowed' });
       }
     }
 
-    // Fetch workspace branding
     const { data: branding } = await supabase
       .from('workspace_branding')
       .select('platform_name, logo_url, primary_color, widget_base_url')
       .eq('workspace_id', workspace_id)
       .single();
 
-    // Build runtime-safe widget config (no secrets)
+    const assetBaseUrl = normalizeBaseUrl(branding?.widget_base_url) || getRequestBaseUrl(req);
+
     const widgetConfig = {
       enabled: true,
       workspaceId: workspace_id,
@@ -74,12 +95,8 @@ widgetRouter.get('/config', async (req: Request, res: Response) => {
         knowledgeBase: widget.kb_enabled ?? true,
         visitorTracking: widget.visitor_tracking_enabled ?? true,
       },
-      runtimeUrl: branding?.widget_base_url
-        ? `${branding.widget_base_url}/runtime.js`
-        : null,
-      styleUrl: branding?.widget_base_url
-        ? `${branding.widget_base_url}/widget.css`
-        : null,
+      runtimeUrl: assetBaseUrl ? `${assetBaseUrl}/widget/runtime.js` : null,
+      styleUrl: assetBaseUrl ? `${assetBaseUrl}/widget/widget.css` : null,
     };
 
     res.json(widgetConfig);

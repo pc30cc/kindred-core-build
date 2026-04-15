@@ -109,6 +109,14 @@
     console.info('[Widget]', message, payload || '');
   }
 
+  function logError(message, payload) {
+    console.error('[Widget]', message, payload || '');
+  }
+
+  function getBootstrapMode(workspaceId) {
+    return workspaceId ? 'explicit-workspace' : 'origin-resolved';
+  }
+
   function isPreviewHost(hostname) {
     return /lovableproject\.com$/i.test(hostname || '') || /lovable\.app$/i.test(hostname || '');
   }
@@ -143,6 +151,9 @@
     WORKSPACE_ID = config.workspaceId || WORKSPACE_ID;
     window.__gs_id = WORKSPACE_ID;
     window.__gs._id = WORKSPACE_ID;
+
+    logDebug('Bootstrap resolved mode:', getBootstrapMode(WORKSPACE_ID));
+    logDebug('Resolved workspace ID:', WORKSPACE_ID || '(resolved later by backend response)');
 
     var runtimeApiBase = (config.apiBase || apiBase || '').replace(/\/$/, '');
     var runtimeAssetBase = (config.assetBase || assetBase || '').replace(/\/$/, '');
@@ -186,7 +197,7 @@
     link.rel = 'stylesheet';
     link.href = runtimeCss;
     link.onerror = function() {
-      console.warn('[Widget] Runtime stylesheet failed to load:', runtimeCss);
+      logError('Runtime stylesheet failed to load:', runtimeCss);
     };
     document.head.appendChild(link);
 
@@ -201,7 +212,7 @@
       }
     };
     script.onerror = function() {
-      console.warn('[Widget] Runtime script failed to load:', runtimeJs);
+      logError('Runtime script failed to load:', runtimeJs);
     };
     document.head.appendChild(script);
   }
@@ -211,7 +222,13 @@
     var assetBase = getAssetBase();
     var apiBase = getApiBase();
     var origin = window.location.origin;
+    var bootstrapMode = getBootstrapMode(WORKSPACE_ID);
     var params = new URLSearchParams({ origin: origin });
+
+    logDebug('Workspace ID found:', WORKSPACE_ID || '(none)');
+    logDebug('Bootstrap mode:', bootstrapMode);
+    logDebug('Selected apiBase:', apiBase || '(empty)');
+    logDebug('Selected assetBase:', assetBase || '(empty)');
 
     if (assetBase) {
       params.set('loader_origin', assetBase);
@@ -222,7 +239,7 @@
     }
 
     if (!apiBase) {
-      console.error('[Widget] No apiBase resolved. Use window.__gs_api_base, data-api-base, or admin widget API base.');
+      logError('No apiBase resolved. Use window.__gs_api_base, data-api-base, or admin widget API base.');
       if (!isPreviewHost(window.location.hostname)) return;
     }
 
@@ -237,11 +254,12 @@
       })
       .then(function(config) {
         if (!config.enabled) return;
+        logDebug('Config resolved workspace:', config.workspaceId || '(none)');
         logDebug('Resolved config bases:', { apiBase: config.apiBase, assetBase: config.assetBase, runtimeUrl: config.runtimeUrl, styleUrl: config.styleUrl });
         mountWidget(config, assetBase, apiBase);
       })
       .catch(function(err) {
-        console.warn('[Widget] Bootstrap failed:', err);
+        logError('Bootstrap failed:', err);
 
         if (isPreviewHost(window.location.hostname)) {
           var fallbackConfig = getPreviewFallbackConfig(assetBase, apiBase);

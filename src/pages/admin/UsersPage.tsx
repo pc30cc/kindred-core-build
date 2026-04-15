@@ -351,18 +351,23 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
         </Card>
       )}
 
-      {/* Roles Management */}
+      {/* Platform Roles Management */}
       <Card>
         <CardContent className="p-4 space-y-3">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold flex items-center gap-2">
-              <Shield className="h-4 w-4 text-muted-foreground" />
-              Roles
-            </h3>
+            <div>
+              <h3 className="text-sm font-semibold flex items-center gap-2">
+                <Shield className="h-4 w-4 text-muted-foreground" />
+                Platform Roles
+              </h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Internal platform staff roles — separate from workspace roles
+              </p>
+            </div>
             <Button size="sm" variant="outline" onClick={() => setRoleDialog(true)}>+ Assign Role</Button>
           </div>
           <div className="flex gap-2 flex-wrap">
-            {currentRoles.length === 0 && <span className="text-sm text-muted-foreground">No roles assigned</span>}
+            {currentRoles.length === 0 && <span className="text-sm text-muted-foreground">No platform roles assigned (regular user)</span>}
             {currentRoles.map((role: string) => (
               <Badge
                 key={role}
@@ -493,26 +498,45 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
         </DialogContent>
       </Dialog>
 
-      {/* Assign Role Dialog */}
+      {/* Assign Platform Role Dialog */}
       <Dialog open={roleDialog} onOpenChange={setRoleDialog}>
-        <DialogContent className="sm:max-w-sm">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Assign Role</DialogTitle>
+            <DialogTitle>Assign Platform Role</DialogTitle>
           </DialogHeader>
-          <Select value={selectedRole} onValueChange={setSelectedRole}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select role" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="admin">admin</SelectItem>
-              <SelectItem value="moderator">moderator</SelectItem>
-              <SelectItem value="user">user</SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="space-y-3">
+            {[
+              { value: 'admin', label: 'Admin', desc: 'Full platform access — manage all users, workspaces, providers, and settings' },
+              { value: 'moderator', label: 'Moderator', desc: 'Moderate content, manage flagged items, view reports across the platform' },
+              { value: 'user', label: 'User', desc: 'Standard registered user — no platform-level privileges' },
+            ].map(r => {
+              const alreadyAssigned = currentRoles.includes(r.value);
+              return (
+                <button
+                  key={r.value}
+                  disabled={alreadyAssigned}
+                  onClick={() => setSelectedRole(r.value)}
+                  className={`w-full text-left rounded-lg border p-3 transition-colors ${
+                    selectedRole === r.value
+                      ? 'border-primary bg-primary/5'
+                      : alreadyAssigned
+                        ? 'opacity-50 cursor-not-allowed border-border bg-muted/30'
+                        : 'border-border hover:border-primary/40 hover:bg-muted/50'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">{r.label}</span>
+                    {alreadyAssigned && <Badge variant="outline" className="text-[10px]">Assigned</Badge>}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5">{r.desc}</p>
+                </button>
+              );
+            })}
+          </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setRoleDialog(false)}>Cancel</Button>
             <Button
-              disabled={!selectedRole}
+              disabled={!selectedRole || currentRoles.includes(selectedRole)}
               onClick={() => {
                 if (selectedRole) {
                   assignRole.mutate({ userId, role: selectedRole as any });

@@ -4,6 +4,8 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { I18nProvider } from "@/i18n";
+import type { Locale } from "@/i18n/config";
+import type { TranslationKeys } from "@/i18n/locales/en";
 import { ProviderContextProvider } from "@/providers";
 import { AuthContextProvider } from "@/features/auth/AuthContext";
 import { RequireAuth } from "@/features/auth/RequireAuth";
@@ -62,9 +64,14 @@ import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
 
-const App = () => (
+interface AppProps {
+  initialLocale?: Locale;
+  initialTranslations?: TranslationKeys;
+}
+
+const App = ({ initialLocale, initialTranslations }: AppProps) => (
   <QueryClientProvider client={queryClient}>
-    <I18nProvider>
+    <I18nProvider initialLocale={initialLocale} initialTranslations={initialTranslations}>
       <ProviderContextProvider>
         <AuthContextProvider>
           <PlatformBrandingGate>

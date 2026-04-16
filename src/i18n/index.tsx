@@ -44,20 +44,36 @@ const i18nFallbackContext: I18nContextValue = {
 
 const I18nContext = createContext<I18nContextValue>(i18nFallbackContext);
 
-function getInitialLocale(): Locale {
+export function getStoredLocale(): Locale {
   if (typeof window === 'undefined') return DEFAULT_LOCALE;
   const stored = localStorage.getItem('app-locale');
   if (stored && (stored === 'en' || stored === 'fa' || stored === 'tr')) return stored as Locale;
   return DEFAULT_LOCALE;
 }
 
-export function I18nProvider({ children }: { children: React.ReactNode }) {
-  const initialLocale = getInitialLocale();
+export async function loadLocaleMessages(locale: Locale): Promise<TranslationKeys> {
+  if (locale === 'en') return en;
+
+  try {
+    const mod = await localeModules[locale]();
+    return mod.default;
+  } catch {
+    return en;
+  }
+}
+
+interface I18nProviderProps {
+  children: React.ReactNode;
+  initialLocale?: Locale;
+  initialTranslations?: TranslationKeys;
+}
+
+export function I18nProvider({ children, initialLocale: initialLocaleProp, initialTranslations }: I18nProviderProps) {
+  const initialLocale = initialLocaleProp ?? getStoredLocale();
   const [locale, setLocaleState] = useState<Locale>(initialLocale);
-  const [translations, setTranslations] = useState<TranslationKeys>(en);
+  const [translations, setTranslations] = useState<TranslationKeys>(initialTranslations ?? en);
   const [fallbackTranslations] = useState<TranslationKeys>(en);
-  // Start loading if initial locale is not English (needs async load)
-  const [isLoading, setIsLoading] = useState(initialLocale !== 'en');
+  const [isLoading, setIsLoading] = useState(!initialTranslations && initialLocale !== 'en');
 
   const dir = LOCALE_CONFIG[locale].dir;
 
@@ -68,31 +84,26 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
   }, [locale, dir]);
 
   const loadLocale = useCallback(async (newLocale: Locale) => {
-    if (newLocale === 'en') {
-      setTranslations(en);
-      setIsLoading(false);
-      return;
-    }
     setIsLoading(true);
-    try {
-      const mod = await localeModules[newLocale]();
-      setTranslations(mod.default);
-    } catch {
-      setTranslations(en);
-    } finally {
-      setIsLoading(false);
-    }
+    const messages = await loadLocaleMessages(newLocale);
+    setTranslations(messages);
+    setIsLoading(false);
   }, []);
 
   const setLocale = useCallback((newLocale: Locale) => {
     setLocaleState(newLocale);
     localStorage.setItem('app-locale', newLocale);
-    loadLocale(newLocale);
-  }, [loadLocale]);
+  }, []);
 
   useEffect(() => {
-    loadLocale(locale);
-  }, []);
+    if (initialTranslations && locale === initialLocale) {
+      setTranslations(initialTranslations);
+      setIsLoading(false);
+      return;
+    }
+
+    void loadLocale(locale);
+  }, [initialLocale, initialTranslations, loadLocale, locale]);
 
   const t = useCallback((key: TranslationKey, params?: Record<string, string>): string => {
     let value = getNestedValue(translations as unknown as Record<string, unknown>, key);

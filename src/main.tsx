@@ -13,9 +13,12 @@ document.documentElement.dir = ['fa', 'ar'].includes(storedLocale) ? 'rtl' : 'lt
 async function bootstrap() {
   const initialTranslations = await loadLocaleMessages(storedLocale);
 
-  createRoot(document.getElementById("root")!).render(
+  const root = document.getElementById("root")!;
+  createRoot(root).render(
     <App initialLocale={storedLocale} initialTranslations={initialTranslations} />
   );
+  // Reveal UI only after React has mounted with correct translations
+  requestAnimationFrame(() => { root.style.opacity = '1'; });
 }
 
 void bootstrap();

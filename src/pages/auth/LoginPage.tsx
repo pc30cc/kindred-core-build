@@ -30,8 +30,8 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const brandName = useMemo(() => brand?.platform_name || 'App', [brand]);
-  const brandLetter = useMemo(() => brandName.charAt(0), [brandName]);
+  const brandName = useMemo(() => brand?.platform_name || '', [brand]);
+  const brandLetter = useMemo(() => brandName.charAt(0) || '', [brandName]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -55,12 +55,16 @@ export default function LoginPage() {
     <div className="fixed inset-0 flex" dir={dir}>
       <div className={`flex-1 flex flex-col bg-background overflow-y-auto ${isRtl ? 'order-2' : 'order-1'}`}>
         <div className="flex items-center justify-between px-8 py-5 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center">
-              <span className="text-sm font-black text-primary-foreground">{brandLetter}</span>
+          {brandName ? (
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center">
+                <span className="text-sm font-black text-primary-foreground">{brandLetter}</span>
+              </div>
+              <span className="text-lg font-semibold text-foreground">{brandName}</span>
             </div>
-            <span className="text-lg font-semibold text-foreground">{brandName}</span>
-          </div>
+          ) : (
+            <div className="w-9 h-9" />
+          )}
           <LanguageSelector />
         </div>
 

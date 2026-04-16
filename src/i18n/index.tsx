@@ -52,10 +52,12 @@ function getInitialLocale(): Locale {
 }
 
 export function I18nProvider({ children }: { children: React.ReactNode }) {
-  const [locale, setLocaleState] = useState<Locale>(getInitialLocale);
+  const initialLocale = getInitialLocale();
+  const [locale, setLocaleState] = useState<Locale>(initialLocale);
   const [translations, setTranslations] = useState<TranslationKeys>(en);
   const [fallbackTranslations] = useState<TranslationKeys>(en);
-  const [isLoading, setIsLoading] = useState(false);
+  // Start loading if initial locale is not English (needs async load)
+  const [isLoading, setIsLoading] = useState(initialLocale !== 'en');
 
   const dir = LOCALE_CONFIG[locale].dir;
 
@@ -68,6 +70,7 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
   const loadLocale = useCallback(async (newLocale: Locale) => {
     if (newLocale === 'en') {
       setTranslations(en);
+      setIsLoading(false);
       return;
     }
     setIsLoading(true);
@@ -103,6 +106,11 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
     }
     return value;
   }, [translations, fallbackTranslations]);
+
+  // Block rendering until translations are loaded to prevent flash
+  if (isLoading) {
+    return null;
+  }
 
   return (
     <I18nContext.Provider value={{ locale, dir, setLocale, t, isLoading }}>

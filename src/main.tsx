@@ -7,6 +7,6 @@ import { loadFontsForLocale } from "./lib/fonts";
 const storedLocale = localStorage.getItem('app-locale') || 'en';
 loadFontsForLocale(storedLocale);
 document.documentElement.lang = storedLocale;
-document.documentElement.dir = storedLocale === 'fa' ? 'rtl' : 'ltr';
+document.documentElement.dir = ['fa', 'ar'].includes(storedLocale) ? 'rtl' : 'ltr';
 
 createRoot(document.getElementById("root")!).render(<App />);

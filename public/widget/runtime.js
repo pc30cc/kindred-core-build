@@ -398,6 +398,8 @@
           workspaceId: ctx.workspaceId,
           sessionToken: ctx.sessionToken,
           conversationId: payload.conversationId,
+          // Phase 6b — attachment id flows through to the message endpoint.
+          attachmentId: payload.attachmentId || null,
           text: payload.text,
           onConversation: function (cid) {
             if (cid) {
@@ -405,6 +407,11 @@
               if (rtDriver && rtDriver.subscribeConversation) rtDriver.subscribeConversation(cid);
             }
             if (hooks.onConversation) hooks.onConversation(cid);
+          },
+          // Phase 7 — backend confirmation. Carries the canonical message id
+          // so the widget can transition its optimistic bubble to "sent".
+          onAccepted: function (info) {
+            if (hooks.onAccepted) hooks.onAccepted(info || {});
           },
           onReply: function (reply) {
             if (hooks.onReply) hooks.onReply(reply);

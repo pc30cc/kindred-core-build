@@ -86,7 +86,7 @@ input:disabled, button:disabled {
 .header-title { font-size: 18px; font-weight: 700; line-height: 1.3; }
 .header-subtitle { font-size: 13px; opacity: 0.85; margin-top: 4px; line-height: 1.4; }
 
-/* ─── Connection banner (Phase 2) ─── */
+/* ─── Connection banner (Phase 2.2) ─── */
 .connection-banner {
   display: none;
   font-size: 12px;
@@ -95,7 +95,12 @@ input:disabled, button:disabled {
   text-align: center;
   border-bottom: 1px solid transparent;
 }
-.connection-banner.visible { display: block; }
+.connection-banner.visible {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
 .connection-banner.offline {
   background: #FEF2F2;
   color: #991B1B;
@@ -105,6 +110,30 @@ input:disabled, button:disabled {
   background: #FEF3C7;
   color: #92400E;
   border-bottom-color: #FDE68A;
+}
+.connection-banner.connecting {
+  background: #EFF6FF;
+  color: #1E40AF;
+  border-bottom-color: #BFDBFE;
+}
+/* Lightweight pulse dot — used for connecting/reconnecting states.
+   No countdown, no heavy timers — purely a visual hint that work is in progress. */
+.connection-banner .conn-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.7;
+  animation: gs-conn-pulse 1.2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+.connection-banner.offline .conn-dot {
+  animation: none;
+  opacity: 1;
+}
+@keyframes gs-conn-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.4; }
+  50%      { transform: scale(1.3); opacity: 1; }
 }
 
 /* Tabs */

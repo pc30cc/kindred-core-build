@@ -318,10 +318,10 @@ widgetRouter.use(enforceOrigin);
 // ═══════════════════════════════════════════════
 widgetRouter.use((req: Request, res: Response, next: NextFunction) => {
   try {
-    const tokenInfo = (req as any).widgetToken as { workspaceId?: string } | undefined;
+    const tokenWs = (req as any)._widgetWorkspaceId as string | undefined;
     const wsFromBody = (req.body && typeof req.body === 'object' ? (req.body as any).workspace_id : undefined) as string | undefined;
     const wsFromQuery = req.query.workspace_id as string | undefined;
-    const ws = tokenInfo?.workspaceId || wsFromBody || wsFromQuery;
+    const ws = tokenWs || wsFromBody || wsFromQuery;
     if (!ws) return next();
 
     const cookie = readVisitorCookie(req, ws);

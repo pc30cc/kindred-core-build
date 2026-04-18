@@ -87,6 +87,11 @@ const DEFAULT_WIDGET_SETTINGS = {
   widget_language: 'auto',
   mobile_behavior: 'bottom_sheet',
   locale: 'en',
+  // Phase 5 — Availability
+  live_chat_enabled: true,
+  offline_mode: 'accept_messages',
+  business_hours: { enabled: false, timezone: 'UTC', schedule: [] },
+  availability_labels: {},
 };
 
 const PRECHAT_RUNTIME_KEY = 'widget_prechat_fields';

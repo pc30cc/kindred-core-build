@@ -29,9 +29,11 @@ This guide covers deploying the **Centrifugo realtime provider** for this projec
 ### 2.2 Add a public domain
 1. Open the new resource → **Domains**.
 2. Add a domain, e.g. `rt.destekly.tr`.
-3. Set the **target port** to `8000`.
+3. Set the **target port** to `8000` (this is the container's internal port — Coolify reaches it over the internal Docker network, the port is **not** published to the host).
 4. Enable **HTTPS** (Coolify will issue a Let's Encrypt cert).
 5. Enable **WebSocket support** (it is on by default in Coolify's proxy, but double-check).
+
+> ⚠️ The compose file uses `expose: ["8000"]` instead of `ports: ["8000:8000"]` on purpose. Publishing the port to the host would fail with `Bind for 0.0.0.0:8000 failed: port is already allocated` on hosts where port 8000 is already in use. Coolify does not need a published port — it routes traffic through its internal proxy.
 
 After this, both of the following must work over HTTPS:
 - `https://rt.destekly.tr/health` → `{"status":"ok"}`

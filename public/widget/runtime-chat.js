@@ -35,10 +35,10 @@
       })
         .then(function (r) { return r.json(); })
         .then(function (data) {
-          if (data.reply && onReply) onReply(data.reply);
           if (data.conversation_id) {
             localStorage.setItem('__gs_cid', data.conversation_id);
           }
+          if (data.reply && onReply) onReply(data.reply);
         })
         .catch(function (err) {
           if (onError) onError(err);

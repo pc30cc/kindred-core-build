@@ -64,6 +64,25 @@ export default function InboxPage() {
   const { data: rawMessages } = useConversationMessages(selectedId ?? undefined);
   const sendMessage = useSendMessage(selectedId ?? undefined);
   const updateConv = useUpdateConversation();
+  const deleteAll = useDeleteAllConversations();
+
+  const handleDeleteAll = async () => {
+    if (!workspace?.id) return;
+    try {
+      const res = await deleteAll.mutateAsync(workspace.id);
+      setSelectedId(null);
+      toast({
+        title: t('inbox.deleteAllSuccess') || 'Conversations deleted',
+        description: `${res.deleted} ${t('inbox.conversationsRemoved') || 'conversation(s) removed.'}`,
+      });
+    } catch (e: any) {
+      toast({
+        title: t('common.error') || 'Error',
+        description: e?.message || 'Failed to delete conversations',
+        variant: 'destructive',
+      });
+    }
+  };
 
   const selected = conversations?.find(c => c.id === selectedId);
 

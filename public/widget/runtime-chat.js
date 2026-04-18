@@ -107,6 +107,7 @@
       var getConversationId = opts.getConversationId; // function returning current cid
       var onMessages = opts.onMessages;
       var onConversation = opts.onConversation;
+      var onTick = opts.onTick; // (ok: boolean) — connection health signal
       var interval = opts.interval || 5000;
 
       var pollId = setInterval(function () {
@@ -120,7 +121,10 @@
           credentials: 'include',
           headers: { 'X-Widget-Token': sessionToken || '' },
         })
-          .then(function (r) { return r.json(); })
+          .then(function (r) {
+            if (!r.ok) throw new Error('poll_http_' + r.status);
+            return r.json();
+          })
           .then(function (data) {
             if (data.conversation_id && onConversation) {
               onConversation(data.conversation_id);
@@ -128,8 +132,9 @@
             if (onMessages && data.messages && data.messages.length > 0) {
               onMessages(data.messages);
             }
+            if (onTick) onTick(true);
           })
-          .catch(function () {});
+          .catch(function () { if (onTick) onTick(false); });
       }, interval);
 
       return { stop: function () { clearInterval(pollId); } };

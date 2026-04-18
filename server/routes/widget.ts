@@ -49,7 +49,7 @@ import {
   getRequestOrigin,
 } from '../services/widget/security.js';
 import { resolveAIConfig, executeAICompletion } from '../services/ai/index.js';
-import { resolveVisitorIdentity } from '../services/widget/visitorIdentity.js';
+import { resolveVisitorIdentity, readVisitorCookie } from '../services/widget/visitorIdentity.js';
 import { widgetIdentityRouter } from './widgetIdentity.js';
 
 export const widgetRouter = Router();
@@ -307,6 +307,38 @@ widgetRouter.post('/session/refresh', widgetRateLimit('refresh'), async (req: Re
 widgetRouter.use(enforceWidgetToken);
 widgetRouter.use(enforceOrigin);
 
+// ═══════════════════════════════════════════════
+// Cookie-based visitor identity resolution
+// ───────────────────────────────────────────────
+// The widget runtime no longer sends visitor_id in body/query — instead the
+// server reads it from the signed HttpOnly `dvsid` cookie. Existing route
+// handlers still expect req.body.visitor_id / req.query.visitor_id, so this
+// middleware fills them in from the cookie when missing. Workspace mismatch
+// is rejected so a cookie issued for workspace A cannot be replayed against B.
+// ═══════════════════════════════════════════════
+widgetRouter.use((req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tokenInfo = (req as any).widgetToken as { workspaceId?: string } | undefined;
+    const wsFromBody = (req.body && typeof req.body === 'object' ? (req.body as any).workspace_id : undefined) as string | undefined;
+    const wsFromQuery = req.query.workspace_id as string | undefined;
+    const ws = tokenInfo?.workspaceId || wsFromBody || wsFromQuery;
+    if (!ws) return next();
+
+    const cookie = readVisitorCookie(req, ws);
+    if (!cookie) return next();
+
+    if (req.body && typeof req.body === 'object' && !(req.body as any).visitor_id) {
+      (req.body as any).visitor_id = cookie.v;
+    }
+    if (!req.query.visitor_id) {
+      (req.query as any).visitor_id = cookie.v;
+    }
+    (req as any).visitorId = cookie.v;
+  } catch (_) {
+    // Identity resolution must never block the request
+  }
+  return next();
+});
 // ═══════════════════════════════════════════════
 // GET /config — Full widget configuration
 // ═══════════════════════════════════════════════

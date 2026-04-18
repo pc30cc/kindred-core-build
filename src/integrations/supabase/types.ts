@@ -2919,6 +2919,10 @@ export type Database = {
         Args: { _user_id: string; _workspace_id: string }
         Returns: boolean
       }
+      mark_conversation_seen: {
+        Args: { _conversation_id: string }
+        Returns: number
+      }
       merge_visitor_into_contact: {
         Args: {
           _contact_id: string

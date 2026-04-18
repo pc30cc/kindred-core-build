@@ -66,6 +66,7 @@ export default function InboxPage() {
   const sendMessage = useSendMessage(selectedId ?? undefined);
   const updateConv = useUpdateConversation();
   const deleteAll = useDeleteAllConversations();
+  const { data: isGlobalAdmin } = useIsGlobalAdmin();
 
   const handleDeleteAll = async () => {
     if (!workspace?.id) return;

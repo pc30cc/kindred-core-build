@@ -1158,11 +1158,20 @@
       loaded: false,
       articles: [],
     });
+    // notifyStore — Phase 4
+    //   perConversation: { [cid]: count }   (per-conversation unread)
+    //   totalUnread:    aggregated count for the launcher badge
+    //   lastMessageIds: { [id]: 1 }         de-dupe across reconnects/polls
+    // In-memory only. Never persisted.
     var notifyStore = createStore({
-      unread: 0,
+      perConversation: {},
+      totalUnread: 0,
+      lastMessageIds: {},
     });
     var uiPrefsStore = createStore({
       position: config.position === 'bottom-left' ? 'bottom-left' : 'bottom-right',
+      // Sound is OFF by default. Toggle via window.__gs.push(['setSoundEnabled', true]).
+      soundEnabled: !!(config.features && config.features.notificationSound) || false,
     });
 
     // ─── Layers ───
@@ -1176,7 +1185,7 @@
       transport: transport,
     });
     var kbUI = createKbUI({ ctx: ctx, t: t, kbStore: kbStore });
-    var notify = createNotify(ctx, transportStore, t);
+    var notify = createNotify(ctx, transportStore, notifyStore, uiPrefsStore, shellStore, t);
 
     // ─── Build panel ───
     var posClass = uiPrefsStore.get().position;

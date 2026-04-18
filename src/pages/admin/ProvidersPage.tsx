@@ -205,7 +205,7 @@ export default function AdminProvidersPage() {
                 </h3>
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                   {types.map((type) => (
-                    <AdminProviderCard key={type} type={type} />
+                    <RenderProviderCard key={type} type={type} />
                   ))}
                 </div>
               </div>
@@ -217,7 +217,7 @@ export default function AdminProvidersPage() {
         <TabsContent value="all">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {filteredTypes.map((type) => (
-              <AdminProviderCard key={type} type={type} />
+              <RenderProviderCard key={type} type={type} />
             ))}
           </div>
         </TabsContent>

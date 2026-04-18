@@ -928,6 +928,9 @@
       conversationId: null,
       messages: [],
       seenIds: {},
+      // In-memory only. Never persisted to localStorage/cookies.
+      // Preserves user-typed but unsent text across offline/reconnect/tab-switch/panel-close.
+      draft: '',
     });
     var kbStore = createStore({
       loaded: false,
@@ -1035,17 +1038,40 @@
     transportStore.subscribe(applyComposerState);
     shellStore.subscribe(applyComposerState);
 
+    // ─── Draft preservation (in-memory only) ───
+    // Whatever the user types is mirrored to chatStore.draft so it survives
+    // offline/reconnecting transitions, tab switches, and panel close/open
+    // within the same page session. No localStorage, no cookies.
+    function syncDraftFromInput() {
+      if (!msgInput) return;
+      var v = msgInput.value;
+      if (chatStore.get().draft !== v) chatStore.set({ draft: v });
+    }
+    function restoreDraftToInput() {
+      if (!msgInput) return;
+      var d = chatStore.get().draft || '';
+      if (msgInput.value !== d) msgInput.value = d;
+    }
+    if (msgInput) {
+      msgInput.addEventListener('input', syncDraftFromInput);
+    }
+
     // ─── Send handler ───
     function trySend() {
       if (!msgInput) return;
       var text = msgInput.value.trim();
       if (!text) return;
       if (!identityStore.get().loaded) return;
+      // Hard guard: never send while not online. Draft remains preserved.
       if (transportStore.get().connectionState !== 'online') return;
       if (identity.needsPrechat()) { renderBody(); return; }
       msgInput.value = '';
-      // typing hook (no-op under polling, ready for realtime drivers)
-      transport.sendTyping({ conversationId: chatStore.get().conversationId });
+      chatStore.set({ draft: '' });
+      // typing hook (no-op under polling, ready for realtime drivers).
+      // Capability-gated so UI never assumes typing support.
+      if (transport.hasCapability && transport.hasCapability('supportsTyping')) {
+        transport.sendTyping({ conversationId: chatStore.get().conversationId });
+      }
       chatUI.sendMessage(text, renderBody);
     }
     if (sendBtn) sendBtn.addEventListener('click', trySend);

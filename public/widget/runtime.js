@@ -1090,6 +1090,9 @@
           sender: sender,
           time: m.time ? new Date(m.time) : new Date(),
           __id: id,
+          // Phase 6b — attachment metadata is server-provided & provider-safe
+          // (no raw URLs). Always loaded via the proxy route.
+          attachment: m.attachment || null,
         });
         changed = true;
       });
@@ -1105,6 +1108,47 @@
         '<p>' + Util.escapeHtml(t('intro')) + '</p></div>';
     }
 
+    // ─── Phase 6b — attachment renderer (provider-safe) ───
+    // Always loads files via the backend proxy route /api/widget/attachments/:id.
+    // We never inline file bytes, never expose provider URLs, never embed
+    // arbitrary uploaded HTML/SVG. Only the safe metadata is used here.
+    function humanSize(bytes) {
+      var n = Number(bytes) || 0;
+      if (n < 1024) return n + ' B';
+      if (n < 1024 * 1024) return (n / 1024).toFixed(n < 10240 ? 1 : 0) + ' KB';
+      return (n / (1024 * 1024)).toFixed(n < 10485760 ? 1 : 0) + ' MB';
+    }
+    function attachmentProxyUrl(id) {
+      var apiBase = ctx.config.apiBase || '';
+      return apiBase + '/api/widget/attachments/' + encodeURIComponent(id);
+    }
+    function renderMessageAttachment(att) {
+      if (!att || !att.id) return '';
+      var url = attachmentProxyUrl(att.id);
+      var name = Util.escapeHtml(att.file_name || 'file');
+      var size = humanSize(att.size_bytes);
+      var isImage = att.kind === 'image' || (att.mime_type && /^image\//.test(att.mime_type));
+      if (isImage) {
+        return '<div class="msg-att msg-att-image">' +
+          '<button type="button" class="msg-att-img-btn" data-att-preview="' + Util.escapeHtml(att.id) + '" aria-label="' + Util.escapeHtml(t('openFile')) + '">' +
+            '<img loading="lazy" decoding="async" src="' + Util.escapeHtml(url) + '" alt="' + name + '" />' +
+            '<span class="msg-att-img-fallback">' + Util.escapeHtml(t('imageUnavailable')) + '</span>' +
+          '</button>' +
+          '</div>';
+      }
+      var iconSvg = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>';
+      return '<div class="msg-att msg-att-file">' +
+        '<div class="msg-att-icon">' + iconSvg + '</div>' +
+        '<div class="msg-att-meta">' +
+          '<div class="msg-att-name" title="' + name + '">' + name + '</div>' +
+          '<div class="msg-att-sub">' + Util.escapeHtml(size) + '</div>' +
+        '</div>' +
+        '<a class="msg-att-action" href="' + Util.escapeHtml(url) + '" target="_blank" rel="noopener noreferrer" download="' + name + '" aria-label="' + Util.escapeHtml(t('download')) + '">' +
+          '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 4v12m0 0l-4-4m4 4l4-4"/><path d="M5 20h14"/></svg>' +
+        '</a>' +
+        '</div>';
+    }
+
     function renderChat(body) {
       var s = chatStore.get();
       if (!s.messages.length) { renderEmpty(body); return; }
@@ -1112,10 +1156,32 @@
       s.messages.forEach(function (m) {
         var bg = m.sender === 'visitor' ? 'style="background:' + ctx.primaryColor + '"' : '';
         var cls = m.sender === 'visitor' ? 'visitor' : 'operator';
-        html += '<div class="msg ' + cls + '" ' + bg + '>' + Util.escapeHtml(m.body) + '</div>';
+        var hasText = m.body && String(m.body).trim().length > 0;
+        var attHtml = renderMessageAttachment(m.attachment);
+        var extraCls = (attHtml && !hasText) ? ' has-att-only' : (attHtml ? ' has-att' : '');
+        html += '<div class="msg ' + cls + extraCls + '" ' + bg + '>' +
+          (hasText ? Util.escapeHtml(m.body) : '') +
+          attHtml +
+          '</div>';
       });
       html += '</div>';
       body.innerHTML = html;
+      // Wire up image preview triggers (lightbox) — Shadow-DOM scoped.
+      var triggers = body.querySelectorAll('[data-att-preview]');
+      for (var i = 0; i < triggers.length; i++) {
+        triggers[i].addEventListener('click', function (e) {
+          var id = this.getAttribute('data-att-preview');
+          if (id) openImageLightbox(id);
+        });
+      }
+      // Image load failure: swap in fallback label without breaking layout.
+      var imgs = body.querySelectorAll('.msg-att-image img');
+      for (var j = 0; j < imgs.length; j++) {
+        imgs[j].addEventListener('error', function () {
+          var btn = this.closest('.msg-att-img-btn');
+          if (btn) btn.classList.add('failed');
+        });
+      }
       body.scrollTop = body.scrollHeight;
     }
 

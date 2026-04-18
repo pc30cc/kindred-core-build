@@ -767,10 +767,26 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
 
   const supabase = getServiceClient(config);
-  const { event_type, visitor_id, session_id, page_url, page_title, referrer } = req.body;
+  const {
+    event_type,
+    event,
+    visitor_id,
+    session_id,
+    page_url,
+    current_page,
+    page_title,
+    referrer,
+    browser,
+    device,
+    os,
+  } = req.body;
 
   try {
-    if (event_type === 'page_view' || event_type === 'heartbeat') {
+    const normalizedEvent = event_type || event;
+    const normalizedPageUrl = page_url || current_page || null;
+    let activeSessionId: string | null = session_id || null;
+
+    if (normalizedEvent === 'page_view' || normalizedEvent === 'heartbeat') {
       const clientIp = getClientIp(req);
       const ipHash = crypto.createHash('sha256').update(clientIp).digest('hex').slice(0, 16);
 
@@ -783,38 +799,49 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
         .order('last_seen_at', { ascending: false }).limit(1).maybeSingle();
 
       if (existing) {
+        activeSessionId = existing.id;
         await supabase.from('visitor_sessions')
-          .update({ current_page: page_url || null, last_seen_at: new Date().toISOString() })
+          .update({
+            current_page: normalizedPageUrl,
+            browser: browser || undefined,
+            device: device || undefined,
+            os: os || undefined,
+            last_seen_at: new Date().toISOString(),
+          })
           .eq('id', existing.id);
 
         await supabase.from('visitor_presence')
-          .update({ status: 'online', current_page: page_url || null, updated_at: new Date().toISOString() })
+          .update({ status: 'online', current_page: normalizedPageUrl, updated_at: new Date().toISOString() })
           .eq('visitor_session_id', existing.id);
       } else if (visitor_id) {
         const { data: newSession } = await supabase
           .from('visitor_sessions').insert({
             workspace_id: workspaceId,
             visitor_id,
-            current_page: page_url || null,
+            current_page: normalizedPageUrl,
             referrer: referrer || null,
             ip_hash: ipHash,
+            browser: browser || null,
+            device: device || null,
+            os: os || null,
           }).select('id').maybeSingle();
 
         if (newSession) {
+          activeSessionId = newSession.id;
           await supabase.from('visitor_presence').insert({
             workspace_id: workspaceId,
             visitor_session_id: newSession.id,
             status: 'online',
-            current_page: page_url || null,
+            current_page: normalizedPageUrl,
           });
         }
       }
     }
 
-    return res.json({ ok: true });
+    return res.json({ ok: true, session_id: activeSessionId });
   } catch (err: any) {
     console.error('[widget-track] Error:', err.message);
-    res.json({ ok: true }); // Don't fail on tracking errors
+    res.json({ ok: true, session_id: session_id || null }); // Don't fail on tracking errors
   }
 });
 

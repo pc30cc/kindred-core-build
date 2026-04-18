@@ -147,6 +147,17 @@
         reconnecting: 'Reconnecting…',
         connecting: 'Connecting…',
         offlineComposerTip: 'Disabled while offline',
+        // Phase 5 — availability
+        availOnline: "We're online",
+        availAway: 'Replies may be slower',
+        availOffline: "We're offline",
+        availUnavailable: 'Live chat unavailable',
+        offlineIntro: "We're not online right now. Leave us a message and we'll reply as soon as we can.",
+        fallbackIntro: "Our team is offline. Share your details and a short message — we'll get back to you.",
+        fallbackMessageLabel: 'Message',
+        fallbackSubmit: 'Send message',
+        fallbackSent: "Thanks — we've got your message and will reply shortly.",
+        fallbackError: "Couldn't send right now. Please try again.",
       },
       fa: {
         chat: 'گفتگو', help: 'راهنما',
@@ -165,6 +176,16 @@
         reconnecting: 'در حال اتصال مجدد…',
         connecting: 'در حال اتصال…',
         offlineComposerTip: 'در حالت آفلاین غیرفعال است',
+        availOnline: 'ما آنلاین هستیم',
+        availAway: 'پاسخ‌گویی ممکن است کندتر باشد',
+        availOffline: 'در حال حاضر آفلاین هستیم',
+        availUnavailable: 'گفتگوی زنده در دسترس نیست',
+        offlineIntro: 'الان آنلاین نیستیم. پیام بگذارید، در اولین فرصت پاسخ می‌دهیم.',
+        fallbackIntro: 'تیم ما در حال حاضر آفلاین است. اطلاعات تماس و یک پیام کوتاه بنویسید تا با شما تماس بگیریم.',
+        fallbackMessageLabel: 'پیام',
+        fallbackSubmit: 'ارسال پیام',
+        fallbackSent: 'پیام شما دریافت شد. به‌زودی پاسخ می‌دهیم.',
+        fallbackError: 'ارسال انجام نشد. لطفاً دوباره تلاش کنید.',
       },
       tr: {
         chat: 'Sohbet', help: 'Yardım',
@@ -183,6 +204,16 @@
         reconnecting: 'Yeniden bağlanılıyor…',
         connecting: 'Bağlanıyor…',
         offlineComposerTip: 'Çevrimdışıyken devre dışı',
+        availOnline: 'Çevrimiçiyiz',
+        availAway: 'Yanıtlar gecikebilir',
+        availOffline: 'Şu an çevrimdışıyız',
+        availUnavailable: 'Canlı sohbet kullanılamıyor',
+        offlineIntro: 'Şu an çevrimdışıyız. Bize bir mesaj bırakın, en kısa sürede dönüş yapalım.',
+        fallbackIntro: 'Ekibimiz şu an çevrimdışı. Bilgilerinizi ve kısa bir mesaj bırakın, size geri döneceğiz.',
+        fallbackMessageLabel: 'Mesaj',
+        fallbackSubmit: 'Mesaj gönder',
+        fallbackSent: 'Mesajınızı aldık, kısa süre içinde yanıtlayacağız.',
+        fallbackError: 'Şu an gönderilemedi. Lütfen tekrar deneyin.',
       },
     };
     return {
@@ -839,6 +870,140 @@
   }
 
   // ════════════════════════════════════════════════════════════════════
+  // Presence / Availability — Phase 5
+  //
+  // Resolves whether human help is currently available, completely
+  // SEPARATE from transport state (a healthy WS connection does NOT mean
+  // an operator is online) and SEPARATE from unread/notification state.
+  //
+  // Layered inputs (highest priority first):
+  //   1. live_chat_enabled === false                  → 'unavailable'
+  //   2. business_hours says closed (if enabled)      → 'offline'
+  //   3. realtime presence event (if driver supports) → 'online' / 'away' / 'offline'
+  //   4. backend snapshot (onlineOperators in config) → 'online' / 'offline'
+  //   5. conservative default                         → 'offline'
+  //
+  // Capability-aware: if transport doesn't emit presence, we never wait
+  // for it and never assume online. Polling fallback always produces a
+  // valid availability state from the snapshot + business hours.
+  // ════════════════════════════════════════════════════════════════════
+  function createPresence(ctx, presenceStore, transport, transportStore, t) {
+    var availability = (ctx.config && ctx.config.availability) || {};
+    var liveChatEnabled = availability.liveChatEnabled !== false;
+    var offlineMode = availability.offlineMode === 'contact_fallback' ? 'contact_fallback' : 'accept_messages';
+    var businessHours = availability.businessHours || { enabled: false, schedule: [], timezone: 'UTC' };
+    var customLabels = availability.labels || {};
+
+    // Snapshot from /config (best-effort hint, refreshed on reconnect via REST is OUT OF SCOPE here).
+    var snapshotOnlineOps = (typeof ctx.config.onlineOperators === 'number')
+      ? ctx.config.onlineOperators : 0;
+
+    // Last realtime presence signal: null = unknown, otherwise { online: bool, count: number, ts }.
+    var rtPresence = null;
+
+    // ─── Business hours check (visitor-local time, schedule:[{day:0..6, open:"HH:MM", close:"HH:MM"}]) ───
+    function isWithinBusinessHours() {
+      if (!businessHours || !businessHours.enabled) return true;
+      var schedule = Array.isArray(businessHours.schedule) ? businessHours.schedule : [];
+      if (!schedule.length) return true;
+      var now = new Date();
+      var day = now.getDay(); // 0=Sun..6=Sat
+      var minutes = now.getHours() * 60 + now.getMinutes();
+      for (var i = 0; i < schedule.length; i++) {
+        var slot = schedule[i] || {};
+        if (slot.day !== day) continue;
+        var open = parseHM(slot.open);
+        var close = parseHM(slot.close);
+        if (open == null || close == null) continue;
+        if (close > open && minutes >= open && minutes < close) return true;
+        // Overnight slot (e.g. 22:00 → 02:00)
+        if (close < open && (minutes >= open || minutes < close)) return true;
+      }
+      return false;
+    }
+    function parseHM(s) {
+      if (!s || typeof s !== 'string') return null;
+      var m = /^(\d{1,2}):(\d{2})$/.exec(s.trim());
+      if (!m) return null;
+      var h = +m[1], mn = +m[2];
+      if (h < 0 || h > 23 || mn < 0 || mn > 59) return null;
+      return h * 60 + mn;
+    }
+
+    function resolveStatus() {
+      // 1. Master switch
+      if (!liveChatEnabled) return 'unavailable';
+      // 2. Business hours
+      if (!isWithinBusinessHours()) return 'offline';
+      // 3. Realtime signal (when supported)
+      if (rtPresence) {
+        if (rtPresence.online) return rtPresence.away ? 'away' : 'online';
+        return 'offline';
+      }
+      // 4. Backend snapshot hint
+      if (snapshotOnlineOps > 0) return 'online';
+      // 5. Conservative default
+      return 'offline';
+    }
+
+    function labelFor(status) {
+      if (customLabels[status]) return String(customLabels[status]);
+      if (status === 'online') return t('availOnline');
+      if (status === 'away') return t('availAway');
+      if (status === 'unavailable') return t('availUnavailable');
+      return t('availOffline');
+    }
+
+    function publish() {
+      var status = resolveStatus();
+      var prev = presenceStore.get().status;
+      if (prev === status) return;
+      presenceStore.set({
+        status: status,
+        label: labelFor(status),
+        offlineMode: offlineMode,
+        liveChatEnabled: liveChatEnabled,
+        lastChange: Date.now(),
+      });
+    }
+
+    // Wire transport presence — only if the driver advertises support.
+    function wire() {
+      if (transport.hasCapability && transport.hasCapability('supportsPresence')) {
+        transport.on('presence', function (e) {
+          // Centrifugo emits { channel, join, leave }. Operators joining the
+          // workspace channel = online. We treat any join as online; leave
+          // without remaining joiners = offline. We do NOT track exact counts
+          // here — that's a future enhancement.
+          var hasJoin = !!(e && e.join);
+          var hasLeave = !!(e && e.leave);
+          if (!rtPresence) rtPresence = { online: false, count: 0, ts: 0 };
+          if (hasJoin) { rtPresence.online = true; rtPresence.count = (rtPresence.count || 0) + 1; }
+          else if (hasLeave) { rtPresence.count = Math.max(0, (rtPresence.count || 0) - 1); rtPresence.online = rtPresence.count > 0; }
+          rtPresence.away = false;
+          rtPresence.ts = Date.now();
+          publish();
+        });
+      }
+      // Republish on reconnect — but reconnect itself does NOT imply operator online.
+      // We just re-evaluate from current inputs; rtPresence is left as-is.
+      transport.on('reconnect', function () { publish(); });
+      // Re-evaluate periodically so business-hours transitions take effect
+      // without requiring a new transport event. Lightweight (60s tick).
+      setInterval(publish, 60_000);
+      // Initial publish
+      publish();
+    }
+
+    return {
+      wire: wire,
+      publish: publish,
+      isLiveChatEnabled: function () { return liveChatEnabled; },
+      getOfflineMode: function () { return offlineMode; },
+    };
+  }
+
+  // ════════════════════════════════════════════════════════════════════
   // UI.Chat — renders chat thread + pre-chat into shadow root.
   // Consumes: chatStore, identityStore, transportStore (read-only) + transport (actions)
   // ════════════════════════════════════════════════════════════════════
@@ -1032,9 +1197,131 @@
       });
     }
 
+    // ─── Phase 5: Contact fallback (offline_mode === 'contact_fallback') ───
+    // Lightweight in-panel form. Reuses the existing identity prechat backend
+    // for contact details and the existing message endpoint for the message.
+    // No new endpoints, no parallel submission system, no localStorage drafts.
+    function renderContactFallback(body, identity, locale, presence, onSent) {
+      var contact = (identityStore.get().contact) || {};
+      var introCustom = (presence && presence.introLabel) ? presence.introLabel : '';
+      var intro = introCustom || t('fallbackIntro');
+      var dir = locale === 'fa' ? 'rtl' : 'ltr';
+
+      function fieldRow(key, type, value, required) {
+        var label = t(key);
+        return '<div>' +
+          '<label class="prechat-label">' + Util.escapeHtml(label) +
+            (required ? ' <span class="prechat-required">*</span>' : '') + '</label>' +
+          '<input class="input" data-fb="' + key + '" type="' + type +
+          '" autocomplete="' + (key === 'name' ? 'name' : key === 'email' ? 'email' : 'tel') +
+          '" placeholder="' + Util.escapeHtml(label) + '" value="' + Util.escapeHtml(value || '') + '" />' +
+          '<div class="prechat-error" data-err="' + key + '"></div>' +
+        '</div>';
+      }
+
+      // Always ask for at least one contact channel + the message body.
+      var askPhone = identity.isAsked('phone');
+      var fieldsHtml = '';
+      fieldsHtml += fieldRow('name', 'text', contact.name, identity.isRequired('name'));
+      fieldsHtml += fieldRow('email', 'email', contact.email, !askPhone);
+      if (askPhone) fieldsHtml += fieldRow('phone', 'tel', contact.phone, identity.isRequired('phone'));
+
+      body.innerHTML =
+        '<div class="prechat fallback" dir="' + dir + '">' +
+        '<p class="prechat-intro">' + Util.escapeHtml(intro) + '</p>' +
+        '<div class="prechat-fields">' + fieldsHtml +
+          '<div>' +
+            '<label class="prechat-label">' + Util.escapeHtml(t('fallbackMessageLabel')) +
+            ' <span class="prechat-required">*</span></label>' +
+            '<textarea class="input" data-fb="message" rows="3" placeholder="' +
+              Util.escapeHtml(t('typeMsg')) + '"></textarea>' +
+            '<div class="prechat-error" data-err="message"></div>' +
+          '</div>' +
+        '</div>' +
+        '<button type="button" class="prechat-submit" data-fb-submit>' + Util.escapeHtml(t('fallbackSubmit')) + '</button>' +
+        '<div class="fallback-status" data-fb-status></div>' +
+        '</div>';
+
+      var statusEl = body.querySelector('[data-fb-status]');
+      var submitBtn = body.querySelector('[data-fb-submit]');
+      function get(k) { var el = body.querySelector('[data-fb="' + k + '"]'); return el ? el.value.trim() : ''; }
+      function showErr(k, msg) {
+        var el = body.querySelector('[data-err="' + k + '"]');
+        if (el) { el.textContent = msg; el.classList.add('visible'); }
+      }
+      function clearErr(k) {
+        var el = body.querySelector('[data-err="' + k + '"]');
+        if (el) { el.textContent = ''; el.classList.remove('visible'); }
+      }
+      ['name', 'email', 'phone', 'message'].forEach(function (k) {
+        var input = body.querySelector('[data-fb="' + k + '"]');
+        if (input) input.addEventListener('input', function () { clearErr(k); });
+      });
+
+      if (!submitBtn) return;
+      submitBtn.addEventListener('click', function () {
+        var payload = {
+          name: get('name'),
+          email: get('email'),
+          phone: get('phone'),
+          message: get('message'),
+        };
+        var ok = true;
+        if (identity.isRequired('name') && !payload.name) { showErr('name', t('required')); ok = false; }
+        if (payload.email && !Util.isValidEmail(payload.email)) { showErr('email', t('invalidEmail')); ok = false; }
+        if (payload.phone && !Util.isValidPhone(payload.phone)) { showErr('phone', t('invalidPhone')); ok = false; }
+        if (!payload.email && !payload.phone) { showErr('email', t('required')); ok = false; }
+        if (!payload.message) { showErr('message', t('required')); ok = false; }
+        if (!ok) return;
+
+        submitBtn.disabled = true; submitBtn.style.opacity = '0.6';
+        if (statusEl) { statusEl.textContent = ''; statusEl.className = 'fallback-status'; }
+
+        // 1. Identify the contact via the existing prechat endpoint (no new API).
+        identity.submitPrechat(
+          { name: payload.name, email: payload.email, phone: payload.phone },
+          function (success, resp) {
+            if (!success) {
+              submitBtn.disabled = false; submitBtn.style.opacity = '1';
+              var f = resp && resp.field;
+              if (f) showErr(f, t('required'));
+              if (statusEl) { statusEl.textContent = t('fallbackError'); statusEl.className = 'fallback-status error'; }
+              return;
+            }
+            // 2. Send the message via the existing transport (REST under polling and realtime).
+            transport.sendMessage(
+              { text: payload.message, conversationId: chatStore.get().conversationId },
+              {
+                onConversation: function (cid) {
+                  if (cid && cid !== chatStore.get().conversationId) {
+                    chatStore.set({ conversationId: cid });
+                    transport.subscribeConversation(cid);
+                  }
+                },
+                onReply: function () { /* offline mode — no synchronous reply expected */ },
+                onError: function () {
+                  submitBtn.disabled = false; submitBtn.style.opacity = '1';
+                  if (statusEl) { statusEl.textContent = t('fallbackError'); statusEl.className = 'fallback-status error'; }
+                },
+              }
+            );
+            // Echo into local chat store so the user sees their own message.
+            var s = chatStore.get();
+            var messages = s.messages.slice();
+            messages.push({ body: payload.message, sender: 'visitor', time: new Date() });
+            chatStore.set({ messages: messages });
+
+            if (statusEl) { statusEl.textContent = t('fallbackSent'); statusEl.className = 'fallback-status ok'; }
+            if (typeof onSent === 'function') onSent();
+          }
+        );
+      });
+    }
+
     return {
       renderChat: renderChat,
       renderPreChat: renderPreChat,
+      renderContactFallback: renderContactFallback,
       sendMessage: sendMessage,
       bootstrapHistory: bootstrapHistory,
       mergeIncoming: mergeIncoming,
@@ -1184,6 +1471,14 @@
       // Sound is OFF by default. Toggle via window.__gs.push(['setSoundEnabled', true]).
       soundEnabled: !!(config.features && config.features.notificationSound) || false,
     });
+    // Phase 5 — presence/availability store. Separate from transport + notify stores.
+    var presenceStore = createStore({
+      status: 'offline',          // online | away | offline | unavailable
+      label: '',
+      offlineMode: 'accept_messages',
+      liveChatEnabled: true,
+      lastChange: 0,
+    });
 
     // ─── Layers ───
     var transport = createTransport(ctx, transportStore);
@@ -1197,6 +1492,7 @@
     });
     var kbUI = createKbUI({ ctx: ctx, t: t, kbStore: kbStore });
     var notify = createNotify(ctx, transportStore, notifyStore, uiPrefsStore, shellStore, t);
+    var presence = createPresence(ctx, presenceStore, transport, transportStore, t);
 
     // ─── Build panel ───
     var posClass = uiPrefsStore.get().position;
@@ -1212,6 +1508,10 @@
     var headerHtml = '<div class="header">' +
       '<div class="header-title">' + Util.escapeHtml(brandName || 'Support') + '</div>' +
       '<div class="header-subtitle">' + Util.escapeHtml(welcomeMessage).replace(/\n/g, '<br>') + '</div>' +
+      '<div class="presence" data-presence aria-live="polite">' +
+        '<span class="presence-dot" data-presence-dot></span>' +
+        '<span class="presence-label" data-presence-label></span>' +
+      '</div>' +
       '</div>';
     var tabsHtml = '';
     if (chatEnabled && kbEnabled) {
@@ -1242,6 +1542,19 @@
 
     notify.attach(panel);
 
+    // Phase 5 — presence indicator: keep header dot/label in sync with presenceStore.
+    var presenceDot = panel.querySelector('[data-presence-dot]');
+    var presenceLabel = panel.querySelector('[data-presence-label]');
+    var presenceWrap = panel.querySelector('[data-presence]');
+    function renderPresence(s) {
+      if (!presenceDot || !presenceLabel || !presenceWrap) return;
+      var status = s.status || 'offline';
+      presenceWrap.className = 'presence status-' + status;
+      presenceLabel.textContent = s.label || '';
+    }
+    presenceStore.subscribe(renderPresence);
+    renderPresence(presenceStore.get());
+
     // Open immediately (user clicked launcher)
     shellStore.set({ isOpen: true, mounted: true });
     panel.classList.add('visible');
@@ -1264,7 +1577,14 @@
     function applyComposerState() {
       if (!msgInput || !sendBtn) return;
       var conn = transportStore.get().connectionState;
-      var canSend = conn === 'online' && shellStore.get().activeTab === 'chat';
+      // Phase 5 — composer is also gated by availability:
+      //   - liveChatEnabled === false       → never enable
+      //   - offline_mode === contact_fallback when offline → fallback form owns input
+      var pState = presenceStore.get();
+      var availOk = pState.liveChatEnabled !== false
+        && !((pState.status === 'offline' || pState.status === 'unavailable')
+          && pState.offlineMode === 'contact_fallback');
+      var canSend = conn === 'online' && shellStore.get().activeTab === 'chat' && availOk;
       msgInput.disabled = !canSend;
       sendBtn.disabled = !canSend;
       if (canSend) {
@@ -1281,6 +1601,7 @@
     }
     transportStore.subscribe(applyComposerState);
     shellStore.subscribe(applyComposerState);
+    presenceStore.subscribe(applyComposerState);
 
     // ─── Draft preservation (in-memory only, per-conversation) ───
     // Drafts live in chatStore.drafts keyed by conversationId. Before a
@@ -1377,11 +1698,28 @@
           });
           return;
         }
+        // Phase 5 — when offline + contact_fallback mode and there's no
+        // active thread yet, render the fallback form instead of the chat.
+        var pStatus = presenceStore.get().status;
+        var pMode = presenceStore.get().offlineMode;
+        var hasMessages = (chatStore.get().messages || []).length > 0;
+        var shouldFallback = (pStatus === 'offline' || pStatus === 'unavailable')
+          && pMode === 'contact_fallback' && !hasMessages;
+        if (shouldFallback) {
+          chatUI.renderContactFallback(body, identity, ctx.locale, presenceStore.get(), function () {
+            renderBody();
+          });
+          return;
+        }
         chatUI.renderChat(body);
       } else if (tab === 'help') {
         kbUI.ensure(function () { kbUI.render(body); });
       }
     }
+    // Re-render body when presence flips so fallback/normal swap takes effect.
+    presenceStore.subscribe(function () {
+      if (shellStore.get().activeTab === 'chat') renderBody();
+    });
 
     // ─── Wire transport events to UI ───
     //
@@ -1474,8 +1812,12 @@
     // Presence/typing inbound hooks — only wire if driver advertises support.
     // Under the polling driver these are no-ops; future WS/SSE drivers can
     // emit real events without UI changes.
-    if (transport.hasCapability && transport.hasCapability('supportsPresence')) {
-      transport.on('presence', function (_e) { /* future: render presence */ });
+    // Phase 5 — wire presence layer (no-op for polling, real for realtime drivers
+    // that advertise supportsPresence). Always publishes initial state.
+    presence.wire();
+    // Typing inbound hook — only wire if driver advertises support.
+    if (transport.hasCapability && transport.hasCapability('supportsTyping')) {
+      transport.on('typing', function (_e) { /* future: render typing indicator */ });
     }
     if (transport.hasCapability && transport.hasCapability('supportsTyping')) {
       transport.on('typing', function (_e) { /* future: render typing indicator */ });

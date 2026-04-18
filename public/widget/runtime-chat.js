@@ -31,9 +31,14 @@
       var workspaceId = opts.workspaceId;
       var sessionToken = opts.sessionToken;
       var conversationId = opts.conversationId || null;
+      var attachmentId = opts.attachmentId || null;
       var text = opts.text;
       var onReply = opts.onReply;
       var onConversation = opts.onConversation;
+      // Phase 7 — receives { conversationId, messageId } once the backend
+      // has accepted and persisted the message. Drives the sending → sent
+      // lifecycle transition. Never invoked on failure.
+      var onAccepted = opts.onAccepted;
       var onError = opts.onError;
 
       if (!apiBase || !workspaceId) {
@@ -51,13 +56,24 @@
         body: JSON.stringify({
           workspace_id: workspaceId,
           conversation_id: conversationId || undefined,
+          attachment_id: attachmentId || undefined,
           message: text,
         }),
       })
-        .then(function (r) { return r.json(); })
+        .then(function (r) {
+          if (!r.ok) throw new Error('http_' + r.status);
+          return r.json();
+        })
         .then(function (data) {
           if (data.conversation_id && onConversation) {
             onConversation(data.conversation_id);
+          }
+          // Phase 7 — backend-confirmed acceptance. Triggers sending → sent.
+          if (onAccepted) {
+            onAccepted({
+              conversationId: data.conversation_id || null,
+              messageId: data.message_id || null,
+            });
           }
           if (data.reply && onReply) onReply(data.reply);
         })

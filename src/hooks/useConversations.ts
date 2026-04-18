@@ -115,3 +115,35 @@ export function useUpdateConversation() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['conversations'] }),
   });
 }
+
+/**
+ * Phase 7 — Operator-side "seen" trigger.
+ *
+ * Calls the `mark_conversation_seen` Postgres function, which:
+ *   - verifies the caller is a member of the conversation's workspace
+ *   - sets `seen_at = now()` on every visitor message in that conversation
+ *     where `seen_at IS NULL` (monotonic — never moves backwards)
+ *
+ * The widget reads `seen_at` back via /poll, /history, /identity/history
+ * and renders a "Seen" indicator on the visitor's own messages.
+ *
+ * Fire-and-forget: failure to mark seen must never break the inbox UI.
+ */
+export function useMarkConversationSeen() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (conversationId: string) => {
+      const { data, error } = await (supabase.rpc as any)('mark_conversation_seen', {
+        _conversation_id: conversationId,
+      });
+      if (error) throw error;
+      return (data as number) ?? 0;
+    },
+    onSuccess: (_count, conversationId) => {
+      qc.invalidateQueries({ queryKey: ['messages', conversationId] });
+    },
+    onError: (err) => {
+      console.warn('[seen] mark_conversation_seen failed', err);
+    },
+  });
+}

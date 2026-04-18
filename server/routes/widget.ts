@@ -102,6 +102,8 @@ const DEFAULT_WIDGET_SETTINGS = {
     'image/png', 'image/jpeg', 'image/webp', 'image/gif',
     'application/pdf', 'text/plain',
   ],
+  // Phase 7 — Read receipts (on by default; admin can disable per-workspace)
+  read_receipts_enabled: true,
 };
 
 const PRECHAT_RUNTIME_KEY = 'widget_prechat_fields';
@@ -491,6 +493,12 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
           : ['image/png','image/jpeg','image/webp','image/gif','application/pdf','text/plain'],
         maxCount: 1, // v1: single file per message
       },
+      // Phase 7 — Read receipts toggle. When false, the widget shows only
+      // sending/sent (no "Seen" indicator). The widget never invents seen
+      // state; it only renders what the backend has actually recorded.
+      readReceipts: {
+        enabled: ws.read_receipts_enabled !== false,
+      },
       supportMode: ws.support_mode || 'human_first',
       defaultMode: ws.default_mode || 'chat',
       mobileBehavior: ws.mobile_behavior || 'bottom_sheet',
@@ -582,7 +590,7 @@ widgetRouter.get('/poll', widgetRateLimit('poll'), async (req: Request, res: Res
 
     const { data: msgs } = await supabase
       .from('conversation_messages')
-      .select('id, body, sender_type, created_at, metadata')
+      .select('id, body, sender_type, created_at, metadata, seen_at')
       .eq('conversation_id', activeConversationId)
       .order('created_at', { ascending: false })
       .limit(200);
@@ -593,6 +601,9 @@ widgetRouter.get('/poll', widgetRateLimit('poll'), async (req: Request, res: Res
       text: m.body,
       time: m.created_at,
       metadata: m.metadata,
+      // Phase 7 — lifecycle. Only ever set on visitor messages, only by an
+      // operator-side action (mark_conversation_seen RPC). Monotonic.
+      seen_at: m.seen_at || null,
     }));
     // Phase 6b — attach public-safe attachment metadata (no provider URLs)
     const messages = await enrichMessagesWithAttachments(config, workspaceId, baseMessages);
@@ -642,7 +653,7 @@ widgetRouter.get('/history', widgetRateLimit('poll'), async (req: Request, res: 
   const supabase = getServiceClient(config);
   const { data: msgs } = await supabase
     .from('conversation_messages')
-    .select('id, body, sender_type, created_at, metadata')
+    .select('id, body, sender_type, created_at, metadata, seen_at')
     .eq('conversation_id', conversationId)
     .order('created_at', { ascending: false })
     .limit(200);
@@ -653,6 +664,8 @@ widgetRouter.get('/history', widgetRateLimit('poll'), async (req: Request, res: 
     text: m.body,
     time: m.created_at,
     metadata: m.metadata,
+    // Phase 7 — lifecycle (see /poll for semantics).
+    seen_at: m.seen_at || null,
   }));
   // Phase 6b — attach public-safe attachment metadata (no provider URLs)
   const messages = await enrichMessagesWithAttachments(config, workspaceId, baseMessages);
@@ -925,7 +938,15 @@ If you cannot answer, say so politely.${kbContext}`;
       console.warn('[widget-message] AI auto-reply failed:', aiErr.message);
     }
 
-    return res.json({ conversation_id: convId, status: 'sent', reply });
+    return res.json({
+      conversation_id: convId,
+      // Phase 7 — return the canonical message id so the widget can bind its
+      // optimistic "sending" bubble to a real backend record and transition
+      // it to "sent". Never invented client-side; always backend-issued.
+      message_id: insertedMsg?.id || null,
+      status: 'sent',
+      reply,
+    });
   } catch (err: any) {
     console.error('[widget-message] Error:', err.message);
     res.status(500).json({ error: 'Message send failed' });

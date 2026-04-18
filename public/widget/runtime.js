@@ -172,6 +172,11 @@
         openFile: 'Open',
         closePreview: 'Close preview',
         imageUnavailable: 'Image unavailable',
+        // Phase 7 — message lifecycle
+        msgSending: 'Sending…',
+        msgSent: 'Sent',
+        msgSeen: 'Seen',
+        msgFailed: 'Not delivered',
       },
       fa: {
         chat: 'گفتگو', help: 'راهنما',
@@ -214,6 +219,11 @@
         openFile: 'باز کردن',
         closePreview: 'بستن پیش‌نمایش',
         imageUnavailable: 'تصویر در دسترس نیست',
+        // Phase 7 — message lifecycle
+        msgSending: 'در حال ارسال…',
+        msgSent: 'ارسال شد',
+        msgSeen: 'دیده شد',
+        msgFailed: 'ارسال نشد',
       },
       tr: {
         chat: 'Sohbet', help: 'Yardım',
@@ -256,6 +266,11 @@
         openFile: 'Aç',
         closePreview: 'Önizlemeyi kapat',
         imageUnavailable: 'Görsel kullanılamıyor',
+        // Phase 7 — message lifecycle
+        msgSending: 'Gönderiliyor…',
+        msgSent: 'Gönderildi',
+        msgSeen: 'Görüldü',
+        msgFailed: 'İletilemedi',
       },
     };
     return {
@@ -383,6 +398,8 @@
           workspaceId: ctx.workspaceId,
           sessionToken: ctx.sessionToken,
           conversationId: payload.conversationId,
+          // Phase 6b — attachment id flows through to the message endpoint.
+          attachmentId: payload.attachmentId || null,
           text: payload.text,
           onConversation: function (cid) {
             if (cid) {
@@ -390,6 +407,11 @@
               if (rtDriver && rtDriver.subscribeConversation) rtDriver.subscribeConversation(cid);
             }
             if (hooks.onConversation) hooks.onConversation(cid);
+          },
+          // Phase 7 — backend confirmation. Carries the canonical message id
+          // so the widget can transition its optimistic bubble to "sent".
+          onAccepted: function (info) {
+            if (hooks.onAccepted) hooks.onAccepted(info || {});
           },
           onReply: function (reply) {
             if (hooks.onReply) hooks.onReply(reply);
@@ -1070,33 +1092,62 @@
 
       incoming.forEach(function (m) {
         var id = m.id || (m.time + ':' + (m.text || m.body || ''));
-        if (seenIds[id]) return;
-        seenIds[id] = true;
         var senderRaw = m.role || m.sender || m.sender_type || 'agent';
         var sender = (senderRaw === 'visitor' || senderRaw === 'contact') ? 'visitor' : 'operator';
         var text = m.text || m.body || '';
-        if (sender === 'visitor') {
-          var dup = messages.some(function (lm) {
-            return lm.sender === 'visitor' && lm.body === text && !lm.__id;
-          });
-          if (dup) {
-            for (var i = 0; i < messages.length; i++) {
-              if (messages[i].sender === 'visitor' && messages[i].body === text && !messages[i].__id) {
-                messages[i].__id = id;
+        var seenAt = m.seen_at || null;
+
+        // Phase 7 — monotonic seen merge: if we already rendered this message
+        // (by canonical id), update lifecycle status forward only. Never
+        // regress sent → sending or seen → sent.
+        if (seenIds[id]) {
+          if (sender === 'visitor' && seenAt) {
+            for (var u = 0; u < messages.length; u++) {
+              if (messages[u].__id === id && messages[u].status !== 'seen') {
+                messages[u].status = 'seen';
+                messages[u].seenAt = seenAt;
+                changed = true;
                 break;
               }
             }
+          }
+          return;
+        }
+        seenIds[id] = true;
+
+        if (sender === 'visitor') {
+          // Reconcile with optimistic bubble (text match, no canonical id yet).
+          var dupIdx = -1;
+          for (var d = 0; d < messages.length; d++) {
+            if (messages[d].sender === 'visitor' && messages[d].body === text && !messages[d].__id) {
+              dupIdx = d; break;
+            }
+          }
+          if (dupIdx >= 0) {
+            messages[dupIdx].__id = id;
+            // Lifecycle: optimistic 'sending'/'sent' is at least 'sent' once
+            // backend echoes it back; promote to 'seen' only if backend says so.
+            var prev = messages[dupIdx].status;
+            if (seenAt) {
+              messages[dupIdx].status = 'seen';
+              messages[dupIdx].seenAt = seenAt;
+            } else if (prev !== 'seen') {
+              messages[dupIdx].status = 'sent';
+            }
+            changed = true;
             return;
           }
         }
+
         messages.push({
           body: text,
           sender: sender,
           time: m.time ? new Date(m.time) : new Date(),
           __id: id,
-          // Phase 6b — attachment metadata is server-provided & provider-safe
-          // (no raw URLs). Always loaded via the proxy route.
           attachment: m.attachment || null,
+          // Phase 7 — lifecycle (visitor messages only have a meaningful status).
+          status: sender === 'visitor' ? (seenAt ? 'seen' : 'sent') : null,
+          seenAt: sender === 'visitor' ? seenAt : null,
         });
         changed = true;
       });
@@ -1156,16 +1207,44 @@
     function renderChat(body) {
       var s = chatStore.get();
       if (!s.messages.length) { renderEmpty(body); return; }
+      // Phase 7 — read-receipts toggle (admin-controlled, surfaced via /config).
+      var rrCfg = ctx.config && ctx.config.readReceipts;
+      var receiptsEnabled = !rrCfg || rrCfg.enabled !== false;
+      // Find last visitor message — only it shows the lifecycle indicator
+      // (chat-app convention; reduces visual noise).
+      var lastVisitorIdx = -1;
+      for (var lv = s.messages.length - 1; lv >= 0; lv--) {
+        if (s.messages[lv].sender === 'visitor') { lastVisitorIdx = lv; break; }
+      }
       var html = '<div class="messages">';
-      s.messages.forEach(function (m) {
+      s.messages.forEach(function (m, idx) {
         var bg = m.sender === 'visitor' ? 'style="background:' + ctx.primaryColor + '"' : '';
         var cls = m.sender === 'visitor' ? 'visitor' : 'operator';
         var hasText = m.body && String(m.body).trim().length > 0;
         var attHtml = renderMessageAttachment(m.attachment);
         var extraCls = (attHtml && !hasText) ? ' has-att-only' : (attHtml ? ' has-att' : '');
-        html += '<div class="msg ' + cls + extraCls + '" ' + bg + '>' +
-          (hasText ? Util.escapeHtml(m.body) : '') +
-          attHtml +
+        // Phase 7 — lifecycle row (sending/sent/seen/failed). Only on the last
+        // visitor message, only when read receipts are enabled in config.
+        var statusHtml = '';
+        if (m.sender === 'visitor' && idx === lastVisitorIdx && receiptsEnabled && m.status) {
+          var label, icon;
+          if (m.status === 'sending') {
+            label = t('msgSending'); icon = '<span class="msg-status-spinner"></span>';
+          } else if (m.status === 'failed') {
+            label = t('msgFailed'); icon = '<span class="msg-status-icon">!</span>';
+          } else if (m.status === 'seen') {
+            label = t('msgSeen'); icon = '<span class="msg-status-icon seen">✓✓</span>';
+          } else { // 'sent'
+            label = t('msgSent'); icon = '<span class="msg-status-icon">✓</span>';
+          }
+          statusHtml = '<div class="msg-status status-' + m.status + '">' + icon +
+            '<span class="msg-status-label">' + Util.escapeHtml(label) + '</span></div>';
+        }
+        html += '<div class="msg-row ' + cls + '">' +
+          '<div class="msg ' + cls + extraCls + '" ' + bg + '>' +
+            (hasText ? Util.escapeHtml(m.body) : '') + attHtml +
+          '</div>' +
+          statusHtml +
           '</div>';
       });
       html += '</div>';
@@ -1270,18 +1349,39 @@
       if (conn !== 'online') return;
       var s = chatStore.get();
       var messages = s.messages.slice();
+      // Phase 7 — optimistic local id used to find this bubble later when
+      // the backend confirms (sending → sent) or rejects (→ failed).
+      var localId = 'local_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
       messages.push({
         body: text,
         sender: 'visitor',
         time: new Date(),
         attachmentId: attachmentId || null,
-        // Phase 6b — optimistic attachment so the bubble renders the
-        // attachment immediately. The next poll/history merge will replace
-        // this object with the server-canonical metadata (same id).
         attachment: optimisticAttachment || null,
+        // Phase 7 — lifecycle starts as 'sending'. Transitions only on
+        // honest backend signals (onAccepted → 'sent', onError → 'failed',
+        // poll/history echo with seen_at → 'seen'). Never faked.
+        status: 'sending',
+        localId: localId,
       });
       chatStore.set({ messages: messages });
       onChange();
+
+      function updateByLocalId(patch) {
+        var cs = chatStore.get();
+        var arr = cs.messages.slice();
+        for (var i = 0; i < arr.length; i++) {
+          if (arr[i].localId === localId) {
+            // Monotonic guard: never regress past 'seen'.
+            if (arr[i].status === 'seen') return;
+            arr[i] = Object.assign({}, arr[i], patch);
+            chatStore.set({ messages: arr });
+            onChange();
+            return;
+          }
+        }
+      }
+
       transport.sendMessage(
         { text: text, conversationId: s.conversationId, attachmentId: attachmentId || null },
         {
@@ -1291,6 +1391,14 @@
               transport.subscribeConversation(cid);
             }
           },
+          onAccepted: function (info) {
+            // Bind canonical message id and flip to 'sent'. The next merge
+            // (poll/history) will reconcile by __id and may promote to 'seen'.
+            updateByLocalId({
+              status: 'sent',
+              __id: info && info.messageId ? info.messageId : undefined,
+            });
+          },
           onReply: function (reply) {
             var ns = chatStore.get();
             var arr = ns.messages.slice();
@@ -1298,7 +1406,10 @@
             chatStore.set({ messages: arr });
             onChange();
           },
-          onError: function () { Util.warn('Send failed'); },
+          onError: function () {
+            Util.warn('Send failed');
+            updateByLocalId({ status: 'failed' });
+          },
         }
       );
     }

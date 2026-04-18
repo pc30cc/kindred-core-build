@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
-import { useConversations, useConversationMessages, useSendMessage, useUpdateConversation, useDeleteAllConversations } from '@/hooks/useConversations';
+import { useConversations, useConversationMessages, useSendMessage, useUpdateConversation, useDeleteAllConversations, useMarkConversationSeen } from '@/hooks/useConversations';
 import { useIsGlobalAdmin } from '@/hooks/useAdmin';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -66,7 +66,21 @@ export default function InboxPage() {
   const sendMessage = useSendMessage(selectedId ?? undefined);
   const updateConv = useUpdateConversation();
   const deleteAll = useDeleteAllConversations();
+  const markSeen = useMarkConversationSeen();
   const { data: isGlobalAdmin } = useIsGlobalAdmin();
+
+  // Phase 7 — Mark conversation as seen the moment an operator selects it.
+  // Honest semantics: this only fires on real user selection, never on
+  // background fetch, hover, list render, assignment, or preload.
+  useEffect(() => {
+    if (!selectedId) return;
+    markSeen.mutate(selectedId);
+    // We intentionally depend only on selectedId so re-renders triggered by
+    // unrelated state (filters, search, sidebar) do NOT re-fire the seen
+    // event. Re-firing is harmless (monotonic update returns 0 affected
+    // rows after the first call) but we still avoid the wasted RPC.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId]);
 
   const handleDeleteAll = async () => {
     if (!workspace?.id) return;

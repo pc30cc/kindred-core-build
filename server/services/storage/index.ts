@@ -230,6 +230,78 @@ function localGetUrl(config: StorageConfig, fileKey: string): string {
   return `${config.publicUrl || 'http://localhost:3001/storage'}/${fileKey}`;
 }
 
+// ─── Download (server-side proxy fetch) ──────────────────────────
+//
+// Used by the widget attachment proxy route. Returns the raw bytes for a
+// previously stored file. NEVER expose provider URLs to the visitor — this
+// helper reads from the active provider on the backend so we can stream
+// through an authenticated /api/widget/attachments/:id route.
+
+export interface DownloadResult {
+  success: boolean;
+  data?: Buffer;
+  error?: string;
+}
+
+async function bunnyDownload(config: StorageConfig, fileKey: string): Promise<DownloadResult> {
+  const regionPrefix = config.region && config.region !== 'de' ? `${config.region}.` : '';
+  const baseUrl = `https://${regionPrefix}storage.bunnycdn.com/${config.storageZone}`;
+  const res = await fetch(`${baseUrl}/${fileKey}`, {
+    method: 'GET',
+    headers: { 'AccessKey': config.apiKey! },
+  });
+  if (!res.ok) return { success: false, error: `BunnyCDN download failed: ${res.statusText}` };
+  const buf = Buffer.from(await res.arrayBuffer());
+  return { success: true, data: buf };
+}
+
+async function s3Download(config: StorageConfig, fileKey: string): Promise<DownloadResult> {
+  const endpoint = getS3Endpoint(config);
+  const url = `${endpoint}/${config.bucket}/${fileKey}`;
+  const headers = signS3Request('GET', url, config);
+  const res = await fetch(url, { method: 'GET', headers });
+  if (!res.ok) return { success: false, error: `S3 download failed: ${res.status}` };
+  const buf = Buffer.from(await res.arrayBuffer());
+  return { success: true, data: buf };
+}
+
+async function localDownload(config: StorageConfig, fileKey: string): Promise<DownloadResult> {
+  try {
+    const filePath = path.join(config.localPath || '/tmp/storage', fileKey);
+    const data = fs.readFileSync(filePath);
+    return { success: true, data };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
+const downloadHandlers: Record<string, (config: StorageConfig, key: string) => Promise<DownloadResult>> = {
+  bunny_storage: bunnyDownload,
+  s3: s3Download,
+  cloudflare_r2: s3Download,
+  minio: s3Download,
+  do_spaces: s3Download,
+  gcs: s3Download,
+  azure_blob: s3Download,
+  local: localDownload,
+};
+
+/**
+ * Download a file's bytes through the active provider (backend-only).
+ * Used by the widget attachment proxy route.
+ */
+export async function downloadFile(
+  serverConfig: ServerConfig,
+  workspaceId: string,
+  fileKey: string,
+): Promise<DownloadResult> {
+  const storageConfig = await resolveStorageConfig(serverConfig, workspaceId);
+  if (!storageConfig) return { success: false, error: 'No storage provider configured' };
+  const handler = downloadHandlers[storageConfig.provider];
+  if (!handler) return { success: false, error: `Unsupported provider: ${storageConfig.provider}` };
+  return handler(storageConfig, fileKey);
+}
+
 // ─── Provider Router ─────────────────────────────────────────────
 
 const uploadHandlers: Record<string, (config: StorageConfig, req: UploadRequest) => Promise<StorageResult>> = {

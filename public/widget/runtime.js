@@ -1153,19 +1153,16 @@
       }
     }
 
-    function sendMessage(text, onChange) {
-      // Hard guard: never send while not online
+    function sendMessage(text, onChange, attachmentId) {
       var conn = transportStore.get().connectionState;
       if (conn !== 'online') return;
-
       var s = chatStore.get();
       var messages = s.messages.slice();
-      messages.push({ body: text, sender: 'visitor', time: new Date() });
+      messages.push({ body: text, sender: 'visitor', time: new Date(), attachmentId: attachmentId || null });
       chatStore.set({ messages: messages });
       onChange();
-
       transport.sendMessage(
-        { text: text, conversationId: s.conversationId },
+        { text: text, conversationId: s.conversationId, attachmentId: attachmentId || null },
         {
           onConversation: function (cid) {
             if (cid && cid !== chatStore.get().conversationId) {
@@ -1452,6 +1449,28 @@
       drafts: {},
     });
     var DRAFT_PENDING_KEY = '__pending__';
+
+    // ─── Phase 6a: Attachment domain store ───
+    // Kept SEPARATE from chatStore (per Part 12 rule). Tracks the single
+    // pending attachment for the current draft. State machine:
+    //   idle → selected → uploading → ready → (sent → idle) | error
+    // No persistence, no auto-retry, no background queueing.
+    var attachmentStore = createStore({
+      file: null,            // browser-side only, never sent raw
+      fileName: '',
+      mimeType: '',
+      sizeBytes: 0,
+      status: 'idle',        // 'idle'|'selected'|'uploading'|'ready'|'error'
+      progress: 0,           // 0..100
+      error: '',
+      attachmentId: null,    // server-issued, used in /message payload
+    });
+    function resetAttachment() {
+      attachmentStore.set({
+        file: null, fileName: '', mimeType: '', sizeBytes: 0,
+        status: 'idle', progress: 0, error: '', attachmentId: null,
+      });
+    }
     var kbStore = createStore({
       loaded: false,
       articles: [],
@@ -1521,8 +1540,16 @@
         '</div>';
     }
     var bodyHtml = '<div class="body" data-body></div>';
+    var attachCfg = (ctx.config && ctx.config.attachments) || { enabled: false };
     var inputHtml = chatEnabled
-      ? '<div class="input-bar" data-input-bar>' +
+      ? '<div class="attach-tray" data-attach-tray hidden></div>' +
+        '<div class="input-bar" data-input-bar>' +
+        (attachCfg.enabled
+          ? '<button type="button" class="attach-btn" data-attach-btn title="' + Util.escapeHtml(t('attachFile') || 'Attach file') + '" aria-label="' + Util.escapeHtml(t('attachFile') || 'Attach file') + '">' +
+              '<svg viewBox="0 0 24 24" width="18" height="18"><path d="M16.5 6v11.5a4 4 0 1 1-8 0V5a2.5 2.5 0 0 1 5 0v10.5a1 1 0 1 1-2 0V6H10v9.5a2.5 2.5 0 0 0 5 0V5a4 4 0 0 0-8 0v12.5a5.5 5.5 0 0 0 11 0V6h-1.5z" fill="currentColor"/></svg>' +
+            '</button>' +
+            '<input type="file" data-attach-input hidden accept="' + (attachCfg.allowedMimes || []).join(',') + '" />'
+          : '') +
         '<input class="input" data-msg-input placeholder="' + Util.escapeHtml(t('typeMsg')) + '" />' +
         '<button type="button" class="send-btn" data-send-btn style="background:' + ctx.primaryColor + '">' +
         '<svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>' +
@@ -1539,6 +1566,96 @@
     var msgInput = panel.querySelector('[data-msg-input]');
     var sendBtn = panel.querySelector('[data-send-btn]');
     var inputBar = panel.querySelector('[data-input-bar]');
+    var attachBtn = panel.querySelector('[data-attach-btn]');
+    var attachInput = panel.querySelector('[data-attach-input]');
+    var attachTray = panel.querySelector('[data-attach-tray]');
+
+    // ─── Phase 6a: Attachment UX wiring (separate domain) ───
+    function renderAttachmentChip() {
+      if (!attachTray) return;
+      var s = attachmentStore.get();
+      if (s.status === 'idle') { attachTray.hidden = true; attachTray.innerHTML = ''; return; }
+      attachTray.hidden = false;
+      var statusLabel = s.status === 'uploading' ? (t('uploading') || 'Uploading…')
+        : s.status === 'ready' ? (t('readyToSend') || 'Ready')
+        : s.status === 'error' ? (s.error || (t('uploadFailed') || 'Upload failed'))
+        : (t('selected') || 'Selected');
+      var sizeKb = Math.max(1, Math.round((s.sizeBytes || 0) / 1024));
+      attachTray.innerHTML =
+        '<div class="attach-chip status-' + s.status + '">' +
+          '<div class="attach-chip-meta">' +
+            '<div class="attach-chip-name" title="' + Util.escapeHtml(s.fileName) + '">' + Util.escapeHtml(s.fileName) + '</div>' +
+            '<div class="attach-chip-sub">' + Util.escapeHtml(statusLabel) + ' · ' + sizeKb + ' KB</div>' +
+          '</div>' +
+          '<button type="button" class="attach-chip-remove" data-attach-remove aria-label="Remove">×</button>' +
+        '</div>';
+      var rm = attachTray.querySelector('[data-attach-remove]');
+      if (rm) rm.addEventListener('click', function () { resetAttachment(); });
+    }
+    attachmentStore.subscribe(renderAttachmentChip);
+
+    function startUpload(file) {
+      var allowed = (attachCfg.allowedMimes || []);
+      var maxBytes = (attachCfg.maxSizeMb || 10) * 1024 * 1024;
+      if (allowed.indexOf(file.type) < 0) {
+        attachmentStore.set({ file: null, fileName: file.name, mimeType: file.type, sizeBytes: file.size, status: 'error', error: t('typeNotAllowed') || 'File type not allowed', attachmentId: null });
+        return;
+      }
+      if (file.size > maxBytes) {
+        attachmentStore.set({ file: null, fileName: file.name, mimeType: file.type, sizeBytes: file.size, status: 'error', error: t('tooLarge') || 'File too large', attachmentId: null });
+        return;
+      }
+      attachmentStore.set({ file: file, fileName: file.name, mimeType: file.type, sizeBytes: file.size, status: 'uploading', progress: 10, error: '', attachmentId: null });
+      var apiBase = ctx.config.apiBase;
+      var headers = { 'Content-Type': 'application/json', 'X-Widget-Token': ctx.sessionToken || '' };
+      fetch(apiBase + '/api/widget/attachments/init', {
+        method: 'POST', credentials: 'include', headers: headers,
+        body: JSON.stringify({ file_name: file.name, mime_type: file.type, size_bytes: file.size, conversation_id: chatStore.get().conversationId || null }),
+      }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, data: j }; }); })
+        .then(function (resp) {
+          if (!resp.ok || !resp.data || !resp.data.attachment_id) throw new Error((resp.data && resp.data.error) || 'init_failed');
+          attachmentStore.set({ attachmentId: resp.data.attachment_id, progress: 40 });
+          return new Promise(function (resolve, reject) {
+            var reader = new FileReader();
+            reader.onload = function () {
+              var b64 = String(reader.result || '').split(',')[1] || '';
+              fetch(apiBase + '/api/widget/attachments/' + resp.data.attachment_id + '/upload', {
+                method: 'POST', credentials: 'include', headers: headers, body: JSON.stringify({ data: b64 }),
+              }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, data: j }; }); }).then(resolve).catch(reject);
+            };
+            reader.onerror = function () { reject(new Error('read_failed')); };
+            reader.readAsDataURL(file);
+          });
+        })
+        .then(function (resp) {
+          if (!resp.ok) throw new Error((resp.data && resp.data.error) || 'upload_failed');
+          attachmentStore.set({ status: 'ready', progress: 100, error: '' });
+        })
+        .catch(function (err) {
+          attachmentStore.set({ status: 'error', progress: 0, error: (err && err.message) || (t('uploadFailed') || 'Upload failed') });
+        });
+    }
+    if (attachBtn && attachInput) {
+      attachBtn.addEventListener('click', function () {
+        if (attachmentStore.get().status === 'uploading') return;
+        attachInput.value = ''; attachInput.click();
+      });
+      attachInput.addEventListener('change', function (e) {
+        var file = e.target.files && e.target.files[0];
+        if (file) startUpload(file);
+      });
+    }
+    function syncAttachButton() {
+      if (!attachBtn) return;
+      var conn = transportStore.get().connectionState;
+      var pState = presenceStore.get();
+      var availOk = pState.liveChatEnabled !== false
+        && !((pState.status === 'offline' || pState.status === 'unavailable') && pState.offlineMode === 'contact_fallback');
+      attachBtn.disabled = !(conn === 'online' && availOk);
+    }
+    transportStore.subscribe(syncAttachButton);
+    presenceStore.subscribe(syncAttachButton);
+    syncAttachButton();
 
     notify.attach(panel);
 
@@ -1662,20 +1779,21 @@
     function trySend() {
       if (!msgInput) return;
       var text = msgInput.value.trim();
-      if (!text) return;
+      var att = attachmentStore.get();
+      var hasReadyAttach = att.status === 'ready' && att.attachmentId;
+      if (!text && !hasReadyAttach) return;
+      if (att.status === 'uploading') return; // wait for upload to finish
       if (!identityStore.get().loaded) return;
-      // Hard guard: never send while not online. Draft remains preserved.
       if (transportStore.get().connectionState !== 'online') return;
       if (identity.needsPrechat()) { renderBody(); return; }
       msgInput.value = '';
-      // Clear draft for the active conversation scope (per-conversation).
       setDraftFor(currentDraftKey(), '');
-      // Typing hook (no-op under polling, ready for realtime drivers).
-      // Capability-gated so UI never assumes typing support.
       if (transport.hasCapability && transport.hasCapability('supportsTyping')) {
         transport.sendTyping({ conversationId: chatStore.get().conversationId });
       }
-      chatUI.sendMessage(text, renderBody);
+      var attachmentId = hasReadyAttach ? att.attachmentId : null;
+      if (hasReadyAttach) resetAttachment();
+      chatUI.sendMessage(text, renderBody, attachmentId);
     }
     if (sendBtn) sendBtn.addEventListener('click', trySend);
     if (msgInput) msgInput.addEventListener('keydown', function (e) {

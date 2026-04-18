@@ -50,11 +50,15 @@ import {
 import { resolveAIConfig, executeAICompletion } from '../services/ai/index.js';
 import { resolveVisitorIdentity, readVisitorCookie } from '../services/widget/visitorIdentity.js';
 import { widgetIdentityRouter } from './widgetIdentity.js';
+import { widgetAttachmentsRouter, attachUploadedFileToMessage } from './widgetAttachments.js';
 
 export const widgetRouter = Router();
 
 // Mount identity sub-router (all routes require widget token + origin)
 widgetRouter.use('/identity', widgetIdentityRouter);
+
+// Phase 6a — Mount attachments sub-router (token + origin enforced inside)
+widgetRouter.use('/attachments', widgetAttachmentsRouter);
 
 // ─── CORS preflight for all widget routes ───
 widgetRouter.use(widgetSecurityCors);
@@ -91,6 +95,13 @@ const DEFAULT_WIDGET_SETTINGS = {
   offline_mode: 'accept_messages',
   business_hours: { enabled: false, timezone: 'UTC', schedule: [] },
   availability_labels: {},
+  // Phase 6a — Attachments (off by default)
+  attachments_enabled: false,
+  attachments_max_size_mb: 10,
+  attachments_allowed_mimes: [
+    'image/png', 'image/jpeg', 'image/webp', 'image/gif',
+    'application/pdf', 'text/plain',
+  ],
 };
 
 const PRECHAT_RUNTIME_KEY = 'widget_prechat_fields';
@@ -470,6 +481,16 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
           ? ws.availability_labels
           : {},
       },
+      // Phase 6a — Attachment config exposed to the widget runtime.
+      // The widget enforces these as a UX guard; the backend re-validates.
+      attachments: {
+        enabled: ws.attachments_enabled === true,
+        maxSizeMb: Math.max(1, Math.min(25, ws.attachments_max_size_mb ?? 10)),
+        allowedMimes: Array.isArray(ws.attachments_allowed_mimes) && ws.attachments_allowed_mimes.length > 0
+          ? ws.attachments_allowed_mimes
+          : ['image/png','image/jpeg','image/webp','image/gif','application/pdf','text/plain'],
+        maxCount: 1, // v1: single file per message
+      },
       supportMode: ws.support_mode || 'human_first',
       defaultMode: ws.default_mode || 'chat',
       mobileBehavior: ws.mobile_behavior || 'bottom_sheet',
@@ -675,15 +696,19 @@ widgetRouter.get('/help-articles', widgetRateLimit('default'), async (req: Reque
 const messageSchema = z.object({
   workspace_id: z.string().uuid().optional(),
   conversation_id: z.string().uuid().optional().nullable(),
-  message: z.string().min(1).max(5000).optional(),
-  body: z.string().min(1).max(5000).optional(),
+  message: z.string().min(0).max(5000).optional(),
+  body: z.string().min(0).max(5000).optional(),
   visitor_id: z.string().min(1).max(255).optional(),
   visitor_name: z.string().max(200).optional(),
   visitor_email: z.string().email().optional().nullable(),
   visitor_phone: z.string().max(30).optional().nullable(),
   session_id: z.string().uuid().optional().nullable(),
   force_new_conversation: z.boolean().optional(),
-}).refine(d => !!(d.message || d.body), { message: 'message or body required' });
+  attachment_id: z.string().uuid().optional().nullable(),
+}).refine(
+  d => !!((d.message && d.message.trim()) || (d.body && d.body.trim()) || d.attachment_id),
+  { message: 'message, body, or attachment_id required' }
+);
 
 widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
@@ -789,12 +814,13 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
         contactId = newContact?.id || null;
       }
 
+      const subjectText = body.message ? body.message.slice(0, 80) : (data.attachment_id ? '[Attachment]' : 'New conversation');
       const { data: conv, error: convErr } = await supabase
         .from('conversations').insert({
           workspace_id: workspaceId,
           status: 'open',
           priority: 'normal',
-          subject: body.message.slice(0, 80),
+          subject: subjectText,
           contact_id: contactId,
           visitor_session_id: body.session_id || null,
           updated_at: new Date().toISOString(),
@@ -804,15 +830,34 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       convId = conv!.id;
     }
 
-    // Insert visitor message
-    const { error: msgErr } = await supabase
+    // Insert visitor message (body may be empty when only an attachment is sent)
+    const messageBody = body.message || (data.attachment_id ? '' : '');
+    const { data: insertedMsg, error: msgErr } = await supabase
       .from('conversation_messages').insert({
         conversation_id: convId,
-        body: body.message,
+        body: messageBody,
         sender_type: 'contact',
-        metadata: { source: 'widget', visitor_id: body.visitor_id, session_id: body.session_id },
-      });
+        metadata: {
+          source: 'widget',
+          visitor_id: body.visitor_id,
+          session_id: body.session_id,
+          attachment_id: data.attachment_id || undefined,
+        },
+      })
+      .select('id')
+      .single();
     if (msgErr) throw msgErr;
+
+    // Phase 6a — Bind uploaded attachment to this message + conversation
+    if (data.attachment_id && insertedMsg?.id) {
+      const ok = await attachUploadedFileToMessage(
+        config, data.attachment_id, workspaceId, convId!, insertedMsg.id
+      );
+      if (!ok) {
+        // Don't fail the message; the attachment just won't be linked.
+        console.warn('[widget] Failed to attach', data.attachment_id, 'to message', insertedMsg.id);
+      }
+    }
 
     await supabase.from('conversations')
       .update({ updated_at: new Date().toISOString() })

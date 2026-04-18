@@ -543,6 +543,85 @@ export type Database = {
           },
         ]
       }
+      conversation_attachments: {
+        Row: {
+          conversation_id: string | null
+          created_at: string
+          error_message: string | null
+          file_name: string
+          finalized_at: string | null
+          id: string
+          message_id: string | null
+          mime_type: string
+          size_bytes: number
+          status: string
+          storage_path: string
+          storage_provider: string
+          uploaded_by_id: string | null
+          uploaded_by_type: string
+          visitor_session_id: string | null
+          workspace_id: string
+        }
+        Insert: {
+          conversation_id?: string | null
+          created_at?: string
+          error_message?: string | null
+          file_name: string
+          finalized_at?: string | null
+          id?: string
+          message_id?: string | null
+          mime_type: string
+          size_bytes: number
+          status?: string
+          storage_path: string
+          storage_provider: string
+          uploaded_by_id?: string | null
+          uploaded_by_type: string
+          visitor_session_id?: string | null
+          workspace_id: string
+        }
+        Update: {
+          conversation_id?: string | null
+          created_at?: string
+          error_message?: string | null
+          file_name?: string
+          finalized_at?: string | null
+          id?: string
+          message_id?: string | null
+          mime_type?: string
+          size_bytes?: number
+          status?: string
+          storage_path?: string
+          storage_provider?: string
+          uploaded_by_id?: string | null
+          uploaded_by_type?: string
+          visitor_session_id?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conversation_attachments_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "conversation_attachments_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "conversation_messages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "conversation_attachments_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       conversation_messages: {
         Row: {
           body: string
@@ -1854,6 +1933,9 @@ export type Database = {
         Row: {
           allow_subdomains: boolean
           allowed_domains: string[] | null
+          attachments_allowed_mimes: string[]
+          attachments_enabled: boolean
+          attachments_max_size_mb: number
           auto_open_delay: number | null
           availability_labels: Json
           business_hours: Json
@@ -1898,6 +1980,9 @@ export type Database = {
         Insert: {
           allow_subdomains?: boolean
           allowed_domains?: string[] | null
+          attachments_allowed_mimes?: string[]
+          attachments_enabled?: boolean
+          attachments_max_size_mb?: number
           auto_open_delay?: number | null
           availability_labels?: Json
           business_hours?: Json
@@ -1942,6 +2027,9 @@ export type Database = {
         Update: {
           allow_subdomains?: boolean
           allowed_domains?: string[] | null
+          attachments_allowed_mimes?: string[]
+          attachments_enabled?: boolean
+          attachments_max_size_mb?: number
           auto_open_delay?: number | null
           availability_labels?: Json
           business_hours?: Json

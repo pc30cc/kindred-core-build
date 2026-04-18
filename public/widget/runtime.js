@@ -1153,19 +1153,16 @@
       }
     }
 
-    function sendMessage(text, onChange) {
-      // Hard guard: never send while not online
+    function sendMessage(text, onChange, attachmentId) {
       var conn = transportStore.get().connectionState;
       if (conn !== 'online') return;
-
       var s = chatStore.get();
       var messages = s.messages.slice();
-      messages.push({ body: text, sender: 'visitor', time: new Date() });
+      messages.push({ body: text, sender: 'visitor', time: new Date(), attachmentId: attachmentId || null });
       chatStore.set({ messages: messages });
       onChange();
-
       transport.sendMessage(
-        { text: text, conversationId: s.conversationId },
+        { text: text, conversationId: s.conversationId, attachmentId: attachmentId || null },
         {
           onConversation: function (cid) {
             if (cid && cid !== chatStore.get().conversationId) {
@@ -1782,20 +1779,21 @@
     function trySend() {
       if (!msgInput) return;
       var text = msgInput.value.trim();
-      if (!text) return;
+      var att = attachmentStore.get();
+      var hasReadyAttach = att.status === 'ready' && att.attachmentId;
+      if (!text && !hasReadyAttach) return;
+      if (att.status === 'uploading') return; // wait for upload to finish
       if (!identityStore.get().loaded) return;
-      // Hard guard: never send while not online. Draft remains preserved.
       if (transportStore.get().connectionState !== 'online') return;
       if (identity.needsPrechat()) { renderBody(); return; }
       msgInput.value = '';
-      // Clear draft for the active conversation scope (per-conversation).
       setDraftFor(currentDraftKey(), '');
-      // Typing hook (no-op under polling, ready for realtime drivers).
-      // Capability-gated so UI never assumes typing support.
       if (transport.hasCapability && transport.hasCapability('supportsTyping')) {
         transport.sendTyping({ conversationId: chatStore.get().conversationId });
       }
-      chatUI.sendMessage(text, renderBody);
+      var attachmentId = hasReadyAttach ? att.attachmentId : null;
+      if (hasReadyAttach) resetAttachment();
+      chatUI.sendMessage(text, renderBody, attachmentId);
     }
     if (sendBtn) sendBtn.addEventListener('click', trySend);
     if (msgInput) msgInput.addEventListener('keydown', function (e) {

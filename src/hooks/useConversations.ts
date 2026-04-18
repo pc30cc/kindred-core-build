@@ -64,6 +64,41 @@ export function useSendMessage(conversationId: string | undefined) {
   });
 }
 
+export function useDeleteAllConversations() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (workspaceId: string) => {
+      // Fetch conversation ids for this workspace
+      const { data: convs, error: fetchErr } = await supabase
+        .from('conversations')
+        .select('id')
+        .eq('workspace_id', workspaceId);
+      if (fetchErr) throw fetchErr;
+      const ids = (convs ?? []).map((c) => c.id);
+      if (ids.length === 0) return { deleted: 0 };
+
+      // Delete messages first (no FK cascade guaranteed)
+      const { error: msgErr } = await supabase
+        .from('conversation_messages')
+        .delete()
+        .in('conversation_id', ids);
+      if (msgErr) throw msgErr;
+
+      const { error: convErr } = await supabase
+        .from('conversations')
+        .delete()
+        .in('id', ids);
+      if (convErr) throw convErr;
+
+      return { deleted: ids.length };
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['conversations'] });
+      qc.invalidateQueries({ queryKey: ['messages'] });
+    },
+  });
+}
+
 export function useUpdateConversation() {
   const qc = useQueryClient();
   return useMutation({

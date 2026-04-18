@@ -1,7 +1,12 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
-import { useConversations, useConversationMessages, useSendMessage, useUpdateConversation } from '@/hooks/useConversations';
+import { useConversations, useConversationMessages, useSendMessage, useUpdateConversation, useDeleteAllConversations } from '@/hooks/useConversations';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
+import { Trash2 } from 'lucide-react';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useBrandingContext } from '@/features/branding/BrandingContext';
 import { Button } from '@/components/ui/button';
@@ -59,6 +64,25 @@ export default function InboxPage() {
   const { data: rawMessages } = useConversationMessages(selectedId ?? undefined);
   const sendMessage = useSendMessage(selectedId ?? undefined);
   const updateConv = useUpdateConversation();
+  const deleteAll = useDeleteAllConversations();
+
+  const handleDeleteAll = async () => {
+    if (!workspace?.id) return;
+    try {
+      const res = await deleteAll.mutateAsync(workspace.id);
+      setSelectedId(null);
+      toast({
+        title: 'Conversations deleted',
+        description: `${res.deleted} conversation(s) removed.`,
+      });
+    } catch (e: any) {
+      toast({
+        title: 'Error',
+        description: e?.message || 'Failed to delete conversations',
+        variant: 'destructive',
+      });
+    }
+  };
 
   const selected = conversations?.find(c => c.id === selectedId);
 
@@ -138,6 +162,36 @@ export default function InboxPage() {
               <button className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors">
                 <Plus className="w-3.5 h-3.5" />
               </button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <button
+                    title="Delete all conversations"
+                    disabled={!conversations?.length || deleteAll.isPending}
+                    className="p-1.5 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {deleteAll.isPending
+                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      : <Trash2 className="w-3.5 h-3.5" />}
+                  </button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete all conversations?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will permanently delete <strong>all {conversations?.length || 0} conversation(s)</strong> and their messages for this workspace. This action cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={handleDeleteAll}
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    >
+                      Delete all
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </div>
           </div>
 

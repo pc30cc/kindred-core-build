@@ -166,6 +166,12 @@
         typeNotAllowed: 'File type not allowed',
         tooLarge: 'File is too large',
         selected: 'Selected',
+        // Phase 6b — preview / file actions
+        retry: 'Retry',
+        download: 'Download',
+        openFile: 'Open',
+        closePreview: 'Close preview',
+        imageUnavailable: 'Image unavailable',
       },
       fa: {
         chat: 'گفتگو', help: 'راهنما',
@@ -202,6 +208,12 @@
         typeNotAllowed: 'این نوع فایل مجاز نیست',
         tooLarge: 'حجم فایل بیش از حد مجاز است',
         selected: 'انتخاب شده',
+        // Phase 6b — preview / file actions
+        retry: 'تلاش مجدد',
+        download: 'دانلود',
+        openFile: 'باز کردن',
+        closePreview: 'بستن پیش‌نمایش',
+        imageUnavailable: 'تصویر در دسترس نیست',
       },
       tr: {
         chat: 'Sohbet', help: 'Yardım',
@@ -238,6 +250,12 @@
         typeNotAllowed: 'Bu dosya türü desteklenmiyor',
         tooLarge: 'Dosya çok büyük',
         selected: 'Seçildi',
+        // Phase 6b — preview / file actions
+        retry: 'Yeniden dene',
+        download: 'İndir',
+        openFile: 'Aç',
+        closePreview: 'Önizlemeyi kapat',
+        imageUnavailable: 'Görsel kullanılamıyor',
       },
     };
     return {

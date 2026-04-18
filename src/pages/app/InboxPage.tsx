@@ -164,6 +164,7 @@ export default function InboxPage() {
               <button className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors">
                 <Plus className="w-3.5 h-3.5" />
               </button>
+              {isGlobalAdmin && (
               <AlertDialog>
                 <AlertDialogTrigger asChild>
                   <button

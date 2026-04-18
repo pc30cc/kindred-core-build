@@ -640,28 +640,153 @@
   }
 
   // ════════════════════════════════════════════════════════════════════
-  // UI.Notify — connection banner + unread badge
+  // UI.Notify — connection banner + launcher unread badge + in-shell toast
+  //             + optional sound + document.title indicator.
+  //
+  // Rules (Phase 4):
+  //   - Driven ONLY by transport.on('message') flow upstream — this module
+  //     never fetches, never queues, never duplicates messages.
+  //   - All UI lives inside the Shadow DOM (toast appended next to launcher
+  //     via the shell's shadowRoot). No browser Notifications API.
+  //   - Sound only after a real user interaction (browser autoplay policy).
+  //     Disabled by default; toggled via uiPrefsStore.soundEnabled.
+  //   - document.title is the only host-page surface we touch, and it is
+  //     fully restored when unread → 0. We snapshot the original title once.
   // ════════════════════════════════════════════════════════════════════
-  function createNotify(ctx, transportStore, t) {
+  function createNotify(ctx, transportStore, notifyStore, uiPrefsStore, shellStore, t) {
     var bannerEl = null;
+    var toastEl = null;
+    var toastTimer = null;
+    var shadowRoot = (ctx.shell && ctx.shell.shadowRoot) ||
+      (ctx.shell && ctx.shell.shellEl && ctx.shell.shellEl.shadowRoot) || null;
 
+    // ─── document.title snapshot (restore on unread = 0) ───
+    var originalTitle = (typeof document !== 'undefined' && document.title) ? document.title : '';
+    var titleHasPrefix = false;
+    function applyTitle(unread) {
+      if (typeof document === 'undefined') return;
+      if (unread > 0) {
+        var prefix = '(' + (unread > 9 ? '9+' : unread) + ') ';
+        // If we previously prefixed, strip our prefix before re-applying so
+        // we never stack "(1) (2) Original Title".
+        var base = titleHasPrefix ? originalTitle : document.title;
+        // If the host page mutated the title since we snapshotted, refresh
+        // the snapshot so we restore the *current* title later.
+        if (!titleHasPrefix) originalTitle = document.title;
+        document.title = prefix + base;
+        titleHasPrefix = true;
+      } else if (titleHasPrefix) {
+        document.title = originalTitle;
+        titleHasPrefix = false;
+      }
+    }
+
+    // ─── Sound (lazy, gated by user interaction + uiPrefsStore) ───
+    var audioCtx = null;
+    var userInteracted = false;
+    function markUserInteracted() { userInteracted = true; }
+    if (typeof window !== 'undefined') {
+      var once = { once: true, capture: true };
+      window.addEventListener('pointerdown', markUserInteracted, once);
+      window.addEventListener('keydown', markUserInteracted, once);
+      window.addEventListener('touchstart', markUserInteracted, once);
+    }
+    function playBeep() {
+      if (!uiPrefsStore.get().soundEnabled) return;
+      if (!userInteracted) return;
+      try {
+        var Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return;
+        if (!audioCtx) audioCtx = new Ctx();
+        var t0 = audioCtx.currentTime;
+        var osc = audioCtx.createOscillator();
+        var gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, t0);
+        osc.frequency.exponentialRampToValueAtTime(660, t0 + 0.12);
+        gain.gain.setValueAtTime(0.0001, t0);
+        gain.gain.exponentialRampToValueAtTime(0.18, t0 + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.18);
+        osc.connect(gain).connect(audioCtx.destination);
+        osc.start(t0);
+        osc.stop(t0 + 0.2);
+      } catch (_) { /* never break on audio */ }
+    }
+
+    // ─── Toast (Shadow DOM only, lives next to launcher) ───
+    function ensureToastEl() {
+      if (toastEl || !shadowRoot) return toastEl;
+      var shellDiv = shadowRoot.querySelector('.shell') || shadowRoot;
+      toastEl = document.createElement('div');
+      toastEl.className = 'gs-toast';
+      toastEl.setAttribute('role', 'status');
+      toastEl.setAttribute('aria-live', 'polite');
+      toastEl.style.display = 'none';
+      // Click → open the panel.
+      toastEl.addEventListener('click', function () {
+        hideToast();
+        if (ctx.shell && ctx.shell.shellEl) {
+          // Trigger via launcher to reuse loader's open path.
+          var btn = shellDiv.querySelector('.launcher');
+          if (btn) btn.click();
+        }
+      });
+      shellDiv.appendChild(toastEl);
+      return toastEl;
+    }
+    function hideToast() {
+      if (!toastEl) return;
+      toastEl.classList.remove('visible');
+      // Wait for transition before hiding (CSS uses 0.2s)
+      setTimeout(function () { if (toastEl && !toastEl.classList.contains('visible')) toastEl.style.display = 'none'; }, 220);
+      if (toastTimer) { clearTimeout(toastTimer); toastTimer = null; }
+    }
+    function showToast(senderName, preview) {
+      // Never show toast while panel is open (user is already looking at chat).
+      if (shellStore.get().isOpen) return;
+      ensureToastEl();
+      if (!toastEl) return;
+      var name = senderName ? String(senderName) : (ctx.config.brandName || 'Support');
+      var msg = String(preview || '');
+      if (msg.length > 90) msg = msg.slice(0, 87) + '…';
+      toastEl.innerHTML =
+        '<div class="gs-toast-title">' + Util.escapeHtml(name) + '</div>' +
+        '<div class="gs-toast-body">' + Util.escapeHtml(msg) + '</div>';
+      toastEl.style.display = 'block';
+      // Force reflow so the transition runs even when replacing content fast.
+      void toastEl.offsetWidth;
+      toastEl.classList.add('visible');
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(hideToast, 5000);
+    }
+
+    // ─── Connection banner (existing behavior, unchanged) ───
     function attach(panel) {
       bannerEl = document.createElement('div');
       bannerEl.className = 'connection-banner';
       bannerEl.setAttribute('role', 'status');
       bannerEl.setAttribute('aria-live', 'polite');
-      // Insert just below the header
       var header = panel.querySelector('.header');
       if (header && header.nextSibling) {
         panel.insertBefore(bannerEl, header.nextSibling);
       } else {
         panel.insertBefore(bannerEl, panel.firstChild);
       }
-      transportStore.subscribe(render);
-      render(transportStore.get());
+      transportStore.subscribe(renderBanner);
+      renderBanner(transportStore.get());
+
+      // Wire global unread → launcher badge + title.
+      notifyStore.subscribe(function (s) {
+        if (ctx.shell.setUnread) ctx.shell.setUnread(s.totalUnread || 0);
+        applyTitle(s.totalUnread || 0);
+      });
+      // Initial paint (in case state is non-zero on remount).
+      var s0 = notifyStore.get();
+      if (ctx.shell.setUnread) ctx.shell.setUnread(s0.totalUnread || 0);
+      applyTitle(s0.totalUnread || 0);
     }
 
-    function render(state) {
+    function renderBanner(state) {
       if (!bannerEl) return;
       var s = state.connectionState;
       if (s === 'online' || s === 'idle') {
@@ -671,19 +796,15 @@
       }
       var label = '';
       var cls = 'connection-banner visible';
-      var withDot = true;
       if (s === 'offline') { label = t('offline'); cls += ' offline'; }
       else if (s === 'reconnecting') { label = t('reconnecting'); cls += ' reconnecting'; }
       else if (s === 'connecting') { label = t('connecting'); cls += ' connecting'; }
       bannerEl.className = cls;
-      // Light DOM rebuild — dot + label. Honest & static, no countdown timers.
       bannerEl.innerHTML = '';
-      if (withDot) {
-        var dot = document.createElement('span');
-        dot.className = 'conn-dot';
-        dot.setAttribute('aria-hidden', 'true');
-        bannerEl.appendChild(dot);
-      }
+      var dot = document.createElement('span');
+      dot.className = 'conn-dot';
+      dot.setAttribute('aria-hidden', 'true');
+      bannerEl.appendChild(dot);
       var span = document.createElement('span');
       span.textContent = label;
       bannerEl.appendChild(span);
@@ -691,7 +812,18 @@
 
     return {
       attach: attach,
-      setUnread: function (count) { if (ctx.shell.setUnread) ctx.shell.setUnread(count); },
+      showToast: showToast,
+      hideToast: hideToast,
+      playBeep: playBeep,
+      // Legacy API kept for the public runtime.setUnread bridge — sets the
+      // global counter directly. UI redraws via notifyStore subscription.
+      setUnread: function (count) {
+        notifyStore.set(function (s) {
+          var per = {};
+          for (var k in s.perConversation) if (Object.prototype.hasOwnProperty.call(s.perConversation, k)) per[k] = s.perConversation[k];
+          return { perConversation: per, totalUnread: Math.max(0, count | 0) };
+        });
+      },
     };
   }
 
@@ -1026,11 +1158,20 @@
       loaded: false,
       articles: [],
     });
+    // notifyStore — Phase 4
+    //   perConversation: { [cid]: count }   (per-conversation unread)
+    //   totalUnread:    aggregated count for the launcher badge
+    //   lastMessageIds: { [id]: 1 }         de-dupe across reconnects/polls
+    // In-memory only. Never persisted.
     var notifyStore = createStore({
-      unread: 0,
+      perConversation: {},
+      totalUnread: 0,
+      lastMessageIds: {},
     });
     var uiPrefsStore = createStore({
       position: config.position === 'bottom-left' ? 'bottom-left' : 'bottom-right',
+      // Sound is OFF by default. Toggle via window.__gs.push(['setSoundEnabled', true]).
+      soundEnabled: !!(config.features && config.features.notificationSound) || false,
     });
 
     // ─── Layers ───
@@ -1044,7 +1185,7 @@
       transport: transport,
     });
     var kbUI = createKbUI({ ctx: ctx, t: t, kbStore: kbStore });
-    var notify = createNotify(ctx, transportStore, t);
+    var notify = createNotify(ctx, transportStore, notifyStore, uiPrefsStore, shellStore, t);
 
     // ─── Build panel ───
     var posClass = uiPrefsStore.get().position;
@@ -1232,14 +1373,79 @@
     }
 
     // ─── Wire transport events to UI ───
+    //
+    // Phase 4: This is the SINGLE source of truth for incoming-message side
+    // effects. We never duplicate this elsewhere. From one event we:
+    //   1. merge into chat store (existing behavior)
+    //   2. update unread (per-conversation + global) — skip own messages,
+    //      skip duplicates by id, skip when active conversation is visible
+    //   3. show in-shell toast (panel closed)
+    //   4. play optional sound (if user-enabled + has interacted)
     transport.on('message', function (payload) {
-      if (chatUI.mergeIncoming(payload.messages)) {
-        if (shellStore.get().activeTab === 'chat') renderBody();
-        if (!shellStore.get().isOpen) {
-          var n = notifyStore.get().unread + (payload.messages || []).length;
-          notifyStore.set({ unread: n });
-          notify.setUnread(n);
+      var incoming = (payload && payload.messages) || [];
+      var changed = chatUI.mergeIncoming(incoming);
+      if (changed && shellStore.get().activeTab === 'chat') renderBody();
+      if (!incoming.length) return;
+
+      var ns = notifyStore.get();
+      var seen = ns.lastMessageIds;
+      var per = {};
+      for (var k in ns.perConversation) {
+        if (Object.prototype.hasOwnProperty.call(ns.perConversation, k)) per[k] = ns.perConversation[k];
+      }
+      var seenNext = {};
+      for (var sk in seen) if (Object.prototype.hasOwnProperty.call(seen, sk)) seenNext[sk] = 1;
+
+      var activeCid = chatStore.get().conversationId;
+      var panelOpen = shellStore.get().isOpen;
+      var activeTab = shellStore.get().activeTab;
+
+      var newCount = 0;
+      var lastIncoming = null;
+
+      for (var i = 0; i < incoming.length; i++) {
+        var m = incoming[i] || {};
+        // Skip own messages (visitor/contact = the user themselves).
+        var sender = m.role || m.sender || m.sender_type || 'agent';
+        if (sender === 'visitor' || sender === 'contact') continue;
+        // De-dupe by stable id (prevents reconnect/poll from double-counting).
+        var id = m.id || (m.time ? (m.time + ':' + (m.text || m.body || '')) : null);
+        if (id) {
+          if (seenNext[id]) continue;
+          seenNext[id] = 1;
         }
+        // Resolve cid for this message; fall back to active.
+        var cid = m.conversation_id || m.conversationId || activeCid || '__default__';
+        // Active conversation visible to the user → no unread bump.
+        var isActiveVisible = panelOpen && activeTab === 'chat' && cid === activeCid;
+        if (isActiveVisible) continue;
+        per[cid] = (per[cid] || 0) + 1;
+        newCount += 1;
+        lastIncoming = m;
+      }
+
+      // Cap the de-dupe map so it can't grow unbounded across long sessions.
+      var keys = Object.keys(seenNext);
+      if (keys.length > 500) {
+        var trimmed = {};
+        for (var t2 = keys.length - 500; t2 < keys.length; t2++) trimmed[keys[t2]] = 1;
+        seenNext = trimmed;
+      }
+
+      var total = 0;
+      for (var ck in per) if (Object.prototype.hasOwnProperty.call(per, ck)) total += per[ck];
+      notifyStore.set({ perConversation: per, totalUnread: total, lastMessageIds: seenNext });
+
+      if (newCount > 0 && lastIncoming) {
+        // Toast only when the user can't see the message (panel closed or KB tab).
+        var canToast = !panelOpen || (activeTab !== 'chat');
+        if (canToast) {
+          var senderName = lastIncoming.sender_name || lastIncoming.from_name ||
+            (ctx.config.brandName || '');
+          var preview = lastIncoming.text || lastIncoming.body || '';
+          notify.showToast(senderName, preview);
+        }
+        notify.playBeep();
       }
     });
     transport.on('reconnect', function () {
@@ -1288,6 +1494,35 @@
       }
     });
 
+    // ─── Helper: clear unread for the currently-active conversation ───
+    // Only the visible conversation is cleared; other conversations keep
+    // their unread counts. Re-derives totalUnread from perConversation.
+    function clearUnreadForActive() {
+      var activeCid = chatStore.get().conversationId || '__default__';
+      var ns = notifyStore.get();
+      if (!ns.perConversation || !ns.perConversation[activeCid]) {
+        // Still re-publish to refresh badge/title if total is stale.
+        if (ns.totalUnread !== 0 && Object.keys(ns.perConversation || {}).length === 0) {
+          notifyStore.set({ totalUnread: 0 });
+        }
+        return;
+      }
+      var per = {};
+      for (var k in ns.perConversation) {
+        if (Object.prototype.hasOwnProperty.call(ns.perConversation, k) && k !== activeCid) {
+          per[k] = ns.perConversation[k];
+        }
+      }
+      var total = 0;
+      for (var ck in per) if (Object.prototype.hasOwnProperty.call(per, ck)) total += per[ck];
+      notifyStore.set({ perConversation: per, totalUnread: total });
+    }
+
+    // When the user switches to the chat tab while panel is open, clear unread.
+    shellStore.subscribe(function (s) {
+      if (s.isOpen && s.activeTab === 'chat') clearUnreadForActive();
+    });
+
     // ─── Public API back to loader ───
     return {
       open: function () {
@@ -1295,9 +1530,10 @@
         shellStore.set({ isOpen: true });
         if (launcher) launcher.classList.add('open');
         panel.classList.add('visible');
-        // Clear unread on open
-        notifyStore.set({ unread: 0 });
-        notify.setUnread(0);
+        // Hide any pending toast — user is now looking at the panel.
+        notify.hideToast();
+        // Phase 4: clear unread for the ACTIVE conversation only.
+        if (shellStore.get().activeTab === 'chat') clearUnreadForActive();
         // Restore preserved draft on reopen (in-memory only)
         if (shellStore.get().activeTab === 'chat') restoreDraftToInput();
         if (msgInput && transportStore.get().connectionState === 'online' && !identity.needsPrechat()) {
@@ -1316,8 +1552,11 @@
         if (shellStore.get().isOpen) this.close(); else this.open();
       },
       setUnread: function (count) {
-        notifyStore.set({ unread: count });
+        // Public bridge: sets the global counter directly (loader API parity).
         notify.setUnread(count);
+      },
+      setSoundEnabled: function (enabled) {
+        uiPrefsStore.set({ soundEnabled: !!enabled });
       },
       // Introspection for future runtime-ui modules — provider-agnostic.
       getTransportCapabilities: function () {

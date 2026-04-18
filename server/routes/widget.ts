@@ -95,6 +95,13 @@ const DEFAULT_WIDGET_SETTINGS = {
   offline_mode: 'accept_messages',
   business_hours: { enabled: false, timezone: 'UTC', schedule: [] },
   availability_labels: {},
+  // Phase 6a — Attachments (off by default)
+  attachments_enabled: false,
+  attachments_max_size_mb: 10,
+  attachments_allowed_mimes: [
+    'image/png', 'image/jpeg', 'image/webp', 'image/gif',
+    'application/pdf', 'text/plain',
+  ],
 };
 
 const PRECHAT_RUNTIME_KEY = 'widget_prechat_fields';

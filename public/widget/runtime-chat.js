@@ -57,7 +57,8 @@
       fetch(
         apiBase + '/api/widget/history?workspace_id=' + encodeURIComponent(workspaceId) +
         '&conversation_id=' + encodeURIComponent(conversationId) +
-        '&visitor_id=' + encodeURIComponent(localStorage.getItem('__gs_vid') || ''),
+        '&visitor_id=' + encodeURIComponent(localStorage.getItem('__gs_vid') || '') +
+        '&session_id=' + encodeURIComponent(localStorage.getItem('__gs_sid') || ''),
         { headers: { 'X-Widget-Token': sessionToken || '' } }
       )
         .then(function (r) { return r.json(); })
@@ -81,7 +82,8 @@
         fetch(
           apiBase + '/api/widget/poll?workspace_id=' + encodeURIComponent(workspaceId) +
           '&conversation_id=' + encodeURIComponent(cid) +
-          '&visitor_id=' + encodeURIComponent(localStorage.getItem('__gs_vid') || ''),
+          '&visitor_id=' + encodeURIComponent(localStorage.getItem('__gs_vid') || '') +
+          '&session_id=' + encodeURIComponent(localStorage.getItem('__gs_sid') || ''),
           { headers: { 'X-Widget-Token': sessionToken || '' } }
         )
           .then(function (r) { return r.json(); })

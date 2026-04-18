@@ -84,6 +84,46 @@ const DEFAULT_WIDGET_SETTINGS = {
   locale: 'en',
 };
 
+const PRECHAT_RUNTIME_KEY = 'widget_prechat_fields';
+const PRECHAT_FIELD_KEYS = {
+  name: 'widget_prechat_name',
+  email: 'widget_prechat_email',
+  phone: 'widget_prechat_phone',
+} as const;
+const DEFAULT_PRECHAT_POLICY = {
+  name: 'default_on',
+  email: 'default_on',
+  phone: 'default_on',
+} as const;
+
+function normalizePreChatPolicy(value: any) {
+  const source = value && typeof value === 'object' ? value : {};
+  return {
+    name: source.name === 'force_off' || source.name === 'default_off' ? source.name : DEFAULT_PRECHAT_POLICY.name,
+    email: source.email === 'force_off' || source.email === 'default_off' ? source.email : DEFAULT_PRECHAT_POLICY.email,
+    phone: source.phone === 'force_off' || source.phone === 'default_off' ? source.phone : DEFAULT_PRECHAT_POLICY.phone,
+  };
+}
+
+function buildPreChatConfig(policyValue: any, workspaceFlags: Array<{ key: string; enabled: boolean | null }> = []) {
+  const policy = normalizePreChatPolicy(policyValue);
+  const flagMap = new Map(workspaceFlags.map((flag) => [flag.key, flag.enabled]));
+
+  const resolveField = (field: keyof typeof PRECHAT_FIELD_KEYS) => {
+    const mode = policy[field];
+    const locked = mode === 'force_off';
+    const workspaceOverride = flagMap.has(PRECHAT_FIELD_KEYS[field]) ? flagMap.get(PRECHAT_FIELD_KEYS[field]) ?? false : null;
+    const enabled = locked ? false : workspaceOverride === null ? mode === 'default_on' : !!workspaceOverride;
+    return { enabled, locked, mode, workspaceOverride };
+  };
+
+  return {
+    name: resolveField('name'),
+    email: resolveField('email'),
+    phone: resolveField('phone'),
+  };
+}
+
 // ═══════════════════════════════════════════════
 // POST /bootstrap — Public. Issues session token
 // ═══════════════════════════════════════════════
@@ -245,7 +285,7 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
   const supabase = getServiceClient(config);
 
   try {
-    const [{ data: widget, error }, { data: branding }, { data: platformDomains }, originRules] = await Promise.all([
+    const [{ data: widget, error }, { data: branding }, { data: platformDomains }, originRules, { data: preChatPolicy }, { data: workspacePreChatFlags }] = await Promise.all([
       supabase.from('widget_settings').select('*').eq('workspace_id', workspaceId).maybeSingle(),
       supabase.from('workspace_branding')
         .select('platform_name, logo_url, primary_color, widget_base_url, widget_public_base_url, widget_loader_base_url, widget_api_base_url, asset_base_url')
@@ -254,6 +294,8 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
         .select('api_base_url, widget_base_url, asset_base_url, public_base_url')
         .limit(1).maybeSingle(),
       getWorkspaceOriginRules(config, workspaceId),
+      supabase.from('app_runtime_config').select('value').eq('key', PRECHAT_RUNTIME_KEY).maybeSingle(),
+      supabase.from('feature_flags').select('key, enabled').eq('workspace_id', workspaceId).in('key', Object.values(PRECHAT_FIELD_KEYS)),
     ]);
 
     if (error || !widget) {
@@ -302,6 +344,7 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
     const chatModuleName = getWidgetAssetName('runtime-chat.js');
     const kbModuleName = getWidgetAssetName('runtime-kb.js');
     const loaderVersion = getLoaderVersion();
+    const preChat = buildPreChatConfig(preChatPolicy?.value, workspacePreChatFlags || []);
     const versionedAssetUrl = (url: string | null) => {
       if (!url) return null;
       const separator = url.includes('?') ? '&' : '?';
@@ -344,6 +387,7 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
         knowledgeBase: ws.kb_enabled ?? true,
         visitorTracking: ws.visitor_tracking_enabled ?? true,
       },
+      preChat,
       supportMode: ws.support_mode || 'human_first',
       defaultMode: ws.default_mode || 'chat',
       mobileBehavior: ws.mobile_behavior || 'bottom_sheet',
@@ -767,10 +811,26 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
 
   const supabase = getServiceClient(config);
-  const { event_type, visitor_id, session_id, page_url, page_title, referrer } = req.body;
+  const {
+    event_type,
+    event,
+    visitor_id,
+    session_id,
+    page_url,
+    current_page,
+    page_title,
+    referrer,
+    browser,
+    device,
+    os,
+  } = req.body;
 
   try {
-    if (event_type === 'page_view' || event_type === 'heartbeat') {
+    const normalizedEvent = event_type || event;
+    const normalizedPageUrl = page_url || current_page || null;
+    let activeSessionId: string | null = session_id || null;
+
+    if (normalizedEvent === 'page_view' || normalizedEvent === 'heartbeat') {
       const clientIp = getClientIp(req);
       const ipHash = crypto.createHash('sha256').update(clientIp).digest('hex').slice(0, 16);
 
@@ -783,38 +843,49 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
         .order('last_seen_at', { ascending: false }).limit(1).maybeSingle();
 
       if (existing) {
+        activeSessionId = existing.id;
         await supabase.from('visitor_sessions')
-          .update({ current_page: page_url || null, last_seen_at: new Date().toISOString() })
+          .update({
+            current_page: normalizedPageUrl,
+            browser: browser || undefined,
+            device: device || undefined,
+            os: os || undefined,
+            last_seen_at: new Date().toISOString(),
+          })
           .eq('id', existing.id);
 
         await supabase.from('visitor_presence')
-          .update({ status: 'online', current_page: page_url || null, updated_at: new Date().toISOString() })
+          .update({ status: 'online', current_page: normalizedPageUrl, updated_at: new Date().toISOString() })
           .eq('visitor_session_id', existing.id);
       } else if (visitor_id) {
         const { data: newSession } = await supabase
           .from('visitor_sessions').insert({
             workspace_id: workspaceId,
             visitor_id,
-            current_page: page_url || null,
+            current_page: normalizedPageUrl,
             referrer: referrer || null,
             ip_hash: ipHash,
+            browser: browser || null,
+            device: device || null,
+            os: os || null,
           }).select('id').maybeSingle();
 
         if (newSession) {
+          activeSessionId = newSession.id;
           await supabase.from('visitor_presence').insert({
             workspace_id: workspaceId,
             visitor_session_id: newSession.id,
             status: 'online',
-            current_page: page_url || null,
+            current_page: normalizedPageUrl,
           });
         }
       }
     }
 
-    return res.json({ ok: true });
+    return res.json({ ok: true, session_id: activeSessionId });
   } catch (err: any) {
     console.error('[widget-track] Error:', err.message);
-    res.json({ ok: true }); // Don't fail on tracking errors
+    res.json({ ok: true, session_id: session_id || null }); // Don't fail on tracking errors
   }
 });
 
@@ -826,7 +897,7 @@ widgetRouter.put('/action', widgetRateLimit('default'), async (req: Request, res
   const workspaceId = resolveWorkspaceId(req, res, req.body?.workspace_id);
   if (res.headersSent) return;
 
-  const { action, conversation_id, visitor_id, session_id } = req.body;
+  const { action, conversation_id, visitor_id, session_id, visitor_name, visitor_email, visitor_phone } = req.body;
   const supabase = getServiceClient(config);
 
   try {
@@ -860,7 +931,8 @@ widgetRouter.put('/action', widgetRateLimit('default'), async (req: Request, res
     }
 
     if (action === 'resolve_visitor' && workspaceId) {
-      let knownContact = null;
+      let knownContact: { name: string | null; email: string | null; phone: string | null } | null = null;
+      let contactId: string | null = null;
       let activeConvId = null;
 
       if (visitor_id) {
@@ -871,16 +943,57 @@ widgetRouter.put('/action', widgetRateLimit('default'), async (req: Request, res
           .limit(1).maybeSingle();
 
         if (contact) {
+          contactId = contact.id;
+          const updatePayload: Record<string, unknown> = {
+            updated_at: new Date().toISOString(),
+            metadata: { visitor_id, source: 'widget', session_id: session_id || null },
+          };
+          if (visitor_name && visitor_name !== contact.name) updatePayload.name = visitor_name;
+          if (visitor_email && visitor_email !== contact.email) updatePayload.email = visitor_email;
+          if (visitor_phone && visitor_phone !== contact.phone) updatePayload.phone = visitor_phone;
+          if (Object.keys(updatePayload).length > 2) {
+            const { data: updatedContact } = await supabase
+              .from('contacts')
+              .update(updatePayload)
+              .eq('id', contact.id)
+              .select('id, name, email, phone')
+              .maybeSingle();
+            if (updatedContact) {
+              knownContact = { name: updatedContact.name, email: updatedContact.email, phone: updatedContact.phone };
+            }
+          }
+        } else {
+          const { data: createdContact } = await supabase
+            .from('contacts')
+            .insert({
+              workspace_id: workspaceId,
+              name: visitor_name || 'Visitor',
+              email: visitor_email || null,
+              phone: visitor_phone || null,
+              metadata: { visitor_id, source: 'widget', session_id: session_id || null },
+            })
+            .select('id, name, email, phone')
+            .maybeSingle();
+          if (createdContact) {
+            contactId = createdContact.id;
+            knownContact = { name: createdContact.name, email: createdContact.email, phone: createdContact.phone };
+          }
+        }
+
+        if (!knownContact && contact) {
           knownContact = { name: contact.name, email: contact.email, phone: contact.phone };
+        }
+
+        if (contactId) {
           const { data: conv } = await supabase
             .from('conversations').select('id')
-            .eq('workspace_id', workspaceId).eq('contact_id', contact.id)
+            .eq('workspace_id', workspaceId).eq('contact_id', contactId)
             .order('updated_at', { ascending: false }).limit(1).maybeSingle();
           if (conv) activeConvId = conv.id;
         }
       }
 
-      return res.json({ known_contact: knownContact, conversation_id: activeConvId, visitor_id });
+      return res.json({ known_contact: knownContact, conversation_id: activeConvId, visitor_id, contact_id: contactId });
     }
 
     return res.status(400).json({ error: 'Unknown action' });

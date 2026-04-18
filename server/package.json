@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.0",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "express": "^4.21.0",
     "helmet": "^8.0.0",
@@ -19,6 +20,7 @@
   },
   "devDependencies": {
     "@types/express": "^5.0.0",
+    "@types/cookie-parser": "^1.4.7",
     "@types/cors": "^2.8.17",
     "@types/crypto-js": "^4.2.2",
     "@types/nodemailer": "^6.4.0",

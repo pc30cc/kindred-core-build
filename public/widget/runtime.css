@@ -86,6 +86,49 @@ input:disabled, button:disabled {
 .header-title { font-size: 18px; font-weight: 700; line-height: 1.3; }
 .header-subtitle { font-size: 13px; opacity: 0.85; margin-top: 4px; line-height: 1.4; }
 
+/* ─── Presence indicator (Phase 5) ─── */
+.presence {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.92);
+  background: rgba(0, 0, 0, 0.18);
+  padding: 4px 10px;
+  border-radius: 999px;
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  max-width: 100%;
+}
+.presence-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #9CA3AF;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.18);
+}
+.presence-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+.presence.status-online .presence-dot {
+  background: #10B981;
+  animation: gs-presence-pulse 2.4s ease-in-out infinite;
+}
+.presence.status-away .presence-dot { background: #F59E0B; }
+.presence.status-offline .presence-dot { background: #9CA3AF; }
+.presence.status-unavailable .presence-dot { background: #6B7280; }
+.presence.status-unavailable { opacity: 0.85; }
+@keyframes gs-presence-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.18), 0 0 0 0 rgba(16, 185, 129, 0.5); }
+  50%      { box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.18), 0 0 0 6px rgba(16, 185, 129, 0); }
+}
+
 /* ─── Connection banner (Phase 2.2) ─── */
 .connection-banner {
   display: none;
@@ -291,7 +334,46 @@ input:disabled, button:disabled {
   color: #fff;
   font-weight: 600;
   background: var(--gs-primary, #3B82F6);
+  transition: opacity 0.15s ease, transform 0.1s ease;
 }
+.prechat-submit:hover:not(:disabled) { opacity: 0.92; }
+.prechat-submit:active:not(:disabled) { transform: scale(0.98); }
+.prechat-submit:disabled { opacity: 0.6; }
+
+/* ─── Contact fallback (Phase 5) — offline lead form ─── */
+.prechat.fallback .prechat-intro {
+  background: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  color: #334155;
+}
+.prechat .input[data-fb="message"] {
+  width: 100%;
+  border: 1px solid #E5E7EB;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  outline: none;
+  background: #fff;
+  color: #1F2937;
+  resize: vertical;
+  min-height: 80px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.prechat .input[data-fb="message"]:focus {
+  border-color: var(--gs-primary, #3B82F6);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--gs-primary, #3B82F6) 12%, transparent);
+}
+.fallback-status {
+  font-size: 12px;
+  line-height: 1.4;
+  margin-top: 4px;
+  min-height: 16px;
+  color: #64748B;
+}
+.fallback-status.ok    { color: #047857; }
+.fallback-status.error { color: #B91C1C; }
 
 /* ─── KB ─── */
 .kb-search {

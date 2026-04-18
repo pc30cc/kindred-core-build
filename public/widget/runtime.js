@@ -1710,19 +1710,69 @@
         : s.status === 'ready' ? (t('readyToSend') || 'Ready')
         : s.status === 'error' ? (s.error || (t('uploadFailed') || 'Upload failed'))
         : (t('selected') || 'Selected');
-      var sizeKb = Math.max(1, Math.round((s.sizeBytes || 0) / 1024));
+      var sizeStr = humanSizeShell(s.sizeBytes || 0);
+      // Phase 6b — honest progress: show % only while uploading; never fake 100% early.
+      var pct = Math.max(0, Math.min(100, s.progress | 0));
+      var subRight = s.status === 'uploading' ? (' · ' + pct + '%') : '';
+      var canRetry = s.status === 'error' && !!s.file;
       attachTray.innerHTML =
         '<div class="attach-chip status-' + s.status + '">' +
           '<div class="attach-chip-meta">' +
             '<div class="attach-chip-name" title="' + Util.escapeHtml(s.fileName) + '">' + Util.escapeHtml(s.fileName) + '</div>' +
-            '<div class="attach-chip-sub">' + Util.escapeHtml(statusLabel) + ' · ' + sizeKb + ' KB</div>' +
+            '<div class="attach-chip-sub">' + Util.escapeHtml(statusLabel) + ' · ' + Util.escapeHtml(sizeStr) + subRight + '</div>' +
+            (s.status === 'uploading'
+              ? '<div class="attach-chip-progress" aria-hidden="true"><div class="attach-chip-progress-bar" style="width:' + pct + '%"></div></div>'
+              : '') +
           '</div>' +
+          (canRetry
+            ? '<button type="button" class="attach-chip-retry" data-attach-retry aria-label="' + Util.escapeHtml(t('retry')) + '" title="' + Util.escapeHtml(t('retry')) + '">↺</button>'
+            : '') +
           '<button type="button" class="attach-chip-remove" data-attach-remove aria-label="Remove">×</button>' +
         '</div>';
       var rm = attachTray.querySelector('[data-attach-remove]');
       if (rm) rm.addEventListener('click', function () { resetAttachment(); });
+      var rt = attachTray.querySelector('[data-attach-retry]');
+      if (rt) rt.addEventListener('click', function () {
+        var cur = attachmentStore.get();
+        if (cur.file) startUpload(cur.file);
+      });
+    }
+    // Phase 6b — small helper used by both the chip & in-message file cards.
+    function humanSizeShell(bytes) {
+      var n = Number(bytes) || 0;
+      if (n < 1024) return n + ' B';
+      if (n < 1024 * 1024) return (n / 1024).toFixed(n < 10240 ? 1 : 0) + ' KB';
+      return (n / (1024 * 1024)).toFixed(n < 10485760 ? 1 : 0) + ' MB';
     }
     attachmentStore.subscribe(renderAttachmentChip);
+
+    // ─── Phase 6b — Lightbox (Shadow-DOM scoped image preview) ───
+    var lightboxEl = panel.querySelector('[data-att-lightbox]');
+    var lightboxImg = panel.querySelector('[data-att-lightbox-img]');
+    var lightboxClose = panel.querySelector('[data-att-lightbox-close]');
+    function closeLightbox() {
+      if (!lightboxEl) return;
+      lightboxEl.hidden = true;
+      lightboxEl.classList.remove('visible');
+      if (lightboxImg) { lightboxImg.removeAttribute('src'); lightboxImg.alt = ''; }
+    }
+    lightboxOpener = function (attachmentId) {
+      if (!lightboxEl || !lightboxImg || !attachmentId) return;
+      var url = (ctx.config.apiBase || '') + '/api/widget/attachments/' + encodeURIComponent(attachmentId);
+      lightboxImg.src = url;
+      lightboxImg.alt = '';
+      lightboxEl.hidden = false;
+      // Defer to next frame so transition can run
+      requestAnimationFrame(function () { lightboxEl.classList.add('visible'); });
+    };
+    if (lightboxClose) lightboxClose.addEventListener('click', closeLightbox);
+    if (lightboxEl) lightboxEl.addEventListener('click', function (e) {
+      if (e.target === lightboxEl) closeLightbox();
+    });
+    // ESC closes — bound on the host document because focus may be outside the shadow root.
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && lightboxEl && !lightboxEl.hidden) closeLightbox();
+    });
 
     function startUpload(file) {
       var allowed = (attachCfg.allowedMimes || []);

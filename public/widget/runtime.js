@@ -1543,8 +1543,16 @@
         '</div>';
     }
     var bodyHtml = '<div class="body" data-body></div>';
+    var attachCfg = (ctx.config && ctx.config.attachments) || { enabled: false };
     var inputHtml = chatEnabled
-      ? '<div class="input-bar" data-input-bar>' +
+      ? '<div class="attach-tray" data-attach-tray hidden></div>' +
+        '<div class="input-bar" data-input-bar>' +
+        (attachCfg.enabled
+          ? '<button type="button" class="attach-btn" data-attach-btn title="' + Util.escapeHtml(t('attachFile') || 'Attach file') + '" aria-label="' + Util.escapeHtml(t('attachFile') || 'Attach file') + '">' +
+              '<svg viewBox="0 0 24 24" width="18" height="18"><path d="M16.5 6v11.5a4 4 0 1 1-8 0V5a2.5 2.5 0 0 1 5 0v10.5a1 1 0 1 1-2 0V6H10v9.5a2.5 2.5 0 0 0 5 0V5a4 4 0 0 0-8 0v12.5a5.5 5.5 0 0 0 11 0V6h-1.5z" fill="currentColor"/></svg>' +
+            '</button>' +
+            '<input type="file" data-attach-input hidden accept="' + (attachCfg.allowedMimes || []).join(',') + '" />'
+          : '') +
         '<input class="input" data-msg-input placeholder="' + Util.escapeHtml(t('typeMsg')) + '" />' +
         '<button type="button" class="send-btn" data-send-btn style="background:' + ctx.primaryColor + '">' +
         '<svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>' +

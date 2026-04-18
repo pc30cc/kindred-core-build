@@ -172,6 +172,11 @@
         openFile: 'Open',
         closePreview: 'Close preview',
         imageUnavailable: 'Image unavailable',
+        // Phase 7 — message lifecycle
+        msgSending: 'Sending…',
+        msgSent: 'Sent',
+        msgSeen: 'Seen',
+        msgFailed: 'Not delivered',
       },
       fa: {
         chat: 'گفتگو', help: 'راهنما',
@@ -214,6 +219,11 @@
         openFile: 'باز کردن',
         closePreview: 'بستن پیش‌نمایش',
         imageUnavailable: 'تصویر در دسترس نیست',
+        // Phase 7 — message lifecycle
+        msgSending: 'در حال ارسال…',
+        msgSent: 'ارسال شد',
+        msgSeen: 'دیده شد',
+        msgFailed: 'ارسال نشد',
       },
       tr: {
         chat: 'Sohbet', help: 'Yardım',
@@ -256,6 +266,11 @@
         openFile: 'Aç',
         closePreview: 'Önizlemeyi kapat',
         imageUnavailable: 'Görsel kullanılamıyor',
+        // Phase 7 — message lifecycle
+        msgSending: 'Gönderiliyor…',
+        msgSent: 'Gönderildi',
+        msgSeen: 'Görüldü',
+        msgFailed: 'İletilemedi',
       },
     };
     return {

@@ -45,6 +45,7 @@ import {
   resolveWorkspaceId,
   getClientIp,
 } from '../services/widget/security.js';
+import { enrichMessagesWithAttachments } from './widgetAttachments.js';
 
 export const widgetIdentityRouter = Router();
 

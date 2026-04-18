@@ -31,9 +31,13 @@ services:
     container_name: centrifugo
     restart: unless-stopped
     command: centrifugo -c /centrifugo/config.json
-    ports:
-      # Coolify proxies the public domain → container:8000
-      - "8000:8000"
+    # NOTE: Do NOT publish the port to the host with `ports:`.
+    # Coolify's reverse proxy talks to the container over the internal
+    # Docker network using the `expose`d port. Publishing 8000:8000 will
+    # fail on hosts where port 8000 is already in use (e.g. by another
+    # Coolify service, Portainer, or a previous Centrifugo deploy).
+    expose:
+      - "8000"
     volumes:
       - ./deploy/centrifugo/config.json:/centrifugo/config.json:ro
     environment:

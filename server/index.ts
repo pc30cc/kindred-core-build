@@ -32,10 +32,19 @@ const app = express();
 
 // Security headers
 app.use(helmet());
-app.use(cors({
+
+const appCors = cors({
   origin: config.corsOrigins[0] === '*' ? true : config.corsOrigins,
   credentials: true,
-}));
+});
+
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/widget') || req.path.startsWith('/api/visitors')) {
+    return next();
+  }
+  return appCors(req, res, next);
+});
+
 app.use(express.json({ limit: '50mb' })); // Larger limit for file uploads
 
 // Attach config to requests

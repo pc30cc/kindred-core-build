@@ -1013,6 +1013,8 @@
         tab.classList.add('active');
         renderBody();
         if (inputBar) inputBar.style.display = shellStore.get().activeTab === 'chat' ? 'flex' : 'none';
+        // Restore preserved draft when returning to chat tab
+        if (shellStore.get().activeTab === 'chat') restoreDraftToInput();
       });
     });
 
@@ -1151,12 +1153,16 @@
         // Clear unread on open
         notifyStore.set({ unread: 0 });
         notify.setUnread(0);
+        // Restore preserved draft on reopen (in-memory only)
+        if (shellStore.get().activeTab === 'chat') restoreDraftToInput();
         if (msgInput && transportStore.get().connectionState === 'online' && !identity.needsPrechat()) {
           setTimeout(function () { msgInput.focus(); }, 300);
         }
       },
       close: function () {
         if (!shellStore.get().isOpen) return;
+        // Capture any in-flight typed text before hiding
+        syncDraftFromInput();
         shellStore.set({ isOpen: false });
         if (launcher) launcher.classList.remove('open');
         panel.classList.remove('visible');
@@ -1167,6 +1173,10 @@
       setUnread: function (count) {
         notifyStore.set({ unread: count });
         notify.setUnread(count);
+      },
+      // Introspection for future runtime-ui modules — provider-agnostic.
+      getTransportCapabilities: function () {
+        return transport.getCapabilities ? transport.getCapabilities() : {};
       },
     };
   };

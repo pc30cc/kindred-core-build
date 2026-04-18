@@ -1120,8 +1120,9 @@
       if (transportStore.get().connectionState !== 'online') return;
       if (identity.needsPrechat()) { renderBody(); return; }
       msgInput.value = '';
-      chatStore.set({ draft: '' });
-      // typing hook (no-op under polling, ready for realtime drivers).
+      // Clear draft for the active conversation scope (per-conversation).
+      setDraftFor(currentDraftKey(), '');
+      // Typing hook (no-op under polling, ready for realtime drivers).
       // Capability-gated so UI never assumes typing support.
       if (transport.hasCapability && transport.hasCapability('supportsTyping')) {
         transport.sendTyping({ conversationId: chatStore.get().conversationId });

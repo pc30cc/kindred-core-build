@@ -561,6 +561,206 @@ input:disabled, button:disabled {
   100% { background-position: -200% 0; }
 }
 
+/* ─── Phase 6b: Attachment chip — progress bar + retry button ─── */
+.attach-chip-progress {
+  margin-top: 6px;
+  height: 3px;
+  width: 100%;
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.attach-chip-progress-bar {
+  height: 100%;
+  width: 0%;
+  background: var(--gs-primary, #3B82F6);
+  border-radius: 999px;
+  transition: width 0.2s ease;
+}
+.attach-chip-retry {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-size: 14px;
+  line-height: 1;
+  color: #B91C1C;
+  background: transparent;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.2s ease;
+}
+.attach-chip-retry:hover { background: #FEE2E2; transform: rotate(-30deg); }
+
+/* ─── Phase 6b: In-message attachment rendering ─── */
+/* Image attachment — thumbnail inside the message bubble. */
+.msg.has-att-only {
+  background: transparent !important;
+  padding: 0;
+  border-radius: 0;
+  max-width: 70%;
+}
+.msg.has-att {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.msg-att {
+  margin-top: 4px;
+}
+.msg.has-att-only .msg-att { margin-top: 0; }
+
+.msg-att-image {
+  display: block;
+  max-width: 240px;
+}
+.msg-att-img-btn {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+  border-radius: 12px;
+  overflow: hidden;
+  position: relative;
+  width: 100%;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.msg-att-img-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12); }
+.msg-att-img-btn img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 220px;
+  object-fit: cover;
+  background: #F3F4F6;
+  /* Reserve aspect ratio to avoid layout shift before load. */
+  aspect-ratio: 4 / 3;
+}
+.msg-att-img-fallback {
+  display: none;
+  position: absolute;
+  inset: 0;
+  align-items: center;
+  justify-content: center;
+  background: #F3F4F6;
+  color: #6B7280;
+  font-size: 12px;
+  text-align: center;
+  padding: 12px;
+}
+.msg-att-img-btn.failed img { display: none; }
+.msg-att-img-btn.failed .msg-att-img-fallback { display: flex; }
+
+/* Document/file card — shown in non-image attachments. */
+.msg-att-file {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: #fff;
+  border: 1px solid #E5E7EB;
+  border-radius: 12px;
+  min-width: 220px;
+  max-width: 280px;
+}
+.msg.visitor .msg-att-file {
+  background: rgba(255, 255, 255, 0.96);
+  border-color: rgba(255, 255, 255, 0.6);
+  color: #1F2937;
+}
+.msg-att-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--gs-primary, #3B82F6) 12%, transparent);
+  color: var(--gs-primary, #3B82F6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.msg-att-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.msg-att-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1F2937;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.msg-att-sub {
+  font-size: 11px;
+  color: #6B7280;
+}
+.msg-att-action {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--gs-primary, #3B82F6);
+  background: transparent;
+  text-decoration: none;
+  transition: background 0.15s ease;
+  flex-shrink: 0;
+}
+.msg-att-action:hover {
+  background: color-mix(in srgb, var(--gs-primary, #3B82F6) 10%, transparent);
+}
+
+/* ─── Phase 6b: Image lightbox (Shadow-DOM scoped) ─── */
+.att-lightbox {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.86);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 10;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+.att-lightbox[hidden] { display: none; }
+.att-lightbox.visible { opacity: 1; }
+.att-lightbox img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+  background: #fff;
+}
+.att-lightbox-close {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.92);
+  color: #111827;
+  font-size: 20px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  transition: transform 0.1s ease, background 0.15s ease;
+}
+.att-lightbox-close:hover { background: #fff; }
+.att-lightbox-close:active { transform: scale(0.92); }
+
 /* ─── Mobile ─── */
 @media (max-width: 480px) {
   .panel {
@@ -581,4 +781,7 @@ input:disabled, button:disabled {
     left: 12px;
     width: auto;
   }
+  .msg-att-image { max-width: 78vw; }
+  .msg-att-img-btn img { max-height: 280px; }
+  .msg-att-file { min-width: 0; max-width: 100%; }
 }

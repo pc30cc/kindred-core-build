@@ -15,6 +15,7 @@ import { cdnRouter } from './routes/cdn.js';
 import { billingRouter } from './routes/billing.js';
 import { plansRouter } from './routes/plans.js';
 import { adminRouter } from './routes/admin.js';
+import { realtimeRouter } from './routes/realtime.js';
 import { widgetCorsMiddleware } from './middleware/widgetCors.js';
 import {
   ipBlockMiddleware,
@@ -98,6 +99,9 @@ app.use('/api/plans', plansRouter);
 
 // Admin — moderate rate limit
 app.use('/api/admin', adminRateLimiter, adminRouter);
+
+// Realtime — admin config + widget connect/subscribe (auth handled per-route)
+app.use('/api/realtime', realtimeRouter);
 
 // 404
 app.use((_req, res) => {

@@ -1387,6 +1387,45 @@ export type Database = {
           },
         ]
       }
+      realtime_provider_audit: {
+        Row: {
+          action: string
+          changed_by: string | null
+          config_diff: Json | null
+          created_at: string
+          error_message: string | null
+          id: string
+          ip_address: string | null
+          prev_vendor: string | null
+          result: string | null
+          vendor: string | null
+        }
+        Insert: {
+          action: string
+          changed_by?: string | null
+          config_diff?: Json | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          ip_address?: string | null
+          prev_vendor?: string | null
+          result?: string | null
+          vendor?: string | null
+        }
+        Update: {
+          action?: string
+          changed_by?: string | null
+          config_diff?: Json | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          ip_address?: string | null
+          prev_vendor?: string | null
+          result?: string | null
+          vendor?: string | null
+        }
+        Relationships: []
+      }
       security_events: {
         Row: {
           created_at: string | null
@@ -2686,6 +2725,7 @@ export type Database = {
         }
         Returns: Json
       }
+      admin_list_realtime_audit: { Args: { _limit?: number }; Returns: Json }
       admin_list_workspaces:
         | {
             Args: { _limit?: number; _offset?: number }

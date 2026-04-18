@@ -316,10 +316,28 @@
         seenMessageIds[id] = true;
         var senderRaw = m.role || m.sender || m.sender_type || 'agent';
         var sender = (senderRaw === 'visitor' || senderRaw === 'contact') ? 'visitor' : 'operator';
+        var text = m.text || m.body || '';
+        // Skip if local optimistic visitor message with same text exists in last 10s
+        if (sender === 'visitor') {
+          var dup = messages.some(function (lm) {
+            return lm.sender === 'visitor' && lm.body === text && !lm.__id;
+          });
+          if (dup) {
+            // Tag the local one so future polls don't re-add
+            for (var i = 0; i < messages.length; i++) {
+              if (messages[i].sender === 'visitor' && messages[i].body === text && !messages[i].__id) {
+                messages[i].__id = id;
+                break;
+              }
+            }
+            return;
+          }
+        }
         messages.push({
-          body: m.text || m.body || '',
+          body: text,
           sender: sender,
           time: m.time ? new Date(m.time) : new Date(),
+          __id: id,
         });
         changed = true;
       });

@@ -19,7 +19,7 @@
  *  - GET  /kb               — Legacy KB endpoint (kept for compat)
  */
 
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import crypto from 'crypto';
 import { getServiceClient } from '../supabase.js';

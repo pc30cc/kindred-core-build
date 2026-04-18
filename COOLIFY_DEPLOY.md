@@ -58,6 +58,7 @@ Browser → https://api.example.com (Backend / Express)
 | `SUPABASE_ANON_KEY` | `eyJ...` | ✅ |
 | `SUPABASE_SERVICE_ROLE_KEY` | `eyJ...` | ✅ |
 | `CORS_ORIGINS` | `https://example.com` | ✅ |
+| `WIDGET_ASSET_BASE_URL` | `https://example.com` | ✅ (split deploy) |
 | `RATE_LIMIT_WINDOW_MS` | `60000` | ❌ |
 | `RATE_LIMIT_MAX` | `100` | ❌ |
 | `RESEND_API_KEY` | `re_xxx` | ❌ |
@@ -66,6 +67,18 @@ Browser → https://api.example.com (Backend / Express)
 | `SMTP_PORT` | `587` | ❌ |
 | `SMTP_USER` | | ❌ |
 | `SMTP_PASS` | | ❌ |
+
+> ⚠️ **Widget asset consistency (critical).**
+> In a split deploy the backend Express container cannot read the frontend
+> nginx container's filesystem, so it cannot find `widget-manifest.json`.
+> You **must** set `WIDGET_ASSET_BASE_URL` (or `WIDGET_MANIFEST_URL`) to
+> the frontend's public URL. Otherwise `/api/widget/config` returns
+> `runtime.js?v=unresolved` and customer browsers load stale/cached
+> runtime assets that mismatch the loader contract.
+>
+> Verify after deploy: `curl https://api.example.com/api/health/widget`
+> should show `manifest.source` starting with `remote:` or `fs:`, and
+> `manifest.loaderVersion` should NOT be `unresolved` or `dev`.
 
 ---
 

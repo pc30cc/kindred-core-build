@@ -1569,6 +1569,96 @@
     var msgInput = panel.querySelector('[data-msg-input]');
     var sendBtn = panel.querySelector('[data-send-btn]');
     var inputBar = panel.querySelector('[data-input-bar]');
+    var attachBtn = panel.querySelector('[data-attach-btn]');
+    var attachInput = panel.querySelector('[data-attach-input]');
+    var attachTray = panel.querySelector('[data-attach-tray]');
+
+    // ─── Phase 6a: Attachment UX wiring (separate domain) ───
+    function renderAttachmentChip() {
+      if (!attachTray) return;
+      var s = attachmentStore.get();
+      if (s.status === 'idle') { attachTray.hidden = true; attachTray.innerHTML = ''; return; }
+      attachTray.hidden = false;
+      var statusLabel = s.status === 'uploading' ? (t('uploading') || 'Uploading…')
+        : s.status === 'ready' ? (t('readyToSend') || 'Ready')
+        : s.status === 'error' ? (s.error || (t('uploadFailed') || 'Upload failed'))
+        : (t('selected') || 'Selected');
+      var sizeKb = Math.max(1, Math.round((s.sizeBytes || 0) / 1024));
+      attachTray.innerHTML =
+        '<div class="attach-chip status-' + s.status + '">' +
+          '<div class="attach-chip-meta">' +
+            '<div class="attach-chip-name" title="' + Util.escapeHtml(s.fileName) + '">' + Util.escapeHtml(s.fileName) + '</div>' +
+            '<div class="attach-chip-sub">' + Util.escapeHtml(statusLabel) + ' · ' + sizeKb + ' KB</div>' +
+          '</div>' +
+          '<button type="button" class="attach-chip-remove" data-attach-remove aria-label="Remove">×</button>' +
+        '</div>';
+      var rm = attachTray.querySelector('[data-attach-remove]');
+      if (rm) rm.addEventListener('click', function () { resetAttachment(); });
+    }
+    attachmentStore.subscribe(renderAttachmentChip);
+
+    function startUpload(file) {
+      var allowed = (attachCfg.allowedMimes || []);
+      var maxBytes = (attachCfg.maxSizeMb || 10) * 1024 * 1024;
+      if (allowed.indexOf(file.type) < 0) {
+        attachmentStore.set({ file: null, fileName: file.name, mimeType: file.type, sizeBytes: file.size, status: 'error', error: t('typeNotAllowed') || 'File type not allowed', attachmentId: null });
+        return;
+      }
+      if (file.size > maxBytes) {
+        attachmentStore.set({ file: null, fileName: file.name, mimeType: file.type, sizeBytes: file.size, status: 'error', error: t('tooLarge') || 'File too large', attachmentId: null });
+        return;
+      }
+      attachmentStore.set({ file: file, fileName: file.name, mimeType: file.type, sizeBytes: file.size, status: 'uploading', progress: 10, error: '', attachmentId: null });
+      var apiBase = ctx.config.apiBase;
+      var headers = { 'Content-Type': 'application/json', 'X-Widget-Token': ctx.sessionToken || '' };
+      fetch(apiBase + '/api/widget/attachments/init', {
+        method: 'POST', credentials: 'include', headers: headers,
+        body: JSON.stringify({ file_name: file.name, mime_type: file.type, size_bytes: file.size, conversation_id: chatStore.get().conversationId || null }),
+      }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, data: j }; }); })
+        .then(function (resp) {
+          if (!resp.ok || !resp.data || !resp.data.attachment_id) throw new Error((resp.data && resp.data.error) || 'init_failed');
+          attachmentStore.set({ attachmentId: resp.data.attachment_id, progress: 40 });
+          return new Promise(function (resolve, reject) {
+            var reader = new FileReader();
+            reader.onload = function () {
+              var b64 = String(reader.result || '').split(',')[1] || '';
+              fetch(apiBase + '/api/widget/attachments/' + resp.data.attachment_id + '/upload', {
+                method: 'POST', credentials: 'include', headers: headers, body: JSON.stringify({ data: b64 }),
+              }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, data: j }; }); }).then(resolve).catch(reject);
+            };
+            reader.onerror = function () { reject(new Error('read_failed')); };
+            reader.readAsDataURL(file);
+          });
+        })
+        .then(function (resp) {
+          if (!resp.ok) throw new Error((resp.data && resp.data.error) || 'upload_failed');
+          attachmentStore.set({ status: 'ready', progress: 100, error: '' });
+        })
+        .catch(function (err) {
+          attachmentStore.set({ status: 'error', progress: 0, error: (err && err.message) || (t('uploadFailed') || 'Upload failed') });
+        });
+    }
+    if (attachBtn && attachInput) {
+      attachBtn.addEventListener('click', function () {
+        if (attachmentStore.get().status === 'uploading') return;
+        attachInput.value = ''; attachInput.click();
+      });
+      attachInput.addEventListener('change', function (e) {
+        var file = e.target.files && e.target.files[0];
+        if (file) startUpload(file);
+      });
+    }
+    function syncAttachButton() {
+      if (!attachBtn) return;
+      var conn = transportStore.get().connectionState;
+      var pState = presenceStore.get();
+      var availOk = pState.liveChatEnabled !== false
+        && !((pState.status === 'offline' || pState.status === 'unavailable') && pState.offlineMode === 'contact_fallback');
+      attachBtn.disabled = !(conn === 'online' && availOk);
+    }
+    transportStore.subscribe(syncAttachButton);
+    presenceStore.subscribe(syncAttachButton);
+    syncAttachButton();
 
     notify.attach(panel);
 

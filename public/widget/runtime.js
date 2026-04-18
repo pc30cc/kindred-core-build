@@ -1055,23 +1055,60 @@
     transportStore.subscribe(applyComposerState);
     shellStore.subscribe(applyComposerState);
 
-    // ─── Draft preservation (in-memory only) ───
-    // Whatever the user types is mirrored to chatStore.draft so it survives
-    // offline/reconnecting transitions, tab switches, and panel close/open
-    // within the same page session. No localStorage, no cookies.
+    // ─── Draft preservation (in-memory only, per-conversation) ───
+    // Drafts live in chatStore.drafts keyed by conversationId. Before a
+    // conversation exists we use DRAFT_PENDING_KEY as a temporary scope and
+    // migrate the text to the real cid as soon as one is assigned. This keeps
+    // drafts isolated between conversations and survives offline/reconnect,
+    // tab switches, and panel close/open within the same page session.
+    // No localStorage, no cookies, no auto-resend.
+    function currentDraftKey() {
+      var cid = chatStore.get().conversationId;
+      return cid || DRAFT_PENDING_KEY;
+    }
+    function getDraftFor(key) {
+      var d = chatStore.get().drafts || {};
+      return d[key] || '';
+    }
+    function setDraftFor(key, value) {
+      var d = chatStore.get().drafts || {};
+      if (d[key] === value) return;
+      var next = {};
+      for (var k in d) if (Object.prototype.hasOwnProperty.call(d, k)) next[k] = d[k];
+      if (value) next[key] = value; else delete next[key];
+      chatStore.set({ drafts: next });
+    }
     function syncDraftFromInput() {
       if (!msgInput) return;
-      var v = msgInput.value;
-      if (chatStore.get().draft !== v) chatStore.set({ draft: v });
+      setDraftFor(currentDraftKey(), msgInput.value);
     }
     function restoreDraftToInput() {
       if (!msgInput) return;
-      var d = chatStore.get().draft || '';
+      var d = getDraftFor(currentDraftKey());
       if (msgInput.value !== d) msgInput.value = d;
     }
     if (msgInput) {
       msgInput.addEventListener('input', syncDraftFromInput);
     }
+
+    // Migrate pending draft → real conversationId the moment one is assigned.
+    var __lastSeenCid = chatStore.get().conversationId;
+    chatStore.subscribe(function (s) {
+      if (s.conversationId && s.conversationId !== __lastSeenCid) {
+        var pending = (s.drafts || {})[DRAFT_PENDING_KEY];
+        if (pending && !(s.drafts || {})[s.conversationId]) {
+          var next = {};
+          for (var k in s.drafts) {
+            if (Object.prototype.hasOwnProperty.call(s.drafts, k) && k !== DRAFT_PENDING_KEY) {
+              next[k] = s.drafts[k];
+            }
+          }
+          next[s.conversationId] = pending;
+          chatStore.set({ drafts: next });
+        }
+        __lastSeenCid = s.conversationId;
+      }
+    });
 
     // ─── Send handler ───
     function trySend() {

@@ -1623,12 +1623,16 @@
     // ─── Layers ───
     var transport = createTransport(ctx, transportStore);
     var identity = createIdentity(ctx, identityStore);
+    // Phase 6b — lightbox lives in the panel's Shadow DOM. We expose a
+    // function to chatUI so renderChat can open it without reaching into shell.
+    var lightboxOpener = function (id) { /* set after panel mount */ };
     var chatUI = createChatUI({
       ctx: ctx, t: t,
       chatStore: chatStore,
       identityStore: identityStore,
       transportStore: transportStore,
       transport: transport,
+      openImageLightbox: function (id) { lightboxOpener(id); },
     });
     var kbUI = createKbUI({ ctx: ctx, t: t, kbStore: kbStore });
     var notify = createNotify(ctx, transportStore, notifyStore, uiPrefsStore, shellStore, t);
@@ -1680,7 +1684,12 @@
       ? '<div class="powered">Powered by <a href="#">' + Util.escapeHtml(brandName) + '</a></div>'
       : '';
 
-    panel.innerHTML = headerHtml + tabsHtml + bodyHtml + inputHtml + poweredHtml;
+    panel.innerHTML = headerHtml + tabsHtml + bodyHtml + inputHtml + poweredHtml +
+      // Phase 6b — lightbox container, hidden by default.
+      '<div class="att-lightbox" data-att-lightbox hidden role="dialog" aria-modal="true" aria-label="' + Util.escapeHtml(t('openFile')) + '">' +
+        '<button type="button" class="att-lightbox-close" data-att-lightbox-close aria-label="' + Util.escapeHtml(t('closePreview')) + '">×</button>' +
+        '<img data-att-lightbox-img alt="" />' +
+      '</div>';
     shellDiv.appendChild(panel);
 
     var body = panel.querySelector('[data-body]');

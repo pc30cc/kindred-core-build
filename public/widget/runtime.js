@@ -1494,6 +1494,35 @@
       }
     });
 
+    // ─── Helper: clear unread for the currently-active conversation ───
+    // Only the visible conversation is cleared; other conversations keep
+    // their unread counts. Re-derives totalUnread from perConversation.
+    function clearUnreadForActive() {
+      var activeCid = chatStore.get().conversationId || '__default__';
+      var ns = notifyStore.get();
+      if (!ns.perConversation || !ns.perConversation[activeCid]) {
+        // Still re-publish to refresh badge/title if total is stale.
+        if (ns.totalUnread !== 0 && Object.keys(ns.perConversation || {}).length === 0) {
+          notifyStore.set({ totalUnread: 0 });
+        }
+        return;
+      }
+      var per = {};
+      for (var k in ns.perConversation) {
+        if (Object.prototype.hasOwnProperty.call(ns.perConversation, k) && k !== activeCid) {
+          per[k] = ns.perConversation[k];
+        }
+      }
+      var total = 0;
+      for (var ck in per) if (Object.prototype.hasOwnProperty.call(per, ck)) total += per[ck];
+      notifyStore.set({ perConversation: per, totalUnread: total });
+    }
+
+    // When the user switches to the chat tab while panel is open, clear unread.
+    shellStore.subscribe(function (s) {
+      if (s.isOpen && s.activeTab === 'chat') clearUnreadForActive();
+    });
+
     // ─── Public API back to loader ───
     return {
       open: function () {
@@ -1501,9 +1530,10 @@
         shellStore.set({ isOpen: true });
         if (launcher) launcher.classList.add('open');
         panel.classList.add('visible');
-        // Clear unread on open
-        notifyStore.set({ unread: 0 });
-        notify.setUnread(0);
+        // Hide any pending toast — user is now looking at the panel.
+        notify.hideToast();
+        // Phase 4: clear unread for the ACTIVE conversation only.
+        if (shellStore.get().activeTab === 'chat') clearUnreadForActive();
         // Restore preserved draft on reopen (in-memory only)
         if (shellStore.get().activeTab === 'chat') restoreDraftToInput();
         if (msgInput && transportStore.get().connectionState === 'online' && !identity.needsPrechat()) {
@@ -1522,8 +1552,11 @@
         if (shellStore.get().isOpen) this.close(); else this.open();
       },
       setUnread: function (count) {
-        notifyStore.set({ unread: count });
+        // Public bridge: sets the global counter directly (loader API parity).
         notify.setUnread(count);
+      },
+      setSoundEnabled: function (enabled) {
+        uiPrefsStore.set({ soundEnabled: !!enabled });
       },
       // Introspection for future runtime-ui modules — provider-agnostic.
       getTransportCapabilities: function () {

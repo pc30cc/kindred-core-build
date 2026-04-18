@@ -1577,7 +1577,14 @@
     function applyComposerState() {
       if (!msgInput || !sendBtn) return;
       var conn = transportStore.get().connectionState;
-      var canSend = conn === 'online' && shellStore.get().activeTab === 'chat';
+      // Phase 5 — composer is also gated by availability:
+      //   - liveChatEnabled === false       → never enable
+      //   - offline_mode === contact_fallback when offline → fallback form owns input
+      var pState = presenceStore.get();
+      var availOk = pState.liveChatEnabled !== false
+        && !((pState.status === 'offline' || pState.status === 'unavailable')
+          && pState.offlineMode === 'contact_fallback');
+      var canSend = conn === 'online' && shellStore.get().activeTab === 'chat' && availOk;
       msgInput.disabled = !canSend;
       sendBtn.disabled = !canSend;
       if (canSend) {
@@ -1594,6 +1601,7 @@
     }
     transportStore.subscribe(applyComposerState);
     shellStore.subscribe(applyComposerState);
+    presenceStore.subscribe(applyComposerState);
 
     // ─── Draft preservation (in-memory only, per-conversation) ───
     // Drafts live in chatStore.drafts keyed by conversationId. Before a
@@ -1804,8 +1812,12 @@
     // Presence/typing inbound hooks — only wire if driver advertises support.
     // Under the polling driver these are no-ops; future WS/SSE drivers can
     // emit real events without UI changes.
-    if (transport.hasCapability && transport.hasCapability('supportsPresence')) {
-      transport.on('presence', function (_e) { /* future: render presence */ });
+    // Phase 5 — wire presence layer (no-op for polling, real for realtime drivers
+    // that advertise supportsPresence). Always publishes initial state.
+    presence.wire();
+    // Typing inbound hook — only wire if driver advertises support.
+    if (transport.hasCapability && transport.hasCapability('supportsTyping')) {
+      transport.on('typing', function (_e) { /* future: render typing indicator */ });
     }
     if (transport.hasCapability && transport.hasCapability('supportsTyping')) {
       transport.on('typing', function (_e) { /* future: render typing indicator */ });

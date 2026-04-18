@@ -1194,14 +1194,19 @@
     if (inputBar && shellStore.get().activeTab !== 'chat') inputBar.style.display = 'none';
     applyComposerState();
 
-    // 1) Identity → 2) Transport connect → 3) History
+    // 1) Identity → 2) Transport connect → 3) History (if supported)
     identity.fetchMe(function () {
       renderBody();
       transport.connect();
       if (!identity.needsPrechat()) {
-        chatUI.bootstrapHistory(function () {
-          if (shellStore.get().activeTab === 'chat') renderBody();
-        });
+        if (transport.hasCapability && transport.hasCapability('supportsHistoryLoad')) {
+          chatUI.bootstrapHistory(function () {
+            if (shellStore.get().activeTab === 'chat') renderBody();
+            // After history resolves, conversationId may exist — restore the
+            // matching per-conversation draft into the composer.
+            restoreDraftToInput();
+          });
+        }
         if (msgInput) setTimeout(function () {
           if (transportStore.get().connectionState === 'online') msgInput.focus();
         }, 200);

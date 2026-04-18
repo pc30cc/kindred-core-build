@@ -11,3 +11,4 @@ Dashboard removed — do not re-add.
 - [Provider architecture](mem://design/providers) — 14 provider types, registry, resolution, fallback, React context
 - [Architecture rules](mem://features/architecture) — Self-host-first, provider-driven, no dual paths
 - [Plan & Feature Gating](mem://features/plan-system) — Dynamic plans, backend enforcement, workspace subscriptions, admin CRUD
+- [Widget Platform Settings](mem://features/widget-platform-settings) — Super-admin global widget controls, three-tier policy (platform locks → workspace overrides → defaults)

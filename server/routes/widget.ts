@@ -12,7 +12,6 @@
  *  - POST /message          — Token-secured. Send message + AI auto-reply
  *  - POST /track            — Token-secured. Visitor tracking event
  *  - PUT  /action           — Token-secured. Heartbeat, typing, reopen, CSAT
- *  - POST /upload           — Token-secured. File upload
  *  - POST /session/refresh  — Refresh expiring token
  *  - GET  /manifest         — Token-secured. Versioned runtime manifest
  *  - POST /validate-origin  — Origin validation check

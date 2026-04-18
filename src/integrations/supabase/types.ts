@@ -629,6 +629,7 @@ export type Database = {
           created_at: string | null
           id: string
           metadata: Json | null
+          seen_at: string | null
           sender_id: string | null
           sender_type: Database["public"]["Enums"]["sender_type"]
         }
@@ -638,6 +639,7 @@ export type Database = {
           created_at?: string | null
           id?: string
           metadata?: Json | null
+          seen_at?: string | null
           sender_id?: string | null
           sender_type: Database["public"]["Enums"]["sender_type"]
         }
@@ -647,6 +649,7 @@ export type Database = {
           created_at?: string | null
           id?: string
           metadata?: Json | null
+          seen_at?: string | null
           sender_id?: string | null
           sender_type?: Database["public"]["Enums"]["sender_type"]
         }
@@ -1967,6 +1970,7 @@ export type Database = {
           placeholder_text: string | null
           position: string | null
           primary_color: string | null
+          read_receipts_enabled: boolean
           secondary_color: string | null
           show_logo: boolean | null
           support_mode: string | null
@@ -2014,6 +2018,7 @@ export type Database = {
           placeholder_text?: string | null
           position?: string | null
           primary_color?: string | null
+          read_receipts_enabled?: boolean
           secondary_color?: string | null
           show_logo?: boolean | null
           support_mode?: string | null
@@ -2061,6 +2066,7 @@ export type Database = {
           placeholder_text?: string | null
           position?: string | null
           primary_color?: string | null
+          read_receipts_enabled?: boolean
           secondary_color?: string | null
           show_logo?: boolean | null
           support_mode?: string | null

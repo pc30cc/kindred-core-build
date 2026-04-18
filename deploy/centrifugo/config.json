@@ -1,0 +1,64 @@
+{
+  "_comment": "Centrifugo v5 config aligned with this project's realtime provider implementation (server/services/realtime/centrifugo.ts). Secrets MUST be supplied via environment variables (CENTRIFUGO_TOKEN_HMAC_SECRET_KEY, CENTRIFUGO_API_KEY, CENTRIFUGO_ALLOWED_ORIGINS). Do NOT hard-code them here.",
+
+  "address": "0.0.0.0",
+  "port": 8000,
+
+  "_comment_auth": "HS256 connection JWTs are issued by the backend (CentrifugoDriver.issueConnectionToken). The HMAC secret is provided via CENTRIFUGO_TOKEN_HMAC_SECRET_KEY env var.",
+  "token_hmac_secret_key": "",
+
+  "_comment_api": "Server-to-server HTTP API. Used by the backend for health checks (method=info) and optional broadcast (method=publish). API key provided via CENTRIFUGO_API_KEY env var.",
+  "api_key": "",
+  "api_insecure": false,
+
+  "_comment_origins": "Browsers connecting via WebSocket must come from one of these origins. Comma-separated list provided via CENTRIFUGO_ALLOWED_ORIGINS env var (e.g. https://destekly.tr,https://app.destekly.tr).",
+  "allowed_origins": [],
+
+  "_comment_channels": "Channel namespace 'ws' matches the channel pattern issued by buildChannelName(workspaceId, conversationId) → 'ws:{workspace_id}:conv:{conversation_id}'. Subscribe tokens are required (private channels), presence/history enabled to support typing/presence capabilities.",
+  "namespaces": [
+    {
+      "name": "ws",
+      "presence": true,
+      "join_leave": true,
+      "force_push_join_leave": false,
+      "history_size": 50,
+      "history_ttl": "300s",
+      "force_recovery": true,
+      "allow_subscribe_for_client": false,
+      "allow_publish_for_client": false,
+      "allow_presence_for_client": true,
+      "allow_history_for_client": true,
+      "subscribe_for_anonymous": false
+    }
+  ],
+
+  "_comment_client": "Anonymous clients are NOT allowed; every connection must present a valid HS256 token issued by the backend. Subject ttl matches the default token_ttl_seconds (300s).",
+  "client_anonymous": false,
+  "client_concurrency": 8,
+  "client_channel_limit": 64,
+  "client_queue_max_size": 1048576,
+  "client_stale_close_delay": "25s",
+  "client_expired_close_delay": "25s",
+  "client_expired_sub_close_delay": "25s",
+  "client_user_connection_limit": 0,
+
+  "_comment_websocket": "WebSocket transport. Compression on, ping/pong intervals tuned for mobile widget connections.",
+  "websocket": true,
+  "websocket_compression": true,
+  "websocket_ping_interval": "25s",
+  "websocket_write_timeout": "5s",
+
+  "_comment_admin": "Admin UI is OFF by default. To enable for debugging, set admin: true and provide CENTRIFUGO_ADMIN_PASSWORD + CENTRIFUGO_ADMIN_SECRET via env, then expose /admin behind your reverse proxy with HTTP basic auth or IP allowlist.",
+  "admin": false,
+  "admin_insecure": false,
+
+  "_comment_health": "Used by the docker healthcheck and by Coolify.",
+  "health": true,
+
+  "_comment_logs": "Sane production logging.",
+  "log_level": "info",
+  "log_file": "",
+
+  "_comment_engine": "Single-node memory engine is sufficient for this deployment scale. For HA / multi-node, switch to 'redis' and add redis_address.",
+  "engine": "memory"
+}

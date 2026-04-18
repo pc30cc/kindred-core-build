@@ -1,0 +1,61 @@
+# docker-compose.centrifugo.yml
+#
+# Production-ready Centrifugo deployment for this project.
+# Designed to be deployed as a STANDALONE service in Coolify
+# (separately from the backend/frontend), reachable via a public domain
+# such as: rt.destekly.tr  (wss://rt.destekly.tr)
+#
+# Why standalone?
+#   The Express backend and the Vite frontend are deployed as separate
+#   Coolify services. They will NOT share a Docker network with this
+#   container, so the backend cannot reach Centrifugo via an internal
+#   hostname like `http://centrifugo:8000/api`. Both the public WS URL
+#   and the server-to-server API URL must therefore be reachable over
+#   the public domain (HTTPS terminated by Coolify's proxy).
+#
+# Required environment variables (set them in Coolify → this service → Env):
+#   CENTRIFUGO_TOKEN_HMAC_SECRET   – HMAC secret for connection JWTs (HS256)
+#   CENTRIFUGO_API_KEY             – Server-to-server HTTP API key
+#   CENTRIFUGO_ADMIN_PASSWORD      – Admin UI password (optional, only if admin enabled)
+#   CENTRIFUGO_ADMIN_SECRET        – Admin UI secret  (optional, only if admin enabled)
+#   CENTRIFUGO_ALLOWED_ORIGINS     – Comma-separated origins allowed to connect
+#                                    (e.g. https://destekly.tr,https://app.destekly.tr)
+#
+# After deploy, in Coolify add a domain (e.g. rt.destekly.tr) pointing to
+# port 8000 of this container. Coolify will terminate TLS and proxy
+# both HTTP (/api, /health) and WebSocket (/connection/websocket) traffic.
+
+services:
+  centrifugo:
+    image: centrifugo/centrifugo:v5.4.5
+    container_name: centrifugo
+    restart: unless-stopped
+    command: centrifugo -c /centrifugo/config.json
+    ports:
+      # Coolify proxies the public domain → container:8000
+      - "8000:8000"
+    volumes:
+      - ./deploy/centrifugo/config.json:/centrifugo/config.json:ro
+    environment:
+      # Centrifugo reads CENTRIFUGO_* env vars and overrides JSON config.
+      # We pass secrets via env so they are NOT committed to git.
+      CENTRIFUGO_TOKEN_HMAC_SECRET_KEY: ${CENTRIFUGO_TOKEN_HMAC_SECRET}
+      CENTRIFUGO_API_KEY: ${CENTRIFUGO_API_KEY}
+      CENTRIFUGO_ADMIN_PASSWORD: ${CENTRIFUGO_ADMIN_PASSWORD:-}
+      CENTRIFUGO_ADMIN_SECRET: ${CENTRIFUGO_ADMIN_SECRET:-}
+      CENTRIFUGO_ALLOWED_ORIGINS: ${CENTRIFUGO_ALLOWED_ORIGINS}
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    # Coolify labels (informational — Coolify reads its own UI config,
+    # but these help if you switch to Traefik-managed routing later).
+    labels:
+      - "coolify.managed=true"
+      - "coolify.service=centrifugo"

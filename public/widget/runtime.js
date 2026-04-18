@@ -1,10 +1,17 @@
 /**
- * Widget Runtime v2 — Shell + lazy feature modules.
+ * Widget Runtime v3 — Cookie-based visitor identity (no localStorage).
  *
- * Layer 2: UI Shell (panel, tabs, open/close)
- * Layer 3: Feature modules loaded on demand
+ * The HttpOnly `dvsid` cookie is the single source of truth for visitor
+ * identity. All API calls use `credentials: 'include'` so the cookie is sent
+ * automatically. We never read or write visitor_id / conversation_id to
+ * localStorage.
  *
- * Loaded ONLY when user clicks the launcher.
+ * Flow:
+ *  1. On open → GET /identity/me → resolves visitor + linked contact + prechat policy
+ *  2. If no contact yet AND any prechat field is required → show pre-chat form
+ *  3. Submit → POST /identity/prechat → server merges into a contact
+ *  4. Smart history continuation → GET /identity/history (returns conv if within window)
+ *  5. Send message / poll for replies — conversation_id lives in memory only
  */
 (function () {
   'use strict';
@@ -53,8 +60,19 @@
   // ─── HTML escape ───
   function escapeHtml(text) {
     var div = document.createElement('div');
-    div.textContent = text;
+    div.textContent = text == null ? '' : String(text);
     return div.innerHTML;
+  }
+
+  // ─── Validators (Section 6: basic email + phone format) ───
+  function isValidEmail(v) {
+    if (!v) return false;
+    return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(v).trim());
+  }
+  function isValidPhone(v) {
+    if (!v) return false;
+    var s = String(v).trim().replace(/[\s\-().]/g, '');
+    return /^\+?\d{6,20}$/.test(s);
   }
 
   // ─── Init (called by loader on first click) ───
@@ -78,99 +96,154 @@
     var container = els.container;
     var launcher = els.launcher;
 
-    // State
+    // ─── In-memory state (NO localStorage) ───
     var isOpen = false;
     var activeTab = chatEnabled ? 'chat' : (kbEnabled ? 'help' : 'chat');
     var messages = [];
     var kbArticles = [];
     var chatModuleLoaded = false;
     var kbModuleLoaded = false;
-    var preChatConfig = config.preChat || {};
-    var preChatResolved = false;
-    var visitorProfile = loadVisitorProfile();
 
-    function getVisitorId() {
-      var existing = localStorage.getItem('__gs_vid');
-      if (existing) return existing;
-      var next = 'v_' + Math.random().toString(36).substr(2, 9) + Date.now().toString(36);
-      localStorage.setItem('__gs_vid', next);
-      return next;
-    }
+    // Identity state from server
+    var identity = {
+      loaded: false,
+      identityState: 'anonymous', // 'anonymous' | 'identified'
+      contact: null, // { id, name, email, phone, avatar_url } | null
+      prechat: null, // { ask_*, require_*, verify_* }
+    };
+    var conversationId = null; // Lives in memory only — server is truth
+    var pollHandle = null;
 
-    function loadVisitorProfile() {
-      try {
-        var raw = localStorage.getItem('__gs_profile');
-        if (!raw) return { name: '', email: '', phone: '' };
-        var parsed = JSON.parse(raw);
-        return {
-          name: parsed && parsed.name ? String(parsed.name) : '',
-          email: parsed && parsed.email ? String(parsed.email) : '',
-          phone: parsed && parsed.phone ? String(parsed.phone) : '',
-        };
-      } catch (_) {
-        return { name: '', email: '', phone: '' };
-      }
-    }
-
-    function saveVisitorProfile(profile) {
-      visitorProfile = {
-        name: profile && profile.name ? String(profile.name).trim() : '',
-        email: profile && profile.email ? String(profile.email).trim() : '',
-        phone: profile && profile.phone ? String(profile.phone).trim() : '',
+    // ─── i18n helpers ───
+    function t(key) {
+      var dict = {
+        en: {
+          chat: 'Chat', help: 'Help',
+          typeMsg: 'Type a message...',
+          intro: "Send us a message and we'll get back to you shortly.",
+          name: 'Name', email: 'Email', phone: 'Phone number',
+          continue: 'Continue', back: 'Back',
+          prechatIntro: 'Before we start, please share a few details so we can stay in touch.',
+          required: 'required',
+          invalidEmail: 'Please enter a valid email address.',
+          invalidPhone: 'Please enter a valid phone number.',
+          searchKb: 'Search articles...',
+          noArticles: 'No articles yet',
+          loading: 'Loading…',
+        },
+        fa: {
+          chat: 'گفتگو', help: 'راهنما',
+          typeMsg: 'پیام خود را بنویسید...',
+          intro: 'سوالی دارید؟ اینجا بنویسید.',
+          name: 'نام', email: 'ایمیل', phone: 'شماره تلفن',
+          continue: 'ادامه', back: 'بازگشت',
+          prechatIntro: 'قبل از شروع، لطفاً اطلاعات تماس را وارد کنید تا بتوانیم در ارتباط باشیم.',
+          required: 'الزامی',
+          invalidEmail: 'لطفاً یک ایمیل معتبر وارد کنید.',
+          invalidPhone: 'لطفاً یک شماره تلفن معتبر وارد کنید.',
+          searchKb: 'جستجو در مقالات...',
+          noArticles: 'مقاله‌ای یافت نشد',
+          loading: 'در حال بارگذاری…',
+        },
+        tr: {
+          chat: 'Sohbet', help: 'Yardım',
+          typeMsg: 'Mesajınızı yazın...',
+          intro: 'Bir soru mu var? Buraya yazın.',
+          name: 'İsim', email: 'E-posta', phone: 'Telefon',
+          continue: 'Devam', back: 'Geri',
+          prechatIntro: 'Başlamadan önce iletişim bilgilerinizi girin.',
+          required: 'zorunlu',
+          invalidEmail: 'Lütfen geçerli bir e-posta girin.',
+          invalidPhone: 'Lütfen geçerli bir telefon numarası girin.',
+          searchKb: 'Makalelerde ara...',
+          noArticles: 'Henüz makale yok',
+          loading: 'Yükleniyor…',
+        },
       };
-      localStorage.setItem('__gs_profile', JSON.stringify(visitorProfile));
+      var l = dict[locale] ? locale : 'en';
+      return (dict[l] && dict[l][key]) || dict.en[key] || key;
     }
 
-    function isPreChatFieldEnabled(key) {
-      return !!(preChatConfig[key] && preChatConfig[key].enabled);
-    }
-
-    function hasRequiredVisitorProfile() {
-      return (!isPreChatFieldEnabled('name') || !!visitorProfile.name) &&
-        (!isPreChatFieldEnabled('email') || !!visitorProfile.email) &&
-        (!isPreChatFieldEnabled('phone') || !!visitorProfile.phone);
-    }
-
-    function resolveVisitorIdentity(cb) {
+    // ═══════════════════════════════════════════════
+    // Identity API (server-side, cookie-based)
+    // ═══════════════════════════════════════════════
+    function fetchIdentity(cb) {
       if (!apiBase || !workspaceId) {
+        identity.loaded = true;
         if (cb) cb(false);
         return;
       }
+      fetch(
+        apiBase + '/api/widget/identity/me?workspace_id=' + encodeURIComponent(workspaceId),
+        {
+          credentials: 'include',
+          headers: { 'X-Widget-Token': sessionToken || '' },
+        }
+      )
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          identity.loaded = true;
+          identity.identityState = data.identity_state || 'anonymous';
+          identity.contact = data.contact || null;
+          identity.prechat = data.prechat || null;
+          if (cb) cb(true);
+        })
+        .catch(function (err) {
+          debugLog('identity/me failed', err);
+          identity.loaded = true;
+          if (cb) cb(false);
+        });
+    }
 
-      fetch(apiBase + '/api/widget/action', {
-        method: 'PUT',
+    function submitPrechat(payload, cb) {
+      fetch(apiBase + '/api/widget/identity/prechat', {
+        method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
           'X-Widget-Token': sessionToken || '',
         },
         body: JSON.stringify({
           workspace_id: workspaceId,
-          action: 'resolve_visitor',
-          visitor_id: getVisitorId(),
-          session_id: localStorage.getItem('__gs_sid') || undefined,
-          visitor_name: visitorProfile.name || undefined,
-          visitor_email: visitorProfile.email || undefined,
-          visitor_phone: visitorProfile.phone || undefined,
+          name: payload.name || null,
+          email: payload.email || null,
+          phone: payload.phone || null,
         }),
       })
-        .then(function (r) { return r.json(); })
-        .then(function (data) {
-          if (data && data.known_contact) {
-            saveVisitorProfile({
-              name: data.known_contact.name || visitorProfile.name,
-              email: data.known_contact.email || visitorProfile.email,
-              phone: data.known_contact.phone || visitorProfile.phone,
-            });
-          }
-          if (data && data.conversation_id) {
-            localStorage.setItem('__gs_cid', data.conversation_id);
-          }
-          preChatResolved = true;
-          if (cb) cb(true);
+        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+        .then(function (res) {
+          if (!res.ok) { if (cb) cb(false, res.body); return; }
+          // Update local identity snapshot
+          identity.identityState = 'identified';
+          identity.contact = {
+            id: res.body.contact_id,
+            name: payload.name || (identity.contact && identity.contact.name) || null,
+            email: payload.email || (identity.contact && identity.contact.email) || null,
+            phone: payload.phone || (identity.contact && identity.contact.phone) || null,
+          };
+          if (cb) cb(true, res.body);
         })
-        .catch(function () {
-          if (cb) cb(false);
-        });
+        .catch(function (err) { if (cb) cb(false, { error: 'network', _e: err }); });
+    }
+
+    // Pre-chat field requirements (from server-side policy)
+    function isFieldAsked(field) {
+      if (!identity.prechat) return false;
+      return !!identity.prechat['ask_' + field];
+    }
+    function isFieldRequired(field) {
+      if (!identity.prechat) return false;
+      return !!identity.prechat['require_' + field];
+    }
+    function needsPrechat() {
+      if (identity.identityState === 'identified') return false;
+      if (!identity.prechat) return false;
+      // If no field is asked, no need
+      if (!identity.prechat.ask_name && !identity.prechat.ask_email && !identity.prechat.ask_phone) {
+        return false;
+      }
+      // If any required field is missing, need prechat
+      return !!(identity.prechat.require_name || identity.prechat.require_email || identity.prechat.require_phone);
     }
 
     // ─── Build panel ───
@@ -186,18 +259,16 @@
     if (chatEnabled && kbEnabled) {
       tabsHtml = '<div class="__gs-tabs">' +
         '<button class="__gs-tab' + (activeTab === 'chat' ? ' active' : '') + '" data-tab="chat">' +
-        (locale === 'fa' ? 'گفتگو' : locale === 'tr' ? 'Sohbet' : 'Chat') + '</button>' +
+        escapeHtml(t('chat')) + '</button>' +
         '<button class="__gs-tab' + (activeTab === 'help' ? ' active' : '') + '" data-tab="help">' +
-        (locale === 'fa' ? 'راهنما' : locale === 'tr' ? 'Yardım' : 'Help') + '</button>' +
+        escapeHtml(t('help')) + '</button>' +
         '</div>';
     }
 
     var bodyHtml = '<div class="__gs-body" id="__gs-body"></div>';
     var inputHtml = chatEnabled
       ? '<div class="__gs-input-bar" id="__gs-input-bar">' +
-        '<input class="__gs-input" id="__gs-msg-input" placeholder="' +
-        (locale === 'fa' ? 'پیام خود را بنویسید...' : locale === 'tr' ? 'Mesajınızı yazın...' : 'Type a message...') +
-        '" />' +
+        '<input class="__gs-input" id="__gs-msg-input" placeholder="' + escapeHtml(t('typeMsg')) + '" />' +
         '<button class="__gs-send-btn" id="__gs-send-btn" style="background:' + primaryColor + '">' +
         '<svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>' +
         '</button></div>'
@@ -217,35 +288,29 @@
     // ─── Open immediately (since user clicked) ───
     isOpen = true;
     panel.classList.add('visible');
-    if (msgInput) setTimeout(function () { msgInput.focus(); }, 300);
 
     // ─── Tab switching ───
     var tabs = panel.querySelectorAll('.__gs-tab');
     tabs.forEach(function (tab) {
       tab.addEventListener('click', function () {
         activeTab = tab.getAttribute('data-tab');
-        tabs.forEach(function (t) { t.classList.remove('active'); });
+        tabs.forEach(function (t2) { t2.classList.remove('active'); });
         tab.classList.add('active');
         renderBody();
         if (inputBar) inputBar.style.display = activeTab === 'chat' ? 'flex' : 'none';
       });
     });
 
-    // ─── Send message (lazy loads chat module) ───
+    // ─── Send message ───
     function sendMessage() {
       if (!msgInput) return;
       var text = msgInput.value.trim();
       if (!text) return;
 
-      if (!hasRequiredVisitorProfile()) {
+      // Block sending until identity is resolved + prechat satisfied
+      if (!identity.loaded) return;
+      if (needsPrechat()) {
         renderBody();
-        return;
-      }
-
-      if (!preChatResolved) {
-        resolveVisitorIdentity(function (ok) {
-          if (ok) sendMessage();
-        });
         return;
       }
 
@@ -253,51 +318,28 @@
       msgInput.value = '';
       renderBody();
 
-      // Lazy load chat module for API communication
       ensureChatModule(function () {
         if (modules.chat && modules.chat.sendMessage) {
           modules.chat.sendMessage({
             apiBase: apiBase,
             workspaceId: workspaceId,
             sessionToken: sessionToken,
+            conversationId: conversationId,
             text: text,
+            onConversation: function (cid) {
+              if (cid && cid !== conversationId) {
+                conversationId = cid;
+                debugLog('conversation_id resolved', cid);
+              }
+            },
             onReply: function (reply) {
               messages.push({ body: reply, sender: 'operator', time: new Date() });
               renderBody();
             },
             onError: function () { debugLog('Message send failed'); },
           });
-        } else {
-          // Inline fallback if module not available
-          sendMessageFallback(text);
         }
       });
-    }
-
-    function sendMessageFallback(text) {
-      if (!apiBase || !workspaceId) return;
-      fetch(apiBase + '/api/widget/message', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Widget-Token': sessionToken,
-        },
-        body: JSON.stringify({
-          workspace_id: workspaceId,
-          visitor_id: localStorage.getItem('__gs_vid') || '',
-          session_id: localStorage.getItem('__gs_sid') || undefined,
-          conversation_id: localStorage.getItem('__gs_cid') || undefined,
-          message: text,
-        }),
-      })
-        .then(function (r) { return r.json(); })
-        .then(function (data) {
-          if (data.reply) {
-            messages.push({ body: data.reply, sender: 'operator', time: new Date() });
-            renderBody();
-          }
-        })
-        .catch(function (err) { debugLog('Message fallback failed', err); });
     }
 
     if (sendBtn) sendBtn.addEventListener('click', sendMessage);
@@ -327,7 +369,6 @@
       if (kbModuleLoaded) return cb();
       loadModule('kb', getModuleUrl('kb'), function () {
         kbModuleLoaded = true;
-        // Load KB articles
         if (modules.kb && modules.kb.loadArticles) {
           modules.kb.loadArticles({
             apiBase: apiBase,
@@ -347,72 +388,114 @@
     // ─── Render ───
     function renderBody() {
       if (!body) return;
-
       if (activeTab === 'chat') {
+        if (!identity.loaded) { renderLoading(); return; }
+        if (needsPrechat()) { renderPreChat(); return; }
         renderChat();
       } else if (activeTab === 'help') {
         ensureKbModule(function () { renderKb(); });
       }
     }
 
-    function renderChat() {
-      if (!hasRequiredVisitorProfile()) {
-        var fieldsHtml = '';
-        if (isPreChatFieldEnabled('name')) {
-          fieldsHtml += '<input class="__gs-input" id="__gs-prechat-name" placeholder="' + (locale === 'fa' ? 'نام' : locale === 'tr' ? 'İsim' : 'Name') + '" value="' + escapeHtml(visitorProfile.name || '') + '" />';
-        }
-        if (isPreChatFieldEnabled('email')) {
-          fieldsHtml += '<input class="__gs-input" id="__gs-prechat-email" type="email" placeholder="' + (locale === 'fa' ? 'ایمیل' : locale === 'tr' ? 'E-posta' : 'Email') + '" value="' + escapeHtml(visitorProfile.email || '') + '" />';
-        }
-        if (isPreChatFieldEnabled('phone')) {
-          fieldsHtml += '<input class="__gs-input" id="__gs-prechat-phone" placeholder="' + (locale === 'fa' ? 'شماره تلفن' : locale === 'tr' ? 'Telefon' : 'Phone number') + '" value="' + escapeHtml(visitorProfile.phone || '') + '" />';
-        }
+    function renderLoading() {
+      body.innerHTML = '<div class="__gs-empty"><p>' + escapeHtml(t('loading')) + '</p></div>';
+    }
 
-        body.innerHTML =
-          '<div class="__gs-empty" style="align-items:stretch;text-align:' + (locale === 'fa' ? 'right' : 'left') + ';">' +
-          '<p style="margin-bottom:12px;">' +
-          (locale === 'fa' ? 'قبل از شروع چت، لطفاً اطلاعات تماس را وارد کنید.' : locale === 'tr' ? 'Sohbete başlamadan önce iletişim bilgilerinizi girin.' : 'Before starting the chat, please enter your contact details.') +
-          '</p>' +
-          '<div style="display:flex;flex-direction:column;gap:8px;">' + fieldsHtml + '</div>' +
-          '<button class="__gs-send-btn" id="__gs-prechat-submit" style="background:' + primaryColor + ';width:100%;margin-top:12px;">' +
-          (locale === 'fa' ? 'ادامه' : locale === 'tr' ? 'Devam' : 'Continue') + '</button>' +
-          '</div>';
-
-        var nameInput = body.querySelector('#__gs-prechat-name');
-        var emailInput = body.querySelector('#__gs-prechat-email');
-        var phoneInput = body.querySelector('#__gs-prechat-phone');
-        var submitBtn = body.querySelector('#__gs-prechat-submit');
-        if (submitBtn) {
-          submitBtn.addEventListener('click', function () {
-            saveVisitorProfile({
-              name: nameInput ? nameInput.value : visitorProfile.name,
-              email: emailInput ? emailInput.value : visitorProfile.email,
-              phone: phoneInput ? phoneInput.value : visitorProfile.phone,
-            });
-            if (!hasRequiredVisitorProfile()) {
-              renderBody();
-              return;
-            }
-            resolveVisitorIdentity(function () {
-              renderBody();
-              if (msgInput) msgInput.focus();
-            });
-          });
-        }
-        return;
+    function renderPreChat() {
+      var fieldsHtml = '';
+      var contact = identity.contact || {};
+      function fieldRow(key, type, value) {
+        var label = t(key);
+        var req = isFieldRequired(key);
+        var labelHtml = '<label style="font-size:12px;color:#64748b;display:block;margin-bottom:4px;">' +
+          escapeHtml(label) + (req ? ' <span style="color:#EF4444">*</span>' : '') + '</label>';
+        return '<div>' + labelHtml +
+          '<input class="__gs-input" id="__gs-prechat-' + key + '" type="' + type + '" autocomplete="' +
+          (key === 'name' ? 'name' : key === 'email' ? 'email' : 'tel') +
+          '" placeholder="' + escapeHtml(label) + '" value="' + escapeHtml(value || '') + '" />' +
+          '<div class="__gs-prechat-error" id="__gs-prechat-err-' + key + '" style="font-size:12px;color:#EF4444;margin-top:4px;display:none;"></div>' +
+        '</div>';
       }
 
+      if (isFieldAsked('name')) fieldsHtml += fieldRow('name', 'text', contact.name);
+      if (isFieldAsked('email')) fieldsHtml += fieldRow('email', 'email', contact.email);
+      if (isFieldAsked('phone')) fieldsHtml += fieldRow('phone', 'tel', contact.phone);
+
+      var dir = locale === 'fa' ? 'rtl' : 'ltr';
+      body.innerHTML =
+        '<div class="__gs-prechat" dir="' + dir + '" style="padding:4px 0;display:flex;flex-direction:column;gap:12px;">' +
+        '<p style="margin:0 0 4px;color:#475569;font-size:14px;line-height:1.5;">' +
+        escapeHtml(t('prechatIntro')) + '</p>' +
+        '<div style="display:flex;flex-direction:column;gap:10px;">' + fieldsHtml + '</div>' +
+        '<button class="__gs-send-btn" id="__gs-prechat-submit" style="background:' + primaryColor + ';width:100%;height:40px;border-radius:8px;color:#fff;border:none;cursor:pointer;font-weight:600;">' +
+        escapeHtml(t('continue')) + '</button>' +
+        '</div>';
+
+      var nameInput = body.querySelector('#__gs-prechat-name');
+      var emailInput = body.querySelector('#__gs-prechat-email');
+      var phoneInput = body.querySelector('#__gs-prechat-phone');
+      var submitBtn = body.querySelector('#__gs-prechat-submit');
+
+      function clearError(key) {
+        var el = body.querySelector('#__gs-prechat-err-' + key);
+        if (el) { el.style.display = 'none'; el.textContent = ''; }
+      }
+      function showError(key, msg) {
+        var el = body.querySelector('#__gs-prechat-err-' + key);
+        if (el) { el.textContent = msg; el.style.display = 'block'; }
+      }
+      [['name', nameInput], ['email', emailInput], ['phone', phoneInput]].forEach(function (pair) {
+        if (pair[1]) pair[1].addEventListener('input', function () { clearError(pair[0]); });
+      });
+
+      if (submitBtn) {
+        submitBtn.addEventListener('click', function () {
+          var payload = {
+            name: nameInput ? nameInput.value.trim() : '',
+            email: emailInput ? emailInput.value.trim() : '',
+            phone: phoneInput ? phoneInput.value.trim() : '',
+          };
+          var ok = true;
+          if (isFieldRequired('name') && !payload.name) {
+            showError('name', t('required')); ok = false;
+          }
+          if (isFieldAsked('email') && payload.email) {
+            if (!isValidEmail(payload.email)) { showError('email', t('invalidEmail')); ok = false; }
+          } else if (isFieldRequired('email') && !payload.email) {
+            showError('email', t('required')); ok = false;
+          }
+          if (isFieldAsked('phone') && payload.phone) {
+            if (!isValidPhone(payload.phone)) { showError('phone', t('invalidPhone')); ok = false; }
+          } else if (isFieldRequired('phone') && !payload.phone) {
+            showError('phone', t('required')); ok = false;
+          }
+          if (!ok) return;
+
+          submitBtn.disabled = true;
+          submitBtn.style.opacity = '0.6';
+          submitPrechat(payload, function (success, resp) {
+            submitBtn.disabled = false;
+            submitBtn.style.opacity = '1';
+            if (!success) {
+              var f = resp && resp.field;
+              if (f) showError(f, t('required'));
+              return;
+            }
+            // Identity now linked → load history + start polling
+            renderBody();
+            if (msgInput) setTimeout(function () { msgInput.focus(); }, 100);
+            bootstrapHistoryAndPoll();
+          });
+        });
+      }
+    }
+
+    function renderChat() {
       if (messages.length === 0) {
         body.innerHTML =
           '<div class="__gs-empty">' +
           '<svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>' +
-          '<p>' +
-          (locale === 'fa'
-            ? 'سوالی دارید؟ اینجا بنویسید.'
-            : locale === 'tr'
-              ? 'Bir soru mu var? Buraya yazın.'
-              : "Send us a message and we'll get back to you shortly.") +
-          '</p></div>';
+          '<p>' + escapeHtml(t('intro')) + '</p></div>';
         return;
       }
       var html = '<div class="__gs-messages">';
@@ -428,12 +511,10 @@
 
     function renderKb() {
       var searchHtml =
-        '<input class="__gs-kb-search" id="__gs-kb-search" placeholder="' +
-        (locale === 'fa' ? 'جستجو در مقالات...' : locale === 'tr' ? 'Makalelerde ara...' : 'Search articles...') +
-        '" />';
+        '<input class="__gs-kb-search" id="__gs-kb-search" placeholder="' + escapeHtml(t('searchKb')) + '" />';
       var articlesHtml = '';
       if (kbArticles.length === 0) {
-        articlesHtml = '<div class="__gs-empty"><p>' + (locale === 'fa' ? 'مقاله‌ای یافت نشد' : 'No articles yet') + '</p></div>';
+        articlesHtml = '<div class="__gs-empty"><p>' + escapeHtml(t('noArticles')) + '</p></div>';
       } else {
         kbArticles.forEach(function (a) {
           articlesHtml +=
@@ -445,13 +526,7 @@
       body.innerHTML = searchHtml + articlesHtml;
     }
 
-    // Initial render
-    renderBody();
-    if (inputBar && activeTab !== 'chat') {
-      inputBar.style.display = 'none';
-    }
-
-    // ─── Load history + start polling for agent replies ───
+    // ─── Message merge dedup ───
     var seenMessageIds = {};
     function mergeIncomingMessages(incoming) {
       if (!incoming || !incoming.length) return false;
@@ -463,13 +538,11 @@
         var senderRaw = m.role || m.sender || m.sender_type || 'agent';
         var sender = (senderRaw === 'visitor' || senderRaw === 'contact') ? 'visitor' : 'operator';
         var text = m.text || m.body || '';
-        // Skip if local optimistic visitor message with same text exists in last 10s
         if (sender === 'visitor') {
           var dup = messages.some(function (lm) {
             return lm.sender === 'visitor' && lm.body === text && !lm.__id;
           });
           if (dup) {
-            // Tag the local one so future polls don't re-add
             for (var i = 0; i < messages.length; i++) {
               if (messages[i].sender === 'visitor' && messages[i].body === text && !messages[i].__id) {
                 messages[i].__id = id;
@@ -490,24 +563,38 @@
       return changed;
     }
 
-    if (chatEnabled) {
+    function bootstrapHistoryAndPoll() {
+      if (!chatEnabled) return;
       ensureChatModule(function () {
+        // Smart history continuation (server-side window check)
         if (modules.chat && modules.chat.loadHistory) {
           modules.chat.loadHistory({
             apiBase: apiBase,
             workspaceId: workspaceId,
             sessionToken: sessionToken,
-            onMessages: function (msgs) {
-              if (mergeIncomingMessages(msgs) && activeTab === 'chat') renderBody();
+            onResult: function (result) {
+              if (result.conversationId) {
+                conversationId = result.conversationId;
+              }
+              if (mergeIncomingMessages(result.messages || []) && activeTab === 'chat') {
+                renderBody();
+              }
             },
           });
         }
+
+        // Start polling (binds to current conversationId via getter)
+        if (pollHandle && pollHandle.stop) pollHandle.stop();
         if (modules.chat && modules.chat.startPolling) {
-          modules.chat.startPolling({
+          pollHandle = modules.chat.startPolling({
             apiBase: apiBase,
             workspaceId: workspaceId,
             sessionToken: sessionToken,
             interval: 4000,
+            getConversationId: function () { return conversationId; },
+            onConversation: function (cid) {
+              if (cid && cid !== conversationId) conversationId = cid;
+            },
             onMessages: function (msgs) {
               if (mergeIncomingMessages(msgs) && activeTab === 'chat') renderBody();
             },
@@ -516,6 +603,20 @@
       });
     }
 
+    // ─── Boot ───
+    renderLoading();
+    if (inputBar && activeTab !== 'chat') inputBar.style.display = 'none';
+
+    fetchIdentity(function () {
+      renderBody();
+      // Only load history+start polling for already-identified visitors.
+      // For new visitors waiting on prechat, we wait until they submit it.
+      if (!needsPrechat()) {
+        bootstrapHistoryAndPoll();
+        if (msgInput) setTimeout(function () { msgInput.focus(); }, 200);
+      }
+    });
+
     // ─── Public API ───
     var api = {
       open: function () {
@@ -523,7 +624,7 @@
           isOpen = true;
           launcher.classList.add('open');
           panel.classList.add('visible');
-          if (msgInput) setTimeout(function () { msgInput.focus(); }, 300);
+          if (msgInput && !needsPrechat()) setTimeout(function () { msgInput.focus(); }, 300);
         }
       },
       close: function () {

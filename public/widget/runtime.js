@@ -1197,9 +1197,131 @@
       });
     }
 
+    // ─── Phase 5: Contact fallback (offline_mode === 'contact_fallback') ───
+    // Lightweight in-panel form. Reuses the existing identity prechat backend
+    // for contact details and the existing message endpoint for the message.
+    // No new endpoints, no parallel submission system, no localStorage drafts.
+    function renderContactFallback(body, identity, locale, presence, onSent) {
+      var contact = (identityStore.get().contact) || {};
+      var introCustom = (presence && presence.introLabel) ? presence.introLabel : '';
+      var intro = introCustom || t('fallbackIntro');
+      var dir = locale === 'fa' ? 'rtl' : 'ltr';
+
+      function fieldRow(key, type, value, required) {
+        var label = t(key);
+        return '<div>' +
+          '<label class="prechat-label">' + Util.escapeHtml(label) +
+            (required ? ' <span class="prechat-required">*</span>' : '') + '</label>' +
+          '<input class="input" data-fb="' + key + '" type="' + type +
+          '" autocomplete="' + (key === 'name' ? 'name' : key === 'email' ? 'email' : 'tel') +
+          '" placeholder="' + Util.escapeHtml(label) + '" value="' + Util.escapeHtml(value || '') + '" />' +
+          '<div class="prechat-error" data-err="' + key + '"></div>' +
+        '</div>';
+      }
+
+      // Always ask for at least one contact channel + the message body.
+      var askPhone = identity.isAsked('phone');
+      var fieldsHtml = '';
+      fieldsHtml += fieldRow('name', 'text', contact.name, identity.isRequired('name'));
+      fieldsHtml += fieldRow('email', 'email', contact.email, !askPhone);
+      if (askPhone) fieldsHtml += fieldRow('phone', 'tel', contact.phone, identity.isRequired('phone'));
+
+      body.innerHTML =
+        '<div class="prechat fallback" dir="' + dir + '">' +
+        '<p class="prechat-intro">' + Util.escapeHtml(intro) + '</p>' +
+        '<div class="prechat-fields">' + fieldsHtml +
+          '<div>' +
+            '<label class="prechat-label">' + Util.escapeHtml(t('fallbackMessageLabel')) +
+            ' <span class="prechat-required">*</span></label>' +
+            '<textarea class="input" data-fb="message" rows="3" placeholder="' +
+              Util.escapeHtml(t('typeMsg')) + '"></textarea>' +
+            '<div class="prechat-error" data-err="message"></div>' +
+          '</div>' +
+        '</div>' +
+        '<button type="button" class="prechat-submit" data-fb-submit>' + Util.escapeHtml(t('fallbackSubmit')) + '</button>' +
+        '<div class="fallback-status" data-fb-status></div>' +
+        '</div>';
+
+      var statusEl = body.querySelector('[data-fb-status]');
+      var submitBtn = body.querySelector('[data-fb-submit]');
+      function get(k) { var el = body.querySelector('[data-fb="' + k + '"]'); return el ? el.value.trim() : ''; }
+      function showErr(k, msg) {
+        var el = body.querySelector('[data-err="' + k + '"]');
+        if (el) { el.textContent = msg; el.classList.add('visible'); }
+      }
+      function clearErr(k) {
+        var el = body.querySelector('[data-err="' + k + '"]');
+        if (el) { el.textContent = ''; el.classList.remove('visible'); }
+      }
+      ['name', 'email', 'phone', 'message'].forEach(function (k) {
+        var input = body.querySelector('[data-fb="' + k + '"]');
+        if (input) input.addEventListener('input', function () { clearErr(k); });
+      });
+
+      if (!submitBtn) return;
+      submitBtn.addEventListener('click', function () {
+        var payload = {
+          name: get('name'),
+          email: get('email'),
+          phone: get('phone'),
+          message: get('message'),
+        };
+        var ok = true;
+        if (identity.isRequired('name') && !payload.name) { showErr('name', t('required')); ok = false; }
+        if (payload.email && !Util.isValidEmail(payload.email)) { showErr('email', t('invalidEmail')); ok = false; }
+        if (payload.phone && !Util.isValidPhone(payload.phone)) { showErr('phone', t('invalidPhone')); ok = false; }
+        if (!payload.email && !payload.phone) { showErr('email', t('required')); ok = false; }
+        if (!payload.message) { showErr('message', t('required')); ok = false; }
+        if (!ok) return;
+
+        submitBtn.disabled = true; submitBtn.style.opacity = '0.6';
+        if (statusEl) { statusEl.textContent = ''; statusEl.className = 'fallback-status'; }
+
+        // 1. Identify the contact via the existing prechat endpoint (no new API).
+        identity.submitPrechat(
+          { name: payload.name, email: payload.email, phone: payload.phone },
+          function (success, resp) {
+            if (!success) {
+              submitBtn.disabled = false; submitBtn.style.opacity = '1';
+              var f = resp && resp.field;
+              if (f) showErr(f, t('required'));
+              if (statusEl) { statusEl.textContent = t('fallbackError'); statusEl.className = 'fallback-status error'; }
+              return;
+            }
+            // 2. Send the message via the existing transport (REST under polling and realtime).
+            transport.sendMessage(
+              { text: payload.message, conversationId: chatStore.get().conversationId },
+              {
+                onConversation: function (cid) {
+                  if (cid && cid !== chatStore.get().conversationId) {
+                    chatStore.set({ conversationId: cid });
+                    transport.subscribeConversation(cid);
+                  }
+                },
+                onReply: function () { /* offline mode — no synchronous reply expected */ },
+                onError: function () {
+                  submitBtn.disabled = false; submitBtn.style.opacity = '1';
+                  if (statusEl) { statusEl.textContent = t('fallbackError'); statusEl.className = 'fallback-status error'; }
+                },
+              }
+            );
+            // Echo into local chat store so the user sees their own message.
+            var s = chatStore.get();
+            var messages = s.messages.slice();
+            messages.push({ body: payload.message, sender: 'visitor', time: new Date() });
+            chatStore.set({ messages: messages });
+
+            if (statusEl) { statusEl.textContent = t('fallbackSent'); statusEl.className = 'fallback-status ok'; }
+            if (typeof onSent === 'function') onSent();
+          }
+        );
+      });
+    }
+
     return {
       renderChat: renderChat,
       renderPreChat: renderPreChat,
+      renderContactFallback: renderContactFallback,
       sendMessage: sendMessage,
       bootstrapHistory: bootstrapHistory,
       mergeIncoming: mergeIncoming,

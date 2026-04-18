@@ -596,11 +596,22 @@
       }
       var label = '';
       var cls = 'connection-banner visible';
+      var withDot = true;
       if (s === 'offline') { label = t('offline'); cls += ' offline'; }
       else if (s === 'reconnecting') { label = t('reconnecting'); cls += ' reconnecting'; }
-      else if (s === 'connecting') { label = t('connecting'); cls += ' reconnecting'; }
+      else if (s === 'connecting') { label = t('connecting'); cls += ' connecting'; }
       bannerEl.className = cls;
-      bannerEl.textContent = label;
+      // Light DOM rebuild — dot + label. Honest & static, no countdown timers.
+      bannerEl.innerHTML = '';
+      if (withDot) {
+        var dot = document.createElement('span');
+        dot.className = 'conn-dot';
+        dot.setAttribute('aria-hidden', 'true');
+        bannerEl.appendChild(dot);
+      }
+      var span = document.createElement('span');
+      span.textContent = label;
+      bannerEl.appendChild(span);
     }
 
     return {
@@ -929,9 +940,13 @@
       messages: [],
       seenIds: {},
       // In-memory only. Never persisted to localStorage/cookies.
-      // Preserves user-typed but unsent text across offline/reconnect/tab-switch/panel-close.
-      draft: '',
+      // Per-conversation drafts: { [conversationId|'__pending__']: text }.
+      // '__pending__' is the safe scope used before a conversation id exists;
+      // it is migrated to the real cid as soon as one is known, so the user
+      // never loses what they typed during the transition.
+      drafts: {},
     });
+    var DRAFT_PENDING_KEY = '__pending__';
     var kbStore = createStore({
       loaded: false,
       articles: [],
@@ -1040,23 +1055,60 @@
     transportStore.subscribe(applyComposerState);
     shellStore.subscribe(applyComposerState);
 
-    // ─── Draft preservation (in-memory only) ───
-    // Whatever the user types is mirrored to chatStore.draft so it survives
-    // offline/reconnecting transitions, tab switches, and panel close/open
-    // within the same page session. No localStorage, no cookies.
+    // ─── Draft preservation (in-memory only, per-conversation) ───
+    // Drafts live in chatStore.drafts keyed by conversationId. Before a
+    // conversation exists we use DRAFT_PENDING_KEY as a temporary scope and
+    // migrate the text to the real cid as soon as one is assigned. This keeps
+    // drafts isolated between conversations and survives offline/reconnect,
+    // tab switches, and panel close/open within the same page session.
+    // No localStorage, no cookies, no auto-resend.
+    function currentDraftKey() {
+      var cid = chatStore.get().conversationId;
+      return cid || DRAFT_PENDING_KEY;
+    }
+    function getDraftFor(key) {
+      var d = chatStore.get().drafts || {};
+      return d[key] || '';
+    }
+    function setDraftFor(key, value) {
+      var d = chatStore.get().drafts || {};
+      if (d[key] === value) return;
+      var next = {};
+      for (var k in d) if (Object.prototype.hasOwnProperty.call(d, k)) next[k] = d[k];
+      if (value) next[key] = value; else delete next[key];
+      chatStore.set({ drafts: next });
+    }
     function syncDraftFromInput() {
       if (!msgInput) return;
-      var v = msgInput.value;
-      if (chatStore.get().draft !== v) chatStore.set({ draft: v });
+      setDraftFor(currentDraftKey(), msgInput.value);
     }
     function restoreDraftToInput() {
       if (!msgInput) return;
-      var d = chatStore.get().draft || '';
+      var d = getDraftFor(currentDraftKey());
       if (msgInput.value !== d) msgInput.value = d;
     }
     if (msgInput) {
       msgInput.addEventListener('input', syncDraftFromInput);
     }
+
+    // Migrate pending draft → real conversationId the moment one is assigned.
+    var __lastSeenCid = chatStore.get().conversationId;
+    chatStore.subscribe(function (s) {
+      if (s.conversationId && s.conversationId !== __lastSeenCid) {
+        var pending = (s.drafts || {})[DRAFT_PENDING_KEY];
+        if (pending && !(s.drafts || {})[s.conversationId]) {
+          var next = {};
+          for (var k in s.drafts) {
+            if (Object.prototype.hasOwnProperty.call(s.drafts, k) && k !== DRAFT_PENDING_KEY) {
+              next[k] = s.drafts[k];
+            }
+          }
+          next[s.conversationId] = pending;
+          chatStore.set({ drafts: next });
+        }
+        __lastSeenCid = s.conversationId;
+      }
+    });
 
     // ─── Send handler ───
     function trySend() {
@@ -1068,8 +1120,9 @@
       if (transportStore.get().connectionState !== 'online') return;
       if (identity.needsPrechat()) { renderBody(); return; }
       msgInput.value = '';
-      chatStore.set({ draft: '' });
-      // typing hook (no-op under polling, ready for realtime drivers).
+      // Clear draft for the active conversation scope (per-conversation).
+      setDraftFor(currentDraftKey(), '');
+      // Typing hook (no-op under polling, ready for realtime drivers).
       // Capability-gated so UI never assumes typing support.
       if (transport.hasCapability && transport.hasCapability('supportsTyping')) {
         transport.sendTyping({ conversationId: chatStore.get().conversationId });
@@ -1116,27 +1169,44 @@
     });
     transport.on('reconnect', function () {
       Util.log('transport reconnect — refreshing history');
-      chatUI.bootstrapHistory(function () {
-        if (shellStore.get().activeTab === 'chat') renderBody();
-      });
+      // Capability-gated: only call history load if the driver supports it.
+      if (transport.hasCapability && transport.hasCapability('supportsHistoryLoad')) {
+        chatUI.bootstrapHistory(function () {
+          if (shellStore.get().activeTab === 'chat') renderBody();
+        });
+      }
     });
     transport.on('connectionstate', function (e) {
       Util.log('connection state →', e.state);
     });
+    // Presence/typing inbound hooks — only wire if driver advertises support.
+    // Under the polling driver these are no-ops; future WS/SSE drivers can
+    // emit real events without UI changes.
+    if (transport.hasCapability && transport.hasCapability('supportsPresence')) {
+      transport.on('presence', function (_e) { /* future: render presence */ });
+    }
+    if (transport.hasCapability && transport.hasCapability('supportsTyping')) {
+      transport.on('typing', function (_e) { /* future: render typing indicator */ });
+    }
 
     // ─── Boot sequence ───
     renderLoading();
     if (inputBar && shellStore.get().activeTab !== 'chat') inputBar.style.display = 'none';
     applyComposerState();
 
-    // 1) Identity → 2) Transport connect → 3) History
+    // 1) Identity → 2) Transport connect → 3) History (if supported)
     identity.fetchMe(function () {
       renderBody();
       transport.connect();
       if (!identity.needsPrechat()) {
-        chatUI.bootstrapHistory(function () {
-          if (shellStore.get().activeTab === 'chat') renderBody();
-        });
+        if (transport.hasCapability && transport.hasCapability('supportsHistoryLoad')) {
+          chatUI.bootstrapHistory(function () {
+            if (shellStore.get().activeTab === 'chat') renderBody();
+            // After history resolves, conversationId may exist — restore the
+            // matching per-conversation draft into the composer.
+            restoreDraftToInput();
+          });
+        }
         if (msgInput) setTimeout(function () {
           if (transportStore.get().connectionState === 'online') msgInput.focus();
         }, 200);

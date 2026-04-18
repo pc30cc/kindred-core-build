@@ -440,6 +440,59 @@ export type Database = {
         }
         Relationships: []
       }
+      contact_verifications: {
+        Row: {
+          attempts: number
+          channel: string
+          created_at: string
+          expires_at: string
+          id: string
+          identifier: string
+          ip_address: string | null
+          nonce: string
+          token_hash: string
+          used_at: string | null
+          visitor_id: string | null
+          workspace_id: string
+        }
+        Insert: {
+          attempts?: number
+          channel: string
+          created_at?: string
+          expires_at: string
+          id?: string
+          identifier: string
+          ip_address?: string | null
+          nonce: string
+          token_hash: string
+          used_at?: string | null
+          visitor_id?: string | null
+          workspace_id: string
+        }
+        Update: {
+          attempts?: number
+          channel?: string
+          created_at?: string
+          expires_at?: string
+          id?: string
+          identifier?: string
+          ip_address?: string | null
+          nonce?: string
+          token_hash?: string
+          used_at?: string | null
+          visitor_id?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contact_verifications_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       contacts: {
         Row: {
           avatar_url: string | null
@@ -783,6 +836,54 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "feature_flags_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      identity_merges: {
+        Row: {
+          contact_id: string
+          conversations_merged: number
+          id: string
+          merged_at: string
+          metadata: Json
+          method: string
+          visitor_id: string
+          workspace_id: string
+        }
+        Insert: {
+          contact_id: string
+          conversations_merged?: number
+          id?: string
+          merged_at?: string
+          metadata?: Json
+          method: string
+          visitor_id: string
+          workspace_id: string
+        }
+        Update: {
+          contact_id?: string
+          conversations_merged?: number
+          id?: string
+          merged_at?: string
+          metadata?: Json
+          method?: string
+          visitor_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "identity_merges_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "identity_merges_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
@@ -1411,6 +1512,60 @@ export type Database = {
           },
         ]
       }
+      user_continuity_tokens: {
+        Row: {
+          contact_id: string | null
+          created_at: string
+          device_info: Json
+          expires_at: string
+          id: string
+          last_used_at: string | null
+          revoked_at: string | null
+          token_hash: string
+          user_id: string | null
+          workspace_id: string
+        }
+        Insert: {
+          contact_id?: string | null
+          created_at?: string
+          device_info?: Json
+          expires_at: string
+          id?: string
+          last_used_at?: string | null
+          revoked_at?: string | null
+          token_hash: string
+          user_id?: string | null
+          workspace_id: string
+        }
+        Update: {
+          contact_id?: string | null
+          created_at?: string
+          device_info?: Json
+          expires_at?: string
+          id?: string
+          last_used_at?: string | null
+          revoked_at?: string | null
+          token_hash?: string
+          user_id?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_continuity_tokens_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_continuity_tokens_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_roles: {
         Row: {
           id: string
@@ -1475,12 +1630,15 @@ export type Database = {
         Row: {
           browser: string | null
           city: string | null
+          contact_id: string | null
           country: string | null
           current_page: string | null
           device: string | null
           id: string
+          identity_state: string
           ip_hash: string | null
           last_seen_at: string | null
+          metadata: Json
           os: string | null
           referrer: string | null
           started_at: string | null
@@ -1490,12 +1648,15 @@ export type Database = {
         Insert: {
           browser?: string | null
           city?: string | null
+          contact_id?: string | null
           country?: string | null
           current_page?: string | null
           device?: string | null
           id?: string
+          identity_state?: string
           ip_hash?: string | null
           last_seen_at?: string | null
+          metadata?: Json
           os?: string | null
           referrer?: string | null
           started_at?: string | null
@@ -1505,12 +1666,15 @@ export type Database = {
         Update: {
           browser?: string | null
           city?: string | null
+          contact_id?: string | null
           country?: string | null
           current_page?: string | null
           device?: string | null
           id?: string
+          identity_state?: string
           ip_hash?: string | null
           last_seen_at?: string | null
+          metadata?: Json
           os?: string | null
           referrer?: string | null
           started_at?: string | null
@@ -1518,6 +1682,13 @@ export type Database = {
           workspace_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "visitor_sessions_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "visitor_sessions_workspace_id_fkey"
             columns: ["workspace_id"]
@@ -1586,6 +1757,59 @@ export type Database = {
           updated_by?: string | null
         }
         Relationships: []
+      }
+      widget_prechat_settings: {
+        Row: {
+          ask_email: boolean
+          ask_name: boolean
+          ask_phone: boolean
+          created_at: string
+          history_continue_window_hours: number
+          require_email: boolean
+          require_name: boolean
+          require_phone: boolean
+          updated_at: string
+          verify_email: boolean
+          verify_phone: boolean
+          workspace_id: string
+        }
+        Insert: {
+          ask_email?: boolean
+          ask_name?: boolean
+          ask_phone?: boolean
+          created_at?: string
+          history_continue_window_hours?: number
+          require_email?: boolean
+          require_name?: boolean
+          require_phone?: boolean
+          updated_at?: string
+          verify_email?: boolean
+          verify_phone?: boolean
+          workspace_id: string
+        }
+        Update: {
+          ask_email?: boolean
+          ask_name?: boolean
+          ask_phone?: boolean
+          created_at?: string
+          history_continue_window_hours?: number
+          require_email?: boolean
+          require_name?: boolean
+          require_phone?: boolean
+          updated_at?: string
+          verify_email?: boolean
+          verify_phone?: boolean
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "widget_prechat_settings_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: true
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       widget_settings: {
         Row: {
@@ -2500,6 +2724,7 @@ export type Database = {
         Returns: Json
       }
       cleanup_expired_auth_tokens: { Args: never; Returns: undefined }
+      cleanup_expired_widget_identity: { Args: never; Returns: undefined }
       count_recent_login_failures: {
         Args: { _email: string; _ip: string; _window_minutes?: number }
         Returns: number
@@ -2547,6 +2772,16 @@ export type Database = {
       is_workspace_member: {
         Args: { _user_id: string; _workspace_id: string }
         Returns: boolean
+      }
+      merge_visitor_into_contact: {
+        Args: {
+          _contact_id: string
+          _metadata?: Json
+          _method: string
+          _visitor_id: string
+          _workspace_id: string
+        }
+        Returns: Json
       }
       normalize_domain: { Args: { _input: string }; Returns: string }
       provision_account_on_signup: {

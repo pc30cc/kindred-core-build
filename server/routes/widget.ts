@@ -49,8 +49,13 @@ import {
   getRequestOrigin,
 } from '../services/widget/security.js';
 import { resolveAIConfig, executeAICompletion } from '../services/ai/index.js';
+import { resolveVisitorIdentity } from '../services/widget/visitorIdentity.js';
+import { widgetIdentityRouter } from './widgetIdentity.js';
 
 export const widgetRouter = Router();
+
+// Mount identity sub-router (all routes require widget token + origin)
+widgetRouter.use('/identity', widgetIdentityRouter);
 
 // ─── CORS preflight for all widget routes ───
 widgetRouter.use(widgetSecurityCors);
@@ -209,11 +214,15 @@ widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), async (req: Reques
     const sessionToken = createSessionToken(resolvedWorkspaceId, requestOrigin || '');
     const tokenInfo = verifySessionToken(sessionToken);
 
-    // Set CORS
+    // Set CORS (credentials enabled so visitor cookie can be set cross-site)
     if (requestOrigin) {
       res.header('Access-Control-Allow-Origin', requestOrigin);
-      res.header('Access-Control-Allow-Credentials', 'false');
+      res.header('Access-Control-Allow-Credentials', 'true');
+      res.header('Vary', 'Origin');
     }
+
+    // Issue / refresh visitor identity cookie (HttpOnly, signed)
+    const visitor = resolveVisitorIdentity(req, res, resolvedWorkspaceId);
 
     // No-cache
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
@@ -232,6 +241,8 @@ widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), async (req: Reques
       workspace_name: workspace.name,
       expires_at: tokenInfo.valid && tokenInfo.expiresAt ? new Date(tokenInfo.expiresAt * 1000).toISOString() : null,
       platform_display_name: branding?.platform_name || '',
+      visitor_id: visitor.visitorId,
+      is_new_visitor: visitor.isNew,
       version: '3.0.0',
     });
   } catch (err: any) {

@@ -223,7 +223,8 @@ export function enforceOrigin(req: Request, res: Response, next: NextFunction) {
 
   if (requestOrigin) {
     res.header('Access-Control-Allow-Origin', requestOrigin);
-    res.header('Access-Control-Allow-Credentials', 'false');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Vary', 'Origin');
   }
 
   next();
@@ -254,11 +255,20 @@ export function widgetSecurityCors(req: Request, res: Response, next: NextFuncti
   if (req.method === 'OPTIONS') {
     if (origin) {
       res.header('Access-Control-Allow-Origin', origin);
+      res.header('Access-Control-Allow-Credentials', 'true');
+      res.header('Vary', 'Origin');
     }
     res.header('Access-Control-Allow-Headers', 'Content-Type, x-widget-token');
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS');
     res.header('Access-Control-Max-Age', '3600');
     return res.sendStatus(204);
+  }
+
+  // Set CORS headers for actual requests too (so cookie is honored)
+  if (origin) {
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Vary', 'Origin');
   }
 
   next();

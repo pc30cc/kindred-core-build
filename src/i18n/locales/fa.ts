@@ -469,6 +469,7 @@ const fa: TranslationKeys = {
       users: 'کاربران',
       workspaces: 'فضاهای کاری',
       providers: 'ارائه‌دهندگان',
+      widgetSettings: 'تنظیمات ویجت',
       system: 'سیستم',
       featureFlags: 'پرچم‌های ویژگی',
       branding: 'برندینگ',

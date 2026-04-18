@@ -467,6 +467,7 @@ const en = {
       users: 'Users',
       workspaces: 'Workspaces',
       providers: 'Providers',
+      widgetSettings: 'Widget Settings',
       system: 'System',
       featureFlags: 'Feature Flags',
       branding: 'Branding',

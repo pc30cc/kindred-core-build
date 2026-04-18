@@ -437,18 +437,17 @@
     }
 
     if (runtimeCss) {
-      // Inject CSS into the SHADOW ROOT so it's scoped to the widget.
-      fetch(runtimeCss, { credentials: "omit" })
-        .then(function (r) { if (!r.ok) throw new Error("css_" + r.status); return r.text(); })
-        .then(function (css) {
-          var s = document.createElement("style");
-          s.setAttribute("data-gs-runtime", "true");
-          s.textContent = css;
-          shadowRoot.appendChild(s);
-          cssLoaded = true;
-          done();
-        })
-        .catch(function () { fail("css"); });
+      // Inject as <link> directly into the SHADOW ROOT — Shadow DOM supports
+      // external stylesheets natively and they are NOT subject to CORS
+      // (stylesheets load with no-cors semantics, just like in a normal page).
+      // This avoids needing CORS headers on the static asset host.
+      var link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = runtimeCss;
+      link.setAttribute("data-gs-runtime", "true");
+      link.onload = function () { cssLoaded = true; done(); };
+      link.onerror = function () { fail("css"); };
+      shadowRoot.appendChild(link);
     }
 
     var script = document.createElement("script");

@@ -940,9 +940,13 @@
       messages: [],
       seenIds: {},
       // In-memory only. Never persisted to localStorage/cookies.
-      // Preserves user-typed but unsent text across offline/reconnect/tab-switch/panel-close.
-      draft: '',
+      // Per-conversation drafts: { [conversationId|'__pending__']: text }.
+      // '__pending__' is the safe scope used before a conversation id exists;
+      // it is migrated to the real cid as soon as one is known, so the user
+      // never loses what they typed during the transition.
+      drafts: {},
     });
+    var DRAFT_PENDING_KEY = '__pending__';
     var kbStore = createStore({
       loaded: false,
       articles: [],

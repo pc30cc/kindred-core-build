@@ -1169,13 +1169,25 @@
     });
     transport.on('reconnect', function () {
       Util.log('transport reconnect — refreshing history');
-      chatUI.bootstrapHistory(function () {
-        if (shellStore.get().activeTab === 'chat') renderBody();
-      });
+      // Capability-gated: only call history load if the driver supports it.
+      if (transport.hasCapability && transport.hasCapability('supportsHistoryLoad')) {
+        chatUI.bootstrapHistory(function () {
+          if (shellStore.get().activeTab === 'chat') renderBody();
+        });
+      }
     });
     transport.on('connectionstate', function (e) {
       Util.log('connection state →', e.state);
     });
+    // Presence/typing inbound hooks — only wire if driver advertises support.
+    // Under the polling driver these are no-ops; future WS/SSE drivers can
+    // emit real events without UI changes.
+    if (transport.hasCapability && transport.hasCapability('supportsPresence')) {
+      transport.on('presence', function (_e) { /* future: render presence */ });
+    }
+    if (transport.hasCapability && transport.hasCapability('supportsTyping')) {
+      transport.on('typing', function (_e) { /* future: render typing indicator */ });
+    }
 
     // ─── Boot sequence ───
     renderLoading();

@@ -1,0 +1,125 @@
+import type { Contact } from '@/types/models';
+
+export function getInitials(name?: string | null, email?: string | null): string {
+  if (name && name.trim()) {
+    const parts = name.trim().split(/\s+/);
+    return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase() || '?';
+  }
+  if (email) return email.charAt(0).toUpperCase();
+  return '?';
+}
+
+export function getDisplayName(c: Contact): string {
+  return c.name || c.email || c.phone || 'Anonymous';
+}
+
+export function timeAgo(dateStr?: string | null): string {
+  if (!dateStr) return '—';
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const sec = Math.floor(diff / 1000);
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 30) return `${day}d ago`;
+  const mo = Math.floor(day / 30);
+  if (mo < 12) return `${mo}mo ago`;
+  return `${Math.floor(mo / 12)}y ago`;
+}
+
+export function getCompanyFromMetadata(c: Contact): string | null {
+  const meta = (c.metadata ?? {}) as Record<string, unknown>;
+  const company = (meta.company ?? meta.org ?? meta.organization) as string | undefined;
+  return company || null;
+}
+
+export function getLocationFromMetadata(c: Contact): { city?: string; country?: string; flag?: string } {
+  const meta = (c.metadata ?? {}) as Record<string, unknown>;
+  return {
+    city: (meta.city as string) || undefined,
+    country: (meta.country as string) || undefined,
+    flag: (meta.country_flag as string) || undefined,
+  };
+}
+
+export function getScoreFromMetadata(c: Contact): number {
+  const meta = (c.metadata ?? {}) as Record<string, unknown>;
+  const s = Number(meta.score);
+  if (Number.isFinite(s) && s >= 0 && s <= 5) return s;
+  return 0;
+}
+
+export function exportContactsToCSV(contacts: Contact[], columns?: string[]): string {
+  const cols = columns ?? ['name', 'email', 'phone', 'tags', 'company', 'created_at', 'updated_at'];
+  const header = cols.join(',');
+  const rows = contacts.map((c) => {
+    return cols
+      .map((col) => {
+        let val: unknown = '';
+        if (col === 'tags') val = (c.tags ?? []).join('|');
+        else if (col === 'company') val = getCompanyFromMetadata(c) ?? '';
+        else val = (c as any)[col] ?? '';
+        const s = String(val ?? '').replace(/"/g, '""');
+        return /[",\n]/.test(s) ? `"${s}"` : s;
+      })
+      .join(',');
+  });
+  return [header, ...rows].join('\n');
+}
+
+export function downloadFile(filename: string, content: string, mime = 'text/csv;charset=utf-8') {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+export function parseCSV(text: string): { headers: string[]; rows: string[][] } {
+  const lines = text.replace(/\r\n/g, '\n').split('\n').filter((l) => l.trim().length > 0);
+  if (!lines.length) return { headers: [], rows: [] };
+  const parseLine = (line: string): string[] => {
+    const out: string[] = [];
+    let cur = '';
+    let inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (inQ) {
+        if (ch === '"' && line[i + 1] === '"') {
+          cur += '"';
+          i++;
+        } else if (ch === '"') {
+          inQ = false;
+        } else {
+          cur += ch;
+        }
+      } else {
+        if (ch === '"') inQ = true;
+        else if (ch === ',') {
+          out.push(cur);
+          cur = '';
+        } else cur += ch;
+      }
+    }
+    out.push(cur);
+    return out;
+  };
+  const headers = parseLine(lines[0]).map((h) => h.trim());
+  const rows = lines.slice(1).map(parseLine);
+  return { headers, rows };
+}
+
+export const CONTACT_FIELDS = [
+  { key: 'name', label: 'Full Name' },
+  { key: 'email', label: 'Email' },
+  { key: 'phone', label: 'Phone' },
+  { key: 'tags', label: 'Tags (pipe-separated)' },
+  { key: 'company', label: 'Company' },
+  { key: 'notes', label: 'Notes' },
+] as const;

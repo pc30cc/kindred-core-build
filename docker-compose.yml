@@ -35,9 +35,46 @@ services:
       - SMTP_PORT=${SMTP_PORT:-}
       - SMTP_USER=${SMTP_USER:-}
       - SMTP_PASS=${SMTP_PASS:-}
+      # Centrifugo bootstrap defaults (optional — admin can also configure via UI).
+      # When set, the backend can pre-populate the realtime provider config on first run.
+      - CENTRIFUGO_WS_URL=${CENTRIFUGO_WS_URL:-ws://localhost:8000/connection/websocket}
+      - CENTRIFUGO_API_URL=${CENTRIFUGO_API_URL:-http://centrifugo:8000/api}
+      - CENTRIFUGO_API_KEY=${CENTRIFUGO_API_KEY:-}
+      - CENTRIFUGO_TOKEN_HMAC_SECRET=${CENTRIFUGO_TOKEN_HMAC_SECRET:-}
     restart: unless-stopped
+    depends_on:
+      - centrifugo
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ─────────────────────────────────────────────────────────────────
+  # Centrifugo — realtime provider (Phase 3, global only).
+  # Configured via env vars; HMAC token signing shared with backend.
+  # ─────────────────────────────────────────────────────────────────
+  centrifugo:
+    image: centrifugo/centrifugo:v5
+    command: centrifugo --client_insecure=false --admin
+    ports:
+      - "${CENTRIFUGO_PORT:-8000}:8000"
+    environment:
+      # Token signing — MUST match backend CENTRIFUGO_TOKEN_HMAC_SECRET.
+      - CENTRIFUGO_TOKEN_HMAC_SECRET_KEY=${CENTRIFUGO_TOKEN_HMAC_SECRET:-please-change-me-shared-with-backend}
+      # Server-to-server admin API key — MUST match backend CENTRIFUGO_API_KEY.
+      - CENTRIFUGO_API_KEY=${CENTRIFUGO_API_KEY:-please-change-me-admin-api-key}
+      - CENTRIFUGO_ADMIN=true
+      - CENTRIFUGO_ADMIN_PASSWORD=${CENTRIFUGO_ADMIN_PASSWORD:-changeme}
+      - CENTRIFUGO_ADMIN_SECRET=${CENTRIFUGO_ADMIN_SECRET:-changeme-admin-secret}
+      - CENTRIFUGO_ALLOWED_ORIGINS=${CENTRIFUGO_ALLOWED_ORIGINS:-*}
+      - CENTRIFUGO_PRESENCE=true
+      - CENTRIFUGO_HISTORY_SIZE=50
+      - CENTRIFUGO_HISTORY_TTL=300s
+      - CENTRIFUGO_LOG_LEVEL=info
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8000/health"]
       interval: 30s
       timeout: 5s
       retries: 3

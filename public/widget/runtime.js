@@ -536,7 +536,8 @@
     Util.debug = !!config.debugMode;
     Util.log('Runtime init (Shadow DOM)');
 
-    if (!shell || !shell.shadowRoot) {
+    var shadowRoot = (shell && shell.shadowRoot) || (shell && shell.shellEl && shell.shellEl.shadowRoot) || null;
+    if (!shell || !shadowRoot) {
       Util.log('FATAL: no shadowRoot provided by loader');
       return { open: function(){}, close: function(){}, toggle: function(){}, setUnread: function(){} };
     }
@@ -556,8 +557,18 @@
     var chatEnabled = config.features && config.features.chat !== false;
     var kbEnabled = config.features && config.features.knowledgeBase;
 
-    var shadowRoot = shell.shadowRoot;
-    var shellDiv = shadowRoot.querySelector('.shell') || shadowRoot;
+    var shellDiv = shadowRoot.querySelector ? shadowRoot.querySelector('.shell') : null;
+    if (!shellDiv) {
+      shellDiv = document.createElement('div');
+      shellDiv.className = 'shell';
+      if (typeof shadowRoot.appendChild === 'function') {
+        shadowRoot.appendChild(shellDiv);
+      }
+    }
+    if (!shellDiv || typeof shellDiv.appendChild !== 'function') {
+      Util.log('FATAL: no mount target available inside shadow root');
+      return { open: function(){}, close: function(){}, toggle: function(){}, setUnread: function(){} };
+    }
     var launcher = shell.launcher;
 
     // ─── State containers (kept domain-separated) ───
@@ -574,6 +585,9 @@
     var posClass = position === 'bottom-left' ? 'bottom-left' : 'bottom-right';
     var brandName = config.brandName || '';
     var welcomeMessage = config.welcomeMessage || 'Hi there 👋\nHow can we help you today?';
+
+    var existingPanel = shadowRoot.querySelector ? shadowRoot.querySelector('.panel') : null;
+    if (existingPanel && existingPanel.parentNode) existingPanel.parentNode.removeChild(existingPanel);
 
     var panel = document.createElement('div');
     panel.className = 'panel ' + posClass;
@@ -615,10 +629,10 @@
 
     // ─── Tab switching ───
     var tabs = panel.querySelectorAll('.tab');
-    tabs.forEach(function (tab) {
+    Array.prototype.forEach.call(tabs, function (tab) {
       tab.addEventListener('click', function () {
         ui.activeTab = tab.getAttribute('data-tab');
-        tabs.forEach(function (t2) { t2.classList.remove('active'); });
+        Array.prototype.forEach.call(tabs, function (t2) { t2.classList.remove('active'); });
         tab.classList.add('active');
         renderBody();
         if (inputBar) inputBar.style.display = ui.activeTab === 'chat' ? 'flex' : 'none';

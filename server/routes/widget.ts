@@ -963,15 +963,42 @@ widgetRouter.put('/action', widgetRateLimit('default'), async (req: Request, res
   const workspaceId = resolveWorkspaceId(req, res, req.body?.workspace_id);
   if (res.headersSent) return;
 
-  const { action, conversation_id, visitor_id, session_id, visitor_name, visitor_email, visitor_phone } = req.body;
+  const { action, conversation_id, visitor_id, session_id, visitor_name, visitor_email, visitor_phone, current_page } = req.body;
   const supabase = getServiceClient(config);
 
   try {
-    if (action === 'heartbeat' && conversation_id) {
-      const ownership = await verifyConversationOwnership(config, conversation_id, workspaceId!, visitor_id, session_id);
-      if (!ownership.valid) return res.status(403).json({ error: 'Access denied', code: 'CONVERSATION_ACCESS_DENIED' });
-      await supabase.from('conversations').update({ updated_at: new Date().toISOString() }).eq('id', conversation_id);
-      return res.json({ ok: true });
+    if (action === 'heartbeat' && workspaceId) {
+      const now = new Date().toISOString();
+
+      if (conversation_id) {
+        const ownership = await verifyConversationOwnership(config, conversation_id, workspaceId, visitor_id, session_id);
+        if (!ownership.valid) return res.status(403).json({ error: 'Access denied', code: 'CONVERSATION_ACCESS_DENIED' });
+        await supabase.from('conversations').update({ updated_at: now }).eq('id', conversation_id);
+        return res.json({ ok: true });
+      }
+
+      if (session_id) {
+        let sessionUpdate = supabase.from('visitor_sessions')
+          .update({ last_seen_at: now, current_page: current_page || null })
+          .eq('workspace_id', workspaceId)
+          .eq('id', session_id);
+
+        if (visitor_id) {
+          sessionUpdate = sessionUpdate.eq('visitor_id', visitor_id);
+        }
+
+        const { error: sessionErr } = await sessionUpdate;
+        if (sessionErr) throw sessionErr;
+
+        await supabase.from('visitor_presence')
+          .update({ status: 'online', current_page: current_page || null, updated_at: now })
+          .eq('workspace_id', workspaceId)
+          .eq('visitor_session_id', session_id);
+
+        return res.json({ ok: true });
+      }
+
+      return res.status(400).json({ error: 'session_id or conversation_id required' });
     }
 
     if (action === 'typing' && conversation_id) {

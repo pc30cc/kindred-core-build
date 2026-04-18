@@ -1,242 +1,217 @@
 /**
- * Widget Runtime v3 — Cookie-based visitor identity (no localStorage).
+ * Widget Runtime v4 — Shadow DOM aware, internal layered architecture.
  *
- * The HttpOnly `dvsid` cookie is the single source of truth for visitor
- * identity. All API calls use `credentials: 'include'` so the cookie is sent
- * automatically. We never read or write visitor_id / conversation_id to
- * localStorage.
+ * External shape unchanged: ships as one runtime.js file (plus the lazy
+ * runtime-chat.js / runtime-kb.js modules). Internally split into namespaces:
  *
- * Flow:
- *  1. On open → GET /identity/me → resolves visitor + linked contact + prechat policy
- *  2. If no contact yet AND any prechat field is required → show pre-chat form
- *  3. Submit → POST /identity/prechat → server merges into a contact
- *  4. Smart history continuation → GET /identity/history (returns conv if within window)
- *  5. Send message / poll for replies — conversation_id lives in memory only
+ *   Core         — shell lifecycle, panel mount/open/close, view switching
+ *   Identity     — visitor identity / pre-chat policy / continuity hooks
+ *   UI.Chat      — chat list + composer rendering
+ *   UI.KB        — knowledge base UI
+ *   UI.Notify    — unread badge / inline status messages
+ *
+ * Cookie-based identity (HttpOnly `dvsid`) is unchanged. `credentials: 'include'`
+ * on every API call. No localStorage. No client-side trust expansion.
+ *
+ * The loader hands us:
+ *   shell.shadowRoot — where ALL UI must render
+ *   shell.launcher   — launcher button (in the shadow root)
+ *   shell.setUnread  — badge updater
+ *
+ * Public API returned to loader: { open, close, toggle, setUnread }.
  */
 (function () {
   'use strict';
 
   var __gs_runtime = {};
 
-  // ─── Module registry ───
-  var modules = {};
-  var moduleLoading = {};
+  // ════════════════════════════════════════════════════════════════════
+  // Shared utilities
+  // ════════════════════════════════════════════════════════════════════
+  var Util = {
+    escapeHtml: function (text) {
+      var div = document.createElement('div');
+      div.textContent = text == null ? '' : String(text);
+      return div.innerHTML;
+    },
+    isValidEmail: function (v) {
+      if (!v) return false;
+      return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(v).trim());
+    },
+    isValidPhone: function (v) {
+      if (!v) return false;
+      var s = String(v).trim().replace(/[\s\-().]/g, '');
+      return /^\+?\d{6,20}$/.test(s);
+    },
+    debug: false,
+    log: function () {
+      if (!Util.debug) return;
+      var args = Array.prototype.slice.call(arguments);
+      args.unshift('[Widget Runtime]');
+      try { console.info.apply(console, args); } catch (_) {}
+    },
+  };
 
-  function loadModule(name, url, cb) {
-    if (modules[name]) return cb(modules[name]);
-    if (moduleLoading[name]) {
-      moduleLoading[name].push(cb);
-      return;
-    }
-    moduleLoading[name] = [cb];
-    debugLog('Loading module: ' + name, url);
-    var _t = Date.now();
-
-    var script = document.createElement('script');
-    script.src = url;
-    script.async = true;
-    script.onload = function () {
-      debugLog('Module loaded: ' + name, (Date.now() - _t) + 'ms');
-      var mod = window['__gs_mod_' + name];
-      if (mod) modules[name] = mod;
-      var cbs = moduleLoading[name] || [];
-      delete moduleLoading[name];
-      cbs.forEach(function (fn) { fn(mod || null); });
+  // ════════════════════════════════════════════════════════════════════
+  // Lazy module loader (chat / kb)
+  // ════════════════════════════════════════════════════════════════════
+  var ModuleLoader = (function () {
+    var modules = {};
+    var loading = {};
+    return {
+      modules: modules,
+      load: function (name, url, cb) {
+        if (modules[name]) return cb(modules[name]);
+        if (loading[name]) { loading[name].push(cb); return; }
+        loading[name] = [cb];
+        var script = document.createElement('script');
+        script.src = url;
+        script.async = true;
+        script.onload = function () {
+          var mod = window['__gs_mod_' + name];
+          if (mod) modules[name] = mod;
+          var cbs = loading[name] || [];
+          delete loading[name];
+          cbs.forEach(function (fn) { fn(mod || null); });
+        };
+        script.onerror = function () {
+          Util.log('Module failed: ' + name);
+          var cbs = loading[name] || [];
+          delete loading[name];
+          cbs.forEach(function (fn) { fn(null); });
+        };
+        document.head.appendChild(script);
+      },
     };
-    script.onerror = function () {
-      debugLog('Module failed: ' + name);
-      delete moduleLoading[name];
+  })();
+
+  // ════════════════════════════════════════════════════════════════════
+  // i18n
+  // ════════════════════════════════════════════════════════════════════
+  var I18n = (function () {
+    var dict = {
+      en: {
+        chat: 'Chat', help: 'Help',
+        typeMsg: 'Type a message...',
+        intro: "Send us a message and we'll get back to you shortly.",
+        name: 'Name', email: 'Email', phone: 'Phone number',
+        continue: 'Continue', back: 'Back',
+        prechatIntro: 'Before we start, please share a few details so we can stay in touch.',
+        required: 'required',
+        invalidEmail: 'Please enter a valid email address.',
+        invalidPhone: 'Please enter a valid phone number.',
+        searchKb: 'Search articles...',
+        noArticles: 'No articles yet',
+        loading: 'Loading…',
+      },
+      fa: {
+        chat: 'گفتگو', help: 'راهنما',
+        typeMsg: 'پیام خود را بنویسید...',
+        intro: 'سوالی دارید؟ اینجا بنویسید.',
+        name: 'نام', email: 'ایمیل', phone: 'شماره تلفن',
+        continue: 'ادامه', back: 'بازگشت',
+        prechatIntro: 'قبل از شروع، لطفاً اطلاعات تماس را وارد کنید تا بتوانیم در ارتباط باشیم.',
+        required: 'الزامی',
+        invalidEmail: 'لطفاً یک ایمیل معتبر وارد کنید.',
+        invalidPhone: 'لطفاً یک شماره تلفن معتبر وارد کنید.',
+        searchKb: 'جستجو در مقالات...',
+        noArticles: 'مقاله‌ای یافت نشد',
+        loading: 'در حال بارگذاری…',
+      },
+      tr: {
+        chat: 'Sohbet', help: 'Yardım',
+        typeMsg: 'Mesajınızı yazın...',
+        intro: 'Bir soru mu var? Buraya yazın.',
+        name: 'İsim', email: 'E-posta', phone: 'Telefon',
+        continue: 'Devam', back: 'Geri',
+        prechatIntro: 'Başlamadan önce iletişim bilgilerinizi girin.',
+        required: 'zorunlu',
+        invalidEmail: 'Lütfen geçerli bir e-posta girin.',
+        invalidPhone: 'Lütfen geçerli bir telefon numarası girin.',
+        searchKb: 'Makalelerde ara...',
+        noArticles: 'Henüz makale yok',
+        loading: 'Yükleniyor…',
+      },
     };
-    document.head.appendChild(script);
-  }
+    return {
+      t: function (locale, key) {
+        var l = dict[locale] ? locale : 'en';
+        return (dict[l] && dict[l][key]) || dict.en[key] || key;
+      },
+    };
+  })();
 
-  // ─── Debug ───
-  var _debug = false;
-  function debugLog(msg, data) {
-    if (!_debug) return;
-    console.info('[Widget Runtime]', msg, data !== undefined ? data : '');
-  }
+  // ════════════════════════════════════════════════════════════════════
+  // Identity layer — server-driven, cookie-backed
+  // ════════════════════════════════════════════════════════════════════
+  function createIdentity(ctx) {
+    var state = {
+      loaded: false,
+      identityState: 'anonymous',
+      contact: null,
+      prechat: null,
+    };
 
-  // ─── HTML escape ───
-  function escapeHtml(text) {
-    var div = document.createElement('div');
-    div.textContent = text == null ? '' : String(text);
-    return div.innerHTML;
-  }
-
-  // ─── Validators (Section 6: basic email + phone format) ───
-  function isValidEmail(v) {
-    if (!v) return false;
-    return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(v).trim());
-  }
-  function isValidPhone(v) {
-    if (!v) return false;
-    var s = String(v).trim().replace(/[\s\-().]/g, '');
-    return /^\+?\d{6,20}$/.test(s);
-  }
-
-  // ─── Init (called by loader on first click) ───
-  __gs_runtime.init = function (config, els) {
-    _debug = !!config.debugMode;
-    debugLog('Runtime init');
-
-    var primaryColor = config.primaryColor || '#3B82F6';
-    var position = config.position || 'bottom-right';
-    var posClass = position === 'bottom-left' ? 'bottom-left' : 'bottom-right';
-    var welcomeMessage = config.welcomeMessage || 'Hi there 👋\nHow can we help you today?';
-    var brandName = config.brandName || '';
-    var locale = config.locale || 'en';
-    var apiBase = config._apiBase || config.apiBase || '';
-    var assetBase = config._assetBase || config.assetBase || '';
-    var workspaceId = config.workspaceId || '';
-    var sessionToken = config._sessionToken || '';
-    var chatEnabled = config.features && config.features.chat !== false;
-    var kbEnabled = config.features && config.features.knowledgeBase;
-
-    // Fallback prechat policy derived from /config (used if /identity/me fails)
-    var configPrechatFallback = (function () {
-      var pc = config.preChat || {};
-      function fieldEnabled(key) {
+    function configFallback() {
+      var pc = ctx.config.preChat || {};
+      function on(key) {
         var f = pc[key] || {};
         return !!f.enabled && !f.locked;
       }
       return {
-        ask_name: fieldEnabled('name'),
-        ask_email: fieldEnabled('email'),
-        ask_phone: fieldEnabled('phone'),
-        require_name: fieldEnabled('name'),
-        require_email: fieldEnabled('email'),
-        require_phone: fieldEnabled('phone'),
-        verify_email: false,
-        verify_phone: false,
+        ask_name: on('name'), ask_email: on('email'), ask_phone: on('phone'),
+        require_name: on('name'), require_email: on('email'), require_phone: on('phone'),
+        verify_email: false, verify_phone: false,
       };
-    })();
-
-    var container = els.container;
-    var launcher = els.launcher;
-
-    // ─── In-memory state (NO localStorage) ───
-    var isOpen = false;
-    var activeTab = chatEnabled ? 'chat' : (kbEnabled ? 'help' : 'chat');
-    var messages = [];
-    var kbArticles = [];
-    var chatModuleLoaded = false;
-    var kbModuleLoaded = false;
-
-    // Identity state from server
-    var identity = {
-      loaded: false,
-      identityState: 'anonymous', // 'anonymous' | 'identified'
-      contact: null, // { id, name, email, phone, avatar_url } | null
-      prechat: null, // { ask_*, require_*, verify_* }
-    };
-    var conversationId = null; // Lives in memory only — server is truth
-    var pollHandle = null;
-
-    // ─── i18n helpers ───
-    function t(key) {
-      var dict = {
-        en: {
-          chat: 'Chat', help: 'Help',
-          typeMsg: 'Type a message...',
-          intro: "Send us a message and we'll get back to you shortly.",
-          name: 'Name', email: 'Email', phone: 'Phone number',
-          continue: 'Continue', back: 'Back',
-          prechatIntro: 'Before we start, please share a few details so we can stay in touch.',
-          required: 'required',
-          invalidEmail: 'Please enter a valid email address.',
-          invalidPhone: 'Please enter a valid phone number.',
-          searchKb: 'Search articles...',
-          noArticles: 'No articles yet',
-          loading: 'Loading…',
-        },
-        fa: {
-          chat: 'گفتگو', help: 'راهنما',
-          typeMsg: 'پیام خود را بنویسید...',
-          intro: 'سوالی دارید؟ اینجا بنویسید.',
-          name: 'نام', email: 'ایمیل', phone: 'شماره تلفن',
-          continue: 'ادامه', back: 'بازگشت',
-          prechatIntro: 'قبل از شروع، لطفاً اطلاعات تماس را وارد کنید تا بتوانیم در ارتباط باشیم.',
-          required: 'الزامی',
-          invalidEmail: 'لطفاً یک ایمیل معتبر وارد کنید.',
-          invalidPhone: 'لطفاً یک شماره تلفن معتبر وارد کنید.',
-          searchKb: 'جستجو در مقالات...',
-          noArticles: 'مقاله‌ای یافت نشد',
-          loading: 'در حال بارگذاری…',
-        },
-        tr: {
-          chat: 'Sohbet', help: 'Yardım',
-          typeMsg: 'Mesajınızı yazın...',
-          intro: 'Bir soru mu var? Buraya yazın.',
-          name: 'İsim', email: 'E-posta', phone: 'Telefon',
-          continue: 'Devam', back: 'Geri',
-          prechatIntro: 'Başlamadan önce iletişim bilgilerinizi girin.',
-          required: 'zorunlu',
-          invalidEmail: 'Lütfen geçerli bir e-posta girin.',
-          invalidPhone: 'Lütfen geçerli bir telefon numarası girin.',
-          searchKb: 'Makalelerde ara...',
-          noArticles: 'Henüz makale yok',
-          loading: 'Yükleniyor…',
-        },
-      };
-      var l = dict[locale] ? locale : 'en';
-      return (dict[l] && dict[l][key]) || dict.en[key] || key;
     }
 
-    // ═══════════════════════════════════════════════
-    // Identity API (server-side, cookie-based)
-    // ═══════════════════════════════════════════════
-    function fetchIdentity(cb) {
-      if (!apiBase || !workspaceId) {
-        identity.loaded = true;
+    function fetchMe(cb) {
+      if (!ctx.apiBase || !ctx.workspaceId) {
+        state.loaded = true;
         if (cb) cb(false);
         return;
       }
       fetch(
-        apiBase + '/api/widget/identity/me?workspace_id=' + encodeURIComponent(workspaceId),
+        ctx.apiBase + '/api/widget/identity/me?workspace_id=' + encodeURIComponent(ctx.workspaceId),
         {
           credentials: 'include',
-          headers: { 'X-Widget-Token': sessionToken || '' },
+          headers: { 'X-Widget-Token': ctx.sessionToken || '' },
         }
       )
         .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
         .then(function (res) {
-          identity.loaded = true;
+          state.loaded = true;
           if (res.ok && res.body) {
-            identity.identityState = res.body.identity_state || 'anonymous';
-            identity.contact = res.body.contact || null;
-            identity.prechat = res.body.prechat || configPrechatFallback;
+            state.identityState = res.body.identity_state || 'anonymous';
+            state.contact = res.body.contact || null;
+            state.prechat = res.body.prechat || configFallback();
           } else {
-            // Server-side identity unavailable — use /config-derived policy so
-            // pre-chat still appears for new visitors.
-            debugLog('/identity/me failed, using config fallback', res.body);
-            identity.identityState = 'anonymous';
-            identity.contact = null;
-            identity.prechat = configPrechatFallback;
+            state.identityState = 'anonymous';
+            state.contact = null;
+            state.prechat = configFallback();
           }
-          debugLog('identity resolved', identity);
+          Util.log('identity resolved', state);
           if (cb) cb(true);
         })
-        .catch(function (err) {
-          debugLog('/identity/me network error, using config fallback', err);
-          identity.loaded = true;
-          identity.identityState = 'anonymous';
-          identity.contact = null;
-          identity.prechat = configPrechatFallback;
+        .catch(function () {
+          state.loaded = true;
+          state.identityState = 'anonymous';
+          state.contact = null;
+          state.prechat = configFallback();
           if (cb) cb(false);
         });
     }
 
     function submitPrechat(payload, cb) {
-      fetch(apiBase + '/api/widget/identity/prechat', {
+      fetch(ctx.apiBase + '/api/widget/identity/prechat', {
         method: 'POST',
         credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
-          'X-Widget-Token': sessionToken || '',
+          'X-Widget-Token': ctx.sessionToken || '',
         },
         body: JSON.stringify({
-          workspace_id: workspaceId,
+          workspace_id: ctx.workspaceId,
           name: payload.name || null,
           email: payload.email || null,
           phone: payload.phone || null,
@@ -245,328 +220,62 @@
         .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
         .then(function (res) {
           if (!res.ok) { if (cb) cb(false, res.body); return; }
-          // Update local identity snapshot
-          identity.identityState = 'identified';
-          identity.contact = {
+          state.identityState = 'identified';
+          state.contact = {
             id: res.body.contact_id,
-            name: payload.name || (identity.contact && identity.contact.name) || null,
-            email: payload.email || (identity.contact && identity.contact.email) || null,
-            phone: payload.phone || (identity.contact && identity.contact.phone) || null,
+            name: payload.name || (state.contact && state.contact.name) || null,
+            email: payload.email || (state.contact && state.contact.email) || null,
+            phone: payload.phone || (state.contact && state.contact.phone) || null,
           };
           if (cb) cb(true, res.body);
         })
         .catch(function (err) { if (cb) cb(false, { error: 'network', _e: err }); });
     }
 
-    // Pre-chat field requirements (from server-side policy)
-    function isFieldAsked(field) {
-      if (!identity.prechat) return false;
-      return !!identity.prechat['ask_' + field];
-    }
-    function isFieldRequired(field) {
-      if (!identity.prechat) return false;
-      return !!identity.prechat['require_' + field];
-    }
+    function isAsked(field) { return !!(state.prechat && state.prechat['ask_' + field]); }
+    function isRequired(field) { return !!(state.prechat && state.prechat['require_' + field]); }
     function needsPrechat() {
-      if (identity.identityState === 'identified') return false;
-      if (!identity.prechat) return false;
-      // If no field is asked, no need
-      if (!identity.prechat.ask_name && !identity.prechat.ask_email && !identity.prechat.ask_phone) {
-        return false;
-      }
-      // If any required field is missing, need prechat
-      return !!(identity.prechat.require_name || identity.prechat.require_email || identity.prechat.require_phone);
+      if (state.identityState === 'identified') return false;
+      if (!state.prechat) return false;
+      if (!state.prechat.ask_name && !state.prechat.ask_email && !state.prechat.ask_phone) return false;
+      return !!(state.prechat.require_name || state.prechat.require_email || state.prechat.require_phone);
     }
 
-    // ─── Build panel ───
-    var panel = document.createElement('div');
-    panel.className = '__gs-panel ' + posClass;
+    return {
+      state: state,
+      fetchMe: fetchMe,
+      submitPrechat: submitPrechat,
+      isAsked: isAsked,
+      isRequired: isRequired,
+      needsPrechat: needsPrechat,
+    };
+  }
 
-    var headerHtml = '<div class="__gs-header">' +
-      '<div class="__gs-header-title">' + escapeHtml(brandName || 'Support') + '</div>' +
-      '<div class="__gs-header-subtitle">' + escapeHtml(welcomeMessage).replace(/\n/g, '<br>') + '</div>' +
-      '</div>';
+  // ════════════════════════════════════════════════════════════════════
+  // UI.Notify — unread badge + simple inline status
+  // ════════════════════════════════════════════════════════════════════
+  function createNotify(ctx) {
+    return {
+      setUnread: function (count) { if (ctx.shell.setUnread) ctx.shell.setUnread(count); },
+    };
+  }
 
-    var tabsHtml = '';
-    if (chatEnabled && kbEnabled) {
-      tabsHtml = '<div class="__gs-tabs">' +
-        '<button class="__gs-tab' + (activeTab === 'chat' ? ' active' : '') + '" data-tab="chat">' +
-        escapeHtml(t('chat')) + '</button>' +
-        '<button class="__gs-tab' + (activeTab === 'help' ? ' active' : '') + '" data-tab="help">' +
-        escapeHtml(t('help')) + '</button>' +
-        '</div>';
-    }
+  // ════════════════════════════════════════════════════════════════════
+  // UI.Chat — renders chat thread + pre-chat form into shadow root
+  // ════════════════════════════════════════════════════════════════════
+  function createChatUI(ctx) {
+    var messages = [];
+    var seenIds = {};
+    var conversationId = null;
+    var pollHandle = null;
 
-    var bodyHtml = '<div class="__gs-body" id="__gs-body"></div>';
-    var inputHtml = chatEnabled
-      ? '<div class="__gs-input-bar" id="__gs-input-bar">' +
-        '<input class="__gs-input" id="__gs-msg-input" placeholder="' + escapeHtml(t('typeMsg')) + '" />' +
-        '<button class="__gs-send-btn" id="__gs-send-btn" style="background:' + primaryColor + '">' +
-        '<svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>' +
-        '</button></div>'
-      : '';
-    var poweredHtml = brandName
-      ? '<div class="__gs-powered">Powered by <a href="#">' + escapeHtml(brandName) + '</a></div>'
-      : '';
-
-    panel.innerHTML = headerHtml + tabsHtml + bodyHtml + inputHtml + poweredHtml;
-    container.appendChild(panel);
-
-    var body = panel.querySelector('#__gs-body');
-    var msgInput = panel.querySelector('#__gs-msg-input');
-    var sendBtn = panel.querySelector('#__gs-send-btn');
-    var inputBar = panel.querySelector('#__gs-input-bar');
-
-    // ─── Open immediately (since user clicked) ───
-    isOpen = true;
-    panel.classList.add('visible');
-
-    // ─── Tab switching ───
-    var tabs = panel.querySelectorAll('.__gs-tab');
-    tabs.forEach(function (tab) {
-      tab.addEventListener('click', function () {
-        activeTab = tab.getAttribute('data-tab');
-        tabs.forEach(function (t2) { t2.classList.remove('active'); });
-        tab.classList.add('active');
-        renderBody();
-        if (inputBar) inputBar.style.display = activeTab === 'chat' ? 'flex' : 'none';
-      });
-    });
-
-    // ─── Send message ───
-    function sendMessage() {
-      if (!msgInput) return;
-      var text = msgInput.value.trim();
-      if (!text) return;
-
-      // Block sending until identity is resolved + prechat satisfied
-      if (!identity.loaded) return;
-      if (needsPrechat()) {
-        renderBody();
-        return;
-      }
-
-      messages.push({ body: text, sender: 'visitor', time: new Date() });
-      msgInput.value = '';
-      renderBody();
-
-      ensureChatModule(function () {
-        if (modules.chat && modules.chat.sendMessage) {
-          modules.chat.sendMessage({
-            apiBase: apiBase,
-            workspaceId: workspaceId,
-            sessionToken: sessionToken,
-            conversationId: conversationId,
-            text: text,
-            onConversation: function (cid) {
-              if (cid && cid !== conversationId) {
-                conversationId = cid;
-                debugLog('conversation_id resolved', cid);
-              }
-            },
-            onReply: function (reply) {
-              messages.push({ body: reply, sender: 'operator', time: new Date() });
-              renderBody();
-            },
-            onError: function () { debugLog('Message send failed'); },
-          });
-        }
-      });
-    }
-
-    if (sendBtn) sendBtn.addEventListener('click', sendMessage);
-    if (msgInput)
-      msgInput.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter' && !e.shiftKey) {
-          e.preventDefault();
-          sendMessage();
-        }
-      });
-
-    // ─── Lazy module loaders ───
-    function getModuleUrl(name) {
-      var base = assetBase || '';
-      return base + '/widget/runtime-' + name + '.js?v=' + (config.loaderVersion || 'dev');
-    }
-
-    function ensureChatModule(cb) {
-      if (chatModuleLoaded) return cb();
-      loadModule('chat', getModuleUrl('chat'), function () {
-        chatModuleLoaded = true;
-        cb();
-      });
-    }
-
-    function ensureKbModule(cb) {
-      if (kbModuleLoaded) return cb();
-      loadModule('kb', getModuleUrl('kb'), function () {
-        kbModuleLoaded = true;
-        if (modules.kb && modules.kb.loadArticles) {
-          modules.kb.loadArticles({
-            apiBase: apiBase,
-            workspaceId: workspaceId,
-            sessionToken: sessionToken,
-            locale: locale,
-            onArticles: function (articles) {
-              kbArticles = articles;
-              if (activeTab === 'help') renderBody();
-            },
-          });
-        }
-        cb();
-      });
-    }
-
-    // ─── Render ───
-    function renderBody() {
-      if (!body) return;
-      if (activeTab === 'chat') {
-        if (!identity.loaded) { renderLoading(); return; }
-        if (needsPrechat()) { renderPreChat(); return; }
-        renderChat();
-      } else if (activeTab === 'help') {
-        ensureKbModule(function () { renderKb(); });
-      }
-    }
-
-    function renderLoading() {
-      body.innerHTML = '<div class="__gs-empty"><p>' + escapeHtml(t('loading')) + '</p></div>';
-    }
-
-    function renderPreChat() {
-      var fieldsHtml = '';
-      var contact = identity.contact || {};
-      function fieldRow(key, type, value) {
-        var label = t(key);
-        var req = isFieldRequired(key);
-        var labelHtml = '<label style="font-size:12px;color:#64748b;display:block;margin-bottom:4px;">' +
-          escapeHtml(label) + (req ? ' <span style="color:#EF4444">*</span>' : '') + '</label>';
-        return '<div>' + labelHtml +
-          '<input class="__gs-input" id="__gs-prechat-' + key + '" type="' + type + '" autocomplete="' +
-          (key === 'name' ? 'name' : key === 'email' ? 'email' : 'tel') +
-          '" placeholder="' + escapeHtml(label) + '" value="' + escapeHtml(value || '') + '" />' +
-          '<div class="__gs-prechat-error" id="__gs-prechat-err-' + key + '" style="font-size:12px;color:#EF4444;margin-top:4px;display:none;"></div>' +
-        '</div>';
-      }
-
-      if (isFieldAsked('name')) fieldsHtml += fieldRow('name', 'text', contact.name);
-      if (isFieldAsked('email')) fieldsHtml += fieldRow('email', 'email', contact.email);
-      if (isFieldAsked('phone')) fieldsHtml += fieldRow('phone', 'tel', contact.phone);
-
-      var dir = locale === 'fa' ? 'rtl' : 'ltr';
-      body.innerHTML =
-        '<div class="__gs-prechat" dir="' + dir + '" style="padding:4px 0;display:flex;flex-direction:column;gap:12px;">' +
-        '<p style="margin:0 0 4px;color:#475569;font-size:14px;line-height:1.5;">' +
-        escapeHtml(t('prechatIntro')) + '</p>' +
-        '<div style="display:flex;flex-direction:column;gap:10px;">' + fieldsHtml + '</div>' +
-        '<button class="__gs-send-btn" id="__gs-prechat-submit" style="background:' + primaryColor + ';width:100%;height:40px;border-radius:8px;color:#fff;border:none;cursor:pointer;font-weight:600;">' +
-        escapeHtml(t('continue')) + '</button>' +
-        '</div>';
-
-      var nameInput = body.querySelector('#__gs-prechat-name');
-      var emailInput = body.querySelector('#__gs-prechat-email');
-      var phoneInput = body.querySelector('#__gs-prechat-phone');
-      var submitBtn = body.querySelector('#__gs-prechat-submit');
-
-      function clearError(key) {
-        var el = body.querySelector('#__gs-prechat-err-' + key);
-        if (el) { el.style.display = 'none'; el.textContent = ''; }
-      }
-      function showError(key, msg) {
-        var el = body.querySelector('#__gs-prechat-err-' + key);
-        if (el) { el.textContent = msg; el.style.display = 'block'; }
-      }
-      [['name', nameInput], ['email', emailInput], ['phone', phoneInput]].forEach(function (pair) {
-        if (pair[1]) pair[1].addEventListener('input', function () { clearError(pair[0]); });
-      });
-
-      if (submitBtn) {
-        submitBtn.addEventListener('click', function () {
-          var payload = {
-            name: nameInput ? nameInput.value.trim() : '',
-            email: emailInput ? emailInput.value.trim() : '',
-            phone: phoneInput ? phoneInput.value.trim() : '',
-          };
-          var ok = true;
-          if (isFieldRequired('name') && !payload.name) {
-            showError('name', t('required')); ok = false;
-          }
-          if (isFieldAsked('email') && payload.email) {
-            if (!isValidEmail(payload.email)) { showError('email', t('invalidEmail')); ok = false; }
-          } else if (isFieldRequired('email') && !payload.email) {
-            showError('email', t('required')); ok = false;
-          }
-          if (isFieldAsked('phone') && payload.phone) {
-            if (!isValidPhone(payload.phone)) { showError('phone', t('invalidPhone')); ok = false; }
-          } else if (isFieldRequired('phone') && !payload.phone) {
-            showError('phone', t('required')); ok = false;
-          }
-          if (!ok) return;
-
-          submitBtn.disabled = true;
-          submitBtn.style.opacity = '0.6';
-          submitPrechat(payload, function (success, resp) {
-            submitBtn.disabled = false;
-            submitBtn.style.opacity = '1';
-            if (!success) {
-              var f = resp && resp.field;
-              if (f) showError(f, t('required'));
-              return;
-            }
-            // Identity now linked → load history + start polling
-            renderBody();
-            if (msgInput) setTimeout(function () { msgInput.focus(); }, 100);
-            bootstrapHistoryAndPoll();
-          });
-        });
-      }
-    }
-
-    function renderChat() {
-      if (messages.length === 0) {
-        body.innerHTML =
-          '<div class="__gs-empty">' +
-          '<svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>' +
-          '<p>' + escapeHtml(t('intro')) + '</p></div>';
-        return;
-      }
-      var html = '<div class="__gs-messages">';
-      messages.forEach(function (m) {
-        var bg = m.sender === 'visitor' ? 'style="background:' + primaryColor + '"' : '';
-        var cls = m.sender === 'visitor' ? 'visitor' : 'operator';
-        html += '<div class="__gs-msg ' + cls + '" ' + bg + '>' + escapeHtml(m.body) + '</div>';
-      });
-      html += '</div>';
-      body.innerHTML = html;
-      body.scrollTop = body.scrollHeight;
-    }
-
-    function renderKb() {
-      var searchHtml =
-        '<input class="__gs-kb-search" id="__gs-kb-search" placeholder="' + escapeHtml(t('searchKb')) + '" />';
-      var articlesHtml = '';
-      if (kbArticles.length === 0) {
-        articlesHtml = '<div class="__gs-empty"><p>' + escapeHtml(t('noArticles')) + '</p></div>';
-      } else {
-        kbArticles.forEach(function (a) {
-          articlesHtml +=
-            '<div class="__gs-kb-article">' +
-            '<div class="__gs-kb-article-title">' + escapeHtml(a.title) + '</div>' +
-            '<div class="__gs-kb-article-excerpt">' + escapeHtml(a.excerpt || '') + '</div></div>';
-        });
-      }
-      body.innerHTML = searchHtml + articlesHtml;
-    }
-
-    // ─── Message merge dedup ───
-    var seenMessageIds = {};
-    function mergeIncomingMessages(incoming) {
+    function mergeIncoming(incoming) {
       if (!incoming || !incoming.length) return false;
       var changed = false;
       incoming.forEach(function (m) {
         var id = m.id || (m.time + ':' + (m.text || m.body || ''));
-        if (seenMessageIds[id]) return;
-        seenMessageIds[id] = true;
+        if (seenIds[id]) return;
+        seenIds[id] = true;
         var senderRaw = m.role || m.sender || m.sender_type || 'agent';
         var sender = (senderRaw === 'visitor' || senderRaw === 'contact') ? 'visitor' : 'operator';
         var text = m.text || m.body || '';
@@ -595,94 +304,400 @@
       return changed;
     }
 
-    function bootstrapHistoryAndPoll() {
-      if (!chatEnabled) return;
+    function chatModuleUrl() {
+      var base = ctx.assetBase || '';
+      return base + '/widget/runtime-chat.js?v=' + (ctx.config._loaderVersion || ctx.config.loaderVersion || 'dev');
+    }
+
+    function ensureChatModule(cb) {
+      if (ModuleLoader.modules.chat) return cb();
+      ModuleLoader.load('chat', chatModuleUrl(), function () { cb(); });
+    }
+
+    function renderEmpty(body, t) {
+      body.innerHTML =
+        '<div class="empty">' +
+        '<svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>' +
+        '<p>' + Util.escapeHtml(t('intro')) + '</p></div>';
+    }
+
+    function renderChat(body, t) {
+      if (messages.length === 0) { renderEmpty(body, t); return; }
+      var html = '<div class="messages">';
+      messages.forEach(function (m) {
+        var bg = m.sender === 'visitor' ? 'style="background:' + ctx.primaryColor + '"' : '';
+        var cls = m.sender === 'visitor' ? 'visitor' : 'operator';
+        html += '<div class="msg ' + cls + '" ' + bg + '>' + Util.escapeHtml(m.body) + '</div>';
+      });
+      html += '</div>';
+      body.innerHTML = html;
+      body.scrollTop = body.scrollHeight;
+    }
+
+    function renderPreChat(body, identity, t, locale, onSubmitted) {
+      var contact = identity.state.contact || {};
+      function fieldRow(key, type, value) {
+        var label = t(key);
+        var req = identity.isRequired(key);
+        var labelHtml = '<label class="prechat-label">' + Util.escapeHtml(label) +
+          (req ? ' <span class="prechat-required">*</span>' : '') + '</label>';
+        return '<div>' + labelHtml +
+          '<input class="input" data-prechat="' + key + '" type="' + type + '" autocomplete="' +
+          (key === 'name' ? 'name' : key === 'email' ? 'email' : 'tel') +
+          '" placeholder="' + Util.escapeHtml(label) + '" value="' + Util.escapeHtml(value || '') + '" />' +
+          '<div class="prechat-error" data-err="' + key + '"></div>' +
+        '</div>';
+      }
+
+      var fieldsHtml = '';
+      if (identity.isAsked('name')) fieldsHtml += fieldRow('name', 'text', contact.name);
+      if (identity.isAsked('email')) fieldsHtml += fieldRow('email', 'email', contact.email);
+      if (identity.isAsked('phone')) fieldsHtml += fieldRow('phone', 'tel', contact.phone);
+
+      var dir = locale === 'fa' ? 'rtl' : 'ltr';
+      body.innerHTML =
+        '<div class="prechat" dir="' + dir + '">' +
+        '<p class="prechat-intro">' + Util.escapeHtml(t('prechatIntro')) + '</p>' +
+        '<div class="prechat-fields">' + fieldsHtml + '</div>' +
+        '<button type="button" class="prechat-submit" data-prechat-submit>' + Util.escapeHtml(t('continue')) + '</button>' +
+        '</div>';
+
+      function getInput(key) { return body.querySelector('[data-prechat="' + key + '"]'); }
+      function clearError(key) {
+        var el = body.querySelector('[data-err="' + key + '"]');
+        if (el) { el.classList.remove('visible'); el.textContent = ''; }
+      }
+      function showError(key, msg) {
+        var el = body.querySelector('[data-err="' + key + '"]');
+        if (el) { el.textContent = msg; el.classList.add('visible'); }
+      }
+      ['name', 'email', 'phone'].forEach(function (k) {
+        var input = getInput(k);
+        if (input) input.addEventListener('input', function () { clearError(k); });
+      });
+
+      var submitBtn = body.querySelector('[data-prechat-submit]');
+      if (submitBtn) {
+        submitBtn.addEventListener('click', function () {
+          var payload = {
+            name: getInput('name') ? getInput('name').value.trim() : '',
+            email: getInput('email') ? getInput('email').value.trim() : '',
+            phone: getInput('phone') ? getInput('phone').value.trim() : '',
+          };
+          var ok = true;
+          if (identity.isRequired('name') && !payload.name) { showError('name', t('required')); ok = false; }
+          if (identity.isAsked('email') && payload.email) {
+            if (!Util.isValidEmail(payload.email)) { showError('email', t('invalidEmail')); ok = false; }
+          } else if (identity.isRequired('email') && !payload.email) { showError('email', t('required')); ok = false; }
+          if (identity.isAsked('phone') && payload.phone) {
+            if (!Util.isValidPhone(payload.phone)) { showError('phone', t('invalidPhone')); ok = false; }
+          } else if (identity.isRequired('phone') && !payload.phone) { showError('phone', t('required')); ok = false; }
+          if (!ok) return;
+
+          submitBtn.disabled = true;
+          submitBtn.style.opacity = '0.6';
+          identity.submitPrechat(payload, function (success, resp) {
+            submitBtn.disabled = false;
+            submitBtn.style.opacity = '1';
+            if (!success) {
+              var f = resp && resp.field;
+              if (f) showError(f, t('required'));
+              return;
+            }
+            if (typeof onSubmitted === 'function') onSubmitted();
+          });
+        });
+      }
+    }
+
+    function sendMessage(text, onChange) {
+      messages.push({ body: text, sender: 'visitor', time: new Date() });
+      onChange();
       ensureChatModule(function () {
-        // Smart history continuation (server-side window check)
-        if (modules.chat && modules.chat.loadHistory) {
-          modules.chat.loadHistory({
-            apiBase: apiBase,
-            workspaceId: workspaceId,
-            sessionToken: sessionToken,
+        var mod = ModuleLoader.modules.chat;
+        if (!mod || !mod.sendMessage) return;
+        mod.sendMessage({
+          apiBase: ctx.apiBase,
+          workspaceId: ctx.workspaceId,
+          sessionToken: ctx.sessionToken,
+          conversationId: conversationId,
+          text: text,
+          onConversation: function (cid) {
+            if (cid && cid !== conversationId) conversationId = cid;
+          },
+          onReply: function (reply) {
+            messages.push({ body: reply, sender: 'operator', time: new Date() });
+            onChange();
+          },
+          onError: function () { Util.log('Send failed'); },
+        });
+      });
+    }
+
+    function bootstrapHistoryAndPoll(onChange) {
+      ensureChatModule(function () {
+        var mod = ModuleLoader.modules.chat;
+        if (!mod) return;
+
+        if (mod.loadHistory) {
+          mod.loadHistory({
+            apiBase: ctx.apiBase,
+            workspaceId: ctx.workspaceId,
+            sessionToken: ctx.sessionToken,
             onResult: function (result) {
-              if (result.conversationId) {
-                conversationId = result.conversationId;
-              }
-              if (mergeIncomingMessages(result.messages || []) && activeTab === 'chat') {
-                renderBody();
-              }
+              if (result.conversationId) conversationId = result.conversationId;
+              if (mergeIncoming(result.messages || [])) onChange();
             },
           });
         }
 
-        // Start polling (binds to current conversationId via getter)
         if (pollHandle && pollHandle.stop) pollHandle.stop();
-        if (modules.chat && modules.chat.startPolling) {
-          pollHandle = modules.chat.startPolling({
-            apiBase: apiBase,
-            workspaceId: workspaceId,
-            sessionToken: sessionToken,
+        if (mod.startPolling) {
+          pollHandle = mod.startPolling({
+            apiBase: ctx.apiBase,
+            workspaceId: ctx.workspaceId,
+            sessionToken: ctx.sessionToken,
             interval: 4000,
             getConversationId: function () { return conversationId; },
-            onConversation: function (cid) {
-              if (cid && cid !== conversationId) conversationId = cid;
-            },
-            onMessages: function (msgs) {
-              if (mergeIncomingMessages(msgs) && activeTab === 'chat') renderBody();
-            },
+            onConversation: function (cid) { if (cid && cid !== conversationId) conversationId = cid; },
+            onMessages: function (msgs) { if (mergeIncoming(msgs)) onChange(); },
           });
         }
       });
     }
 
-    // ─── Boot ───
-    renderLoading();
-    if (inputBar && activeTab !== 'chat') inputBar.style.display = 'none';
+    function teardown() {
+      if (pollHandle && pollHandle.stop) pollHandle.stop();
+      pollHandle = null;
+    }
 
-    fetchIdentity(function () {
+    return {
+      renderChat: renderChat,
+      renderPreChat: renderPreChat,
+      sendMessage: sendMessage,
+      bootstrapHistoryAndPoll: bootstrapHistoryAndPoll,
+      teardown: teardown,
+    };
+  }
+
+  // ════════════════════════════════════════════════════════════════════
+  // UI.KB
+  // ════════════════════════════════════════════════════════════════════
+  function createKbUI(ctx) {
+    var articles = [];
+    var loaded = false;
+
+    function moduleUrl() {
+      var base = ctx.assetBase || '';
+      return base + '/widget/runtime-kb.js?v=' + (ctx.config._loaderVersion || ctx.config.loaderVersion || 'dev');
+    }
+
+    function ensure(cb) {
+      if (loaded) return cb();
+      ModuleLoader.load('kb', moduleUrl(), function () {
+        loaded = true;
+        var mod = ModuleLoader.modules.kb;
+        if (mod && mod.loadArticles) {
+          mod.loadArticles({
+            apiBase: ctx.apiBase,
+            workspaceId: ctx.workspaceId,
+            sessionToken: ctx.sessionToken,
+            locale: ctx.locale,
+            onArticles: function (a) { articles = a; cb(); },
+          });
+        } else {
+          cb();
+        }
+      });
+    }
+
+    function render(body, t) {
+      var html = '<input class="kb-search" type="search" placeholder="' + Util.escapeHtml(t('searchKb')) + '" />';
+      if (articles.length === 0) {
+        html += '<div class="empty"><p>' + Util.escapeHtml(t('noArticles')) + '</p></div>';
+      } else {
+        articles.forEach(function (a) {
+          html +=
+            '<div class="kb-article">' +
+            '<div class="kb-article-title">' + Util.escapeHtml(a.title) + '</div>' +
+            '<div class="kb-article-excerpt">' + Util.escapeHtml(a.excerpt || '') + '</div></div>';
+        });
+      }
+      body.innerHTML = html;
+    }
+
+    return { ensure: ensure, render: render };
+  }
+
+  // ════════════════════════════════════════════════════════════════════
+  // Core — orchestrates everything inside the shadow root
+  // ════════════════════════════════════════════════════════════════════
+  __gs_runtime.init = function (config, shell) {
+    Util.debug = !!config.debugMode;
+    Util.log('Runtime init (Shadow DOM)');
+
+    if (!shell || !shell.shadowRoot) {
+      Util.log('FATAL: no shadowRoot provided by loader');
+      return { open: function(){}, close: function(){}, toggle: function(){}, setUnread: function(){} };
+    }
+
+    var ctx = {
+      config: config,
+      apiBase: config._apiBase || config.apiBase || '',
+      assetBase: config._assetBase || config.assetBase || '',
+      workspaceId: config.workspaceId || '',
+      sessionToken: config._sessionToken || '',
+      locale: config.locale || 'en',
+      primaryColor: config.primaryColor || '#3B82F6',
+      shell: shell,
+    };
+    var t = function (key) { return I18n.t(ctx.locale, key); };
+
+    var chatEnabled = config.features && config.features.chat !== false;
+    var kbEnabled = config.features && config.features.knowledgeBase;
+
+    var shadowRoot = shell.shadowRoot;
+    var shellDiv = shadowRoot.querySelector('.shell') || shadowRoot;
+    var launcher = shell.launcher;
+
+    // ─── State containers (kept domain-separated) ───
+    var ui = { activeTab: chatEnabled ? 'chat' : (kbEnabled ? 'help' : 'chat'), isOpen: false };
+
+    // ─── Layers ───
+    var identity = createIdentity(ctx);
+    var notify = createNotify(ctx);
+    var chatUI = createChatUI(ctx);
+    var kbUI = createKbUI(ctx);
+
+    // ─── Build panel ───
+    var position = config.position || 'bottom-right';
+    var posClass = position === 'bottom-left' ? 'bottom-left' : 'bottom-right';
+    var brandName = config.brandName || '';
+    var welcomeMessage = config.welcomeMessage || 'Hi there 👋\nHow can we help you today?';
+
+    var panel = document.createElement('div');
+    panel.className = 'panel ' + posClass;
+
+    var headerHtml = '<div class="header">' +
+      '<div class="header-title">' + Util.escapeHtml(brandName || 'Support') + '</div>' +
+      '<div class="header-subtitle">' + Util.escapeHtml(welcomeMessage).replace(/\n/g, '<br>') + '</div>' +
+      '</div>';
+    var tabsHtml = '';
+    if (chatEnabled && kbEnabled) {
+      tabsHtml = '<div class="tabs">' +
+        '<button type="button" class="tab' + (ui.activeTab === 'chat' ? ' active' : '') + '" data-tab="chat">' + Util.escapeHtml(t('chat')) + '</button>' +
+        '<button type="button" class="tab' + (ui.activeTab === 'help' ? ' active' : '') + '" data-tab="help">' + Util.escapeHtml(t('help')) + '</button>' +
+        '</div>';
+    }
+    var bodyHtml = '<div class="body" data-body></div>';
+    var inputHtml = chatEnabled
+      ? '<div class="input-bar" data-input-bar>' +
+        '<input class="input" data-msg-input placeholder="' + Util.escapeHtml(t('typeMsg')) + '" />' +
+        '<button type="button" class="send-btn" data-send-btn style="background:' + ctx.primaryColor + '">' +
+        '<svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>' +
+        '</button></div>'
+      : '';
+    var poweredHtml = brandName
+      ? '<div class="powered">Powered by <a href="#">' + Util.escapeHtml(brandName) + '</a></div>'
+      : '';
+
+    panel.innerHTML = headerHtml + tabsHtml + bodyHtml + inputHtml + poweredHtml;
+    shellDiv.appendChild(panel);
+
+    var body = panel.querySelector('[data-body]');
+    var msgInput = panel.querySelector('[data-msg-input]');
+    var sendBtn = panel.querySelector('[data-send-btn]');
+    var inputBar = panel.querySelector('[data-input-bar]');
+
+    // Open immediately (user clicked launcher)
+    ui.isOpen = true;
+    panel.classList.add('visible');
+
+    // ─── Tab switching ───
+    var tabs = panel.querySelectorAll('.tab');
+    tabs.forEach(function (tab) {
+      tab.addEventListener('click', function () {
+        ui.activeTab = tab.getAttribute('data-tab');
+        tabs.forEach(function (t2) { t2.classList.remove('active'); });
+        tab.classList.add('active');
+        renderBody();
+        if (inputBar) inputBar.style.display = ui.activeTab === 'chat' ? 'flex' : 'none';
+      });
+    });
+
+    // ─── Send handler ───
+    function trySend() {
+      if (!msgInput) return;
+      var text = msgInput.value.trim();
+      if (!text) return;
+      if (!identity.state.loaded) return;
+      if (identity.needsPrechat()) { renderBody(); return; }
+      msgInput.value = '';
+      chatUI.sendMessage(text, renderBody);
+    }
+    if (sendBtn) sendBtn.addEventListener('click', trySend);
+    if (msgInput) msgInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); trySend(); }
+    });
+
+    // ─── Render dispatcher ───
+    function renderLoading() {
+      if (body) body.innerHTML = '<div class="empty"><p>' + Util.escapeHtml(t('loading')) + '</p></div>';
+    }
+    function renderBody() {
+      if (!body) return;
+      if (ui.activeTab === 'chat') {
+        if (!identity.state.loaded) { renderLoading(); return; }
+        if (identity.needsPrechat()) {
+          chatUI.renderPreChat(body, identity, t, ctx.locale, function () {
+            renderBody();
+            if (msgInput) setTimeout(function () { msgInput.focus(); }, 100);
+            chatUI.bootstrapHistoryAndPoll(function () {
+              if (ui.activeTab === 'chat') renderBody();
+            });
+          });
+          return;
+        }
+        chatUI.renderChat(body, t);
+      } else if (ui.activeTab === 'help') {
+        kbUI.ensure(function () { kbUI.render(body, t); });
+      }
+    }
+
+    // ─── Boot sequence ───
+    renderLoading();
+    if (inputBar && ui.activeTab !== 'chat') inputBar.style.display = 'none';
+
+    identity.fetchMe(function () {
       renderBody();
-      // Only load history+start polling for already-identified visitors.
-      // For new visitors waiting on prechat, we wait until they submit it.
-      if (!needsPrechat()) {
-        bootstrapHistoryAndPoll();
+      if (!identity.needsPrechat()) {
+        chatUI.bootstrapHistoryAndPoll(function () {
+          if (ui.activeTab === 'chat') renderBody();
+        });
         if (msgInput) setTimeout(function () { msgInput.focus(); }, 200);
       }
     });
 
-    // ─── Public API ───
-    var api = {
+    // ─── Public API back to loader ───
+    return {
       open: function () {
-        if (!isOpen) {
-          isOpen = true;
-          launcher.classList.add('open');
-          panel.classList.add('visible');
-          if (msgInput && !needsPrechat()) setTimeout(function () { msgInput.focus(); }, 300);
-        }
+        if (ui.isOpen) return;
+        ui.isOpen = true;
+        if (launcher) launcher.classList.add('open');
+        panel.classList.add('visible');
+        if (msgInput && !identity.needsPrechat()) setTimeout(function () { msgInput.focus(); }, 300);
       },
       close: function () {
-        if (isOpen) {
-          isOpen = false;
-          launcher.classList.remove('open');
-          panel.classList.remove('visible');
-        }
+        if (!ui.isOpen) return;
+        ui.isOpen = false;
+        if (launcher) launcher.classList.remove('open');
+        panel.classList.remove('visible');
       },
       toggle: function () {
-        if (isOpen) api.close();
-        else api.open();
+        if (ui.isOpen) this.close(); else this.open();
       },
-      setUnread: function (count) {
-        var existing = launcher.querySelector('.__gs-badge');
-        if (existing) existing.remove();
-        if (count > 0) {
-          var badge = document.createElement('span');
-          badge.className = '__gs-badge';
-          badge.textContent = count > 9 ? '9+' : String(count);
-          launcher.appendChild(badge);
-        }
-      },
+      setUnread: function (count) { notify.setUnread(count); },
     };
-
-    return api;
   };
 
   window.__gs_runtime = __gs_runtime;

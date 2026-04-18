@@ -170,6 +170,7 @@
 
     fetch(bootstrapUrl, {
       method: "POST",
+      credentials: "include", // CRITICAL: lets server set HttpOnly dvsid cookie cross-site
       headers: { "Content-Type": "application/json" },
       body: bootstrapBody,
     })
@@ -191,8 +192,9 @@
 
         log("Session token acquired");
 
-        // Fetch full config (token-secured)
+        // Fetch full config (token-secured, also sends cookie)
         return fetch(apiBase + "/api/widget/config?workspace_id=" + encodeURIComponent(WORKSPACE_ID), {
+          credentials: "include",
           headers: { "X-Widget-Token": sessionToken },
         });
       })

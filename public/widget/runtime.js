@@ -1265,12 +1265,21 @@
       }
     }
 
-    function sendMessage(text, onChange, attachmentId) {
+    function sendMessage(text, onChange, attachmentId, optimisticAttachment) {
       var conn = transportStore.get().connectionState;
       if (conn !== 'online') return;
       var s = chatStore.get();
       var messages = s.messages.slice();
-      messages.push({ body: text, sender: 'visitor', time: new Date(), attachmentId: attachmentId || null });
+      messages.push({
+        body: text,
+        sender: 'visitor',
+        time: new Date(),
+        attachmentId: attachmentId || null,
+        // Phase 6b — optimistic attachment so the bubble renders the
+        // attachment immediately. The next poll/history merge will replace
+        // this object with the server-canonical metadata (same id).
+        attachment: optimisticAttachment || null,
+      });
       chatStore.set({ messages: messages });
       onChange();
       transport.sendMessage(

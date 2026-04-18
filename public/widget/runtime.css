@@ -785,3 +785,54 @@ input:disabled, button:disabled {
   .msg-att-img-btn img { max-height: 280px; }
   .msg-att-file { min-width: 0; max-width: 100%; }
 }
+
+/* ─── Phase 7: Message lifecycle status (read receipts) ─── */
+/* Subtle, monotonic indicator under the last visitor message.
+   States: sending → sent → seen. Never regresses, never fakes. */
+.msg-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  font-size: 10.5px;
+  line-height: 1;
+  color: #94A3B8;
+  align-self: flex-end;
+  user-select: none;
+  white-space: nowrap;
+}
+.msg-status.sending { color: #94A3B8; }
+.msg-status.sent    { color: #94A3B8; }
+.msg-status.seen    { color: var(--gs-primary, #3B82F6); font-weight: 600; }
+.msg-status-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+}
+.msg-status-icon svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.msg-status-spinner {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+  border-top-color: transparent;
+  opacity: 0.7;
+  animation: gs-status-spin 0.8s linear infinite;
+}
+@keyframes gs-status-spin {
+  to { transform: rotate(360deg); }
+}
+.msg-status-label {
+  font-size: 10.5px;
+  letter-spacing: 0.01em;
+}

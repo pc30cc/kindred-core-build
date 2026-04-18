@@ -1,165 +1,533 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
-import { useContacts, useCreateContact, useDeleteContact } from '@/hooks/useContacts';
+import {
+  useContacts, useCreateContact, useBulkDeleteContacts,
+} from '@/hooks/useContacts';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent } from '@/components/ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Trash2, User, Users, Mail, Phone, Search } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
+} from '@/components/ui/dialog';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuSeparator, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
+  Plus, Search, Filter, Download, Upload, MoreHorizontal, Star, Eye,
+  Mail, Phone, Users, ChevronDown, Trash2, Loader2, FileDown, X,
+} from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { toast } from '@/hooks/use-toast';
+import { ContactDrawer } from '@/features/contacts/ContactDrawer';
+import { ContactImportWizard } from '@/features/contacts/ContactImportWizard';
+import {
+  getInitials, getDisplayName, timeAgo,
+  getCompanyFromMetadata, getLocationFromMetadata, getScoreFromMetadata,
+  exportContactsToCSV, downloadFile,
+} from '@/features/contacts/utils';
+
+type SortKey = 'name' | 'email' | 'company' | 'last_active' | 'score';
 
 export default function ContactsPage() {
-  const { t } = useTranslation();
+  const { t, dir } = useTranslation();
+  const navigate = useNavigate();
+  const { wsSlug } = useParams();
   const workspace = useCurrentWorkspace();
   const { data: contacts, isLoading } = useContacts(workspace?.id);
   const createContact = useCreateContact(workspace?.id);
-  const deleteContact = useDeleteContact();
-  const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ name: '', email: '', phone: '' });
-  const [search, setSearch] = useState('');
+  const bulkDelete = useBulkDeleteContacts();
 
-  const handleCreate = async () => {
-    await createContact.mutateAsync(form);
-    setForm({ name: '', email: '', phone: '' });
-    setOpen(false);
+  const [drawerId, setDrawerId] = useState<string | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [filterTag, setFilterTag] = useState<string | null>(null);
+  const [filterHasEmail, setFilterHasEmail] = useState(false);
+  const [filterHasPhone, setFilterHasPhone] = useState(false);
+  const [sortBy, setSortBy] = useState<SortKey>('last_active');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [createForm, setCreateForm] = useState({ name: '', email: '', phone: '' });
+
+  const allTags = useMemo(() => {
+    const set = new Set<string>();
+    contacts?.forEach((c) => (c.tags ?? []).forEach((t) => set.add(t)));
+    return Array.from(set).sort();
+  }, [contacts]);
+
+  const filtered = useMemo(() => {
+    if (!contacts) return [];
+    let list = contacts.filter((c) => {
+      if (filterHasEmail && !c.email) return false;
+      if (filterHasPhone && !c.phone) return false;
+      if (filterTag && !(c.tags ?? []).includes(filterTag)) return false;
+      if (search) {
+        const q = search.toLowerCase();
+        const haystack = [c.name, c.email, c.phone, getCompanyFromMetadata(c)]
+          .filter(Boolean).join(' ').toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
+      return true;
+    });
+
+    list = [...list].sort((a, b) => {
+      let av: any = '', bv: any = '';
+      switch (sortBy) {
+        case 'name': av = a.name ?? ''; bv = b.name ?? ''; break;
+        case 'email': av = a.email ?? ''; bv = b.email ?? ''; break;
+        case 'company': av = getCompanyFromMetadata(a) ?? ''; bv = getCompanyFromMetadata(b) ?? ''; break;
+        case 'score': av = getScoreFromMetadata(a); bv = getScoreFromMetadata(b); break;
+        case 'last_active':
+        default:
+          av = a.updated_at ?? a.created_at ?? '';
+          bv = b.updated_at ?? b.created_at ?? '';
+      }
+      const cmp = av < bv ? -1 : av > bv ? 1 : 0;
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+
+    return list;
+  }, [contacts, search, filterTag, filterHasEmail, filterHasPhone, sortBy, sortDir]);
+
+  const toggleSort = (key: SortKey) => {
+    if (sortBy === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortBy(key); setSortDir('desc'); }
   };
 
-  const filtered = contacts?.filter(c =>
-    !search || [c.name, c.email, c.phone].some(f => f?.toLowerCase().includes(search.toLowerCase()))
-  );
+  const toggleSelect = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
-  const withEmail = contacts?.filter(c => c.email)?.length || 0;
-  const withPhone = contacts?.filter(c => c.phone)?.length || 0;
+  const toggleSelectAll = () => {
+    if (selected.size === filtered.length) setSelected(new Set());
+    else setSelected(new Set(filtered.map((c) => c.id)));
+  };
+
+  const openContact = (id: string) => {
+    setDrawerId(id);
+    setDrawerOpen(true);
+  };
+
+  const handleCreate = async () => {
+    try {
+      await createContact.mutateAsync(createForm);
+      setCreateForm({ name: '', email: '', phone: '' });
+      setCreateOpen(false);
+      toast({ title: 'Contact created' });
+    } catch (e: any) {
+      toast({ title: 'Error', description: e?.message, variant: 'destructive' });
+    }
+  };
+
+  const handleExport = () => {
+    if (!filtered.length) {
+      toast({ title: 'Nothing to export', variant: 'destructive' });
+      return;
+    }
+    const csv = exportContactsToCSV(filtered);
+    downloadFile(`contacts-${new Date().toISOString().slice(0, 10)}.csv`, csv);
+    toast({ title: 'Exported', description: `${filtered.length} contacts exported` });
+  };
+
+  const handleBulkDelete = async () => {
+    try {
+      const res = await bulkDelete.mutateAsync(Array.from(selected));
+      toast({ title: 'Deleted', description: `${res.deleted} contact(s) removed` });
+      setSelected(new Set());
+      setBulkDeleteOpen(false);
+    } catch (e: any) {
+      toast({ title: 'Error', description: e?.message, variant: 'destructive' });
+    }
+  };
+
+  const activeFilters = (filterTag ? 1 : 0) + (filterHasEmail ? 1 : 0) + (filterHasPhone ? 1 : 0);
+  const withEmail = contacts?.filter((c) => c.email).length || 0;
+  const withPhone = contacts?.filter((c) => c.phone).length || 0;
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="page-header">{t('contacts.title')}</h1>
-          <p className="page-subtitle mt-1">Manage your contacts and leads</p>
-        </div>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild>
-            <Button><Plus className="h-4 w-4 me-2" />{t('contacts.addContact')}</Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader><DialogTitle>{t('contacts.addContact')}</DialogTitle></DialogHeader>
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label>{t('contacts.name')}</Label>
-                <Input value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} />
-              </div>
-              <div className="space-y-2">
-                <Label>{t('contacts.email')}</Label>
-                <Input type="email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} />
-              </div>
-              <div className="space-y-2">
-                <Label>{t('contacts.phone')}</Label>
-                <Input value={form.phone} onChange={e => setForm(p => ({ ...p, phone: e.target.value }))} />
-              </div>
+    <div className="flex flex-col h-full bg-background" dir={dir}>
+      {/* ── Header ── */}
+      <div className="border-b border-border bg-card px-5 py-3">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <Users className="w-5 h-5 text-primary" />
+              <h1 className="text-base font-bold text-foreground">
+                {t('contacts.title') || 'Contacts'}
+              </h1>
             </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
-              <Button onClick={handleCreate} disabled={createContact.isPending}>
-                {createContact.isPending ? t('common.loading') : t('common.create')}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      </div>
+            <Badge variant="secondary" className="text-xs">{filtered.length}</Badge>
+          </div>
 
-      {/* Stat cards */}
-      <div className="grid grid-cols-3 gap-4">
-        <div className="stat-card">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-lg bg-primary/10"><Users className="h-5 w-5 text-primary" /></div>
-            <div>
-              <p className="text-2xl font-bold text-foreground">{contacts?.length || 0}</p>
-              <p className="text-xs text-muted-foreground">Total Contacts</p>
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Search */}
+            <div className="relative">
+              <Search className="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+              <Input
+                placeholder="Search contacts..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="h-9 ps-8 pe-3 w-[220px] text-xs"
+              />
             </div>
-          </div>
-        </div>
-        <div className="stat-card">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-lg bg-info/10"><Mail className="h-5 w-5 text-info" /></div>
-            <div>
-              <p className="text-2xl font-bold text-foreground">{withEmail}</p>
-              <p className="text-xs text-muted-foreground">With Email</p>
-            </div>
-          </div>
-        </div>
-        <div className="stat-card">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-lg bg-success/10"><Phone className="h-5 w-5 text-success" /></div>
-            <div>
-              <p className="text-2xl font-bold text-foreground">{withPhone}</p>
-              <p className="text-xs text-muted-foreground">With Phone</p>
-            </div>
-          </div>
-        </div>
-      </div>
 
-      <Card className="card-elevated">
-        <div className="flex items-center justify-between p-4 border-b border-border">
-          <h3 className="text-sm font-semibold">All Contacts</h3>
-          <div className="relative w-64">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search contacts..." className="pl-9 text-xs" />
-          </div>
-        </div>
-        <CardContent className="p-0">
-          {isLoading ? (
-            <div className="p-8 text-center text-muted-foreground">{t('common.loading')}</div>
-          ) : !filtered?.length ? (
-            <div className="p-12 text-center">
-              <User className="h-12 w-12 text-muted-foreground/30 mx-auto mb-3" />
-              <p className="text-muted-foreground font-medium">{t('contacts.noContacts')}</p>
-              <p className="text-xs text-muted-foreground mt-1">Add your first contact to get started</p>
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t('contacts.name')}</TableHead>
-                  <TableHead>{t('contacts.email')}</TableHead>
-                  <TableHead>{t('contacts.phone')}</TableHead>
-                  <TableHead>{t('contacts.tags')}</TableHead>
-                  <TableHead className="w-16" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filtered.map(contact => (
-                  <TableRow key={contact.id} className="hover:bg-muted/30">
-                    <TableCell>
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                          <span className="text-xs font-semibold text-primary">{(contact.name || '?').charAt(0).toUpperCase()}</span>
-                        </div>
-                        <span className="font-medium text-sm">{contact.name || '—'}</span>
+            {/* Filters */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="h-9 text-xs gap-1.5">
+                  <Filter className="w-3.5 h-3.5" />
+                  Filters
+                  {activeFilters > 0 && (
+                    <Badge variant="default" className="ms-1 h-4 px-1.5 text-[10px]">{activeFilters}</Badge>
+                  )}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64">
+                <div className="p-2 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Checkbox id="has-email" checked={filterHasEmail} onCheckedChange={(v) => setFilterHasEmail(!!v)} />
+                    <Label htmlFor="has-email" className="text-xs cursor-pointer flex-1">Has email</Label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Checkbox id="has-phone" checked={filterHasPhone} onCheckedChange={(v) => setFilterHasPhone(!!v)} />
+                    <Label htmlFor="has-phone" className="text-xs cursor-pointer flex-1">Has phone</Label>
+                  </div>
+                </div>
+                {allTags.length > 0 && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <div className="p-2">
+                      <Label className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">Tags</Label>
+                      <div className="flex flex-wrap gap-1 mt-2 max-h-32 overflow-y-auto">
+                        {allTags.map((tag) => (
+                          <button
+                            key={tag}
+                            onClick={() => setFilterTag(filterTag === tag ? null : tag)}
+                            className={cn(
+                              'text-[10px] px-2 py-1 rounded-full border transition-colors',
+                              filterTag === tag
+                                ? 'bg-primary text-primary-foreground border-primary'
+                                : 'bg-secondary text-foreground border-transparent hover:border-border',
+                            )}
+                          >
+                            {tag}
+                          </button>
+                        ))}
                       </div>
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{contact.email || '—'}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{contact.phone || '—'}</TableCell>
-                    <TableCell>
-                      {contact.tags?.map(tag => (
-                        <Badge key={tag} variant="secondary" className="me-1 text-[10px]">{tag}</Badge>
-                      ))}
-                    </TableCell>
-                    <TableCell>
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => deleteContact.mutate(contact.id)}>
-                        <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                    </div>
+                  </>
+                )}
+                {activeFilters > 0 && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => { setFilterTag(null); setFilterHasEmail(false); setFilterHasPhone(false); }}>
+                      <X className="w-3.5 h-3.5 me-2" />Clear filters
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <Button variant="outline" size="sm" className="h-9 text-xs gap-1.5" onClick={() => setImportOpen(true)}>
+              <Upload className="w-3.5 h-3.5" />Import
+            </Button>
+
+            <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+              <DialogTrigger asChild>
+                <Button size="sm" className="h-9 text-xs gap-1.5">
+                  <Plus className="w-3.5 h-3.5" />New Contact
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>{t('contacts.addContact') || 'New Contact'}</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">{t('contacts.name') || 'Name'}</Label>
+                    <Input value={createForm.name} onChange={(e) => setCreateForm((p) => ({ ...p, name: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">{t('contacts.email') || 'Email'}</Label>
+                    <Input type="email" value={createForm.email} onChange={(e) => setCreateForm((p) => ({ ...p, email: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">{t('contacts.phone') || 'Phone'}</Label>
+                    <Input value={createForm.phone} onChange={(e) => setCreateForm((p) => ({ ...p, phone: e.target.value }))} />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
+                  <Button onClick={handleCreate} disabled={createContact.isPending}>
+                    {createContact.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Create'}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="h-9 text-xs gap-1.5">
+                  Actions <ChevronDown className="w-3.5 h-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={handleExport}>
+                  <FileDown className="w-3.5 h-3.5 me-2" />Export to CSV
+                </DropdownMenuItem>
+                {selected.size > 0 && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => setBulkDeleteOpen(true)} className="text-destructive">
+                      <Trash2 className="w-3.5 h-3.5 me-2" />Delete selected ({selected.size})
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+
+        {/* Stat strip */}
+        <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
+          <div className="flex items-center gap-1.5">
+            <Users className="w-3.5 h-3.5" /><span><strong className="text-foreground">{contacts?.length || 0}</strong> total</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Mail className="w-3.5 h-3.5" /><span><strong className="text-foreground">{withEmail}</strong> with email</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Phone className="w-3.5 h-3.5" /><span><strong className="text-foreground">{withPhone}</strong> with phone</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Bulk action bar */}
+      {selected.size > 0 && (
+        <div className="bg-primary/10 border-b border-primary/20 px-5 py-2 flex items-center justify-between">
+          <span className="text-xs font-medium text-foreground">
+            <strong>{selected.size}</strong> contact{selected.size > 1 ? 's' : ''} selected
+          </span>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setSelected(new Set())}>
+              Clear
+            </Button>
+            <Button size="sm" variant="destructive" className="h-7 text-xs gap-1.5" onClick={() => setBulkDeleteOpen(true)}>
+              <Trash2 className="w-3.5 h-3.5" />Delete
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Table ── */}
+      <div className="flex-1 overflow-auto">
+        {isLoading ? (
+          <div className="flex items-center justify-center py-24">
+            <Loader2 className="w-6 h-6 animate-spin text-primary" />
+          </div>
+        ) : !filtered.length ? (
+          <EmptyState
+            hasContacts={!!contacts?.length}
+            onAdd={() => setCreateOpen(true)}
+            onImport={() => setImportOpen(true)}
+          />
+        ) : (
+          <table className="w-full text-sm">
+            <thead className="bg-card sticky top-0 z-10 border-b border-border">
+              <tr className="text-[11px] uppercase tracking-wide text-muted-foreground font-semibold">
+                <th className="w-10 p-3">
+                  <Checkbox
+                    checked={selected.size > 0 && selected.size === filtered.length}
+                    onCheckedChange={toggleSelectAll}
+                  />
+                </th>
+                <Th label="Full Name" sortKey="name" current={sortBy} dir={sortDir} onClick={toggleSort} icon={Users} />
+                <Th label="Email" sortKey="email" current={sortBy} dir={sortDir} onClick={toggleSort} icon={Mail} />
+                <th className="text-start p-3 font-semibold">Location</th>
+                <Th label="Company" sortKey="company" current={sortBy} dir={sortDir} onClick={toggleSort} />
+                <th className="text-start p-3 font-semibold">Segments</th>
+                <Th label="Last Active" sortKey="last_active" current={sortBy} dir={sortDir} onClick={toggleSort} />
+                <Th label="Score" sortKey="score" current={sortBy} dir={sortDir} onClick={toggleSort} icon={Star} />
+                <th className="w-16 text-center p-3 font-semibold">Preview</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((c) => {
+                const isSel = selected.has(c.id);
+                const company = getCompanyFromMetadata(c);
+                const loc = getLocationFromMetadata(c);
+                const score = getScoreFromMetadata(c);
+                return (
+                  <tr
+                    key={c.id}
+                    className={cn(
+                      'border-b border-border/50 transition-colors cursor-pointer',
+                      isSel ? 'bg-primary/5' : 'hover:bg-secondary/30',
+                    )}
+                    onClick={() => openContact(c.id)}
+                  >
+                    <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                      <Checkbox checked={isSel} onCheckedChange={() => toggleSelect(c.id)} />
+                    </td>
+                    <td className="p-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-xs font-semibold text-primary shrink-0">
+                          {c.avatar_url ? (
+                            <img src={c.avatar_url} alt="" className="w-8 h-8 rounded-full object-cover" />
+                          ) : (
+                            getInitials(c.name, c.email)
+                          )}
+                        </div>
+                        <span className="font-medium text-foreground truncate">{getDisplayName(c)}</span>
+                      </div>
+                    </td>
+                    <td className="p-3 text-muted-foreground truncate max-w-[200px]">{c.email || '—'}</td>
+                    <td className="p-3 text-muted-foreground">
+                      {loc.country || loc.city ? (
+                        <div className="flex items-center gap-1.5">
+                          {loc.flag && <span>{loc.flag}</span>}
+                          <span className="truncate">{[loc.city, loc.country].filter(Boolean).join(', ')}</span>
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground/50 italic text-xs">Unknown</span>
+                      )}
+                    </td>
+                    <td className="p-3 text-muted-foreground">
+                      {company || <span className="text-muted-foreground/50 italic text-xs">Unknown</span>}
+                    </td>
+                    <td className="p-3">
+                      {(c.tags ?? []).length === 0 ? (
+                        <span className="text-muted-foreground/50 italic text-xs">No segments</span>
+                      ) : (
+                        <div className="flex flex-wrap gap-1 max-w-[180px]">
+                          {(c.tags ?? []).slice(0, 2).map((tag) => (
+                            <Badge key={tag} variant="secondary" className="text-[10px] h-5 px-1.5">{tag}</Badge>
+                          ))}
+                          {(c.tags ?? []).length > 2 && (
+                            <Badge variant="outline" className="text-[10px] h-5 px-1.5">+{(c.tags ?? []).length - 2}</Badge>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                    <td className="p-3 text-muted-foreground text-xs">{timeAgo(c.updated_at ?? c.created_at)}</td>
+                    <td className="p-3">
+                      <div className="flex items-center gap-0.5">
+                        {[1, 2, 3, 4, 5].map((n) => (
+                          <Star
+                            key={n}
+                            className={cn(
+                              'w-3.5 h-3.5',
+                              n <= score ? 'fill-warning text-warning' : 'text-muted-foreground/25',
+                            )}
+                          />
+                        ))}
+                      </div>
+                    </td>
+                    <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
+                      <Button size="sm" variant="ghost" className="h-7 px-2 text-xs gap-1" onClick={() => openContact(c.id)}>
+                        <Eye className="w-3 h-3" />Preview
                       </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Drawer */}
+      <ContactDrawer
+        contactId={drawerId}
+        open={drawerOpen}
+        onOpenChange={(o) => { setDrawerOpen(o); if (!o) setDrawerId(null); }}
+      />
+
+      {/* Import wizard */}
+      <ContactImportWizard open={importOpen} onOpenChange={setImportOpen} workspaceId={workspace?.id} />
+
+      {/* Bulk delete confirmation */}
+      <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {selected.size} contact{selected.size > 1 ? 's' : ''}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete the selected contacts. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleBulkDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
+function Th({ label, sortKey, current, dir, onClick, icon: Icon }: {
+  label: string; sortKey: SortKey; current: SortKey; dir: 'asc' | 'desc'; onClick: (k: SortKey) => void; icon?: any;
+}) {
+  const active = current === sortKey;
+  return (
+    <th className="text-start p-3 font-semibold">
+      <button
+        className={cn(
+          'flex items-center gap-1.5 hover:text-foreground transition-colors',
+          active && 'text-foreground',
+        )}
+        onClick={() => onClick(sortKey)}
+      >
+        {Icon && <Icon className="w-3.5 h-3.5" />}
+        {label}
+        {active && <ChevronDown className={cn('w-3 h-3 transition-transform', dir === 'asc' && 'rotate-180')} />}
+      </button>
+    </th>
+  );
+}
+
+function EmptyState({ hasContacts, onAdd, onImport }: { hasContacts: boolean; onAdd: () => void; onImport: () => void }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-24 px-6 text-center">
+      <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-4">
+        <Users className="w-8 h-8 text-primary" />
+      </div>
+      <h3 className="text-base font-semibold text-foreground">
+        {hasContacts ? 'No contacts match your filters' : 'No contacts yet'}
+      </h3>
+      <p className="text-sm text-muted-foreground mt-1 max-w-sm">
+        {hasContacts
+          ? 'Try adjusting your search or filters to find what you\'re looking for.'
+          : 'Build your audience by adding contacts manually or importing them from a CSV file.'}
+      </p>
+      {!hasContacts && (
+        <div className="flex gap-2 mt-5">
+          <Button onClick={onAdd} className="gap-1.5">
+            <Plus className="w-4 h-4" />Add contact
+          </Button>
+          <Button variant="outline" onClick={onImport} className="gap-1.5">
+            <Upload className="w-4 h-4" />Import CSV
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

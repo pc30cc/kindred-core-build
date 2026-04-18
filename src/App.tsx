@@ -31,6 +31,7 @@ import InvitePage from "@/pages/auth/InvitePage";
 import OverviewPage from "@/pages/app/OverviewPage";
 import InboxPage from "@/pages/app/InboxPage";
 import ContactsPage from "@/pages/app/ContactsPage";
+import ContactDetailPage from "@/pages/app/ContactDetailPage";
 import VisitorsPage from "@/pages/app/VisitorsPage";
 import KnowledgeBasePage from "@/pages/app/KnowledgeBasePage";
 import WidgetPage from "@/pages/app/WidgetPage";
@@ -129,6 +130,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <Route index element={<OverviewPage />} />
                 <Route path="inbox" element={<InboxPage />} />
                 <Route path="contacts" element={<ContactsPage />} />
+                <Route path="contacts/:id" element={<ContactDetailPage />} />
                 <Route path="visitors" element={<VisitorsPage />} />
                 <Route path="knowledge-base" element={<KnowledgeBasePage />} />
                 <Route path="widget" element={<WidgetPage />} />

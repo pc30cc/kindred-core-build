@@ -72,12 +72,12 @@ export default function InboxPage() {
       const res = await deleteAll.mutateAsync(workspace.id);
       setSelectedId(null);
       toast({
-        title: t('inbox.deleteAllSuccess') || 'Conversations deleted',
-        description: `${res.deleted} ${t('inbox.conversationsRemoved') || 'conversation(s) removed.'}`,
+        title: 'Conversations deleted',
+        description: `${res.deleted} conversation(s) removed.`,
       });
     } catch (e: any) {
       toast({
-        title: t('common.error') || 'Error',
+        title: 'Error',
         description: e?.message || 'Failed to delete conversations',
         variant: 'destructive',
       });

@@ -2487,8 +2487,17 @@ export type Database = {
         Args: { _user_id: string; _workspace_id: string }
         Returns: boolean
       }
+      normalize_domain: { Args: { _input: string }; Returns: string }
       provision_account_on_signup: {
         Args: { _user_id: string }
+        Returns: undefined
+      }
+      register_workspace_domain: {
+        Args: {
+          _make_primary?: boolean
+          _raw_domain: string
+          _workspace_id: string
+        }
         Returns: undefined
       }
     }

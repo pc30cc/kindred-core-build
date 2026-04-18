@@ -50,11 +50,15 @@ import {
 import { resolveAIConfig, executeAICompletion } from '../services/ai/index.js';
 import { resolveVisitorIdentity, readVisitorCookie } from '../services/widget/visitorIdentity.js';
 import { widgetIdentityRouter } from './widgetIdentity.js';
+import { widgetAttachmentsRouter, attachUploadedFileToMessage } from './widgetAttachments.js';
 
 export const widgetRouter = Router();
 
 // Mount identity sub-router (all routes require widget token + origin)
 widgetRouter.use('/identity', widgetIdentityRouter);
+
+// Phase 6a — Mount attachments sub-router (token + origin enforced inside)
+widgetRouter.use('/attachments', widgetAttachmentsRouter);
 
 // ─── CORS preflight for all widget routes ───
 widgetRouter.use(widgetSecurityCors);
@@ -675,15 +679,19 @@ widgetRouter.get('/help-articles', widgetRateLimit('default'), async (req: Reque
 const messageSchema = z.object({
   workspace_id: z.string().uuid().optional(),
   conversation_id: z.string().uuid().optional().nullable(),
-  message: z.string().min(1).max(5000).optional(),
-  body: z.string().min(1).max(5000).optional(),
+  message: z.string().min(0).max(5000).optional(),
+  body: z.string().min(0).max(5000).optional(),
   visitor_id: z.string().min(1).max(255).optional(),
   visitor_name: z.string().max(200).optional(),
   visitor_email: z.string().email().optional().nullable(),
   visitor_phone: z.string().max(30).optional().nullable(),
   session_id: z.string().uuid().optional().nullable(),
   force_new_conversation: z.boolean().optional(),
-}).refine(d => !!(d.message || d.body), { message: 'message or body required' });
+  attachment_id: z.string().uuid().optional().nullable(),
+}).refine(
+  d => !!((d.message && d.message.trim()) || (d.body && d.body.trim()) || d.attachment_id),
+  { message: 'message, body, or attachment_id required' }
+);
 
 widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;

@@ -55,8 +55,7 @@ export default function WidgetPage() {
   const widgetApiBaseUrl = pdApi || '';
 
   const primaryColor = widget?.primary_color || branding?.primary_color || '#3B82F6';
-  const loaderVersion = '2026-04-15-build-3';
-  const loaderScriptUrl = `${widgetLoaderBaseUrl || 'https://widget.example.com'}/widget/loader.js?v=${encodeURIComponent(loaderVersion)}`;
+  const loaderScriptUrl = `${widgetLoaderBaseUrl || 'https://widget.example.com'}/widget/loader.js`;
 
   const windowEmbedCode = `<script type="text/javascript">
   window.__gs = [];

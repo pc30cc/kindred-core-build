@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import cookieParser from 'cookie-parser';
 import { loadConfig } from './config.js';
 import { widgetRouter } from './routes/widget.js';
 import { visitorRouter } from './routes/visitors.js';
@@ -46,6 +47,7 @@ app.use((req, res, next) => {
 });
 
 app.use(express.json({ limit: '50mb' })); // Larger limit for file uploads
+app.use(cookieParser()); // Parse signed visitor cookies (HttpOnly dvsid)
 
 // Attach config to requests
 app.use((req, _res, next) => {

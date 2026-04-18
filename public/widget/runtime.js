@@ -596,11 +596,22 @@
       }
       var label = '';
       var cls = 'connection-banner visible';
+      var withDot = true;
       if (s === 'offline') { label = t('offline'); cls += ' offline'; }
       else if (s === 'reconnecting') { label = t('reconnecting'); cls += ' reconnecting'; }
-      else if (s === 'connecting') { label = t('connecting'); cls += ' reconnecting'; }
+      else if (s === 'connecting') { label = t('connecting'); cls += ' connecting'; }
       bannerEl.className = cls;
-      bannerEl.textContent = label;
+      // Light DOM rebuild — dot + label. Honest & static, no countdown timers.
+      bannerEl.innerHTML = '';
+      if (withDot) {
+        var dot = document.createElement('span');
+        dot.className = 'conn-dot';
+        dot.setAttribute('aria-hidden', 'true');
+        bannerEl.appendChild(dot);
+      }
+      var span = document.createElement('span');
+      span.textContent = label;
+      bannerEl.appendChild(span);
     }
 
     return {

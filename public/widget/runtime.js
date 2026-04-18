@@ -1452,6 +1452,28 @@
       drafts: {},
     });
     var DRAFT_PENDING_KEY = '__pending__';
+
+    // ─── Phase 6a: Attachment domain store ───
+    // Kept SEPARATE from chatStore (per Part 12 rule). Tracks the single
+    // pending attachment for the current draft. State machine:
+    //   idle → selected → uploading → ready → (sent → idle) | error
+    // No persistence, no auto-retry, no background queueing.
+    var attachmentStore = createStore({
+      file: null,            // browser-side only, never sent raw
+      fileName: '',
+      mimeType: '',
+      sizeBytes: 0,
+      status: 'idle',        // 'idle'|'selected'|'uploading'|'ready'|'error'
+      progress: 0,           // 0..100
+      error: '',
+      attachmentId: null,    // server-issued, used in /message payload
+    });
+    function resetAttachment() {
+      attachmentStore.set({
+        file: null, fileName: '', mimeType: '', sizeBytes: 0,
+        status: 'idle', progress: 0, error: '', attachmentId: null,
+      });
+    }
     var kbStore = createStore({
       loaded: false,
       articles: [],

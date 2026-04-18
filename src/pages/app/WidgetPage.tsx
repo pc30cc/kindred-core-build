@@ -4,6 +4,7 @@ import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useWidgetSettings, useUpdateWidgetSettings } from '@/hooks/useWidgetSettings';
 import { useBrandingContext } from '@/features/branding/BrandingContext';
 import { usePlatformDomains } from '@/hooks/usePlatformBranding';
+import { useUpdateBranding } from '@/hooks/useBranding';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';

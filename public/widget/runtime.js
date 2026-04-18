@@ -1542,6 +1542,19 @@
 
     notify.attach(panel);
 
+    // Phase 5 — presence indicator: keep header dot/label in sync with presenceStore.
+    var presenceDot = panel.querySelector('[data-presence-dot]');
+    var presenceLabel = panel.querySelector('[data-presence-label]');
+    var presenceWrap = panel.querySelector('[data-presence]');
+    function renderPresence(s) {
+      if (!presenceDot || !presenceLabel || !presenceWrap) return;
+      var status = s.status || 'offline';
+      presenceWrap.className = 'presence status-' + status;
+      presenceLabel.textContent = s.label || '';
+    }
+    presenceStore.subscribe(renderPresence);
+    renderPresence(presenceStore.get());
+
     // Open immediately (user clicked launcher)
     shellStore.set({ isOpen: true, mounted: true });
     panel.classList.add('visible');
@@ -1677,11 +1690,28 @@
           });
           return;
         }
+        // Phase 5 — when offline + contact_fallback mode and there's no
+        // active thread yet, render the fallback form instead of the chat.
+        var pStatus = presenceStore.get().status;
+        var pMode = presenceStore.get().offlineMode;
+        var hasMessages = (chatStore.get().messages || []).length > 0;
+        var shouldFallback = (pStatus === 'offline' || pStatus === 'unavailable')
+          && pMode === 'contact_fallback' && !hasMessages;
+        if (shouldFallback) {
+          chatUI.renderContactFallback(body, identity, ctx.locale, presenceStore.get(), function () {
+            renderBody();
+          });
+          return;
+        }
         chatUI.renderChat(body);
       } else if (tab === 'help') {
         kbUI.ensure(function () { kbUI.render(body); });
       }
     }
+    // Re-render body when presence flips so fallback/normal swap takes effect.
+    presenceStore.subscribe(function () {
+      if (shellStore.get().activeTab === 'chat') renderBody();
+    });
 
     // ─── Wire transport events to UI ───
     //

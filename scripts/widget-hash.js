@@ -17,7 +17,7 @@ const SRC_DIR = join(ROOT, 'public', 'widget');
 const OUT_DIR = join(ROOT, 'dist', 'widget');
 
 // Files that get content-hashed filenames
-const HASHED_FILES = ['runtime.js', 'runtime.css', 'runtime-chat.js', 'runtime-kb.js'];
+const HASHED_FILES = ['runtime.js', 'runtime.css', 'runtime-chat.js', 'runtime-kb.js', 'runtime-rt-centrifugo.js'];
 
 // Files copied as-is (stable entry points)
 const STABLE_FILES = ['loader.js'];
@@ -29,7 +29,7 @@ function contentHash(buf) {
 function cleanOldHashed() {
   if (!existsSync(OUT_DIR)) return;
   for (const f of readdirSync(OUT_DIR)) {
-    if (/^runtime[a-z-]*\.[a-f0-9]{8}\.(js|css)$/.test(f)) {
+    if (/^runtime[a-z0-9-]*\.[a-f0-9]{8}\.(js|css)$/.test(f)) {
       unlinkSync(join(OUT_DIR, f));
     }
   }

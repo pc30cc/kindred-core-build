@@ -481,6 +481,16 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
           ? ws.availability_labels
           : {},
       },
+      // Phase 6a — Attachment config exposed to the widget runtime.
+      // The widget enforces these as a UX guard; the backend re-validates.
+      attachments: {
+        enabled: ws.attachments_enabled === true,
+        maxSizeMb: Math.max(1, Math.min(25, ws.attachments_max_size_mb ?? 10)),
+        allowedMimes: Array.isArray(ws.attachments_allowed_mimes) && ws.attachments_allowed_mimes.length > 0
+          ? ws.attachments_allowed_mimes
+          : ['image/png','image/jpeg','image/webp','image/gif','application/pdf','text/plain'],
+        maxCount: 1, // v1: single file per message
+      },
       supportMode: ws.support_mode || 'human_first',
       defaultMode: ws.default_mode || 'chat',
       mobileBehavior: ws.mobile_behavior || 'bottom_sheet',

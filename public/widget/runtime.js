@@ -1508,6 +1508,10 @@
     var headerHtml = '<div class="header">' +
       '<div class="header-title">' + Util.escapeHtml(brandName || 'Support') + '</div>' +
       '<div class="header-subtitle">' + Util.escapeHtml(welcomeMessage).replace(/\n/g, '<br>') + '</div>' +
+      '<div class="presence" data-presence aria-live="polite">' +
+        '<span class="presence-dot" data-presence-dot></span>' +
+        '<span class="presence-label" data-presence-label></span>' +
+      '</div>' +
       '</div>';
     var tabsHtml = '';
     if (chatEnabled && kbEnabled) {

@@ -158,6 +158,14 @@
         fallbackSubmit: 'Send message',
         fallbackSent: "Thanks — we've got your message and will reply shortly.",
         fallbackError: "Couldn't send right now. Please try again.",
+        // Phase 6a — attachments
+        attachFile: 'Attach file',
+        uploading: 'Uploading…',
+        readyToSend: 'Ready to send',
+        uploadFailed: 'Upload failed',
+        typeNotAllowed: 'File type not allowed',
+        tooLarge: 'File is too large',
+        selected: 'Selected',
       },
       fa: {
         chat: 'گفتگو', help: 'راهنما',
@@ -186,6 +194,14 @@
         fallbackSubmit: 'ارسال پیام',
         fallbackSent: 'پیام شما دریافت شد. به‌زودی پاسخ می‌دهیم.',
         fallbackError: 'ارسال انجام نشد. لطفاً دوباره تلاش کنید.',
+        // Phase 6a — attachments
+        attachFile: 'پیوست فایل',
+        uploading: 'در حال بارگذاری…',
+        readyToSend: 'آماده ارسال',
+        uploadFailed: 'بارگذاری ناموفق بود',
+        typeNotAllowed: 'این نوع فایل مجاز نیست',
+        tooLarge: 'حجم فایل بیش از حد مجاز است',
+        selected: 'انتخاب شده',
       },
       tr: {
         chat: 'Sohbet', help: 'Yardım',
@@ -214,6 +230,14 @@
         fallbackSubmit: 'Mesaj gönder',
         fallbackSent: 'Mesajınızı aldık, kısa süre içinde yanıtlayacağız.',
         fallbackError: 'Şu an gönderilemedi. Lütfen tekrar deneyin.',
+        // Phase 6a — attachments
+        attachFile: 'Dosya ekle',
+        uploading: 'Yükleniyor…',
+        readyToSend: 'Göndermeye hazır',
+        uploadFailed: 'Yükleme başarısız',
+        typeNotAllowed: 'Bu dosya türü desteklenmiyor',
+        tooLarge: 'Dosya çok büyük',
+        selected: 'Seçildi',
       },
     };
     return {

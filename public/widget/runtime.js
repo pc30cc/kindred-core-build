@@ -1,24 +1,23 @@
 /**
- * Widget Runtime v4 — Shadow DOM aware, internal layered architecture.
+ * Widget Runtime v5 — Phase 2 architecture.
  *
- * External shape unchanged: ships as one runtime.js file (plus the lazy
- * runtime-chat.js / runtime-kb.js modules). Internally split into namespaces:
+ * Layered, Shadow-DOM-only, transport-abstracted, domain-store-based.
  *
- *   Core         — shell lifecycle, panel mount/open/close, view switching
- *   Identity     — visitor identity / pre-chat policy / continuity hooks
- *   UI.Chat      — chat list + composer rendering
+ *   Stores       — small pub/sub stores per domain (shell / transport / identity / chat / kb / notify / uiPrefs)
+ *   Transport    — provider-agnostic interface (connect/disconnect/subscribe/onMessage/onPresence/onTyping/...)
+ *                  Polling is the only real driver shipped here. SSE/WS/Centrifugo can drop in later.
+ *   Identity     — visitor identity / pre-chat / continuity (cookie-backed; unchanged security model)
+ *   UI.Chat      — chat rendering + composer (consumes stores + transport, never touches polling directly)
  *   UI.KB        — knowledge base UI
- *   UI.Notify    — unread badge / inline status messages
+ *   UI.Notify    — connection banner + unread badge
+ *   Core         — shell lifecycle, panel mount/open/close, view switching
  *
- * Cookie-based identity (HttpOnly `dvsid`) is unchanged. `credentials: 'include'`
- * on every API call. No localStorage. No client-side trust expansion.
- *
- * The loader hands us:
- *   shell.shadowRoot — where ALL UI must render
- *   shell.launcher   — launcher button (in the shadow root)
- *   shell.setUnread  — badge updater
- *
- * Public API returned to loader: { open, close, toggle, setUnread }.
+ * Strict rules:
+ *   - HttpOnly `dvsid` cookie unchanged. credentials: 'include' on every API call.
+ *   - No localStorage for identity. Server is the only source of truth.
+ *   - UI never imports polling specifics.
+ *   - No offline message queue in this phase. Composer disabled while offline.
+ *   - Public API returned to loader: { open, close, toggle, setUnread }.
  */
 (function () {
   'use strict';
@@ -26,7 +25,7 @@
   var __gs_runtime = {};
 
   // ════════════════════════════════════════════════════════════════════
-  // Shared utilities
+  // Util
   // ════════════════════════════════════════════════════════════════════
   var Util = {
     escapeHtml: function (text) {
@@ -50,7 +49,48 @@
       args.unshift('[Widget Runtime]');
       try { console.info.apply(console, args); } catch (_) {}
     },
+    warn: function () {
+      if (!Util.debug) return;
+      var args = Array.prototype.slice.call(arguments);
+      args.unshift('[Widget Runtime]');
+      try { console.warn.apply(console, args); } catch (_) {}
+    },
   };
+
+  // ════════════════════════════════════════════════════════════════════
+  // createStore — tiny domain store with pub/sub
+  //   store.get()              → current state
+  //   store.set(partial|fn)    → merge update + notify
+  //   store.subscribe(listener)→ unsubscribe()
+  // ════════════════════════════════════════════════════════════════════
+  function createStore(initial) {
+    var state = initial || {};
+    var listeners = [];
+    function get() { return state; }
+    function set(update) {
+      var next = typeof update === 'function' ? update(state) : update;
+      if (!next) return;
+      var changed = false;
+      for (var k in next) {
+        if (Object.prototype.hasOwnProperty.call(next, k) && state[k] !== next[k]) {
+          state[k] = next[k];
+          changed = true;
+        }
+      }
+      if (!changed) return;
+      for (var i = 0; i < listeners.length; i++) {
+        try { listeners[i](state); } catch (e) { Util.warn('store listener err', e); }
+      }
+    }
+    function subscribe(fn) {
+      listeners.push(fn);
+      return function () {
+        var idx = listeners.indexOf(fn);
+        if (idx !== -1) listeners.splice(idx, 1);
+      };
+    }
+    return { get: get, set: set, subscribe: subscribe };
+  }
 
   // ════════════════════════════════════════════════════════════════════
   // Lazy module loader (chat / kb)
@@ -75,7 +115,7 @@
           cbs.forEach(function (fn) { fn(mod || null); });
         };
         script.onerror = function () {
-          Util.log('Module failed: ' + name);
+          Util.warn('Module failed: ' + name);
           var cbs = loading[name] || [];
           delete loading[name];
           cbs.forEach(function (fn) { fn(null); });
@@ -103,6 +143,10 @@
         searchKb: 'Search articles...',
         noArticles: 'No articles yet',
         loading: 'Loading…',
+        offline: "You're offline. Messaging is paused until the connection is back.",
+        reconnecting: 'Reconnecting…',
+        connecting: 'Connecting…',
+        offlineComposerTip: 'Disabled while offline',
       },
       fa: {
         chat: 'گفتگو', help: 'راهنما',
@@ -117,6 +161,10 @@
         searchKb: 'جستجو در مقالات...',
         noArticles: 'مقاله‌ای یافت نشد',
         loading: 'در حال بارگذاری…',
+        offline: 'اتصال شما قطع است. تا برقراری دوباره، ارسال پیام در دسترس نیست.',
+        reconnecting: 'در حال اتصال مجدد…',
+        connecting: 'در حال اتصال…',
+        offlineComposerTip: 'در حالت آفلاین غیرفعال است',
       },
       tr: {
         chat: 'Sohbet', help: 'Yardım',
@@ -131,6 +179,10 @@
         searchKb: 'Makalelerde ara...',
         noArticles: 'Henüz makale yok',
         loading: 'Yükleniyor…',
+        offline: 'Çevrimdışısınız. Bağlantı geri gelene kadar mesajlaşma duraklatıldı.',
+        reconnecting: 'Yeniden bağlanılıyor…',
+        connecting: 'Bağlanıyor…',
+        offlineComposerTip: 'Çevrimdışıyken devre dışı',
       },
     };
     return {
@@ -142,16 +194,222 @@
   })();
 
   // ════════════════════════════════════════════════════════════════════
-  // Identity layer — server-driven, cookie-backed
+  // Transport — provider-agnostic interface.
+  //
+  // Connection states: 'idle' | 'connecting' | 'online' | 'reconnecting' | 'offline'
+  //
+  // Public contract (drop-in for future SSE/WS/Centrifugo):
+  //   connect()
+  //   disconnect()
+  //   subscribeConversation(cid)
+  //   unsubscribeConversation(cid)
+  //   sendMessage({ text, conversationId }, { onReply, onConversation, onError })
+  //   loadHistory({ onResult })
+  //   sendTyping({ conversationId })
+  //   on(event, fn) → off()
+  //     events: 'message' | 'typing' | 'presence' | 'reconnect' | 'connectionstate'
+  //
+  // The polling driver implements message/connectionstate/reconnect for real,
+  // and exposes typing/presence as no-op hooks that future drivers can fulfill.
   // ════════════════════════════════════════════════════════════════════
-  function createIdentity(ctx) {
-    var state = {
-      loaded: false,
-      identityState: 'anonymous',
-      contact: null,
-      prechat: null,
-    };
+  function createTransport(ctx, transportStore) {
+    var subs = { message: [], typing: [], presence: [], reconnect: [], connectionstate: [] };
+    function on(event, fn) {
+      if (!subs[event]) return function () {};
+      subs[event].push(fn);
+      return function () {
+        var i = subs[event].indexOf(fn);
+        if (i !== -1) subs[event].splice(i, 1);
+      };
+    }
+    function emit(event, payload) {
+      var arr = subs[event] || [];
+      for (var i = 0; i < arr.length; i++) {
+        try { arr[i](payload); } catch (e) { Util.warn('transport listener err', e); }
+      }
+    }
 
+    function setConnectionState(next) {
+      var prev = transportStore.get().connectionState;
+      if (prev === next) return;
+      transportStore.set({ connectionState: next, lastConnectionChange: Date.now() });
+      emit('connectionstate', { state: next, previous: prev });
+      if (next === 'online' && (prev === 'reconnecting' || prev === 'offline')) {
+        emit('reconnect', {});
+      }
+    }
+
+    // ─── Polling driver (default and only real transport in Phase 2) ───
+    var pollingHandle = null;
+    var lastSuccessAt = 0;
+    var consecutiveFailures = 0;
+    var browserOnline = (typeof navigator !== 'undefined' && 'onLine' in navigator) ? navigator.onLine : true;
+    var subscribedConversation = null;
+    var historyLoaded = false;
+
+    function ensureChatModule(cb) {
+      if (ModuleLoader.modules.chat) return cb(ModuleLoader.modules.chat);
+      var url = (ctx.assetBase || '') + '/widget/runtime-chat.js?v=' +
+        (ctx.config._loaderVersion || ctx.config.loaderVersion || 'dev');
+      ModuleLoader.load('chat', url, function (mod) { cb(mod); });
+    }
+
+    function loadHistory(opts) {
+      ensureChatModule(function (mod) {
+        if (!mod || !mod.loadHistory) { if (opts && opts.onResult) opts.onResult({ conversationId: null, messages: [] }); return; }
+        mod.loadHistory({
+          apiBase: ctx.apiBase,
+          workspaceId: ctx.workspaceId,
+          sessionToken: ctx.sessionToken,
+          onResult: function (result) {
+            historyLoaded = true;
+            if (opts && opts.onResult) opts.onResult(result);
+          },
+        });
+      });
+    }
+
+    function sendMessage(payload, hooks) {
+      hooks = hooks || {};
+      ensureChatModule(function (mod) {
+        if (!mod || !mod.sendMessage) {
+          if (hooks.onError) hooks.onError('module_unavailable');
+          return;
+        }
+        mod.sendMessage({
+          apiBase: ctx.apiBase,
+          workspaceId: ctx.workspaceId,
+          sessionToken: ctx.sessionToken,
+          conversationId: payload.conversationId,
+          text: payload.text,
+          onConversation: function (cid) {
+            if (cid) subscribedConversation = cid;
+            if (hooks.onConversation) hooks.onConversation(cid);
+          },
+          onReply: function (reply) {
+            if (hooks.onReply) hooks.onReply(reply);
+            // Treat a successful send as a healthy connection signal
+            markPollSuccess();
+          },
+          onError: function (err) {
+            markPollFailure();
+            if (hooks.onError) hooks.onError(err);
+          },
+        });
+      });
+    }
+
+    function markPollSuccess() {
+      lastSuccessAt = Date.now();
+      consecutiveFailures = 0;
+      if (browserOnline) setConnectionState('online');
+    }
+    function markPollFailure() {
+      consecutiveFailures += 1;
+      if (!browserOnline) {
+        setConnectionState('offline');
+      } else if (consecutiveFailures >= 2) {
+        setConnectionState('reconnecting');
+      }
+    }
+
+    function subscribeConversation(cid) {
+      if (!cid || subscribedConversation === cid) return;
+      subscribedConversation = cid;
+      // Polling already keys on subscribedConversation through getConversationId
+    }
+    function unsubscribeConversation(cid) {
+      if (subscribedConversation === cid) subscribedConversation = null;
+    }
+
+    function startPolling() {
+      ensureChatModule(function (mod) {
+        if (!mod || !mod.startPolling) return;
+        if (pollingHandle && pollingHandle.stop) pollingHandle.stop();
+        pollingHandle = mod.startPolling({
+          apiBase: ctx.apiBase,
+          workspaceId: ctx.workspaceId,
+          sessionToken: ctx.sessionToken,
+          interval: 4000,
+          getConversationId: function () { return subscribedConversation; },
+          onConversation: function (cid) {
+            if (cid) subscribedConversation = cid;
+          },
+          onMessages: function (msgs) {
+            markPollSuccess();
+            if (msgs && msgs.length) emit('message', { messages: msgs });
+          },
+          // Optional success/error hooks if module supports them; safe if ignored
+          onTick: function (ok) { if (ok) markPollSuccess(); else markPollFailure(); },
+        });
+      });
+    }
+    function stopPolling() {
+      if (pollingHandle && pollingHandle.stop) {
+        pollingHandle.stop();
+        pollingHandle = null;
+      }
+    }
+
+    function handleBrowserOnline() {
+      browserOnline = true;
+      setConnectionState('reconnecting');
+      // The next poll tick (within 4s) will flip us to 'online' on success.
+    }
+    function handleBrowserOffline() {
+      browserOnline = false;
+      setConnectionState('offline');
+    }
+
+    function connect() {
+      setConnectionState('connecting');
+      if (typeof window !== 'undefined' && window.addEventListener) {
+        window.addEventListener('online', handleBrowserOnline);
+        window.addEventListener('offline', handleBrowserOffline);
+      }
+      startPolling();
+      // Optimistic: assume reachable until first failure
+      if (browserOnline) {
+        setConnectionState('online');
+      } else {
+        setConnectionState('offline');
+      }
+    }
+    function disconnect() {
+      stopPolling();
+      if (typeof window !== 'undefined' && window.removeEventListener) {
+        window.removeEventListener('online', handleBrowserOnline);
+        window.removeEventListener('offline', handleBrowserOffline);
+      }
+      setConnectionState('idle');
+    }
+
+    // ─── Typing / presence — no-op hooks under polling.
+    // Future WS/SSE driver implements them; UI already calls them.
+    function sendTyping(_payload) { /* no-op under polling */ }
+
+    return {
+      // lifecycle
+      connect: connect,
+      disconnect: disconnect,
+      // subscriptions
+      subscribeConversation: subscribeConversation,
+      unsubscribeConversation: unsubscribeConversation,
+      // actions
+      sendMessage: sendMessage,
+      sendTyping: sendTyping,
+      loadHistory: loadHistory,
+      // events
+      on: on,
+      // introspection
+      getDriverName: function () { return 'polling'; },
+    };
+  }
+
+  // ════════════════════════════════════════════════════════════════════
+  // Identity layer — server-driven, cookie-backed (UNCHANGED security model)
+  // ════════════════════════════════════════════════════════════════════
+  function createIdentity(ctx, identityStore) {
     function configFallback() {
       var pc = ctx.config.preChat || {};
       function on(key) {
@@ -167,7 +425,7 @@
 
     function fetchMe(cb) {
       if (!ctx.apiBase || !ctx.workspaceId) {
-        state.loaded = true;
+        identityStore.set({ loaded: true });
         if (cb) cb(false);
         return;
       }
@@ -180,24 +438,31 @@
       )
         .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
         .then(function (res) {
-          state.loaded = true;
           if (res.ok && res.body) {
-            state.identityState = res.body.identity_state || 'anonymous';
-            state.contact = res.body.contact || null;
-            state.prechat = res.body.prechat || configFallback();
+            identityStore.set({
+              loaded: true,
+              identityState: res.body.identity_state || 'anonymous',
+              contact: res.body.contact || null,
+              prechat: res.body.prechat || configFallback(),
+            });
           } else {
-            state.identityState = 'anonymous';
-            state.contact = null;
-            state.prechat = configFallback();
+            identityStore.set({
+              loaded: true,
+              identityState: 'anonymous',
+              contact: null,
+              prechat: configFallback(),
+            });
           }
-          Util.log('identity resolved', state);
+          Util.log('identity resolved', identityStore.get());
           if (cb) cb(true);
         })
         .catch(function () {
-          state.loaded = true;
-          state.identityState = 'anonymous';
-          state.contact = null;
-          state.prechat = configFallback();
+          identityStore.set({
+            loaded: true,
+            identityState: 'anonymous',
+            contact: null,
+            prechat: configFallback(),
+          });
           if (cb) cb(false);
         });
     }
@@ -220,29 +485,38 @@
         .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
         .then(function (res) {
           if (!res.ok) { if (cb) cb(false, res.body); return; }
-          state.identityState = 'identified';
-          state.contact = {
-            id: res.body.contact_id,
-            name: payload.name || (state.contact && state.contact.name) || null,
-            email: payload.email || (state.contact && state.contact.email) || null,
-            phone: payload.phone || (state.contact && state.contact.phone) || null,
-          };
+          var prev = identityStore.get().contact || {};
+          identityStore.set({
+            identityState: 'identified',
+            contact: {
+              id: res.body.contact_id,
+              name: payload.name || prev.name || null,
+              email: payload.email || prev.email || null,
+              phone: payload.phone || prev.phone || null,
+            },
+          });
           if (cb) cb(true, res.body);
         })
         .catch(function (err) { if (cb) cb(false, { error: 'network', _e: err }); });
     }
 
-    function isAsked(field) { return !!(state.prechat && state.prechat['ask_' + field]); }
-    function isRequired(field) { return !!(state.prechat && state.prechat['require_' + field]); }
+    function isAsked(field) {
+      var p = identityStore.get().prechat;
+      return !!(p && p['ask_' + field]);
+    }
+    function isRequired(field) {
+      var p = identityStore.get().prechat;
+      return !!(p && p['require_' + field]);
+    }
     function needsPrechat() {
-      if (state.identityState === 'identified') return false;
-      if (!state.prechat) return false;
-      if (!state.prechat.ask_name && !state.prechat.ask_email && !state.prechat.ask_phone) return false;
-      return !!(state.prechat.require_name || state.prechat.require_email || state.prechat.require_phone);
+      var s = identityStore.get();
+      if (s.identityState === 'identified') return false;
+      if (!s.prechat) return false;
+      if (!s.prechat.ask_name && !s.prechat.ask_email && !s.prechat.ask_phone) return false;
+      return !!(s.prechat.require_name || s.prechat.require_email || s.prechat.require_phone);
     }
 
     return {
-      state: state,
       fetchMe: fetchMe,
       submitPrechat: submitPrechat,
       isAsked: isAsked,
@@ -252,26 +526,69 @@
   }
 
   // ════════════════════════════════════════════════════════════════════
-  // UI.Notify — unread badge + simple inline status
+  // UI.Notify — connection banner + unread badge
   // ════════════════════════════════════════════════════════════════════
-  function createNotify(ctx) {
+  function createNotify(ctx, transportStore, t) {
+    var bannerEl = null;
+
+    function attach(panel) {
+      bannerEl = document.createElement('div');
+      bannerEl.className = 'connection-banner';
+      bannerEl.setAttribute('role', 'status');
+      bannerEl.setAttribute('aria-live', 'polite');
+      // Insert just below the header
+      var header = panel.querySelector('.header');
+      if (header && header.nextSibling) {
+        panel.insertBefore(bannerEl, header.nextSibling);
+      } else {
+        panel.insertBefore(bannerEl, panel.firstChild);
+      }
+      transportStore.subscribe(render);
+      render(transportStore.get());
+    }
+
+    function render(state) {
+      if (!bannerEl) return;
+      var s = state.connectionState;
+      if (s === 'online' || s === 'idle') {
+        bannerEl.className = 'connection-banner';
+        bannerEl.textContent = '';
+        return;
+      }
+      var label = '';
+      var cls = 'connection-banner visible';
+      if (s === 'offline') { label = t('offline'); cls += ' offline'; }
+      else if (s === 'reconnecting') { label = t('reconnecting'); cls += ' reconnecting'; }
+      else if (s === 'connecting') { label = t('connecting'); cls += ' reconnecting'; }
+      bannerEl.className = cls;
+      bannerEl.textContent = label;
+    }
+
     return {
+      attach: attach,
       setUnread: function (count) { if (ctx.shell.setUnread) ctx.shell.setUnread(count); },
     };
   }
 
   // ════════════════════════════════════════════════════════════════════
-  // UI.Chat — renders chat thread + pre-chat form into shadow root
+  // UI.Chat — renders chat thread + pre-chat into shadow root.
+  // Consumes: chatStore, identityStore, transportStore (read-only) + transport (actions)
   // ════════════════════════════════════════════════════════════════════
-  function createChatUI(ctx) {
-    var messages = [];
-    var seenIds = {};
-    var conversationId = null;
-    var pollHandle = null;
+  function createChatUI(deps) {
+    var ctx = deps.ctx;
+    var t = deps.t;
+    var chatStore = deps.chatStore;
+    var identityStore = deps.identityStore;
+    var transportStore = deps.transportStore;
+    var transport = deps.transport;
 
     function mergeIncoming(incoming) {
       if (!incoming || !incoming.length) return false;
+      var s = chatStore.get();
+      var messages = s.messages.slice();
+      var seenIds = Object.assign({}, s.seenIds);
       var changed = false;
+
       incoming.forEach(function (m) {
         var id = m.id || (m.time + ':' + (m.text || m.body || ''));
         if (seenIds[id]) return;
@@ -301,30 +618,23 @@
         });
         changed = true;
       });
+
+      if (changed) chatStore.set({ messages: messages, seenIds: seenIds });
       return changed;
     }
 
-    function chatModuleUrl() {
-      var base = ctx.assetBase || '';
-      return base + '/widget/runtime-chat.js?v=' + (ctx.config._loaderVersion || ctx.config.loaderVersion || 'dev');
-    }
-
-    function ensureChatModule(cb) {
-      if (ModuleLoader.modules.chat) return cb();
-      ModuleLoader.load('chat', chatModuleUrl(), function () { cb(); });
-    }
-
-    function renderEmpty(body, t) {
+    function renderEmpty(body) {
       body.innerHTML =
         '<div class="empty">' +
         '<svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>' +
         '<p>' + Util.escapeHtml(t('intro')) + '</p></div>';
     }
 
-    function renderChat(body, t) {
-      if (messages.length === 0) { renderEmpty(body, t); return; }
+    function renderChat(body) {
+      var s = chatStore.get();
+      if (!s.messages.length) { renderEmpty(body); return; }
       var html = '<div class="messages">';
-      messages.forEach(function (m) {
+      s.messages.forEach(function (m) {
         var bg = m.sender === 'visitor' ? 'style="background:' + ctx.primaryColor + '"' : '';
         var cls = m.sender === 'visitor' ? 'visitor' : 'operator';
         html += '<div class="msg ' + cls + '" ' + bg + '>' + Util.escapeHtml(m.body) + '</div>';
@@ -334,8 +644,8 @@
       body.scrollTop = body.scrollHeight;
     }
 
-    function renderPreChat(body, identity, t, locale, onSubmitted) {
-      var contact = identity.state.contact || {};
+    function renderPreChat(body, identity, locale, onSubmitted) {
+      var contact = (identityStore.get().contact) || {};
       function fieldRow(key, type, value) {
         var label = t(key);
         var req = identity.isRequired(key);
@@ -411,81 +721,65 @@
     }
 
     function sendMessage(text, onChange) {
+      // Hard guard: never send while not online
+      var conn = transportStore.get().connectionState;
+      if (conn !== 'online') return;
+
+      var s = chatStore.get();
+      var messages = s.messages.slice();
       messages.push({ body: text, sender: 'visitor', time: new Date() });
+      chatStore.set({ messages: messages });
       onChange();
-      ensureChatModule(function () {
-        var mod = ModuleLoader.modules.chat;
-        if (!mod || !mod.sendMessage) return;
-        mod.sendMessage({
-          apiBase: ctx.apiBase,
-          workspaceId: ctx.workspaceId,
-          sessionToken: ctx.sessionToken,
-          conversationId: conversationId,
-          text: text,
+
+      transport.sendMessage(
+        { text: text, conversationId: s.conversationId },
+        {
           onConversation: function (cid) {
-            if (cid && cid !== conversationId) conversationId = cid;
+            if (cid && cid !== chatStore.get().conversationId) {
+              chatStore.set({ conversationId: cid });
+              transport.subscribeConversation(cid);
+            }
           },
           onReply: function (reply) {
-            messages.push({ body: reply, sender: 'operator', time: new Date() });
+            var ns = chatStore.get();
+            var arr = ns.messages.slice();
+            arr.push({ body: reply, sender: 'operator', time: new Date() });
+            chatStore.set({ messages: arr });
             onChange();
           },
-          onError: function () { Util.log('Send failed'); },
-        });
-      });
+          onError: function () { Util.warn('Send failed'); },
+        }
+      );
     }
 
-    function bootstrapHistoryAndPoll(onChange) {
-      ensureChatModule(function () {
-        var mod = ModuleLoader.modules.chat;
-        if (!mod) return;
-
-        if (mod.loadHistory) {
-          mod.loadHistory({
-            apiBase: ctx.apiBase,
-            workspaceId: ctx.workspaceId,
-            sessionToken: ctx.sessionToken,
-            onResult: function (result) {
-              if (result.conversationId) conversationId = result.conversationId;
-              if (mergeIncoming(result.messages || [])) onChange();
-            },
-          });
-        }
-
-        if (pollHandle && pollHandle.stop) pollHandle.stop();
-        if (mod.startPolling) {
-          pollHandle = mod.startPolling({
-            apiBase: ctx.apiBase,
-            workspaceId: ctx.workspaceId,
-            sessionToken: ctx.sessionToken,
-            interval: 4000,
-            getConversationId: function () { return conversationId; },
-            onConversation: function (cid) { if (cid && cid !== conversationId) conversationId = cid; },
-            onMessages: function (msgs) { if (mergeIncoming(msgs)) onChange(); },
-          });
-        }
+    function bootstrapHistory(onChange) {
+      transport.loadHistory({
+        onResult: function (result) {
+          if (result.conversationId) {
+            chatStore.set({ conversationId: result.conversationId });
+            transport.subscribeConversation(result.conversationId);
+          }
+          if (mergeIncoming(result.messages || [])) onChange();
+        },
       });
-    }
-
-    function teardown() {
-      if (pollHandle && pollHandle.stop) pollHandle.stop();
-      pollHandle = null;
     }
 
     return {
       renderChat: renderChat,
       renderPreChat: renderPreChat,
       sendMessage: sendMessage,
-      bootstrapHistoryAndPoll: bootstrapHistoryAndPoll,
-      teardown: teardown,
+      bootstrapHistory: bootstrapHistory,
+      mergeIncoming: mergeIncoming,
     };
   }
 
   // ════════════════════════════════════════════════════════════════════
   // UI.KB
   // ════════════════════════════════════════════════════════════════════
-  function createKbUI(ctx) {
-    var articles = [];
-    var loaded = false;
+  function createKbUI(deps) {
+    var ctx = deps.ctx;
+    var t = deps.t;
+    var kbStore = deps.kbStore;
 
     function moduleUrl() {
       var base = ctx.assetBase || '';
@@ -493,9 +787,9 @@
     }
 
     function ensure(cb) {
-      if (loaded) return cb();
+      var s = kbStore.get();
+      if (s.loaded) return cb();
       ModuleLoader.load('kb', moduleUrl(), function () {
-        loaded = true;
         var mod = ModuleLoader.modules.kb;
         if (mod && mod.loadArticles) {
           mod.loadArticles({
@@ -503,20 +797,25 @@
             workspaceId: ctx.workspaceId,
             sessionToken: ctx.sessionToken,
             locale: ctx.locale,
-            onArticles: function (a) { articles = a; cb(); },
+            onArticles: function (a) {
+              kbStore.set({ loaded: true, articles: a });
+              cb();
+            },
           });
         } else {
+          kbStore.set({ loaded: true });
           cb();
         }
       });
     }
 
-    function render(body, t) {
+    function render(body) {
+      var s = kbStore.get();
       var html = '<input class="kb-search" type="search" placeholder="' + Util.escapeHtml(t('searchKb')) + '" />';
-      if (articles.length === 0) {
+      if (!s.articles.length) {
         html += '<div class="empty"><p>' + Util.escapeHtml(t('noArticles')) + '</p></div>';
       } else {
-        articles.forEach(function (a) {
+        s.articles.forEach(function (a) {
           html +=
             '<div class="kb-article">' +
             '<div class="kb-article-title">' + Util.escapeHtml(a.title) + '</div>' +
@@ -534,11 +833,11 @@
   // ════════════════════════════════════════════════════════════════════
   __gs_runtime.init = function (config, shell) {
     Util.debug = !!config.debugMode;
-    Util.log('Runtime init (Shadow DOM)');
+    Util.log('Runtime init (Shadow DOM, Phase 2)');
 
     var shadowRoot = (shell && shell.shadowRoot) || (shell && shell.shellEl && shell.shellEl.shadowRoot) || null;
     if (!shell || !shadowRoot) {
-      Util.log('FATAL: no shadowRoot provided by loader');
+      Util.warn('FATAL: no shadowRoot provided by loader');
       return { open: function(){}, close: function(){}, toggle: function(){}, setUnread: function(){} };
     }
 
@@ -557,32 +856,66 @@
     var chatEnabled = config.features && config.features.chat !== false;
     var kbEnabled = config.features && config.features.knowledgeBase;
 
+    // ─── Mount target ───
     var shellDiv = shadowRoot.querySelector ? shadowRoot.querySelector('.shell') : null;
     if (!shellDiv) {
       shellDiv = document.createElement('div');
       shellDiv.className = 'shell';
-      if (typeof shadowRoot.appendChild === 'function') {
-        shadowRoot.appendChild(shellDiv);
-      }
+      if (typeof shadowRoot.appendChild === 'function') shadowRoot.appendChild(shellDiv);
     }
     if (!shellDiv || typeof shellDiv.appendChild !== 'function') {
-      Util.log('FATAL: no mount target available inside shadow root');
+      Util.warn('FATAL: no mount target available inside shadow root');
       return { open: function(){}, close: function(){}, toggle: function(){}, setUnread: function(){} };
     }
     var launcher = shell.launcher;
 
-    // ─── State containers (kept domain-separated) ───
-    var ui = { activeTab: chatEnabled ? 'chat' : (kbEnabled ? 'help' : 'chat'), isOpen: false };
+    // ─── Domain stores (each one isolated, with pub/sub) ───
+    var shellStore = createStore({
+      isOpen: false,
+      activeTab: chatEnabled ? 'chat' : (kbEnabled ? 'help' : 'chat'),
+      mounted: false,
+    });
+    var transportStore = createStore({
+      connectionState: 'idle',
+      lastConnectionChange: 0,
+    });
+    var identityStore = createStore({
+      loaded: false,
+      identityState: 'anonymous',
+      contact: null,
+      prechat: null,
+    });
+    var chatStore = createStore({
+      conversationId: null,
+      messages: [],
+      seenIds: {},
+    });
+    var kbStore = createStore({
+      loaded: false,
+      articles: [],
+    });
+    var notifyStore = createStore({
+      unread: 0,
+    });
+    var uiPrefsStore = createStore({
+      position: config.position === 'bottom-left' ? 'bottom-left' : 'bottom-right',
+    });
 
     // ─── Layers ───
-    var identity = createIdentity(ctx);
-    var notify = createNotify(ctx);
-    var chatUI = createChatUI(ctx);
-    var kbUI = createKbUI(ctx);
+    var transport = createTransport(ctx, transportStore);
+    var identity = createIdentity(ctx, identityStore);
+    var chatUI = createChatUI({
+      ctx: ctx, t: t,
+      chatStore: chatStore,
+      identityStore: identityStore,
+      transportStore: transportStore,
+      transport: transport,
+    });
+    var kbUI = createKbUI({ ctx: ctx, t: t, kbStore: kbStore });
+    var notify = createNotify(ctx, transportStore, t);
 
     // ─── Build panel ───
-    var position = config.position || 'bottom-right';
-    var posClass = position === 'bottom-left' ? 'bottom-left' : 'bottom-right';
+    var posClass = uiPrefsStore.get().position;
     var brandName = config.brandName || '';
     var welcomeMessage = config.welcomeMessage || 'Hi there 👋\nHow can we help you today?';
 
@@ -599,8 +932,8 @@
     var tabsHtml = '';
     if (chatEnabled && kbEnabled) {
       tabsHtml = '<div class="tabs">' +
-        '<button type="button" class="tab' + (ui.activeTab === 'chat' ? ' active' : '') + '" data-tab="chat">' + Util.escapeHtml(t('chat')) + '</button>' +
-        '<button type="button" class="tab' + (ui.activeTab === 'help' ? ' active' : '') + '" data-tab="help">' + Util.escapeHtml(t('help')) + '</button>' +
+        '<button type="button" class="tab' + (shellStore.get().activeTab === 'chat' ? ' active' : '') + '" data-tab="chat">' + Util.escapeHtml(t('chat')) + '</button>' +
+        '<button type="button" class="tab' + (shellStore.get().activeTab === 'help' ? ' active' : '') + '" data-tab="help">' + Util.escapeHtml(t('help')) + '</button>' +
         '</div>';
     }
     var bodyHtml = '<div class="body" data-body></div>';
@@ -623,30 +956,57 @@
     var sendBtn = panel.querySelector('[data-send-btn]');
     var inputBar = panel.querySelector('[data-input-bar]');
 
+    notify.attach(panel);
+
     // Open immediately (user clicked launcher)
-    ui.isOpen = true;
+    shellStore.set({ isOpen: true, mounted: true });
     panel.classList.add('visible');
 
     // ─── Tab switching ───
     var tabs = panel.querySelectorAll('.tab');
     Array.prototype.forEach.call(tabs, function (tab) {
       tab.addEventListener('click', function () {
-        ui.activeTab = tab.getAttribute('data-tab');
+        shellStore.set({ activeTab: tab.getAttribute('data-tab') });
         Array.prototype.forEach.call(tabs, function (t2) { t2.classList.remove('active'); });
         tab.classList.add('active');
         renderBody();
-        if (inputBar) inputBar.style.display = ui.activeTab === 'chat' ? 'flex' : 'none';
+        if (inputBar) inputBar.style.display = shellStore.get().activeTab === 'chat' ? 'flex' : 'none';
       });
     });
+
+    // ─── Composer state driven by transport store ───
+    function applyComposerState() {
+      if (!msgInput || !sendBtn) return;
+      var conn = transportStore.get().connectionState;
+      var canSend = conn === 'online' && shellStore.get().activeTab === 'chat';
+      msgInput.disabled = !canSend;
+      sendBtn.disabled = !canSend;
+      if (canSend) {
+        msgInput.removeAttribute('title');
+        sendBtn.style.opacity = '';
+        msgInput.style.opacity = '';
+      } else {
+        var tip = t('offlineComposerTip');
+        msgInput.setAttribute('title', tip);
+        sendBtn.setAttribute('title', tip);
+        sendBtn.style.opacity = '0.5';
+        msgInput.style.opacity = '0.7';
+      }
+    }
+    transportStore.subscribe(applyComposerState);
+    shellStore.subscribe(applyComposerState);
 
     // ─── Send handler ───
     function trySend() {
       if (!msgInput) return;
       var text = msgInput.value.trim();
       if (!text) return;
-      if (!identity.state.loaded) return;
+      if (!identityStore.get().loaded) return;
+      if (transportStore.get().connectionState !== 'online') return;
       if (identity.needsPrechat()) { renderBody(); return; }
       msgInput.value = '';
+      // typing hook (no-op under polling, ready for realtime drivers)
+      transport.sendTyping({ conversationId: chatStore.get().conversationId });
       chatUI.sendMessage(text, renderBody);
     }
     if (sendBtn) sendBtn.addEventListener('click', trySend);
@@ -660,57 +1020,89 @@
     }
     function renderBody() {
       if (!body) return;
-      if (ui.activeTab === 'chat') {
-        if (!identity.state.loaded) { renderLoading(); return; }
+      var tab = shellStore.get().activeTab;
+      if (tab === 'chat') {
+        if (!identityStore.get().loaded) { renderLoading(); return; }
         if (identity.needsPrechat()) {
-          chatUI.renderPreChat(body, identity, t, ctx.locale, function () {
+          chatUI.renderPreChat(body, identity, ctx.locale, function () {
             renderBody();
             if (msgInput) setTimeout(function () { msgInput.focus(); }, 100);
-            chatUI.bootstrapHistoryAndPoll(function () {
-              if (ui.activeTab === 'chat') renderBody();
-            });
           });
           return;
         }
-        chatUI.renderChat(body, t);
-      } else if (ui.activeTab === 'help') {
-        kbUI.ensure(function () { kbUI.render(body, t); });
+        chatUI.renderChat(body);
+      } else if (tab === 'help') {
+        kbUI.ensure(function () { kbUI.render(body); });
       }
     }
 
+    // ─── Wire transport events to UI ───
+    transport.on('message', function (payload) {
+      if (chatUI.mergeIncoming(payload.messages)) {
+        if (shellStore.get().activeTab === 'chat') renderBody();
+        if (!shellStore.get().isOpen) {
+          var n = notifyStore.get().unread + (payload.messages || []).length;
+          notifyStore.set({ unread: n });
+          notify.setUnread(n);
+        }
+      }
+    });
+    transport.on('reconnect', function () {
+      Util.log('transport reconnect — refreshing history');
+      chatUI.bootstrapHistory(function () {
+        if (shellStore.get().activeTab === 'chat') renderBody();
+      });
+    });
+    transport.on('connectionstate', function (e) {
+      Util.log('connection state →', e.state);
+    });
+
     // ─── Boot sequence ───
     renderLoading();
-    if (inputBar && ui.activeTab !== 'chat') inputBar.style.display = 'none';
+    if (inputBar && shellStore.get().activeTab !== 'chat') inputBar.style.display = 'none';
+    applyComposerState();
 
+    // 1) Identity → 2) Transport connect → 3) History
     identity.fetchMe(function () {
       renderBody();
+      transport.connect();
       if (!identity.needsPrechat()) {
-        chatUI.bootstrapHistoryAndPoll(function () {
-          if (ui.activeTab === 'chat') renderBody();
+        chatUI.bootstrapHistory(function () {
+          if (shellStore.get().activeTab === 'chat') renderBody();
         });
-        if (msgInput) setTimeout(function () { msgInput.focus(); }, 200);
+        if (msgInput) setTimeout(function () {
+          if (transportStore.get().connectionState === 'online') msgInput.focus();
+        }, 200);
       }
     });
 
     // ─── Public API back to loader ───
     return {
       open: function () {
-        if (ui.isOpen) return;
-        ui.isOpen = true;
+        if (shellStore.get().isOpen) return;
+        shellStore.set({ isOpen: true });
         if (launcher) launcher.classList.add('open');
         panel.classList.add('visible');
-        if (msgInput && !identity.needsPrechat()) setTimeout(function () { msgInput.focus(); }, 300);
+        // Clear unread on open
+        notifyStore.set({ unread: 0 });
+        notify.setUnread(0);
+        if (msgInput && transportStore.get().connectionState === 'online' && !identity.needsPrechat()) {
+          setTimeout(function () { msgInput.focus(); }, 300);
+        }
       },
       close: function () {
-        if (!ui.isOpen) return;
-        ui.isOpen = false;
+        if (!shellStore.get().isOpen) return;
+        shellStore.set({ isOpen: false });
         if (launcher) launcher.classList.remove('open');
         panel.classList.remove('visible');
       },
       toggle: function () {
-        if (ui.isOpen) this.close(); else this.open();
+        if (shellStore.get().isOpen) this.close(); else this.open();
       },
-      setUnread: function (count) { notify.setUnread(count); },
+      setUnread: function (count) {
+        notifyStore.set({ unread: count });
+        notify.setUnread(count);
+      },
     };
   };
 

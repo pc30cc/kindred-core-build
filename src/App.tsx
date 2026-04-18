@@ -130,6 +130,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <Route index element={<OverviewPage />} />
                 <Route path="inbox" element={<InboxPage />} />
                 <Route path="contacts" element={<ContactsPage />} />
+                <Route path="contacts/:id" element={<ContactDetailPage />} />
                 <Route path="visitors" element={<VisitorsPage />} />
                 <Route path="knowledge-base" element={<KnowledgeBasePage />} />
                 <Route path="widget" element={<WidgetPage />} />

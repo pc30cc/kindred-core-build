@@ -342,7 +342,6 @@ input:disabled, button:disabled {
   position: fixed;
   z-index: 2147483646;
   bottom: 92px;
-  right: 24px;
   width: 300px;
   max-width: calc(100vw - 32px);
   background: #fff;
@@ -356,6 +355,10 @@ input:disabled, button:disabled {
   transition: opacity .2s ease, transform .2s cubic-bezier(.34,1.56,.64,1);
   pointer-events: none;
 }
+/* Position follows the launcher position (bottom-right is the default). */
+.gs-toast.bottom-right { right: 24px; left: auto; }
+.gs-toast.bottom-left  { left: 24px;  right: auto; }
+.gs-toast:not(.bottom-right):not(.bottom-left) { right: 24px; }
 .gs-toast.visible {
   opacity: 1;
   transform: translateY(0) scale(1);
@@ -390,7 +393,9 @@ input:disabled, button:disabled {
     left: 0 !important;
     right: 0 !important;
   }
-  .gs-toast {
+  .gs-toast,
+  .gs-toast.bottom-right,
+  .gs-toast.bottom-left {
     bottom: 80px;
     right: 12px;
     left: 12px;

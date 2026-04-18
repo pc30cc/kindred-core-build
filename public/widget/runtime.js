@@ -714,11 +714,16 @@
     }
 
     // ─── Toast (Shadow DOM only, lives next to launcher) ───
+    function currentPositionClass() {
+      var pos = (uiPrefsStore.get() && uiPrefsStore.get().position) === 'bottom-left'
+        ? 'bottom-left' : 'bottom-right';
+      return pos;
+    }
     function ensureToastEl() {
       if (toastEl || !shadowRoot) return toastEl;
       var shellDiv = shadowRoot.querySelector('.shell') || shadowRoot;
       toastEl = document.createElement('div');
-      toastEl.className = 'gs-toast';
+      toastEl.className = 'gs-toast ' + currentPositionClass();
       toastEl.setAttribute('role', 'status');
       toastEl.setAttribute('aria-live', 'polite');
       toastEl.style.display = 'none';
@@ -732,6 +737,12 @@
         }
       });
       shellDiv.appendChild(toastEl);
+      // Keep toast position in sync if widget position ever changes at runtime.
+      uiPrefsStore.subscribe(function () {
+        if (!toastEl) return;
+        toastEl.classList.remove('bottom-right', 'bottom-left');
+        toastEl.classList.add(currentPositionClass());
+      });
       return toastEl;
     }
     function hideToast() {

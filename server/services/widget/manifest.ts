@@ -1,9 +1,22 @@
 /**
  * Widget Manifest Reader
  *
- * Reads widget-manifest.json to resolve content-hashed filenames.
- * Falls back to a composite widget asset hash when the manifest is unavailable,
- * so stable asset URLs can still be cache-busted safely.
+ * Resolves the widget asset manifest produced by `scripts/widget-hash.js`.
+ *
+ * Strategy (in order):
+ *   1. Local filesystem search — works for single-container / dev setups where
+ *      the backend can see the build output directly.
+ *   2. HTTP fetch from a configured asset base URL — required for split
+ *      frontend/backend deployments (e.g. Coolify multi-domain) where the
+ *      Express backend cannot read the nginx container's filesystem.
+ *
+ * Both results are cached for CACHE_TTL_MS. HTTP fetch results refresh
+ * lazily; if the fetch fails we keep serving the previous good manifest
+ * instead of regressing to fallback values.
+ *
+ * The fallback (when nothing is reachable) returns the unhashed asset names
+ * with a `loaderVersion` of `'unresolved'`. We deliberately do NOT use the
+ * old `'dev'` literal — that masked the configuration error in production.
  */
 import { createHash } from 'crypto';
 import { readFileSync, existsSync } from 'fs';
@@ -14,14 +27,21 @@ interface WidgetManifest {
   'runtime.css'?: string;
   'runtime-chat.js'?: string;
   'runtime-kb.js'?: string;
+  'runtime-rt-centrifugo.js'?: string;
   'loader.js'?: string;
   loaderVersion?: string;
 }
 
-type WidgetAssetKey = 'runtime.js' | 'runtime.css' | 'runtime-chat.js' | 'runtime-kb.js';
+type WidgetAssetKey =
+  | 'runtime.js'
+  | 'runtime.css'
+  | 'runtime-chat.js'
+  | 'runtime-kb.js'
+  | 'runtime-rt-centrifugo.js';
 
 let cachedManifest: WidgetManifest | null = null;
 let lastReadTime = 0;
+let lastSource: string = 'unresolved';
 const CACHE_TTL_MS = 60_000;
 
 const MANIFEST_PATHS = [
@@ -42,6 +62,7 @@ const WIDGET_DIR_PATHS = [
 ];
 
 const VERSION_FILES = ['loader.js', 'runtime.js', 'runtime.css', 'runtime-chat.js', 'runtime-kb.js'] as const;
+const FALLBACK_VERSION = 'unresolved';
 
 function computeFallbackVersion(): string {
   for (const dir of WIDGET_DIR_PATHS) {
@@ -57,56 +78,162 @@ function computeFallbackVersion(): string {
 
       return hash.digest('hex').slice(0, 12);
     } catch {
+      // ignore
     }
   }
 
-  return 'dev';
+  return FALLBACK_VERSION;
 }
 
-function loadManifest(): WidgetManifest {
+function readLocalManifest(): { manifest: WidgetManifest; source: string } | null {
+  for (const p of MANIFEST_PATHS) {
+    if (!existsSync(p)) continue;
+    try {
+      const raw = readFileSync(p, 'utf-8');
+      const parsed = JSON.parse(raw) as WidgetManifest;
+      parsed.loaderVersion ||= computeFallbackVersion();
+      return { manifest: parsed, source: `fs:${p}` };
+    } catch (err) {
+      console.warn(`[widget-manifest] Failed to parse ${p}:`, err);
+    }
+  }
+  return null;
+}
+
+function getRemoteManifestUrl(): string | null {
+  const explicit = process.env.WIDGET_MANIFEST_URL?.trim();
+  if (explicit) return explicit.replace(/\/$/, '');
+
+  const assetBase = process.env.WIDGET_ASSET_BASE_URL?.trim()
+    || process.env.PUBLIC_WIDGET_BASE_URL?.trim()
+    || process.env.PUBLIC_BASE_URL?.trim();
+
+  if (!assetBase) return null;
+  return `${assetBase.replace(/\/$/, '')}/widget/widget-manifest.json`;
+}
+
+let inflightRemoteFetch: Promise<WidgetManifest | null> | null = null;
+
+async function fetchRemoteManifest(): Promise<WidgetManifest | null> {
+  const url = getRemoteManifestUrl();
+  if (!url) return null;
+
+  if (inflightRemoteFetch) return inflightRemoteFetch;
+
+  inflightRemoteFetch = (async () => {
+    try {
+      const ctrl = new AbortController();
+      const timeout = setTimeout(() => ctrl.abort(), 4000);
+      const res = await fetch(url, { signal: ctrl.signal, cache: 'no-store' });
+      clearTimeout(timeout);
+      if (!res.ok) {
+        console.warn(`[widget-manifest] Remote fetch ${url} returned ${res.status}`);
+        return null;
+      }
+      const body = (await res.json()) as WidgetManifest;
+      if (!body || typeof body !== 'object') return null;
+      body.loaderVersion ||= FALLBACK_VERSION;
+      console.log(`[widget-manifest] Loaded from remote ${url} (loaderVersion=${body.loaderVersion})`);
+      return body;
+    } catch (err: any) {
+      console.warn(`[widget-manifest] Remote fetch failed: ${err?.message || err}`);
+      return null;
+    } finally {
+      inflightRemoteFetch = null;
+    }
+  })();
+
+  return inflightRemoteFetch;
+}
+
+function fallbackManifest(): WidgetManifest {
+  return {
+    'runtime.js': 'runtime.js',
+    'runtime.css': 'runtime.css',
+    'runtime-chat.js': 'runtime-chat.js',
+    'runtime-kb.js': 'runtime-kb.js',
+    'runtime-rt-centrifugo.js': 'runtime-rt-centrifugo.js',
+    'loader.js': 'loader.js',
+    loaderVersion: computeFallbackVersion(),
+  };
+}
+
+function syncLoadManifest(): WidgetManifest {
   const now = Date.now();
   if (cachedManifest && now - lastReadTime < CACHE_TTL_MS) {
     return cachedManifest;
   }
 
-  for (const p of MANIFEST_PATHS) {
-    if (existsSync(p)) {
-      try {
-        const raw = readFileSync(p, 'utf-8');
-        cachedManifest = JSON.parse(raw);
-        cachedManifest.loaderVersion ||= computeFallbackVersion();
-        lastReadTime = now;
-        console.log(`[widget-manifest] Loaded from ${p}`);
-        return cachedManifest;
-      } catch (err) {
-        console.warn(`[widget-manifest] Failed to parse ${p}:`, err);
+  const local = readLocalManifest();
+  if (local) {
+    cachedManifest = local.manifest;
+    lastSource = local.source;
+    lastReadTime = now;
+    console.log(`[widget-manifest] Loaded from ${local.source} (loaderVersion=${cachedManifest.loaderVersion})`);
+    // Kick a remote refresh in the background so we converge on the canonical
+    // frontend-served manifest if local FS is stale.
+    void fetchRemoteManifest().then((remote) => {
+      if (remote) {
+        cachedManifest = remote;
+        lastSource = `remote:${getRemoteManifestUrl()}`;
+        lastReadTime = Date.now();
       }
+    });
+    return cachedManifest;
+  }
+
+  // No local manifest — kick a remote fetch and serve a fallback for THIS
+  // request. Subsequent requests will pick up the remote value.
+  void fetchRemoteManifest().then((remote) => {
+    if (remote) {
+      cachedManifest = remote;
+      lastSource = `remote:${getRemoteManifestUrl()}`;
+      lastReadTime = Date.now();
+    }
+  });
+
+  if (!cachedManifest) {
+    cachedManifest = fallbackManifest();
+    lastSource = 'fallback';
+    lastReadTime = now;
+    if (cachedManifest.loaderVersion === FALLBACK_VERSION) {
+      console.warn(
+        '[widget-manifest] No manifest reachable. Set WIDGET_MANIFEST_URL ' +
+          'or WIDGET_ASSET_BASE_URL on the backend so it can fetch the ' +
+          'frontend-built widget-manifest.json. Serving unhashed assets.',
+      );
     }
   }
 
-  cachedManifest = {
-    'runtime.js': 'runtime.js',
-    'runtime.css': 'runtime.css',
-    'runtime-chat.js': 'runtime-chat.js',
-    'runtime-kb.js': 'runtime-kb.js',
-    'loader.js': 'loader.js',
-    loaderVersion: computeFallbackVersion(),
-  };
-  lastReadTime = now;
   return cachedManifest;
 }
 
 export function getWidgetAssetName(logical: WidgetAssetKey): string {
-  const manifest = loadManifest();
+  const manifest = syncLoadManifest();
   return manifest[logical] || logical;
 }
 
 export function getLoaderVersion(): string {
-  const manifest = loadManifest();
-  return manifest.loaderVersion || computeFallbackVersion();
+  const manifest = syncLoadManifest();
+  return manifest.loaderVersion || FALLBACK_VERSION;
 }
 
 export function invalidateManifestCache(): void {
   cachedManifest = null;
   lastReadTime = 0;
+  lastSource = 'unresolved';
+}
+
+export function getManifestDiagnostics() {
+  const manifest = syncLoadManifest();
+  return {
+    source: lastSource,
+    loaderVersion: manifest.loaderVersion,
+    runtimeJs: manifest['runtime.js'],
+    runtimeCss: manifest['runtime.css'],
+    runtimeChatJs: manifest['runtime-chat.js'],
+    runtimeKbJs: manifest['runtime-kb.js'],
+    cachedAt: lastReadTime ? new Date(lastReadTime).toISOString() : null,
+    remoteUrl: getRemoteManifestUrl(),
+  };
 }

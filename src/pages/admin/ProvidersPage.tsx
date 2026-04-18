@@ -8,6 +8,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useProviderSummary, PROVIDER_TYPE_KEYS, providerRegistry, getFallbackLog, type ProviderTypeKey, type ProviderHealth } from '@/providers';
 import { PROVIDER_SCHEMAS } from '@/features/providers/schemas';
 import { AdminProviderCard } from '@/features/providers/AdminProviderCard';
+import { AdminRealtimeCard } from '@/features/providers/AdminRealtimeCard';
+
+// Phase 3: realtime is configured globally via the dedicated card.
+function RenderProviderCard({ type }: { type: ProviderTypeKey }) {
+  if (type === 'realtime') return <AdminRealtimeCard />;
+  return <AdminProviderCard type={type} />;
+}
 
 export default function AdminProvidersPage() {
   const summary = useProviderSummary();

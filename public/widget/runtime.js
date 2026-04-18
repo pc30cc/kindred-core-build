@@ -256,13 +256,20 @@
 
     function loadHistory(opts) {
       ensureChatModule(function (mod) {
-        if (!mod || !mod.loadHistory) { if (opts && opts.onResult) opts.onResult({ conversationId: null, messages: [] }); return; }
+        if (!mod || !mod.loadHistory) {
+          // Module unavailable counts as a failure signal for connection state
+          markPollFailure();
+          if (opts && opts.onResult) opts.onResult({ conversationId: null, messages: [] });
+          return;
+        }
         mod.loadHistory({
           apiBase: ctx.apiBase,
           workspaceId: ctx.workspaceId,
           sessionToken: ctx.sessionToken,
           onResult: function (result) {
             historyLoaded = true;
+            // A successful history response is real backend reachability proof
+            markPollSuccess();
             if (opts && opts.onResult) opts.onResult(result);
           },
         });
@@ -302,14 +309,24 @@
     function markPollSuccess() {
       lastSuccessAt = Date.now();
       consecutiveFailures = 0;
+      // Only flip to online on actual successful backend communication.
       if (browserOnline) setConnectionState('online');
     }
     function markPollFailure() {
       consecutiveFailures += 1;
       if (!browserOnline) {
         setConnectionState('offline');
-      } else if (consecutiveFailures >= 2) {
+        return;
+      }
+      var cur = transportStore.get().connectionState;
+      // First failure during initial connect → reconnecting (not online).
+      // Subsequent failures while we were online → reconnecting after 2 in a row.
+      if (cur === 'connecting') {
         setConnectionState('reconnecting');
+      } else if (cur === 'online' && consecutiveFailures >= 2) {
+        setConnectionState('reconnecting');
+      } else if (cur === 'reconnecting') {
+        // stay reconnecting
       }
     }
 
@@ -353,8 +370,8 @@
 
     function handleBrowserOnline() {
       browserOnline = true;
+      // Don't mark online — wait for real successful poll/load.
       setConnectionState('reconnecting');
-      // The next poll tick (within 4s) will flip us to 'online' on success.
     }
     function handleBrowserOffline() {
       browserOnline = false;
@@ -362,18 +379,20 @@
     }
 
     function connect() {
-      setConnectionState('connecting');
+      // Stay in 'connecting' until first successful backend response
+      // (loadHistory or poll). Do NOT flip to online based on navigator.onLine.
+      consecutiveFailures = 0;
+      lastSuccessAt = 0;
       if (typeof window !== 'undefined' && window.addEventListener) {
         window.addEventListener('online', handleBrowserOnline);
         window.addEventListener('offline', handleBrowserOffline);
       }
-      startPolling();
-      // Optimistic: assume reachable until first failure
-      if (browserOnline) {
-        setConnectionState('online');
-      } else {
+      if (!browserOnline) {
         setConnectionState('offline');
+      } else {
+        setConnectionState('connecting');
       }
+      startPolling();
     }
     function disconnect() {
       stopPolling();
@@ -387,6 +406,17 @@
     // ─── Typing / presence — no-op hooks under polling.
     // Future WS/SSE driver implements them; UI already calls them.
     function sendTyping(_payload) { /* no-op under polling */ }
+
+    // ─── Capabilities (provider-agnostic). Future drivers (WS/SSE/Centrifugo)
+    // implement the same shape so UI modules can guard optional behavior.
+    var capabilities = {
+      driver: 'polling',
+      supportsRealtime: false,
+      supportsTyping: false,
+      supportsPresence: false,
+      supportsHistoryLoad: true,
+      supportsReconnectSignals: true,
+    };
 
     return {
       // lifecycle
@@ -402,7 +432,16 @@
       // events
       on: on,
       // introspection
-      getDriverName: function () { return 'polling'; },
+      getDriverName: function () { return capabilities.driver; },
+      getCapabilities: function () {
+        // Return a shallow copy so callers can't mutate the driver contract.
+        var copy = {};
+        for (var k in capabilities) {
+          if (Object.prototype.hasOwnProperty.call(capabilities, k)) copy[k] = capabilities[k];
+        }
+        return copy;
+      },
+      hasCapability: function (key) { return !!capabilities[key]; },
     };
   }
 

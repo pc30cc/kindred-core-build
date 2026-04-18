@@ -162,6 +162,36 @@ export default function InboxPage() {
               <button className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors">
                 <Plus className="w-3.5 h-3.5" />
               </button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <button
+                    title="Delete all conversations"
+                    disabled={!conversations?.length || deleteAll.isPending}
+                    className="p-1.5 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {deleteAll.isPending
+                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      : <Trash2 className="w-3.5 h-3.5" />}
+                  </button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete all conversations?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will permanently delete <strong>all {conversations?.length || 0} conversation(s)</strong> and their messages for this workspace. This action cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={handleDeleteAll}
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    >
+                      Delete all
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </div>
           </div>
 

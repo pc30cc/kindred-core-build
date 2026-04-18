@@ -4,7 +4,6 @@ import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useWidgetSettings, useUpdateWidgetSettings } from '@/hooks/useWidgetSettings';
 import { useBrandingContext } from '@/features/branding/BrandingContext';
 import { usePlatformDomains } from '@/hooks/usePlatformBranding';
-import { useUpdateBranding } from '@/hooks/useBranding';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -40,26 +39,20 @@ export default function WidgetPage() {
   const { branding, platformName } = useBrandingContext();
   const { data: platformDomains } = usePlatformDomains();
   const updateWidget = useUpdateWidgetSettings(workspace?.id);
-  const updateBranding = useUpdateBranding(workspace?.id);
   const [copiedVariant, setCopiedVariant] = useState<'window' | 'script' | null>(null);
   const [newDomain, setNewDomain] = useState('');
   const [domainError, setDomainError] = useState('');
 
-  // Resolution: workspace override (if non-empty) → platform default → window.location.origin
-  const wsWidgetPublic = nz((branding as any)?.widget_public_base_url);
-  const wsWidgetLoader = nz((branding as any)?.widget_loader_base_url);
-  const wsWidgetAsset = nz((branding as any)?.widget_base_url);
-  const wsWidgetApi = nz((branding as any)?.widget_api_base_url);
-
-  const pdWidget = nz(platformDomains?.widget_base_url);
-  const pdPublic = nz(platformDomains?.public_base_url);
-  const pdAsset = nz(platformDomains?.asset_base_url);
+  const pdApp = nz(platformDomains?.app_base_url);
   const pdApi = nz(platformDomains?.api_base_url);
+  const pdPublic = nz(platformDomains?.public_base_url);
+  const pdWidget = nz(platformDomains?.widget_base_url);
+  const pdAsset = nz(platformDomains?.asset_base_url);
 
-  const widgetPublicBaseUrl = wsWidgetPublic || pdWidget || pdPublic || window.location.origin;
-  const widgetLoaderBaseUrl = wsWidgetLoader || pdWidget || widgetPublicBaseUrl;
-  const widgetAssetBaseUrl = wsWidgetAsset || pdAsset || pdWidget || widgetLoaderBaseUrl;
-  const widgetApiBaseUrl = wsWidgetApi || pdApi || '';
+  const widgetPublicBaseUrl = pdPublic || pdWidget || pdAsset || pdApp || window.location.origin;
+  const widgetLoaderBaseUrl = pdWidget || pdPublic || pdAsset || pdApp || window.location.origin;
+  const widgetAssetBaseUrl = pdAsset || pdWidget || pdPublic || pdApp || window.location.origin;
+  const widgetApiBaseUrl = pdApi || '';
 
   const primaryColor = widget?.primary_color || branding?.primary_color || '#3B82F6';
   const loaderVersion = '2026-04-15-build-3';
@@ -324,55 +317,20 @@ export default function WidgetPage() {
                     <Link2 className="h-4 w-4" /> Widget deployment settings
                   </CardTitle>
                   <CardDescription>
-                    Each URL prefers the workspace override (if set) and falls back to the platform default. If your widget code shows the wrong domain, clear the workspace override here.
+                    Embed code now reads only from Platform Admin domain settings.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {[
-                    { key: 'widget_public_base_url', label: 'Widget Public Base URL', override: wsWidgetPublic, fallback: pdWidget || pdPublic, resolved: widgetPublicBaseUrl },
-                    { key: 'widget_loader_base_url', label: 'Widget Loader Base URL', override: wsWidgetLoader, fallback: pdWidget, resolved: widgetLoaderBaseUrl },
-                    { key: 'widget_base_url', label: 'Widget Asset Base URL', override: wsWidgetAsset, fallback: pdAsset || pdWidget, resolved: widgetAssetBaseUrl },
-                    { key: 'widget_api_base_url', label: 'Widget API Base URL', override: wsWidgetApi, fallback: pdApi, resolved: widgetApiBaseUrl },
+                    { label: 'App Base URL', value: pdApp || '—' },
+                    { label: 'API Base URL', value: pdApi || '—' },
+                    { label: 'Widget Public Base URL', value: pdPublic || '—' },
+                    { label: 'Widget Loader Base URL', value: pdWidget || pdPublic || pdApp || '—' },
+                    { label: 'Widget Asset Base URL', value: pdAsset || pdWidget || pdPublic || pdApp || '—' },
                   ].map(row => (
-                    <div key={row.key} className="space-y-2 rounded-lg border border-border bg-muted/20 p-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <Label className="text-xs font-medium">{row.label}</Label>
-                        <Badge variant={row.override ? 'default' : 'secondary'} className="text-[10px]">
-                          {row.override ? 'Workspace override' : 'Platform default'}
-                        </Badge>
-                      </div>
-                      <div className="flex gap-2">
-                        <Input
-                          key={`${row.key}-${row.override}`}
-                          defaultValue={row.override}
-                          placeholder={row.fallback || 'Inherits from platform default'}
-                          onBlur={e => {
-                            const v = e.target.value.trim();
-                            if (v !== row.override) {
-                              updateBranding.mutate({ [row.key]: v || null } as any, {
-                                onSuccess: () => toast({ title: 'Updated' }),
-                              });
-                            }
-                          }}
-                          className="font-mono text-xs"
-                        />
-                        {row.override && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              updateBranding.mutate({ [row.key]: null } as any, {
-                                onSuccess: () => toast({ title: 'Reset to platform default' }),
-                              });
-                            }}
-                          >
-                            Reset
-                          </Button>
-                        )}
-                      </div>
-                      <p className="text-[11px] text-muted-foreground">
-                        Resolved: <span className="font-mono text-foreground">{row.resolved || '—'}</span>
-                      </p>
+                    <div key={row.label} className="space-y-2 rounded-lg border border-border bg-muted/20 p-3">
+                      <Label className="text-xs font-medium">{row.label}</Label>
+                      <Input value={row.value} readOnly className="font-mono text-xs" />
                     </div>
                   ))}
 

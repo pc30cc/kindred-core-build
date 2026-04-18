@@ -308,7 +308,7 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
   const supabase = getServiceClient(config);
 
   try {
-    const [{ data: widget, error }, { data: branding }, { data: platformDomains }, originRules, { data: preChatPolicy }, { data: workspacePreChatFlags }] = await Promise.all([
+    const [{ data: widget, error }, { data: branding }, { data: platformDomains }, originRules, platformPreChatPolicy, { data: workspacePreChatFlags }] = await Promise.all([
       supabase.from('widget_settings').select('*').eq('workspace_id', workspaceId).maybeSingle(),
       supabase.from('workspace_branding')
         .select('platform_name, logo_url, primary_color, widget_base_url, widget_public_base_url, widget_loader_base_url, widget_api_base_url, asset_base_url')
@@ -317,7 +317,7 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
         .select('api_base_url, widget_base_url, asset_base_url, public_base_url')
         .limit(1).maybeSingle(),
       getWorkspaceOriginRules(config, workspaceId),
-      supabase.from('app_runtime_config').select('value').eq('key', PRECHAT_RUNTIME_KEY).maybeSingle(),
+      loadPlatformPreChatPolicy(supabase),
       supabase.from('feature_flags').select('key, enabled').eq('workspace_id', workspaceId).in('key', Object.values(PRECHAT_FIELD_KEYS)),
     ]);
 

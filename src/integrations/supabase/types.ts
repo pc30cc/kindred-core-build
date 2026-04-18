@@ -1855,6 +1855,8 @@ export type Database = {
           allow_subdomains: boolean
           allowed_domains: string[] | null
           auto_open_delay: number | null
+          availability_labels: Json
+          business_hours: Json
           chat_enabled: boolean | null
           created_at: string | null
           debug_mode: boolean
@@ -1874,10 +1876,12 @@ export type Database = {
           id: string
           kb_enabled: boolean | null
           launcher_text: string | null
+          live_chat_enabled: boolean
           locale: string | null
           logo_url: string | null
           mobile_behavior: string | null
           offline_message: string | null
+          offline_mode: string
           placeholder_text: string | null
           position: string | null
           primary_color: string | null
@@ -1895,6 +1899,8 @@ export type Database = {
           allow_subdomains?: boolean
           allowed_domains?: string[] | null
           auto_open_delay?: number | null
+          availability_labels?: Json
+          business_hours?: Json
           chat_enabled?: boolean | null
           created_at?: string | null
           debug_mode?: boolean
@@ -1914,10 +1920,12 @@ export type Database = {
           id?: string
           kb_enabled?: boolean | null
           launcher_text?: string | null
+          live_chat_enabled?: boolean
           locale?: string | null
           logo_url?: string | null
           mobile_behavior?: string | null
           offline_message?: string | null
+          offline_mode?: string
           placeholder_text?: string | null
           position?: string | null
           primary_color?: string | null
@@ -1935,6 +1943,8 @@ export type Database = {
           allow_subdomains?: boolean
           allowed_domains?: string[] | null
           auto_open_delay?: number | null
+          availability_labels?: Json
+          business_hours?: Json
           chat_enabled?: boolean | null
           created_at?: string | null
           debug_mode?: boolean
@@ -1954,10 +1964,12 @@ export type Database = {
           id?: string
           kb_enabled?: boolean | null
           launcher_text?: string | null
+          live_chat_enabled?: boolean
           locale?: string | null
           logo_url?: string | null
           mobile_behavior?: string | null
           offline_message?: string | null
+          offline_mode?: string
           placeholder_text?: string | null
           position?: string | null
           primary_color?: string | null

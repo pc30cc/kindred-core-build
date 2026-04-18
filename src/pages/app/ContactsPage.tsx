@@ -129,7 +129,7 @@ export default function ContactsPage() {
       await createContact.mutateAsync(createForm);
       setCreateForm({ name: '', email: '', phone: '' });
       setCreateOpen(false);
-      toast({ title: t('contacts.contactCreated') || 'Contact created' });
+      toast({ title: 'Contact created' });
     } catch (e: any) {
       toast({ title: 'Error', description: e?.message, variant: 'destructive' });
     }

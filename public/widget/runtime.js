@@ -305,6 +305,53 @@
       inputBar.style.display = 'none';
     }
 
+    // ─── Load history + start polling for agent replies ───
+    var seenMessageIds = {};
+    function mergeIncomingMessages(incoming) {
+      if (!incoming || !incoming.length) return false;
+      var changed = false;
+      incoming.forEach(function (m) {
+        var id = m.id || (m.time + ':' + (m.text || m.body || ''));
+        if (seenMessageIds[id]) return;
+        seenMessageIds[id] = true;
+        var senderRaw = m.role || m.sender || m.sender_type || 'agent';
+        var sender = (senderRaw === 'visitor' || senderRaw === 'contact') ? 'visitor' : 'operator';
+        messages.push({
+          body: m.text || m.body || '',
+          sender: sender,
+          time: m.time ? new Date(m.time) : new Date(),
+        });
+        changed = true;
+      });
+      return changed;
+    }
+
+    if (chatEnabled) {
+      ensureChatModule(function () {
+        if (modules.chat && modules.chat.loadHistory) {
+          modules.chat.loadHistory({
+            apiBase: apiBase,
+            workspaceId: workspaceId,
+            sessionToken: sessionToken,
+            onMessages: function (msgs) {
+              if (mergeIncomingMessages(msgs) && activeTab === 'chat') renderBody();
+            },
+          });
+        }
+        if (modules.chat && modules.chat.startPolling) {
+          modules.chat.startPolling({
+            apiBase: apiBase,
+            workspaceId: workspaceId,
+            sessionToken: sessionToken,
+            interval: 4000,
+            onMessages: function (msgs) {
+              if (mergeIncomingMessages(msgs) && activeTab === 'chat') renderBody();
+            },
+          });
+        }
+      });
+    }
+
     // ─── Public API ───
     var api = {
       open: function () {

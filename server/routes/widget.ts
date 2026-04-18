@@ -98,11 +98,34 @@ const DEFAULT_PRECHAT_POLICY = {
 
 function normalizePreChatPolicy(value: any) {
   const source = value && typeof value === 'object' ? value : {};
+  const valid = (v: any) => v === 'force_on' || v === 'force_off' || v === 'default_on' || v === 'default_off';
   return {
-    name: source.name === 'force_off' || source.name === 'default_off' ? source.name : DEFAULT_PRECHAT_POLICY.name,
-    email: source.email === 'force_off' || source.email === 'default_off' ? source.email : DEFAULT_PRECHAT_POLICY.email,
-    phone: source.phone === 'force_off' || source.phone === 'default_off' ? source.phone : DEFAULT_PRECHAT_POLICY.phone,
+    name: valid(source.name) ? source.name : DEFAULT_PRECHAT_POLICY.name,
+    email: valid(source.email) ? source.email : DEFAULT_PRECHAT_POLICY.email,
+    phone: valid(source.phone) ? source.phone : DEFAULT_PRECHAT_POLICY.phone,
   };
+}
+
+// Loads policy from widget_platform_settings (preferred) or falls back to app_runtime_config
+async function loadPlatformPreChatPolicy(supabase: any): Promise<any> {
+  const { data: platformRow } = await supabase
+    .from('widget_platform_settings')
+    .select('prechat_name_policy, prechat_email_policy, prechat_phone_policy')
+    .limit(1)
+    .maybeSingle();
+  if (platformRow) {
+    return {
+      name: platformRow.prechat_name_policy,
+      email: platformRow.prechat_email_policy,
+      phone: platformRow.prechat_phone_policy,
+    };
+  }
+  const { data: legacy } = await supabase
+    .from('app_runtime_config')
+    .select('value')
+    .eq('key', PRECHAT_RUNTIME_KEY)
+    .maybeSingle();
+  return legacy?.value || null;
 }
 
 function buildPreChatConfig(policyValue: any, workspaceFlags: Array<{ key: string; enabled: boolean | null }> = []) {
@@ -285,7 +308,7 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
   const supabase = getServiceClient(config);
 
   try {
-    const [{ data: widget, error }, { data: branding }, { data: platformDomains }, originRules, { data: preChatPolicy }, { data: workspacePreChatFlags }] = await Promise.all([
+    const [{ data: widget, error }, { data: branding }, { data: platformDomains }, originRules, platformPreChatPolicy, { data: workspacePreChatFlags }] = await Promise.all([
       supabase.from('widget_settings').select('*').eq('workspace_id', workspaceId).maybeSingle(),
       supabase.from('workspace_branding')
         .select('platform_name, logo_url, primary_color, widget_base_url, widget_public_base_url, widget_loader_base_url, widget_api_base_url, asset_base_url')
@@ -294,7 +317,7 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
         .select('api_base_url, widget_base_url, asset_base_url, public_base_url')
         .limit(1).maybeSingle(),
       getWorkspaceOriginRules(config, workspaceId),
-      supabase.from('app_runtime_config').select('value').eq('key', PRECHAT_RUNTIME_KEY).maybeSingle(),
+      loadPlatformPreChatPolicy(supabase),
       supabase.from('feature_flags').select('key, enabled').eq('workspace_id', workspaceId).in('key', Object.values(PRECHAT_FIELD_KEYS)),
     ]);
 
@@ -344,7 +367,7 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
     const chatModuleName = getWidgetAssetName('runtime-chat.js');
     const kbModuleName = getWidgetAssetName('runtime-kb.js');
     const loaderVersion = getLoaderVersion();
-    const preChat = buildPreChatConfig(preChatPolicy?.value, workspacePreChatFlags || []);
+    const preChat = buildPreChatConfig(platformPreChatPolicy, workspacePreChatFlags || []);
     const versionedAssetUrl = (url: string | null) => {
       if (!url) return null;
       const separator = url.includes('?') ? '&' : '?';

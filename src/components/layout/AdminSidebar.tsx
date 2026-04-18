@@ -2,7 +2,7 @@ import { Link, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Users, Building2, Plug, Server,
   Flag, Palette, Globe, FileText, CreditCard, Shield,
-  Database, Crown,
+  Database, Crown, MessageSquare,
   ChevronLeft, ChevronRight, LogOut, ArrowLeft, ArrowRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -16,6 +16,7 @@ const adminNav = [
   { key: 'users', path: '/admin/users', icon: Users },
   { key: 'workspaces', path: '/admin/workspaces', icon: Building2 },
   { key: 'providers', path: '/admin/providers', icon: Plug },
+  { key: 'widgetSettings', path: '/admin/widget-settings', icon: MessageSquare },
   { key: 'system', path: '/admin/system', icon: Server },
   { key: 'featureFlags', path: '/admin/feature-flags', icon: Flag },
   { key: 'branding', path: '/admin/branding', icon: Palette },

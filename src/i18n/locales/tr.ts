@@ -469,6 +469,7 @@ const tr: TranslationKeys = {
       users: 'Kullanıcılar',
       workspaces: 'Çalışma Alanları',
       providers: 'Sağlayıcılar',
+      widgetSettings: 'Widget Ayarları',
       system: 'Sistem',
       featureFlags: 'Özellik Bayrakları',
       branding: 'Marka',

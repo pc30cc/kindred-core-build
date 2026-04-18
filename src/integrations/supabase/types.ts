@@ -1527,6 +1527,66 @@ export type Database = {
           },
         ]
       }
+      widget_platform_settings: {
+        Row: {
+          admin_notes: string | null
+          created_at: string
+          default_allow_subdomains: boolean
+          default_debug_mode: boolean
+          enforce_domain_validation: boolean
+          force_chat_enabled: string
+          force_kb_enabled: string
+          force_visitor_tracking: string
+          id: string
+          max_allowed_domains_per_workspace: number
+          max_message_length: number
+          prechat_email_policy: string
+          prechat_name_policy: string
+          prechat_phone_policy: string
+          rate_limit_messages_per_minute: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          admin_notes?: string | null
+          created_at?: string
+          default_allow_subdomains?: boolean
+          default_debug_mode?: boolean
+          enforce_domain_validation?: boolean
+          force_chat_enabled?: string
+          force_kb_enabled?: string
+          force_visitor_tracking?: string
+          id?: string
+          max_allowed_domains_per_workspace?: number
+          max_message_length?: number
+          prechat_email_policy?: string
+          prechat_name_policy?: string
+          prechat_phone_policy?: string
+          rate_limit_messages_per_minute?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          admin_notes?: string | null
+          created_at?: string
+          default_allow_subdomains?: boolean
+          default_debug_mode?: boolean
+          enforce_domain_validation?: boolean
+          force_chat_enabled?: string
+          force_kb_enabled?: string
+          force_visitor_tracking?: string
+          id?: string
+          max_allowed_domains_per_workspace?: number
+          max_message_length?: number
+          prechat_email_policy?: string
+          prechat_name_policy?: string
+          prechat_phone_policy?: string
+          rate_limit_messages_per_minute?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       widget_settings: {
         Row: {
           allow_subdomains: boolean
@@ -2463,6 +2523,7 @@ export type Database = {
         Returns: string
       }
       get_invitation_info: { Args: { _token: string }; Returns: Json }
+      get_widget_platform_settings: { Args: never; Returns: Json }
       get_workspace_role: {
         Args: { _user_id: string; _workspace_id: string }
         Returns: Database["public"]["Enums"]["workspace_role"]

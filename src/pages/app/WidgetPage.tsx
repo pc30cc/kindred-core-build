@@ -148,7 +148,6 @@ export default function WidgetPage() {
               <TabsTrigger value="appearance" className="gap-1.5 text-xs"><Palette className="h-3.5 w-3.5" />Appearance</TabsTrigger>
               <TabsTrigger value="behavior" className="gap-1.5 text-xs"><Settings className="h-3.5 w-3.5" />Behavior</TabsTrigger>
               <TabsTrigger value="domains" className="gap-1.5 text-xs"><Shield className="h-3.5 w-3.5" />Domains</TabsTrigger>
-              <TabsTrigger value="deployment" className="gap-1.5 text-xs"><Link2 className="h-3.5 w-3.5" />Deployment</TabsTrigger>
               <TabsTrigger value="install" className="gap-1.5 text-xs"><Code className="h-3.5 w-3.5" />Install</TabsTrigger>
             </TabsList>
 
@@ -309,47 +308,7 @@ export default function WidgetPage() {
               </Card>
             </TabsContent>
 
-            <TabsContent value="deployment">
-              <Card className="card-elevated">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Link2 className="h-4 w-4" /> Widget deployment settings
-                  </CardTitle>
-                  <CardDescription>
-                    Embed code now reads only from Platform Admin domain settings.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {[
-                    { label: 'App Base URL', value: pdApp || '—' },
-                    { label: 'API Base URL', value: pdApi || '—' },
-                    { label: 'Widget Public Base URL', value: pdPublic || '—' },
-                    { label: 'Widget Loader Base URL', value: pdWidget || pdPublic || pdApp || '—' },
-                    { label: 'Widget Asset Base URL', value: pdAsset || pdWidget || pdPublic || pdApp || '—' },
-                  ].map(row => (
-                    <div key={row.label} className="space-y-2 rounded-lg border border-border bg-muted/20 p-3">
-                      <Label className="text-xs font-medium">{row.label}</Label>
-                      <Input value={row.value} readOnly className="font-mono text-xs" />
-                    </div>
-                  ))}
-
-                  <div className="flex items-center justify-between rounded-lg border border-border bg-muted/30 px-4 py-3">
-                    <div className="space-y-0.5">
-                      <Label className="text-sm flex items-center gap-2"><Bug className="h-3.5 w-3.5" /> Debug mode</Label>
-                      <p className="text-xs text-muted-foreground">Temporary loader/runtime console logs for bootstrap and asset issues.</p>
-                    </div>
-                    <Switch checked={widget?.debug_mode ?? false} onCheckedChange={v => handleToggle('debug_mode', v)} />
-                  </div>
-
-                  <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-2 text-sm">
-                    <p className="font-medium text-foreground">Embed code preview</p>
-                    <p className="text-muted-foreground">Loader URL: <span className="font-mono text-foreground">{embedPreview.loader}</span></p>
-                    <p className="text-muted-foreground">API base: <span className="font-mono text-foreground">{embedPreview.api}</span></p>
-                    <p className="text-muted-foreground">Asset base: <span className="font-mono text-foreground">{embedPreview.asset}</span></p>
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
+            {/* Deployment tab moved to Super Admin → Widget Settings */}
 
             {/* ─── Install ─── */}
             <TabsContent value="install">

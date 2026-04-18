@@ -241,6 +241,8 @@ widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), async (req: Reques
       workspace_name: workspace.name,
       expires_at: tokenInfo.valid && tokenInfo.expiresAt ? new Date(tokenInfo.expiresAt * 1000).toISOString() : null,
       platform_display_name: branding?.platform_name || '',
+      visitor_id: visitor.visitorId,
+      is_new_visitor: visitor.isNew,
       version: '3.0.0',
     });
   } catch (err: any) {

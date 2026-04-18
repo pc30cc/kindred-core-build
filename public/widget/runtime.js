@@ -1349,18 +1349,39 @@
       if (conn !== 'online') return;
       var s = chatStore.get();
       var messages = s.messages.slice();
+      // Phase 7 — optimistic local id used to find this bubble later when
+      // the backend confirms (sending → sent) or rejects (→ failed).
+      var localId = 'local_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
       messages.push({
         body: text,
         sender: 'visitor',
         time: new Date(),
         attachmentId: attachmentId || null,
-        // Phase 6b — optimistic attachment so the bubble renders the
-        // attachment immediately. The next poll/history merge will replace
-        // this object with the server-canonical metadata (same id).
         attachment: optimisticAttachment || null,
+        // Phase 7 — lifecycle starts as 'sending'. Transitions only on
+        // honest backend signals (onAccepted → 'sent', onError → 'failed',
+        // poll/history echo with seen_at → 'seen'). Never faked.
+        status: 'sending',
+        localId: localId,
       });
       chatStore.set({ messages: messages });
       onChange();
+
+      function updateByLocalId(patch) {
+        var cs = chatStore.get();
+        var arr = cs.messages.slice();
+        for (var i = 0; i < arr.length; i++) {
+          if (arr[i].localId === localId) {
+            // Monotonic guard: never regress past 'seen'.
+            if (arr[i].status === 'seen') return;
+            arr[i] = Object.assign({}, arr[i], patch);
+            chatStore.set({ messages: arr });
+            onChange();
+            return;
+          }
+        }
+      }
+
       transport.sendMessage(
         { text: text, conversationId: s.conversationId, attachmentId: attachmentId || null },
         {
@@ -1370,6 +1391,14 @@
               transport.subscribeConversation(cid);
             }
           },
+          onAccepted: function (info) {
+            // Bind canonical message id and flip to 'sent'. The next merge
+            // (poll/history) will reconcile by __id and may promote to 'seen'.
+            updateByLocalId({
+              status: 'sent',
+              __id: info && info.messageId ? info.messageId : undefined,
+            });
+          },
           onReply: function (reply) {
             var ns = chatStore.get();
             var arr = ns.messages.slice();
@@ -1377,7 +1406,10 @@
             chatStore.set({ messages: arr });
             onChange();
           },
-          onError: function () { Util.warn('Send failed'); },
+          onError: function () {
+            Util.warn('Send failed');
+            updateByLocalId({ status: 'failed' });
+          },
         }
       );
     }

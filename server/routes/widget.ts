@@ -549,14 +549,15 @@ widgetRouter.get('/help-articles', widgetRateLimit('default'), async (req: Reque
 const messageSchema = z.object({
   workspace_id: z.string().uuid().optional(),
   conversation_id: z.string().uuid().optional().nullable(),
-  message: z.string().min(1).max(5000),
+  message: z.string().min(1).max(5000).optional(),
+  body: z.string().min(1).max(5000).optional(),
   visitor_id: z.string().min(1).max(255).optional(),
   visitor_name: z.string().max(200).optional(),
   visitor_email: z.string().email().optional().nullable(),
   visitor_phone: z.string().max(30).optional().nullable(),
   session_id: z.string().uuid().optional().nullable(),
   force_new_conversation: z.boolean().optional(),
-});
+}).refine(d => !!(d.message || d.body), { message: 'message or body required' });
 
 widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
@@ -565,7 +566,9 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
     return res.status(400).json({ error: 'Invalid parameters', details: parsed.error.flatten().fieldErrors });
   }
 
-  const body = parsed.data;
+  const data = parsed.data;
+  const messageText = (data.message || data.body || '').trim();
+  const body = { ...data, message: messageText };
   const workspaceId = resolveWorkspaceId(req, res, body.workspace_id);
   if (res.headersSent) return;
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });

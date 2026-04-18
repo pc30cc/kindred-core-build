@@ -93,6 +93,25 @@
     var chatEnabled = config.features && config.features.chat !== false;
     var kbEnabled = config.features && config.features.knowledgeBase;
 
+    // Fallback prechat policy derived from /config (used if /identity/me fails)
+    var configPrechatFallback = (function () {
+      var pc = config.preChat || {};
+      function fieldEnabled(key) {
+        var f = pc[key] || {};
+        return !!f.enabled && !f.locked;
+      }
+      return {
+        ask_name: fieldEnabled('name'),
+        ask_email: fieldEnabled('email'),
+        ask_phone: fieldEnabled('phone'),
+        require_name: fieldEnabled('name'),
+        require_email: fieldEnabled('email'),
+        require_phone: fieldEnabled('phone'),
+        verify_email: false,
+        verify_phone: false,
+      };
+    })();
+
     var container = els.container;
     var launcher = els.launcher;
 

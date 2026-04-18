@@ -870,6 +870,140 @@
   }
 
   // ════════════════════════════════════════════════════════════════════
+  // Presence / Availability — Phase 5
+  //
+  // Resolves whether human help is currently available, completely
+  // SEPARATE from transport state (a healthy WS connection does NOT mean
+  // an operator is online) and SEPARATE from unread/notification state.
+  //
+  // Layered inputs (highest priority first):
+  //   1. live_chat_enabled === false                  → 'unavailable'
+  //   2. business_hours says closed (if enabled)      → 'offline'
+  //   3. realtime presence event (if driver supports) → 'online' / 'away' / 'offline'
+  //   4. backend snapshot (onlineOperators in config) → 'online' / 'offline'
+  //   5. conservative default                         → 'offline'
+  //
+  // Capability-aware: if transport doesn't emit presence, we never wait
+  // for it and never assume online. Polling fallback always produces a
+  // valid availability state from the snapshot + business hours.
+  // ════════════════════════════════════════════════════════════════════
+  function createPresence(ctx, presenceStore, transport, transportStore, t) {
+    var availability = (ctx.config && ctx.config.availability) || {};
+    var liveChatEnabled = availability.liveChatEnabled !== false;
+    var offlineMode = availability.offlineMode === 'contact_fallback' ? 'contact_fallback' : 'accept_messages';
+    var businessHours = availability.businessHours || { enabled: false, schedule: [], timezone: 'UTC' };
+    var customLabels = availability.labels || {};
+
+    // Snapshot from /config (best-effort hint, refreshed on reconnect via REST is OUT OF SCOPE here).
+    var snapshotOnlineOps = (typeof ctx.config.onlineOperators === 'number')
+      ? ctx.config.onlineOperators : 0;
+
+    // Last realtime presence signal: null = unknown, otherwise { online: bool, count: number, ts }.
+    var rtPresence = null;
+
+    // ─── Business hours check (visitor-local time, schedule:[{day:0..6, open:"HH:MM", close:"HH:MM"}]) ───
+    function isWithinBusinessHours() {
+      if (!businessHours || !businessHours.enabled) return true;
+      var schedule = Array.isArray(businessHours.schedule) ? businessHours.schedule : [];
+      if (!schedule.length) return true;
+      var now = new Date();
+      var day = now.getDay(); // 0=Sun..6=Sat
+      var minutes = now.getHours() * 60 + now.getMinutes();
+      for (var i = 0; i < schedule.length; i++) {
+        var slot = schedule[i] || {};
+        if (slot.day !== day) continue;
+        var open = parseHM(slot.open);
+        var close = parseHM(slot.close);
+        if (open == null || close == null) continue;
+        if (close > open && minutes >= open && minutes < close) return true;
+        // Overnight slot (e.g. 22:00 → 02:00)
+        if (close < open && (minutes >= open || minutes < close)) return true;
+      }
+      return false;
+    }
+    function parseHM(s) {
+      if (!s || typeof s !== 'string') return null;
+      var m = /^(\d{1,2}):(\d{2})$/.exec(s.trim());
+      if (!m) return null;
+      var h = +m[1], mn = +m[2];
+      if (h < 0 || h > 23 || mn < 0 || mn > 59) return null;
+      return h * 60 + mn;
+    }
+
+    function resolveStatus() {
+      // 1. Master switch
+      if (!liveChatEnabled) return 'unavailable';
+      // 2. Business hours
+      if (!isWithinBusinessHours()) return 'offline';
+      // 3. Realtime signal (when supported)
+      if (rtPresence) {
+        if (rtPresence.online) return rtPresence.away ? 'away' : 'online';
+        return 'offline';
+      }
+      // 4. Backend snapshot hint
+      if (snapshotOnlineOps > 0) return 'online';
+      // 5. Conservative default
+      return 'offline';
+    }
+
+    function labelFor(status) {
+      if (customLabels[status]) return String(customLabels[status]);
+      if (status === 'online') return t('availOnline');
+      if (status === 'away') return t('availAway');
+      if (status === 'unavailable') return t('availUnavailable');
+      return t('availOffline');
+    }
+
+    function publish() {
+      var status = resolveStatus();
+      var prev = presenceStore.get().status;
+      if (prev === status) return;
+      presenceStore.set({
+        status: status,
+        label: labelFor(status),
+        offlineMode: offlineMode,
+        liveChatEnabled: liveChatEnabled,
+        lastChange: Date.now(),
+      });
+    }
+
+    // Wire transport presence — only if the driver advertises support.
+    function wire() {
+      if (transport.hasCapability && transport.hasCapability('supportsPresence')) {
+        transport.on('presence', function (e) {
+          // Centrifugo emits { channel, join, leave }. Operators joining the
+          // workspace channel = online. We treat any join as online; leave
+          // without remaining joiners = offline. We do NOT track exact counts
+          // here — that's a future enhancement.
+          var hasJoin = !!(e && e.join);
+          var hasLeave = !!(e && e.leave);
+          if (!rtPresence) rtPresence = { online: false, count: 0, ts: 0 };
+          if (hasJoin) { rtPresence.online = true; rtPresence.count = (rtPresence.count || 0) + 1; }
+          else if (hasLeave) { rtPresence.count = Math.max(0, (rtPresence.count || 0) - 1); rtPresence.online = rtPresence.count > 0; }
+          rtPresence.away = false;
+          rtPresence.ts = Date.now();
+          publish();
+        });
+      }
+      // Republish on reconnect — but reconnect itself does NOT imply operator online.
+      // We just re-evaluate from current inputs; rtPresence is left as-is.
+      transport.on('reconnect', function () { publish(); });
+      // Re-evaluate periodically so business-hours transitions take effect
+      // without requiring a new transport event. Lightweight (60s tick).
+      setInterval(publish, 60_000);
+      // Initial publish
+      publish();
+    }
+
+    return {
+      wire: wire,
+      publish: publish,
+      isLiveChatEnabled: function () { return liveChatEnabled; },
+      getOfflineMode: function () { return offlineMode; },
+    };
+  }
+
+  // ════════════════════════════════════════════════════════════════════
   // UI.Chat — renders chat thread + pre-chat into shadow root.
   // Consumes: chatStore, identityStore, transportStore (read-only) + transport (actions)
   // ════════════════════════════════════════════════════════════════════

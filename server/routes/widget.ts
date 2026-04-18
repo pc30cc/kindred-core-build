@@ -459,6 +459,18 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
         visitorTracking: ws.visitor_tracking_enabled ?? true,
       },
       preChat,
+      // Phase 5 — Availability snapshot consumed by widget runtime presence layer.
+      // Widget never assumes realtime presence; this snapshot is always valid.
+      availability: {
+        liveChatEnabled: ws.live_chat_enabled ?? true,
+        offlineMode: ws.offline_mode === 'contact_fallback' ? 'contact_fallback' : 'accept_messages',
+        businessHours: ws.business_hours && typeof ws.business_hours === 'object'
+          ? ws.business_hours
+          : { enabled: false, timezone: 'UTC', schedule: [] },
+        labels: ws.availability_labels && typeof ws.availability_labels === 'object'
+          ? ws.availability_labels
+          : {},
+      },
       supportMode: ws.support_mode || 'human_first',
       defaultMode: ws.default_mode || 'chat',
       mobileBehavior: ws.mobile_behavior || 'bottom_sheet',
@@ -466,7 +478,7 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       showLogo: ws.show_logo ?? true,
       workspaceName: workspace?.name || '',
       teamMembers,
-      onlineOperators: 0, // TODO: Add operator presence tracking
+      onlineOperators: 0, // Resolved client-side from realtime presence when supported.
       runtimeUrl: versionedAssetUrl(assetBase ? `${assetBase}/widget/${runtimeJsName}` : null),
       styleUrl: versionedAssetUrl(assetBase ? `${assetBase}/widget/${runtimeCssName}` : null),
       modules: {

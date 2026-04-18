@@ -1471,6 +1471,14 @@
       // Sound is OFF by default. Toggle via window.__gs.push(['setSoundEnabled', true]).
       soundEnabled: !!(config.features && config.features.notificationSound) || false,
     });
+    // Phase 5 — presence/availability store. Separate from transport + notify stores.
+    var presenceStore = createStore({
+      status: 'offline',          // online | away | offline | unavailable
+      label: '',
+      offlineMode: 'accept_messages',
+      liveChatEnabled: true,
+      lastChange: 0,
+    });
 
     // ─── Layers ───
     var transport = createTransport(ctx, transportStore);
@@ -1484,6 +1492,7 @@
     });
     var kbUI = createKbUI({ ctx: ctx, t: t, kbStore: kbStore });
     var notify = createNotify(ctx, transportStore, notifyStore, uiPrefsStore, shellStore, t);
+    var presence = createPresence(ctx, presenceStore, transport, transportStore, t);
 
     // ─── Build panel ───
     var posClass = uiPrefsStore.get().position;

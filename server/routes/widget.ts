@@ -302,6 +302,11 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
     const chatModuleName = getWidgetAssetName('runtime-chat.js');
     const kbModuleName = getWidgetAssetName('runtime-kb.js');
     const loaderVersion = getLoaderVersion();
+    const versionedAssetUrl = (url: string | null) => {
+      if (!url) return null;
+      const separator = url.includes('?') ? '&' : '?';
+      return `${url}${separator}v=${encodeURIComponent(loaderVersion)}`;
+    };
     const widgetConfig = {
       enabled: true,
       workspaceId,
@@ -347,11 +352,11 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       workspaceName: workspace?.name || '',
       teamMembers,
       onlineOperators: 0, // TODO: Add operator presence tracking
-      runtimeUrl: assetBase ? `${assetBase}/widget/${runtimeJsName}` : null,
-      styleUrl: assetBase ? `${assetBase}/widget/${runtimeCssName}` : null,
+      runtimeUrl: versionedAssetUrl(assetBase ? `${assetBase}/widget/${runtimeJsName}` : null),
+      styleUrl: versionedAssetUrl(assetBase ? `${assetBase}/widget/${runtimeCssName}` : null),
       modules: {
-        chat: assetBase ? `${assetBase}/widget/${chatModuleName}` : null,
-        kb: assetBase ? `${assetBase}/widget/${kbModuleName}` : null,
+        chat: versionedAssetUrl(assetBase ? `${assetBase}/widget/${chatModuleName}` : null),
+        kb: versionedAssetUrl(assetBase ? `${assetBase}/widget/${kbModuleName}` : null),
       },
     };
 

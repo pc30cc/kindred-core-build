@@ -797,12 +797,13 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
         contactId = newContact?.id || null;
       }
 
+      const subjectText = body.message ? body.message.slice(0, 80) : (data.attachment_id ? '[Attachment]' : 'New conversation');
       const { data: conv, error: convErr } = await supabase
         .from('conversations').insert({
           workspace_id: workspaceId,
           status: 'open',
           priority: 'normal',
-          subject: body.message.slice(0, 80),
+          subject: subjectText,
           contact_id: contactId,
           visitor_session_id: body.session_id || null,
           updated_at: new Date().toISOString(),
@@ -812,15 +813,34 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       convId = conv!.id;
     }
 
-    // Insert visitor message
-    const { error: msgErr } = await supabase
+    // Insert visitor message (body may be empty when only an attachment is sent)
+    const messageBody = body.message || (data.attachment_id ? '' : '');
+    const { data: insertedMsg, error: msgErr } = await supabase
       .from('conversation_messages').insert({
         conversation_id: convId,
-        body: body.message,
+        body: messageBody,
         sender_type: 'contact',
-        metadata: { source: 'widget', visitor_id: body.visitor_id, session_id: body.session_id },
-      });
+        metadata: {
+          source: 'widget',
+          visitor_id: body.visitor_id,
+          session_id: body.session_id,
+          attachment_id: data.attachment_id || undefined,
+        },
+      })
+      .select('id')
+      .single();
     if (msgErr) throw msgErr;
+
+    // Phase 6a — Bind uploaded attachment to this message + conversation
+    if (data.attachment_id && insertedMsg?.id) {
+      const ok = await attachUploadedFileToMessage(
+        config, data.attachment_id, workspaceId, convId!, insertedMsg.id
+      );
+      if (!ok) {
+        // Don't fail the message; the attachment just won't be linked.
+        console.warn('[widget] Failed to attach', data.attachment_id, 'to message', insertedMsg.id);
+      }
+    }
 
     await supabase.from('conversations')
       .update({ updated_at: new Date().toISOString() })

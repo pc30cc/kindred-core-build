@@ -1056,6 +1056,10 @@
     var identityStore = deps.identityStore;
     var transportStore = deps.transportStore;
     var transport = deps.transport;
+    // Phase 6b — supplied by shell so lightbox lives in the panel's Shadow DOM
+    var openImageLightbox = typeof deps.openImageLightbox === 'function'
+      ? deps.openImageLightbox
+      : function () {};
 
     function mergeIncoming(incoming) {
       if (!incoming || !incoming.length) return false;

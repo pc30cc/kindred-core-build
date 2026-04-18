@@ -1373,14 +1373,79 @@
     }
 
     // ─── Wire transport events to UI ───
+    //
+    // Phase 4: This is the SINGLE source of truth for incoming-message side
+    // effects. We never duplicate this elsewhere. From one event we:
+    //   1. merge into chat store (existing behavior)
+    //   2. update unread (per-conversation + global) — skip own messages,
+    //      skip duplicates by id, skip when active conversation is visible
+    //   3. show in-shell toast (panel closed)
+    //   4. play optional sound (if user-enabled + has interacted)
     transport.on('message', function (payload) {
-      if (chatUI.mergeIncoming(payload.messages)) {
-        if (shellStore.get().activeTab === 'chat') renderBody();
-        if (!shellStore.get().isOpen) {
-          var n = notifyStore.get().unread + (payload.messages || []).length;
-          notifyStore.set({ unread: n });
-          notify.setUnread(n);
+      var incoming = (payload && payload.messages) || [];
+      var changed = chatUI.mergeIncoming(incoming);
+      if (changed && shellStore.get().activeTab === 'chat') renderBody();
+      if (!incoming.length) return;
+
+      var ns = notifyStore.get();
+      var seen = ns.lastMessageIds;
+      var per = {};
+      for (var k in ns.perConversation) {
+        if (Object.prototype.hasOwnProperty.call(ns.perConversation, k)) per[k] = ns.perConversation[k];
+      }
+      var seenNext = {};
+      for (var sk in seen) if (Object.prototype.hasOwnProperty.call(seen, sk)) seenNext[sk] = 1;
+
+      var activeCid = chatStore.get().conversationId;
+      var panelOpen = shellStore.get().isOpen;
+      var activeTab = shellStore.get().activeTab;
+
+      var newCount = 0;
+      var lastIncoming = null;
+
+      for (var i = 0; i < incoming.length; i++) {
+        var m = incoming[i] || {};
+        // Skip own messages (visitor/contact = the user themselves).
+        var sender = m.role || m.sender || m.sender_type || 'agent';
+        if (sender === 'visitor' || sender === 'contact') continue;
+        // De-dupe by stable id (prevents reconnect/poll from double-counting).
+        var id = m.id || (m.time ? (m.time + ':' + (m.text || m.body || '')) : null);
+        if (id) {
+          if (seenNext[id]) continue;
+          seenNext[id] = 1;
         }
+        // Resolve cid for this message; fall back to active.
+        var cid = m.conversation_id || m.conversationId || activeCid || '__default__';
+        // Active conversation visible to the user → no unread bump.
+        var isActiveVisible = panelOpen && activeTab === 'chat' && cid === activeCid;
+        if (isActiveVisible) continue;
+        per[cid] = (per[cid] || 0) + 1;
+        newCount += 1;
+        lastIncoming = m;
+      }
+
+      // Cap the de-dupe map so it can't grow unbounded across long sessions.
+      var keys = Object.keys(seenNext);
+      if (keys.length > 500) {
+        var trimmed = {};
+        for (var t2 = keys.length - 500; t2 < keys.length; t2++) trimmed[keys[t2]] = 1;
+        seenNext = trimmed;
+      }
+
+      var total = 0;
+      for (var ck in per) if (Object.prototype.hasOwnProperty.call(per, ck)) total += per[ck];
+      notifyStore.set({ perConversation: per, totalUnread: total, lastMessageIds: seenNext });
+
+      if (newCount > 0 && lastIncoming) {
+        // Toast only when the user can't see the message (panel closed or KB tab).
+        var canToast = !panelOpen || (activeTab !== 'chat');
+        if (canToast) {
+          var senderName = lastIncoming.sender_name || lastIncoming.from_name ||
+            (ctx.config.brandName || '');
+          var preview = lastIncoming.text || lastIncoming.body || '';
+          notify.showToast(senderName, preview);
+        }
+        notify.playBeep();
       }
     });
     transport.on('reconnect', function () {

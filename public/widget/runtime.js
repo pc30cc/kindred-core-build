@@ -256,13 +256,20 @@
 
     function loadHistory(opts) {
       ensureChatModule(function (mod) {
-        if (!mod || !mod.loadHistory) { if (opts && opts.onResult) opts.onResult({ conversationId: null, messages: [] }); return; }
+        if (!mod || !mod.loadHistory) {
+          // Module unavailable counts as a failure signal for connection state
+          markPollFailure();
+          if (opts && opts.onResult) opts.onResult({ conversationId: null, messages: [] });
+          return;
+        }
         mod.loadHistory({
           apiBase: ctx.apiBase,
           workspaceId: ctx.workspaceId,
           sessionToken: ctx.sessionToken,
           onResult: function (result) {
             historyLoaded = true;
+            // A successful history response is real backend reachability proof
+            markPollSuccess();
             if (opts && opts.onResult) opts.onResult(result);
           },
         });
@@ -302,14 +309,24 @@
     function markPollSuccess() {
       lastSuccessAt = Date.now();
       consecutiveFailures = 0;
+      // Only flip to online on actual successful backend communication.
       if (browserOnline) setConnectionState('online');
     }
     function markPollFailure() {
       consecutiveFailures += 1;
       if (!browserOnline) {
         setConnectionState('offline');
-      } else if (consecutiveFailures >= 2) {
+        return;
+      }
+      var cur = transportStore.get().connectionState;
+      // First failure during initial connect → reconnecting (not online).
+      // Subsequent failures while we were online → reconnecting after 2 in a row.
+      if (cur === 'connecting') {
         setConnectionState('reconnecting');
+      } else if (cur === 'online' && consecutiveFailures >= 2) {
+        setConnectionState('reconnecting');
+      } else if (cur === 'reconnecting') {
+        // stay reconnecting
       }
     }
 
@@ -353,8 +370,8 @@
 
     function handleBrowserOnline() {
       browserOnline = true;
+      // Don't mark online — wait for real successful poll/load.
       setConnectionState('reconnecting');
-      // The next poll tick (within 4s) will flip us to 'online' on success.
     }
     function handleBrowserOffline() {
       browserOnline = false;
@@ -362,18 +379,20 @@
     }
 
     function connect() {
-      setConnectionState('connecting');
+      // Stay in 'connecting' until first successful backend response
+      // (loadHistory or poll). Do NOT flip to online based on navigator.onLine.
+      consecutiveFailures = 0;
+      lastSuccessAt = 0;
       if (typeof window !== 'undefined' && window.addEventListener) {
         window.addEventListener('online', handleBrowserOnline);
         window.addEventListener('offline', handleBrowserOffline);
       }
-      startPolling();
-      // Optimistic: assume reachable until first failure
-      if (browserOnline) {
-        setConnectionState('online');
-      } else {
+      if (!browserOnline) {
         setConnectionState('offline');
+      } else {
+        setConnectionState('connecting');
       }
+      startPolling();
     }
     function disconnect() {
       stopPolling();
@@ -387,6 +406,17 @@
     // ─── Typing / presence — no-op hooks under polling.
     // Future WS/SSE driver implements them; UI already calls them.
     function sendTyping(_payload) { /* no-op under polling */ }
+
+    // ─── Capabilities (provider-agnostic). Future drivers (WS/SSE/Centrifugo)
+    // implement the same shape so UI modules can guard optional behavior.
+    var capabilities = {
+      driver: 'polling',
+      supportsRealtime: false,
+      supportsTyping: false,
+      supportsPresence: false,
+      supportsHistoryLoad: true,
+      supportsReconnectSignals: true,
+    };
 
     return {
       // lifecycle
@@ -402,7 +432,16 @@
       // events
       on: on,
       // introspection
-      getDriverName: function () { return 'polling'; },
+      getDriverName: function () { return capabilities.driver; },
+      getCapabilities: function () {
+        // Return a shallow copy so callers can't mutate the driver contract.
+        var copy = {};
+        for (var k in capabilities) {
+          if (Object.prototype.hasOwnProperty.call(capabilities, k)) copy[k] = capabilities[k];
+        }
+        return copy;
+      },
+      hasCapability: function (key) { return !!capabilities[key]; },
     };
   }
 
@@ -889,6 +928,9 @@
       conversationId: null,
       messages: [],
       seenIds: {},
+      // In-memory only. Never persisted to localStorage/cookies.
+      // Preserves user-typed but unsent text across offline/reconnect/tab-switch/panel-close.
+      draft: '',
     });
     var kbStore = createStore({
       loaded: false,
@@ -971,6 +1013,8 @@
         tab.classList.add('active');
         renderBody();
         if (inputBar) inputBar.style.display = shellStore.get().activeTab === 'chat' ? 'flex' : 'none';
+        // Restore preserved draft when returning to chat tab
+        if (shellStore.get().activeTab === 'chat') restoreDraftToInput();
       });
     });
 
@@ -996,17 +1040,40 @@
     transportStore.subscribe(applyComposerState);
     shellStore.subscribe(applyComposerState);
 
+    // ─── Draft preservation (in-memory only) ───
+    // Whatever the user types is mirrored to chatStore.draft so it survives
+    // offline/reconnecting transitions, tab switches, and panel close/open
+    // within the same page session. No localStorage, no cookies.
+    function syncDraftFromInput() {
+      if (!msgInput) return;
+      var v = msgInput.value;
+      if (chatStore.get().draft !== v) chatStore.set({ draft: v });
+    }
+    function restoreDraftToInput() {
+      if (!msgInput) return;
+      var d = chatStore.get().draft || '';
+      if (msgInput.value !== d) msgInput.value = d;
+    }
+    if (msgInput) {
+      msgInput.addEventListener('input', syncDraftFromInput);
+    }
+
     // ─── Send handler ───
     function trySend() {
       if (!msgInput) return;
       var text = msgInput.value.trim();
       if (!text) return;
       if (!identityStore.get().loaded) return;
+      // Hard guard: never send while not online. Draft remains preserved.
       if (transportStore.get().connectionState !== 'online') return;
       if (identity.needsPrechat()) { renderBody(); return; }
       msgInput.value = '';
-      // typing hook (no-op under polling, ready for realtime drivers)
-      transport.sendTyping({ conversationId: chatStore.get().conversationId });
+      chatStore.set({ draft: '' });
+      // typing hook (no-op under polling, ready for realtime drivers).
+      // Capability-gated so UI never assumes typing support.
+      if (transport.hasCapability && transport.hasCapability('supportsTyping')) {
+        transport.sendTyping({ conversationId: chatStore.get().conversationId });
+      }
       chatUI.sendMessage(text, renderBody);
     }
     if (sendBtn) sendBtn.addEventListener('click', trySend);
@@ -1086,12 +1153,16 @@
         // Clear unread on open
         notifyStore.set({ unread: 0 });
         notify.setUnread(0);
+        // Restore preserved draft on reopen (in-memory only)
+        if (shellStore.get().activeTab === 'chat') restoreDraftToInput();
         if (msgInput && transportStore.get().connectionState === 'online' && !identity.needsPrechat()) {
           setTimeout(function () { msgInput.focus(); }, 300);
         }
       },
       close: function () {
         if (!shellStore.get().isOpen) return;
+        // Capture any in-flight typed text before hiding
+        syncDraftFromInput();
         shellStore.set({ isOpen: false });
         if (launcher) launcher.classList.remove('open');
         panel.classList.remove('visible');
@@ -1102,6 +1173,10 @@
       setUnread: function (count) {
         notifyStore.set({ unread: count });
         notify.setUnread(count);
+      },
+      // Introspection for future runtime-ui modules — provider-agnostic.
+      getTransportCapabilities: function () {
+        return transport.getCapabilities ? transport.getCapabilities() : {};
       },
     };
   };

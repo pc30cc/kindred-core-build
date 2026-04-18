@@ -1972,8 +1972,18 @@
         transport.sendTyping({ conversationId: chatStore.get().conversationId });
       }
       var attachmentId = hasReadyAttach ? att.attachmentId : null;
+      // Phase 6b — optimistic attachment shown in the bubble immediately.
+      // Same id, same metadata; the server-canonical record will replace
+      // it on the next poll/history merge (de-duped by message id).
+      var optimisticAtt = hasReadyAttach ? {
+        id: att.attachmentId,
+        file_name: att.fileName,
+        mime_type: att.mimeType,
+        size_bytes: att.sizeBytes,
+        kind: (att.mimeType && /^image\//.test(att.mimeType)) ? 'image' : 'file',
+      } : null;
       if (hasReadyAttach) resetAttachment();
-      chatUI.sendMessage(text, renderBody, attachmentId);
+      chatUI.sendMessage(text, renderBody, attachmentId, optimisticAtt);
     }
     if (sendBtn) sendBtn.addEventListener('click', trySend);
     if (msgInput) msgInput.addEventListener('keydown', function (e) {

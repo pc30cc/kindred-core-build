@@ -24,7 +24,8 @@ import {
   invalidateRealtimeCache,
   type RealtimeProviderConfig,
 } from '../services/realtime/index.js';
-import { resolveSession } from '../services/widget/continuity.js';
+import { verifySessionToken } from '../services/widget/security.js';
+import { readVisitorCookie } from '../services/widget/visitorIdentity.js';
 
 export const realtimeRouter = Router();
 
@@ -47,15 +48,14 @@ realtimeRouter.post('/connect', async (req, res) => {
 
     // Authorize the visitor — same security model as the rest of the widget API.
     const widgetToken = req.headers['x-widget-token'] as string | undefined;
-    if (!widgetToken) {
-      return res.status(401).json({ error: 'Missing widget token' });
-    }
-
-    const sb = getServiceClient(config);
-    const session = await resolveSession(sb, widgetToken, parsed.data.workspace_id);
-    if (!session) {
+    if (!widgetToken) return res.status(401).json({ error: 'Missing widget token' });
+    const tokRes = verifySessionToken(widgetToken);
+    if (!tokRes.valid || tokRes.workspaceId !== parsed.data.workspace_id) {
       return res.status(401).json({ error: 'Invalid widget session' });
     }
+    // Visitor identity comes from HttpOnly cookie (cross-tab/device safe).
+    const visitor = readVisitorCookie(req as any, parsed.data.workspace_id);
+    const subjectId = visitor?.v || `vt_${tokRes.nonce || 'anon'}`;
 
     const resolved = await resolveRealtimeProvider(config);
 
@@ -92,8 +92,7 @@ realtimeRouter.post('/connect', async (req, res) => {
       });
     }
 
-    // Subject = visitor id from session (stable, multi-tenant safe).
-    const subjectId = session.visitorId || session.id;
+    // Subject = stable visitor id (multi-tenant safe).
     const tokenInfo = driver.issueConnectionToken({
       sub: subjectId,
       workspace_id: parsed.data.workspace_id,
@@ -131,11 +130,14 @@ realtimeRouter.post('/subscribe', async (req, res) => {
 
     const widgetToken = req.headers['x-widget-token'] as string | undefined;
     if (!widgetToken) return res.status(401).json({ error: 'Missing widget token' });
+    const tokRes = verifySessionToken(widgetToken);
+    if (!tokRes.valid || tokRes.workspaceId !== parsed.data.workspace_id) {
+      return res.status(401).json({ error: 'Invalid widget session' });
+    }
+    const visitor = readVisitorCookie(req as any, parsed.data.workspace_id);
+    const subjectId = visitor?.v || `vt_${tokRes.nonce || 'anon'}`;
 
     const sb = getServiceClient(config);
-    const session = await resolveSession(sb, widgetToken, parsed.data.workspace_id);
-    if (!session) return res.status(401).json({ error: 'Invalid widget session' });
-
     // Authorize: this conversation must belong to this visitor's workspace.
     const { data: conv } = await sb
       .from('conversations')
@@ -152,7 +154,7 @@ realtimeRouter.post('/subscribe', async (req, res) => {
     }
     const channel = `ws:${parsed.data.workspace_id}:conv:${parsed.data.conversation_id}`;
     const tk = driver.issueSubscriptionToken({
-      sub: session.visitorId || session.id,
+      sub: subjectId,
       channel,
       workspaceId: parsed.data.workspace_id,
     });

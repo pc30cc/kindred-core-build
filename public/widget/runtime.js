@@ -640,28 +640,153 @@
   }
 
   // ════════════════════════════════════════════════════════════════════
-  // UI.Notify — connection banner + unread badge
+  // UI.Notify — connection banner + launcher unread badge + in-shell toast
+  //             + optional sound + document.title indicator.
+  //
+  // Rules (Phase 4):
+  //   - Driven ONLY by transport.on('message') flow upstream — this module
+  //     never fetches, never queues, never duplicates messages.
+  //   - All UI lives inside the Shadow DOM (toast appended next to launcher
+  //     via the shell's shadowRoot). No browser Notifications API.
+  //   - Sound only after a real user interaction (browser autoplay policy).
+  //     Disabled by default; toggled via uiPrefsStore.soundEnabled.
+  //   - document.title is the only host-page surface we touch, and it is
+  //     fully restored when unread → 0. We snapshot the original title once.
   // ════════════════════════════════════════════════════════════════════
-  function createNotify(ctx, transportStore, t) {
+  function createNotify(ctx, transportStore, notifyStore, uiPrefsStore, shellStore, t) {
     var bannerEl = null;
+    var toastEl = null;
+    var toastTimer = null;
+    var shadowRoot = (ctx.shell && ctx.shell.shadowRoot) ||
+      (ctx.shell && ctx.shell.shellEl && ctx.shell.shellEl.shadowRoot) || null;
 
+    // ─── document.title snapshot (restore on unread = 0) ───
+    var originalTitle = (typeof document !== 'undefined' && document.title) ? document.title : '';
+    var titleHasPrefix = false;
+    function applyTitle(unread) {
+      if (typeof document === 'undefined') return;
+      if (unread > 0) {
+        var prefix = '(' + (unread > 9 ? '9+' : unread) + ') ';
+        // If we previously prefixed, strip our prefix before re-applying so
+        // we never stack "(1) (2) Original Title".
+        var base = titleHasPrefix ? originalTitle : document.title;
+        // If the host page mutated the title since we snapshotted, refresh
+        // the snapshot so we restore the *current* title later.
+        if (!titleHasPrefix) originalTitle = document.title;
+        document.title = prefix + base;
+        titleHasPrefix = true;
+      } else if (titleHasPrefix) {
+        document.title = originalTitle;
+        titleHasPrefix = false;
+      }
+    }
+
+    // ─── Sound (lazy, gated by user interaction + uiPrefsStore) ───
+    var audioCtx = null;
+    var userInteracted = false;
+    function markUserInteracted() { userInteracted = true; }
+    if (typeof window !== 'undefined') {
+      var once = { once: true, capture: true };
+      window.addEventListener('pointerdown', markUserInteracted, once);
+      window.addEventListener('keydown', markUserInteracted, once);
+      window.addEventListener('touchstart', markUserInteracted, once);
+    }
+    function playBeep() {
+      if (!uiPrefsStore.get().soundEnabled) return;
+      if (!userInteracted) return;
+      try {
+        var Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return;
+        if (!audioCtx) audioCtx = new Ctx();
+        var t0 = audioCtx.currentTime;
+        var osc = audioCtx.createOscillator();
+        var gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, t0);
+        osc.frequency.exponentialRampToValueAtTime(660, t0 + 0.12);
+        gain.gain.setValueAtTime(0.0001, t0);
+        gain.gain.exponentialRampToValueAtTime(0.18, t0 + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.18);
+        osc.connect(gain).connect(audioCtx.destination);
+        osc.start(t0);
+        osc.stop(t0 + 0.2);
+      } catch (_) { /* never break on audio */ }
+    }
+
+    // ─── Toast (Shadow DOM only, lives next to launcher) ───
+    function ensureToastEl() {
+      if (toastEl || !shadowRoot) return toastEl;
+      var shellDiv = shadowRoot.querySelector('.shell') || shadowRoot;
+      toastEl = document.createElement('div');
+      toastEl.className = 'gs-toast';
+      toastEl.setAttribute('role', 'status');
+      toastEl.setAttribute('aria-live', 'polite');
+      toastEl.style.display = 'none';
+      // Click → open the panel.
+      toastEl.addEventListener('click', function () {
+        hideToast();
+        if (ctx.shell && ctx.shell.shellEl) {
+          // Trigger via launcher to reuse loader's open path.
+          var btn = shellDiv.querySelector('.launcher');
+          if (btn) btn.click();
+        }
+      });
+      shellDiv.appendChild(toastEl);
+      return toastEl;
+    }
+    function hideToast() {
+      if (!toastEl) return;
+      toastEl.classList.remove('visible');
+      // Wait for transition before hiding (CSS uses 0.2s)
+      setTimeout(function () { if (toastEl && !toastEl.classList.contains('visible')) toastEl.style.display = 'none'; }, 220);
+      if (toastTimer) { clearTimeout(toastTimer); toastTimer = null; }
+    }
+    function showToast(senderName, preview) {
+      // Never show toast while panel is open (user is already looking at chat).
+      if (shellStore.get().isOpen) return;
+      ensureToastEl();
+      if (!toastEl) return;
+      var name = senderName ? String(senderName) : (ctx.config.brandName || 'Support');
+      var msg = String(preview || '');
+      if (msg.length > 90) msg = msg.slice(0, 87) + '…';
+      toastEl.innerHTML =
+        '<div class="gs-toast-title">' + Util.escapeHtml(name) + '</div>' +
+        '<div class="gs-toast-body">' + Util.escapeHtml(msg) + '</div>';
+      toastEl.style.display = 'block';
+      // Force reflow so the transition runs even when replacing content fast.
+      void toastEl.offsetWidth;
+      toastEl.classList.add('visible');
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(hideToast, 5000);
+    }
+
+    // ─── Connection banner (existing behavior, unchanged) ───
     function attach(panel) {
       bannerEl = document.createElement('div');
       bannerEl.className = 'connection-banner';
       bannerEl.setAttribute('role', 'status');
       bannerEl.setAttribute('aria-live', 'polite');
-      // Insert just below the header
       var header = panel.querySelector('.header');
       if (header && header.nextSibling) {
         panel.insertBefore(bannerEl, header.nextSibling);
       } else {
         panel.insertBefore(bannerEl, panel.firstChild);
       }
-      transportStore.subscribe(render);
-      render(transportStore.get());
+      transportStore.subscribe(renderBanner);
+      renderBanner(transportStore.get());
+
+      // Wire global unread → launcher badge + title.
+      notifyStore.subscribe(function (s) {
+        if (ctx.shell.setUnread) ctx.shell.setUnread(s.totalUnread || 0);
+        applyTitle(s.totalUnread || 0);
+      });
+      // Initial paint (in case state is non-zero on remount).
+      var s0 = notifyStore.get();
+      if (ctx.shell.setUnread) ctx.shell.setUnread(s0.totalUnread || 0);
+      applyTitle(s0.totalUnread || 0);
     }
 
-    function render(state) {
+    function renderBanner(state) {
       if (!bannerEl) return;
       var s = state.connectionState;
       if (s === 'online' || s === 'idle') {
@@ -671,19 +796,15 @@
       }
       var label = '';
       var cls = 'connection-banner visible';
-      var withDot = true;
       if (s === 'offline') { label = t('offline'); cls += ' offline'; }
       else if (s === 'reconnecting') { label = t('reconnecting'); cls += ' reconnecting'; }
       else if (s === 'connecting') { label = t('connecting'); cls += ' connecting'; }
       bannerEl.className = cls;
-      // Light DOM rebuild — dot + label. Honest & static, no countdown timers.
       bannerEl.innerHTML = '';
-      if (withDot) {
-        var dot = document.createElement('span');
-        dot.className = 'conn-dot';
-        dot.setAttribute('aria-hidden', 'true');
-        bannerEl.appendChild(dot);
-      }
+      var dot = document.createElement('span');
+      dot.className = 'conn-dot';
+      dot.setAttribute('aria-hidden', 'true');
+      bannerEl.appendChild(dot);
       var span = document.createElement('span');
       span.textContent = label;
       bannerEl.appendChild(span);
@@ -691,7 +812,18 @@
 
     return {
       attach: attach,
-      setUnread: function (count) { if (ctx.shell.setUnread) ctx.shell.setUnread(count); },
+      showToast: showToast,
+      hideToast: hideToast,
+      playBeep: playBeep,
+      // Legacy API kept for the public runtime.setUnread bridge — sets the
+      // global counter directly. UI redraws via notifyStore subscription.
+      setUnread: function (count) {
+        notifyStore.set(function (s) {
+          var per = {};
+          for (var k in s.perConversation) if (Object.prototype.hasOwnProperty.call(s.perConversation, k)) per[k] = s.perConversation[k];
+          return { perConversation: per, totalUnread: Math.max(0, count | 0) };
+        });
+      },
     };
   }
 

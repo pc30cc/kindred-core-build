@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useConversations, useConversationMessages, useSendMessage, useUpdateConversation, useDeleteAllConversations } from '@/hooks/useConversations';
+import { useIsGlobalAdmin } from '@/hooks/useAdmin';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
@@ -65,6 +66,7 @@ export default function InboxPage() {
   const sendMessage = useSendMessage(selectedId ?? undefined);
   const updateConv = useUpdateConversation();
   const deleteAll = useDeleteAllConversations();
+  const { data: isGlobalAdmin } = useIsGlobalAdmin();
 
   const handleDeleteAll = async () => {
     if (!workspace?.id) return;
@@ -162,6 +164,7 @@ export default function InboxPage() {
               <button className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors">
                 <Plus className="w-3.5 h-3.5" />
               </button>
+              {isGlobalAdmin && (
               <AlertDialog>
                 <AlertDialogTrigger asChild>
                   <button
@@ -192,6 +195,7 @@ export default function InboxPage() {
                   </AlertDialogFooter>
                 </AlertDialogContent>
               </AlertDialog>
+              )}
             </div>
           </div>
 

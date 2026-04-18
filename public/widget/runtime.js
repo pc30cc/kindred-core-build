@@ -186,7 +186,8 @@
           workspace_id: workspaceId,
           visitor_id: localStorage.getItem('__gs_vid') || '',
           session_id: localStorage.getItem('__gs_sid') || undefined,
-          body: text,
+          conversation_id: localStorage.getItem('__gs_cid') || undefined,
+          message: text,
         }),
       })
         .then(function (r) { return r.json(); })

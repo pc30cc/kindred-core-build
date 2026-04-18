@@ -239,13 +239,30 @@
       }
     }
 
-    // ─── Polling driver (default and only real transport in Phase 2) ───
+    // ─── Transport state shared by polling + realtime drivers ───
     var pollingHandle = null;
     var lastSuccessAt = 0;
     var consecutiveFailures = 0;
     var browserOnline = (typeof navigator !== 'undefined' && 'onLine' in navigator) ? navigator.onLine : true;
     var subscribedConversation = null;
     var historyLoaded = false;
+
+    // ─── Realtime driver (Phase 3) — drop-in for polling ───
+    // When the server resolves vendor=centrifugo, we add a real WS driver alongside.
+    // UI/transport contract stays identical; polling is paused while WS owns state.
+    var rtDriver = null;
+    var fallbackPolicy = 'lenient';
+    var resolvedVendor = 'polling_builtin';
+
+    // ─── Capabilities (provider-agnostic). Updated dynamically after resolve.
+    var capabilities = {
+      driver: 'polling',
+      supportsRealtime: false,
+      supportsTyping: false,
+      supportsPresence: false,
+      supportsHistoryLoad: true,
+      supportsReconnectSignals: true,
+    };
 
     function ensureChatModule(cb) {
       if (ModuleLoader.modules.chat) return cb(ModuleLoader.modules.chat);
@@ -254,10 +271,16 @@
       ModuleLoader.load('chat', url, function (mod) { cb(mod); });
     }
 
+    function ensureCentrifugoModule(cb) {
+      if (window.__gs_mod_rt_centrifugo) return cb(window.__gs_mod_rt_centrifugo);
+      var url = (ctx.assetBase || '') + '/widget/runtime-rt-centrifugo.js?v=' +
+        (ctx.config._loaderVersion || ctx.config.loaderVersion || 'dev');
+      ModuleLoader.load('rt_centrifugo', url, function () { cb(window.__gs_mod_rt_centrifugo); });
+    }
+
     function loadHistory(opts) {
       ensureChatModule(function (mod) {
         if (!mod || !mod.loadHistory) {
-          // Module unavailable counts as a failure signal for connection state
           markPollFailure();
           if (opts && opts.onResult) opts.onResult({ conversationId: null, messages: [] });
           return;
@@ -268,7 +291,6 @@
           sessionToken: ctx.sessionToken,
           onResult: function (result) {
             historyLoaded = true;
-            // A successful history response is real backend reachability proof
             markPollSuccess();
             if (opts && opts.onResult) opts.onResult(result);
           },
@@ -290,12 +312,14 @@
           conversationId: payload.conversationId,
           text: payload.text,
           onConversation: function (cid) {
-            if (cid) subscribedConversation = cid;
+            if (cid) {
+              subscribedConversation = cid;
+              if (rtDriver && rtDriver.subscribeConversation) rtDriver.subscribeConversation(cid);
+            }
             if (hooks.onConversation) hooks.onConversation(cid);
           },
           onReply: function (reply) {
             if (hooks.onReply) hooks.onReply(reply);
-            // Treat a successful send as a healthy connection signal
             markPollSuccess();
           },
           onError: function (err) {
@@ -309,8 +333,8 @@
     function markPollSuccess() {
       lastSuccessAt = Date.now();
       consecutiveFailures = 0;
-      // Only flip to online on actual successful backend communication.
-      if (browserOnline) setConnectionState('online');
+      // While realtime owns the connection state, REST success doesn't flip it.
+      if (browserOnline && !rtDriver) setConnectionState('online');
     }
     function markPollFailure() {
       consecutiveFailures += 1;
@@ -318,25 +342,23 @@
         setConnectionState('offline');
         return;
       }
+      if (rtDriver) return; // realtime driver owns connection state
       var cur = transportStore.get().connectionState;
-      // First failure during initial connect → reconnecting (not online).
-      // Subsequent failures while we were online → reconnecting after 2 in a row.
       if (cur === 'connecting') {
         setConnectionState('reconnecting');
       } else if (cur === 'online' && consecutiveFailures >= 2) {
         setConnectionState('reconnecting');
-      } else if (cur === 'reconnecting') {
-        // stay reconnecting
       }
     }
 
     function subscribeConversation(cid) {
-      if (!cid || subscribedConversation === cid) return;
-      subscribedConversation = cid;
-      // Polling already keys on subscribedConversation through getConversationId
+      if (!cid) return;
+      if (subscribedConversation !== cid) subscribedConversation = cid;
+      if (rtDriver && rtDriver.subscribeConversation) rtDriver.subscribeConversation(cid);
     }
     function unsubscribeConversation(cid) {
       if (subscribedConversation === cid) subscribedConversation = null;
+      if (rtDriver && rtDriver.unsubscribeConversation) rtDriver.unsubscribeConversation(cid);
     }
 
     function startPolling() {
@@ -356,7 +378,6 @@
             markPollSuccess();
             if (msgs && msgs.length) emit('message', { messages: msgs });
           },
-          // Optional success/error hooks if module supports them; safe if ignored
           onTick: function (ok) { if (ok) markPollSuccess(); else markPollFailure(); },
         });
       });
@@ -370,7 +391,6 @@
 
     function handleBrowserOnline() {
       browserOnline = true;
-      // Don't mark online — wait for real successful poll/load.
       setConnectionState('reconnecting');
     }
     function handleBrowserOffline() {
@@ -378,9 +398,76 @@
       setConnectionState('offline');
     }
 
+    // ─── Realtime resolver: ask backend which transport to use ───
+    function resolveRealtimeAndStart() {
+      var url = ctx.apiBase + '/api/realtime/connect';
+      fetch(url, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', 'X-Widget-Token': ctx.sessionToken || '' },
+        body: JSON.stringify({ workspace_id: ctx.workspaceId }),
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (resolved) {
+          resolvedVendor = (resolved && resolved.vendor) || 'polling_builtin';
+          fallbackPolicy = (resolved && resolved.fallback_policy) || 'lenient';
+          if (resolved && resolved.capabilities) {
+            for (var k in resolved.capabilities) {
+              if (Object.prototype.hasOwnProperty.call(resolved.capabilities, k)) {
+                capabilities[k] = resolved.capabilities[k];
+              }
+            }
+            capabilities.driver = resolvedVendor;
+          }
+
+          if (resolvedVendor === 'centrifugo' && resolved.token && resolved.ws_url) {
+            ensureCentrifugoModule(function (mod) {
+              if (!mod || !mod.create) {
+                Util.warn('[transport] centrifugo module load failed — fallback to polling');
+                if (fallbackPolicy === 'lenient') startPolling();
+                else setConnectionState('offline');
+                return;
+              }
+              rtDriver = mod.create(ctx, resolved, {
+                onConnectionState: function (s) { setConnectionState(s); },
+                onMessage: function (e) { emit('message', e); },
+                onTyping: function (e) { emit('typing', e); },
+                onPresence: function (e) { emit('presence', e); },
+                onReconnect: function () { emit('reconnect', {}); },
+                fallbackToPolling: function (reason) {
+                  Util.warn('[transport] centrifugo fallback:', reason);
+                  rtDriver = null;
+                  capabilities.driver = 'polling';
+                  capabilities.supportsRealtime = false;
+                  capabilities.supportsTyping = false;
+                  capabilities.supportsPresence = false;
+                  if (fallbackPolicy === 'lenient') startPolling();
+                  else setConnectionState('offline');
+                },
+              });
+              rtDriver.connect();
+              if (subscribedConversation) rtDriver.subscribeConversation(subscribedConversation);
+            });
+            return;
+          }
+
+          if (resolvedVendor === 'disabled') {
+            // Realtime disabled by admin — REST history still works on demand.
+            setConnectionState('offline');
+            return;
+          }
+
+          // polling_builtin (default / fallback)
+          startPolling();
+        })
+        .catch(function (err) {
+          // Resolver itself failed → conservative fallback to polling.
+          Util.warn('[transport] resolver error, fallback to polling:', err);
+          startPolling();
+        });
+    }
+
     function connect() {
-      // Stay in 'connecting' until first successful backend response
-      // (loadHistory or poll). Do NOT flip to online based on navigator.onLine.
       consecutiveFailures = 0;
       lastSuccessAt = 0;
       if (typeof window !== 'undefined' && window.addEventListener) {
@@ -392,10 +479,14 @@
       } else {
         setConnectionState('connecting');
       }
-      startPolling();
+      resolveRealtimeAndStart();
     }
     function disconnect() {
       stopPolling();
+      if (rtDriver && rtDriver.disconnect) {
+        try { rtDriver.disconnect(); } catch (_) {}
+        rtDriver = null;
+      }
       if (typeof window !== 'undefined' && window.removeEventListener) {
         window.removeEventListener('online', handleBrowserOnline);
         window.removeEventListener('offline', handleBrowserOffline);
@@ -403,38 +494,22 @@
       setConnectionState('idle');
     }
 
-    // ─── Typing / presence — no-op hooks under polling.
-    // Future WS/SSE driver implements them; UI already calls them.
-    function sendTyping(_payload) { /* no-op under polling */ }
-
-    // ─── Capabilities (provider-agnostic). Future drivers (WS/SSE/Centrifugo)
-    // implement the same shape so UI modules can guard optional behavior.
-    var capabilities = {
-      driver: 'polling',
-      supportsRealtime: false,
-      supportsTyping: false,
-      supportsPresence: false,
-      supportsHistoryLoad: true,
-      supportsReconnectSignals: true,
-    };
+    // ─── Typing — delegated to realtime driver if available, no-op otherwise.
+    function sendTyping(payload) {
+      if (rtDriver && rtDriver.sendTyping) rtDriver.sendTyping(payload);
+    }
 
     return {
-      // lifecycle
       connect: connect,
       disconnect: disconnect,
-      // subscriptions
       subscribeConversation: subscribeConversation,
       unsubscribeConversation: unsubscribeConversation,
-      // actions
       sendMessage: sendMessage,
       sendTyping: sendTyping,
       loadHistory: loadHistory,
-      // events
       on: on,
-      // introspection
       getDriverName: function () { return capabilities.driver; },
       getCapabilities: function () {
-        // Return a shallow copy so callers can't mutate the driver contract.
         var copy = {};
         for (var k in capabilities) {
           if (Object.prototype.hasOwnProperty.call(capabilities, k)) copy[k] = capabilities[k];

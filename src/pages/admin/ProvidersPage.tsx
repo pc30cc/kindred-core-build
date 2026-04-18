@@ -8,6 +8,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useProviderSummary, PROVIDER_TYPE_KEYS, providerRegistry, getFallbackLog, type ProviderTypeKey, type ProviderHealth } from '@/providers';
 import { PROVIDER_SCHEMAS } from '@/features/providers/schemas';
 import { AdminProviderCard } from '@/features/providers/AdminProviderCard';
+import { AdminRealtimeCard } from '@/features/providers/AdminRealtimeCard';
+
+// Phase 3: realtime is configured globally via the dedicated card.
+function RenderProviderCard({ type }: { type: ProviderTypeKey }) {
+  if (type === 'realtime') return <AdminRealtimeCard />;
+  return <AdminProviderCard type={type} />;
+}
 
 export default function AdminProvidersPage() {
   const summary = useProviderSummary();
@@ -198,7 +205,7 @@ export default function AdminProvidersPage() {
                 </h3>
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                   {types.map((type) => (
-                    <AdminProviderCard key={type} type={type} />
+                    <RenderProviderCard key={type} type={type} />
                   ))}
                 </div>
               </div>
@@ -210,7 +217,7 @@ export default function AdminProvidersPage() {
         <TabsContent value="all">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {filteredTypes.map((type) => (
-              <AdminProviderCard key={type} type={type} />
+              <RenderProviderCard key={type} type={type} />
             ))}
           </div>
         </TabsContent>

@@ -938,7 +938,15 @@ If you cannot answer, say so politely.${kbContext}`;
       console.warn('[widget-message] AI auto-reply failed:', aiErr.message);
     }
 
-    return res.json({ conversation_id: convId, status: 'sent', reply });
+    return res.json({
+      conversation_id: convId,
+      // Phase 7 — return the canonical message id so the widget can bind its
+      // optimistic "sending" bubble to a real backend record and transition
+      // it to "sent". Never invented client-side; always backend-issued.
+      message_id: insertedMsg?.id || null,
+      status: 'sent',
+      reply,
+    });
   } catch (err: any) {
     console.error('[widget-message] Error:', err.message);
     res.status(500).json({ error: 'Message send failed' });

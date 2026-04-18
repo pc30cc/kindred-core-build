@@ -93,6 +93,25 @@
     var chatEnabled = config.features && config.features.chat !== false;
     var kbEnabled = config.features && config.features.knowledgeBase;
 
+    // Fallback prechat policy derived from /config (used if /identity/me fails)
+    var configPrechatFallback = (function () {
+      var pc = config.preChat || {};
+      function fieldEnabled(key) {
+        var f = pc[key] || {};
+        return !!f.enabled && !f.locked;
+      }
+      return {
+        ask_name: fieldEnabled('name'),
+        ask_email: fieldEnabled('email'),
+        ask_phone: fieldEnabled('phone'),
+        require_name: fieldEnabled('name'),
+        require_email: fieldEnabled('email'),
+        require_phone: fieldEnabled('phone'),
+        verify_email: false,
+        verify_phone: false,
+      };
+    })();
+
     var container = els.container;
     var launcher = els.launcher;
 
@@ -180,17 +199,30 @@
           headers: { 'X-Widget-Token': sessionToken || '' },
         }
       )
-        .then(function (r) { return r.json(); })
-        .then(function (data) {
+        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+        .then(function (res) {
           identity.loaded = true;
-          identity.identityState = data.identity_state || 'anonymous';
-          identity.contact = data.contact || null;
-          identity.prechat = data.prechat || null;
+          if (res.ok && res.body) {
+            identity.identityState = res.body.identity_state || 'anonymous';
+            identity.contact = res.body.contact || null;
+            identity.prechat = res.body.prechat || configPrechatFallback;
+          } else {
+            // Server-side identity unavailable — use /config-derived policy so
+            // pre-chat still appears for new visitors.
+            debugLog('/identity/me failed, using config fallback', res.body);
+            identity.identityState = 'anonymous';
+            identity.contact = null;
+            identity.prechat = configPrechatFallback;
+          }
+          debugLog('identity resolved', identity);
           if (cb) cb(true);
         })
         .catch(function (err) {
-          debugLog('identity/me failed', err);
+          debugLog('/identity/me network error, using config fallback', err);
           identity.loaded = true;
+          identity.identityState = 'anonymous';
+          identity.contact = null;
+          identity.prechat = configPrechatFallback;
           if (cb) cb(false);
         });
     }

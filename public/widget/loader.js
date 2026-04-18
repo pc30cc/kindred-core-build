@@ -3,8 +3,8 @@
 (function () {
   "use strict";
 
-  var LOADER_VERSION = "2026-04-18-build-6-cookie-identity";
-  var DEBUG = false;
+  var LOADER_VERSION = "2026-04-18-build-7-prechat-fix";
+  var DEBUG = true; // Force debug ON to diagnose pre-chat flow
   var _t0 = Date.now();
 
   function log(msg, data) {

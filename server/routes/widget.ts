@@ -367,7 +367,7 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
     const chatModuleName = getWidgetAssetName('runtime-chat.js');
     const kbModuleName = getWidgetAssetName('runtime-kb.js');
     const loaderVersion = getLoaderVersion();
-    const preChat = buildPreChatConfig(preChatPolicy?.value, workspacePreChatFlags || []);
+    const preChat = buildPreChatConfig(platformPreChatPolicy, workspacePreChatFlags || []);
     const versionedAssetUrl = (url: string | null) => {
       if (!url) return null;
       const separator = url.includes('?') ? '&' : '?';

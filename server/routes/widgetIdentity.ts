@@ -262,7 +262,7 @@ widgetIdentityRouter.get('/history', widgetRateLimit('poll'), async (req: Reques
 
   const { data: msgs } = await supabase
     .from('conversation_messages')
-    .select('id, body, sender_type, created_at, metadata')
+    .select('id, body, sender_type, created_at, metadata, seen_at')
     .eq('conversation_id', conv.id)
     .order('created_at', { ascending: true })
     .limit(200);
@@ -273,6 +273,9 @@ widgetIdentityRouter.get('/history', widgetRateLimit('poll'), async (req: Reques
     text: m.body,
     time: m.created_at,
     metadata: m.metadata,
+    // Phase 7 — lifecycle propagated to history backfill so the widget
+    // can render the correct status on already-seen messages.
+    seen_at: m.seen_at || null,
   }));
   // Phase 6b — attach public-safe attachment metadata (no provider URLs)
   const messages = await enrichMessagesWithAttachments(config, workspaceId, baseMessages);

@@ -50,7 +50,7 @@ import {
 import { resolveAIConfig, executeAICompletion } from '../services/ai/index.js';
 import { resolveVisitorIdentity, readVisitorCookie } from '../services/widget/visitorIdentity.js';
 import { widgetIdentityRouter } from './widgetIdentity.js';
-import { widgetAttachmentsRouter, attachUploadedFileToMessage } from './widgetAttachments.js';
+import { widgetAttachmentsRouter, attachUploadedFileToMessage, enrichMessagesWithAttachments } from './widgetAttachments.js';
 
 export const widgetRouter = Router();
 
@@ -587,13 +587,15 @@ widgetRouter.get('/poll', widgetRateLimit('poll'), async (req: Request, res: Res
       .order('created_at', { ascending: false })
       .limit(200);
 
-    const messages = (msgs || []).slice().reverse().map((m: any) => ({
+    const baseMessages = (msgs || []).slice().reverse().map((m: any) => ({
       id: m.id,
       role: m.sender_type === 'contact' ? 'visitor' : m.sender_type === 'system' ? 'system' : 'agent',
       text: m.body,
       time: m.created_at,
       metadata: m.metadata,
     }));
+    // Phase 6b — attach public-safe attachment metadata (no provider URLs)
+    const messages = await enrichMessagesWithAttachments(config, workspaceId, baseMessages);
 
     let operatorInfo = null;
     if (conv.assigned_to) {
@@ -645,13 +647,15 @@ widgetRouter.get('/history', widgetRateLimit('poll'), async (req: Request, res: 
     .order('created_at', { ascending: false })
     .limit(200);
 
-  const messages = (msgs || []).slice().reverse().map((m: any) => ({
+  const baseMessages = (msgs || []).slice().reverse().map((m: any) => ({
     id: m.id,
     role: m.sender_type === 'contact' ? 'visitor' : m.sender_type === 'system' ? 'system' : 'agent',
     text: m.body,
     time: m.created_at,
     metadata: m.metadata,
   }));
+  // Phase 6b — attach public-safe attachment metadata (no provider URLs)
+  const messages = await enrichMessagesWithAttachments(config, workspaceId, baseMessages);
 
   return res.json({ messages });
 });

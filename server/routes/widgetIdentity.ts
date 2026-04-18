@@ -45,6 +45,7 @@ import {
   resolveWorkspaceId,
   getClientIp,
 } from '../services/widget/security.js';
+import { enrichMessagesWithAttachments } from './widgetAttachments.js';
 
 export const widgetIdentityRouter = Router();
 
@@ -266,13 +267,15 @@ widgetIdentityRouter.get('/history', widgetRateLimit('poll'), async (req: Reques
     .order('created_at', { ascending: true })
     .limit(200);
 
-  const messages = (msgs || []).map((m: any) => ({
+  const baseMessages = (msgs || []).map((m: any) => ({
     id: m.id,
     role: m.sender_type === 'contact' ? 'visitor' : m.sender_type === 'system' ? 'system' : 'agent',
     text: m.body,
     time: m.created_at,
     metadata: m.metadata,
   }));
+  // Phase 6b — attach public-safe attachment metadata (no provider URLs)
+  const messages = await enrichMessagesWithAttachments(config, workspaceId, baseMessages);
 
   return res.json({ conversation_id: conv.id, messages, last_updated_at: conv.updatedAt });
 });

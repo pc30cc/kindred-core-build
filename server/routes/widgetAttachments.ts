@@ -325,6 +325,98 @@ widgetAttachmentsRouter.get('/:id', enforceWidgetToken, async (req: Request, res
 });
 
 /**
+ * Phase 6b — Enrich a list of widget message records with public-safe
+ * attachment metadata. Resolves attachment ids found in:
+ *   - row.metadata.attachment_id (set when /message inserted the row), OR
+ *   - direct lookup by message_id on the attachments table (covers messages
+ *     created by other surfaces, e.g. agent panel).
+ *
+ * The shape returned is intentionally minimal and provider-agnostic:
+ *   { id, file_name, mime_type, size_bytes, kind: 'image'|'file' }
+ *
+ * NO provider URL is ever returned. The widget always loads files via the
+ * proxy route GET /api/widget/attachments/:id, which re-checks ownership.
+ */
+export interface PublicAttachmentMeta {
+  id: string;
+  file_name: string;
+  mime_type: string;
+  size_bytes: number;
+  kind: 'image' | 'file';
+}
+
+export async function enrichMessagesWithAttachments(
+  config: ServerConfig,
+  workspaceId: string,
+  messages: Array<{ id?: string; metadata?: any; [k: string]: any }>,
+): Promise<Array<any>> {
+  if (!messages || messages.length === 0) return messages || [];
+
+  const idsFromMeta = new Set<string>();
+  const messageIds = new Set<string>();
+  for (const m of messages) {
+    const aid = m?.metadata?.attachment_id;
+    if (typeof aid === 'string' && aid) idsFromMeta.add(aid);
+    if (typeof m.id === 'string' && m.id) messageIds.add(m.id);
+  }
+  if (idsFromMeta.size === 0 && messageIds.size === 0) return messages;
+
+  const sb = getServiceClient(config);
+  const byAttId: Record<string, PublicAttachmentMeta> = {};
+  const byMsgId: Record<string, PublicAttachmentMeta> = {};
+
+  // Lookup by attachment id (from metadata)
+  if (idsFromMeta.size > 0) {
+    const { data } = await sb
+      .from('conversation_attachments')
+      .select('id, file_name, mime_type, size_bytes, message_id, status, workspace_id')
+      .in('id', Array.from(idsFromMeta))
+      .eq('workspace_id', workspaceId);
+    for (const r of (data || [])) {
+      if (r.status !== 'attached' && r.status !== 'uploaded') continue;
+      const meta: PublicAttachmentMeta = {
+        id: r.id,
+        file_name: r.file_name,
+        mime_type: r.mime_type,
+        size_bytes: r.size_bytes,
+        kind: r.mime_type.startsWith('image/') ? 'image' : 'file',
+      };
+      byAttId[r.id] = meta;
+      if (r.message_id) byMsgId[r.message_id] = meta;
+    }
+  }
+
+  // Lookup by message_id (covers cases where metadata didn't carry it)
+  if (messageIds.size > 0) {
+    const { data } = await sb
+      .from('conversation_attachments')
+      .select('id, file_name, mime_type, size_bytes, message_id, status, workspace_id')
+      .in('message_id', Array.from(messageIds))
+      .eq('workspace_id', workspaceId)
+      .eq('status', 'attached');
+    for (const r of (data || [])) {
+      if (!r.message_id || byMsgId[r.message_id]) continue;
+      byMsgId[r.message_id] = {
+        id: r.id,
+        file_name: r.file_name,
+        mime_type: r.mime_type,
+        size_bytes: r.size_bytes,
+        kind: r.mime_type.startsWith('image/') ? 'image' : 'file',
+      };
+    }
+  }
+
+  return messages.map((m) => {
+    const aid = m?.metadata?.attachment_id;
+    let att: PublicAttachmentMeta | undefined;
+    if (typeof aid === 'string' && byAttId[aid]) att = byAttId[aid];
+    else if (typeof m.id === 'string' && byMsgId[m.id]) att = byMsgId[m.id];
+    if (!att) return m;
+    return { ...m, attachment: att };
+  });
+}
+
+/**
  * Helper used by POST /message to attach an uploaded file to a message.
  * Exposed here so widget.ts can call it without duplicating logic.
  */

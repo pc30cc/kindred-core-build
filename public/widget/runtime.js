@@ -166,6 +166,12 @@
         typeNotAllowed: 'File type not allowed',
         tooLarge: 'File is too large',
         selected: 'Selected',
+        // Phase 6b — preview / file actions
+        retry: 'Retry',
+        download: 'Download',
+        openFile: 'Open',
+        closePreview: 'Close preview',
+        imageUnavailable: 'Image unavailable',
       },
       fa: {
         chat: 'گفتگو', help: 'راهنما',
@@ -202,6 +208,12 @@
         typeNotAllowed: 'این نوع فایل مجاز نیست',
         tooLarge: 'حجم فایل بیش از حد مجاز است',
         selected: 'انتخاب شده',
+        // Phase 6b — preview / file actions
+        retry: 'تلاش مجدد',
+        download: 'دانلود',
+        openFile: 'باز کردن',
+        closePreview: 'بستن پیش‌نمایش',
+        imageUnavailable: 'تصویر در دسترس نیست',
       },
       tr: {
         chat: 'Sohbet', help: 'Yardım',
@@ -238,6 +250,12 @@
         typeNotAllowed: 'Bu dosya türü desteklenmiyor',
         tooLarge: 'Dosya çok büyük',
         selected: 'Seçildi',
+        // Phase 6b — preview / file actions
+        retry: 'Yeniden dene',
+        download: 'İndir',
+        openFile: 'Aç',
+        closePreview: 'Önizlemeyi kapat',
+        imageUnavailable: 'Görsel kullanılamıyor',
       },
     };
     return {
@@ -1038,6 +1056,10 @@
     var identityStore = deps.identityStore;
     var transportStore = deps.transportStore;
     var transport = deps.transport;
+    // Phase 6b — supplied by shell so lightbox lives in the panel's Shadow DOM
+    var openImageLightbox = typeof deps.openImageLightbox === 'function'
+      ? deps.openImageLightbox
+      : function () {};
 
     function mergeIncoming(incoming) {
       if (!incoming || !incoming.length) return false;
@@ -1072,6 +1094,9 @@
           sender: sender,
           time: m.time ? new Date(m.time) : new Date(),
           __id: id,
+          // Phase 6b — attachment metadata is server-provided & provider-safe
+          // (no raw URLs). Always loaded via the proxy route.
+          attachment: m.attachment || null,
         });
         changed = true;
       });
@@ -1087,6 +1112,47 @@
         '<p>' + Util.escapeHtml(t('intro')) + '</p></div>';
     }
 
+    // ─── Phase 6b — attachment renderer (provider-safe) ───
+    // Always loads files via the backend proxy route /api/widget/attachments/:id.
+    // We never inline file bytes, never expose provider URLs, never embed
+    // arbitrary uploaded HTML/SVG. Only the safe metadata is used here.
+    function humanSize(bytes) {
+      var n = Number(bytes) || 0;
+      if (n < 1024) return n + ' B';
+      if (n < 1024 * 1024) return (n / 1024).toFixed(n < 10240 ? 1 : 0) + ' KB';
+      return (n / (1024 * 1024)).toFixed(n < 10485760 ? 1 : 0) + ' MB';
+    }
+    function attachmentProxyUrl(id) {
+      var apiBase = ctx.config.apiBase || '';
+      return apiBase + '/api/widget/attachments/' + encodeURIComponent(id);
+    }
+    function renderMessageAttachment(att) {
+      if (!att || !att.id) return '';
+      var url = attachmentProxyUrl(att.id);
+      var name = Util.escapeHtml(att.file_name || 'file');
+      var size = humanSize(att.size_bytes);
+      var isImage = att.kind === 'image' || (att.mime_type && /^image\//.test(att.mime_type));
+      if (isImage) {
+        return '<div class="msg-att msg-att-image">' +
+          '<button type="button" class="msg-att-img-btn" data-att-preview="' + Util.escapeHtml(att.id) + '" aria-label="' + Util.escapeHtml(t('openFile')) + '">' +
+            '<img loading="lazy" decoding="async" src="' + Util.escapeHtml(url) + '" alt="' + name + '" />' +
+            '<span class="msg-att-img-fallback">' + Util.escapeHtml(t('imageUnavailable')) + '</span>' +
+          '</button>' +
+          '</div>';
+      }
+      var iconSvg = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>';
+      return '<div class="msg-att msg-att-file">' +
+        '<div class="msg-att-icon">' + iconSvg + '</div>' +
+        '<div class="msg-att-meta">' +
+          '<div class="msg-att-name" title="' + name + '">' + name + '</div>' +
+          '<div class="msg-att-sub">' + Util.escapeHtml(size) + '</div>' +
+        '</div>' +
+        '<a class="msg-att-action" href="' + Util.escapeHtml(url) + '" target="_blank" rel="noopener noreferrer" download="' + name + '" aria-label="' + Util.escapeHtml(t('download')) + '">' +
+          '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 4v12m0 0l-4-4m4 4l4-4"/><path d="M5 20h14"/></svg>' +
+        '</a>' +
+        '</div>';
+    }
+
     function renderChat(body) {
       var s = chatStore.get();
       if (!s.messages.length) { renderEmpty(body); return; }
@@ -1094,10 +1160,32 @@
       s.messages.forEach(function (m) {
         var bg = m.sender === 'visitor' ? 'style="background:' + ctx.primaryColor + '"' : '';
         var cls = m.sender === 'visitor' ? 'visitor' : 'operator';
-        html += '<div class="msg ' + cls + '" ' + bg + '>' + Util.escapeHtml(m.body) + '</div>';
+        var hasText = m.body && String(m.body).trim().length > 0;
+        var attHtml = renderMessageAttachment(m.attachment);
+        var extraCls = (attHtml && !hasText) ? ' has-att-only' : (attHtml ? ' has-att' : '');
+        html += '<div class="msg ' + cls + extraCls + '" ' + bg + '>' +
+          (hasText ? Util.escapeHtml(m.body) : '') +
+          attHtml +
+          '</div>';
       });
       html += '</div>';
       body.innerHTML = html;
+      // Wire up image preview triggers (lightbox) — Shadow-DOM scoped.
+      var triggers = body.querySelectorAll('[data-att-preview]');
+      for (var i = 0; i < triggers.length; i++) {
+        triggers[i].addEventListener('click', function (e) {
+          var id = this.getAttribute('data-att-preview');
+          if (id) openImageLightbox(id);
+        });
+      }
+      // Image load failure: swap in fallback label without breaking layout.
+      var imgs = body.querySelectorAll('.msg-att-image img');
+      for (var j = 0; j < imgs.length; j++) {
+        imgs[j].addEventListener('error', function () {
+          var btn = this.closest('.msg-att-img-btn');
+          if (btn) btn.classList.add('failed');
+        });
+      }
       body.scrollTop = body.scrollHeight;
     }
 
@@ -1177,12 +1265,21 @@
       }
     }
 
-    function sendMessage(text, onChange, attachmentId) {
+    function sendMessage(text, onChange, attachmentId, optimisticAttachment) {
       var conn = transportStore.get().connectionState;
       if (conn !== 'online') return;
       var s = chatStore.get();
       var messages = s.messages.slice();
-      messages.push({ body: text, sender: 'visitor', time: new Date(), attachmentId: attachmentId || null });
+      messages.push({
+        body: text,
+        sender: 'visitor',
+        time: new Date(),
+        attachmentId: attachmentId || null,
+        // Phase 6b — optimistic attachment so the bubble renders the
+        // attachment immediately. The next poll/history merge will replace
+        // this object with the server-canonical metadata (same id).
+        attachment: optimisticAttachment || null,
+      });
       chatStore.set({ messages: messages });
       onChange();
       transport.sendMessage(
@@ -1526,12 +1623,16 @@
     // ─── Layers ───
     var transport = createTransport(ctx, transportStore);
     var identity = createIdentity(ctx, identityStore);
+    // Phase 6b — lightbox lives in the panel's Shadow DOM. We expose a
+    // function to chatUI so renderChat can open it without reaching into shell.
+    var lightboxOpener = function (id) { /* set after panel mount */ };
     var chatUI = createChatUI({
       ctx: ctx, t: t,
       chatStore: chatStore,
       identityStore: identityStore,
       transportStore: transportStore,
       transport: transport,
+      openImageLightbox: function (id) { lightboxOpener(id); },
     });
     var kbUI = createKbUI({ ctx: ctx, t: t, kbStore: kbStore });
     var notify = createNotify(ctx, transportStore, notifyStore, uiPrefsStore, shellStore, t);
@@ -1583,7 +1684,12 @@
       ? '<div class="powered">Powered by <a href="#">' + Util.escapeHtml(brandName) + '</a></div>'
       : '';
 
-    panel.innerHTML = headerHtml + tabsHtml + bodyHtml + inputHtml + poweredHtml;
+    panel.innerHTML = headerHtml + tabsHtml + bodyHtml + inputHtml + poweredHtml +
+      // Phase 6b — lightbox container, hidden by default.
+      '<div class="att-lightbox" data-att-lightbox hidden role="dialog" aria-modal="true" aria-label="' + Util.escapeHtml(t('openFile')) + '">' +
+        '<button type="button" class="att-lightbox-close" data-att-lightbox-close aria-label="' + Util.escapeHtml(t('closePreview')) + '">×</button>' +
+        '<img data-att-lightbox-img alt="" />' +
+      '</div>';
     shellDiv.appendChild(panel);
 
     var body = panel.querySelector('[data-body]');
@@ -1604,19 +1710,69 @@
         : s.status === 'ready' ? (t('readyToSend') || 'Ready')
         : s.status === 'error' ? (s.error || (t('uploadFailed') || 'Upload failed'))
         : (t('selected') || 'Selected');
-      var sizeKb = Math.max(1, Math.round((s.sizeBytes || 0) / 1024));
+      var sizeStr = humanSizeShell(s.sizeBytes || 0);
+      // Phase 6b — honest progress: show % only while uploading; never fake 100% early.
+      var pct = Math.max(0, Math.min(100, s.progress | 0));
+      var subRight = s.status === 'uploading' ? (' · ' + pct + '%') : '';
+      var canRetry = s.status === 'error' && !!s.file;
       attachTray.innerHTML =
         '<div class="attach-chip status-' + s.status + '">' +
           '<div class="attach-chip-meta">' +
             '<div class="attach-chip-name" title="' + Util.escapeHtml(s.fileName) + '">' + Util.escapeHtml(s.fileName) + '</div>' +
-            '<div class="attach-chip-sub">' + Util.escapeHtml(statusLabel) + ' · ' + sizeKb + ' KB</div>' +
+            '<div class="attach-chip-sub">' + Util.escapeHtml(statusLabel) + ' · ' + Util.escapeHtml(sizeStr) + subRight + '</div>' +
+            (s.status === 'uploading'
+              ? '<div class="attach-chip-progress" aria-hidden="true"><div class="attach-chip-progress-bar" style="width:' + pct + '%"></div></div>'
+              : '') +
           '</div>' +
+          (canRetry
+            ? '<button type="button" class="attach-chip-retry" data-attach-retry aria-label="' + Util.escapeHtml(t('retry')) + '" title="' + Util.escapeHtml(t('retry')) + '">↺</button>'
+            : '') +
           '<button type="button" class="attach-chip-remove" data-attach-remove aria-label="Remove">×</button>' +
         '</div>';
       var rm = attachTray.querySelector('[data-attach-remove]');
       if (rm) rm.addEventListener('click', function () { resetAttachment(); });
+      var rt = attachTray.querySelector('[data-attach-retry]');
+      if (rt) rt.addEventListener('click', function () {
+        var cur = attachmentStore.get();
+        if (cur.file) startUpload(cur.file);
+      });
+    }
+    // Phase 6b — small helper used by both the chip & in-message file cards.
+    function humanSizeShell(bytes) {
+      var n = Number(bytes) || 0;
+      if (n < 1024) return n + ' B';
+      if (n < 1024 * 1024) return (n / 1024).toFixed(n < 10240 ? 1 : 0) + ' KB';
+      return (n / (1024 * 1024)).toFixed(n < 10485760 ? 1 : 0) + ' MB';
     }
     attachmentStore.subscribe(renderAttachmentChip);
+
+    // ─── Phase 6b — Lightbox (Shadow-DOM scoped image preview) ───
+    var lightboxEl = panel.querySelector('[data-att-lightbox]');
+    var lightboxImg = panel.querySelector('[data-att-lightbox-img]');
+    var lightboxClose = panel.querySelector('[data-att-lightbox-close]');
+    function closeLightbox() {
+      if (!lightboxEl) return;
+      lightboxEl.hidden = true;
+      lightboxEl.classList.remove('visible');
+      if (lightboxImg) { lightboxImg.removeAttribute('src'); lightboxImg.alt = ''; }
+    }
+    lightboxOpener = function (attachmentId) {
+      if (!lightboxEl || !lightboxImg || !attachmentId) return;
+      var url = (ctx.config.apiBase || '') + '/api/widget/attachments/' + encodeURIComponent(attachmentId);
+      lightboxImg.src = url;
+      lightboxImg.alt = '';
+      lightboxEl.hidden = false;
+      // Defer to next frame so transition can run
+      requestAnimationFrame(function () { lightboxEl.classList.add('visible'); });
+    };
+    if (lightboxClose) lightboxClose.addEventListener('click', closeLightbox);
+    if (lightboxEl) lightboxEl.addEventListener('click', function (e) {
+      if (e.target === lightboxEl) closeLightbox();
+    });
+    // ESC closes — bound on the host document because focus may be outside the shadow root.
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && lightboxEl && !lightboxEl.hidden) closeLightbox();
+    });
 
     function startUpload(file) {
       var allowed = (attachCfg.allowedMimes || []);
@@ -1816,8 +1972,18 @@
         transport.sendTyping({ conversationId: chatStore.get().conversationId });
       }
       var attachmentId = hasReadyAttach ? att.attachmentId : null;
+      // Phase 6b — optimistic attachment shown in the bubble immediately.
+      // Same id, same metadata; the server-canonical record will replace
+      // it on the next poll/history merge (de-duped by message id).
+      var optimisticAtt = hasReadyAttach ? {
+        id: att.attachmentId,
+        file_name: att.fileName,
+        mime_type: att.mimeType,
+        size_bytes: att.sizeBytes,
+        kind: (att.mimeType && /^image\//.test(att.mimeType)) ? 'image' : 'file',
+      } : null;
       if (hasReadyAttach) resetAttachment();
-      chatUI.sendMessage(text, renderBody, attachmentId);
+      chatUI.sendMessage(text, renderBody, attachmentId, optimisticAtt);
     }
     if (sendBtn) sendBtn.addEventListener('click', trySend);
     if (msgInput) msgInput.addEventListener('keydown', function (e) {

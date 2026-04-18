@@ -3,7 +3,7 @@
 (function () {
   "use strict";
 
-  var LOADER_VERSION = "2026-04-15-build-5";
+  var LOADER_VERSION = "2026-04-18-build-6-cookie-identity";
   var DEBUG = false;
   var _t0 = Date.now();
 
@@ -170,6 +170,7 @@
 
     fetch(bootstrapUrl, {
       method: "POST",
+      credentials: "include", // CRITICAL: lets server set HttpOnly dvsid cookie cross-site
       headers: { "Content-Type": "application/json" },
       body: bootstrapBody,
     })
@@ -191,8 +192,9 @@
 
         log("Session token acquired");
 
-        // Fetch full config (token-secured)
+        // Fetch full config (token-secured, also sends cookie)
         return fetch(apiBase + "/api/widget/config?workspace_id=" + encodeURIComponent(WORKSPACE_ID), {
+          credentials: "include",
           headers: { "X-Widget-Token": sessionToken },
         });
       })
@@ -349,20 +351,20 @@
   }
 
   // ─── Visitor tracking (background, non-blocking) ───
+  // Identity is owned by the HttpOnly `dvsid` cookie set during /bootstrap.
+  // The server resolves visitor_id from that cookie — we never read or store
+  // it client-side. All tracking calls send `credentials: 'include'`.
   function startTracking(apiBase, workspaceId, token) {
     if (!apiBase || !workspaceId) return;
 
-    var visitorId = localStorage.getItem("__gs_vid") || generateId();
-    localStorage.setItem("__gs_vid", visitorId);
-
-    log("Tracking: visitor", visitorId);
+    log("Tracking: page view");
 
     fetch(apiBase + "/api/widget/track", {
       method: "POST",
+      credentials: "include",
       headers: { "Content-Type": "application/json", "X-Widget-Token": token },
       body: JSON.stringify({
         workspace_id: workspaceId,
-        visitor_id: visitorId,
         event: "page_view",
         current_page: window.location.pathname,
         referrer: document.referrer || null,
@@ -371,26 +373,24 @@
         os: detectOS(),
       }),
     })
-      .then(function (r) {
-        return r.json();
-      })
+      .then(function (r) { return r.json(); })
       .then(function (data) {
-        if (data.session_id) {
-          localStorage.setItem("__gs_sid", data.session_id);
-          // Heartbeat every 30s — deferred, non-blocking
-          setInterval(function () {
-            fetch(apiBase + "/api/widget/action", {
-              method: "PUT",
-              headers: { "Content-Type": "application/json", "X-Widget-Token": token },
-              body: JSON.stringify({
-                workspace_id: workspaceId,
-                action: "heartbeat",
-                session_id: data.session_id,
-                current_page: window.location.pathname,
-              }),
-            }).catch(function () {});
-          }, 30000);
-        }
+        var sessionId = data && data.session_id ? data.session_id : null;
+        if (!sessionId) return;
+        // Heartbeat every 30s — non-blocking; cookie identifies visitor
+        setInterval(function () {
+          fetch(apiBase + "/api/widget/action", {
+            method: "PUT",
+            credentials: "include",
+            headers: { "Content-Type": "application/json", "X-Widget-Token": token },
+            body: JSON.stringify({
+              workspace_id: workspaceId,
+              action: "heartbeat",
+              session_id: sessionId,
+              current_page: window.location.pathname,
+            }),
+          }).catch(function () {});
+        }, 30000);
       })
       .catch(function () {});
   }

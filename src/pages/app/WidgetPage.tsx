@@ -29,6 +29,10 @@ function isValidDomain(d: string): boolean {
   return /^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/.test(d);
 }
 
+function nz(v: string | null | undefined): string {
+  return (v || '').trim();
+}
+
 export default function WidgetPage() {
   const { t } = useTranslation();
   const workspace = useCurrentWorkspace();
@@ -36,14 +40,27 @@ export default function WidgetPage() {
   const { branding, platformName } = useBrandingContext();
   const { data: platformDomains } = usePlatformDomains();
   const updateWidget = useUpdateWidgetSettings(workspace?.id);
+  const updateBranding = useUpdateBranding(workspace?.id);
   const [copiedVariant, setCopiedVariant] = useState<'window' | 'script' | null>(null);
   const [newDomain, setNewDomain] = useState('');
   const [domainError, setDomainError] = useState('');
 
-  const widgetPublicBaseUrl = branding?.widget_public_base_url || branding?.widget_base_url || platformDomains?.widget_base_url || platformDomains?.public_base_url || window.location.origin;
-  const widgetLoaderBaseUrl = branding?.widget_loader_base_url || branding?.widget_base_url || platformDomains?.widget_base_url || widgetPublicBaseUrl;
-  const widgetAssetBaseUrl = branding?.widget_base_url || widgetLoaderBaseUrl;
-  const widgetApiBaseUrl = branding?.widget_api_base_url || platformDomains?.api_base_url || '';
+  // Resolution: workspace override (if non-empty) → platform default → window.location.origin
+  const wsWidgetPublic = nz((branding as any)?.widget_public_base_url);
+  const wsWidgetLoader = nz((branding as any)?.widget_loader_base_url);
+  const wsWidgetAsset = nz((branding as any)?.widget_base_url);
+  const wsWidgetApi = nz((branding as any)?.widget_api_base_url);
+
+  const pdWidget = nz(platformDomains?.widget_base_url);
+  const pdPublic = nz(platformDomains?.public_base_url);
+  const pdAsset = nz(platformDomains?.asset_base_url);
+  const pdApi = nz(platformDomains?.api_base_url);
+
+  const widgetPublicBaseUrl = wsWidgetPublic || pdWidget || pdPublic || window.location.origin;
+  const widgetLoaderBaseUrl = wsWidgetLoader || pdWidget || widgetPublicBaseUrl;
+  const widgetAssetBaseUrl = wsWidgetAsset || pdAsset || pdWidget || widgetLoaderBaseUrl;
+  const widgetApiBaseUrl = wsWidgetApi || pdApi || '';
+
   const primaryColor = widget?.primary_color || branding?.primary_color || '#3B82F6';
   const loaderVersion = '2026-04-15-build-3';
   const loaderScriptUrl = `${widgetLoaderBaseUrl || 'https://widget.example.com'}/widget/loader.js?v=${encodeURIComponent(loaderVersion)}`;

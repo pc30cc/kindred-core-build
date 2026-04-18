@@ -85,6 +85,93 @@
     var kbArticles = [];
     var chatModuleLoaded = false;
     var kbModuleLoaded = false;
+    var preChatConfig = config.preChat || {};
+    var preChatResolved = false;
+    var visitorProfile = loadVisitorProfile();
+
+    function getVisitorId() {
+      var existing = localStorage.getItem('__gs_vid');
+      if (existing) return existing;
+      var next = 'v_' + Math.random().toString(36).substr(2, 9) + Date.now().toString(36);
+      localStorage.setItem('__gs_vid', next);
+      return next;
+    }
+
+    function loadVisitorProfile() {
+      try {
+        var raw = localStorage.getItem('__gs_profile');
+        if (!raw) return { name: '', email: '', phone: '' };
+        var parsed = JSON.parse(raw);
+        return {
+          name: parsed && parsed.name ? String(parsed.name) : '',
+          email: parsed && parsed.email ? String(parsed.email) : '',
+          phone: parsed && parsed.phone ? String(parsed.phone) : '',
+        };
+      } catch (_) {
+        return { name: '', email: '', phone: '' };
+      }
+    }
+
+    function saveVisitorProfile(profile) {
+      visitorProfile = {
+        name: profile && profile.name ? String(profile.name).trim() : '',
+        email: profile && profile.email ? String(profile.email).trim() : '',
+        phone: profile && profile.phone ? String(profile.phone).trim() : '',
+      };
+      localStorage.setItem('__gs_profile', JSON.stringify(visitorProfile));
+    }
+
+    function isPreChatFieldEnabled(key) {
+      return !!(preChatConfig[key] && preChatConfig[key].enabled);
+    }
+
+    function hasRequiredVisitorProfile() {
+      return (!isPreChatFieldEnabled('name') || !!visitorProfile.name) &&
+        (!isPreChatFieldEnabled('email') || !!visitorProfile.email) &&
+        (!isPreChatFieldEnabled('phone') || !!visitorProfile.phone);
+    }
+
+    function resolveVisitorIdentity(cb) {
+      if (!apiBase || !workspaceId) {
+        if (cb) cb(false);
+        return;
+      }
+
+      fetch(apiBase + '/api/widget/action', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Widget-Token': sessionToken || '',
+        },
+        body: JSON.stringify({
+          workspace_id: workspaceId,
+          action: 'resolve_visitor',
+          visitor_id: getVisitorId(),
+          session_id: localStorage.getItem('__gs_sid') || undefined,
+          visitor_name: visitorProfile.name || undefined,
+          visitor_email: visitorProfile.email || undefined,
+          visitor_phone: visitorProfile.phone || undefined,
+        }),
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (data && data.known_contact) {
+            saveVisitorProfile({
+              name: data.known_contact.name || visitorProfile.name,
+              email: data.known_contact.email || visitorProfile.email,
+              phone: data.known_contact.phone || visitorProfile.phone,
+            });
+          }
+          if (data && data.conversation_id) {
+            localStorage.setItem('__gs_cid', data.conversation_id);
+          }
+          preChatResolved = true;
+          if (cb) cb(true);
+        })
+        .catch(function () {
+          if (cb) cb(false);
+        });
+    }
 
     // ─── Build panel ───
     var panel = document.createElement('div');
@@ -149,6 +236,19 @@
       if (!msgInput) return;
       var text = msgInput.value.trim();
       if (!text) return;
+
+      if (!hasRequiredVisitorProfile()) {
+        renderBody();
+        return;
+      }
+
+      if (!preChatResolved) {
+        resolveVisitorIdentity(function (ok) {
+          if (ok) sendMessage();
+        });
+        return;
+      }
+
       messages.push({ body: text, sender: 'visitor', time: new Date() });
       msgInput.value = '';
       renderBody();
@@ -256,6 +356,52 @@
     }
 
     function renderChat() {
+      if (!hasRequiredVisitorProfile()) {
+        var fieldsHtml = '';
+        if (isPreChatFieldEnabled('name')) {
+          fieldsHtml += '<input class="__gs-input" id="__gs-prechat-name" placeholder="' + (locale === 'fa' ? 'نام' : locale === 'tr' ? 'İsim' : 'Name') + '" value="' + escapeHtml(visitorProfile.name || '') + '" />';
+        }
+        if (isPreChatFieldEnabled('email')) {
+          fieldsHtml += '<input class="__gs-input" id="__gs-prechat-email" type="email" placeholder="' + (locale === 'fa' ? 'ایمیل' : locale === 'tr' ? 'E-posta' : 'Email') + '" value="' + escapeHtml(visitorProfile.email || '') + '" />';
+        }
+        if (isPreChatFieldEnabled('phone')) {
+          fieldsHtml += '<input class="__gs-input" id="__gs-prechat-phone" placeholder="' + (locale === 'fa' ? 'شماره تلفن' : locale === 'tr' ? 'Telefon' : 'Phone number') + '" value="' + escapeHtml(visitorProfile.phone || '') + '" />';
+        }
+
+        body.innerHTML =
+          '<div class="__gs-empty" style="align-items:stretch;text-align:' + (locale === 'fa' ? 'right' : 'left') + ';">' +
+          '<p style="margin-bottom:12px;">' +
+          (locale === 'fa' ? 'قبل از شروع چت، لطفاً اطلاعات تماس را وارد کنید.' : locale === 'tr' ? 'Sohbete başlamadan önce iletişim bilgilerinizi girin.' : 'Before starting the chat, please enter your contact details.') +
+          '</p>' +
+          '<div style="display:flex;flex-direction:column;gap:8px;">' + fieldsHtml + '</div>' +
+          '<button class="__gs-send-btn" id="__gs-prechat-submit" style="background:' + primaryColor + ';width:100%;margin-top:12px;">' +
+          (locale === 'fa' ? 'ادامه' : locale === 'tr' ? 'Devam' : 'Continue') + '</button>' +
+          '</div>';
+
+        var nameInput = body.querySelector('#__gs-prechat-name');
+        var emailInput = body.querySelector('#__gs-prechat-email');
+        var phoneInput = body.querySelector('#__gs-prechat-phone');
+        var submitBtn = body.querySelector('#__gs-prechat-submit');
+        if (submitBtn) {
+          submitBtn.addEventListener('click', function () {
+            saveVisitorProfile({
+              name: nameInput ? nameInput.value : visitorProfile.name,
+              email: emailInput ? emailInput.value : visitorProfile.email,
+              phone: phoneInput ? phoneInput.value : visitorProfile.phone,
+            });
+            if (!hasRequiredVisitorProfile()) {
+              renderBody();
+              return;
+            }
+            resolveVisitorIdentity(function () {
+              renderBody();
+              if (msgInput) msgInput.focus();
+            });
+          });
+        }
+        return;
+      }
+
       if (messages.length === 0) {
         body.innerHTML =
           '<div class="__gs-empty">' +

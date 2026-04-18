@@ -195,6 +195,7 @@ export default function InboxPage() {
                   </AlertDialogFooter>
                 </AlertDialogContent>
               </AlertDialog>
+              )}
             </div>
           </div>
 

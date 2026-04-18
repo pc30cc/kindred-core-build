@@ -1092,33 +1092,62 @@
 
       incoming.forEach(function (m) {
         var id = m.id || (m.time + ':' + (m.text || m.body || ''));
-        if (seenIds[id]) return;
-        seenIds[id] = true;
         var senderRaw = m.role || m.sender || m.sender_type || 'agent';
         var sender = (senderRaw === 'visitor' || senderRaw === 'contact') ? 'visitor' : 'operator';
         var text = m.text || m.body || '';
-        if (sender === 'visitor') {
-          var dup = messages.some(function (lm) {
-            return lm.sender === 'visitor' && lm.body === text && !lm.__id;
-          });
-          if (dup) {
-            for (var i = 0; i < messages.length; i++) {
-              if (messages[i].sender === 'visitor' && messages[i].body === text && !messages[i].__id) {
-                messages[i].__id = id;
+        var seenAt = m.seen_at || null;
+
+        // Phase 7 — monotonic seen merge: if we already rendered this message
+        // (by canonical id), update lifecycle status forward only. Never
+        // regress sent → sending or seen → sent.
+        if (seenIds[id]) {
+          if (sender === 'visitor' && seenAt) {
+            for (var u = 0; u < messages.length; u++) {
+              if (messages[u].__id === id && messages[u].status !== 'seen') {
+                messages[u].status = 'seen';
+                messages[u].seenAt = seenAt;
+                changed = true;
                 break;
               }
             }
+          }
+          return;
+        }
+        seenIds[id] = true;
+
+        if (sender === 'visitor') {
+          // Reconcile with optimistic bubble (text match, no canonical id yet).
+          var dupIdx = -1;
+          for (var d = 0; d < messages.length; d++) {
+            if (messages[d].sender === 'visitor' && messages[d].body === text && !messages[d].__id) {
+              dupIdx = d; break;
+            }
+          }
+          if (dupIdx >= 0) {
+            messages[dupIdx].__id = id;
+            // Lifecycle: optimistic 'sending'/'sent' is at least 'sent' once
+            // backend echoes it back; promote to 'seen' only if backend says so.
+            var prev = messages[dupIdx].status;
+            if (seenAt) {
+              messages[dupIdx].status = 'seen';
+              messages[dupIdx].seenAt = seenAt;
+            } else if (prev !== 'seen') {
+              messages[dupIdx].status = 'sent';
+            }
+            changed = true;
             return;
           }
         }
+
         messages.push({
           body: text,
           sender: sender,
           time: m.time ? new Date(m.time) : new Date(),
           __id: id,
-          // Phase 6b — attachment metadata is server-provided & provider-safe
-          // (no raw URLs). Always loaded via the proxy route.
           attachment: m.attachment || null,
+          // Phase 7 — lifecycle (visitor messages only have a meaningful status).
+          status: sender === 'visitor' ? (seenAt ? 'seen' : 'sent') : null,
+          seenAt: sender === 'visitor' ? seenAt : null,
         });
         changed = true;
       });
@@ -1178,16 +1207,44 @@
     function renderChat(body) {
       var s = chatStore.get();
       if (!s.messages.length) { renderEmpty(body); return; }
+      // Phase 7 — read-receipts toggle (admin-controlled, surfaced via /config).
+      var rrCfg = ctx.config && ctx.config.readReceipts;
+      var receiptsEnabled = !rrCfg || rrCfg.enabled !== false;
+      // Find last visitor message — only it shows the lifecycle indicator
+      // (chat-app convention; reduces visual noise).
+      var lastVisitorIdx = -1;
+      for (var lv = s.messages.length - 1; lv >= 0; lv--) {
+        if (s.messages[lv].sender === 'visitor') { lastVisitorIdx = lv; break; }
+      }
       var html = '<div class="messages">';
-      s.messages.forEach(function (m) {
+      s.messages.forEach(function (m, idx) {
         var bg = m.sender === 'visitor' ? 'style="background:' + ctx.primaryColor + '"' : '';
         var cls = m.sender === 'visitor' ? 'visitor' : 'operator';
         var hasText = m.body && String(m.body).trim().length > 0;
         var attHtml = renderMessageAttachment(m.attachment);
         var extraCls = (attHtml && !hasText) ? ' has-att-only' : (attHtml ? ' has-att' : '');
-        html += '<div class="msg ' + cls + extraCls + '" ' + bg + '>' +
-          (hasText ? Util.escapeHtml(m.body) : '') +
-          attHtml +
+        // Phase 7 — lifecycle row (sending/sent/seen/failed). Only on the last
+        // visitor message, only when read receipts are enabled in config.
+        var statusHtml = '';
+        if (m.sender === 'visitor' && idx === lastVisitorIdx && receiptsEnabled && m.status) {
+          var label, icon;
+          if (m.status === 'sending') {
+            label = t('msgSending'); icon = '<span class="msg-status-spinner"></span>';
+          } else if (m.status === 'failed') {
+            label = t('msgFailed'); icon = '<span class="msg-status-icon">!</span>';
+          } else if (m.status === 'seen') {
+            label = t('msgSeen'); icon = '<span class="msg-status-icon seen">✓✓</span>';
+          } else { // 'sent'
+            label = t('msgSent'); icon = '<span class="msg-status-icon">✓</span>';
+          }
+          statusHtml = '<div class="msg-status status-' + m.status + '">' + icon +
+            '<span class="msg-status-label">' + Util.escapeHtml(label) + '</span></div>';
+        }
+        html += '<div class="msg-row ' + cls + '">' +
+          '<div class="msg ' + cls + extraCls + '" ' + bg + '>' +
+            (hasText ? Util.escapeHtml(m.body) : '') + attHtml +
+          '</div>' +
+          statusHtml +
           '</div>';
       });
       html += '</div>';

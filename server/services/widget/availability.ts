@@ -230,8 +230,11 @@ export async function resolveAvailability(
   const tz = (typeof bh?.timezone === 'string' && bh.timezone) || 'UTC';
   const liveChatEnabled = (row as any)?.live_chat_enabled !== false;
 
-  // LOCKED RULE 1: hours disabled => always online, ignore offline_mode entirely.
-  if (!enabled || !liveChatEnabled === false ? false : !enabled) {
+  // LOCKED RULE 1: business_hours.enabled === false  =>  state forced to
+  // 'online' AND offline_mode is ignored. live_chat_enabled is intentionally
+  // NOT consulted here so admins can never produce a "hours off but widget
+  // still offline" state via the hours toggle.
+  if (!enabled) {
     return {
       state: 'online',
       reason: 'disabled',
@@ -243,8 +246,9 @@ export async function resolveAvailability(
     };
   }
 
-  // If live chat is admin-disabled, treat as offline (this is an explicit
-  // operator decision, distinct from "hours not enabled").
+  // Hours are enabled. If live_chat_enabled is explicitly false, treat as
+  // an always-offline workspace (operators chose to be unreachable). This
+  // path is only reachable when business_hours.enabled === true.
   if (liveChatEnabled === false) {
     return {
       state: 'offline',

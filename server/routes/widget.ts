@@ -503,18 +503,17 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
         visitorTracking: ws.visitor_tracking_enabled ?? true,
       },
       preChat,
-      // Phase 5 — Availability snapshot consumed by widget runtime presence layer.
-      // Widget never assumes realtime presence; this snapshot is always valid.
-      availability: {
-        liveChatEnabled: ws.live_chat_enabled ?? true,
-        offlineMode: ws.offline_mode === 'contact_fallback' ? 'contact_fallback' : 'accept_messages',
-        businessHours: ws.business_hours && typeof ws.business_hours === 'object'
-          ? ws.business_hours
-          : { enabled: false, timezone: 'UTC', schedule: [] },
-        labels: ws.availability_labels && typeof ws.availability_labels === 'object'
-          ? ws.availability_labels
-          : {},
-      },
+      // Phase 8 — Server-authoritative availability. Computed via resolver
+      // so runtime never has to interpret weekly schedules. Locked rules:
+      //  - business_hours.enabled === false  =>  state = 'online' always.
+      //  - offline_message comes from offline_message_localized (per-locale)
+      //    with legacy offline_message as fallback. No translation pipeline.
+      availability: snapshotToWirePayload(
+        await resolveAvailability(config, {
+          workspaceId,
+          locale: ws.locale || 'en',
+        }),
+      ),
       // Phase 6a — Attachment config exposed to the widget runtime.
       // The widget enforces these as a UX guard; the backend re-validates.
       attachments: {

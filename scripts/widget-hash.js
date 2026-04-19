@@ -17,7 +17,7 @@ const SRC_DIR = join(ROOT, 'public', 'widget');
 const OUT_DIR = join(ROOT, 'dist', 'widget');
 
 // Files that get content-hashed filenames
-const HASHED_FILES = ['runtime.js', 'runtime.css', 'runtime-chat.js', 'runtime-kb.js', 'runtime-rt-centrifugo.js'];
+const HASHED_FILES = ['runtime.js', 'runtime.css', 'runtime-chat.js', 'runtime-kb.js', 'runtime-rt-centrifugo.js', 'runtime-rt-supabase.js', 'runtime-rt-resolver.js'];
 
 // Files copied as-is (stable entry points)
 const STABLE_FILES = ['loader.js'];

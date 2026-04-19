@@ -359,11 +359,29 @@
       ModuleLoader.load('chat', url, function (mod) { cb(mod); });
     }
 
-    function ensureCentrifugoModule(cb) {
-      if (window.__gs_mod_rt_centrifugo) return cb(window.__gs_mod_rt_centrifugo);
-      var url = (ctx.assetBase || '') + '/widget/runtime-rt-centrifugo.js?v=' +
-        (ctx.config._loaderVersion || ctx.config.loaderVersion || 'dev');
-      ModuleLoader.load('rt_centrifugo', url, function () { cb(window.__gs_mod_rt_centrifugo); });
+    function assetVersion() {
+      return ctx.config._loaderVersion || ctx.config.loaderVersion || 'dev';
+    }
+
+    function ensureResolverModule(cb) {
+      if (window.__gs_mod_rt_resolver) return cb(window.__gs_mod_rt_resolver);
+      var url = (ctx.assetBase || '') + '/widget/runtime-rt-resolver.js?v=' + assetVersion();
+      ModuleLoader.load('rt_resolver', url, function () { cb(window.__gs_mod_rt_resolver); });
+    }
+
+    /**
+     * Lazy-load the realtime driver matching `vendor` via the resolver.
+     * Calls cb(driverModule|null). Driver module exposes `.create(...)`.
+     */
+    function ensureRealtimeDriver(vendor, cb) {
+      ensureResolverModule(function (resolver) {
+        if (!resolver || !resolver.isDriverVendor(vendor)) return cb(null);
+        var desc = resolver.resolveDriverDescriptor(vendor);
+        if (!desc) return cb(null);
+        if (window[desc.globalKey]) return cb(window[desc.globalKey]);
+        var url = (ctx.assetBase || '') + '/widget/' + desc.asset + '?v=' + assetVersion();
+        ModuleLoader.load('rt_' + vendor, url, function () { cb(window[desc.globalKey] || null); });
+      });
     }
 
     function loadHistory(opts) {
@@ -494,6 +512,16 @@
     }
 
     // ─── Realtime resolver: ask backend which transport to use ───
+    //
+    // Backend returns one of:
+    //   { vendor: 'centrifugo', ws_url, token, expires_at, capabilities, ... }
+    //   { vendor: 'supabase',   supabase_url, anon_key, capabilities, ... }
+    //   { vendor: 'polling_builtin', capabilities }
+    //   { vendor: 'disabled',        capabilities }
+    //
+    // Driver vendors ('centrifugo', 'supabase') are dispatched through the
+    // resolver module + driver-specific runtime script. Non-driver vendors
+    // ('polling_builtin', 'disabled') are handled inline.
     function resolveRealtimeAndStart() {
       var url = ctx.apiBase + '/api/realtime/connect';
       fetch(url, {
@@ -515,45 +543,60 @@
             capabilities.driver = resolvedVendor;
           }
 
-          if (resolvedVendor === 'centrifugo' && resolved.token && resolved.ws_url) {
-            ensureCentrifugoModule(function (mod) {
-              if (!mod || !mod.create) {
-                Util.warn('[transport] centrifugo module load failed — fallback to polling');
-                if (fallbackPolicy === 'lenient') startPolling();
-                else setConnectionState('offline');
+          function fallback(reason) {
+            Util.warn('[transport] realtime fallback:', reason);
+            rtDriver = null;
+            capabilities.driver = 'polling';
+            capabilities.supportsRealtime = false;
+            capabilities.supportsTyping = false;
+            capabilities.supportsPresence = false;
+            if (fallbackPolicy === 'lenient') startPolling();
+            else setConnectionState('offline');
+          }
+
+          // Vendor needs a real driver module — load via resolver.
+          ensureResolverModule(function (resolver) {
+            var isDriverVendor = !!(resolver && resolver.isDriverVendor(resolvedVendor));
+
+            if (isDriverVendor) {
+              // Per-vendor minimal config sanity check before loading.
+              if (resolvedVendor === 'centrifugo' && !(resolved.token && resolved.ws_url)) {
+                fallback('centrifugo_config_missing');
                 return;
               }
-              rtDriver = mod.create(ctx, resolved, {
-                onConnectionState: function (s) { setConnectionState(s); },
-                onMessage: function (e) { emit('message', e); },
-                onTyping: function (e) { emit('typing', e); },
-                onPresence: function (e) { emit('presence', e); },
-                onReconnect: function () { emit('reconnect', {}); },
-                fallbackToPolling: function (reason) {
-                  Util.warn('[transport] centrifugo fallback:', reason);
-                  rtDriver = null;
-                  capabilities.driver = 'polling';
-                  capabilities.supportsRealtime = false;
-                  capabilities.supportsTyping = false;
-                  capabilities.supportsPresence = false;
-                  if (fallbackPolicy === 'lenient') startPolling();
-                  else setConnectionState('offline');
-                },
+              if (resolvedVendor === 'supabase' && !(resolved.supabase_url && resolved.anon_key)) {
+                fallback('supabase_config_missing');
+                return;
+              }
+
+              ensureRealtimeDriver(resolvedVendor, function (mod) {
+                if (!mod || !mod.create) {
+                  fallback(resolvedVendor + '_module_load_failed');
+                  return;
+                }
+                rtDriver = mod.create(ctx, resolved, {
+                  onConnectionState: function (s) { setConnectionState(s); },
+                  onMessage: function (e) { emit('message', e); },
+                  onTyping: function (e) { emit('typing', e); },
+                  onPresence: function (e) { emit('presence', e); },
+                  onReconnect: function () { emit('reconnect', {}); },
+                  fallbackToPolling: fallback,
+                });
+                rtDriver.connect();
+                if (subscribedConversation) rtDriver.subscribeConversation(subscribedConversation);
               });
-              rtDriver.connect();
-              if (subscribedConversation) rtDriver.subscribeConversation(subscribedConversation);
-            });
-            return;
-          }
+              return;
+            }
 
-          if (resolvedVendor === 'disabled') {
-            // Realtime disabled by admin — REST history still works on demand.
-            setConnectionState('offline');
-            return;
-          }
+            if (resolvedVendor === 'disabled') {
+              // Realtime disabled by admin — REST history still works on demand.
+              setConnectionState('offline');
+              return;
+            }
 
-          // polling_builtin (default / fallback)
-          startPolling();
+            // polling_builtin (default / fallback) or any unknown vendor.
+            startPolling();
+          });
         })
         .catch(function (err) {
           // Resolver itself failed → conservative fallback to polling.

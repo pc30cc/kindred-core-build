@@ -152,7 +152,7 @@ async function testManifest(url: string): Promise<TestResult> {
         details: { preview: text.slice(0, 200) },
       };
     }
-    const requiredKeys = ['runtime.js', 'runtime-rt-centrifugo.js', 'loader.js'];
+    const requiredKeys = ['runtime.js', 'runtime-rt-resolver.js', 'runtime-rt-centrifugo.js', 'runtime-rt-supabase.js', 'loader.js'];
     const missing = requiredKeys.filter((k) => !parsed[k]);
     if (missing.length) {
       return {

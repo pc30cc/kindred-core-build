@@ -28,6 +28,8 @@ interface WidgetManifest {
   'runtime-chat.js'?: string;
   'runtime-kb.js'?: string;
   'runtime-rt-centrifugo.js'?: string;
+  'runtime-rt-supabase.js'?: string;
+  'runtime-rt-resolver.js'?: string;
   'loader.js'?: string;
   loaderVersion?: string;
 }
@@ -37,7 +39,9 @@ type WidgetAssetKey =
   | 'runtime.css'
   | 'runtime-chat.js'
   | 'runtime-kb.js'
-  | 'runtime-rt-centrifugo.js';
+  | 'runtime-rt-centrifugo.js'
+  | 'runtime-rt-supabase.js'
+  | 'runtime-rt-resolver.js';
 
 let cachedManifest: WidgetManifest | null = null;
 let lastReadTime = 0;
@@ -153,6 +157,8 @@ function fallbackManifest(): WidgetManifest {
     'runtime-chat.js': 'runtime-chat.js',
     'runtime-kb.js': 'runtime-kb.js',
     'runtime-rt-centrifugo.js': 'runtime-rt-centrifugo.js',
+    'runtime-rt-supabase.js': 'runtime-rt-supabase.js',
+    'runtime-rt-resolver.js': 'runtime-rt-resolver.js',
     'loader.js': 'loader.js',
     loaderVersion: computeFallbackVersion(),
   };

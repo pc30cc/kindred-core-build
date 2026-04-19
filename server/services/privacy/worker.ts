@@ -23,8 +23,13 @@ import { getServiceClient } from '../../supabase.js';
 import { resolveSubject } from './identity.js';
 import { buildExportZip } from './exporter.js';
 import { runAnonymize } from './anonymizer.js';
-import { writeArtifact } from './artifactStore.js';
 import { writePrivacyAudit } from './audit.js';
+import {
+  resolvePrivacyStoragePolicy,
+  buildPrivacyArtifactKey,
+  PrivacyStorageNotConfigured,
+} from './storageResolver.js';
+import { uploadWithConfig } from '../storage/index.js';
 import type { PrivacyJobRow } from './types.js';
 
 const POLL_INTERVAL_MS = 5_000;
@@ -79,14 +84,32 @@ async function processJob(config: ServerConfig, job: PrivacyJobRow): Promise<voi
 
   if (job.action === 'export') {
     const { buffer, sha256, manifestSummary } = await buildExportZip(config, job);
-    const filePath = writeArtifact(job.id, buffer);
+
+    // Resolve the privacy-export-specific storage policy. Throws if no
+    // provider is configured and fallback is not allowed — the catch
+    // block below will mark the job failed with a clear error.
+    const policy = await resolvePrivacyStoragePolicy(config, job.workspace_id);
+    const objectKey = buildPrivacyArtifactKey(job.workspace_id, job.id);
+
+    const upload = await uploadWithConfig(policy.config, {
+      workspaceId: job.workspace_id || '_self',
+      fileKey: objectKey,
+      data: buffer,
+      contentType: 'application/zip',
+    });
+    if (!upload.success) {
+      throw new Error(`Privacy artifact upload failed via ${policy.provider}: ${upload.error || 'unknown'}`);
+    }
+
     const expiresAt = new Date(Date.now() + ARTIFACT_TTL_MS).toISOString();
     await sb
       .from('privacy_jobs')
       .update({
         status: 'completed',
         completed_at: new Date().toISOString(),
-        artifact_path: filePath,
+        artifact_path: objectKey, // logical path (kept for compatibility)
+        artifact_storage_provider: policy.provider,
+        artifact_storage_key: objectKey,
         artifact_hash: sha256,
         artifact_size_bytes: buffer.length,
         expires_at: expiresAt,
@@ -97,7 +120,13 @@ async function processJob(config: ServerConfig, job: PrivacyJobRow): Promise<voi
       userId: job.actor_user_id,
       action: 'privacy.export.completed',
       jobId: job.id,
-      metadata: { sha256, size: buffer.length, counts: manifestSummary },
+      metadata: {
+        sha256,
+        size: buffer.length,
+        counts: manifestSummary,
+        storage_provider: policy.provider,
+        storage_source: policy.source,
+      },
     });
     return;
   }
@@ -145,6 +174,10 @@ async function tick(config: ServerConfig) {
     console.error('[privacy worker] tick error:', err);
   }
 }
+
+// Re-export so callers (routes / future periodic sweep) can detect the
+// configuration error class without reaching into the resolver module.
+export { PrivacyStorageNotConfigured };
 
 export function startPrivacyWorker(config: ServerConfig) {
   if (started) return;

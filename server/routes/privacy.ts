@@ -15,7 +15,9 @@ import { getServiceClient } from '../supabase.js';
 import { resolveSubject } from '../services/privacy/identity.js';
 import { issueReauthToken, consumeReauthToken } from '../services/privacy/reauth.js';
 import { writePrivacyAudit } from '../services/privacy/audit.js';
-import { readArtifact, deleteArtifact } from '../services/privacy/artifactStore.js';
+import { readLegacyArtifact, deleteLegacyArtifact } from '../services/privacy/artifactStore.js';
+import { resolvePrivacyStoragePolicy } from '../services/privacy/storageResolver.js';
+import { downloadWithConfig, deleteWithConfig } from '../services/storage/index.js';
 import type { PrivacyAction, PrivacySubjectType } from '../services/privacy/types.js';
 
 export const privacyRouter = Router();
@@ -349,7 +351,30 @@ privacyRouter.get('/exports/:job_id/download', async (req, res) => {
     return res.status(403).json({ error: 'Invalid token' });
   }
 
-  const buf = readArtifact(job.id);
+  // Resolve artifact bytes — provider-based for new jobs, legacy local
+  // disk for jobs created before the storage-provider refactor.
+  let buf: Buffer | null = null;
+  if (job.artifact_storage_provider && job.artifact_storage_key) {
+    try {
+      const policy = await resolvePrivacyStoragePolicy(config, job.workspace_id);
+      // If the workspace/platform policy now points at a different
+      // provider than the one that stored this artifact, still try to
+      // read using a config that matches the recorded provider name —
+      // we only have policy.config available, so we attempt with the
+      // current resolved config (matches in the common case of an
+      // unchanged policy). Provider name mismatch falls through to a
+      // 410 below.
+      if (policy.provider === job.artifact_storage_provider) {
+        const dl = await downloadWithConfig(policy.config, job.artifact_storage_key);
+        if (dl.success && dl.data) buf = dl.data;
+      }
+    } catch {
+      // configuration error → fall through to 410
+    }
+  } else {
+    // Legacy on-disk artifact (pre-refactor jobs)
+    buf = readLegacyArtifact(job.id);
+  }
   if (!buf) return res.status(410).json({ error: 'Artifact missing' });
 
   // Single-use: invalidate the token immediately + bump count.
@@ -367,9 +392,23 @@ privacyRouter.get('/exports/:job_id/download', async (req, res) => {
     ip: req.ip,
   });
 
-  // Auto-purge after first download.
-  deleteArtifact(job.id);
-  await sb.from('privacy_jobs').update({ artifact_path: null }).eq('id', job.id);
+  // Auto-purge after first download — through whichever store actually holds it.
+  if (job.artifact_storage_provider && job.artifact_storage_key) {
+    try {
+      const policy = await resolvePrivacyStoragePolicy(config, job.workspace_id);
+      if (policy.provider === job.artifact_storage_provider) {
+        await deleteWithConfig(policy.config, job.artifact_storage_key);
+      }
+    } catch {
+      // best-effort delete; TTL sweep will retry later
+    }
+  } else {
+    deleteLegacyArtifact(job.id);
+  }
+  await sb
+    .from('privacy_jobs')
+    .update({ artifact_path: null, artifact_storage_key: null })
+    .eq('id', job.id);
 
   res.setHeader('Content-Type', 'application/zip');
   res.setHeader('Content-Disposition', `attachment; filename="privacy-export-${job.id}.zip"`);

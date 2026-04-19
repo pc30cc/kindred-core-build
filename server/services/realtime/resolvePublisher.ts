@@ -25,6 +25,7 @@ import { CentrifugoPublisher } from './publishers/centrifugo.js';
 import { SupabaseRealtimePublisher } from './publishers/supabase.js';
 import { NoopPublisher } from './publishers/noop.js';
 import type { ServerRealtimePublisher } from './publishers/types.js';
+import { rtDebug, rtWarn } from './debug.js';
 
 const SUPPORTED_OVERRIDE_VENDORS = new Set(['centrifugo', 'supabase']);
 const CACHE_TTL_MS = 30_000;

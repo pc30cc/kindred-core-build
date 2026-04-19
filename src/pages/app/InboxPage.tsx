@@ -159,10 +159,106 @@ export default function InboxPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [rawMessages?.length]);
 
+  // ─── Phase 2 — Operator attachment composer state ───
+  // Single pending attachment per draft (mirrors widget's design).
+  // State machine: idle → uploading → ready → (sent → idle) | error
+  type AttState = {
+    file: File | null;
+    attachmentId: string | null;
+    fileName: string;
+    mimeType: string;
+    sizeBytes: number;
+    status: 'idle' | 'uploading' | 'ready' | 'error';
+    progress: number;
+    error: string;
+  };
+  const initialAttState: AttState = {
+    file: null, attachmentId: null, fileName: '', mimeType: '',
+    sizeBytes: 0, status: 'idle', progress: 0, error: '',
+  };
+  const [att, setAtt] = useState<AttState>(initialAttState);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const resetAttachment = useCallback(() => setAtt(initialAttState), []);
+
+  const beginUpload = useCallback(async (file: File) => {
+    if (!workspace?.id) return;
+    if (!ALLOWED_OPERATOR_MIMES.has(file.type)) {
+      toast({
+        title: t('inbox.attachInvalidType') || 'File type not allowed',
+        description: file.type || 'unknown',
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (file.size > MAX_OPERATOR_BYTES) {
+      toast({
+        title: t('inbox.attachTooLarge') || 'File too large',
+        description: humanSize(MAX_OPERATOR_BYTES),
+        variant: 'destructive',
+      });
+      return;
+    }
+    setAtt({
+      file, attachmentId: null, fileName: file.name, mimeType: file.type,
+      sizeBytes: file.size, status: 'uploading', progress: 5, error: '',
+    });
+    try {
+      const init = await conversationsApi.initAttachment({
+        workspace_id: workspace.id,
+        conversation_id: selectedId ?? null,
+        file,
+      });
+      setAtt((s) => ({ ...s, attachmentId: init.attachment_id, progress: 20 }));
+      await conversationsApi.uploadAttachment({
+        workspace_id: workspace.id,
+        attachment_id: init.attachment_id,
+        file,
+        onProgress: (pct) => setAtt((s) => ({ ...s, progress: Math.max(s.progress, pct) })),
+      });
+      setAtt((s) => ({ ...s, status: 'ready', progress: 100 }));
+    } catch (e: any) {
+      setAtt((s) => ({ ...s, status: 'error', error: e?.message || 'Upload failed' }));
+      toast({
+        title: t('inbox.attachUploadFailed') || 'Upload failed',
+        description: e?.message || '',
+        variant: 'destructive',
+      });
+    }
+  }, [workspace?.id, selectedId, t]);
+
+  const onFilePicked: React.ChangeEventHandler<HTMLInputElement> = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-picking the same file later
+    if (file) beginUpload(file);
+  };
+
+  const retryUpload = useCallback(() => {
+    if (att.file) beginUpload(att.file);
+  }, [att.file, beginUpload]);
+
+  const removeAttachment = useCallback(() => {
+    if (att.attachmentId && workspace?.id) {
+      // Best-effort cleanup; ignore failures.
+      conversationsApi.deleteAttachment({
+        workspace_id: workspace.id, attachment_id: att.attachmentId,
+      }).catch(() => {});
+    }
+    resetAttachment();
+  }, [att.attachmentId, workspace?.id, resetAttachment]);
+
   const handleSend = async () => {
-    if (!message.trim() || !selectedId || !user) return;
-    await sendMessage.mutateAsync({ body: message });
+    if (!selectedId || !user) return;
+    const hasText = message.trim().length > 0;
+    const hasAttachment = att.status === 'ready' && !!att.attachmentId;
+    if (!hasText && !hasAttachment) return;
+    if (att.status === 'uploading') return; // wait for upload to finish
+    await sendMessage.mutateAsync({
+      body: message,
+      attachmentId: hasAttachment ? att.attachmentId : null,
+    });
     setMessage('');
+    resetAttachment();
   };
 
   // Phase 1 — operator typing emit (throttled to ≤1 publish per 2s while typing).
@@ -179,8 +275,12 @@ export default function InboxPage() {
     });
   }, [workspace?.id, selectedId]);
 
-  // Reset visitor typing indicator when switching conversations.
-  useEffect(() => { setVisitorTypingUntil(0); lastTypingSentRef.current = 0; }, [selectedId]);
+  // Reset visitor typing indicator + pending attachment when switching conversations.
+  useEffect(() => {
+    setVisitorTypingUntil(0);
+    lastTypingSentRef.current = 0;
+    resetAttachment();
+  }, [selectedId, resetAttachment]);
 
   const getInitials = (name?: string | null, email?: string | null) => {
     if (name) return name.charAt(0).toUpperCase();

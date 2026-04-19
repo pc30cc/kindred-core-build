@@ -22,6 +22,7 @@ import type {
   NormalizedMessagePayload,
   RealtimeSubscription,
 } from '@/realtime';
+import { rtDebug, rtWarn } from '@/realtime/debug';
 
 export interface InboxRealtimeOptions {
   workspaceId: string | undefined;
@@ -51,9 +52,16 @@ export function useInboxRealtime(opts: InboxRealtimeOptions) {
       try {
         const provider = await resolveClientRealtimeProvider(workspaceId);
         if (cancelled) return;
+        rtDebug('inbox', 'subscribing', { vendor: provider.vendor, channel });
 
         const subscription = await provider.subscribe(channel, {
           onMessage: (payload) => {
+            rtDebug('inbox', 'event:message', {
+              vendor: provider.vendor,
+              channel,
+              id: (payload as any)?.id,
+              sender_type: (payload as any)?.sender_type,
+            });
             // Default behavior: invalidate the message list so React Query
             // refetches and the Inbox renders the new row. Conservative —
             // no optimistic patching here.
@@ -62,15 +70,18 @@ export function useInboxRealtime(opts: InboxRealtimeOptions) {
             handlersRef.current.onMessage?.(payload);
           },
           onTyping: (payload) => {
+            rtDebug('inbox', 'event:typing', { vendor: provider.vendor, channel });
             handlersRef.current.onTyping?.(payload);
           },
           onSeen: () => {
+            rtDebug('inbox', 'event:seen', { vendor: provider.vendor, channel });
             queryClient.invalidateQueries({ queryKey: ['messages', conversationId] });
           },
           onStatus: (status, info) => {
             if (status === 'error') {
-              // Polling already covers the UI; don't spam the user.
-              console.warn('[inbox-rt] status=error', info?.reason);
+              rtWarn('inbox', 'status=error', { vendor: provider.vendor, reason: info?.reason });
+            } else {
+              rtDebug('inbox', `status=${status}`, { vendor: provider.vendor });
             }
           },
         });
@@ -82,7 +93,7 @@ export function useInboxRealtime(opts: InboxRealtimeOptions) {
       } catch (err) {
         // Resolver itself never throws; this catches subscribe-time errors
         // from a primary transport. Polling fallback is implicit.
-        console.warn('[inbox-rt] subscribe failed, polling continues', err);
+        rtWarn('inbox', 'subscribe failed, polling continues', { error: (err as any)?.message });
       }
     })();
 

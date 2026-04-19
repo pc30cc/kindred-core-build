@@ -36,6 +36,7 @@ const settingsGroupsDef: SettingsGroup[] = [
       { key: 'branding', label: 'Branding', subPath: '/settings/branding' },
       { key: 'domains', label: 'Domains', subPath: '/settings/domains' },
       { key: 'team', label: 'Team Members', subPath: '/team' },
+      { key: 'privacyRequests', label: 'Privacy Requests', subPath: '/privacy-requests' },
     ],
   },
   {

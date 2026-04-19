@@ -32,6 +32,7 @@ import {
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { ConversationActionPanel } from '@/components/inbox/ConversationActionPanel';
+import { ConversationActivityPanel } from '@/components/inbox/ConversationActivityPanel';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 const ALLOWED_OPERATOR_MIMES = new Set([
@@ -1001,12 +1002,14 @@ export default function InboxPage() {
               </div>
             )}
 
-            {sidebarTab === 'activity' && (
-              <div className="p-3" dir={dir}>
-                <div className="py-12 text-center text-xs text-muted-foreground">
-                  {t('inbox.noActivity') || 'No activity recorded yet'}
-                </div>
-              </div>
+            {sidebarTab === 'activity' && selectedId && workspace?.id && (
+              <ConversationActivityPanel
+                conversationId={selectedId}
+                workspaceId={workspace.id}
+                currentUserId={user?.id ?? null}
+                t={t}
+                dir={dir}
+              />
             )}
           </ScrollArea>
         </div>

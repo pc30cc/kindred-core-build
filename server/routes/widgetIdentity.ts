@@ -46,6 +46,52 @@ import {
   getClientIp,
 } from '../services/widget/security.js';
 import { enrichMessagesWithAttachments } from './widgetAttachments.js';
+import { recordConversationEvent } from '../services/conversationEvents.js';
+
+/**
+ * Phase 4b — Emit a stable `identified` timeline event on every conversation
+ * that just got linked to a contact via merge. Best-effort, never throws.
+ *
+ * Payload contract: { contact_id, method, is_new_contact }
+ */
+async function emitIdentifiedEvents(
+  config: ServerConfig,
+  supabase: any,
+  workspaceId: string,
+  contactId: string,
+  method: string,
+  isNewContact: boolean,
+) {
+  try {
+    // Look at the recent slice (last 24h) — the merge SQL function only
+    // re-links open/recent conversations, so this is sufficient and bounded.
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { data: convs } = await supabase
+      .from('conversations')
+      .select('id')
+      .eq('workspace_id', workspaceId)
+      .eq('contact_id', contactId)
+      .gte('updated_at', cutoff)
+      .order('updated_at', { ascending: false })
+      .limit(5);
+    for (const c of convs ?? []) {
+      void recordConversationEvent(config, {
+        workspaceId,
+        conversationId: c.id,
+        eventType: 'identified',
+        actorType: 'visitor',
+        actorId: null,
+        payload: {
+          contact_id: contactId,
+          method,
+          is_new_contact: isNewContact,
+        },
+      });
+    }
+  } catch (e) {
+    console.warn('[identified-event] failed:', (e as any)?.message || e);
+  }
+}
 
 export const widgetIdentityRouter = Router();
 
@@ -206,6 +252,8 @@ widgetIdentityRouter.post('/prechat', widgetRateLimit('message'), async (req: Re
       method: 'prechat',
       ipAddress: getClientIp(req),
     });
+
+    void emitIdentifiedEvents(config, supabase, workspaceId, merge.contactId, 'prechat', merge.isNewContact);
 
     return res.json({
       success: true,
@@ -377,6 +425,7 @@ widgetIdentityRouter.post('/verify/confirm', widgetRateLimit('message'), async (
       method: parsed.data.channel,
       ipAddress: getClientIp(req),
     });
+    void emitIdentifiedEvents(config, supabase, workspaceId, merge.contactId, parsed.data.channel, merge.isNewContact);
     return res.json({
       success: true,
       contact_id: merge.contactId,
@@ -469,6 +518,7 @@ widgetIdentityRouter.post('/continuity/use', widgetRateLimit('default'), async (
         _metadata: { reattach: true },
       });
     }
+    void emitIdentifiedEvents(config, supabase, workspaceId, result.contactId!, 'token', false);
     return res.json({ success: true, contact_id: result.contactId, visitor_id: visitorId });
   } catch (err: any) {
     console.error('[identity-continuity-use] error:', err.message);

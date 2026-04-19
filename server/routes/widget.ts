@@ -55,6 +55,7 @@ import { resolveAIConfig, executeAICompletion } from '../services/ai/index.js';
 import { resolveVisitorIdentity, readVisitorCookie } from '../services/widget/visitorIdentity.js';
 import { widgetIdentityRouter } from './widgetIdentity.js';
 import { widgetAttachmentsRouter, attachUploadedFileToMessage, enrichMessagesWithAttachments } from './widgetAttachments.js';
+import { recordConversationEvent } from '../services/conversationEvents.js';
 
 export const widgetRouter = Router();
 
@@ -863,6 +864,34 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
 
       if (convErr) throw convErr;
       convId = conv!.id;
+
+      // Phase 4b — record canonical 'created' timeline event.
+      // Payload contract: { source: 'widget' }
+      void recordConversationEvent(config, {
+        workspaceId,
+        conversationId: convId!,
+        eventType: 'created',
+        actorType: 'visitor',
+        actorId: null,
+        payload: { source: 'widget' },
+      });
+      // If the visitor was already identified at conversation creation
+      // (pre-chat or continuity restored), surface that as 'identified'
+      // so the timeline reflects how the contact attached.
+      if (contactId) {
+        void recordConversationEvent(config, {
+          workspaceId,
+          conversationId: convId!,
+          eventType: 'identified',
+          actorType: 'visitor',
+          actorId: null,
+          payload: {
+            contact_id: contactId,
+            method: body.visitor_email ? 'email' : (body.visitor_phone ? 'phone' : 'visitor_id'),
+            is_new_contact: false,
+          },
+        });
+      }
     }
 
     // Insert visitor message (body may be empty when only an attachment is sent)
@@ -973,6 +1002,20 @@ If you cannot answer, say so politely.${kbContext}`;
               convId!,
               buildMessageEnvelope(aiMsg as any),
             ).catch(() => {});
+            // Phase 4b — record canonical 'ai_reply' timeline event.
+            // Payload contract: { message_id, provider?, model? }
+            void recordConversationEvent(config, {
+              workspaceId,
+              conversationId: convId!,
+              eventType: 'ai_reply',
+              actorType: 'ai',
+              actorId: null,
+              payload: {
+                message_id: aiMsg.id,
+                provider: aiResponse.provider ?? null,
+                model: aiResponse.model ?? null,
+              },
+            });
           }
         }
       }

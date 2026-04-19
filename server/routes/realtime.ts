@@ -219,6 +219,95 @@ realtimeRouter.post('/subscribe', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────
+//  OPERATOR (inbox): /api/realtime/operator-connect | /operator-subscribe
+//  Auth = Supabase user JWT + workspace membership.
+//  Lets the workspace inbox subscribe to the SAME conversation channels
+//  the visitor widget uses, so agent↔visitor messages flow live both ways.
+// ─────────────────────────────────────────────────────────────────────
+const operatorConnectSchema = z.object({ workspace_id: z.string().uuid() });
+const operatorSubscribeSchema = z.object({
+  workspace_id: z.string().uuid(),
+  conversation_id: z.string().uuid(),
+});
+
+async function authorizeOperator(req: any, res: any, config: ServerConfig, workspaceId: string) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) {
+    res.status(401).json({ error: 'Missing authorization' });
+    return null;
+  }
+  const sb = getServiceClient(config);
+  const { data: { user }, error } = await sb.auth.getUser(authHeader.replace('Bearer ', ''));
+  if (error || !user) { res.status(401).json({ error: 'Invalid token' }); return null; }
+  const { data: isMember } = await sb.rpc('is_workspace_member', {
+    _workspace_id: workspaceId, _user_id: user.id,
+  });
+  if (!isMember) { res.status(403).json({ error: 'Not a workspace member' }); return null; }
+  return user;
+}
+
+realtimeRouter.post('/operator-connect', async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const parsed = operatorConnectSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid request' });
+    const user = await authorizeOperator(req, res, config, parsed.data.workspace_id);
+    if (!user) return;
+
+    const resolved = await resolveRealtimeProvider(config);
+    if (resolved.effective_vendor !== 'centrifugo') {
+      return res.json({ vendor: resolved.effective_vendor, capabilities: resolved.capabilities });
+    }
+    const driver = await getCentrifugoDriver(config);
+    if (!driver) return res.json({ vendor: 'polling_builtin' });
+    const tk = driver.issueConnectionToken({
+      sub: `op_${user.id}`,
+      workspace_id: parsed.data.workspace_id,
+    });
+    return res.json({
+      vendor: 'centrifugo',
+      ws_url: tk.ws_url,
+      token: tk.token,
+      expires_at: tk.expires_at,
+      capabilities: resolved.capabilities,
+    });
+  } catch (err: any) {
+    console.error('[realtime/operator-connect]', err);
+    res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+realtimeRouter.post('/operator-subscribe', async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const parsed = operatorSubscribeSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid request' });
+    const user = await authorizeOperator(req, res, config, parsed.data.workspace_id);
+    if (!user) return;
+
+    const sb = getServiceClient(config);
+    const { data: conv } = await sb.from('conversations')
+      .select('id, workspace_id').eq('id', parsed.data.conversation_id).maybeSingle();
+    if (!conv || conv.workspace_id !== parsed.data.workspace_id) {
+      return res.status(404).json({ error: 'Conversation not in workspace' });
+    }
+    const driver = await getCentrifugoDriver(config);
+    if (!driver) return res.json({ vendor: 'polling_builtin' });
+    const channel = `ws:${parsed.data.workspace_id}:conv:${parsed.data.conversation_id}`;
+    if (!channelBelongsToWorkspace(channel, parsed.data.workspace_id)) {
+      return res.status(403).json({ error: 'Channel not allowed' });
+    }
+    const tk = driver.issueSubscriptionToken({
+      sub: `op_${user.id}`, channel, workspaceId: parsed.data.workspace_id,
+    });
+    return res.json({ vendor: 'centrifugo', channel, token: tk.token, expires_at: tk.expires_at });
+  } catch (err: any) {
+    console.error('[realtime/operator-subscribe]', err);
+    res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────
 //  ADMIN: /api/realtime/admin/*
 // ─────────────────────────────────────────────────────────────────────
 async function requireAdmin(req: any, res: any, next: any) {

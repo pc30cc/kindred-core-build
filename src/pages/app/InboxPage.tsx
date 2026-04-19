@@ -63,7 +63,7 @@ export default function InboxPage() {
 
   const { data: conversations, isLoading } = useConversations(workspace?.id, filter === 'all' ? undefined : filter);
   const { data: rawMessages } = useConversationMessages(selectedId ?? undefined);
-  const sendMessage = useSendMessage(selectedId ?? undefined);
+  const sendMessage = useSendMessage(selectedId ?? undefined, workspace?.id);
   const updateConv = useUpdateConversation();
   const deleteAll = useDeleteAllConversations();
   const markSeen = useMarkConversationSeen();

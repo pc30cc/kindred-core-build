@@ -27,10 +27,18 @@ RUN echo "✅ widget assets:" && ls -la /app/dist/widget/
 # ── Serve with nginx ───────────────────────────────────────
 FROM nginx:alpine
 COPY --from=build /app/dist /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+# Site config is a TEMPLATE — entrypoint substitutes ${BACKEND_URL} at start.
+COPY nginx.conf /etc/nginx/conf.d/default.conf.template
+COPY deploy/nginx/nginx-main.conf /etc/nginx/nginx.conf
+COPY deploy/nginx/docker-entrypoint.sh /docker-entrypoint-custom.sh
+RUN chmod +x /docker-entrypoint-custom.sh
 
 # Verify widget assets landed in the runtime image
 RUN test -f /usr/share/nginx/html/widget/widget-manifest.json || (echo "❌ widget-manifest.json missing in nginx image" && exit 1)
 
+# Default upstream for local docker-compose. Override with BACKEND_URL env in Coolify.
+ENV BACKEND_URL=http://backend:3001
+
 EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
+ENTRYPOINT ["/docker-entrypoint-custom.sh"]

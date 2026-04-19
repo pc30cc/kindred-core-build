@@ -7,14 +7,28 @@ The same codebase supports multiple domains via environment variables.
 
 ## Architecture
 
-```
-Browser → https://example.com (Frontend / Nginx)
-Browser → https://api.example.com (Backend / Express)
-```
+You can deploy in **two modes**:
 
-- **Frontend**: Static SPA served by Nginx. Calls backend via `VITE_API_BASE_URL`.
-- **Backend**: Express API. Accepts requests from frontend origin(s) via CORS.
-- **No internal proxy.** Frontend and backend are fully independent services.
+### Mode A — Split-host (separate API domain)
+```
+Browser → https://example.com         (Frontend / Nginx)
+Browser → https://api.example.com     (Backend / Express)
+```
+Set `VITE_API_BASE_URL=https://api.example.com` at frontend build time.
+The frontend nginx does NOT proxy `/api/` — clients call the backend directly.
+Leave `BACKEND_URL` unset on the frontend container.
+
+### Mode B — Single-host (one domain for everything) ⭐ recommended
+```
+Browser → https://app.example.com/         → Frontend (Nginx serves SPA + widget)
+Browser → https://app.example.com/api/*    → Nginx reverse-proxies to Backend
+```
+Set `VITE_API_BASE_URL=https://app.example.com` at build time **and** set
+`BACKEND_URL=http://<backend-container>:3001` on the frontend container
+(e.g. `http://backend:3001` in compose, or the Coolify-internal service URL).
+Nginx reverse-proxies `/api/*` to that upstream. **Without `BACKEND_URL`,
+`/api/widget/bootstrap` falls through to the SPA and returns HTML — breaking
+the widget.**
 
 ---
 

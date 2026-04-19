@@ -1677,49 +1677,272 @@
     var ctx = deps.ctx;
     var t = deps.t;
     var kbStore = deps.kbStore;
+    var onSwitchToChat = deps.onSwitchToChat || function () {};
+
+    // Per-instance ephemeral state (not persisted).
+    var rootEl = null;          // current tab body element
+    var searchAbort = null;     // AbortController for in-flight search
+    var searchDebounce = null;  // setTimeout handle
+    var currentQuery = '';
+    var view = 'list';          // 'list' | 'article' | 'searching' | 'results' | 'empty'
+    var currentArticle = null;
+    var pendingSlug = null;
 
     function moduleUrl() {
       var base = ctx.assetBase || '';
       return base + '/widget/runtime-kb.js?v=' + (ctx.config._loaderVersion || ctx.config.loaderVersion || 'dev');
     }
 
+    function isRtl() { return (ctx.locale || 'en').toLowerCase().split('-')[0] === 'fa'; }
+
+    function publicArticleUrl(slug) {
+      // Articles are served by the same public host as the site that mounted
+      // the widget. We deliberately use window.location.origin so workspaces
+      // with their own host get the right canonical URL — the SSR layer
+      // resolves workspace from Host as well.
+      var origin = (typeof window !== 'undefined' && window.location && window.location.origin) || '';
+      return origin + '/help/' + encodeURIComponent(ctx.locale || 'en') + '/a/' + encodeURIComponent(slug);
+    }
+
     function ensure(cb) {
       var s = kbStore.get();
-      if (s.loaded) return cb();
+      if (s.loaded) return cb && cb();
       ModuleLoader.load('kb', moduleUrl(), function () {
         var mod = ModuleLoader.modules.kb;
-        if (mod && mod.loadArticles) {
-          mod.loadArticles({
+        if (mod && mod.loadCategories) {
+          mod.loadCategories({
             apiBase: ctx.apiBase,
             workspaceId: ctx.workspaceId,
             sessionToken: ctx.sessionToken,
             locale: ctx.locale,
-            onArticles: function (a) {
-              kbStore.set({ loaded: true, articles: a });
-              cb();
+            onResult: function (r) {
+              kbStore.set({ loaded: true, categories: r.categories || [] });
+              cb && cb();
             },
           });
         } else {
-          kbStore.set({ loaded: true });
-          cb();
+          kbStore.set({ loaded: true, categories: [] });
+          cb && cb();
         }
       });
     }
 
-    function render(body) {
+    function cancelSearch() {
+      if (searchAbort) { try { searchAbort.abort(); } catch (_) {} searchAbort = null; }
+      if (searchDebounce) { clearTimeout(searchDebounce); searchDebounce = null; }
+    }
+
+    function paint() {
+      if (!rootEl) return;
       var s = kbStore.get();
-      var html = '<input class="kb-search" type="search" placeholder="' + Util.escapeHtml(t('searchKb')) + '" />';
-      if (!s.articles.length) {
-        html += '<div class="empty"><p>' + Util.escapeHtml(t('noArticles')) + '</p></div>';
+      var rtl = isRtl();
+      var dirAttr = rtl ? ' dir="rtl"' : '';
+      var html = '<div class="kb-root"' + dirAttr + '>';
+
+      html += '<div class="kb-search-wrap">' +
+        '<input class="kb-search" type="search" autocomplete="off" autocorrect="off" spellcheck="false" ' +
+        'placeholder="' + Util.escapeHtml(t('searchKb')) + '" value="' + Util.escapeHtml(currentQuery) + '" />' +
+        '</div>';
+
+      if (view === 'article' && currentArticle) {
+        var publicUrl = publicArticleUrl(currentArticle.slug);
+        html +=
+          '<div class="kb-article-view">' +
+            '<button type="button" class="kb-back" data-kb-action="back">' +
+              (rtl ? '→ ' : '← ') + Util.escapeHtml(t('kbBack')) +
+            '</button>' +
+            '<h2 class="kb-article-h">' + Util.escapeHtml(currentArticle.title) + '</h2>' +
+            (currentArticle.excerpt ? '<p class="kb-article-excerpt-full">' + Util.escapeHtml(currentArticle.excerpt) + '</p>' : '') +
+            '<div class="kb-article-body">' + sanitizeHtml(currentArticle.content || '') + '</div>' +
+            '<div class="kb-article-footer">' +
+              '<a class="kb-open-browser" href="' + Util.escapeHtml(publicUrl) + '" target="_blank" rel="noopener noreferrer">' +
+                Util.escapeHtml(t('kbOpenInBrowser')) +
+              '</a>' +
+            '</div>' +
+          '</div>';
+      } else if (view === 'searching') {
+        html += '<div class="kb-status">' + Util.escapeHtml(t('kbSearching')) + '</div>';
+      } else if (view === 'results') {
+        var results = s.searchResults || [];
+        if (!results.length) {
+          html += '<div class="kb-empty">' +
+            '<p>' + Util.escapeHtml(t('kbZeroResults')) + '</p>' +
+            '<button type="button" class="kb-cta" data-kb-action="switch-chat">' +
+              Util.escapeHtml(t('kbSwitchToChat')) +
+            '</button>' +
+          '</div>';
+        } else {
+          html += '<div class="kb-list">';
+          results.forEach(function (a) {
+            html +=
+              '<button type="button" class="kb-article" data-kb-action="open" data-kb-slug="' +
+                Util.escapeHtml(a.slug) + '">' +
+                '<div class="kb-article-title">' + Util.escapeHtml(a.title) + '</div>' +
+                (a.excerpt ? '<div class="kb-article-excerpt">' + Util.escapeHtml(a.excerpt) + '</div>' : '') +
+              '</button>';
+          });
+          html += '</div>';
+        }
       } else {
-        s.articles.forEach(function (a) {
-          html +=
-            '<div class="kb-article">' +
-            '<div class="kb-article-title">' + Util.escapeHtml(a.title) + '</div>' +
-            '<div class="kb-article-excerpt">' + Util.escapeHtml(a.excerpt || '') + '</div></div>';
+        // 'list' — categories + (no search)
+        var cats = s.categories || [];
+        if (!cats.length) {
+          html += '<div class="kb-empty"><p>' + Util.escapeHtml(t('noArticles')) + '</p>' +
+            '<button type="button" class="kb-cta" data-kb-action="switch-chat">' +
+              Util.escapeHtml(t('kbSwitchToChat')) +
+            '</button></div>';
+        } else {
+          html += '<div class="kb-section-h">' + Util.escapeHtml(t('kbCategories')) + '</div>';
+          html += '<div class="kb-list">';
+          cats.forEach(function (c) {
+            html +=
+              '<a class="kb-category" target="_blank" rel="noopener noreferrer" ' +
+                'href="' + Util.escapeHtml(window.location.origin + '/help/' + encodeURIComponent(ctx.locale || 'en') + '/c/' + encodeURIComponent(c.slug)) + '">' +
+                '<div class="kb-article-title">' + Util.escapeHtml(c.name) + '</div>' +
+                (c.description ? '<div class="kb-article-excerpt">' + Util.escapeHtml(c.description) + '</div>' : '') +
+              '</a>';
+          });
+          html += '</div>';
+        }
+      }
+
+      html += '</div>';
+      rootEl.innerHTML = html;
+      bindEvents();
+    }
+
+    // Defence-in-depth sanitizer for KB content displayed inside the widget
+    // (the content was authored by an operator but we still strip script/style/iframe/on*).
+    function sanitizeHtml(input) {
+      if (!input) return '';
+      return String(input)
+        .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
+        .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
+        .replace(/<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi, '')
+        .replace(/\son[a-z]+\s*=\s*"[^"]*"/gi, '')
+        .replace(/\son[a-z]+\s*=\s*'[^']*'/gi, '')
+        .replace(/\son[a-z]+\s*=\s*[^\s>]+/gi, '')
+        .replace(/javascript:/gi, '');
+    }
+
+    function bindEvents() {
+      if (!rootEl) return;
+      var input = rootEl.querySelector('.kb-search');
+      if (input) {
+        input.addEventListener('input', function (e) {
+          currentQuery = e.target.value || '';
+          if (searchDebounce) clearTimeout(searchDebounce);
+          if (!currentQuery.trim()) {
+            cancelSearch();
+            view = 'list';
+            paint();
+            try { input.focus(); restoreCaret(rootEl.querySelector('.kb-search'), currentQuery.length); } catch (_) {}
+            return;
+          }
+          searchDebounce = setTimeout(runSearch, 220);
+        });
+        input.addEventListener('keydown', function (e) {
+          if (e.key === 'Escape') {
+            currentQuery = '';
+            cancelSearch();
+            view = 'list';
+            paint();
+          }
         });
       }
-      body.innerHTML = html;
+
+      var actionEls = rootEl.querySelectorAll('[data-kb-action]');
+      for (var i = 0; i < actionEls.length; i++) {
+        (function (el) {
+          el.addEventListener('click', function (ev) {
+            var action = el.getAttribute('data-kb-action');
+            if (action === 'open') {
+              ev.preventDefault();
+              openArticle(el.getAttribute('data-kb-slug'));
+            } else if (action === 'back') {
+              ev.preventDefault();
+              currentArticle = null;
+              view = currentQuery.trim() ? 'results' : 'list';
+              paint();
+            } else if (action === 'switch-chat') {
+              ev.preventDefault();
+              try { onSwitchToChat(); } catch (_) {}
+            }
+          });
+        })(actionEls[i]);
+      }
+    }
+
+    function restoreCaret(el, pos) {
+      if (!el || typeof el.setSelectionRange !== 'function') return;
+      try { el.setSelectionRange(pos, pos); } catch (_) {}
+    }
+
+    function runSearch() {
+      cancelSearch();
+      var q = currentQuery.trim();
+      if (!q) { view = 'list'; paint(); return; }
+      view = 'searching'; paint();
+      try { searchAbort = new AbortController(); } catch (_) { searchAbort = null; }
+      ModuleLoader.load('kb', moduleUrl(), function () {
+        var mod = ModuleLoader.modules.kb;
+        if (!mod || !mod.searchArticles) {
+          kbStore.set({ searchResults: [] });
+          view = 'results'; paint();
+          return;
+        }
+        mod.searchArticles({
+          apiBase: ctx.apiBase,
+          workspaceId: ctx.workspaceId,
+          sessionToken: ctx.sessionToken,
+          locale: ctx.locale,
+          query: q,
+          limit: 8,
+          signal: searchAbort ? searchAbort.signal : null,
+          onResult: function (r) {
+            // Ignore if user has cleared / changed query meanwhile.
+            if (currentQuery.trim() !== q) return;
+            kbStore.set({ searchResults: r.results || [] });
+            view = 'results';
+            paint();
+            // Keep focus + caret in the input.
+            try {
+              var input = rootEl && rootEl.querySelector('.kb-search');
+              if (input) { input.focus(); restoreCaret(input, currentQuery.length); }
+            } catch (_) {}
+          },
+        });
+      });
+    }
+
+    function openArticle(slug) {
+      if (!slug) return;
+      pendingSlug = slug;
+      ModuleLoader.load('kb', moduleUrl(), function () {
+        var mod = ModuleLoader.modules.kb;
+        if (!mod || !mod.loadArticle) return;
+        mod.loadArticle({
+          apiBase: ctx.apiBase,
+          workspaceId: ctx.workspaceId,
+          sessionToken: ctx.sessionToken,
+          locale: ctx.locale,
+          slug: slug,
+          onResult: function (r) {
+            if (pendingSlug !== slug) return;
+            if (r.ok && r.article) {
+              currentArticle = r.article;
+              view = 'article';
+              paint();
+            }
+          },
+        });
+      });
+    }
+
+    function render(body) {
+      rootEl = body;
+      // Re-paint with current view (preserves search query when toggling tabs).
+      paint();
     }
 
     return { ensure: ensure, render: render };

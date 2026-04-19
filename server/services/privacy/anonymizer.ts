@@ -191,13 +191,13 @@ export async function runAnonymize(
 
   // ─── 5. Anonymize conversations + visitor_sessions ─────────────
   if (conversationIds.length > 0) {
-    const { count } = await sb
+    const { data: changed } = await sb
       .from('conversations')
       .update({ contact_id: null })
       .in('id', conversationIds)
       .not('contact_id', 'is', null)
-      .select('id', { count: 'exact', head: true });
-    summary.conversations_anonymized = count || 0;
+      .select('id');
+    summary.conversations_anonymized = changed?.length || 0;
   }
 
   if (sessionIds.length > 0) {
@@ -226,47 +226,47 @@ export async function runAnonymize(
 
   // ─── 6. Delete contact verifications + identity merges ─────────
   if (subject.visitor_ids.length > 0) {
-    const { count } = await sb
+    const { data: removed } = await sb
       .from('contact_verifications')
       .delete()
       .eq('workspace_id', wsId)
       .in('visitor_id', subject.visitor_ids)
-      .select('id', { count: 'exact', head: true });
-    summary.verifications_deleted += count || 0;
+      .select('id');
+    summary.verifications_deleted += removed?.length || 0;
   }
   if (subject.emails.length > 0) {
-    const { count } = await sb
+    const { data: removed } = await sb
       .from('contact_verifications')
       .delete()
       .eq('workspace_id', wsId)
       .in('identifier', subject.emails)
-      .select('id', { count: 'exact', head: true });
-    summary.verifications_deleted += count || 0;
+      .select('id');
+    summary.verifications_deleted += removed?.length || 0;
   }
   if (subject.contact_ids.length > 0 || subject.visitor_ids.length > 0) {
     const orParts: string[] = [];
     if (subject.contact_ids.length > 0) orParts.push(`contact_id.in.(${subject.contact_ids.join(',')})`);
     if (subject.visitor_ids.length > 0) orParts.push(`visitor_id.in.(${subject.visitor_ids.map((v) => `"${v}"`).join(',')})`);
-    const { count } = await sb
+    const { data: removed } = await sb
       .from('identity_merges')
       .delete()
       .eq('workspace_id', wsId)
       .or(orParts.join(','))
-      .select('id', { count: 'exact', head: true });
-    summary.identity_merges_deleted = count || 0;
+      .select('id');
+    summary.identity_merges_deleted = removed?.length || 0;
   }
 
   // ─── 7. Anonymize email_logs ────────────────────────────────────
   if (subject.emails.length > 0) {
     for (const email of subject.emails) {
       const hash = `anon_${crypto.createHash('sha256').update(`e:${email}`).digest('hex').slice(0, 16)}@anonymized.local`;
-      const { count } = await sb
+      const { data: changed } = await sb
         .from('email_logs')
         .update({ recipient_email: hash, metadata: {} })
         .eq('workspace_id', wsId)
         .eq('recipient_email', email)
-        .select('id', { count: 'exact', head: true });
-      summary.email_logs_anonymized += count || 0;
+        .select('id');
+      summary.email_logs_anonymized += changed?.length || 0;
     }
   }
 
@@ -275,7 +275,7 @@ export async function runAnonymize(
     // If there are surviving conversations, anonymize the contact row;
     // else hard-delete.
     if (conversationIds.length > 0) {
-      const { count } = await sb
+      const { data: changed } = await sb
         .from('contacts')
         .update({
           email: null,
@@ -288,8 +288,8 @@ export async function runAnonymize(
         })
         .in('id', subject.contact_ids)
         .eq('workspace_id', wsId)
-        .select('id', { count: 'exact', head: true });
-      summary.contacts_anonymized = count || 0;
+        .select('id');
+      summary.contacts_anonymized = changed?.length || 0;
     } else {
       await sb.from('contacts').delete().in('id', subject.contact_ids).eq('workspace_id', wsId);
       summary.contacts_anonymized = subject.contact_ids.length;

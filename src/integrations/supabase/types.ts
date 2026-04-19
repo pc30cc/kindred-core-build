@@ -2103,6 +2103,7 @@ export type Database = {
           logo_url: string | null
           mobile_behavior: string | null
           offline_message: string | null
+          offline_message_localized: Json
           offline_mode: string
           placeholder_text: string | null
           position: string | null
@@ -2151,6 +2152,7 @@ export type Database = {
           logo_url?: string | null
           mobile_behavior?: string | null
           offline_message?: string | null
+          offline_message_localized?: Json
           offline_mode?: string
           placeholder_text?: string | null
           position?: string | null
@@ -2199,6 +2201,7 @@ export type Database = {
           logo_url?: string | null
           mobile_behavior?: string | null
           offline_message?: string | null
+          offline_message_localized?: Json
           offline_mode?: string
           placeholder_text?: string | null
           position?: string | null

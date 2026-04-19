@@ -22,6 +22,7 @@ import type {
   NormalizedMessagePayload,
   RealtimeSubscription,
 } from '@/realtime';
+import type { OperatorEventPayload } from '@/realtime/types';
 import { rtDebug, rtWarn } from '@/realtime/debug';
 
 export interface InboxRealtimeOptions {
@@ -30,16 +31,22 @@ export interface InboxRealtimeOptions {
   /** Called with the normalized message payload (envelope.payload). */
   onMessage?: (payload: NormalizedMessagePayload) => void;
   onTyping?: (payload: Record<string, unknown>) => void;
+  /**
+   * Phase 5 — operator-only events on the per-conversation channel.
+   * Polling/disabled adapters are no-ops; React Query refetch keeps
+   * the UI fresh in that case.
+   */
+  onEvent?: (payload: OperatorEventPayload) => void;
   enabled?: boolean;
 }
 
 export function useInboxRealtime(opts: InboxRealtimeOptions) {
-  const { workspaceId, conversationId, onMessage, onTyping, enabled = true } = opts;
+  const { workspaceId, conversationId, onMessage, onTyping, onEvent, enabled = true } = opts;
   const queryClient = useQueryClient();
 
   // Latest handlers in a ref so the subscription effect stays stable.
-  const handlersRef = useRef({ onMessage, onTyping });
-  handlersRef.current = { onMessage, onTyping };
+  const handlersRef = useRef({ onMessage, onTyping, onEvent });
+  handlersRef.current = { onMessage, onTyping, onEvent };
 
   useEffect(() => {
     if (!enabled || !workspaceId || !conversationId) return;
@@ -76,6 +83,35 @@ export function useInboxRealtime(opts: InboxRealtimeOptions) {
           onSeen: () => {
             rtDebug('inbox', 'event:seen', { vendor: provider.vendor, channel });
             queryClient.invalidateQueries({ queryKey: ['messages', conversationId] });
+          },
+          // Phase 5 — operator-only `event` envelopes on the conv channel.
+          // Note: notes routes publish ONLY note_added/_deleted (no
+          // duplicate timeline_event echo), so we invalidate the notes
+          // cache for those kinds and the timeline cache for everything
+          // else operator-side. The widget runtime never sees these
+          // because Supabase broadcast is event-name-scoped and the
+          // Centrifugo widget runtime explicitly drops type !== message|typing.
+          onEvent: (payload) => {
+            const kind = (payload as { kind?: string })?.kind;
+            rtDebug('inbox', 'event:event', { vendor: provider.vendor, channel, kind });
+            if (kind === 'note_added' || kind === 'note_deleted') {
+              queryClient.invalidateQueries({
+                queryKey: ['conversation-notes', conversationId, workspaceId],
+              });
+              queryClient.invalidateQueries({
+                queryKey: ['conversation-timeline', conversationId, workspaceId],
+              });
+            } else if (
+              kind === 'conversation_updated' ||
+              kind === 'conversation_resolved' ||
+              kind === 'conversation_reopened' ||
+              kind === 'timeline_event'
+            ) {
+              queryClient.invalidateQueries({
+                queryKey: ['conversation-timeline', conversationId, workspaceId],
+              });
+            }
+            handlersRef.current.onEvent?.(payload);
           },
           onStatus: (status, info) => {
             if (status === 'error') {

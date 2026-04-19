@@ -192,7 +192,14 @@
 
         if (pub && pub.data) {
           var data = pub.data;
-          if (data && data.type === 'message' && hooks.onMessage) {
+          // Phase 5 — operator-only `event` envelopes (kind: conversation_updated,
+          // note_added, etc.) are published to per-conversation channels for the
+          // Inbox UI. The widget MUST ignore them: notes/timeline are private
+          // and these envelopes have no widget-facing meaning. Defensive guard
+          // so future operator-only types remain forward-safe.
+          if (data && data.type === 'event') {
+            // explicit drop — do nothing
+          } else if (data && data.type === 'message' && hooks.onMessage) {
             hooks.onMessage({ channel: ch, messages: [data.payload] });
           } else if (data && data.type === 'typing' && hooks.onTyping) {
             hooks.onTyping({ channel: ch, payload: data.payload });

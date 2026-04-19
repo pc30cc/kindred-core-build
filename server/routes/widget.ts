@@ -1002,6 +1002,20 @@ If you cannot answer, say so politely.${kbContext}`;
               convId!,
               buildMessageEnvelope(aiMsg as any),
             ).catch(() => {});
+            // Phase 4b — record canonical 'ai_reply' timeline event.
+            // Payload contract: { message_id, provider?, model? }
+            void recordConversationEvent(config, {
+              workspaceId,
+              conversationId: convId!,
+              eventType: 'ai_reply',
+              actorType: 'ai',
+              actorId: null,
+              payload: {
+                message_id: aiMsg.id,
+                provider: aiResponse.provider ?? null,
+                model: aiResponse.model ?? null,
+              },
+            });
           }
         }
       }

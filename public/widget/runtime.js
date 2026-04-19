@@ -1575,44 +1575,67 @@
         submitBtn.disabled = true; submitBtn.style.opacity = '0.6';
         if (statusEl) { statusEl.textContent = ''; statusEl.className = 'fallback-status'; }
 
-        // 1. Identify the contact via the existing prechat endpoint (no new API).
-        identity.submitPrechat(
-          { name: payload.name, email: payload.email, phone: payload.phone },
-          function (success, resp) {
-            if (!success) {
-              submitBtn.disabled = false; submitBtn.style.opacity = '1';
-              var f = resp && resp.field;
-              if (f) showErr(f, t('required'));
-              if (statusEl) { statusEl.textContent = t('fallbackError'); statusEl.className = 'fallback-status error'; }
-              return;
+        // Dedicated offline capture endpoint. This MUST NOT hit /message —
+        // /message is only valid when the workspace is online. The server
+        // re-resolves availability and creates a conversation tagged
+        // 'offline' with a captured_offline event + best-effort email
+        // notification to admins. Honeypot + rate-limit headers are sent
+        // exactly like the regular /message path.
+        var body = {
+          workspace_id: ctx.workspaceId,
+          message: payload.message,
+          locale: ctx.locale || 'en',
+          honeypot: '',
+        };
+        if (payload.name) body.name = payload.name;
+        if (payload.email) body.email = payload.email;
+        if (payload.phone) body.phone = payload.phone;
+
+        fetch(ctx.apiBase + '/api/widget/offline-messages', {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Widget-Token': ctx.sessionToken || '',
+          },
+          body: JSON.stringify(body),
+        })
+          .then(function (r) {
+            if (!r.ok) throw new Error('http_' + r.status);
+            return r.json();
+          })
+          .then(function (data) {
+            // captured: false only happens for the honeypot path; treat
+            // visually as success since the real path always returns true.
+            if (data && data.conversation_id) {
+              chatStore.set({ conversationId: data.conversation_id });
             }
-            // 2. Send the message via the existing transport (REST under polling and realtime).
-            transport.sendMessage(
-              { text: payload.message, conversationId: chatStore.get().conversationId },
-              {
-                onConversation: function (cid) {
-                  if (cid && cid !== chatStore.get().conversationId) {
-                    chatStore.set({ conversationId: cid });
-                    transport.subscribeConversation(cid);
-                  }
-                },
-                onReply: function () { /* offline mode — no synchronous reply expected */ },
-                onError: function () {
-                  submitBtn.disabled = false; submitBtn.style.opacity = '1';
-                  if (statusEl) { statusEl.textContent = t('fallbackError'); statusEl.className = 'fallback-status error'; }
-                },
-              }
-            );
-            // Echo into local chat store so the user sees their own message.
+            // Echo the visitor message locally so they see what they sent.
             var s = chatStore.get();
             var messages = s.messages.slice();
             messages.push({ body: payload.message, sender: 'visitor', time: new Date() });
             chatStore.set({ messages: messages });
 
-            if (statusEl) { statusEl.textContent = t('fallbackSent'); statusEl.className = 'fallback-status ok'; }
+            // Persist contact details locally so subsequent prechat checks
+            // don't re-prompt this visitor for the same info on this device.
+            if (payload.name || payload.email || payload.phone) {
+              identityStore.set({
+                contact: Object.assign({}, identityStore.get().contact || {}, {
+                  name: payload.name || (identityStore.get().contact || {}).name || '',
+                  email: payload.email || (identityStore.get().contact || {}).email || '',
+                  phone: payload.phone || (identityStore.get().contact || {}).phone || '',
+                }),
+              });
+            }
+
+            var msgKey = (data && data.transitioning) ? 'fallbackSentTransitioning' : 'fallbackSent';
+            if (statusEl) { statusEl.textContent = t(msgKey); statusEl.className = 'fallback-status ok'; }
             if (typeof onSent === 'function') onSent();
-          }
-        );
+          })
+          .catch(function () {
+            submitBtn.disabled = false; submitBtn.style.opacity = '1';
+            if (statusEl) { statusEl.textContent = t('fallbackError'); statusEl.className = 'fallback-status error'; }
+          });
       });
     }
 

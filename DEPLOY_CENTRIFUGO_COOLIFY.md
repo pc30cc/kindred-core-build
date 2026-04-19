@@ -20,11 +20,22 @@ This guide covers deploying the **Centrifugo realtime provider** for this projec
 
 ### 2.1 Create the service
 1. In Coolify → your project → **+ New Resource** → **Docker Compose**.
-2. Connect this repository (or paste the content of `docker-compose.centrifugo.yml`).
-3. Set the **Compose file path** to: `docker-compose.centrifugo.yml`.
-4. Make sure `deploy/centrifugo/config.json` is included in the build context (it will be, because Coolify mounts the repo).
+2. Connect this repository as the source.
+3. Configure these fields **exactly** (Coolify is strict):
 
-> Use **Docker Compose** (not "Service" templates) so the volume mount for `config.json` works as written.
+   | Field | Value |
+   |---|---|
+   | **Build Pack** | `Docker Compose` |
+   | **Docker Compose Location** | `docker-compose.centrifugo.yml`  *(no leading slash, no `./`)* |
+   | **Custom Build Command** | *(leave empty)* |
+   | **Custom Start Command** | *(leave empty)* |
+   | **Base Directory** | `/` *(repo root — so the relative volume mount `./deploy/centrifugo/config.json` resolves)* |
+
+4. Make sure `deploy/centrifugo/config.json` is present in the repo root (it is — do not move it).
+
+> Use **Docker Compose** (not "Service" templates) so the volume mount for `config.json` works as written. Coolify manages the lifecycle itself; do **not** add custom build/start commands or it will conflict with compose.
+
+> ⚠️ The official `centrifugo/centrifugo` image is built `FROM scratch` and ships **no shell, no `wget`, no `curl`**. The healthcheck in this compose file uses the binary's own `centrifugo healthcheck` subcommand — do not replace it with an HTTP-based check or Coolify will mark the service `unhealthy` even when it is serving traffic correctly.
 
 ### 2.2 Add a public domain
 1. Open the new resource → **Domains**.
@@ -130,12 +141,15 @@ Super Admin → Providers → Realtime → **Audit** should show your `configure
 
 ## 6. Common pitfalls
 
+- **Coolify shows `Running (unhealthy)` and the domain returns `no available server`** → the previous compose used an HTTP healthcheck (`wget http://localhost:8000/health`), but the official `centrifugo/centrifugo` image is `FROM scratch` and contains no `wget`/`curl`/shell. The healthcheck always failed, so Coolify's proxy refused to route traffic. The current compose uses `centrifugo healthcheck -c /centrifugo/config.json` (the binary's built-in subcommand) — make sure you redeployed after pulling this fix.
+- **`exec: "wget": executable file not found`** in container logs → same root cause as above. Pull the latest compose file.
 - **`Origin not allowed` on WebSocket connect** → the page's `Origin` header is not in `CENTRIFUGO_ALLOWED_ORIGINS`. Add it (full scheme + host, no path), redeploy Centrifugo.
-- **`unauthorized` on connect** → the HMAC secret in the admin panel does not match `CENTRIFUGO_TOKEN_HMAC_SECRET`. Re-enter both, save, redeploy.
+- **`unauthorized` on connect** → the HMAC secret in the admin panel does not match `CENTRIFUGO_TOKEN_HMAC_SECRET`. Re-enter both, save, redeploy. Note: inside the container Centrifugo reads `CENTRIFUGO_TOKEN_HMAC_SECRET_KEY` — the compose file maps your `CENTRIFUGO_TOKEN_HMAC_SECRET` Coolify env onto that name automatically. Set only `CENTRIFUGO_TOKEN_HMAC_SECRET` in Coolify.
 - **`HTTP 401` on `Test connection`** → the API key does not match. Same fix as above for `CENTRIFUGO_API_KEY`.
 - **WebSocket immediately closes** → Coolify domain not configured for WebSocket. Re-check the domain settings.
 - **Backend log: `Centrifugo configuration incomplete`** → one of `ws_url`, `api_url`, `api_key`, `token_hmac_secret` is empty in the admin form. Fill all four.
 - **Widget falls back to polling silently** → check `GET /api/realtime/admin/resolved` (admin-only). `effective_vendor` will tell you why (e.g. `polling_builtin` because health failed).
+- **Coolify deploy fails with `port is already allocated`** → you (or a previous attempt) added a `ports:` mapping. The current compose uses `expose:` only — do not add `ports:`.
 
 ---
 

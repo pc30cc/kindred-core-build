@@ -1,6 +1,16 @@
 /**
  * Storage Provider implementations — BunnyCDN, S3-compatible, local fallback
  * All operations run server-side only. Secrets never leave the backend.
+ *
+ * Two execution modes:
+ *   1. Workspace-resolved   — uploadFile / downloadFile / deleteFile.
+ *      Resolves the workspace's active attachment storage provider from
+ *      provider_configs.
+ *   2. Explicit-config      — uploadWithConfig / downloadWithConfig /
+ *      deleteWithConfig. Caller passes a fully-resolved StorageConfig.
+ *      Used by feature-scoped resolvers (e.g. privacy export storage).
+ *      No allowed-types/MIME check is enforced here because the artifact
+ *      shape is fixed by the caller (e.g. application/zip).
  */
 
 import type { ServerConfig } from '../../config.js';
@@ -483,6 +493,45 @@ export async function getFileUrl(
   if (!storageConfig) return null;
   const handler = urlHandlers[storageConfig.provider];
   if (!handler) return null;
+  return handler(storageConfig, fileKey);
+}
+
+// ─── Explicit-config helpers (feature-scoped resolvers use these) ────
+//
+// These bypass the workspace attachment-storage resolver and trust the
+// caller's StorageConfig. They're used by privacy exports and any future
+// feature that needs a dedicated provider policy. No file-type whitelist
+// is enforced because the caller fully controls the upload (e.g. ZIP).
+
+export async function uploadWithConfig(
+  storageConfig: StorageConfig,
+  req: UploadRequest,
+): Promise<StorageResult> {
+  const handler = uploadHandlers[storageConfig.provider];
+  if (!handler) return { success: false, error: `Unsupported storage provider: ${storageConfig.provider}` };
+  // Basic size guard only (no MIME whitelist — caller controls payload shape).
+  const maxBytes = (storageConfig.maxFileSizeMB || 500) * 1024 * 1024;
+  if (req.data.length > maxBytes) {
+    return { success: false, error: `File too large (max ${storageConfig.maxFileSizeMB || 500}MB)` };
+  }
+  return handler(storageConfig, req);
+}
+
+export async function downloadWithConfig(
+  storageConfig: StorageConfig,
+  fileKey: string,
+): Promise<DownloadResult> {
+  const handler = downloadHandlers[storageConfig.provider];
+  if (!handler) return { success: false, error: `Unsupported provider: ${storageConfig.provider}` };
+  return handler(storageConfig, fileKey);
+}
+
+export async function deleteWithConfig(
+  storageConfig: StorageConfig,
+  fileKey: string,
+): Promise<StorageResult> {
+  const handler = deleteHandlers[storageConfig.provider];
+  if (!handler) return { success: false, error: `Unsupported provider: ${storageConfig.provider}` };
   return handler(storageConfig, fileKey);
 }
 

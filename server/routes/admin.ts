@@ -8,6 +8,7 @@ import { Router } from 'express';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { z } from 'zod';
+import { adminWidgetRouter } from './adminWidget.js';
 
 export const adminRouter = Router();
 
@@ -42,6 +43,9 @@ async function requireAdmin(req: any, res: any, next: any) {
 }
 
 adminRouter.use(requireAdmin);
+
+// Widget diagnostics (server-side URL test for super admin)
+adminRouter.use('/widget', adminWidgetRouter);
 
 // ─── Send Password Reset Link ────────────────────────────────────
 const resetLinkSchema = z.object({

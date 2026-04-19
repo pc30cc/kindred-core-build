@@ -1,9 +1,7 @@
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useBranding, useUpdateBranding } from '@/hooks/useBranding';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { toast } from '@/hooks/use-toast';
 
@@ -21,6 +19,8 @@ export default function SettingsBrandingPage() {
 
   if (isLoading) return <div className="p-8 text-center text-muted-foreground">{t('common.loading')}</div>;
 
+  // Widget URL fields (widget_*_base_url) have moved to Super Admin → Widget Settings → Deployment & URLs.
+  // They are intentionally not editable here anymore — the platform-wide settings are the single source of truth.
   const fields = [
     { key: 'platform_name', label: 'Platform Name', desc: 'The main name of your platform (shown in header, emails, etc.)' },
     { key: 'short_name', label: 'Short Name', desc: 'Abbreviated name (used in favicon, PWA, etc.)' },
@@ -37,11 +37,7 @@ export default function SettingsBrandingPage() {
     { key: 'legal_name', label: 'Legal Company Name', desc: 'For structured data and legal pages' },
     { key: 'canonical_base_url', label: 'Canonical Base URL', desc: 'Primary domain for canonical URLs (e.g. https://example.com)' },
     { key: 'panel_base_url', label: 'Panel Base URL', desc: 'Dashboard/admin panel URL' },
-    { key: 'widget_public_base_url', label: 'Widget Public Base URL', desc: 'Public website origin serving widget assets' },
-    { key: 'widget_loader_base_url', label: 'Widget Loader Base URL', desc: 'Origin used for /widget/loader.js' },
-    { key: 'widget_base_url', label: 'Widget Asset Base URL', desc: 'Origin used for runtime.js/runtime.css' },
-    { key: 'widget_api_base_url', label: 'Widget API Base URL', desc: 'Backend API origin for /api/widget/*' },
-    { key: 'asset_base_url', label: 'Asset/CDN Base URL', desc: 'Static assets CDN URL' },
+    { key: 'asset_base_url', label: 'Asset/CDN Base URL', desc: 'Static assets CDN URL (non-widget)' },
   ];
 
   return (

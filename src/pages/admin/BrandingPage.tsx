@@ -486,14 +486,15 @@ function SettingsSection() {
 }
 
 // ── Domain URLs Section ──
+// NOTE: Widget URLs (loader/asset/public/api) have been moved to
+// Super Admin → Widget Settings → Deployment & URLs. They are intentionally
+// NOT editable here anymore — widget_platform_settings is the single source of truth.
 const DOMAIN_FIELDS: { key: keyof PlatformDomains; label: string; desc?: string; placeholder: string }[] = [
   { key: 'primary_domain', label: 'Primary Domain', desc: 'Main domain of the platform', placeholder: 'example.com' },
   { key: 'canonical_base_url', label: 'Canonical Base URL', desc: 'For SEO canonical tags', placeholder: 'https://example.com' },
   { key: 'app_base_url', label: 'App / Panel URL', placeholder: 'https://app.example.com' },
   { key: 'api_base_url', label: 'API Base URL', placeholder: 'https://api.example.com' },
-  { key: 'public_base_url', label: 'Widget Public Base URL', desc: 'Frontend origin that serves /widget/*', placeholder: 'https://destekly.tr' },
-  { key: 'widget_base_url', label: 'Widget Loader Base URL', desc: 'Base origin used to load loader.js and runtime assets by default', placeholder: 'https://destekly.tr' },
-  { key: 'asset_base_url', label: 'Widget Asset Base URL', desc: 'Optional CDN/static origin for runtime.js/runtime.css', placeholder: 'https://destekly.tr' },
+  { key: 'public_base_url', label: 'Public Site URL', desc: 'Marketing site / public-facing origin', placeholder: 'https://example.com' },
   { key: 'help_center_base_url', label: 'Help Center URL', placeholder: 'https://help.example.com' },
   { key: 'email_base_url', label: 'Email Base URL', desc: 'Links inside emails', placeholder: 'https://example.com' },
 ];

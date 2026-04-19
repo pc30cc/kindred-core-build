@@ -3,7 +3,8 @@ import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useWidgetSettings, useUpdateWidgetSettings } from '@/hooks/useWidgetSettings';
 import { useBrandingContext } from '@/features/branding/BrandingContext';
-import { usePlatformDomains } from '@/hooks/usePlatformBranding';
+import { useWidgetPlatformSettings } from '@/hooks/useWidgetPlatformSettings';
+import { resolveWidgetUrls, buildWidgetEmbedSnippet } from '@/lib/widgetEmbed';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -13,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { Copy, Check, Code, ExternalLink, Globe, Info, Palette, Settings, Shield, Eye, MessageSquare, Bug, Link2 } from 'lucide-react';
+import { Copy, Check, Code, ExternalLink, Globe, Info, Palette, Settings, Shield, Eye, MessageSquare, Link2 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 
 function normalizeDomainInput(input: string): string {
@@ -28,62 +29,33 @@ function isValidDomain(d: string): boolean {
   return /^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/.test(d);
 }
 
-function nz(v: string | null | undefined): string {
-  return (v || '').trim();
-}
-
 export default function WidgetPage() {
   const { t } = useTranslation();
   const workspace = useCurrentWorkspace();
   const { data: widget, isLoading } = useWidgetSettings(workspace?.id);
   const { branding, platformName } = useBrandingContext();
-  const { data: platformDomains } = usePlatformDomains();
+  // Single source of truth — widget URLs come from platform widget settings only.
+  const { data: platformWidget } = useWidgetPlatformSettings();
   const updateWidget = useUpdateWidgetSettings(workspace?.id);
   const [copiedVariant, setCopiedVariant] = useState<'window' | 'script' | null>(null);
   const [newDomain, setNewDomain] = useState('');
   const [domainError, setDomainError] = useState('');
 
-  const pdApp = nz(platformDomains?.app_base_url);
-  const pdApi = nz(platformDomains?.api_base_url);
-  const pdPublic = nz(platformDomains?.public_base_url);
-  const pdWidget = nz(platformDomains?.widget_base_url);
-  const pdAsset = nz(platformDomains?.asset_base_url);
-
-  const widgetPublicBaseUrl = pdPublic || pdWidget || pdAsset || pdApp || window.location.origin;
-  const widgetLoaderBaseUrl = pdWidget || pdPublic || pdAsset || pdApp || window.location.origin;
-  const widgetAssetBaseUrl = pdAsset || pdWidget || pdPublic || pdApp || window.location.origin;
-  const widgetApiBaseUrl = pdApi || '';
+  const urls = useMemo(
+    () => resolveWidgetUrls(platformWidget, typeof window !== 'undefined' ? window.location.origin : undefined),
+    [platformWidget],
+  );
 
   const primaryColor = widget?.primary_color || branding?.primary_color || '#3B82F6';
-  const loaderScriptUrl = `${widgetLoaderBaseUrl || 'https://widget.example.com'}/widget/loader.js`;
 
-  const windowEmbedCode = `<script type="text/javascript">
-  window.__gs = [];
-  window.__gs_id = "${workspace?.id || 'YOUR_WORKSPACE_ID'}";
-  window.__gs_api_base = "${widgetApiBaseUrl || 'https://api.example.com'}";
-  (function(){
-    var d = document;
-    var s = d.createElement("script");
-    s.src = "${loaderScriptUrl}";
-    s.setAttribute("data-asset-base", "${widgetAssetBaseUrl || 'https://widget.example.com'}");
-    s.async = 1;
-    d.getElementsByTagName("head")[0].appendChild(s);
-  })();
-</script>`;
-
-  const scriptTagEmbedCode = `<script
-  src="${loaderScriptUrl}"
-  data-workspace-id="${workspace?.id || 'YOUR_WORKSPACE_ID'}"
-  data-api-base="${widgetApiBaseUrl || 'https://api.example.com'}"
-  data-asset-base="${widgetAssetBaseUrl || 'https://widget.example.com'}"
-  async
-></script>`;
-
-  const embedPreview = useMemo(() => ({
-    loader: loaderScriptUrl,
-    api: widgetApiBaseUrl || '—',
-    asset: widgetAssetBaseUrl || '—',
-  }), [loaderScriptUrl, widgetApiBaseUrl, widgetAssetBaseUrl]);
+  const windowEmbedCode = useMemo(
+    () => buildWidgetEmbedSnippet(urls, { variant: 'window', workspaceId: workspace?.id }),
+    [urls, workspace?.id],
+  );
+  const scriptTagEmbedCode = useMemo(
+    () => buildWidgetEmbedSnippet(urls, { variant: 'script', workspaceId: workspace?.id }),
+    [urls, workspace?.id],
+  );
 
   const handleCopy = (variant: 'window' | 'script') => {
     navigator.clipboard.writeText(variant === 'window' ? windowEmbedCode : scriptTagEmbedCode);
@@ -91,6 +63,7 @@ export default function WidgetPage() {
     toast({ title: t('common.copied') });
     setTimeout(() => setCopiedVariant(null), 2000);
   };
+
 
   const handleToggle = (field: string, value: boolean) => {
     updateWidget.mutate({ [field]: value } as any);
@@ -320,12 +293,10 @@ export default function WidgetPage() {
                   </CardTitle>
                   <CardDescription>
                     {t('widget.installInstructions')}
-                    {widgetLoaderBaseUrl && (
-                      <span className="flex items-center gap-1 mt-1 text-xs">
-                        <ExternalLink className="h-3 w-3" />
-                        Loader URL: {widgetLoaderBaseUrl}
-                      </span>
-                    )}
+                    <span className="flex items-center gap-1 mt-1 text-xs">
+                      <ExternalLink className="h-3 w-3" />
+                      Loader URL: {urls.loaderUrl}
+                    </span>
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -360,10 +331,10 @@ export default function WidgetPage() {
                       <span className="ms-1 text-xs">{copiedVariant === 'script' ? t('common.copied') : t('common.copy')}</span>
                     </Button>
                   </div>
-                  {!widgetLoaderBaseUrl && (
+                  {urls.hasMissing && (
                     <p className="text-xs text-warning mt-3 flex items-center gap-1.5">
                       <Info className="h-3.5 w-3.5" />
-                      Widget deployment URLs are not configured yet. Set them in Branding and platform domain settings before going live.
+                      Some widget deployment URLs are not configured yet. Ask the platform admin to fill them in under Super Admin → Widget Settings → Deployment & URLs.
                     </p>
                   )}
                 </CardContent>

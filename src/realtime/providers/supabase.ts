@@ -6,14 +6,13 @@
  * and the SAME envelope shape the backend publishes
  * (`{ type: 'message' | 'typing' | 'seen', payload }`).
  *
- * IMPORTANT: For this adapter to actually deliver events end-to-end, the
- * server-side publish path (`server/services/realtime/publish.ts`) must
- * also broadcast on Supabase Realtime when the active vendor is supabase.
- * Today the publisher only handles Centrifugo. Until that companion
- * change ships, selecting Supabase as the realtime vendor will cause this
- * adapter to subscribe successfully but receive no events — the Inbox
- * will still update via React Query polling, so behavior degrades
- * gracefully rather than failing visibly.
+ * End-to-end status: FULLY SUPPORTED.
+ * The server-side publisher in
+ * `server/services/realtime/publishers/supabase.ts` broadcasts on the
+ * matching channel using the service-role client, so events emitted by
+ * the inbox agent reply path and the widget visitor path both reach this
+ * adapter without translation. Polling remains the safety net if the
+ * websocket drops.
  */
 
 import { supabase } from '@/lib/supabase';

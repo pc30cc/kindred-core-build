@@ -89,20 +89,35 @@ export async function resolvePublisher(
   }
 
   let publisher: ServerRealtimePublisher;
+  let source: 'workspace_override' | 'global_default' | 'fallback';
 
   // 1. Workspace override.
   const override = await fetchWorkspaceOverride(config, workspaceId);
   if (override) {
+    rtDebug('resolve', 'workspace override found', { workspaceId, override });
     publisher = await buildPublisher(config, override);
+    source = 'workspace_override';
   } else {
     // 2. Global active vendor.
     const cfg = await loadRealtimeConfig(config);
+    rtDebug('resolve', 'global config', {
+      workspaceId,
+      vendor: cfg.vendor,
+      enabled: cfg.enabled,
+    });
     if (!cfg.enabled) {
       publisher = new NoopPublisher();
+      source = 'fallback';
     } else {
       publisher = await buildPublisher(config, cfg.vendor);
+      source = publisher.vendor === 'noop' ? 'fallback' : 'global_default';
     }
   }
+
+  if (publisher.vendor === 'noop' && source !== 'fallback') {
+    rtWarn('resolve', 'falling back to noop', { workspaceId });
+  }
+  rtDebug('resolve', 'final publisher', { workspaceId, vendor: publisher.vendor, source });
 
   cache.set(workspaceId, { publisher, loadedAt: Date.now() });
   return publisher;

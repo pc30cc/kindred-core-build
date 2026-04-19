@@ -20,6 +20,7 @@ import type { ServerConfig } from '../../config.js';
 import { resolvePublisher } from './resolvePublisher.js';
 import { buildChannelName } from './types.js';
 import type { ConversationEventEnvelope } from './publishers/types.js';
+import { rtDebug, rtWarn } from './debug.js';
 
 export type { ConversationEventEnvelope } from './publishers/types.js';
 
@@ -32,18 +33,25 @@ export async function publishConversationEvent(
   try {
     const publisher = await resolvePublisher(config, workspaceId);
     const channel = buildChannelName(workspaceId, conversationId);
+    rtDebug('publish', 'attempt', {
+      vendor: publisher.vendor,
+      channel,
+      type: event.type,
+    });
     const result = await publisher.publish(channel, event);
-    if (!result.ok) {
-      console.warn(
-        '[realtime/publish] skipped',
-        publisher.vendor,
+    if (result.ok) {
+      rtDebug('publish', 'ok', { vendor: publisher.vendor, channel, type: event.type });
+    } else {
+      rtWarn('publish', 'skipped', {
+        vendor: publisher.vendor,
         channel,
-        result.reason,
-      );
+        type: event.type,
+        reason: result.reason,
+      });
     }
     return result;
   } catch (err: any) {
-    console.warn('[realtime/publish] error', err?.message || err);
+    rtWarn('publish', 'error', { error: err?.message || String(err) });
     return { ok: false, reason: err?.message || 'unknown_error' };
   }
 }

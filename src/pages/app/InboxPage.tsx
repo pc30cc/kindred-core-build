@@ -2,6 +2,8 @@ import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useConversations, useConversationMessages, useSendMessage, useUpdateConversation, useDeleteAllConversations, useMarkConversationSeen } from '@/hooks/useConversations';
+import { useInboxRealtime } from '@/hooks/useInboxRealtime';
+import { useQueryClient } from '@tanstack/react-query';
 import { useIsGlobalAdmin } from '@/hooks/useAdmin';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -82,6 +84,19 @@ export default function InboxPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
 
+  // Wire inbox to the active realtime provider (Centrifugo).
+  // On a `message` push for the selected conversation, refresh the
+  // messages list so the agent sees visitor replies live.
+  const qc = useQueryClient();
+  useInboxRealtime({
+    workspaceId: workspace?.id,
+    conversationId: selectedId ?? undefined,
+    onMessage: () => {
+      if (selectedId) qc.invalidateQueries({ queryKey: ['messages', selectedId] });
+      qc.invalidateQueries({ queryKey: ['conversations'] });
+    },
+  });
+
   const handleDeleteAll = async () => {
     if (!workspace?.id) return;
     try {
@@ -109,7 +124,7 @@ export default function InboxPage() {
 
   const handleSend = async () => {
     if (!message.trim() || !selectedId || !user) return;
-    await sendMessage.mutateAsync({ body: message, senderId: user.id });
+    await sendMessage.mutateAsync({ body: message });
     setMessage('');
   };
 

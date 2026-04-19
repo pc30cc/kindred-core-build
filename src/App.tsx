@@ -45,6 +45,7 @@ import SettingsDomainsPage from "@/pages/app/settings/DomainsPage";
 import SettingsProvidersPage from "@/pages/app/settings/ProvidersPage";
 import SettingsTranslationsPage from "@/pages/app/settings/TranslationsPage";
 import SettingsProfilePage from "@/pages/app/settings/ProfilePage";
+import SettingsCannedResponsesPage from "@/pages/app/settings/CannedResponsesPage";
 
 import AdminDashboardPage from "@/pages/admin/DashboardPage";
 import AdminUsersPage from "@/pages/admin/UsersPage";
@@ -146,6 +147,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                   <Route path="providers" element={<SettingsProvidersPage />} />
                   <Route path="translations" element={<SettingsTranslationsPage />} />
                   <Route path="profile" element={<SettingsProfilePage />} />
+                  <Route path="canned-responses" element={<SettingsCannedResponsesPage />} />
                 </Route>
               </Route>
 

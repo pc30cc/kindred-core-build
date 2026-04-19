@@ -7,6 +7,7 @@ import {
   User, CreditCard, Settings, MessageSquare, Inbox, Mail,
   BookOpen, BarChart3, ChevronDown, ChevronLeft, ChevronRight,
   Globe, Palette, Languages, Plug, Shield, Users,
+  MessageCircleReply,
 } from 'lucide-react';
 
 interface SettingsGroup {
@@ -37,6 +38,12 @@ const settingsGroupsDef: SettingsGroup[] = [
   {
     key: 'chatbox', label: 'Chatbox Settings', icon: MessageSquare,
     items: [{ key: 'widget', label: 'Widget', subPath: '/widget' }],
+  },
+  {
+    key: 'inbox', label: 'Inbox', icon: Inbox,
+    items: [
+      { key: 'canned-responses', label: 'Canned Responses', subPath: '/settings/canned-responses' },
+    ],
   },
   {
     key: 'integrations', label: 'Integrations', icon: Plug,

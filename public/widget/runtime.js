@@ -2082,7 +2082,28 @@
       transport: transport,
       openImageLightbox: function (id) { lightboxOpener(id); },
     });
-    var kbUI = createKbUI({ ctx: ctx, t: t, kbStore: kbStore });
+    var kbUI = createKbUI({
+      ctx: ctx,
+      t: t,
+      kbStore: kbStore,
+      onSwitchToChat: function () {
+        if (!chatEnabled) return;
+        shellStore.set({ activeTab: 'chat' });
+        // Sync tab UI + body without requiring user click. The tab listener
+        // takes care of class toggling but only fires on user click; do it
+        // manually here so KB → Chat transitions feel instant.
+        try {
+          var allTabs = panel.querySelectorAll('.tab');
+          Array.prototype.forEach.call(allTabs, function (t2) {
+            t2.classList.toggle('active', t2.getAttribute('data-tab') === 'chat');
+          });
+        } catch (_) {}
+        renderBody();
+        if (inputBar) inputBar.style.display = 'flex';
+        restoreDraftToInput();
+        if (msgInput) { try { msgInput.focus(); } catch (_) {} }
+      },
+    });
     var notify = createNotify(ctx, transportStore, notifyStore, uiPrefsStore, shellStore, t);
     var presence = createPresence(ctx, presenceStore, transport, transportStore, t);
 

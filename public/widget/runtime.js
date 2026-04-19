@@ -255,6 +255,7 @@
         fallbackMessageLabel: 'Mesaj',
         fallbackSubmit: 'Mesaj gönder',
         fallbackSent: 'Mesajınızı aldık, kısa süre içinde yanıtlayacağız.',
+        fallbackSentTransitioning: 'Mesajınızı aldık. Beklenenden önce çevrimiçi olabiliriz ve hemen yanıt verebiliriz.',
         fallbackError: 'Şu an gönderilemedi. Lütfen tekrar deneyin.',
         // Phase 6a — attachments
         attachFile: 'Dosya ekle',

@@ -609,7 +609,12 @@ widgetRouter.get('/poll', widgetRateLimit('poll'), async (req: Request, res: Res
 
     const baseMessages = (msgs || []).slice().reverse().map((m: any) => ({
       id: m.id,
+      // Legacy 'role' kept for widget runtime compatibility — AI replies
+      // collapse to 'agent' here so existing widget rendering still works.
       role: m.sender_type === 'contact' ? 'visitor' : m.sender_type === 'system' ? 'system' : 'agent',
+      // Forward the raw enum so newer widget versions / analytics can
+      // distinguish 'ai' from 'agent' without re-parsing metadata.
+      sender_type: m.sender_type,
       text: m.body,
       time: m.created_at,
       metadata: m.metadata,

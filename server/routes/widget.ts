@@ -24,6 +24,10 @@ import crypto from 'crypto';
 import { getServiceClient } from '../supabase.js';
 import type { ServerConfig } from '../config.js';
 import {
+  publishConversationEvent,
+  buildMessageEnvelope,
+} from '../services/realtime/publish.js';
+import {
   getLoaderAssetBase,
   getRequestBaseUrl,
   getRequestOrigin as getRequestOriginPublic,

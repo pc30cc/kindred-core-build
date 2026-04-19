@@ -46,10 +46,11 @@ This guide covers deploying the **Centrifugo realtime provider** for this projec
 
 > ⚠️ The compose file uses `expose: ["8000"]` instead of `ports: ["8000:8000"]` on purpose. Publishing the port to the host would fail with `Bind for 0.0.0.0:8000 failed: port is already allocated` on hosts where port 8000 is already in use. Coolify does not need a published port — it routes traffic through its internal proxy.
 
-After this, both of the following must work over HTTPS:
-- `https://rt.destekly.tr/health` → `{"status":"ok"}`
-- `https://rt.destekly.tr/api` (POST with `X-API-Key`) → JSON response
-- `wss://rt.destekly.tr/connection/websocket` → WebSocket handshake
+After this, the following endpoints must be reachable over HTTPS (these are the **only** public endpoints this deployment relies on):
+- `https://rt.destekly.tr/api` (POST with `X-API-Key` header) → JSON response (server-to-server admin API)
+- `wss://rt.destekly.tr/connection/websocket` → WebSocket handshake (browser client transport)
+
+> ℹ️ **About `/health`**: Centrifugo's `/health` endpoint is used **internally only** — the Docker healthcheck runs `centrifugo healthcheck` inside the container, which queries the local `/health` on `127.0.0.1:8000`. We deliberately do **not** rely on a public `/health` endpoint, because Coolify's reverse proxy in this setup may not route arbitrary paths the same way it routes `/api` and `/connection/websocket`, and a public health endpoint would be an unnecessary information-disclosure surface. If `curl https://rt.destekly.tr/health` returns `404`, that is **expected and not an error** — verify health via the steps in §5 instead.
 
 ### 2.3 Set environment variables (on the Centrifugo service)
 

@@ -364,15 +364,21 @@ conversationsRouter.patch('/:id', async (req, res) => {
       ipAddress: ip,
     };
 
+    // Build a single `conversation_updated` payload describing every field
+    // that actually changed. Used for the realtime `event` envelope below.
+    const changes: Record<string, { from: unknown; to: unknown } | { added: string[]; removed: string[] }> = {};
+    let statusEvType: 'status_changed' | 'resolved' | 'reopened' | null = null;
+
     if (parsed.data.status !== undefined && before.status !== parsed.data.status) {
       const wasResolved = before.status === 'resolved' || before.status === 'closed';
       const nowResolved = parsed.data.status === 'resolved' || parsed.data.status === 'closed';
-      let evType = 'status_changed';
-      if (!wasResolved && nowResolved) evType = 'resolved';
-      else if (wasResolved && !nowResolved) evType = 'reopened';
+      statusEvType = 'status_changed';
+      if (!wasResolved && nowResolved) statusEvType = 'resolved';
+      else if (wasResolved && !nowResolved) statusEvType = 'reopened';
+      changes.status = { from: before.status, to: parsed.data.status };
       void recordAuditAndEvent(config, {
         ...eventBase,
-        eventType: evType,
+        eventType: statusEvType,
         auditAction: 'conversation.status_changed',
         oldValue: { status: before.status },
         newValue: { status: parsed.data.status },
@@ -381,6 +387,7 @@ conversationsRouter.patch('/:id', async (req, res) => {
     }
 
     if (parsed.data.priority !== undefined && before.priority !== parsed.data.priority) {
+      changes.priority = { from: before.priority, to: parsed.data.priority };
       void recordAuditAndEvent(config, {
         ...eventBase,
         eventType: 'priority_changed',
@@ -392,6 +399,7 @@ conversationsRouter.patch('/:id', async (req, res) => {
     }
 
     if (parsed.data.assigned_to !== undefined && before.assigned_to !== parsed.data.assigned_to) {
+      changes.assigned_to = { from: before.assigned_to, to: parsed.data.assigned_to };
       void recordAuditAndEvent(config, {
         ...eventBase,
         eventType: parsed.data.assigned_to ? 'assigned' : 'unassigned',
@@ -407,6 +415,9 @@ conversationsRouter.patch('/:id', async (req, res) => {
       const afterTags = new Set<string>(normalizedTags);
       const added = [...afterTags].filter(t => !beforeTags.has(t));
       const removed = [...beforeTags].filter(t => !afterTags.has(t));
+      if (added.length || removed.length) {
+        changes.tags = { added, removed };
+      }
       for (const tag of added) {
         void recordConversationEvent(config, {
           ...eventBase,
@@ -421,6 +432,24 @@ conversationsRouter.patch('/:id', async (req, res) => {
           payload: { tag },
         });
       }
+    }
+
+    // ─── Realtime push (Phase 5) ───
+    // Operator-only `event` envelope. Fans out to the per-conversation
+    // channel AND the workspace inbox channel. Best-effort, non-blocking.
+    if (Object.keys(changes).length > 0) {
+      const kind: OperatorEventPayload['kind'] =
+        statusEvType === 'resolved' ? 'conversation_resolved'
+        : statusEvType === 'reopened' ? 'conversation_reopened'
+        : 'conversation_updated';
+      void publishOperatorEvent(config, {
+        kind,
+        conversation_id: conversationId,
+        workspace_id: parsed.data.workspace_id,
+        actor_id: auth.userId,
+        changes,
+        updated_at: after.updated_at,
+      });
     }
 
     return res.json({ ok: true, conversation: after });

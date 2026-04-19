@@ -52,6 +52,7 @@ import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { recordConversationEvent } from '../services/conversationEvents.js';
+import { publishOperatorEvent } from '../services/realtime/publish.js';
 
 export const conversationNotesRouter = Router({ mergeParams: true });
 

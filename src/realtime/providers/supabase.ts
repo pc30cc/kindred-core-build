@@ -45,6 +45,13 @@ export class SupabaseRealtimeClientProvider implements ClientRealtimeProvider {
     ch.on('broadcast', { event: 'seen' }, (msg: any) => {
       handlers.onSeen?.(msg?.payload?.payload ?? msg?.payload ?? {});
     });
+    // Phase 5 — operator-only event envelope. Forward-safe.
+    ch.on('broadcast', { event: 'event' }, (msg: any) => {
+      const payload = msg?.payload?.payload ?? msg?.payload;
+      if (payload && typeof payload === 'object') {
+        handlers.onEvent?.(payload as any);
+      }
+    });
 
     await new Promise<void>((resolve) => {
       ch.subscribe((status) => {

@@ -635,7 +635,7 @@ export default function InboxPage() {
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => updateConv.mutate({ id: selectedId, status: 'resolved' })}
+                    onClick={() => workspace?.id && updateConv.mutate({ id: selectedId, workspace_id: workspace.id, status: 'resolved' })}
                     className="h-7 px-2.5 text-[10px] font-semibold bg-success/10 border-success/20 text-success hover:bg-success/20"
                   >
                     <CheckCircle2 className={cn('w-3 h-3', dir === 'rtl' ? 'ml-1' : 'mr-1')} />
@@ -643,7 +643,7 @@ export default function InboxPage() {
                   </Button>
                 )}
                 {selected.status === 'resolved' && (
-                  <Button size="sm" variant="outline" className="text-xs h-7" onClick={() => updateConv.mutate({ id: selectedId, status: 'open' })}>
+                  <Button size="sm" variant="outline" className="text-xs h-7" onClick={() => workspace?.id && updateConv.mutate({ id: selectedId, workspace_id: workspace.id, status: 'open' })}>
                     {t('inbox.reopen') || 'Reopen'}
                   </Button>
                 )}
@@ -684,7 +684,7 @@ export default function InboxPage() {
               </div>
               <div className="flex items-center gap-1">
                 {selected.status === 'open' && (
-                  <button onClick={() => updateConv.mutate({ id: selectedId, status: 'resolved' })} className="p-2 rounded-xl text-success hover:bg-success/10 transition-colors">
+                  <button onClick={() => workspace?.id && updateConv.mutate({ id: selectedId, workspace_id: workspace.id, status: 'resolved' })} className="p-2 rounded-xl text-success hover:bg-success/10 transition-colors">
                     <CheckCircle2 className="w-5 h-5" />
                   </button>
                 )}

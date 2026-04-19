@@ -35,20 +35,8 @@ const app = express();
 // Security headers
 app.use(helmet());
 
-// Always allow Lovable preview/published origins so platform admins can use the
-// /admin diagnostics UI from the Lovable editor without manually editing CORS env.
-// Customer widget routes have their own dynamic CORS via widgetCorsMiddleware.
-const LOVABLE_ORIGIN_RE = /^https:\/\/[a-z0-9-]+\.(lovableproject\.com|lovable\.app|lovable\.dev)$/i;
-
 const appCors = cors({
-  origin: (origin, cb) => {
-    // Allow same-origin / curl / server-to-server (no Origin header)
-    if (!origin) return cb(null, true);
-    if (config.corsOrigins[0] === '*') return cb(null, true);
-    if (config.corsOrigins.includes(origin)) return cb(null, true);
-    if (LOVABLE_ORIGIN_RE.test(origin)) return cb(null, true);
-    return cb(new Error(`Origin ${origin} not allowed by CORS`));
-  },
+  origin: config.corsOrigins[0] === '*' ? true : config.corsOrigins,
   credentials: true,
 });
 

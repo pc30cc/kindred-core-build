@@ -83,8 +83,8 @@ type TestState = {
 
 function StatusBadge({ status }: { status?: WidgetUrlTestResult['status'] | 'idle' }) {
   if (!status || status === 'idle') return <Badge variant="outline" className="text-xs">Not tested</Badge>;
-  if (status === 'success') return <Badge className="bg-emerald-600 hover:bg-emerald-600 text-white text-xs gap-1"><CheckCircle2 className="h-3 w-3" />Success</Badge>;
-  if (status === 'warning') return <Badge className="bg-amber-500 hover:bg-amber-500 text-white text-xs gap-1"><AlertTriangle className="h-3 w-3" />Warning</Badge>;
+  if (status === 'success') return <Badge className="text-xs gap-1"><CheckCircle2 className="h-3 w-3" />Success</Badge>;
+  if (status === 'warning') return <Badge variant="secondary" className="text-xs gap-1"><AlertTriangle className="h-3 w-3" />Warning</Badge>;
   return <Badge variant="destructive" className="text-xs gap-1"><XCircle className="h-3 w-3" />Failed</Badge>;
 }
 
@@ -248,7 +248,7 @@ export function DeploymentUrlsSection({ settings, onSave, saving }: Props) {
           </div>
 
           {urls.hasMissing ? (
-            <div className="flex items-start gap-2 bg-amber-500/10 text-amber-700 dark:text-amber-400 rounded-lg p-3 text-xs">
+            <div className="flex items-start gap-2 bg-muted text-muted-foreground rounded-lg p-3 text-xs border border-border">
               <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
               <p>
                 Some URLs are unset. The system is using fallbacks for previews; embed code shown below may not
@@ -262,7 +262,7 @@ export function DeploymentUrlsSection({ settings, onSave, saving }: Props) {
               {urls.mismatches.map((m, i) => (
                 <div
                   key={i}
-                  className="flex items-start gap-2 bg-amber-500/10 text-amber-700 dark:text-amber-400 rounded-lg p-3 text-xs"
+                  className="flex items-start gap-2 bg-destructive/10 text-destructive rounded-lg p-3 text-xs"
                 >
                   <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
                   <div>

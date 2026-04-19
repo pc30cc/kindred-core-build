@@ -2971,7 +2971,7 @@ export type Database = {
       conversation_priority: "low" | "normal" | "high" | "urgent"
       conversation_status: "open" | "pending" | "resolved" | "closed"
       presence_status: "online" | "idle" | "offline"
-      sender_type: "agent" | "contact" | "system" | "bot"
+      sender_type: "agent" | "contact" | "system" | "bot" | "ai"
       workspace_role:
         | "owner"
         | "admin"
@@ -3117,7 +3117,7 @@ export const Constants = {
       conversation_priority: ["low", "normal", "high", "urgent"],
       conversation_status: ["open", "pending", "resolved", "closed"],
       presence_status: ["online", "idle", "offline"],
-      sender_type: ["agent", "contact", "system", "bot"],
+      sender_type: ["agent", "contact", "system", "bot", "ai"],
       workspace_role: [
         "owner",
         "admin",

@@ -134,7 +134,11 @@ function buildConnection(negotiation: RealtimeNegotiation): SharedConnection {
           handlersSet.forEach((h) => h.onTyping?.(data.payload || {}));
         } else if (data?.type === 'seen') {
           handlersSet.forEach((h) => h.onSeen?.(data.payload || {}));
+        } else if (data?.type === 'event' && data.payload) {
+          // Phase 5 — operator-only event envelope.
+          handlersSet.forEach((h) => h.onEvent?.(data.payload));
         }
+        // Unknown envelope types are silently dropped (forward-safe).
       }
     }
   };

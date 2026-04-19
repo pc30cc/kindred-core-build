@@ -1,29 +1,27 @@
 /**
- * Centralized realtime publish helper.
+ * Centralized realtime publish helper — vendor-agnostic.
  *
- * Resolves the global realtime provider and publishes an event to the
- * conversation channel `ws:<workspace_id>:conv:<conversation_id>`.
+ * This module is the only entry point the application code uses to push
+ * conversation events to clients. Vendor selection is delegated to
+ * `resolvePublisher()` and the actual transport lives in
+ * `publishers/{centrifugo,supabase,noop}.ts`.
  *
- * Symmetric event model — the same payload shape is used for visitor
- * messages, agent messages, typing, and seen/read state. The widget's
- * Centrifugo runtime (public/widget/runtime-rt-centrifugo.js) and the
- * inbox subscriber both consume the same envelope:
- *
- *   { type: 'message' | 'typing' | 'seen', payload: { ... } }
+ * Stable contracts (do not change):
+ *   - channel:  ws:<workspace_id>:conv:<conversation_id>
+ *   - envelope: { type: 'message' | 'typing' | 'seen', payload: { ... } }
  *
  * Fail-safe: never throws. If realtime is disabled, mis-configured, or
  * the publish call fails, returns { ok: false, reason } and the caller
- * continues — the DB write is the source of truth.
+ * continues — the DB write is the source of truth, React Query polling
+ * drives the inbox UI.
  */
 
 import type { ServerConfig } from '../../config.js';
-import { getCentrifugoDriver, loadRealtimeConfig } from './index.js';
+import { resolvePublisher } from './resolvePublisher.js';
 import { buildChannelName } from './types.js';
+import type { ConversationEventEnvelope } from './publishers/types.js';
 
-export interface ConversationEventEnvelope {
-  type: 'message' | 'typing' | 'seen';
-  payload: Record<string, unknown>;
-}
+export type { ConversationEventEnvelope } from './publishers/types.js';
 
 export async function publishConversationEvent(
   config: ServerConfig,
@@ -32,20 +30,18 @@ export async function publishConversationEvent(
   event: ConversationEventEnvelope,
 ): Promise<{ ok: boolean; reason?: string }> {
   try {
-    const cfg = await loadRealtimeConfig(config);
-    if (!cfg.enabled || cfg.vendor !== 'centrifugo') {
-      return { ok: false, reason: 'realtime_not_centrifugo' };
-    }
-    const driver = await getCentrifugoDriver(config);
-    if (!driver) return { ok: false, reason: 'driver_not_configured' };
-
+    const publisher = await resolvePublisher(config, workspaceId);
     const channel = buildChannelName(workspaceId, conversationId);
-    const result = await driver.publish(channel, event as unknown as Record<string, unknown>);
+    const result = await publisher.publish(channel, event);
     if (!result.ok) {
-      console.warn('[realtime/publish] publish failed', channel, result.error);
-      return { ok: false, reason: result.error };
+      console.warn(
+        '[realtime/publish] skipped',
+        publisher.vendor,
+        channel,
+        result.reason,
+      );
     }
-    return { ok: true };
+    return result;
   } catch (err: any) {
     console.warn('[realtime/publish] error', err?.message || err);
     return { ok: false, reason: err?.message || 'unknown_error' };

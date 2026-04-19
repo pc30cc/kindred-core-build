@@ -368,13 +368,21 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
   const supabase = getServiceClient(config);
 
   try {
-    const [{ data: widget, error }, { data: branding }, { data: platformDomains }, originRules, platformPreChatPolicy, { data: workspacePreChatFlags }] = await Promise.all([
+    const [
+      { data: widget, error },
+      { data: branding },
+      { data: platformWidget },
+      originRules,
+      platformPreChatPolicy,
+      { data: workspacePreChatFlags },
+    ] = await Promise.all([
       supabase.from('widget_settings').select('*').eq('workspace_id', workspaceId).maybeSingle(),
       supabase.from('workspace_branding')
-        .select('platform_name, logo_url, primary_color, widget_base_url, widget_public_base_url, widget_loader_base_url, widget_api_base_url, asset_base_url')
+        .select('platform_name, logo_url, primary_color')
         .eq('workspace_id', workspaceId).maybeSingle(),
-      supabase.from('platform_domains')
-        .select('api_base_url, widget_base_url, asset_base_url, public_base_url')
+      // Single source of truth for widget URLs — never read platform_domains/branding for these.
+      supabase.from('widget_platform_settings')
+        .select('widget_loader_base_url, widget_asset_base_url, widget_public_base_url, widget_api_base_url')
         .limit(1).maybeSingle(),
       getWorkspaceOriginRules(config, workspaceId),
       loadPlatformPreChatPolicy(supabase),
@@ -409,16 +417,16 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
     }
 
     const apiBase = resolveWidgetApiBase({
-      widgetApiBaseUrl: branding?.widget_api_base_url,
-      platformApiBaseUrl: platformDomains?.api_base_url,
+      widgetApiBaseUrl: platformWidget?.widget_api_base_url,
+      platformApiBaseUrl: null,
       requestBaseUrl: getRequestBaseUrl(req),
-      allowRequestFallback: !branding?.widget_api_base_url && !platformDomains?.api_base_url,
+      allowRequestFallback: !platformWidget?.widget_api_base_url,
     });
     const assetBase = resolveWidgetAssetBase({
-      widgetBaseUrl: branding?.widget_base_url,
-      widgetLoaderBaseUrl: branding?.widget_loader_base_url,
-      widgetPublicBaseUrl: branding?.widget_public_base_url || platformDomains?.widget_base_url || platformDomains?.public_base_url,
-      assetBaseUrl: branding?.asset_base_url,
+      widgetBaseUrl: platformWidget?.widget_asset_base_url,
+      widgetLoaderBaseUrl: platformWidget?.widget_loader_base_url,
+      widgetPublicBaseUrl: platformWidget?.widget_public_base_url,
+      assetBaseUrl: platformWidget?.widget_asset_base_url,
       loaderAssetBase: getLoaderAssetBase(req),
     });
 

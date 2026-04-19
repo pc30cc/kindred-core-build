@@ -144,6 +144,43 @@ widgetKbRouter.get('/categories', async (req: Request, res: Response) => {
   return res.json({ locale, categories: cats || [] });
 });
 
+const categoryArticlesSchema = z.object({
+  locale: z.string().min(2).max(10).optional(),
+  slug: z.string().min(1).max(200),
+});
+
+/**
+ * Public-helper used by the SPA-side category page to list articles in a
+ * category without requiring the SPA to know workspace_id. Workspace is
+ * resolved from Host (same rules as the SSR routes).
+ */
+widgetKbRouter.get('/category-articles', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = categoryArticlesSchema.safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
+  const workspaceId = await resolveWorkspaceForHost(config, req);
+  if (!workspaceId) return res.status(404).json({ error: 'no_workspace' });
+  const locale = normalizeLocale(parsed.data.locale);
+  const supabase = getServiceClient(config);
+  const { data: cat } = await supabase
+    .from('knowledge_base_categories')
+    .select('id')
+    .eq('workspace_id', workspaceId)
+    .eq('locale', locale)
+    .eq('slug', parsed.data.slug)
+    .maybeSingle();
+  if (!cat) return res.json({ articles: [] });
+  const { data: arts } = await supabase
+    .from('knowledge_base_articles')
+    .select('title, slug, excerpt')
+    .eq('workspace_id', workspaceId)
+    .eq('category_id', (cat as any).id)
+    .eq('locale', locale)
+    .eq('status', 'published')
+    .order('sort_order', { ascending: true });
+  return res.json({ articles: arts || [] });
+});
+
 const articleSchema = z.object({
   workspace_id: z.string().uuid(),
   locale: z.string().min(2).max(10).optional(),

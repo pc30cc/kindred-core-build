@@ -873,7 +873,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
           attachment_id: data.attachment_id || undefined,
         },
       })
-      .select('id')
+      .select('id, conversation_id, sender_type, body, created_at, metadata, seen_at')
       .single();
     if (msgErr) throw msgErr;
 
@@ -891,6 +891,17 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
     await supabase.from('conversations')
       .update({ updated_at: new Date().toISOString() })
       .eq('id', convId);
+
+    // Realtime: broadcast the visitor message to the inbox subscriber.
+    // Fire-and-forget — DB row is the source of truth.
+    if (insertedMsg) {
+      publishConversationEvent(
+        config,
+        workspaceId,
+        convId!,
+        buildMessageEnvelope(insertedMsg as any),
+      ).catch(() => {});
+    }
 
     // AI auto-reply attempt
     let reply: string | null = null;

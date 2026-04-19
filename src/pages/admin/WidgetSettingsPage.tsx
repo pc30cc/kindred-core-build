@@ -9,10 +9,9 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { MessageSquare, Mail, Phone, Globe, Shield, Settings, Lock, Info, Bug, Link2, Copy, Check, AlertTriangle, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
+import { MessageSquare, Mail, Phone, Globe, Shield, Settings, Lock, Info, Bug, Rocket } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
-import { resolveWidgetUrls, buildWidgetEmbedSnippet } from '@/lib/widgetEmbed';
-import { testWidgetUrl, type WidgetUrlTestKind, type WidgetUrlTestResult } from '@/lib/widget-admin-api';
+import { DeploymentUrlsSection } from '@/components/admin/widget/DeploymentUrlsSection';
 
 const PRECHAT_OPTIONS: { value: PreChatPolicy; label: string; desc: string }[] = [
   { value: 'force_on', label: 'Force ON', desc: 'Workspaces cannot disable — field is always required' },
@@ -71,13 +70,23 @@ export default function AdminWidgetSettingsPage() {
         </p>
       </div>
 
-      <Tabs defaultValue="prechat" className="space-y-4">
-        <TabsList className="bg-secondary/50 border border-border">
+      <Tabs defaultValue="urls" className="space-y-4">
+        <TabsList className="bg-secondary/50 border border-border flex-wrap h-auto">
+          <TabsTrigger value="urls" className="gap-1.5 text-xs"><Rocket className="h-3.5 w-3.5" />Deployment & URLs</TabsTrigger>
           <TabsTrigger value="prechat" className="gap-1.5 text-xs"><MessageSquare className="h-3.5 w-3.5" />Pre-chat fields</TabsTrigger>
           <TabsTrigger value="features" className="gap-1.5 text-xs"><Settings className="h-3.5 w-3.5" />Feature locks</TabsTrigger>
           <TabsTrigger value="deployment" className="gap-1.5 text-xs"><Globe className="h-3.5 w-3.5" />Deployment defaults</TabsTrigger>
           <TabsTrigger value="limits" className="gap-1.5 text-xs"><Shield className="h-3.5 w-3.5" />Limits</TabsTrigger>
         </TabsList>
+
+        {/* Deployment URLs (single source of truth) */}
+        <TabsContent value="urls">
+          <DeploymentUrlsSection
+            settings={settings}
+            onSave={update}
+            saving={updateMut.isPending}
+          />
+        </TabsContent>
 
         {/* Pre-chat */}
         <TabsContent value="prechat">

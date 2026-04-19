@@ -14,8 +14,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { Copy, Check, Code, ExternalLink, Globe, Info, Palette, Settings, Shield, Eye, MessageSquare, Link2 } from 'lucide-react';
+import { Copy, Check, Code, ExternalLink, Globe, Info, Palette, Settings, Shield, Eye, MessageSquare, Link2, Clock } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+import { AvailabilitySection } from '@/components/app/widget/AvailabilitySection';
 
 function normalizeDomainInput(input: string): string {
   let raw = input.trim();
@@ -130,6 +131,7 @@ export default function WidgetPage() {
             <TabsList className="bg-secondary/50 border border-border">
               <TabsTrigger value="appearance" className="gap-1.5 text-xs"><Palette className="h-3.5 w-3.5" />Appearance</TabsTrigger>
               <TabsTrigger value="behavior" className="gap-1.5 text-xs"><Settings className="h-3.5 w-3.5" />Behavior</TabsTrigger>
+              <TabsTrigger value="availability" className="gap-1.5 text-xs"><Clock className="h-3.5 w-3.5" />Availability</TabsTrigger>
               <TabsTrigger value="domains" className="gap-1.5 text-xs"><Shield className="h-3.5 w-3.5" />Domains</TabsTrigger>
               <TabsTrigger value="install" className="gap-1.5 text-xs"><Code className="h-3.5 w-3.5" />Install</TabsTrigger>
             </TabsList>
@@ -231,6 +233,18 @@ export default function WidgetPage() {
                   ))}
                 </CardContent>
               </Card>
+            </TabsContent>
+
+            {/* ─── Availability ─── */}
+            <TabsContent value="availability">
+              {widget && (
+                <AvailabilitySection
+                  workspaceId={workspace?.id}
+                  settings={widget}
+                  onSave={(patch) => updateWidget.mutate(patch as any)}
+                  saving={updateWidget.isPending}
+                />
+              )}
             </TabsContent>
 
             {/* ─── Domains ─── */}

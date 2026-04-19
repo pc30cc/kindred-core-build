@@ -34,6 +34,12 @@ import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { ConversationActionPanel } from '@/components/inbox/ConversationActionPanel';
 import { ConversationActivityPanel } from '@/components/inbox/ConversationActivityPanel';
+import { CannedResponsePicker, type CannedPickerHandle } from '@/components/canned-responses/CannedResponsePicker';
+import { interpolate } from '@/components/canned-responses/interpolation';
+import { useTrackCannedResponseUse } from '@/hooks/useCannedResponses';
+import type { CannedLocale, CannedResponse } from '@/lib/canned-responses-api';
+import { useProfile } from '@/hooks/useProfile';
+import { Sparkles } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 const ALLOWED_OPERATOR_MIMES = new Set([

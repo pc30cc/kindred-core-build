@@ -108,34 +108,63 @@ Click **Save**, then click **Test connection**. You should see `status: healthy`
 
 Run these in order. All must pass before considering the deploy done.
 
-### 5.1 Centrifugo container
+> ⚠️ **Do not test `https://rt.destekly.tr/health`.** It is intentionally not exposed publicly (see §2.2). A `404` there does not mean Centrifugo is down — use the tests below instead.
+
+### 5.1 Container is healthy (Coolify)
+In the Coolify UI for this service, the status badge must read **`Running (healthy)`**. The healthcheck is performed inside the container by the `centrifugo healthcheck` subcommand, which calls the internal `/health` endpoint on `127.0.0.1:8000`. If it shows `unhealthy`, check the container logs — usually a missing env var (`CENTRIFUGO_TOKEN_HMAC_SECRET` or `CENTRIFUGO_API_KEY`) prevents the server from starting.
+
+Optional manual check from the host running Docker:
 ```bash
-curl https://rt.destekly.tr/health
-# → {"status":"ok"}
+docker exec <centrifugo-container-id> centrifugo healthcheck -c /centrifugo/config.json
+# exit code 0 = healthy
 ```
 
-### 5.2 Server-to-server API
+### 5.2 Server-to-server API is reachable (backend → Centrifugo)
+This is the call the Express backend makes for `Test connection` and for optional broadcasts.
 ```bash
-curl -X POST https://rt.destekly.tr/api \
+curl -i -X POST https://rt.destekly.tr/api \
   -H "Content-Type: application/json" \
   -H "X-API-Key: $CENTRIFUGO_API_KEY" \
   -d '{"method":"info","params":{}}'
-# → {"result":{...}}
+```
+Expected:
+- HTTP `200 OK`
+- JSON body containing `"result": { "nodes": [ ... ] }`
+
+Failure modes:
+- `401 Unauthorized` → `X-API-Key` does not match `CENTRIFUGO_API_KEY` env on the container. Re-enter both, redeploy.
+- `405 Method Not Allowed` on a `GET` → expected; the API only accepts `POST`. Re-run with `-X POST`.
+- `404` → Coolify domain is pointing at the wrong target port. It must be `8000`.
+
+### 5.3 WebSocket transport is reachable (browser → Centrifugo)
+A plain HTTP `GET` to the WS endpoint must respond with `400 Bad Request` and the body `Bad Request` — that's Centrifugo refusing the connection because the request is missing the WebSocket upgrade headers, which proves the endpoint is wired up correctly:
+```bash
+curl -i https://rt.destekly.tr/connection/websocket
+# HTTP/1.1 400 Bad Request
+# ...
+# Bad Request
+```
+For a real WebSocket handshake test (requires `websocat` or similar):
+```bash
+websocat -v wss://rt.destekly.tr/connection/websocket
+# expected: WebSocket handshake (101 Switching Protocols) succeeds, then closes after a few seconds because no auth token was sent — that's fine; we only care that the upgrade succeeds.
 ```
 
-### 5.3 Backend resolver
-Hit the admin "Test connection" button. It calls `CentrifugoDriver.health()` which performs the same `info` call above with the API key from the database.
+### 5.4 Backend resolver / admin "Test connection"
+In Super Admin → Providers → Realtime, click **Test connection**. The backend's `CentrifugoDriver.health()` performs the same `info` call as §5.2 using the API key stored in the database. Expected: `status: healthy`.
 
-### 5.4 Widget end-to-end
+If §5.2 passes but §5.4 fails, the API key in the admin form does not match the env var on the container — re-enter it in the admin UI and click **Save**, then click **Refresh cache** (or hit `POST /api/realtime/admin/refresh`).
+
+### 5.5 Widget end-to-end
 1. Open a page that embeds the widget on one of the `allowed_origins`.
 2. In DevTools → Network, look for `POST /api/realtime/connect`. Response should contain:
    ```json
    { "vendor": "centrifugo", "ws_url": "wss://rt.destekly.tr/connection/websocket", "token": "...", ... }
    ```
-3. Then a WebSocket connection to `wss://rt.destekly.tr/connection/websocket` should open and stay open (status `101 Switching Protocols`).
+3. Then a WebSocket connection to `wss://rt.destekly.tr/connection/websocket` should open with status `101 Switching Protocols` and stay open.
 4. Send a message from the widget; in the operator inbox it should appear without polling delay.
 
-### 5.5 Audit log
+### 5.6 Audit log
 Super Admin → Providers → Realtime → **Audit** should show your `configure` and `test` actions with `result: success`.
 
 ---

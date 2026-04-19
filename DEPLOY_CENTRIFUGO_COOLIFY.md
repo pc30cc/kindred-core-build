@@ -10,9 +10,11 @@ This guide covers deploying the **Centrifugo realtime provider** for this projec
 
 | Path | Purpose |
 |---|---|
-| `docker-compose.centrifugo.yml` | Coolify-compatible compose file for the Centrifugo container |
-| `deploy/centrifugo/config.json` | Centrifugo runtime config (matches this project's channel/namespace model) |
+| `docker-compose.centrifugo.yml` | Coolify-compatible, **fully env-driven** compose file for the Centrifugo container |
+| `deploy/centrifugo/config.json` | Reference-only config (NOT mounted in production — kept in repo as documentation of the intended namespace/channel model) |
 | `DEPLOY_CENTRIFUGO_COOLIFY.md` | This guide |
+
+> ⚠️ **No bind mount in production.** Earlier versions mounted `./deploy/centrifugo/config.json` into the container. In Coolify's Docker Compose build pack the working directory at runtime is not guaranteed, so the mount silently failed (`config file not found` in the container logs) and Centrifugo started with an empty config. The current compose file is **100% env-driven** — every setting (auth, namespaces, transport, engine) is supplied via `CENTRIFUGO_*` environment variables. The JSON file in `deploy/centrifugo/` is kept only as human-readable reference for what those env vars produce.
 
 ---
 
@@ -29,20 +31,18 @@ This guide covers deploying the **Centrifugo realtime provider** for this projec
    | **Docker Compose Location** | `docker-compose.centrifugo.yml`  *(no leading slash, no `./`)* |
    | **Custom Build Command** | *(leave empty)* |
    | **Custom Start Command** | *(leave empty)* |
-   | **Base Directory** | `/` *(repo root — so the relative volume mount `./deploy/centrifugo/config.json` resolves)* |
+   | **Base Directory** | `/` |
 
-4. Make sure `deploy/centrifugo/config.json` is present in the repo root (it is — do not move it).
+> Use **Docker Compose** (not "Service" templates). Coolify manages the lifecycle itself; do **not** add custom build/start commands or it will conflict with compose.
 
-> Use **Docker Compose** (not "Service" templates) so the volume mount for `config.json` works as written. Coolify manages the lifecycle itself; do **not** add custom build/start commands or it will conflict with compose.
-
-> ⚠️ The official `centrifugo/centrifugo` image is built `FROM scratch` and ships **no shell, no `wget`, no `curl`**. The healthcheck in this compose file uses the binary's own `centrifugo healthcheck` subcommand — do not replace it with an HTTP-based check or Coolify will mark the service `unhealthy` even when it is serving traffic correctly.
+> ℹ️ **No Docker healthcheck.** The official `centrifugo/centrifugo:v5.4.5` image is built `FROM scratch` and ships **no shell, no `wget`, no `curl`**, and — verified at runtime — has **no `centrifugo healthcheck` subcommand** (`unknown command "healthcheck"`). Any healthcheck we could write would always fail and Coolify would mark the service `unhealthy` even when it is serving traffic correctly. The current compose file therefore declares **no `healthcheck:` block**. Coolify's proxy-level probe on the public domain is sufficient — verify health using §5 below.
 
 ### 2.2 Add a public domain
 1. Open the new resource → **Domains**.
 2. Add a domain, e.g. `rt.destekly.tr`.
 3. Set the **target port** to `8000` (this is the container's internal port — Coolify reaches it over the internal Docker network, the port is **not** published to the host).
 4. Enable **HTTPS** (Coolify will issue a Let's Encrypt cert).
-5. Enable **WebSocket support** (it is on by default in Coolify's proxy, but double-check).
+5. Enable **WebSocket support** (on by default in Coolify's proxy, but double-check).
 
 > ⚠️ The compose file uses `expose: ["8000"]` instead of `ports: ["8000:8000"]` on purpose. Publishing the port to the host would fail with `Bind for 0.0.0.0:8000 failed: port is already allocated` on hosts where port 8000 is already in use. Coolify does not need a published port — it routes traffic through its internal proxy.
 
@@ -50,19 +50,20 @@ After this, the following endpoints must be reachable over HTTPS (these are the 
 - `https://rt.destekly.tr/api` (POST with `X-API-Key` header) → JSON response (server-to-server admin API)
 - `wss://rt.destekly.tr/connection/websocket` → WebSocket handshake (browser client transport)
 
-> ℹ️ **About `/health`**: Centrifugo's `/health` endpoint is used **internally only** — the Docker healthcheck runs `centrifugo healthcheck` inside the container, which queries the local `/health` on `127.0.0.1:8000`. We deliberately do **not** rely on a public `/health` endpoint, because Coolify's reverse proxy in this setup may not route arbitrary paths the same way it routes `/api` and `/connection/websocket`, and a public health endpoint would be an unnecessary information-disclosure surface. If `curl https://rt.destekly.tr/health` returns `404`, that is **expected and not an error** — verify health via the steps in §5 instead.
+> ℹ️ **About `/health`**: a public `/health` endpoint is **not** part of this deployment's contract. Coolify has no Docker healthcheck wired in (see §2.1), and we deliberately do not advertise `/health` publicly. If `curl https://rt.destekly.tr/health` returns `404` or `503`, that is **not an error** — verify health via the steps in §5 instead.
 
 ### 2.3 Set environment variables (on the Centrifugo service)
 
 | Variable | Required | Example | Notes |
 |---|---|---|---|
-| `CENTRIFUGO_TOKEN_HMAC_SECRET` | ✅ | `64-char random hex` | HS256 secret. Generate with `openssl rand -hex 32`. **Must match** the value entered in Super Admin → Providers → Realtime. |
-| `CENTRIFUGO_API_KEY` | ✅ | `64-char random hex` | Server-to-server admin API key. **Must match** the value entered in Super Admin → Providers → Realtime. |
+| `CENTRIFUGO_TOKEN_HMAC_SECRET_KEY` | ✅ | `64-char random hex` | HS256 secret. Generate with `openssl rand -hex 32`. **This is Centrifugo's own runtime variable name** — do NOT use the older `CENTRIFUGO_TOKEN_HMAC_SECRET` (Centrifugo logs `unknown key found in the environment` and ignores it). **Must match** the value entered in Super Admin → Providers → Realtime → "HMAC Token Secret". |
+| `CENTRIFUGO_API_KEY` | ✅ | `64-char random hex` | Server-to-server admin API key. **Must match** Super Admin → Providers → Realtime → "API Key". |
 | `CENTRIFUGO_ALLOWED_ORIGINS` | ✅ | `https://destekly.tr,https://app.destekly.tr` | Comma-separated list of every origin where the widget loader/runtime runs. Include all customer-facing domains that embed the widget. |
-| `CENTRIFUGO_ADMIN_PASSWORD` | optional | — | Only needed if you flip `admin: true` in `config.json` |
-| `CENTRIFUGO_ADMIN_SECRET` | optional | — | Same as above |
+| `CENTRIFUGO_ADMIN` | optional | `true` | Enables the admin UI. Off by default. |
+| `CENTRIFUGO_ADMIN_PASSWORD` | optional | — | Required if `CENTRIFUGO_ADMIN=true`. |
+| `CENTRIFUGO_ADMIN_SECRET` | optional | — | Required if `CENTRIFUGO_ADMIN=true`. |
 
-Click **Deploy**. Wait for the healthcheck to go green.
+Click **Deploy**. The container should reach `Running` state within a few seconds. Because there is no Docker healthcheck, Coolify will simply show `Running` (not `Running (healthy)`) — that is correct.
 
 ---
 
@@ -92,7 +93,7 @@ After Centrifugo is running on `https://rt.destekly.tr`, log into the platform a
 | **WebSocket URL** (`ws_url`) | `wss://rt.destekly.tr/connection/websocket` |
 | **HTTP API URL** (`api_url`) | `https://rt.destekly.tr/api` |
 | **API Key** (`api_key`) | the same value as `CENTRIFUGO_API_KEY` |
-| **HMAC Token Secret** (`token_hmac_secret`) | the same value as `CENTRIFUGO_TOKEN_HMAC_SECRET` |
+| **HMAC Token Secret** (`token_hmac_secret`) | the same value as `CENTRIFUGO_TOKEN_HMAC_SECRET_KEY` |
 | **Allowed origins** | same list as `CENTRIFUGO_ALLOWED_ORIGINS` |
 | **Connect timeout (ms)** | `10000` |
 | **Subscribe timeout (ms)** | `10000` |
@@ -108,16 +109,14 @@ Click **Save**, then click **Test connection**. You should see `status: healthy`
 
 Run these in order. All must pass before considering the deploy done.
 
-> ⚠️ **Do not test `https://rt.destekly.tr/health`.** It is intentionally not exposed publicly (see §2.2). A `404` there does not mean Centrifugo is down — use the tests below instead.
+> ⚠️ **Do not test `https://rt.destekly.tr/health`.** It is intentionally not exposed publicly (see §2.2). A `404`/`503` there does not mean Centrifugo is down — use the tests below instead.
 
-### 5.1 Container is healthy (Coolify)
-In the Coolify UI for this service, the status badge must read **`Running (healthy)`**. The healthcheck is performed inside the container by the `centrifugo healthcheck` subcommand, which calls the internal `/health` endpoint on `127.0.0.1:8000`. If it shows `unhealthy`, check the container logs — usually a missing env var (`CENTRIFUGO_TOKEN_HMAC_SECRET` or `CENTRIFUGO_API_KEY`) prevents the server from starting.
+### 5.1 Container is running (Coolify)
+In the Coolify UI for this service, the status badge must read **`Running`** (without `(healthy)` — there is no Docker healthcheck on purpose; see §2.1). Open the container logs and confirm Centrifugo printed its startup banner with `serving websocket` and `serving HTTP`. If the container is restarting, the most common causes are:
 
-Optional manual check from the host running Docker:
-```bash
-docker exec <centrifugo-container-id> centrifugo healthcheck -c /centrifugo/config.json
-# exit code 0 = healthy
-```
+- Missing `CENTRIFUGO_TOKEN_HMAC_SECRET_KEY` or `CENTRIFUGO_API_KEY` → Centrifugo refuses to start.
+- Using the **old** name `CENTRIFUGO_TOKEN_HMAC_SECRET` instead of `CENTRIFUGO_TOKEN_HMAC_SECRET_KEY` → log line `unknown key found in the environment`. Rename in Coolify env, redeploy.
+- Malformed `CENTRIFUGO_ALLOWED_ORIGINS` (must be comma-separated, full scheme + host, no trailing slash).
 
 ### 5.2 Server-to-server API is reachable (backend → Centrifugo)
 This is the call the Express backend makes for `Test connection` and for optional broadcasts.
@@ -135,6 +134,7 @@ Failure modes:
 - `401 Unauthorized` → `X-API-Key` does not match `CENTRIFUGO_API_KEY` env on the container. Re-enter both, redeploy.
 - `405 Method Not Allowed` on a `GET` → expected; the API only accepts `POST`. Re-run with `-X POST`.
 - `404` → Coolify domain is pointing at the wrong target port. It must be `8000`.
+- `502`/`no available server` → container is crash-looping. Check logs (§5.1).
 
 ### 5.3 WebSocket transport is reachable (browser → Centrifugo)
 A plain HTTP `GET` to the WS endpoint must respond with `400 Bad Request` and the body `Bad Request` — that's Centrifugo refusing the connection because the request is missing the WebSocket upgrade headers, which proves the endpoint is wired up correctly:
@@ -171,23 +171,25 @@ Super Admin → Providers → Realtime → **Audit** should show your `configure
 
 ## 6. Common pitfalls
 
-- **Coolify shows `Running (unhealthy)` and the domain returns `no available server`** → the previous compose used an HTTP healthcheck (`wget http://localhost:8000/health`), but the official `centrifugo/centrifugo` image is `FROM scratch` and contains no `wget`/`curl`/shell. The healthcheck always failed, so Coolify's proxy refused to route traffic. The current compose uses `centrifugo healthcheck -c /centrifugo/config.json` (the binary's built-in subcommand) — make sure you redeployed after pulling this fix.
-- **`exec: "wget": executable file not found`** in container logs → same root cause as above. Pull the latest compose file.
+- **Container logs `unknown key found in the environment` → `CENTRIFUGO_TOKEN_HMAC_SECRET`** → you set the variable under the old name. Centrifugo's runtime expects `CENTRIFUGO_TOKEN_HMAC_SECRET_KEY` (note the trailing `_KEY`). Rename in Coolify env, redeploy.
+- **Container logs `using config file` → `config file not found`** → an older compose file mounted `./deploy/centrifugo/config.json`. The current compose is env-driven and does NOT mount any config. Pull the latest `docker-compose.centrifugo.yml` and redeploy.
+- **`exec format error` / `unknown command "healthcheck"`** → you (or an older compose) added a `healthcheck:` block calling `centrifugo healthcheck`. That subcommand does not exist in v5.4.5. The current compose has no healthcheck on purpose — remove any local override.
+- **Coolify shows `Running (unhealthy)`** → only happens if a healthcheck is defined and failing. With the current compose there is no healthcheck and the badge will simply read `Running`. If you see `unhealthy`, you have a stale compose — redeploy with the latest file.
 - **`Origin not allowed` on WebSocket connect** → the page's `Origin` header is not in `CENTRIFUGO_ALLOWED_ORIGINS`. Add it (full scheme + host, no path), redeploy Centrifugo.
-- **`unauthorized` on connect** → the HMAC secret in the admin panel does not match `CENTRIFUGO_TOKEN_HMAC_SECRET`. Re-enter both, save, redeploy. Note: inside the container Centrifugo reads `CENTRIFUGO_TOKEN_HMAC_SECRET_KEY` — the compose file maps your `CENTRIFUGO_TOKEN_HMAC_SECRET` Coolify env onto that name automatically. Set only `CENTRIFUGO_TOKEN_HMAC_SECRET` in Coolify.
+- **`unauthorized` on connect** → the HMAC secret in the admin panel does not match `CENTRIFUGO_TOKEN_HMAC_SECRET_KEY`. Re-enter both, save, redeploy.
 - **`HTTP 401` on `Test connection`** → the API key does not match. Same fix as above for `CENTRIFUGO_API_KEY`.
 - **WebSocket immediately closes** → Coolify domain not configured for WebSocket. Re-check the domain settings.
 - **Backend log: `Centrifugo configuration incomplete`** → one of `ws_url`, `api_url`, `api_key`, `token_hmac_secret` is empty in the admin form. Fill all four.
 - **Widget falls back to polling silently** → check `GET /api/realtime/admin/resolved` (admin-only). `effective_vendor` will tell you why (e.g. `polling_builtin` because health failed).
 - **Coolify deploy fails with `port is already allocated`** → you (or a previous attempt) added a `ports:` mapping. The current compose uses `expose:` only — do not add `ports:`.
-- **`curl https://rt.destekly.tr/health` returns `404`** → expected, not a bug. The public domain only routes the two endpoints we actually need (`/api` and `/connection/websocket`). The health endpoint is queried internally by the Docker healthcheck. Verify health using §5.1, §5.2, and §5.4 instead.
+- **`curl https://rt.destekly.tr/health` returns `404`/`503`** → expected, not a bug. The public domain only routes the two endpoints we actually need (`/api` and `/connection/websocket`). Verify health using §5.1, §5.2, and §5.4 instead.
 
 ---
 
 ## 7. Rotating secrets
 
 1. Generate new values (`openssl rand -hex 32`).
-2. Update the env vars on the Centrifugo Coolify service → redeploy.
+2. Update the env vars on the Centrifugo Coolify service (`CENTRIFUGO_TOKEN_HMAC_SECRET_KEY`, `CENTRIFUGO_API_KEY`) → redeploy.
 3. Update the same values in **Super Admin → Providers → Realtime** → Save.
 4. Click **Refresh cache** (admin endpoint `/api/realtime/admin/refresh`) so the backend picks up the new config immediately.
 5. Existing widget tokens (issued before rotation) keep working until their TTL expires (5 min default). New connections use the new secret.

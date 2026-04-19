@@ -79,6 +79,64 @@ async function authorizeWorkspaceMember(
   return { userId: user.id };
 }
 
+/**
+ * Operator typing — ephemeral realtime-only event.
+ *
+ * Phase 1 contract:
+ *   - No DB write. The server simply publishes an ephemeral
+ *     `{ type: 'typing', payload: { actor: 'agent', conversation_id, ts } }`
+ *     envelope on the conversation channel using the active realtime publisher.
+ *   - On polling deployments the publish becomes a no-op and typing is silently
+ *     not delivered (by design — typing is best-effort).
+ *   - Caller must be an authenticated workspace member of the conversation.
+ *   - Returns `{ ok, published }` so clients can throttle accordingly.
+ */
+const typingSchema = z.object({
+  conversation_id: z.string().uuid(),
+  workspace_id: z.string().uuid(),
+});
+
+conversationsRouter.post('/typing', async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const parsed = typingSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid payload' });
+    }
+    const auth = await authorizeWorkspaceMember(req, res, config, parsed.data.workspace_id);
+    if (!auth) return;
+
+    // Verify the conversation belongs to this workspace.
+    const sb = getServiceClient(config);
+    const { data: conv } = await sb
+      .from('conversations')
+      .select('id, workspace_id')
+      .eq('id', parsed.data.conversation_id)
+      .maybeSingle();
+    if (!conv || conv.workspace_id !== parsed.data.workspace_id) {
+      return res.status(404).json({ error: 'Conversation not found in workspace' });
+    }
+
+    const pub = await publishConversationEvent(
+      config,
+      parsed.data.workspace_id,
+      parsed.data.conversation_id,
+      {
+        type: 'typing',
+        payload: {
+          actor: 'agent',
+          conversation_id: parsed.data.conversation_id,
+          ts: Date.now(),
+        },
+      },
+    );
+    return res.json({ ok: true, published: pub.ok });
+  } catch (err: any) {
+    console.error('[conversations/typing] error:', err);
+    return res.status(500).json({ error: err?.message || 'Internal error' });
+  }
+});
+
 conversationsRouter.post('/send-message', async (req, res) => {
   try {
     const config: ServerConfig = (req as any).serverConfig;

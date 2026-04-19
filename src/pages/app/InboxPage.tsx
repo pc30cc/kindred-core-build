@@ -325,6 +325,148 @@ export default function InboxPage() {
     resetAttachment();
   }, [att.attachmentId, workspace?.id, resetAttachment]);
 
+  // ─── Phase 6 — Canned responses integration ───
+  // Locale used to rank: profile preferred locale → UI locale → 'en'.
+  const { data: profile } = useProfile();
+  const operatorLocale: CannedLocale = useMemo(() => {
+    const candidates = [profile?.preferred_locale, (typeof window !== 'undefined' ? localStorage.getItem('app-locale') : null)];
+    for (const c of candidates) {
+      if (c === 'en' || c === 'fa' || c === 'tr') return c;
+    }
+    return 'en';
+  }, [profile?.preferred_locale]);
+
+  const trackUseMut = useTrackCannedResponseUse(workspace?.id);
+
+  // Picker state.
+  const messageInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const pickerRef = useRef<CannedPickerHandle | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerSlash, setPickerSlash] = useState(false);
+  const [pickerQuery, setPickerQuery] = useState('');
+  // Anchor index (in message) of the leading '/' for slash mode.
+  const slashAnchorRef = useRef<number | null>(null);
+
+  // Pending tracked rows: snippet of inserted body → row id.
+  // We only fire track-use on real send AND only if the inserted snippet is
+  // still present in the final message body (operator may have deleted it).
+  const pendingTrackRef = useRef<{ id: string; snippet: string }[]>([]);
+
+  const closePicker = useCallback(() => {
+    setPickerOpen(false);
+    setPickerSlash(false);
+    setPickerQuery('');
+    slashAnchorRef.current = null;
+  }, []);
+
+  // Reset picker when switching conversations.
+  useEffect(() => { closePicker(); pendingTrackRef.current = []; }, [selectedId, closePicker]);
+
+  // Slash-trigger detection on the current caret position.
+  // A trigger exists when the character before the caret-token is line-start
+  // or whitespace, the token starts with '/', and contains no spaces.
+  const detectSlashTrigger = useCallback((value: string, caret: number): { anchor: number; query: string } | null => {
+    if (caret <= 0) return null;
+    // Walk backwards from caret to find the '/' or invalidate.
+    let i = caret - 1;
+    while (i >= 0) {
+      const ch = value[i];
+      if (ch === '/') break;
+      if (ch === ' ' || ch === '\n' || ch === '\t') return null;
+      i--;
+    }
+    if (i < 0 || value[i] !== '/') return null;
+    const before = i === 0 ? '\n' : value[i - 1];
+    if (before !== ' ' && before !== '\n' && before !== '\t') return null;
+    const query = value.slice(i + 1, caret);
+    // Limit to a reasonable shortcut length.
+    if (query.length > 41) return null;
+    return { anchor: i, query };
+  }, []);
+
+  const onMessageChange = useCallback((value: string) => {
+    setMessage(value);
+    if (value) emitTyping();
+    const ta = messageInputRef.current;
+    const caret = ta?.selectionStart ?? value.length;
+    const trig = detectSlashTrigger(value, caret);
+    if (trig) {
+      slashAnchorRef.current = trig.anchor;
+      setPickerSlash(true);
+      setPickerOpen(true);
+      setPickerQuery(trig.query);
+    } else if (pickerSlash) {
+      // Slash got cancelled (user deleted '/' or typed a space).
+      closePicker();
+    }
+  }, [detectSlashTrigger, emitTyping, pickerSlash, closePicker]);
+
+  // Insert a canned row into the current draft.
+  const insertCanned = useCallback((row: CannedResponse) => {
+    const ctx = {
+      contact: {
+        name: selected?.contacts?.name ?? null,
+        email: selected?.contacts?.email ?? null,
+      },
+      workspace: { name: workspace?.name ?? null },
+      agent: {
+        name: profile?.full_name ?? null,
+        first_name: (profile?.full_name ?? '').split(' ')[0] || null,
+        email: profile?.email ?? user?.email ?? null,
+      },
+    };
+    const expanded = interpolate(row.body, ctx);
+
+    setMessage((prev) => {
+      let before = '';
+      let after = '';
+      if (pickerSlash && slashAnchorRef.current !== null) {
+        // Replace `/query` segment.
+        const ta = messageInputRef.current;
+        const caret = ta?.selectionStart ?? prev.length;
+        before = prev.slice(0, slashAnchorRef.current);
+        after = prev.slice(caret);
+      } else {
+        // Toolbar mode: insert at current caret (or end), wrap with newlines
+        // when the existing draft is non-empty.
+        const ta = messageInputRef.current;
+        const caret = ta?.selectionStart ?? prev.length;
+        before = prev.slice(0, caret);
+        after = prev.slice(caret);
+      }
+      const needsLeadingSep = before.length > 0 && !/\s$/.test(before);
+      const needsTrailingSpace = after.length > 0 && !/^\s/.test(after);
+      const inserted = `${needsLeadingSep ? '\n' : ''}${expanded}${needsTrailingSpace ? ' ' : ''}`;
+      // Track only the expanded body for later send-time verification.
+      pendingTrackRef.current.push({ id: row.id, snippet: expanded });
+      const next = before + inserted + after;
+      // Restore caret after insertion.
+      requestAnimationFrame(() => {
+        const ta = messageInputRef.current;
+        if (!ta) return;
+        const pos = (before + inserted).length;
+        ta.focus();
+        try { ta.setSelectionRange(pos, pos); } catch { /* noop */ }
+      });
+      return next;
+    });
+    closePicker();
+  }, [closePicker, pickerSlash, profile?.full_name, profile?.email, selected?.contacts?.name, selected?.contacts?.email, user?.email, workspace?.name]);
+
+  // Fire track-use only for inserted rows whose body is still present in the
+  // final sent message. We DO NOT track on preview / open / browse.
+  const flushPendingTrackUse = useCallback((sentBody: string) => {
+    const remaining: typeof pendingTrackRef.current = [];
+    const seenIds = new Set<string>();
+    for (const entry of pendingTrackRef.current) {
+      if (sentBody.includes(entry.snippet) && !seenIds.has(entry.id)) {
+        seenIds.add(entry.id);
+        trackUseMut.mutate(entry.id);
+      }
+    }
+    pendingTrackRef.current = remaining;
+  }, [trackUseMut]);
+
   const handleSend = async () => {
     if (!selectedId || !user) return;
     const hasText = message.trim().length > 0;

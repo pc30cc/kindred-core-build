@@ -7,7 +7,6 @@ RUN npm install --ignore-scripts
 
 COPY . .
 
-# Build-time env vars (pass via --build-arg or Coolify env)
 ARG VITE_SUPABASE_URL
 ARG VITE_SUPABASE_ANON_KEY
 ARG VITE_API_BASE_URL
@@ -18,9 +17,15 @@ ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 
 RUN npm run build
 
+RUN test -f /app/dist/widget/widget-manifest.json || (echo "❌ widget-manifest.json missing from build output" && ls -la /app/dist/widget/ && exit 1)
+RUN echo "✅ widget assets:" && ls -la /app/dist/widget/
+
 # ── Serve with nginx ───────────────────────────────────────
 FROM nginx:alpine
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+RUN test -f /usr/share/nginx/html/widget/widget-manifest.json || (echo "❌ widget-manifest.json missing in nginx image" && exit 1)
+
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]

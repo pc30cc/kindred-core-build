@@ -80,6 +80,32 @@ export function useCreateNote(
   });
 }
 
+export function useUpdateNote(
+  conversationId: string | undefined,
+  workspaceId: string | undefined,
+) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ noteId, body }: { noteId: string; body: string }) => {
+      if (!conversationId || !workspaceId) throw new Error('Missing conversation or workspace');
+      const res = await fetch(
+        `${API_BASE}/api/conversations/${encodeURIComponent(conversationId)}/notes/${encodeURIComponent(noteId)}`,
+        {
+          method: 'PATCH',
+          headers: await authHeaders(),
+          body: JSON.stringify({ workspace_id: workspaceId, body }),
+        },
+      );
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `Update failed: ${res.status}`);
+      return json.note as ConversationNote;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['conversation-notes', conversationId, workspaceId] });
+    },
+  });
+}
+
 export function useDeleteNote(
   conversationId: string | undefined,
   workspaceId: string | undefined,

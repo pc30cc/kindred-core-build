@@ -206,6 +206,7 @@
         fallbackMessageLabel: 'پیام',
         fallbackSubmit: 'ارسال پیام',
         fallbackSent: 'پیام شما دریافت شد. به‌زودی پاسخ می‌دهیم.',
+        fallbackSentTransitioning: 'پیام شما دریافت شد. ممکن است زودتر از انتظار آنلاین شویم و فوراً پاسخ دهیم.',
         fallbackError: 'ارسال انجام نشد. لطفاً دوباره تلاش کنید.',
         // Phase 6a — attachments
         attachFile: 'پیوست فایل',

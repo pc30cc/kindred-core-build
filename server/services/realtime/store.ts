@@ -57,6 +57,12 @@ export async function loadRealtimeConfig(
 
 export function invalidateRealtimeCache(): void {
   cache = null;
+  // Lazy import to avoid a circular dep between store <-> resolvePublisher.
+  void import('./resolvePublisher.js')
+    .then((m) => m.invalidatePublisherCache())
+    .catch(() => {
+      /* noop — cache stays warm one extra cycle, harmless */
+    });
 }
 
 export async function saveRealtimeConfig(
@@ -86,7 +92,7 @@ function normalize(
   if (src && 'provider_name' in src) {
     src = { vendor: src.provider_name, ...(src.config || {}) };
   }
-  const vendor = (src?.vendor === 'centrifugo' || src?.vendor === 'disabled' || src?.vendor === 'polling_builtin')
+  const vendor = (src?.vendor === 'centrifugo' || src?.vendor === 'supabase' || src?.vendor === 'disabled' || src?.vendor === 'polling_builtin')
     ? src.vendor
     : 'polling_builtin';
   return {

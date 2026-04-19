@@ -1,14 +1,18 @@
-import { useWidgetPlatformSettings, useUpdateWidgetPlatformSettings, type PreChatPolicy, type FeatureLockMode } from '@/hooks/useWidgetPlatformSettings';
+import { useMemo, useState } from 'react';
+import { useWidgetPlatformSettings, useUpdateWidgetPlatformSettings, type PreChatPolicy, type FeatureLockMode, type WidgetPlatformSettings } from '@/hooks/useWidgetPlatformSettings';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { MessageSquare, Mail, Phone, Globe, Shield, Settings, Lock, Info, Bug } from 'lucide-react';
+import { MessageSquare, Mail, Phone, Globe, Shield, Settings, Lock, Info, Bug, Link2, Copy, Check, AlertTriangle, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+import { resolveWidgetUrls, buildWidgetEmbedSnippet } from '@/lib/widgetEmbed';
+import { testWidgetUrl, type WidgetUrlTestKind, type WidgetUrlTestResult } from '@/lib/widget-admin-api';
 
 const PRECHAT_OPTIONS: { value: PreChatPolicy; label: string; desc: string }[] = [
   { value: 'force_on', label: 'Force ON', desc: 'Workspaces cannot disable — field is always required' },

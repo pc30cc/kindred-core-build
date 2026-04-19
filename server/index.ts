@@ -16,6 +16,7 @@ import { billingRouter } from './routes/billing.js';
 import { plansRouter } from './routes/plans.js';
 import { adminRouter } from './routes/admin.js';
 import { realtimeRouter } from './routes/realtime.js';
+import { conversationsRouter } from './routes/conversations.js';
 import { widgetCorsMiddleware } from './middleware/widgetCors.js';
 import {
   ipBlockMiddleware,
@@ -119,6 +120,10 @@ app.use('/api/admin', adminRateLimiter, adminRouter);
 app.use('/api/realtime/connect', widgetCorsMiddleware());
 app.use('/api/realtime/subscribe', widgetCorsMiddleware());
 app.use('/api/realtime', realtimeRouter);
+
+// Conversations — backend-mediated agent reply send + realtime publish.
+// Auth handled per-route via Supabase user JWT + workspace membership check.
+app.use('/api/conversations', conversationsRouter);
 
 // 404
 app.use((_req, res) => {

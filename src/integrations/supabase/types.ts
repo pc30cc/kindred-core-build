@@ -1499,6 +1499,78 @@ export type Database = {
         }
         Relationships: []
       }
+      privacy_jobs: {
+        Row: {
+          action: string
+          actor_user_id: string
+          artifact_hash: string | null
+          artifact_path: string | null
+          artifact_size_bytes: number | null
+          cancelled_at: string | null
+          completed_at: string | null
+          download_count: number
+          download_token_hash: string | null
+          error_message: string | null
+          expires_at: string | null
+          id: string
+          requested_at: string
+          resolved_identity: Json
+          scope: Json
+          started_at: string | null
+          status: string
+          subject_email_hash: string | null
+          subject_id: string
+          subject_type: string
+          workspace_id: string | null
+        }
+        Insert: {
+          action: string
+          actor_user_id: string
+          artifact_hash?: string | null
+          artifact_path?: string | null
+          artifact_size_bytes?: number | null
+          cancelled_at?: string | null
+          completed_at?: string | null
+          download_count?: number
+          download_token_hash?: string | null
+          error_message?: string | null
+          expires_at?: string | null
+          id?: string
+          requested_at?: string
+          resolved_identity?: Json
+          scope?: Json
+          started_at?: string | null
+          status?: string
+          subject_email_hash?: string | null
+          subject_id: string
+          subject_type: string
+          workspace_id?: string | null
+        }
+        Update: {
+          action?: string
+          actor_user_id?: string
+          artifact_hash?: string | null
+          artifact_path?: string | null
+          artifact_size_bytes?: number | null
+          cancelled_at?: string | null
+          completed_at?: string | null
+          download_count?: number
+          download_token_hash?: string | null
+          error_message?: string | null
+          expires_at?: string | null
+          id?: string
+          requested_at?: string
+          resolved_identity?: Json
+          scope?: Json
+          started_at?: string | null
+          status?: string
+          subject_email_hash?: string | null
+          subject_id?: string
+          subject_type?: string
+          workspace_id?: string | null
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           ai_mode: string | null
@@ -3103,6 +3175,14 @@ export type Database = {
           _workspace_id: string
         }
         Returns: undefined
+      }
+      resolve_privacy_subject: {
+        Args: {
+          _subject_id: string
+          _subject_type: string
+          _workspace_id: string
+        }
+        Returns: Json
       }
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }

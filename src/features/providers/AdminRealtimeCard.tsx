@@ -31,6 +31,14 @@ import { realtimeAdminApi, type RealtimeAdminConfig } from '@/lib/realtime-admin
 
 const SECRET_PLACEHOLDER = '••••••••';
 
+function hasMaskedSecret(value?: string) {
+  return typeof value === 'string' && value.includes('•');
+}
+
+function toSecretInputValue(value?: string) {
+  return value ? SECRET_PLACEHOLDER : '';
+}
+
 export function AdminRealtimeCard() {
   const qc = useQueryClient();
   const [configOpen, setConfigOpen] = useState(false);
@@ -188,7 +196,11 @@ function RealtimeConfigDialog({
     setVendor(config.vendor);
     setEnabled(config.enabled);
     setFallbackPolicy(config.fallback_policy);
-    setCentrifugo(config.centrifugo ?? {});
+    setCentrifugo({
+      ...(config.centrifugo ?? {}),
+      api_key: toSecretInputValue(config.centrifugo?.api_key),
+      token_hmac_secret: toSecretInputValue(config.centrifugo?.token_hmac_secret),
+    });
   }, [open, config]);
 
   const save = useMutation({
@@ -199,8 +211,8 @@ function RealtimeConfigDialog({
       if (vendor === 'centrifugo') {
         // Strip masked secrets — empty string means "do not change".
         const c: typeof centrifugo = { ...centrifugo };
-        if (c.api_key === SECRET_PLACEHOLDER) delete c.api_key;
-        if (c.token_hmac_secret === SECRET_PLACEHOLDER) delete c.token_hmac_secret;
+        if (!c.api_key || hasMaskedSecret(c.api_key)) delete c.api_key;
+        if (!c.token_hmac_secret || hasMaskedSecret(c.token_hmac_secret)) delete c.token_hmac_secret;
         payload.centrifugo = c;
       }
       return realtimeAdminApi.saveConfig(payload);
@@ -275,12 +287,12 @@ function RealtimeConfigDialog({
             </FieldRow>
             <FieldRow label="Admin API Key" hint="Stored server-side. Leave blank to keep current.">
               <Input type="password" value={centrifugo.api_key ?? ''} onChange={(e) => updateC('api_key', e.target.value)}
-                placeholder={config?.centrifugo?.api_key === SECRET_PLACEHOLDER ? SECRET_PLACEHOLDER : 'enter API key'}
+                placeholder={config?.centrifugo?.api_key ? SECRET_PLACEHOLDER : 'enter API key'}
                 className="bg-input border-border text-foreground" />
             </FieldRow>
             <FieldRow label="Token HMAC Secret (HS256)" hint="Must match Centrifugo CENTRIFUGO_TOKEN_HMAC_SECRET_KEY.">
               <Input type="password" value={centrifugo.token_hmac_secret ?? ''} onChange={(e) => updateC('token_hmac_secret', e.target.value)}
-                placeholder={config?.centrifugo?.token_hmac_secret === SECRET_PLACEHOLDER ? SECRET_PLACEHOLDER : 'enter HMAC secret'}
+                placeholder={config?.centrifugo?.token_hmac_secret ? SECRET_PLACEHOLDER : 'enter HMAC secret'}
                 className="bg-input border-border text-foreground" />
             </FieldRow>
             <FieldRow label="Allowed Origins (CSV)">

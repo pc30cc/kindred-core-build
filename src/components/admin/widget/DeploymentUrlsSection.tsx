@@ -395,10 +395,37 @@ export function DeploymentUrlsSection({ settings, onSave, saving }: Props) {
               </p>
             )}
           </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Header comment (above &lt;script&gt;)</Label>
+              <Textarea
+                value={draft.embed_header_comment}
+                onChange={(e) => setDraft((d) => ({ ...d, embed_header_comment: e.target.value }))}
+                placeholder="e.g. Powered by Destekly · v2.1"
+                rows={3}
+                className="font-mono text-xs"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Footer comment (below &lt;script&gt;)</Label>
+              <Textarea
+                value={draft.embed_footer_comment}
+                onChange={(e) => setDraft((d) => ({ ...d, embed_footer_comment: e.target.value }))}
+                placeholder="e.g. Need help? support@destekly.tr"
+                rows={3}
+                className="font-mono text-xs"
+              />
+            </div>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Rendered as HTML comments around the script tag for every workspace's snippet. Click "Save URLs" to apply.
+          </p>
+
           <Textarea
             readOnly
             value={embedSnippet}
-            rows={8}
+            rows={10}
             className="font-mono text-xs bg-muted/40"
           />
         </CardContent>

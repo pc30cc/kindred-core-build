@@ -107,6 +107,19 @@ async function resolveWorkspaceForHost(config: ServerConfig, req: Request): Prom
 
 export const widgetKbRouter: Router = express.Router();
 
+/**
+ * Host→workspace probe used by the SPA-side public KB pages to discover
+ * the workspace bound to the current Host without exposing service-role
+ * data. Returns { workspace_id } or 404. Read-only and safe to expose:
+ * the resolution is the same one already used by the public SSR routes.
+ */
+widgetKbRouter.get('/help-host', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = await resolveWorkspaceForHost(config, req);
+  if (!workspaceId) return res.status(404).json({ error: 'no_workspace' });
+  return res.json({ workspace_id: workspaceId });
+});
+
 const categoriesSchema = z.object({
   workspace_id: z.string().uuid(),
   locale: z.string().min(2).max(10).optional(),

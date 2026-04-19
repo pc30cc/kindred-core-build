@@ -1603,30 +1603,41 @@ async function notifyOfflineCapture(
   payload: { conversationId: string; message: string; email: string | null; name: string | null; locale: string },
 ): Promise<void> {
   const supabase = getServiceClient(config);
-  const { data: members } = await supabase
-    .from('account_members')
-    .select('user_id, role')
-    .in('role', ['owner', 'admin']);
-  // Note: account_members is account-scoped not workspace-scoped in this
-  // codebase. Fall back to workspace_members if available.
-  let recipientIds: string[] = (members || []).map((m: any) => m.user_id);
-
-  const { data: wsMembers } = await supabase
-    .from('workspace_members' as any)
-    .select('user_id, role')
-    .eq('workspace_id', workspaceId)
-    .in('role', ['owner', 'admin']);
-  if (wsMembers && wsMembers.length) {
-    recipientIds = wsMembers.map((m: any) => m.user_id);
+  // Resolve workspace owners/admins. The codebase uses `workspace_members`
+  // (with `workspace_role` enum) — fall through gracefully if the table or
+  // column shape isn't what we expect, so notification is purely best-effort.
+  let recipientIds: string[] = [];
+  try {
+    const { data: wsMembers } = await (supabase as any)
+      .from('workspace_members')
+      .select('user_id, role')
+      .eq('workspace_id', workspaceId)
+      .in('role', ['owner', 'admin']);
+    if (Array.isArray(wsMembers)) {
+      recipientIds = wsMembers.map((m: any) => m.user_id).filter(Boolean);
+    }
+  } catch {
+    // ignore — will check email_settings.reply_to_email below
   }
 
-  if (!recipientIds.length) return;
+  let emails: string[] = [];
+  if (recipientIds.length) {
+    const { data: profiles } = await supabase
+      .from('profiles')
+      .select('id, email')
+      .in('id', recipientIds);
+    emails = (profiles || []).map((p: any) => p.email).filter(Boolean);
+  }
 
-  const { data: profiles } = await supabase
-    .from('profiles')
-    .select('id, email')
-    .in('id', recipientIds);
-  const emails = (profiles || []).map((p: any) => p.email).filter(Boolean);
+  if (!emails.length) {
+    const { data: settings } = await supabase
+      .from('email_settings')
+      .select('reply_to_email')
+      .eq('workspace_id', workspaceId)
+      .maybeSingle();
+    if (settings?.reply_to_email) emails = [settings.reply_to_email];
+  }
+
   if (!emails.length) return;
 
   const subject = `New offline message`;

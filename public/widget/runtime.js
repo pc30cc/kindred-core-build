@@ -359,11 +359,29 @@
       ModuleLoader.load('chat', url, function (mod) { cb(mod); });
     }
 
-    function ensureCentrifugoModule(cb) {
-      if (window.__gs_mod_rt_centrifugo) return cb(window.__gs_mod_rt_centrifugo);
-      var url = (ctx.assetBase || '') + '/widget/runtime-rt-centrifugo.js?v=' +
-        (ctx.config._loaderVersion || ctx.config.loaderVersion || 'dev');
-      ModuleLoader.load('rt_centrifugo', url, function () { cb(window.__gs_mod_rt_centrifugo); });
+    function assetVersion() {
+      return ctx.config._loaderVersion || ctx.config.loaderVersion || 'dev';
+    }
+
+    function ensureResolverModule(cb) {
+      if (window.__gs_mod_rt_resolver) return cb(window.__gs_mod_rt_resolver);
+      var url = (ctx.assetBase || '') + '/widget/runtime-rt-resolver.js?v=' + assetVersion();
+      ModuleLoader.load('rt_resolver', url, function () { cb(window.__gs_mod_rt_resolver); });
+    }
+
+    /**
+     * Lazy-load the realtime driver matching `vendor` via the resolver.
+     * Calls cb(driverModule|null). Driver module exposes `.create(...)`.
+     */
+    function ensureRealtimeDriver(vendor, cb) {
+      ensureResolverModule(function (resolver) {
+        if (!resolver || !resolver.isDriverVendor(vendor)) return cb(null);
+        var desc = resolver.resolveDriverDescriptor(vendor);
+        if (!desc) return cb(null);
+        if (window[desc.globalKey]) return cb(window[desc.globalKey]);
+        var url = (ctx.assetBase || '') + '/widget/' + desc.asset + '?v=' + assetVersion();
+        ModuleLoader.load('rt_' + vendor, url, function () { cb(window[desc.globalKey] || null); });
+      });
     }
 
     function loadHistory(opts) {

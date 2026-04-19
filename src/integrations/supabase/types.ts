@@ -1838,6 +1838,10 @@ export type Database = {
           rate_limit_messages_per_minute: number
           updated_at: string
           updated_by: string | null
+          widget_api_base_url: string | null
+          widget_asset_base_url: string | null
+          widget_loader_base_url: string | null
+          widget_public_base_url: string | null
         }
         Insert: {
           admin_notes?: string | null
@@ -1857,6 +1861,10 @@ export type Database = {
           rate_limit_messages_per_minute?: number
           updated_at?: string
           updated_by?: string | null
+          widget_api_base_url?: string | null
+          widget_asset_base_url?: string | null
+          widget_loader_base_url?: string | null
+          widget_public_base_url?: string | null
         }
         Update: {
           admin_notes?: string | null
@@ -1876,6 +1884,10 @@ export type Database = {
           rate_limit_messages_per_minute?: number
           updated_at?: string
           updated_by?: string | null
+          widget_api_base_url?: string | null
+          widget_asset_base_url?: string | null
+          widget_loader_base_url?: string | null
+          widget_public_base_url?: string | null
         }
         Relationships: []
       }

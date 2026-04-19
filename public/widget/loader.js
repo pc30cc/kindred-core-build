@@ -289,6 +289,26 @@
           if (shellEl) shellEl.remove();
           return null;
         }
+        // Phase 8 — hide_widget on NEW loads only. We treat any widget
+        // load that has no prior conversation cookie as a "new load".
+        // Existing active sessions remain visible because the runtime
+        // is what reads the cookie via /identity/history; here we only
+        // suppress the shell when bootstrap explicitly tells us to and
+        // there is no in-flight conversation context yet.
+        try {
+          var av = data && data.availability;
+          if (av && av.state === 'offline' && av.offline_mode === 'hide_widget') {
+            // We can't read HttpOnly dvsid, so use a non-identity hint
+            // cookie set by the runtime when a conversation is active.
+            var hasActive = (document.cookie || '').indexOf('gs_active=') !== -1;
+            if (!hasActive) {
+              log("hide_widget — new load, removing shell");
+              if (shellEl) shellEl.remove();
+              return null;
+            }
+            log("hide_widget — active session detected, keeping shell");
+          }
+        } catch (_) {}
         sessionToken = data.session_token;
         WORKSPACE_ID = data.workspace_id || WORKSPACE_ID;
         window.__gs._id = WORKSPACE_ID;

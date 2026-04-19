@@ -24,6 +24,9 @@ export interface WidgetPlatformSettings {
   widget_asset_base_url: string | null;
   widget_public_base_url: string | null;
   widget_api_base_url: string | null;
+  // ── Embed snippet wrappers (rendered above/below the <script> tag) ──
+  embed_header_comment: string | null;
+  embed_footer_comment: string | null;
   created_at: string;
   updated_at: string;
   updated_by: string | null;

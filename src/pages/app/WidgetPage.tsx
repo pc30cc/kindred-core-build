@@ -49,12 +49,22 @@ export default function WidgetPage() {
   const primaryColor = widget?.primary_color || branding?.primary_color || '#3B82F6';
 
   const windowEmbedCode = useMemo(
-    () => buildWidgetEmbedSnippet(urls, { variant: 'window', workspaceId: workspace?.id }),
-    [urls, workspace?.id],
+    () => buildWidgetEmbedSnippet(urls, {
+      variant: 'window',
+      workspaceId: workspace?.id,
+      headerComment: platformWidget?.embed_header_comment,
+      footerComment: platformWidget?.embed_footer_comment,
+    }),
+    [urls, workspace?.id, platformWidget?.embed_header_comment, platformWidget?.embed_footer_comment],
   );
   const scriptTagEmbedCode = useMemo(
-    () => buildWidgetEmbedSnippet(urls, { variant: 'script', workspaceId: workspace?.id }),
-    [urls, workspace?.id],
+    () => buildWidgetEmbedSnippet(urls, {
+      variant: 'script',
+      workspaceId: workspace?.id,
+      headerComment: platformWidget?.embed_header_comment,
+      footerComment: platformWidget?.embed_footer_comment,
+    }),
+    [urls, workspace?.id, platformWidget?.embed_header_comment, platformWidget?.embed_footer_comment],
   );
 
   const handleCopy = (variant: 'window' | 'script') => {

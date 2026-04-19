@@ -133,6 +133,19 @@ export function resolveWidgetUrls(
 export interface BuildEmbedOptions {
   variant: 'window' | 'script';
   workspaceId: string | null | undefined;
+  /** Optional comment rendered above the <script> tag. Multi-line allowed. */
+  headerComment?: string | null;
+  /** Optional comment rendered below the <script> tag. Multi-line allowed. */
+  footerComment?: string | null;
+}
+
+/** Wrap a free-form admin string as a safe HTML comment block. */
+function asHtmlComment(raw: string | null | undefined): string {
+  const text = (raw || '').trim();
+  if (!text) return '';
+  // Neutralize any embedded "-->" so the comment can't be broken out of.
+  const safe = text.replace(/-->/g, '--&gt;');
+  return `<!--\n${safe}\n-->`;
 }
 
 /**
@@ -144,9 +157,12 @@ export function buildWidgetEmbedSnippet(
   opts: BuildEmbedOptions,
 ): string {
   const ws = opts.workspaceId || 'YOUR_WORKSPACE_ID';
+  const header = asHtmlComment(opts.headerComment);
+  const footer = asHtmlComment(opts.footerComment);
 
+  let core: string;
   if (opts.variant === 'window') {
-    return `<script type="text/javascript">
+    core = `<script type="text/javascript">
   window.__gs = [];
   window.__gs_id = "${ws}";
   window.__gs_api_base = "${urls.apiBase}";
@@ -159,13 +175,15 @@ export function buildWidgetEmbedSnippet(
     d.getElementsByTagName("head")[0].appendChild(s);
   })();
 </script>`;
-  }
-
-  return `<script
+  } else {
+    core = `<script
   src="${urls.loaderUrl}"
   data-workspace-id="${ws}"
   data-api-base="${urls.apiBase}"
   data-asset-base="${urls.assetBase}"
   async
 ></script>`;
+  }
+
+  return [header, core, footer].filter(Boolean).join('\n');
 }

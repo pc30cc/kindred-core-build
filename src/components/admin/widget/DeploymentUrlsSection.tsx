@@ -97,6 +97,8 @@ export function DeploymentUrlsSection({ settings, onSave, saving }: Props) {
     widget_asset_base_url: settings.widget_asset_base_url || '',
     widget_public_base_url: settings.widget_public_base_url || '',
     widget_api_base_url: settings.widget_api_base_url || '',
+    embed_header_comment: settings.embed_header_comment || '',
+    embed_footer_comment: settings.embed_footer_comment || '',
   });
   const [tests, setTests] = useState<Record<WidgetUrlTestKind, TestState>>({
     loader: { loading: false, result: null },
@@ -126,6 +128,8 @@ export function DeploymentUrlsSection({ settings, onSave, saving }: Props) {
       widget_asset_base_url: settings.widget_asset_base_url || '',
       widget_public_base_url: settings.widget_public_base_url || '',
       widget_api_base_url: settings.widget_api_base_url || '',
+      embed_header_comment: settings.embed_header_comment || '',
+      embed_footer_comment: settings.embed_footer_comment || '',
     });
   }, [settings.id, settings.updated_at]);
 
@@ -140,8 +144,10 @@ export function DeploymentUrlsSection({ settings, onSave, saving }: Props) {
     () => buildWidgetEmbedSnippet(urls, {
       variant: 'script',
       workspaceId: previewWorkspaceId || 'YOUR_WORKSPACE_ID',
+      headerComment: draft.embed_header_comment,
+      footerComment: draft.embed_footer_comment,
     }),
-    [urls, previewWorkspaceId],
+    [urls, previewWorkspaceId, draft.embed_header_comment, draft.embed_footer_comment],
   );
 
   const isDirty = useMemo(() => {
@@ -149,7 +155,9 @@ export function DeploymentUrlsSection({ settings, onSave, saving }: Props) {
       (draft.widget_loader_base_url || '') !== (settings.widget_loader_base_url || '') ||
       (draft.widget_asset_base_url || '') !== (settings.widget_asset_base_url || '') ||
       (draft.widget_public_base_url || '') !== (settings.widget_public_base_url || '') ||
-      (draft.widget_api_base_url || '') !== (settings.widget_api_base_url || '')
+      (draft.widget_api_base_url || '') !== (settings.widget_api_base_url || '') ||
+      (draft.embed_header_comment || '') !== (settings.embed_header_comment || '') ||
+      (draft.embed_footer_comment || '') !== (settings.embed_footer_comment || '')
     );
   }, [draft, settings]);
 
@@ -159,6 +167,8 @@ export function DeploymentUrlsSection({ settings, onSave, saving }: Props) {
       widget_asset_base_url: draft.widget_asset_base_url.trim() || null,
       widget_public_base_url: draft.widget_public_base_url.trim() || null,
       widget_api_base_url: draft.widget_api_base_url.trim() || null,
+      embed_header_comment: draft.embed_header_comment.trim() || null,
+      embed_footer_comment: draft.embed_footer_comment.trim() || null,
     });
   };
 
@@ -168,6 +178,8 @@ export function DeploymentUrlsSection({ settings, onSave, saving }: Props) {
       widget_asset_base_url: settings.widget_asset_base_url || '',
       widget_public_base_url: settings.widget_public_base_url || '',
       widget_api_base_url: settings.widget_api_base_url || '',
+      embed_header_comment: settings.embed_header_comment || '',
+      embed_footer_comment: settings.embed_footer_comment || '',
     });
   };
 
@@ -383,10 +395,37 @@ export function DeploymentUrlsSection({ settings, onSave, saving }: Props) {
               </p>
             )}
           </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Header comment (above &lt;script&gt;)</Label>
+              <Textarea
+                value={draft.embed_header_comment}
+                onChange={(e) => setDraft((d) => ({ ...d, embed_header_comment: e.target.value }))}
+                placeholder="e.g. Powered by Destekly · v2.1"
+                rows={3}
+                className="font-mono text-xs"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Footer comment (below &lt;script&gt;)</Label>
+              <Textarea
+                value={draft.embed_footer_comment}
+                onChange={(e) => setDraft((d) => ({ ...d, embed_footer_comment: e.target.value }))}
+                placeholder="e.g. Need help? support@destekly.tr"
+                rows={3}
+                className="font-mono text-xs"
+              />
+            </div>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Rendered as HTML comments around the script tag for every workspace's snippet. Click "Save URLs" to apply.
+          </p>
+
           <Textarea
             readOnly
             value={embedSnippet}
-            rows={8}
+            rows={10}
             className="font-mono text-xs bg-muted/40"
           />
         </CardContent>

@@ -82,6 +82,27 @@ export async function resolveRealtimeProvider(
     };
   }
 
+  if (cfg.vendor === 'supabase') {
+    // Supabase Realtime: client connects directly via supabase-js using
+    // the project's anon key (already shipped to the browser). No server
+    // token issuance is needed. Capabilities mirror Centrifugo's broadcast
+    // surface — no presence/typing guarantees from this path today.
+    return {
+      effective_vendor: 'supabase',
+      source: 'global_default',
+      capabilities: {
+        supportsRealtime: true,
+        supportsTyping: false,
+        supportsPresence: false,
+        supportsHistoryLoad: true,
+        supportsReconnectSignals: true,
+      },
+      public_config: {},
+      fallback_policy: cfg.fallback_policy,
+      health: { status: 'healthy', checked_at: Date.now(), message: 'Supabase Realtime' },
+    };
+  }
+
   // polling_builtin
   return {
     effective_vendor: 'polling_builtin',

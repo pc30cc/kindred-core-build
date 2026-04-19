@@ -20,11 +20,22 @@ This guide covers deploying the **Centrifugo realtime provider** for this projec
 
 ### 2.1 Create the service
 1. In Coolify → your project → **+ New Resource** → **Docker Compose**.
-2. Connect this repository (or paste the content of `docker-compose.centrifugo.yml`).
-3. Set the **Compose file path** to: `docker-compose.centrifugo.yml`.
-4. Make sure `deploy/centrifugo/config.json` is included in the build context (it will be, because Coolify mounts the repo).
+2. Connect this repository as the source.
+3. Configure these fields **exactly** (Coolify is strict):
 
-> Use **Docker Compose** (not "Service" templates) so the volume mount for `config.json` works as written.
+   | Field | Value |
+   |---|---|
+   | **Build Pack** | `Docker Compose` |
+   | **Docker Compose Location** | `docker-compose.centrifugo.yml`  *(no leading slash, no `./`)* |
+   | **Custom Build Command** | *(leave empty)* |
+   | **Custom Start Command** | *(leave empty)* |
+   | **Base Directory** | `/` *(repo root — so the relative volume mount `./deploy/centrifugo/config.json` resolves)* |
+
+4. Make sure `deploy/centrifugo/config.json` is present in the repo root (it is — do not move it).
+
+> Use **Docker Compose** (not "Service" templates) so the volume mount for `config.json` works as written. Coolify manages the lifecycle itself; do **not** add custom build/start commands or it will conflict with compose.
+
+> ⚠️ The official `centrifugo/centrifugo` image is built `FROM scratch` and ships **no shell, no `wget`, no `curl`**. The healthcheck in this compose file uses the binary's own `centrifugo healthcheck` subcommand — do not replace it with an HTTP-based check or Coolify will mark the service `unhealthy` even when it is serving traffic correctly.
 
 ### 2.2 Add a public domain
 1. Open the new resource → **Domains**.

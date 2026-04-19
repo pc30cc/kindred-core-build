@@ -26,11 +26,33 @@ RUN echo "✅ widget assets:" && ls -la /app/dist/widget/
 
 # ── Serve with nginx ───────────────────────────────────────
 FROM nginx:alpine
+
+# envsubst lives in gettext on alpine; nginx:alpine already ships it via
+# /docker-entrypoint.d, but we install explicitly so we don't depend on
+# upstream packaging choices.
+RUN apk add --no-cache gettext
+
+# Static build artifacts
 COPY --from=build /app/dist /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+# Nginx CONFIG TEMPLATE (note: NOT default.conf — that path is reserved
+# for the rendered output produced by our entrypoint). Keeping it under
+# /etc/nginx/templates/ avoids any chance of nginx loading the raw,
+# unrendered template directly.
+COPY nginx.conf.template /etc/nginx/templates/default.conf.template
+
+# Custom entrypoint: validates env, renders template, execs nginx.
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Verify widget assets landed in the runtime image
 RUN test -f /usr/share/nginx/html/widget/widget-manifest.json || (echo "❌ widget-manifest.json missing in nginx image" && exit 1)
 
 EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
+
+# Override the default nginx image's ENTRYPOINT (/docker-entrypoint.sh
+# from the upstream image). Ours does the env validation + envsubst and
+# then execs nginx itself — so we set CMD to a no-op marker that the
+# entrypoint ignores.
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+CMD []

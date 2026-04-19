@@ -56,6 +56,8 @@ import { resolveVisitorIdentity, readVisitorCookie } from '../services/widget/vi
 import { widgetIdentityRouter } from './widgetIdentity.js';
 import { widgetAttachmentsRouter, attachUploadedFileToMessage, enrichMessagesWithAttachments } from './widgetAttachments.js';
 import { recordConversationEvent } from '../services/conversationEvents.js';
+import { resolveAvailability, snapshotToWirePayload } from '../services/widget/availability.js';
+import { sendEmail } from '../services/email/index.js';
 
 export const widgetRouter = Router();
 
@@ -257,6 +259,22 @@ widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), async (req: Reques
       .eq('workspace_id', resolvedWorkspaceId)
       .maybeSingle();
 
+    // Phase 8 — server-authoritative availability snapshot. Additive;
+    // existing widget runtimes ignore unknown fields.
+    let availabilityPayload: ReturnType<typeof snapshotToWirePayload> | null = null;
+    try {
+      const localeHint = (req.body && (req.body.locale as string)) ||
+        (req.headers['accept-language'] as string | undefined)?.split(',')[0] ||
+        'en';
+      const snap = await resolveAvailability(config, {
+        workspaceId: resolvedWorkspaceId,
+        locale: localeHint,
+      });
+      availabilityPayload = snapshotToWirePayload(snap);
+    } catch (err: any) {
+      console.warn('[widget-bootstrap] availability resolve failed:', err?.message);
+    }
+
     return res.json({
       session_token: sessionToken,
       workspace_id: resolvedWorkspaceId,
@@ -265,6 +283,7 @@ widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), async (req: Reques
       platform_display_name: branding?.platform_name || '',
       visitor_id: visitor.visitorId,
       is_new_visitor: visitor.isNew,
+      availability: availabilityPayload,
       version: '3.0.0',
     });
   } catch (err: any) {
@@ -484,18 +503,17 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
         visitorTracking: ws.visitor_tracking_enabled ?? true,
       },
       preChat,
-      // Phase 5 — Availability snapshot consumed by widget runtime presence layer.
-      // Widget never assumes realtime presence; this snapshot is always valid.
-      availability: {
-        liveChatEnabled: ws.live_chat_enabled ?? true,
-        offlineMode: ws.offline_mode === 'contact_fallback' ? 'contact_fallback' : 'accept_messages',
-        businessHours: ws.business_hours && typeof ws.business_hours === 'object'
-          ? ws.business_hours
-          : { enabled: false, timezone: 'UTC', schedule: [] },
-        labels: ws.availability_labels && typeof ws.availability_labels === 'object'
-          ? ws.availability_labels
-          : {},
-      },
+      // Phase 8 — Server-authoritative availability. Computed via resolver
+      // so runtime never has to interpret weekly schedules. Locked rules:
+      //  - business_hours.enabled === false  =>  state = 'online' always.
+      //  - offline_message comes from offline_message_localized (per-locale)
+      //    with legacy offline_message as fallback. No translation pipeline.
+      availability: snapshotToWirePayload(
+        await resolveAvailability(config, {
+          workspaceId,
+          locale: ws.locale || 'en',
+        }),
+      ),
       // Phase 6a — Attachment config exposed to the widget runtime.
       // The widget enforces these as a UX guard; the backend re-validates.
       attachments: {
@@ -1421,3 +1439,237 @@ widgetRouter.get('/kb', async (req: Request, res: Response) => {
     res.status(500).json({ error: 'Internal error' });
   }
 });
+
+// ═══════════════════════════════════════════════
+// POST /offline-messages — Capture a message while the workspace is offline
+// ───────────────────────────────────────────────
+// Server is the source of truth for availability — we re-resolve here and
+// reject if the workspace is currently online (the widget should send a
+// regular message instead). When accepted, this creates a normal
+// conversation tagged 'offline' with a `captured_offline` event so it shows
+// up in the inbox like any other thread, and notifies workspace admins by
+// email when an email provider is configured.
+// ═══════════════════════════════════════════════
+const offlineMessageSchema = z.object({
+  workspace_id: z.string().uuid(),
+  message: z.string().min(2).max(4000),
+  email: z.string().email().max(255).optional(),
+  name: z.string().max(120).optional(),
+  phone: z.string().max(40).optional(),
+  locale: z.string().min(2).max(10).optional(),
+  honeypot: z.string().max(0).optional(),
+});
+
+widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = offlineMessageSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'invalid_payload', details: parsed.error.flatten() });
+  }
+
+  const { workspace_id, message, email, name, phone, locale } = parsed.data;
+  const tokenWs = (req as any)._widgetWorkspaceId as string | undefined;
+  if (tokenWs && tokenWs !== workspace_id) {
+    return res.status(403).json({ error: 'workspace_mismatch' });
+  }
+
+  // Honeypot — silently 200 so bots don't learn anything.
+  if (parsed.data.honeypot && parsed.data.honeypot.length > 0) {
+    return res.json({ ok: true, captured: false, conversation_id: null });
+  }
+
+  const supabase = getServiceClient(config);
+
+  // Re-resolve availability server-side. Reject when online — the widget
+  // should be sending a normal /message in that case.
+  const snap = await resolveAvailability(config, { workspaceId: workspace_id, locale });
+  const transitioning = snap.state === 'online';
+
+  // Resolve visitor identity from cookie (set during /bootstrap).
+  const cookie = readVisitorCookie(req, workspace_id);
+  const visitorId = cookie?.v || null;
+
+  let visitorSessionId: string | null = null;
+  if (visitorId) {
+    const { data: vs } = await supabase
+      .from('visitor_sessions')
+      .select('id')
+      .eq('workspace_id', workspace_id)
+      .eq('visitor_id', visitorId)
+      .order('last_seen_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    visitorSessionId = vs?.id || null;
+  }
+
+  // Resolve / create contact when email provided. Email is the only stable
+  // long-lived key we can reuse for follow-up.
+  let contactId: string | null = null;
+  if (email) {
+    const { data: existing } = await supabase
+      .from('contacts')
+      .select('id, name, phone')
+      .eq('workspace_id', workspace_id)
+      .eq('email', email.toLowerCase())
+      .maybeSingle();
+
+    if (existing) {
+      contactId = existing.id;
+      const patch: Record<string, unknown> = {};
+      if (name && !existing.name) patch.name = name;
+      if (phone && !existing.phone) patch.phone = phone;
+      if (Object.keys(patch).length) {
+        await supabase.from('contacts').update(patch).eq('id', contactId);
+      }
+    } else {
+      const { data: created } = await supabase
+        .from('contacts')
+        .insert({
+          workspace_id,
+          email: email.toLowerCase(),
+          name: name || null,
+          phone: phone || null,
+          metadata: { source: 'offline_capture', visitor_id: visitorId },
+        })
+        .select('id')
+        .single();
+      contactId = created?.id || null;
+    }
+  }
+
+  // Create conversation tagged 'offline'.
+  const { data: conv, error: convErr } = await supabase
+    .from('conversations')
+    .insert({
+      workspace_id,
+      contact_id: contactId,
+      visitor_session_id: visitorSessionId,
+      status: 'open',
+      priority: 'normal',
+      tags: ['offline'],
+      subject: 'Offline message',
+    })
+    .select('id')
+    .single();
+
+  if (convErr || !conv) {
+    console.error('[offline-messages] conversation insert failed:', convErr?.message);
+    return res.status(500).json({ error: 'capture_failed' });
+  }
+
+  // Insert visitor message.
+  await supabase.from('conversation_messages').insert({
+    conversation_id: conv.id,
+    sender_type: 'contact',
+    body: message,
+    metadata: { source: 'offline_capture', visitor_id: visitorId },
+  });
+
+  // Record the timeline event so operators can see it was offline-captured.
+  await recordConversationEvent(config, {
+    workspaceId: workspace_id,
+    conversationId: conv.id,
+    eventType: 'captured_offline' as any,
+    actorType: 'system',
+    payload: {
+      availability_state: snap.state,
+      availability_reason: snap.reason,
+      transitioning,
+      contact_email: email || null,
+      next_open_at: snap.next_open_at,
+    },
+  });
+
+  // Best-effort email notification to workspace owners/admins.
+  void notifyOfflineCapture(config, workspace_id, {
+    conversationId: conv.id,
+    message,
+    email: email || null,
+    name: name || null,
+    locale: locale || 'en',
+  }).catch((err) => console.warn('[offline-messages] notify failed:', err?.message));
+
+  return res.json({
+    ok: true,
+    captured: true,
+    conversation_id: conv.id,
+    transitioning,
+  });
+});
+
+async function notifyOfflineCapture(
+  config: ServerConfig,
+  workspaceId: string,
+  payload: { conversationId: string; message: string; email: string | null; name: string | null; locale: string },
+): Promise<void> {
+  const supabase = getServiceClient(config);
+  // Resolve workspace owners/admins. The codebase uses `workspace_members`
+  // (with `workspace_role` enum) — fall through gracefully if the table or
+  // column shape isn't what we expect, so notification is purely best-effort.
+  let recipientIds: string[] = [];
+  try {
+    const { data: wsMembers } = await (supabase as any)
+      .from('workspace_members')
+      .select('user_id, role')
+      .eq('workspace_id', workspaceId)
+      .in('role', ['owner', 'admin']);
+    if (Array.isArray(wsMembers)) {
+      recipientIds = wsMembers.map((m: any) => m.user_id).filter(Boolean);
+    }
+  } catch {
+    // ignore — will check email_settings.reply_to_email below
+  }
+
+  let emails: string[] = [];
+  if (recipientIds.length) {
+    const { data: profiles } = await supabase
+      .from('profiles')
+      .select('id, email')
+      .in('id', recipientIds);
+    emails = (profiles || []).map((p: any) => p.email).filter(Boolean);
+  }
+
+  if (!emails.length) {
+    const { data: settings } = await supabase
+      .from('email_settings')
+      .select('reply_to_email')
+      .eq('workspace_id', workspaceId)
+      .maybeSingle();
+    if (settings?.reply_to_email) emails = [settings.reply_to_email];
+  }
+
+  if (!emails.length) return;
+
+  const subject = `New offline message`;
+  const safeMsg = payload.message.replace(/[<>]/g, (c) => (c === '<' ? '&lt;' : '&gt;'));
+  const html = `
+    <p>A visitor left a message while your workspace was offline.</p>
+    <p><strong>From:</strong> ${payload.name || 'Anonymous'} ${payload.email ? `&lt;${payload.email}&gt;` : ''}</p>
+    <p><strong>Message:</strong></p>
+    <blockquote style="border-left:3px solid #ccc;padding-left:12px;">${safeMsg}</blockquote>
+    <p>Open this conversation in the inbox to reply.</p>
+  `;
+  const text = `New offline message\nFrom: ${payload.name || 'Anonymous'} ${payload.email || ''}\n\n${payload.message}`;
+
+  for (const to of emails) {
+    try {
+      await sendEmail(config, {
+        workspaceId,
+        to,
+        subject,
+        html,
+        text,
+        templateSlug: 'offline_message_received',
+        templateData: {
+          conversation_id: payload.conversationId,
+          contact_name: payload.name || '',
+          contact_email: payload.email || '',
+          message_body: payload.message,
+        },
+        locale: payload.locale,
+      });
+    } catch (err: any) {
+      console.warn('[offline-messages] email to', to, 'failed:', err?.message);
+    }
+  }
+}

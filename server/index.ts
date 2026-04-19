@@ -113,7 +113,11 @@ app.use('/api/plans', plansRouter);
 // Admin — moderate rate limit
 app.use('/api/admin', adminRateLimiter, adminRouter);
 
-// Realtime — admin config + widget connect/subscribe (auth handled per-route)
+// Realtime — admin config + widget connect/subscribe (auth handled per-route).
+// Public widget endpoints get the dynamic widget CORS; admin endpoints rely on the
+// global appCors applied above.
+app.use('/api/realtime/connect', widgetCorsMiddleware());
+app.use('/api/realtime/subscribe', widgetCorsMiddleware());
 app.use('/api/realtime', realtimeRouter);
 
 // 404

@@ -359,6 +359,10 @@ realtimeRouter.post('/operator-inbox-subscribe', async (req, res) => {
     res.status(500).json({ error: 'Internal error' });
   }
 });
+
+// ─────────────────────────────────────────────────────────────────────
+//  ADMIN: /api/realtime/admin/*
+// ─────────────────────────────────────────────────────────────────────
 async function requireAdmin(req: any, res: any, next: any) {
   const config: ServerConfig = req.serverConfig;
   const authHeader = req.headers.authorization;

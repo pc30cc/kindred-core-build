@@ -86,10 +86,20 @@ export default function InboxPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
 
-  // Wire inbox to the active realtime provider (Centrifugo).
-  // On a `message` push for the selected conversation, refresh the
-  // messages list so the agent sees visitor replies live.
+  // Wire inbox to the active realtime provider (Centrifugo / Supabase / polling).
+  // - On `message` push: refetch the message list (visitor replies appear live).
+  // - On `typing` push from the visitor: flash a transient "typing…" indicator.
   const qc = useQueryClient();
+  const [visitorTypingUntil, setVisitorTypingUntil] = useState(0);
+  const visitorTypingActive = visitorTypingUntil > Date.now();
+
+  // Tick re-renders so the typing indicator auto-hides without an extra event.
+  useEffect(() => {
+    if (!visitorTypingActive) return;
+    const t = setTimeout(() => setVisitorTypingUntil(0), Math.max(250, visitorTypingUntil - Date.now()));
+    return () => clearTimeout(t);
+  }, [visitorTypingUntil, visitorTypingActive]);
+
   useInboxRealtime({
     workspaceId: workspace?.id,
     conversationId: selectedId ?? undefined,
@@ -97,7 +107,17 @@ export default function InboxPage() {
       if (selectedId) qc.invalidateQueries({ queryKey: ['messages', selectedId] });
       qc.invalidateQueries({ queryKey: ['conversations'] });
     },
+    onTyping: (payload) => {
+      // Only react to visitor typing (ignore agent self-echo just in case).
+      const actor = (payload as { actor?: string })?.actor;
+      if (actor && actor !== 'visitor') return;
+      // Show indicator for ~3.5s; subsequent events extend the window.
+      setVisitorTypingUntil(Date.now() + 3500);
+    },
   });
+
+  // Visitor presence (online/idle/offline + current page) — polling-safe via 10s refetch.
+  const { data: presence } = useVisitorPresenceForConversation(workspace?.id, selectedId ?? undefined);
 
   const handleDeleteAll = async () => {
     if (!workspace?.id) return;
@@ -129,6 +149,23 @@ export default function InboxPage() {
     await sendMessage.mutateAsync({ body: message });
     setMessage('');
   };
+
+  // Phase 1 — operator typing emit (throttled to ≤1 publish per 2s while typing).
+  // Realtime-only ephemeral event; failure is silently ignored.
+  const lastTypingSentRef = useRef(0);
+  const emitTyping = useCallback(() => {
+    if (!workspace?.id || !selectedId) return;
+    const now = Date.now();
+    if (now - lastTypingSentRef.current < 2000) return;
+    lastTypingSentRef.current = now;
+    conversationsApi.sendTyping({
+      workspace_id: workspace.id,
+      conversation_id: selectedId,
+    });
+  }, [workspace?.id, selectedId]);
+
+  // Reset visitor typing indicator when switching conversations.
+  useEffect(() => { setVisitorTypingUntil(0); lastTypingSentRef.current = 0; }, [selectedId]);
 
   const getInitials = (name?: string | null, email?: string | null) => {
     if (name) return name.charAt(0).toUpperCase();

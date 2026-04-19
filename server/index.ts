@@ -95,6 +95,13 @@ app.use('/api/auth-email', emailRateLimiter, authEmailRouter);
 // Widget — dynamic CORS + rate limit
 app.use('/api/widget', widgetCorsMiddleware(), widgetRateLimiter, widgetRouter);
 
+// KB widget JSON endpoints — same dynamic CORS + rate limit as widget.
+app.use('/api/widget/kb', widgetCorsMiddleware(), widgetRateLimiter, widgetKbRouter);
+
+// Public KB SSR routes — server-rendered HTML for /help/:locale/...
+// No CORS / no rate limit; these are normal public web pages indexed by search engines.
+app.use(publicKbRouter);
+
 // Visitor tracking — dynamic CORS + rate limit
 app.use('/api/visitors', widgetCorsMiddleware(), visitorRateLimiter, visitorRouter);
 

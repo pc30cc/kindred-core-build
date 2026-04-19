@@ -1056,7 +1056,13 @@
     function resolveStatus() {
       // 1. Master switch
       if (!liveChatEnabled) return 'unavailable';
-      // 2. Business hours
+      // 2. Phase 8 — trust server-authoritative state when provided.
+      if (serverState === 'offline') return 'offline';
+      if (serverState === 'online') {
+        if (rtPresence) return rtPresence.online ? (rtPresence.away ? 'away' : 'online') : 'online';
+        return 'online';
+      }
+      // 2b. Legacy fallback — client-side business hours.
       if (!isWithinBusinessHours()) return 'offline';
       // 3. Realtime signal (when supported)
       if (rtPresence) {

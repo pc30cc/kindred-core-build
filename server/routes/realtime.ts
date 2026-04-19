@@ -26,8 +26,49 @@ import {
 } from '../services/realtime/index.js';
 import { verifySessionToken } from '../services/widget/security.js';
 import { readVisitorCookie } from '../services/widget/visitorIdentity.js';
+import {
+  getRequestOrigin,
+  getWorkspaceOriginRules,
+} from '../services/widget/public.js';
+import { isOriginAllowed } from '../utils/domain.js';
+import { channelBelongsToWorkspace } from '../services/realtime/types.js';
 
 export const realtimeRouter = Router();
+
+/**
+ * Enforce that the requesting browser origin is in the workspace's
+ * dynamic allow-list (workspace_domains + widget_settings.allowed_domains).
+ *
+ * This is the SOLE gatekeeper for cross-origin realtime access — Centrifugo
+ * itself runs with permissive `allowed_origins=*` so we can scale to any
+ * customer domain without redeploying. All authorization happens here.
+ *
+ * Returns true on allow, false on deny (response already sent).
+ */
+async function enforceWorkspaceOrigin(
+  req: any,
+  res: any,
+  config: ServerConfig,
+  workspaceId: string,
+): Promise<boolean> {
+  const origin = getRequestOrigin(req);
+  // No Origin header (e.g. server-to-server, curl) → allow; widget token still required.
+  if (!origin) return true;
+  try {
+    const { domains, allowSubdomains } = await getWorkspaceOriginRules(config, workspaceId);
+    // Empty allow-list → workspace hasn't configured domains yet; permit
+    // (matches widgetCorsMiddleware bootstrap behavior).
+    if (!domains.length) return true;
+    if (isOriginAllowed(origin, domains, allowSubdomains)) return true;
+    res.status(403).json({ error: 'Origin not allowed for this workspace' });
+    return false;
+  } catch (err) {
+    console.error('[realtime] origin lookup failed:', err);
+    // Fail-closed for realtime — origin lookup failure must NOT silently allow.
+    res.status(503).json({ error: 'Origin verification unavailable' });
+    return false;
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────
 //  PUBLIC: /api/realtime/connect

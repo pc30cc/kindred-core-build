@@ -3059,6 +3059,24 @@ export type Database = {
         Args: { _user_id: string; _workspace_id: string }
         Returns: boolean
       }
+      kb_search_articles: {
+        Args: {
+          p_limit?: number
+          p_locale: string
+          p_query: string
+          p_workspace_id: string
+        }
+        Returns: {
+          category_id: string
+          category_name: string
+          category_slug: string
+          excerpt: string
+          id: string
+          score: number
+          slug: string
+          title: string
+        }[]
+      }
       mark_conversation_seen: {
         Args: { _conversation_id: string }
         Returns: number

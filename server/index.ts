@@ -18,6 +18,7 @@ import { adminRouter } from './routes/admin.js';
 import { realtimeRouter } from './routes/realtime.js';
 import { conversationsRouter } from './routes/conversations.js';
 import { conversationAttachmentsRouter } from './routes/conversationAttachments.js';
+import { startAttachmentJanitor } from './services/attachmentJanitor.js';
 import { widgetCorsMiddleware } from './middleware/widgetCors.js';
 import {
   ipBlockMiddleware,
@@ -143,6 +144,8 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 
 app.listen(config.port, () => {
   console.log(`Growth Suite server running on port ${config.port}`);
+  // Phase 3 — start best-effort orphan-attachment sweeper.
+  startAttachmentJanitor(config);
 });
 
 export default app;

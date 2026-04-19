@@ -160,4 +160,48 @@ export const conversationsApi = {
       { method: 'DELETE', headers: await authHeaders() },
     );
   },
+
+  // ─── Phase 3 — Editable conversation fields ────────────────────
+  /**
+   * Patch one or more editable conversation fields. Allowed:
+   *   - status: 'open' | 'pending' | 'resolved' | 'closed'
+   *   - priority: 'low' | 'normal' | 'high' | 'urgent'
+   *   - assigned_to: workspace member uuid | null
+   *   - tags: string[]  (server normalizes: trim, lowercase, dedupe)
+   *
+   * Server records a normalized conversation_events row + an audit_log
+   * row per changed field. Widget unaffected (no realtime envelope added).
+   */
+  async patchConversation(payload: {
+    workspace_id: string;
+    conversation_id: string;
+    status?: 'open' | 'pending' | 'resolved' | 'closed';
+    priority?: 'low' | 'normal' | 'high' | 'urgent';
+    assigned_to?: string | null;
+    tags?: string[];
+  }): Promise<{
+    ok: boolean;
+    conversation: {
+      id: string;
+      workspace_id: string;
+      status: string;
+      priority: string;
+      assigned_to: string | null;
+      tags: string[];
+      updated_at: string;
+    };
+  }> {
+    const { workspace_id, conversation_id, ...rest } = payload;
+    const res = await fetch(
+      `${API_BASE}/api/conversations/${encodeURIComponent(conversation_id)}`,
+      {
+        method: 'PATCH',
+        headers: await authHeaders(),
+        body: JSON.stringify({ workspace_id, ...rest }),
+      },
+    );
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || `Update failed: ${res.status}`);
+    return json;
+  },
 };

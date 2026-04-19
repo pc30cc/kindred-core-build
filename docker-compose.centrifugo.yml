@@ -1,77 +1,151 @@
 # docker-compose.centrifugo.yml
 #
-# Production-ready Centrifugo deployment for this project.
-# Designed to be deployed as a STANDALONE service in Coolify
-# (separately from the backend/frontend), reachable via a public domain
-# such as: rt.destekly.tr  (wss://rt.destekly.tr)
+# Production-ready, fully env-driven Centrifugo deployment for Coolify.
+# Designed to be deployed as a STANDALONE service (separately from the
+# backend/frontend), reachable via a public domain such as:
+#   rt.destekly.tr  →  wss://rt.destekly.tr
+#
+# Why env-driven (no config.json bind mount)?
+#   In Coolify's Docker Compose build pack the working directory at runtime
+#   is NOT guaranteed to be the repo root, so a relative bind mount like
+#   `./deploy/centrifugo/config.json:/centrifugo/config.json:ro` is
+#   unreliable — the container starts but Centrifugo logs:
+#       "using config file"  →  "config file not found"
+#   and then ignores every CENTRIFUGO_* env var that depends on a config
+#   namespace. To avoid that entire class of failure, this compose file
+#   configures Centrifugo ENTIRELY through environment variables. No
+#   volume mount is required and no config file needs to exist in the
+#   container.
+#
+# Why no healthcheck?
+#   The official `centrifugo/centrifugo:v5.4.5` image is built FROM scratch
+#   and ships NO shell, NO wget, NO curl. It also does NOT expose a
+#   `centrifugo healthcheck` subcommand (verified at runtime: `unknown
+#   command "healthcheck"`). Every Docker-level healthcheck we could write
+#   would therefore fail and Coolify would mark the service `unhealthy`
+#   even when it is serving traffic correctly. Coolify's own proxy-level
+#   health probe on the public domain is sufficient for liveness.
 #
 # Coolify deployment settings (must match exactly):
 #   Build Pack             : Docker Compose
 #   Docker Compose Location: docker-compose.centrifugo.yml   (NO leading slash)
 #   Custom Build Command   : (leave empty)
 #   Custom Start Command   : (leave empty)
-#
-# Why standalone?
-#   The Express backend and the Vite frontend are deployed as separate
-#   Coolify services. They will NOT share a Docker network with this
-#   container, so the backend cannot reach Centrifugo via an internal
-#   hostname like `http://centrifugo:8000/api`. Both the public WS URL
-#   and the server-to-server API URL must therefore be reachable over
-#   the public domain (HTTPS terminated by Coolify's proxy).
+#   Base Directory         : /
 #
 # Required environment variables (set them in Coolify → this service → Env):
-#   CENTRIFUGO_TOKEN_HMAC_SECRET   – HMAC secret for connection JWTs (HS256)
-#   CENTRIFUGO_API_KEY             – Server-to-server HTTP API key
-#   CENTRIFUGO_ALLOWED_ORIGINS     – Comma-separated origins allowed to connect
-#                                    (e.g. https://destekly.tr,https://app.destekly.tr)
-#   CENTRIFUGO_ADMIN_PASSWORD      – Admin UI password (optional, only if admin enabled)
-#   CENTRIFUGO_ADMIN_SECRET        – Admin UI secret  (optional, only if admin enabled)
+#   CENTRIFUGO_TOKEN_HMAC_SECRET_KEY  – HMAC secret for connection JWTs (HS256)
+#                                       Generate with: openssl rand -hex 32
+#                                       MUST match the value entered in
+#                                       Super Admin → Providers → Realtime
+#                                       → "HMAC Token Secret".
+#   CENTRIFUGO_API_KEY                – Server-to-server HTTP API key
+#                                       Generate with: openssl rand -hex 32
+#                                       MUST match Super Admin → Providers →
+#                                       Realtime → "API Key".
+#   CENTRIFUGO_ALLOWED_ORIGINS        – Comma-separated origins allowed to
+#                                       connect via WebSocket
+#                                       (e.g. https://destekly.tr,https://app.destekly.tr).
+#                                       Include EVERY origin that embeds the
+#                                       widget loader.
+#
+# Optional environment variables:
+#   CENTRIFUGO_ADMIN                  – "true" to enable the admin UI
+#                                       (default: not set / disabled).
+#   CENTRIFUGO_ADMIN_PASSWORD         – Required if admin enabled.
+#   CENTRIFUGO_ADMIN_SECRET           – Required if admin enabled.
 #
 # After deploy, in Coolify add a domain (e.g. rt.destekly.tr) pointing to
-# port 8000 of this container. Coolify will terminate TLS and proxy
-# both HTTP (/api, /health) and WebSocket (/connection/websocket) traffic.
+# port 8000 of this container. Coolify will terminate TLS and proxy both
+# HTTP (/api) and WebSocket (/connection/websocket) traffic.
 
 services:
   centrifugo:
     image: centrifugo/centrifugo:v5.4.5
     restart: unless-stopped
-    command: centrifugo -c /centrifugo/config.json
+
     # NOTE: Do NOT publish the port to the host with `ports:`.
     # Coolify's reverse proxy talks to the container over the internal
-    # Docker network using the `expose`d port. Publishing 8000:8000 will
-    # fail on hosts where port 8000 is already in use.
+    # Docker network using the `expose`d port. Publishing 8000:8000 fails
+    # on hosts where port 8000 is already in use.
     expose:
       - "8000"
-    volumes:
-      - ./deploy/centrifugo/config.json:/centrifugo/config.json:ro
+
+    # Fully env-driven. No config file is read — Centrifugo accepts every
+    # supported setting via CENTRIFUGO_* env vars (see
+    # https://centrifugal.dev/docs/server/configuration#environment-variables).
+    # The channel namespace `ws` is declared via CENTRIFUGO_NAMESPACES (a
+    # JSON array) and matches the channel pattern issued by the backend's
+    # buildChannelName(workspaceId, conversationId)  →  ws:{ws}:conv:{conv}
     environment:
-      # IMPORTANT: Centrifugo's official env var name for the HMAC secret is
-      # CENTRIFUGO_TOKEN_HMAC_SECRET_KEY (it maps to the JSON config key
-      # `token_hmac_secret_key`). We accept the value from the simpler
-      # CENTRIFUGO_TOKEN_HMAC_SECRET shell variable that the operator sets
-      # in Coolify — this matches the field name used in the backend admin
-      # UI (Super Admin → Providers → Realtime → "HMAC Token Secret").
-      CENTRIFUGO_TOKEN_HMAC_SECRET_KEY: ${CENTRIFUGO_TOKEN_HMAC_SECRET}
+      # --- Network -------------------------------------------------------
+      CENTRIFUGO_ADDRESS: "0.0.0.0"
+      CENTRIFUGO_PORT: "8000"
+
+      # --- Auth (REQUIRED) ----------------------------------------------
+      # Centrifugo's own runtime variable name. The previous version of
+      # this file used CENTRIFUGO_TOKEN_HMAC_SECRET, which Centrifugo
+      # rejects with: `unknown key found in the environment`. Use ONLY
+      # CENTRIFUGO_TOKEN_HMAC_SECRET_KEY going forward.
+      CENTRIFUGO_TOKEN_HMAC_SECRET_KEY: ${CENTRIFUGO_TOKEN_HMAC_SECRET_KEY}
       CENTRIFUGO_API_KEY: ${CENTRIFUGO_API_KEY}
+      CENTRIFUGO_API_INSECURE: "false"
+
+      # --- Origins (REQUIRED for browser WebSocket clients) -------------
+      # Comma-separated string in the env, parsed by Centrifugo into a list.
       CENTRIFUGO_ALLOWED_ORIGINS: ${CENTRIFUGO_ALLOWED_ORIGINS}
+
+      # --- Channel namespaces -------------------------------------------
+      # Declared inline as JSON so the container needs no config file.
+      # Matches buildChannelName() in server/services/realtime/types.ts.
+      CENTRIFUGO_NAMESPACES: >-
+        [{"name":"ws","presence":true,"join_leave":true,"force_push_join_leave":false,"history_size":50,"history_ttl":"300s","force_recovery":true,"allow_subscribe_for_client":false,"allow_publish_for_client":false,"allow_presence_for_client":true,"allow_history_for_client":true,"subscribe_for_anonymous":false}]
+
+      # --- Client behaviour ---------------------------------------------
+      CENTRIFUGO_CLIENT_ANONYMOUS: "false"
+      CENTRIFUGO_CLIENT_CONCURRENCY: "8"
+      CENTRIFUGO_CLIENT_CHANNEL_LIMIT: "64"
+      CENTRIFUGO_CLIENT_QUEUE_MAX_SIZE: "1048576"
+      CENTRIFUGO_CLIENT_STALE_CLOSE_DELAY: "25s"
+      CENTRIFUGO_CLIENT_EXPIRED_CLOSE_DELAY: "25s"
+      CENTRIFUGO_CLIENT_EXPIRED_SUB_CLOSE_DELAY: "25s"
+      CENTRIFUGO_CLIENT_USER_CONNECTION_LIMIT: "0"
+
+      # --- WebSocket transport ------------------------------------------
+      CENTRIFUGO_WEBSOCKET_COMPRESSION: "true"
+      CENTRIFUGO_WEBSOCKET_PING_INTERVAL: "25s"
+      CENTRIFUGO_WEBSOCKET_WRITE_TIMEOUT: "5s"
+
+      # --- Engine --------------------------------------------------------
+      # Single-node memory engine is sufficient for this deployment scale.
+      # Switch to "redis" + CENTRIFUGO_REDIS_ADDRESS for HA / multi-node.
+      CENTRIFUGO_ENGINE: "memory"
+
+      # --- Health & logging ---------------------------------------------
+      CENTRIFUGO_HEALTH: "true"
+      CENTRIFUGO_LOG_LEVEL: "info"
+
+      # --- Admin UI (OFF by default) ------------------------------------
+      # To enable: set CENTRIFUGO_ADMIN=true and provide the two secrets
+      # below in Coolify env. Then expose /admin behind your reverse proxy
+      # with HTTP basic auth or an IP allowlist.
+      CENTRIFUGO_ADMIN: ${CENTRIFUGO_ADMIN:-false}
+      CENTRIFUGO_ADMIN_INSECURE: "false"
       CENTRIFUGO_ADMIN_PASSWORD: ${CENTRIFUGO_ADMIN_PASSWORD:-}
       CENTRIFUGO_ADMIN_SECRET: ${CENTRIFUGO_ADMIN_SECRET:-}
+
     ulimits:
       nofile:
         soft: 65535
         hard: 65535
-    # Healthcheck uses Centrifugo's built-in `healthcheck` subcommand.
-    # The official image is built FROM scratch and ships NO wget/curl/sh,
-    # so an HTTP-based healthcheck (wget/curl) would always fail and
-    # Coolify would mark the service as `unhealthy`. The `centrifugo
-    # healthcheck` subcommand is shipped inside the same static binary
-    # and queries the local /health endpoint internally.
-    healthcheck:
-      test: ["CMD", "centrifugo", "healthcheck", "-c", "/centrifugo/config.json"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 15s
+
+    # NOTE: No `healthcheck:` block on purpose. The v5.4.5 image has no
+    # shell, no wget/curl, and NO `centrifugo healthcheck` subcommand
+    # (running it returns: `unknown command "healthcheck"`). Any healthcheck
+    # we add here would always fail and Coolify would mark the container
+    # `unhealthy` even though it is serving traffic. Liveness is verified
+    # at the Coolify proxy layer via the public domain.
+
     labels:
       - "coolify.managed=true"
       - "coolify.service=centrifugo"

@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { Conversation, ConversationMessage } from '@/types/models';
+import { conversationsApi } from '@/lib/conversations-api';
 
 export function useConversations(workspaceId: string | undefined, status?: string) {
   return useQuery({
@@ -36,31 +37,39 @@ export function useConversationMessages(conversationId: string | undefined) {
   });
 }
 
-export function useSendMessage(conversationId: string | undefined) {
+/**
+ * Send an agent reply through the backend.
+ *
+ * Routes through POST /api/conversations/send-message which:
+ *   1. Inserts into conversation_messages.
+ *   2. Updates conversations.updated_at.
+ *   3. Publishes a `message` event to the Centrifugo channel
+ *      `ws:<workspace_id>:conv:<conversation_id>` so the visitor's
+ *      widget receives the reply live without a page refresh.
+ *
+ * If realtime is not configured, the publish is a no-op and the
+ * widget falls back to polling (already wired in runtime.js).
+ */
+export function useSendMessage(
+  conversationId: string | undefined,
+  workspaceId: string | undefined,
+) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ body, senderId }: { body: string; senderId: string }) => {
-      const { data, error } = await supabase
-        .from('conversation_messages')
-        .insert({
-          conversation_id: conversationId!,
-          sender_type: 'agent',
-          sender_id: senderId,
-          body,
-        })
-        .select()
-        .single();
-      if (error) throw error;
-
-      // Update conversation timestamp
-      await supabase
-        .from('conversations')
-        .update({ updated_at: new Date().toISOString() })
-        .eq('id', conversationId!);
-
-      return data;
+    mutationFn: async ({ body }: { body: string; senderId?: string }) => {
+      if (!conversationId || !workspaceId) throw new Error('Missing conversation or workspace');
+      const result = await conversationsApi.sendMessage({
+        workspace_id: workspaceId,
+        conversation_id: conversationId,
+        body,
+        metadata: { source: 'inbox' },
+      });
+      return result;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['messages', conversationId] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['messages', conversationId] });
+      qc.invalidateQueries({ queryKey: ['conversations'] });
+    },
   });
 }
 

@@ -18,6 +18,7 @@ import { adminRouter } from './routes/admin.js';
 import { realtimeRouter } from './routes/realtime.js';
 import { conversationsRouter } from './routes/conversations.js';
 import { conversationAttachmentsRouter } from './routes/conversationAttachments.js';
+import { conversationNotesRouter } from './routes/conversationNotes.js';
 import { startAttachmentJanitor } from './services/attachmentJanitor.js';
 import { widgetCorsMiddleware } from './middleware/widgetCors.js';
 import {
@@ -126,6 +127,13 @@ app.use('/api/realtime', realtimeRouter);
 // Conversations — backend-mediated agent reply send + realtime publish.
 // Auth handled per-route via Supabase user JWT + workspace membership check.
 app.use('/api/conversations', conversationsRouter);
+
+// Phase 4b — Operator-only notes + timeline routes.
+// Mounted under the same /api/conversations prefix so paths read as
+//   /api/conversations/:id/notes
+//   /api/conversations/:id/timeline
+// Auth + workspace membership are enforced inside the router.
+app.use('/api/conversations', conversationNotesRouter);
 
 // Phase 2 — Operator attachments (Inbox-side). Reuses conversation_attachments
 // table + storage service; gated by Supabase JWT + workspace membership.

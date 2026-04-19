@@ -158,7 +158,7 @@ export function ConversationActivityPanel({
           {(notesQ.data ?? []).map((n: ConversationNote) => {
             const canDelete = currentUserId && n.author_id === currentUserId;
             return (
-              <div key={n.id} className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-2.5 group">
+              <div key={n.id} className="rounded-lg border border-border/50 bg-secondary/30 p-2.5 group">
                 <div className="flex items-start gap-2">
                   <div className="w-6 h-6 rounded-full bg-secondary flex items-center justify-center text-[10px] font-bold shrink-0 overflow-hidden">
                     {n.author?.avatar_url

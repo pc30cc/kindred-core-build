@@ -57,6 +57,12 @@ export async function loadRealtimeConfig(
 
 export function invalidateRealtimeCache(): void {
   cache = null;
+  // Lazy import to avoid a circular dep between store <-> resolvePublisher.
+  void import('./resolvePublisher.js')
+    .then((m) => m.invalidatePublisherCache())
+    .catch(() => {
+      /* noop — cache stays warm one extra cycle, harmless */
+    });
 }
 
 export async function saveRealtimeConfig(

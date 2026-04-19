@@ -293,12 +293,10 @@ export default function WidgetPage() {
                   </CardTitle>
                   <CardDescription>
                     {t('widget.installInstructions')}
-                    {widgetLoaderBaseUrl && (
-                      <span className="flex items-center gap-1 mt-1 text-xs">
-                        <ExternalLink className="h-3 w-3" />
-                        Loader URL: {widgetLoaderBaseUrl}
-                      </span>
-                    )}
+                    <span className="flex items-center gap-1 mt-1 text-xs">
+                      <ExternalLink className="h-3 w-3" />
+                      Loader URL: {urls.loaderUrl}
+                    </span>
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -333,10 +331,10 @@ export default function WidgetPage() {
                       <span className="ms-1 text-xs">{copiedVariant === 'script' ? t('common.copied') : t('common.copy')}</span>
                     </Button>
                   </div>
-                  {!widgetLoaderBaseUrl && (
+                  {urls.hasMissing && (
                     <p className="text-xs text-warning mt-3 flex items-center gap-1.5">
                       <Info className="h-3.5 w-3.5" />
-                      Widget deployment URLs are not configured yet. Set them in Branding and platform domain settings before going live.
+                      Some widget deployment URLs are not configured yet. Ask the platform admin to fill them in under Super Admin → Widget Settings → Deployment & URLs.
                     </p>
                   )}
                 </CardContent>

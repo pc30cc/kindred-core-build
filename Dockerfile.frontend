@@ -18,9 +18,19 @@ ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 
 RUN npm run build
 
+# Fail the build loudly if the widget manifest wasn't produced. Without it,
+# nginx would 404 on /widget/widget-manifest.json and the loader would fall
+# back to unhashed assets — which silently breaks production.
+RUN test -f /app/dist/widget/widget-manifest.json || (echo "❌ widget-manifest.json missing from build output" && ls -la /app/dist/widget/ && exit 1)
+RUN echo "✅ widget assets:" && ls -la /app/dist/widget/
+
 # ── Serve with nginx ───────────────────────────────────────
 FROM nginx:alpine
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+# Verify widget assets landed in the runtime image
+RUN test -f /usr/share/nginx/html/widget/widget-manifest.json || (echo "❌ widget-manifest.json missing in nginx image" && exit 1)
+
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]

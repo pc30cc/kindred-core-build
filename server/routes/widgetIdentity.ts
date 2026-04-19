@@ -253,6 +253,8 @@ widgetIdentityRouter.post('/prechat', widgetRateLimit('message'), async (req: Re
       ipAddress: getClientIp(req),
     });
 
+    void emitIdentifiedEvents(config, supabase, workspaceId, merge.contactId, 'prechat', merge.isNewContact);
+
     return res.json({
       success: true,
       visitor_id: visitorId,
@@ -423,6 +425,7 @@ widgetIdentityRouter.post('/verify/confirm', widgetRateLimit('message'), async (
       method: parsed.data.channel,
       ipAddress: getClientIp(req),
     });
+    void emitIdentifiedEvents(config, supabase, workspaceId, merge.contactId, parsed.data.channel, merge.isNewContact);
     return res.json({
       success: true,
       contact_id: merge.contactId,
@@ -515,6 +518,7 @@ widgetIdentityRouter.post('/continuity/use', widgetRateLimit('default'), async (
         _metadata: { reattach: true },
       });
     }
+    void emitIdentifiedEvents(config, supabase, workspaceId, result.contactId!, 'token', false);
     return res.json({ success: true, contact_id: result.contactId, visitor_id: visitorId });
   } catch (err: any) {
     console.error('[identity-continuity-use] error:', err.message);

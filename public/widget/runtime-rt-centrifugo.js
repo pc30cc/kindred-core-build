@@ -1,50 +1,66 @@
 /**
- * Widget Module: Realtime — Centrifugo driver.
+ * Widget Module: Realtime — Centrifugo driver (v5 bidirectional JSON protocol).
  *
- * Phase 3 drop-in: implements the SAME transport contract as the polling driver,
- * so runtime.js can switch drivers without touching UI modules.
+ * Speaks the official Centrifugo v5 client protocol over a raw WebSocket,
+ * WITHOUT pulling in centrifuge-js. Frame shape is field-based, NOT
+ * `{method, params}` RPC. That earlier RPC shape caused Centrifugo to reply
+ * with `bad request` and immediately disconnect, producing the reconnect loop.
  *
- * Contract:
- *   connect()
- *   disconnect()
- *   subscribeConversation(cid)
- *   unsubscribeConversation(cid)
- *   sendMessage(payload, hooks)        // still goes through REST (/api/widget/message)
- *   sendTyping({ conversationId })     // publishes ephemeral typing event over WS
- *   loadHistory({ onResult })          // REST (chat module)
- *   on(event, fn)                      // events: message | typing | presence | reconnect | connectionstate
- *   getCapabilities() / hasCapability(k)
+ * Protocol summary (JSON, one command per line, '\n'-delimited batches):
+ *
+ *   Connect:
+ *     → { "id": 1, "connect": { "token": "<JWT>", "name": "widget" } }
+ *     ← { "id": 1, "connect": { "client": "...", "version": "...", "ttl": 600 } }
+ *
+ *   Subscribe (private channel needs a sub token):
+ *     → { "id": 2, "subscribe": { "channel": "ws:<ws>:conv:<cid>", "token": "<JWT>" } }
+ *     ← { "id": 2, "subscribe": { "recoverable": false, ... } }
+ *
+ *   Unsubscribe:
+ *     → { "id": 3, "unsubscribe": { "channel": "ws:<ws>:conv:<cid>" } }
+ *
+ *   Publish (only if server allow_publish=true on namespace):
+ *     → { "id": 4, "publish": { "channel": "...", "data": { ... } } }
+ *
+ *   Ping (server → client): { } (empty object). Client replies with { }.
+ *
+ *   Push (server → client):
+ *     ← { "push": { "channel": "...", "pub": { "data": { ... } } } }
+ *     ← { "push": { "channel": "...", "join": { "info": { ... } } } }
+ *     ← { "push": { "channel": "...", "leave": { "info": { ... } } } }
+ *
+ * Application convention for our own payloads (set by backend `publish`):
+ *   { "type": "message" | "typing", "payload": { ... } }
  *
  * Security:
  *   - Browser NEVER receives the Centrifugo admin API key.
- *   - Backend issues short-lived HMAC connection token via /api/realtime/connect.
- *   - Backend issues per-channel subscription token via /api/realtime/subscribe.
- *   - Channels follow ws:{workspace_id}:conv:{conversation_id}.
+ *   - Backend issues the connection token via /api/realtime/connect.
+ *   - Backend issues per-channel subscription tokens via /api/realtime/subscribe.
  *
- * Strict drop-in. NEVER imported by UI modules directly.
+ * Strict drop-in for the runtime transport contract:
+ *   connect / disconnect / subscribeConversation / unsubscribeConversation
+ *   sendTyping / getCapabilities / hasCapability / getDriverName
  */
 (function () {
   'use strict';
 
   function noop() {}
 
-  /**
-   * @param {Object} ctx        runtime context (apiBase, workspaceId, sessionToken, assetBase, _log)
-   * @param {Object} resolved   server resolution payload (vendor, ws_url, token, capabilities, ...)
-   * @param {Object} hooks      { onConnectionState, onMessage, onTyping, onPresence, onReconnect, fallbackToPolling }
-   */
   function createCentrifugoDriver(ctx, resolved, hooks) {
     var ws = null;
     var manuallyClosed = false;
     var reconnectAttempt = 0;
     var reconnectTimer = null;
-    var nextRpcId = 1;
-    var pendingRpc = {}; // id → { resolve, reject }
-    var subscribed = {}; // channel → true
+    var pingTimer = null;
+    var nextCmdId = 1;
+    var pending = {};                 // id → { resolve, reject, timeout }
+    var subscribedChannels = {};      // channel → true
     var subscribedConversation = null;
     var connectToken = resolved.token;
     var connectTokenExpiresAt = resolved.expires_at || 0;
     var wsUrl = resolved.ws_url;
+    var clientId = null;
+
     var capabilities = Object.assign({
       driver: 'centrifugo',
       supportsRealtime: true,
@@ -63,6 +79,11 @@
       return 'ws:' + ctx.workspaceId + ':conv:' + cid;
     }
 
+    function setState(s) {
+      if (hooks.onConnectionState) hooks.onConnectionState(s);
+    }
+
+    // ── Backend token endpoints ─────────────────────────────────────────
     function fetchSubToken(cid) {
       return fetch(ctx.apiBase + '/api/realtime/subscribe', {
         method: 'POST',
@@ -72,8 +93,8 @@
       })
         .then(function (r) { return r.json(); })
         .then(function (data) {
-          if (data.vendor !== 'centrifugo' || !data.token) return null;
-          return { channel: data.channel, token: data.token };
+          if (!data || data.vendor !== 'centrifugo' || !data.token) return null;
+          return { channel: data.channel || buildChannel(cid), token: data.token };
         })
         .catch(function () { return null; });
     }
@@ -87,7 +108,7 @@
       })
         .then(function (r) { return r.json(); })
         .then(function (data) {
-          if (data.vendor === 'centrifugo' && data.token) {
+          if (data && data.vendor === 'centrifugo' && data.token) {
             connectToken = data.token;
             connectTokenExpiresAt = data.expires_at || 0;
             wsUrl = data.ws_url || wsUrl;
@@ -98,56 +119,95 @@
         .catch(function () { return false; });
     }
 
-    function send(obj) {
+    // ── Wire send (one JSON object per frame; Centrifugo accepts both
+    //    single-frame and '\n'-delimited batches) ────────────────────────
+    function rawSend(obj) {
       if (!ws || ws.readyState !== 1) return false;
       try { ws.send(JSON.stringify(obj)); return true; } catch (_) { return false; }
     }
 
-    function rpc(method, params) {
+    /**
+     * Send a Centrifugo command using the v5 field-based shape.
+     *   commandKey: 'connect' | 'subscribe' | 'unsubscribe' | 'publish' | 'ping' | ...
+     *   commandBody: command-specific object
+     * Returns a Promise resolving with the matching reply body or rejecting on error.
+     */
+    function command(commandKey, commandBody, opts) {
+      opts = opts || {};
       return new Promise(function (resolve, reject) {
-        var id = nextRpcId++;
-        pendingRpc[id] = { resolve: resolve, reject: reject };
-        var ok = send({ id: id, method: method, params: params || {} });
-        if (!ok) {
-          delete pendingRpc[id];
+        var id = nextCmdId++;
+        var frame = { id: id };
+        frame[commandKey] = commandBody || {};
+        var timeout = setTimeout(function () {
+          if (pending[id]) {
+            delete pending[id];
+            reject(new Error(commandKey + '_timeout'));
+          }
+        }, opts.timeoutMs || 8000);
+        pending[id] = {
+          key: commandKey,
+          resolve: function (v) { clearTimeout(timeout); resolve(v); },
+          reject: function (e) { clearTimeout(timeout); reject(e); },
+        };
+        if (!rawSend(frame)) {
+          clearTimeout(timeout);
+          delete pending[id];
           reject(new Error('socket_not_open'));
         }
       });
     }
 
+    // ── Frame handling ──────────────────────────────────────────────────
     function handleFrame(frame) {
-      // Centrifugo v5 protocol: { id?, push?, error? }
-      if (frame.id && pendingRpc[frame.id]) {
-        var p = pendingRpc[frame.id];
-        delete pendingRpc[frame.id];
-        if (frame.error) p.reject(frame.error);
-        else p.resolve(frame.result || {});
+      if (!frame || typeof frame !== 'object') return;
+
+      // Server ping is an empty object {}. Reply with empty object.
+      if (!frame.id && !frame.push && !frame.error) {
+        // Treat any non-id, non-push frame as ping/keepalive.
+        rawSend({});
         return;
       }
+
+      // Reply to a previous command.
+      if (frame.id && pending[frame.id]) {
+        var p = pending[frame.id];
+        delete pending[frame.id];
+        if (frame.error) {
+          p.reject(frame.error);
+        } else {
+          // Reply body lives under the same key as the command, e.g. frame.connect, frame.subscribe.
+          var body = frame[p.key] || {};
+          p.resolve(body);
+        }
+        return;
+      }
+
+      // Server push.
       if (frame.push) {
         var ch = frame.push.channel;
         var pub = frame.push.pub;
         var join = frame.push.join;
         var leave = frame.push.leave;
+        var disconnect = frame.push.disconnect;
+
         if (pub && pub.data) {
           var data = pub.data;
-          // Convention: { type: 'message'|'typing', payload: ... }
-          if (data.type === 'message' && hooks.onMessage) {
+          if (data && data.type === 'message' && hooks.onMessage) {
             hooks.onMessage({ channel: ch, messages: [data.payload] });
-          } else if (data.type === 'typing' && hooks.onTyping) {
+          } else if (data && data.type === 'typing' && hooks.onTyping) {
             hooks.onTyping({ channel: ch, payload: data.payload });
           }
         }
         if ((join || leave) && hooks.onPresence) {
           hooks.onPresence({ channel: ch, join: join, leave: leave });
         }
+        if (disconnect) {
+          log('[rt:centrifugo] server disconnect push', disconnect);
+        }
       }
     }
 
-    function setState(s) {
-      if (hooks.onConnectionState) hooks.onConnectionState(s);
-    }
-
+    // ── Reconnect ───────────────────────────────────────────────────────
     function scheduleReconnect() {
       if (manuallyClosed) return;
       reconnectAttempt += 1;
@@ -155,8 +215,21 @@
       setState('reconnecting');
       reconnectTimer = setTimeout(function () {
         reconnectTimer = null;
-        openSocket();
+        // Refresh token if it's near/past expiry.
+        if (!connectToken || Date.now() > connectTokenExpiresAt - 5000) {
+          refreshConnectToken().then(openSocket);
+        } else {
+          openSocket();
+        }
       }, delay);
+    }
+
+    function rejectAllPending(reason) {
+      var ids = Object.keys(pending);
+      for (var i = 0; i < ids.length; i++) {
+        try { pending[ids[i]].reject(new Error(reason || 'socket_closed')); } catch (_) {}
+      }
+      pending = {};
     }
 
     function openSocket() {
@@ -179,15 +252,15 @@
       setState('connecting');
 
       ws.onopen = function () {
-        // Connect frame (Centrifugo v5 client RPC).
-        rpc('connect', { token: connectToken })
-          .then(function () {
+        // v5 connect frame — field-based, NOT {method,params}.
+        command('connect', { token: connectToken, name: 'widget' }, { timeoutMs: 10000 })
+          .then(function (reply) {
+            clientId = (reply && reply.client) || null;
             reconnectAttempt = 0;
             setState('online');
-            if (hooks.onReconnect && reconnectAttempt === 0) {
-              // Re-subscribe to last known conversation if any.
-              if (subscribedConversation) doSubscribe(subscribedConversation);
-            }
+            // Re-subscribe to the active conversation if any.
+            if (subscribedConversation) doSubscribe(subscribedConversation);
+            if (hooks.onReconnect) hooks.onReconnect();
           })
           .catch(function (err) {
             log('[rt:centrifugo] connect rejected', err);
@@ -197,59 +270,71 @@
 
       ws.onmessage = function (ev) {
         var raw = ev.data;
-        // Centrifugo can batch with newlines.
-        var lines = String(raw || '').split('\n');
+        // Centrifugo can batch frames separated by '\n'.
+        var lines = String(raw == null ? '' : raw).split('\n');
         for (var i = 0; i < lines.length; i++) {
           var line = lines[i];
           if (!line) continue;
-          try { handleFrame(JSON.parse(line)); } catch (_) {}
+          var parsed = null;
+          try { parsed = JSON.parse(line); } catch (_) { continue; }
+          handleFrame(parsed);
         }
       };
 
       ws.onclose = function () {
         ws = null;
+        clientId = null;
+        if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
+        rejectAllPending('socket_closed');
+        // Forget channel subscription state — Centrifugo requires re-subscribe after reconnect.
+        subscribedChannels = {};
         if (manuallyClosed) { setState('idle'); return; }
-        // Token might have expired — refresh on next attempt.
-        if (Date.now() > connectTokenExpiresAt - 5000) {
-          refreshConnectToken().then(scheduleReconnect);
-        } else {
-          scheduleReconnect();
-        }
+        scheduleReconnect();
       };
 
       ws.onerror = function () {
-        // Let onclose drive the state; just log here.
         log('[rt:centrifugo] socket error');
       };
     }
 
+    // ── Subscriptions ───────────────────────────────────────────────────
     function doSubscribe(cid) {
-      var channel = buildChannel(cid);
-      if (subscribed[channel]) return;
+      var fallbackChannel = buildChannel(cid);
+      if (subscribedChannels[fallbackChannel]) return;
       fetchSubToken(cid).then(function (tk) {
         if (!tk || !ws || ws.readyState !== 1) return;
-        rpc('subscribe', { channel: tk.channel || channel, token: tk.token })
-          .then(function () { subscribed[tk.channel || channel] = true; })
-          .catch(function (err) { log('[rt:centrifugo] subscribe failed', err); });
+        var channel = tk.channel || fallbackChannel;
+        if (subscribedChannels[channel]) return;
+        command('subscribe', { channel: channel, token: tk.token }, { timeoutMs: 8000 })
+          .then(function () { subscribedChannels[channel] = true; })
+          .catch(function (err) { log('[rt:centrifugo] subscribe failed', channel, err); });
       });
     }
 
     function doUnsubscribe(cid) {
       var channel = buildChannel(cid);
-      if (!subscribed[channel]) return;
-      rpc('unsubscribe', { channel: channel })
-        .then(function () { delete subscribed[channel]; })
+      if (!subscribedChannels[channel]) return;
+      command('unsubscribe', { channel: channel })
+        .then(function () { delete subscribedChannels[channel]; })
         .catch(noop);
     }
 
     return {
       connect: function () {
         manuallyClosed = false;
-        openSocket();
+        // If we have no token yet (resolver gave one already, but be defensive), fetch one.
+        if (!connectToken) {
+          refreshConnectToken().then(openSocket);
+        } else {
+          openSocket();
+        }
       },
       disconnect: function () {
         manuallyClosed = true;
         if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+        if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
+        rejectAllPending('manual_disconnect');
+        subscribedChannels = {};
         if (ws) { try { ws.close(); } catch (_) {} ws = null; }
         setState('idle');
       },
@@ -266,13 +351,14 @@
       sendTyping: function (payload) {
         if (!capabilities.supportsTyping) return;
         if (!payload || !payload.conversationId) return;
+        if (!ws || ws.readyState !== 1) return;
         var channel = buildChannel(payload.conversationId);
-        // Centrifugo v5 client publish (server-side allow_publish must be enabled,
-        // OR server proxies typing). We attempt publish; failures are silent.
-        send({ id: nextRpcId++, method: 'publish', params: {
+        // Field-based publish frame. Will be rejected silently if namespace
+        // doesn't have allow_publish — that's fine, typing is best-effort.
+        command('publish', {
           channel: channel,
           data: { type: 'typing', payload: { ts: Date.now() } },
-        }});
+        }, { timeoutMs: 3000 }).catch(noop);
       },
       getCapabilities: function () {
         var copy = {};

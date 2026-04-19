@@ -952,7 +952,10 @@ If you cannot answer, say so politely.${kbContext}`;
           const { data: aiMsg } = await supabase.from('conversation_messages').insert({
             conversation_id: convId,
             body: reply,
-            sender_type: 'agent',
+            // Distinguish AI auto-replies from human agent messages so the
+            // inbox, analytics, and filters can tell them apart. Envelope
+            // shape published to Centrifugo stays identical.
+            sender_type: 'ai',
             metadata: { source: 'ai_auto_reply', provider: aiResponse.provider, model: aiResponse.model },
           })
             .select('id, conversation_id, sender_type, body, created_at, metadata, seen_at')

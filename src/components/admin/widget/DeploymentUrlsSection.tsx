@@ -14,6 +14,8 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useWorkspaces } from '@/hooks/useWorkspace';
 import {
   Globe, Link2, Server, Code2, Copy, Check, AlertTriangle,
   CheckCircle2, XCircle, Loader2, RefreshCw, PlayCircle,
@@ -106,6 +108,17 @@ export function DeploymentUrlsSection({ settings, onSave, saving }: Props) {
   });
   const [copied, setCopied] = useState(false);
 
+  // Workspace picker for the admin's own embed preview. Defaults to the first
+  // workspace the admin belongs to so they can copy a working snippet without
+  // hand-editing YOUR_WORKSPACE_ID.
+  const { data: adminWorkspaces } = useWorkspaces();
+  const [previewWorkspaceId, setPreviewWorkspaceId] = useState<string>('');
+  useEffect(() => {
+    if (!previewWorkspaceId && adminWorkspaces && adminWorkspaces.length > 0) {
+      setPreviewWorkspaceId(adminWorkspaces[0].id);
+    }
+  }, [adminWorkspaces, previewWorkspaceId]);
+
   // Re-sync draft when settings reload (e.g. after save).
   useEffect(() => {
     setDraft({
@@ -124,8 +137,11 @@ export function DeploymentUrlsSection({ settings, onSave, saving }: Props) {
   );
 
   const embedSnippet = useMemo(
-    () => buildWidgetEmbedSnippet(urls, { variant: 'script', workspaceId: 'YOUR_WORKSPACE_ID' }),
-    [urls],
+    () => buildWidgetEmbedSnippet(urls, {
+      variant: 'script',
+      workspaceId: previewWorkspaceId || 'YOUR_WORKSPACE_ID',
+    }),
+    [urls, previewWorkspaceId],
   );
 
   const isDirty = useMemo(() => {
@@ -334,9 +350,9 @@ export function DeploymentUrlsSection({ settings, onSave, saving }: Props) {
               Generated Widget Embed Code
             </CardTitle>
             <CardDescription>
-              Live preview of the snippet workspaces will see in their Install tab. Replace
-              <code className="mx-1 px-1 py-0.5 bg-muted rounded text-[11px]">YOUR_WORKSPACE_ID</code>
-              with the workspace UUID.
+              Live preview — pick one of your workspaces to generate a real, testable snippet.
+              Workspaces always see this same code in their Install tab; any URL change here
+              propagates instantly.
             </CardDescription>
           </div>
           <Button variant="outline" size="sm" onClick={copyEmbed} className="gap-1.5">
@@ -344,7 +360,29 @@ export function DeploymentUrlsSection({ settings, onSave, saving }: Props) {
             {copied ? 'Copied' : 'Copy'}
           </Button>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-3">
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Preview as workspace</Label>
+            {adminWorkspaces && adminWorkspaces.length > 0 ? (
+              <Select value={previewWorkspaceId} onValueChange={setPreviewWorkspaceId}>
+                <SelectTrigger className="h-9 text-xs">
+                  <SelectValue placeholder="Select a workspace" />
+                </SelectTrigger>
+                <SelectContent>
+                  {adminWorkspaces.map((w) => (
+                    <SelectItem key={w.id} value={w.id} className="text-xs">
+                      <span className="font-medium">{w.name}</span>
+                      <span className="text-muted-foreground ml-2 font-mono">{w.id.slice(0, 8)}…</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <p className="text-xs text-muted-foreground italic">
+                You don't belong to any workspace yet — preview will use a placeholder ID.
+              </p>
+            )}
+          </div>
           <Textarea
             readOnly
             value={embedSnippet}

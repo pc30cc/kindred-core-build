@@ -335,6 +335,10 @@ export default function InboxPage() {
       body: message,
       attachmentId: hasAttachment ? att.attachmentId : null,
     });
+    // Phase 6 — track-use only on actual send. We tracked candidate ids when
+    // they were inserted into the draft; only fire if the inserted text is
+    // still present at send time.
+    flushPendingTrackUse(message);
     setMessage('');
     resetAttachment();
   };

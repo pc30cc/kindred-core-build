@@ -471,12 +471,21 @@ export default function InboxPage() {
             {/* ── Messages Area ── */}
             <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 bg-background" ref={messagesContainerRef}>
               {rawMessages?.map(msg => {
-                const isAgent = msg.sender_type === 'agent';
+                // Treat any non-visitor sender as the support side of the
+                // thread. AI auto-replies (sender_type === 'ai') and system
+                // messages render on the same side as a human agent so the
+                // visitor↔support layout stays consistent.
+                const isVisitor = msg.sender_type === 'contact';
+                const isAgent = !isVisitor;
+                const isAi = msg.sender_type === 'ai';
                 return (
                   <div key={msg.id} className={cn('flex gap-2.5 group', isAgent ? 'flex-row' : 'flex-row-reverse')}>
                     {/* Avatar */}
                     {isAgent ? (
-                      <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-1 bg-primary/15 text-primary shadow-sm">
+                      <div className={cn(
+                        'w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-1 shadow-sm',
+                        isAi ? 'bg-accent/20 text-accent-foreground' : 'bg-primary/15 text-primary',
+                      )}>
                         <Bot className="w-4 h-4" />
                       </div>
                     ) : (
@@ -485,10 +494,17 @@ export default function InboxPage() {
                       </div>
                     )}
                     <div className="max-w-[75%]">
-                      <div className={cn('text-[10px] text-muted-foreground mb-0.5', isAgent ? '' : 'text-start')}>
-                        {isAgent ? (t('inbox.support') || 'Support') : (selected?.contacts?.name || t('inbox.visitor') || 'Visitor')}
-                        <span className="mx-1 opacity-40">•</span>
-                        {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      <div className={cn('text-[10px] text-muted-foreground mb-0.5 flex items-center gap-1', isAgent ? '' : 'text-start')}>
+                        <span>
+                          {isAgent ? (t('inbox.support') || 'Support') : (selected?.contacts?.name || t('inbox.visitor') || 'Visitor')}
+                        </span>
+                        {isAi && (
+                          <span className="px-1 py-px rounded bg-accent/30 text-accent-foreground text-[9px] font-medium uppercase tracking-wide">
+                            AI
+                          </span>
+                        )}
+                        <span className="opacity-40">•</span>
+                        <span>{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                       </div>
                       <div className={cn(
                         'rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed',

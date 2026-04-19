@@ -138,13 +138,7 @@ realtimeRouter.post('/connect', async (req, res) => {
         source: resolved.source,
       });
     }
-      return res.json({
-        vendor: 'polling_builtin',
-        capabilities: resolved.capabilities,
-        fallback_policy: resolved.fallback_policy,
-        source: resolved.source,
-      });
-    }
+
 
     // Centrifugo → issue HMAC connection token.
     const driver = await getCentrifugoDriver(config);

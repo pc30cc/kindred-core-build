@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useConversations, useConversationMessages, useSendMessage, useUpdateConversation, useDeleteAllConversations, useMarkConversationSeen } from '@/hooks/useConversations';
+import type { MessageAttachment } from '@/hooks/useConversations';
 import { useInboxRealtime } from '@/hooks/useInboxRealtime';
 import { useVisitorPresenceForConversation } from '@/hooks/useVisitorPresence';
 import { conversationsApi } from '@/lib/conversations-api';
@@ -19,16 +20,30 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
+import { Progress } from '@/components/ui/progress';
 import {
   Inbox, Send, CheckCircle2, Filter, Plus, MessageSquare,
   ChevronDown, Search, MoreHorizontal, Archive,
   UserCheck, AlertCircle, Clock, Star, X,
   Mail, Phone, Globe, User, Eye, ChevronLeft, ChevronRight,
   Loader2, Bot, Copy, Paperclip, RefreshCw,
-  MessageCircle, Hash,
+  MessageCircle, Hash, FileText, Download, ImageIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+const ALLOWED_OPERATOR_MIMES = new Set([
+  'image/png', 'image/jpeg', 'image/webp', 'image/gif',
+  'application/pdf', 'text/plain',
+]);
+const MAX_OPERATOR_BYTES = 25 * 1024 * 1024;
+
+function humanSize(n: number): string {
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(0) + ' KB';
+  return (n / (1024 * 1024)).toFixed(n < 10 * 1024 * 1024 ? 1 : 0) + ' MB';
+}
 
 // ─── Constants ───
 const statusColors: Record<string, string> = {

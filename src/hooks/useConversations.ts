@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { Conversation, ConversationMessage } from '@/types/models';
 import { conversationsApi } from '@/lib/conversations-api';
+import { dedupeById } from '@/realtime/dedupe';
 
 export function useConversations(workspaceId: string | undefined, status?: string) {
   return useQuery({
@@ -33,6 +34,11 @@ export function useConversationMessages(conversationId: string | undefined) {
       if (error) throw error;
       return data as ConversationMessage[];
     },
+    // Defensive dedupe: if any future code path patches a realtime row
+    // into the cache before the refetch lands, the consumer still sees
+    // a clean unique-by-id list. No-op for the current invalidate-only
+    // flow.
+    select: (rows) => dedupeById(rows as (ConversationMessage & { id: string })[]),
     enabled: !!conversationId,
   });
 }

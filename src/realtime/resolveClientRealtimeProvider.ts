@@ -29,6 +29,7 @@ import type {
 import { CentrifugoClientProvider } from './providers/centrifugo';
 import { SupabaseRealtimeClientProvider } from './providers/supabase';
 import { PollingClientProvider } from './providers/polling';
+import { rtDebug, rtWarn } from './debug';
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) || '';
 
@@ -98,24 +99,41 @@ export function resolveClientRealtimeProvider(workspaceId: string): Promise<Clie
   if (cached) return cached;
 
   const promise = (async (): Promise<ClientRealtimeProvider> => {
+    rtDebug('resolve', 'start', { workspaceId });
+
     // 1. Workspace override (only if the vendor has a day-one adapter).
     const override = await fetchWorkspaceOverride(workspaceId);
+    if (override) rtDebug('resolve', 'workspace override found', { override });
+
     if (override === 'supabase') {
+      rtDebug('resolve', 'final vendor', { vendor: 'supabase', source: 'workspace_override' });
       return new SupabaseRealtimeClientProvider();
     }
     // For centrifugo override we still need the negotiation to get ws_url + token.
     const negotiation = await negotiate(workspaceId);
+    if (negotiation) {
+      rtDebug('resolve', 'global negotiation', {
+        vendor: negotiation.vendor,
+        hasWsUrl: !!negotiation.ws_url,
+        hasToken: !!negotiation.token,
+      });
+    } else {
+      rtWarn('resolve', 'global negotiation failed');
+    }
 
     if (override === 'centrifugo' && negotiation?.ws_url && negotiation.token) {
+      rtDebug('resolve', 'final vendor', { vendor: 'centrifugo', source: 'workspace_override' });
       return new CentrifugoClientProvider(negotiation);
     }
 
     // 2. Global active vendor as reported by the server.
     if (negotiation && SUPPORTED_VENDORS.includes(negotiation.vendor)) {
+      rtDebug('resolve', 'final vendor', { vendor: negotiation.vendor, source: 'global_default' });
       return buildAdapter(negotiation.vendor, negotiation);
     }
 
     // 3. Fallback.
+    rtDebug('resolve', 'final vendor', { vendor: 'polling', source: 'fallback' });
     return new PollingClientProvider();
   })();
 

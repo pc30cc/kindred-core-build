@@ -949,12 +949,22 @@ If you cannot answer, say so politely.${kbContext}`;
 
         if (aiResponse.text) {
           reply = aiResponse.text;
-          await supabase.from('conversation_messages').insert({
+          const { data: aiMsg } = await supabase.from('conversation_messages').insert({
             conversation_id: convId,
             body: reply,
             sender_type: 'agent',
             metadata: { source: 'ai_auto_reply', provider: aiResponse.provider, model: aiResponse.model },
-          });
+          })
+            .select('id, conversation_id, sender_type, body, created_at, metadata, seen_at')
+            .single();
+          if (aiMsg) {
+            publishConversationEvent(
+              config,
+              workspaceId,
+              convId!,
+              buildMessageEnvelope(aiMsg as any),
+            ).catch(() => {});
+          }
         }
       }
     } catch (aiErr: any) {

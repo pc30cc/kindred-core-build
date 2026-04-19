@@ -17,6 +17,7 @@ import { plansRouter } from './routes/plans.js';
 import { adminRouter } from './routes/admin.js';
 import { realtimeRouter } from './routes/realtime.js';
 import { conversationsRouter } from './routes/conversations.js';
+import { conversationAttachmentsRouter } from './routes/conversationAttachments.js';
 import { widgetCorsMiddleware } from './middleware/widgetCors.js';
 import {
   ipBlockMiddleware,
@@ -124,6 +125,10 @@ app.use('/api/realtime', realtimeRouter);
 // Conversations — backend-mediated agent reply send + realtime publish.
 // Auth handled per-route via Supabase user JWT + workspace membership check.
 app.use('/api/conversations', conversationsRouter);
+
+// Phase 2 — Operator attachments (Inbox-side). Reuses conversation_attachments
+// table + storage service; gated by Supabase JWT + workspace membership.
+app.use('/api/conversation-attachments', conversationAttachmentsRouter);
 
 // 404
 app.use((_req, res) => {

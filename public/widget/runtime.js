@@ -2041,7 +2041,8 @@
     }
     var kbStore = createStore({
       loaded: false,
-      articles: [],
+      categories: [],
+      searchResults: [],
     });
     // notifyStore — Phase 4
     //   perConversation: { [cid]: count }   (per-conversation unread)

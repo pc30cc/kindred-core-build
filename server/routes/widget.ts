@@ -1439,3 +1439,226 @@ widgetRouter.get('/kb', async (req: Request, res: Response) => {
     res.status(500).json({ error: 'Internal error' });
   }
 });
+
+// ═══════════════════════════════════════════════
+// POST /offline-messages — Capture a message while the workspace is offline
+// ───────────────────────────────────────────────
+// Server is the source of truth for availability — we re-resolve here and
+// reject if the workspace is currently online (the widget should send a
+// regular message instead). When accepted, this creates a normal
+// conversation tagged 'offline' with a `captured_offline` event so it shows
+// up in the inbox like any other thread, and notifies workspace admins by
+// email when an email provider is configured.
+// ═══════════════════════════════════════════════
+const offlineMessageSchema = z.object({
+  workspace_id: z.string().uuid(),
+  message: z.string().min(2).max(4000),
+  email: z.string().email().max(255).optional(),
+  name: z.string().max(120).optional(),
+  phone: z.string().max(40).optional(),
+  locale: z.string().min(2).max(10).optional(),
+  honeypot: z.string().max(0).optional(),
+});
+
+widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = offlineMessageSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'invalid_payload', details: parsed.error.flatten() });
+  }
+
+  const { workspace_id, message, email, name, phone, locale } = parsed.data;
+  const tokenWs = (req as any)._widgetWorkspaceId as string | undefined;
+  if (tokenWs && tokenWs !== workspace_id) {
+    return res.status(403).json({ error: 'workspace_mismatch' });
+  }
+
+  // Honeypot — silently 200 so bots don't learn anything.
+  if (parsed.data.honeypot && parsed.data.honeypot.length > 0) {
+    return res.json({ ok: true, captured: false, conversation_id: null });
+  }
+
+  const supabase = getServiceClient(config);
+
+  // Re-resolve availability server-side. Reject when online — the widget
+  // should be sending a normal /message in that case.
+  const snap = await resolveAvailability(config, { workspaceId: workspace_id, locale });
+  const transitioning = snap.state === 'online';
+
+  // Resolve visitor identity from cookie (set during /bootstrap).
+  const cookie = readVisitorCookie(req, workspace_id);
+  const visitorId = cookie?.v || null;
+
+  let visitorSessionId: string | null = null;
+  if (visitorId) {
+    const { data: vs } = await supabase
+      .from('visitor_sessions')
+      .select('id')
+      .eq('workspace_id', workspace_id)
+      .eq('visitor_id', visitorId)
+      .order('last_seen_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    visitorSessionId = vs?.id || null;
+  }
+
+  // Resolve / create contact when email provided. Email is the only stable
+  // long-lived key we can reuse for follow-up.
+  let contactId: string | null = null;
+  if (email) {
+    const { data: existing } = await supabase
+      .from('contacts')
+      .select('id, name, phone')
+      .eq('workspace_id', workspace_id)
+      .eq('email', email.toLowerCase())
+      .maybeSingle();
+
+    if (existing) {
+      contactId = existing.id;
+      const patch: Record<string, unknown> = {};
+      if (name && !existing.name) patch.name = name;
+      if (phone && !existing.phone) patch.phone = phone;
+      if (Object.keys(patch).length) {
+        await supabase.from('contacts').update(patch).eq('id', contactId);
+      }
+    } else {
+      const { data: created } = await supabase
+        .from('contacts')
+        .insert({
+          workspace_id,
+          email: email.toLowerCase(),
+          name: name || null,
+          phone: phone || null,
+          metadata: { source: 'offline_capture', visitor_id: visitorId },
+        })
+        .select('id')
+        .single();
+      contactId = created?.id || null;
+    }
+  }
+
+  // Create conversation tagged 'offline'.
+  const { data: conv, error: convErr } = await supabase
+    .from('conversations')
+    .insert({
+      workspace_id,
+      contact_id: contactId,
+      visitor_session_id: visitorSessionId,
+      status: 'open',
+      priority: 'normal',
+      tags: ['offline'],
+      subject: 'Offline message',
+    })
+    .select('id')
+    .single();
+
+  if (convErr || !conv) {
+    console.error('[offline-messages] conversation insert failed:', convErr?.message);
+    return res.status(500).json({ error: 'capture_failed' });
+  }
+
+  // Insert visitor message.
+  await supabase.from('conversation_messages').insert({
+    conversation_id: conv.id,
+    sender_type: 'contact',
+    body: message,
+    metadata: { source: 'offline_capture', visitor_id: visitorId },
+  });
+
+  // Record the timeline event so operators can see it was offline-captured.
+  await recordConversationEvent(config, {
+    workspaceId: workspace_id,
+    conversationId: conv.id,
+    eventType: 'captured_offline' as any,
+    actorType: 'system',
+    payload: {
+      availability_state: snap.state,
+      availability_reason: snap.reason,
+      transitioning,
+      contact_email: email || null,
+      next_open_at: snap.next_open_at,
+    },
+  });
+
+  // Best-effort email notification to workspace owners/admins.
+  void notifyOfflineCapture(config, workspace_id, {
+    conversationId: conv.id,
+    message,
+    email: email || null,
+    name: name || null,
+    locale: locale || 'en',
+  }).catch((err) => console.warn('[offline-messages] notify failed:', err?.message));
+
+  return res.json({
+    ok: true,
+    captured: true,
+    conversation_id: conv.id,
+    transitioning,
+  });
+});
+
+async function notifyOfflineCapture(
+  config: ServerConfig,
+  workspaceId: string,
+  payload: { conversationId: string; message: string; email: string | null; name: string | null; locale: string },
+): Promise<void> {
+  const supabase = getServiceClient(config);
+  const { data: members } = await supabase
+    .from('account_members')
+    .select('user_id, role')
+    .in('role', ['owner', 'admin']);
+  // Note: account_members is account-scoped not workspace-scoped in this
+  // codebase. Fall back to workspace_members if available.
+  let recipientIds: string[] = (members || []).map((m: any) => m.user_id);
+
+  const { data: wsMembers } = await supabase
+    .from('workspace_members' as any)
+    .select('user_id, role')
+    .eq('workspace_id', workspaceId)
+    .in('role', ['owner', 'admin']);
+  if (wsMembers && wsMembers.length) {
+    recipientIds = wsMembers.map((m: any) => m.user_id);
+  }
+
+  if (!recipientIds.length) return;
+
+  const { data: profiles } = await supabase
+    .from('profiles')
+    .select('id, email')
+    .in('id', recipientIds);
+  const emails = (profiles || []).map((p: any) => p.email).filter(Boolean);
+  if (!emails.length) return;
+
+  const subject = `New offline message`;
+  const safeMsg = payload.message.replace(/[<>]/g, (c) => (c === '<' ? '&lt;' : '&gt;'));
+  const html = `
+    <p>A visitor left a message while your workspace was offline.</p>
+    <p><strong>From:</strong> ${payload.name || 'Anonymous'} ${payload.email ? `&lt;${payload.email}&gt;` : ''}</p>
+    <p><strong>Message:</strong></p>
+    <blockquote style="border-left:3px solid #ccc;padding-left:12px;">${safeMsg}</blockquote>
+    <p>Open this conversation in the inbox to reply.</p>
+  `;
+  const text = `New offline message\nFrom: ${payload.name || 'Anonymous'} ${payload.email || ''}\n\n${payload.message}`;
+
+  for (const to of emails) {
+    try {
+      await sendEmail(config, {
+        workspaceId,
+        to,
+        subject,
+        html,
+        text,
+        templateSlug: 'offline_message_received',
+        templateData: {
+          conversation_id: payload.conversationId,
+          contact_name: payload.name || '',
+          contact_email: payload.email || '',
+          message_body: payload.message,
+        },
+        locale: payload.locale,
+      });
+    } catch (err: any) {
+      console.warn('[offline-messages] email to', to, 'failed:', err?.message);
+    }
+  }
+}

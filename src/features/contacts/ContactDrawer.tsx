@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getInitials, getDisplayName, timeAgo, getCompanyFromMetadata, getLocationFromMetadata } from './utils';
+import { ContactPrivacyActions } from '@/components/privacy/ContactPrivacyActions';
 
 interface Props {
   contactId: string | null;
@@ -229,6 +230,9 @@ export function ContactDrawer({ contactId, open, onOpenChange }: Props) {
                           </AlertDialogFooter>
                         </AlertDialogContent>
                       </AlertDialog>
+                      <div className="pt-4">
+                        <ContactPrivacyActions contactId={contact.id} contactLabel={getDisplayName(contact)} />
+                      </div>
                     </div>
                   )}
                 </TabsContent>

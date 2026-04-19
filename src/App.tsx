@@ -46,6 +46,8 @@ import SettingsProvidersPage from "@/pages/app/settings/ProvidersPage";
 import SettingsTranslationsPage from "@/pages/app/settings/TranslationsPage";
 import SettingsProfilePage from "@/pages/app/settings/ProfilePage";
 import SettingsCannedResponsesPage from "@/pages/app/settings/CannedResponsesPage";
+import SettingsPrivacyPage from "@/pages/app/settings/PrivacyPage";
+import PrivacyRequestsPage from "@/pages/app/PrivacyRequestsPage";
 
 import AdminDashboardPage from "@/pages/admin/DashboardPage";
 import AdminUsersPage from "@/pages/admin/UsersPage";
@@ -163,7 +165,9 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                   <Route path="translations" element={<SettingsTranslationsPage />} />
                   <Route path="profile" element={<SettingsProfilePage />} />
                   <Route path="canned-responses" element={<SettingsCannedResponsesPage />} />
+                  <Route path="privacy" element={<SettingsPrivacyPage />} />
                 </Route>
+                <Route path="privacy-requests" element={<PrivacyRequestsPage />} />
               </Route>
 
               <Route path="*" element={<NotFound />} />

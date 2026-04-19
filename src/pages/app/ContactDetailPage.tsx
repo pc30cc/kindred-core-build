@@ -24,6 +24,7 @@ import {
   getInitials, getDisplayName, timeAgo,
   getCompanyFromMetadata, getLocationFromMetadata,
 } from '@/features/contacts/utils';
+import { ContactPrivacyActions } from '@/components/privacy/ContactPrivacyActions';
 
 export default function ContactDetailPage() {
   const { dir } = useTranslation();
@@ -268,6 +269,9 @@ export default function ContactDetailPage() {
                     )}
                   </CardContent>
                 </Card>
+                <div className="mt-4">
+                  <ContactPrivacyActions contactId={contact.id} contactLabel={getDisplayName(contact)} />
+                </div>
               </TabsContent>
             </Tabs>
           </div>

@@ -34,6 +34,12 @@ import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { ConversationActionPanel } from '@/components/inbox/ConversationActionPanel';
 import { ConversationActivityPanel } from '@/components/inbox/ConversationActivityPanel';
+import { CannedResponsePicker, type CannedPickerHandle } from '@/components/canned-responses/CannedResponsePicker';
+import { interpolate } from '@/components/canned-responses/interpolation';
+import { useTrackCannedResponseUse } from '@/hooks/useCannedResponses';
+import type { CannedLocale, CannedResponse } from '@/lib/canned-responses-api';
+import { useProfile } from '@/hooks/useProfile';
+import { Sparkles } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 const ALLOWED_OPERATOR_MIMES = new Set([
@@ -319,22 +325,8 @@ export default function InboxPage() {
     resetAttachment();
   }, [att.attachmentId, workspace?.id, resetAttachment]);
 
-  const handleSend = async () => {
-    if (!selectedId || !user) return;
-    const hasText = message.trim().length > 0;
-    const hasAttachment = att.status === 'ready' && !!att.attachmentId;
-    if (!hasText && !hasAttachment) return;
-    if (att.status === 'uploading') return; // wait for upload to finish
-    await sendMessage.mutateAsync({
-      body: message,
-      attachmentId: hasAttachment ? att.attachmentId : null,
-    });
-    setMessage('');
-    resetAttachment();
-  };
-
   // Phase 1 — operator typing emit (throttled to ≤1 publish per 2s while typing).
-  // Realtime-only ephemeral event; failure is silently ignored.
+  // Declared early so the canned-responses onMessageChange can reference it.
   const lastTypingSentRef = useRef(0);
   const emitTyping = useCallback(() => {
     if (!workspace?.id || !selectedId) return;
@@ -346,6 +338,166 @@ export default function InboxPage() {
       conversation_id: selectedId,
     });
   }, [workspace?.id, selectedId]);
+
+  // ─── Phase 6 — Canned responses integration ───
+  // Locale used to rank: profile preferred locale → UI locale → 'en'.
+  const { data: profile } = useProfile();
+  const operatorLocale: CannedLocale = useMemo(() => {
+    const candidates = [profile?.preferred_locale, (typeof window !== 'undefined' ? localStorage.getItem('app-locale') : null)];
+    for (const c of candidates) {
+      if (c === 'en' || c === 'fa' || c === 'tr') return c;
+    }
+    return 'en';
+  }, [profile?.preferred_locale]);
+
+  const trackUseMut = useTrackCannedResponseUse(workspace?.id);
+
+  // Picker state.
+  const messageInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const pickerRef = useRef<CannedPickerHandle | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerSlash, setPickerSlash] = useState(false);
+  const [pickerQuery, setPickerQuery] = useState('');
+  // Anchor index (in message) of the leading '/' for slash mode.
+  const slashAnchorRef = useRef<number | null>(null);
+
+  // Pending tracked rows: snippet of inserted body → row id.
+  // We only fire track-use on real send AND only if the inserted snippet is
+  // still present in the final message body (operator may have deleted it).
+  const pendingTrackRef = useRef<{ id: string; snippet: string }[]>([]);
+
+  const closePicker = useCallback(() => {
+    setPickerOpen(false);
+    setPickerSlash(false);
+    setPickerQuery('');
+    slashAnchorRef.current = null;
+  }, []);
+
+  // Reset picker when switching conversations.
+  useEffect(() => { closePicker(); pendingTrackRef.current = []; }, [selectedId, closePicker]);
+
+  // Slash-trigger detection on the current caret position.
+  // A trigger exists when the character before the caret-token is line-start
+  // or whitespace, the token starts with '/', and contains no spaces.
+  const detectSlashTrigger = useCallback((value: string, caret: number): { anchor: number; query: string } | null => {
+    if (caret <= 0) return null;
+    // Walk backwards from caret to find the '/' or invalidate.
+    let i = caret - 1;
+    while (i >= 0) {
+      const ch = value[i];
+      if (ch === '/') break;
+      if (ch === ' ' || ch === '\n' || ch === '\t') return null;
+      i--;
+    }
+    if (i < 0 || value[i] !== '/') return null;
+    const before = i === 0 ? '\n' : value[i - 1];
+    if (before !== ' ' && before !== '\n' && before !== '\t') return null;
+    const query = value.slice(i + 1, caret);
+    // Limit to a reasonable shortcut length.
+    if (query.length > 41) return null;
+    return { anchor: i, query };
+  }, []);
+
+  const onMessageChange = useCallback((value: string) => {
+    setMessage(value);
+    if (value) emitTyping();
+    const ta = messageInputRef.current;
+    const caret = ta?.selectionStart ?? value.length;
+    const trig = detectSlashTrigger(value, caret);
+    if (trig) {
+      slashAnchorRef.current = trig.anchor;
+      setPickerSlash(true);
+      setPickerOpen(true);
+      setPickerQuery(trig.query);
+    } else if (pickerSlash) {
+      // Slash got cancelled (user deleted '/' or typed a space).
+      closePicker();
+    }
+  }, [detectSlashTrigger, emitTyping, pickerSlash, closePicker]);
+
+  // Insert a canned row into the current draft.
+  const insertCanned = useCallback((row: CannedResponse) => {
+    const ctx = {
+      contact: {
+        name: selected?.contacts?.name ?? null,
+        email: selected?.contacts?.email ?? null,
+      },
+      workspace: { name: workspace?.name ?? null },
+      agent: {
+        name: profile?.full_name ?? null,
+        first_name: (profile?.full_name ?? '').split(' ')[0] || null,
+        email: profile?.email ?? user?.email ?? null,
+      },
+    };
+    const expanded = interpolate(row.body, ctx);
+
+    setMessage((prev) => {
+      let before = '';
+      let after = '';
+      if (pickerSlash && slashAnchorRef.current !== null) {
+        // Replace `/query` segment.
+        const ta = messageInputRef.current;
+        const caret = ta?.selectionStart ?? prev.length;
+        before = prev.slice(0, slashAnchorRef.current);
+        after = prev.slice(caret);
+      } else {
+        // Toolbar mode: insert at current caret (or end), wrap with newlines
+        // when the existing draft is non-empty.
+        const ta = messageInputRef.current;
+        const caret = ta?.selectionStart ?? prev.length;
+        before = prev.slice(0, caret);
+        after = prev.slice(caret);
+      }
+      const needsLeadingSep = before.length > 0 && !/\s$/.test(before);
+      const needsTrailingSpace = after.length > 0 && !/^\s/.test(after);
+      const inserted = `${needsLeadingSep ? '\n' : ''}${expanded}${needsTrailingSpace ? ' ' : ''}`;
+      // Track only the expanded body for later send-time verification.
+      pendingTrackRef.current.push({ id: row.id, snippet: expanded });
+      const next = before + inserted + after;
+      // Restore caret after insertion.
+      requestAnimationFrame(() => {
+        const ta = messageInputRef.current;
+        if (!ta) return;
+        const pos = (before + inserted).length;
+        ta.focus();
+        try { ta.setSelectionRange(pos, pos); } catch { /* noop */ }
+      });
+      return next;
+    });
+    closePicker();
+  }, [closePicker, pickerSlash, profile?.full_name, profile?.email, selected?.contacts?.name, selected?.contacts?.email, user?.email, workspace?.name]);
+
+  // Fire track-use only for inserted rows whose body is still present in the
+  // final sent message. We DO NOT track on preview / open / browse.
+  const flushPendingTrackUse = useCallback((sentBody: string) => {
+    const remaining: typeof pendingTrackRef.current = [];
+    const seenIds = new Set<string>();
+    for (const entry of pendingTrackRef.current) {
+      if (sentBody.includes(entry.snippet) && !seenIds.has(entry.id)) {
+        seenIds.add(entry.id);
+        trackUseMut.mutate(entry.id);
+      }
+    }
+    pendingTrackRef.current = remaining;
+  }, [trackUseMut]);
+
+  const handleSend = async () => {
+    if (!selectedId || !user) return;
+    const hasText = message.trim().length > 0;
+    const hasAttachment = att.status === 'ready' && !!att.attachmentId;
+    if (!hasText && !hasAttachment) return;
+    if (att.status === 'uploading') return; // wait for upload to finish
+    await sendMessage.mutateAsync({
+      body: message,
+      attachmentId: hasAttachment ? att.attachmentId : null,
+    });
+    // Phase 6 — track-use only on actual send. We tracked candidate ids when
+    // they were inserted into the draft; only fire if the inserted text is
+    // still present at send time.
+    flushPendingTrackUse(message);
+    setMessage('');
+    resetAttachment();
+  };
 
   // Reset visitor typing indicator + pending attachment when switching conversations.
   useEffect(() => {
@@ -849,8 +1001,19 @@ export default function InboxPage() {
                 </div>
               )}
               <div className={cn(
-                'flex gap-2 items-end rounded-xl border p-1.5 transition-colors border-border bg-secondary/30'
+                'relative flex gap-2 items-end rounded-xl border p-1.5 transition-colors border-border bg-secondary/30'
               )}>
+                <CannedResponsePicker
+                  ref={pickerRef}
+                  workspaceId={workspace?.id}
+                  locale={operatorLocale}
+                  query={pickerQuery}
+                  open={pickerOpen}
+                  slashMode={pickerSlash}
+                  onSelect={insertCanned}
+                  onQueryChange={setPickerQuery}
+                  onClose={closePicker}
+                />
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -867,11 +1030,52 @@ export default function InboxPage() {
                 >
                   <Paperclip className="w-4 h-4" />
                 </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (pickerOpen && !pickerSlash) { closePicker(); return; }
+                    setPickerSlash(false);
+                    setPickerQuery('');
+                    slashAnchorRef.current = null;
+                    setPickerOpen(true);
+                  }}
+                  className={cn(
+                    'p-1.5 rounded-lg transition-colors shrink-0',
+                    pickerOpen && !pickerSlash
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-secondary',
+                  )}
+                  title="Canned responses (type / for shortcut)"
+                  aria-label="Canned responses"
+                >
+                  <Sparkles className="w-4 h-4" />
+                </button>
                 <Textarea
+                  ref={messageInputRef}
                   placeholder={t('inbox.typeMessage') || 'Type a message...'}
                   value={message}
-                  onChange={e => { setMessage(e.target.value); if (e.target.value) emitTyping(); }}
+                  onChange={e => onMessageChange(e.target.value)}
+                  onSelect={() => {
+                    // Re-evaluate trigger on caret moves.
+                    const ta = messageInputRef.current;
+                    if (!ta) return;
+                    const trig = detectSlashTrigger(ta.value, ta.selectionStart ?? 0);
+                    if (trig) {
+                      slashAnchorRef.current = trig.anchor;
+                      setPickerSlash(true); setPickerOpen(true); setPickerQuery(trig.query);
+                    } else if (pickerSlash) {
+                      closePicker();
+                    }
+                  }}
                   onKeyDown={e => {
+                    // Picker key handling takes precedence when open.
+                    if (pickerOpen && pickerSlash) {
+                      if (e.key === 'ArrowDown') { if (pickerRef.current?.moveHighlight(1)) { e.preventDefault(); return; } }
+                      else if (e.key === 'ArrowUp') { if (pickerRef.current?.moveHighlight(-1)) { e.preventDefault(); return; } }
+                      else if (e.key === 'Enter' || e.key === 'Tab') {
+                        if (pickerRef.current?.commit()) { e.preventDefault(); return; }
+                      } else if (e.key === 'Escape') { e.preventDefault(); closePicker(); return; }
+                    }
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
                       handleSend();

@@ -97,6 +97,8 @@ export function DeploymentUrlsSection({ settings, onSave, saving }: Props) {
     widget_asset_base_url: settings.widget_asset_base_url || '',
     widget_public_base_url: settings.widget_public_base_url || '',
     widget_api_base_url: settings.widget_api_base_url || '',
+    embed_header_comment: settings.embed_header_comment || '',
+    embed_footer_comment: settings.embed_footer_comment || '',
   });
   const [tests, setTests] = useState<Record<WidgetUrlTestKind, TestState>>({
     loader: { loading: false, result: null },
@@ -126,6 +128,8 @@ export function DeploymentUrlsSection({ settings, onSave, saving }: Props) {
       widget_asset_base_url: settings.widget_asset_base_url || '',
       widget_public_base_url: settings.widget_public_base_url || '',
       widget_api_base_url: settings.widget_api_base_url || '',
+      embed_header_comment: settings.embed_header_comment || '',
+      embed_footer_comment: settings.embed_footer_comment || '',
     });
   }, [settings.id, settings.updated_at]);
 
@@ -140,8 +144,10 @@ export function DeploymentUrlsSection({ settings, onSave, saving }: Props) {
     () => buildWidgetEmbedSnippet(urls, {
       variant: 'script',
       workspaceId: previewWorkspaceId || 'YOUR_WORKSPACE_ID',
+      headerComment: draft.embed_header_comment,
+      footerComment: draft.embed_footer_comment,
     }),
-    [urls, previewWorkspaceId],
+    [urls, previewWorkspaceId, draft.embed_header_comment, draft.embed_footer_comment],
   );
 
   const isDirty = useMemo(() => {
@@ -149,7 +155,9 @@ export function DeploymentUrlsSection({ settings, onSave, saving }: Props) {
       (draft.widget_loader_base_url || '') !== (settings.widget_loader_base_url || '') ||
       (draft.widget_asset_base_url || '') !== (settings.widget_asset_base_url || '') ||
       (draft.widget_public_base_url || '') !== (settings.widget_public_base_url || '') ||
-      (draft.widget_api_base_url || '') !== (settings.widget_api_base_url || '')
+      (draft.widget_api_base_url || '') !== (settings.widget_api_base_url || '') ||
+      (draft.embed_header_comment || '') !== (settings.embed_header_comment || '') ||
+      (draft.embed_footer_comment || '') !== (settings.embed_footer_comment || '')
     );
   }, [draft, settings]);
 
@@ -159,6 +167,8 @@ export function DeploymentUrlsSection({ settings, onSave, saving }: Props) {
       widget_asset_base_url: draft.widget_asset_base_url.trim() || null,
       widget_public_base_url: draft.widget_public_base_url.trim() || null,
       widget_api_base_url: draft.widget_api_base_url.trim() || null,
+      embed_header_comment: draft.embed_header_comment.trim() || null,
+      embed_footer_comment: draft.embed_footer_comment.trim() || null,
     });
   };
 
@@ -168,6 +178,8 @@ export function DeploymentUrlsSection({ settings, onSave, saving }: Props) {
       widget_asset_base_url: settings.widget_asset_base_url || '',
       widget_public_base_url: settings.widget_public_base_url || '',
       widget_api_base_url: settings.widget_api_base_url || '',
+      embed_header_comment: settings.embed_header_comment || '',
+      embed_footer_comment: settings.embed_footer_comment || '',
     });
   };
 

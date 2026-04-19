@@ -179,6 +179,10 @@ realtimeRouter.post('/subscribe', async (req, res) => {
     if (!tokRes.valid || tokRes.workspaceId !== parsed.data.workspace_id) {
       return res.status(401).json({ error: 'Invalid widget session' });
     }
+
+    // Dynamic per-workspace origin enforcement.
+    if (!(await enforceWorkspaceOrigin(req, res, config, parsed.data.workspace_id))) return;
+
     const visitor = readVisitorCookie(req as any, parsed.data.workspace_id);
     const subjectId = visitor?.v || `vt_${tokRes.nonce || 'anon'}`;
 
@@ -197,7 +201,11 @@ realtimeRouter.post('/subscribe', async (req, res) => {
     if (!driver) {
       return res.json({ vendor: 'polling_builtin' });
     }
+    // Strict channel naming — never trust client-supplied channel names.
     const channel = `ws:${parsed.data.workspace_id}:conv:${parsed.data.conversation_id}`;
+    if (!channelBelongsToWorkspace(channel, parsed.data.workspace_id)) {
+      return res.status(403).json({ error: 'Channel not allowed' });
+    }
     const tk = driver.issueSubscriptionToken({
       sub: subjectId,
       channel,

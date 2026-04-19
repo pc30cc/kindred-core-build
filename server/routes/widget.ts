@@ -259,6 +259,22 @@ widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), async (req: Reques
       .eq('workspace_id', resolvedWorkspaceId)
       .maybeSingle();
 
+    // Phase 8 — server-authoritative availability snapshot. Additive;
+    // existing widget runtimes ignore unknown fields.
+    let availabilityPayload: ReturnType<typeof snapshotToWirePayload> | null = null;
+    try {
+      const localeHint = (req.body && (req.body.locale as string)) ||
+        (req.headers['accept-language'] as string | undefined)?.split(',')[0] ||
+        'en';
+      const snap = await resolveAvailability(config, {
+        workspaceId: resolvedWorkspaceId,
+        locale: localeHint,
+      });
+      availabilityPayload = snapshotToWirePayload(snap);
+    } catch (err: any) {
+      console.warn('[widget-bootstrap] availability resolve failed:', err?.message);
+    }
+
     return res.json({
       session_token: sessionToken,
       workspace_id: resolvedWorkspaceId,
@@ -267,6 +283,7 @@ widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), async (req: Reques
       platform_display_name: branding?.platform_name || '',
       visitor_id: visitor.visitorId,
       is_new_visitor: visitor.isNew,
+      availability: availabilityPayload,
       version: '3.0.0',
     });
   } catch (err: any) {

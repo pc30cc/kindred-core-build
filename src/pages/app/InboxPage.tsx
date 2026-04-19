@@ -437,7 +437,37 @@ export default function InboxPage() {
                   <div className="text-[13px] font-bold text-foreground">
                     {selected.contacts?.name || selected.subject || `#${selectedId.slice(0, 8)}`}
                   </div>
-                  <div className="text-[11px] text-muted-foreground">{selected.contacts?.email}</div>
+                  <div className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                    {selected.contacts?.email && <span className="truncate">{selected.contacts.email}</span>}
+                    {presence && presence.status !== 'unknown' && (
+                      <>
+                        {selected.contacts?.email && <span className="opacity-30">•</span>}
+                        <span
+                          className={cn(
+                            'inline-flex items-center gap-1 font-medium',
+                            presence.status === 'online' && 'text-success',
+                            presence.status === 'idle' && 'text-warning',
+                            presence.status === 'offline' && 'text-muted-foreground',
+                          )}
+                          title={presence.current_page || undefined}
+                        >
+                          <span
+                            className={cn(
+                              'w-1.5 h-1.5 rounded-full',
+                              presence.status === 'online' && 'bg-success',
+                              presence.status === 'idle' && 'bg-warning',
+                              presence.status === 'offline' && 'bg-muted-foreground',
+                            )}
+                          />
+                          {presence.status === 'online'
+                            ? (t('inbox.presenceOnline') || 'Online')
+                            : presence.status === 'idle'
+                              ? (t('inbox.presenceIdle') || 'Idle')
+                              : (t('inbox.presenceOffline') || 'Offline')}
+                        </span>
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
               <div className="flex items-center gap-1.5">

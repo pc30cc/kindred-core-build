@@ -177,6 +177,7 @@
         msgSent: 'Sent',
         msgSeen: 'Seen',
         msgFailed: 'Not delivered',
+        typingOperator: 'Support is typing…',
       },
       fa: {
         chat: 'گفتگو', help: 'راهنما',

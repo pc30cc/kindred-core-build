@@ -1000,9 +1000,22 @@
   function createPresence(ctx, presenceStore, transport, transportStore, t) {
     var availability = (ctx.config && ctx.config.availability) || {};
     var liveChatEnabled = availability.liveChatEnabled !== false;
-    var offlineMode = availability.offlineMode === 'contact_fallback' ? 'contact_fallback' : 'accept_messages';
+    // Phase 8 — three-mode shape from server resolver. Legacy two-mode
+    // ('contact_fallback'/'accept_messages') still honored for older
+    // backends until /config catches up.
+    var offlineMode = (function () {
+      var m = availability.offlineMode || availability.offline_mode;
+      if (m === 'hide_widget' || m === 'show_offline_message' || m === 'capture_message') return m;
+      if (m === 'contact_fallback') return 'capture_message';
+      return 'capture_message';
+    })();
     var businessHours = availability.businessHours || { enabled: false, schedule: [], timezone: 'UTC' };
     var customLabels = availability.labels || {};
+    // Phase 8 — server-authoritative state. When present, runtime trusts it
+    // and skips client-side hours math. Legacy clients without it fall back
+    // to local hours below.
+    var serverState = (availability.state === 'online' || availability.state === 'offline')
+      ? availability.state : null;
 
     // Snapshot from /config (best-effort hint, refreshed on reconnect via REST is OUT OF SCOPE here).
     var snapshotOnlineOps = (typeof ctx.config.onlineOperators === 'number')

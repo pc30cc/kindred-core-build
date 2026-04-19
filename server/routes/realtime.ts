@@ -31,7 +31,7 @@ import {
   getWorkspaceOriginRules,
 } from '../services/widget/public.js';
 import { isOriginAllowed } from '../utils/domain.js';
-import { channelBelongsToWorkspace } from '../services/realtime/types.js';
+import { channelBelongsToWorkspace, isInboxChannel } from '../services/realtime/types.js';
 
 export const realtimeRouter = Router();
 
@@ -219,7 +219,11 @@ realtimeRouter.post('/subscribe', async (req, res) => {
     }
     // Strict channel naming — never trust client-supplied channel names.
     const channel = `ws:${parsed.data.workspace_id}:conv:${parsed.data.conversation_id}`;
-    if (!channelBelongsToWorkspace(channel, parsed.data.workspace_id)) {
+    if (!channelBelongsToWorkspace(channel, parsed.data.workspace_id)
+        || isInboxChannel(channel, parsed.data.workspace_id)) {
+      // Defense in depth: widget tokens MUST NEVER be issued for the
+      // operator-only inbox channel. Schema already prevents this (the
+      // channel name does not match :conv:<uuid>) but we reject explicitly.
       return res.status(403).json({ error: 'Channel not allowed' });
     }
     const tk = driver.issueSubscriptionToken({
@@ -319,6 +323,39 @@ realtimeRouter.post('/operator-subscribe', async (req, res) => {
     return res.json({ vendor: 'centrifugo', channel, token: tk.token, expires_at: tk.expires_at });
   } catch (err: any) {
     console.error('[realtime/operator-subscribe]', err);
+    res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────
+//  OPERATOR (inbox list): /api/realtime/operator-inbox-subscribe
+//  Phase 5 — Subscribes the workspace inbox to the operator-only
+//  channel `ws:<workspace_id>:inbox`. Carries `event` envelopes for
+//  conversation-list updates (status, priority, assignee, tags).
+//
+//  Auth: Supabase user JWT + workspace membership. Widget tokens can
+//  never reach this endpoint and could not subscribe to this channel
+//  even if they tried (`/realtime/subscribe` rejects inbox channel names).
+// ─────────────────────────────────────────────────────────────────────
+const operatorInboxSubscribeSchema = z.object({ workspace_id: z.string().uuid() });
+
+realtimeRouter.post('/operator-inbox-subscribe', async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const parsed = operatorInboxSubscribeSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid request' });
+    const user = await authorizeOperator(req, res, config, parsed.data.workspace_id);
+    if (!user) return;
+
+    const driver = await getCentrifugoDriver(config);
+    if (!driver) return res.json({ vendor: 'polling_builtin' });
+    const channel = `ws:${parsed.data.workspace_id}:inbox`;
+    const tk = driver.issueSubscriptionToken({
+      sub: `op_${user.id}`, channel, workspaceId: parsed.data.workspace_id,
+    });
+    return res.json({ vendor: 'centrifugo', channel, token: tk.token, expires_at: tk.expires_at });
+  } catch (err: any) {
+    console.error('[realtime/operator-inbox-subscribe]', err);
     res.status(500).json({ error: 'Internal error' });
   }
 });

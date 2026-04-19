@@ -11,7 +11,7 @@
 
 export type RealtimeVendor = 'centrifugo' | 'supabase' | 'polling' | 'disabled';
 
-export type NormalizedEventType = 'message' | 'typing' | 'seen';
+export type NormalizedEventType = 'message' | 'typing' | 'seen' | 'event';
 
 export interface NormalizedMessagePayload {
   id: string;
@@ -27,16 +27,34 @@ export interface NormalizedMessagePayload {
   metadata?: Record<string, unknown> | null;
 }
 
+/** Phase 5 — operator-only event envelope payload. Forward-safe via `kind`. */
+export type OperatorEventKind =
+  | 'conversation_updated'
+  | 'conversation_resolved'
+  | 'conversation_reopened'
+  | 'note_added'
+  | 'note_deleted'
+  | 'timeline_event';
+
+export interface OperatorEventPayload {
+  kind: OperatorEventKind;
+  conversation_id: string;
+  workspace_id: string;
+  actor_id?: string | null;
+  [key: string]: unknown;
+}
+
 export interface NormalizedEvent {
   type: NormalizedEventType;
-  /** Always shaped like the backend envelope payload. */
-  payload: NormalizedMessagePayload | Record<string, unknown>;
+  payload: NormalizedMessagePayload | OperatorEventPayload | Record<string, unknown>;
 }
 
 export interface RealtimeHandlers {
   onMessage?: (payload: NormalizedMessagePayload) => void;
   onTyping?: (payload: Record<string, unknown>) => void;
   onSeen?: (payload: Record<string, unknown>) => void;
+  /** Phase 5 — operator-only events. Polling/disabled adapters are no-ops. */
+  onEvent?: (payload: OperatorEventPayload) => void;
   /** Lifecycle (optional, advisory). Adapters MAY emit. UI MAY ignore. */
   onStatus?: (status: 'connecting' | 'open' | 'closed' | 'error', info?: { reason?: string }) => void;
 }

@@ -52,6 +52,7 @@ import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { recordConversationEvent } from '../services/conversationEvents.js';
+import { publishOperatorEvent } from '../services/realtime/publish.js';
 
 export const conversationNotesRouter = Router({ mergeParams: true });
 
@@ -205,6 +206,8 @@ conversationNotesRouter.post('/:id/notes', async (req, res) => {
       .maybeSingle();
 
     // Timeline event — stable payload: { note_id, preview }
+    // skipRealtimeEcho: the richer `note_added` operator event below
+    // already triggers the same UI invalidations.
     void recordConversationEvent(config, {
       workspaceId: parsed.data.workspace_id,
       conversationId,
@@ -215,7 +218,20 @@ conversationNotesRouter.post('/:id/notes', async (req, res) => {
         note_id: inserted.id,
         preview: parsed.data.body.slice(0, 140),
       },
+      skipRealtimeEcho: true,
     });
+
+    // Phase 5 — realtime push (operator-only). Per-conversation channel
+    // only; the inbox list does not display notes so we skip that fan-out.
+    void publishOperatorEvent(config, {
+      kind: 'note_added',
+      conversation_id: conversationId,
+      workspace_id: parsed.data.workspace_id,
+      actor_id: auth.userId,
+      note_id: inserted.id,
+      created_at: inserted.created_at,
+      preview: parsed.data.body.slice(0, 140),
+    }, { skipInboxChannel: true });
 
     return res.json({ ok: true, note: { ...inserted, author: profile ?? null } });
   } catch (err: any) {
@@ -324,7 +340,18 @@ conversationNotesRouter.delete('/:id/notes/:noteId', async (req, res) => {
       actorType: 'agent',
       actorId: auth.userId,
       payload: { note_id: noteId },
+      skipRealtimeEcho: true,
     });
+
+    // Phase 5 — realtime push (operator-only).
+    void publishOperatorEvent(config, {
+      kind: 'note_deleted',
+      conversation_id: conversationId,
+      workspace_id: workspaceId,
+      actor_id: auth.userId,
+      note_id: noteId,
+      created_at: new Date().toISOString(),
+    }, { skipInboxChannel: true });
 
     return res.json({ ok: true });
   } catch (err: any) {

@@ -7,8 +7,14 @@
  * `publishers/{centrifugo,supabase,noop}.ts`.
  *
  * Stable contracts (do not change):
- *   - channel:  ws:<workspace_id>:conv:<conversation_id>
- *   - envelope: { type: 'message' | 'typing' | 'seen', payload: { ... } }
+ *   - channels:
+ *       ws:<workspace_id>:conv:<conversation_id>   visitor + operator
+ *       ws:<workspace_id>:inbox                    operator-only
+ *   - envelope: { type: 'message' | 'typing' | 'seen' | 'event', payload: { ... } }
+ *
+ * `event` envelopes are operator-oriented. The widget runtime explicitly
+ * ignores unknown `type` values for forward-safety. Existing message/typing/
+ * seen envelopes remain byte-identical.
  *
  * Fail-safe: never throws. If realtime is disabled, mis-configured, or
  * the publish call fails, returns { ok: false, reason } and the caller
@@ -18,7 +24,7 @@
 
 import type { ServerConfig } from '../../config.js';
 import { resolvePublisher } from './resolvePublisher.js';
-import { buildChannelName } from './types.js';
+import { buildChannelName, buildInboxChannelName } from './types.js';
 import type { ConversationEventEnvelope } from './publishers/types.js';
 import { rtDebug, rtWarn } from './debug.js';
 
@@ -90,4 +96,84 @@ export function buildMessageEnvelope(row: {
       metadata: row.metadata ?? {},
     },
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Operator event envelopes (Phase 5 — realtime push for non-message events)
+// ─────────────────────────────────────────────────────────────────────
+
+/** Discriminated `payload.kind` values for `type: 'event'` envelopes. */
+export type OperatorEventKind =
+  | 'conversation_updated'
+  | 'conversation_resolved'
+  | 'conversation_reopened'
+  | 'note_added'
+  | 'note_deleted'
+  | 'timeline_event';
+
+export interface OperatorEventPayload {
+  kind: OperatorEventKind;
+  conversation_id: string;
+  workspace_id: string;
+  actor_id?: string | null;
+  /** All other fields are kind-specific; UI must guard on `kind`. */
+  [key: string]: unknown;
+}
+
+/** Wrap an operator event payload in the standard envelope shape. */
+export function buildEventEnvelope(payload: OperatorEventPayload): ConversationEventEnvelope {
+  return { type: 'event', payload: payload as Record<string, unknown> };
+}
+
+/**
+ * Fan out an operator-oriented event to BOTH:
+ *   1. The per-conversation channel (so an open thread updates immediately).
+ *   2. The workspace inbox channel (so the conversation list updates even
+ *      when the conversation isn't open).
+ *
+ * Both publishes are best-effort and independent. If either transport is
+ * disabled or fails, polling fallback still drives the UI within ≤10s.
+ */
+export async function publishOperatorEvent(
+  config: ServerConfig,
+  payload: OperatorEventPayload,
+  opts?: { skipInboxChannel?: boolean; skipConversationChannel?: boolean },
+): Promise<void> {
+  const envelope = buildEventEnvelope(payload);
+  const tasks: Promise<unknown>[] = [];
+
+  if (!opts?.skipConversationChannel) {
+    tasks.push(
+      publishConversationEvent(config, payload.workspace_id, payload.conversation_id, envelope),
+    );
+  }
+
+  if (!opts?.skipInboxChannel) {
+    tasks.push(
+      (async () => {
+        try {
+          const publisher = await resolvePublisher(config, payload.workspace_id);
+          const channel = buildInboxChannelName(payload.workspace_id);
+          rtDebug('publish', 'attempt:inbox', {
+            vendor: publisher.vendor,
+            channel,
+            kind: payload.kind,
+          });
+          const result = await publisher.publish(channel, envelope);
+          if (!result.ok) {
+            rtWarn('publish', 'inbox_skipped', {
+              vendor: publisher.vendor,
+              channel,
+              kind: payload.kind,
+              reason: result.reason,
+            });
+          }
+        } catch (err: any) {
+          rtWarn('publish', 'inbox_error', { error: err?.message || String(err) });
+        }
+      })(),
+    );
+  }
+
+  await Promise.allSettled(tasks);
 }

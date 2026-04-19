@@ -177,20 +177,79 @@ export function useDeleteAllConversations() {
   });
 }
 
+/**
+ * Phase 3 — Edit conversation fields via the authenticated backend route.
+ *
+ * Replaces the previous direct supabase.from('conversations').update(...)
+ * path so:
+ *   1. All edits flow through a workspace-membership-checked route.
+ *   2. The server records normalized conversation_events + audit_logs.
+ *   3. Tags get server-side normalization (trim/lowercase/dedupe).
+ *
+ * Optimistic update strategy:
+ *   • We patch the cached row immediately for both ['conversations', wsId, *]
+ *     list queries so the UI reflects the new value instantly.
+ *   • On error we roll back to the snapshot.
+ *   • On settle we invalidate to force a re-read so the cache is always
+ *     reconciled with the authoritative server state (handles tag
+ *     normalization, server-side rejections, and concurrent edits).
+ */
 export function useUpdateConversation() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, ...updates }: Partial<Conversation> & { id: string }) => {
-      const { data, error } = await supabase
-        .from('conversations')
-        .update({ ...updates, updated_at: new Date().toISOString() })
-        .eq('id', id)
-        .select()
-        .single();
-      if (error) throw error;
-      return data;
+    mutationFn: async (vars: {
+      id: string;
+      workspace_id: string;
+      status?: 'open' | 'pending' | 'resolved' | 'closed';
+      priority?: 'low' | 'normal' | 'high' | 'urgent';
+      assigned_to?: string | null;
+      tags?: string[];
+    }) => {
+      const result = await conversationsApi.patchConversation({
+        workspace_id: vars.workspace_id,
+        conversation_id: vars.id,
+        status: vars.status,
+        priority: vars.priority,
+        assigned_to: vars.assigned_to,
+        tags: vars.tags,
+      });
+      return result.conversation;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['conversations'] }),
+    onMutate: async (vars) => {
+      // Snapshot every cached conversation list for this workspace.
+      await qc.cancelQueries({ queryKey: ['conversations', vars.workspace_id] });
+      const previous = qc.getQueriesData<any[]>({ queryKey: ['conversations', vars.workspace_id] });
+      for (const [key, data] of previous) {
+        if (!Array.isArray(data)) continue;
+        qc.setQueryData(
+          key,
+          data.map((c) =>
+            c?.id === vars.id
+              ? {
+                  ...c,
+                  ...(vars.status !== undefined ? { status: vars.status } : {}),
+                  ...(vars.priority !== undefined ? { priority: vars.priority } : {}),
+                  ...(vars.assigned_to !== undefined ? { assigned_to: vars.assigned_to } : {}),
+                  ...(vars.tags !== undefined ? { tags: vars.tags } : {}),
+                  updated_at: new Date().toISOString(),
+                }
+              : c,
+          ),
+        );
+      }
+      return { previous };
+    },
+    onError: (_err, _vars, ctx) => {
+      // Roll back optimistic patch.
+      if (ctx?.previous) {
+        for (const [key, data] of ctx.previous) qc.setQueryData(key, data);
+      }
+    },
+    onSettled: (_data, _err, vars) => {
+      // Always reconcile against the authoritative server state.
+      qc.invalidateQueries({ queryKey: ['conversations', vars.workspace_id] });
+      qc.invalidateQueries({ queryKey: ['conversation-events', vars.id] });
+    },
   });
 }
 

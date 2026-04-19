@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
+import { ConversationActionPanel } from '@/components/inbox/ConversationActionPanel';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 const ALLOWED_OPERATOR_MIMES = new Set([
@@ -635,7 +636,7 @@ export default function InboxPage() {
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => updateConv.mutate({ id: selectedId, status: 'resolved' })}
+                    onClick={() => workspace?.id && updateConv.mutate({ id: selectedId, workspace_id: workspace.id, status: 'resolved' })}
                     className="h-7 px-2.5 text-[10px] font-semibold bg-success/10 border-success/20 text-success hover:bg-success/20"
                   >
                     <CheckCircle2 className={cn('w-3 h-3', dir === 'rtl' ? 'ml-1' : 'mr-1')} />
@@ -643,7 +644,7 @@ export default function InboxPage() {
                   </Button>
                 )}
                 {selected.status === 'resolved' && (
-                  <Button size="sm" variant="outline" className="text-xs h-7" onClick={() => updateConv.mutate({ id: selectedId, status: 'open' })}>
+                  <Button size="sm" variant="outline" className="text-xs h-7" onClick={() => workspace?.id && updateConv.mutate({ id: selectedId, workspace_id: workspace.id, status: 'open' })}>
                     {t('inbox.reopen') || 'Reopen'}
                   </Button>
                 )}
@@ -684,7 +685,7 @@ export default function InboxPage() {
               </div>
               <div className="flex items-center gap-1">
                 {selected.status === 'open' && (
-                  <button onClick={() => updateConv.mutate({ id: selectedId, status: 'resolved' })} className="p-2 rounded-xl text-success hover:bg-success/10 transition-colors">
+                  <button onClick={() => workspace?.id && updateConv.mutate({ id: selectedId, workspace_id: workspace.id, status: 'resolved' })} className="p-2 rounded-xl text-success hover:bg-success/10 transition-colors">
                     <CheckCircle2 className="w-5 h-5" />
                   </button>
                 )}
@@ -972,29 +973,30 @@ export default function InboxPage() {
                   </div>
                 )}
 
-                {/* Priority + Assign */}
-                <div className="rounded-xl border border-border/50 bg-card/60 overflow-hidden">
-                  <div className="px-3 py-2 border-b border-border/30 bg-secondary/15">
-                    <h4 className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">{t('inbox.details') || 'Details'}</h4>
-                  </div>
-                  <div className="divide-y divide-border/20">
-                    <div className="flex items-center justify-between px-3 py-2">
-                      <span className="text-[11px] text-muted-foreground">{t('inbox.priority') || 'Priority'}</span>
-                      <span className={cn('text-[11px] font-medium capitalize', priorityColors[selected.priority ?? 'normal'])}>
-                        {selected.priority ?? 'normal'}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between px-3 py-2">
-                      <span className="text-[11px] text-muted-foreground">{t('inbox.status') || 'Status'}</span>
-                      <span className="text-[11px] font-medium text-foreground capitalize">{selected.status}</span>
-                    </div>
-                    <div className="flex items-center justify-between px-3 py-2">
-                      <span className="text-[11px] text-muted-foreground">{t('inbox.created') || 'Created'}</span>
-                      <span className="text-[11px] font-medium text-foreground" dir="ltr">
-                        {selected.created_at ? new Date(selected.created_at).toLocaleDateString() : '—'}
-                      </span>
-                    </div>
-                  </div>
+                {/* Phase 3 — Editable action panel */}
+                <ConversationActionPanel
+                  conversationId={selectedId!}
+                  workspaceId={workspace?.id ?? ''}
+                  status={selected.status ?? 'open'}
+                  priority={selected.priority ?? 'normal'}
+                  assignedTo={selected.assigned_to ?? null}
+                  tags={selected.tags ?? []}
+                  onMutate={(vars) =>
+                    workspace?.id && updateConv.mutate({
+                      id: selectedId!,
+                      workspace_id: workspace.id,
+                      ...vars,
+                    })
+                  }
+                  isPending={updateConv.isPending}
+                  t={t}
+                  dir={dir}
+                />
+                <div className="rounded-xl border border-border/50 bg-card/60 px-3 py-2 flex items-center justify-between">
+                  <span className="text-[11px] text-muted-foreground">{t('inbox.created') || 'Created'}</span>
+                  <span className="text-[11px] font-medium text-foreground" dir="ltr">
+                    {selected.created_at ? new Date(selected.created_at).toLocaleDateString() : '—'}
+                  </span>
                 </div>
               </div>
             )}

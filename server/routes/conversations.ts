@@ -31,8 +31,15 @@ import {
   attachUploadedFileToMessage,
   enrichMessagesWithAttachments,
 } from './widgetAttachments.js';
+import {
+  recordConversationEvent,
+  recordAuditAndEvent,
+} from '../services/conversationEvents.js';
 
 export const conversationsRouter = Router();
+
+const ALLOWED_STATUSES = ['open', 'pending', 'resolved', 'closed'] as const;
+const ALLOWED_PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
 
 const sendMessageSchema = z.object({
   conversation_id: z.string().uuid(),
@@ -230,6 +237,21 @@ conversationsRouter.post('/send-message', async (req, res) => {
       buildMessageEnvelope(enriched as any),
     );
 
+    // Phase 3 — record attachment_added event (timeline-only) when applicable.
+    if (parsed.data.attachment_id) {
+      void recordConversationEvent(config, {
+        workspaceId: parsed.data.workspace_id,
+        conversationId: parsed.data.conversation_id,
+        eventType: 'attachment_added',
+        actorType: 'agent',
+        actorId: auth.userId,
+        payload: {
+          message_id: inserted.id,
+          attachment_id: parsed.data.attachment_id,
+        },
+      });
+    }
+
     return res.json({
       ok: true,
       message: enriched,
@@ -237,6 +259,171 @@ conversationsRouter.post('/send-message', async (req, res) => {
     });
   } catch (err: any) {
     console.error('[conversations/send-message] error:', err);
+    return res.status(500).json({ error: err?.message || 'Internal error' });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Phase 3 — PATCH /api/conversations/:id
+// Editable fields: status, priority, assigned_to, tags
+// Each change records a normalized conversation_events row + audit_log.
+// We intentionally do NOT add a new realtime envelope type — the
+// 'message'|'typing'|'seen' contract stays untouched. Inbox refreshes
+// via React Query invalidation on the success response. Widget is unaffected.
+// ═══════════════════════════════════════════════════════════════════
+const patchConversationSchema = z.object({
+  workspace_id: z.string().uuid(),
+  status: z.enum(ALLOWED_STATUSES).optional(),
+  priority: z.enum(ALLOWED_PRIORITIES).optional(),
+  assigned_to: z.string().uuid().nullable().optional(),
+  tags: z.array(z.string().min(1).max(50)).max(20).optional(),
+}).refine(
+  d => d.status !== undefined || d.priority !== undefined
+    || d.assigned_to !== undefined || d.tags !== undefined,
+  { message: 'No editable field provided' }
+);
+
+conversationsRouter.patch('/:id', async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const parsed = patchConversationSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: 'Invalid payload',
+        details: parsed.error.flatten().fieldErrors,
+      });
+    }
+    const auth = await authorizeWorkspaceMember(req, res, config, parsed.data.workspace_id);
+    if (!auth) return;
+
+    const sb = getServiceClient(config);
+    const conversationId = req.params.id;
+
+    // Load current row to verify workspace ownership AND compute the diff.
+    const { data: before, error: loadErr } = await sb
+      .from('conversations')
+      .select('id, workspace_id, status, priority, assigned_to, tags')
+      .eq('id', conversationId)
+      .maybeSingle();
+    if (loadErr) return res.status(500).json({ error: loadErr.message });
+    if (!before || before.workspace_id !== parsed.data.workspace_id) {
+      return res.status(404).json({ error: 'Conversation not found in workspace' });
+    }
+
+    // Verify the assignee (if any) is also a workspace member.
+    if (parsed.data.assigned_to) {
+      const { data: targetIsMember } = await sb.rpc('is_workspace_member', {
+        _workspace_id: parsed.data.workspace_id,
+        _user_id: parsed.data.assigned_to,
+      });
+      if (!targetIsMember) {
+        return res.status(400).json({ error: 'Assignee is not a workspace member' });
+      }
+    }
+
+    // Build the update set. Tags are normalized (trim, dedupe, lowercase).
+    const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    if (parsed.data.status !== undefined) update.status = parsed.data.status;
+    if (parsed.data.priority !== undefined) update.priority = parsed.data.priority;
+    if (parsed.data.assigned_to !== undefined) update.assigned_to = parsed.data.assigned_to;
+    let normalizedTags: string[] | undefined;
+    if (parsed.data.tags !== undefined) {
+      const seen = new Set<string>();
+      normalizedTags = [];
+      for (const raw of parsed.data.tags) {
+        const tag = String(raw).trim().toLowerCase();
+        if (!tag || seen.has(tag)) continue;
+        seen.add(tag);
+        normalizedTags.push(tag);
+      }
+      update.tags = normalizedTags;
+    }
+
+    const { data: after, error: updErr } = await sb
+      .from('conversations')
+      .update(update)
+      .eq('id', conversationId)
+      .select('id, workspace_id, status, priority, assigned_to, tags, updated_at')
+      .single();
+    if (updErr || !after) {
+      return res.status(500).json({ error: updErr?.message || 'Update failed' });
+    }
+
+    // ─── Record events + audit per changed field ───
+    const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
+      || req.socket?.remoteAddress
+      || null;
+
+    const eventBase = {
+      workspaceId: parsed.data.workspace_id,
+      conversationId,
+      actorType: 'agent' as const,
+      actorId: auth.userId,
+      ipAddress: ip,
+    };
+
+    if (parsed.data.status !== undefined && before.status !== parsed.data.status) {
+      const wasResolved = before.status === 'resolved' || before.status === 'closed';
+      const nowResolved = parsed.data.status === 'resolved' || parsed.data.status === 'closed';
+      let evType = 'status_changed';
+      if (!wasResolved && nowResolved) evType = 'resolved';
+      else if (wasResolved && !nowResolved) evType = 'reopened';
+      void recordAuditAndEvent(config, {
+        ...eventBase,
+        eventType: evType,
+        auditAction: 'conversation.status_changed',
+        oldValue: { status: before.status },
+        newValue: { status: parsed.data.status },
+        payload: { from: before.status, to: parsed.data.status },
+      });
+    }
+
+    if (parsed.data.priority !== undefined && before.priority !== parsed.data.priority) {
+      void recordAuditAndEvent(config, {
+        ...eventBase,
+        eventType: 'priority_changed',
+        auditAction: 'conversation.priority_changed',
+        oldValue: { priority: before.priority },
+        newValue: { priority: parsed.data.priority },
+        payload: { from: before.priority, to: parsed.data.priority },
+      });
+    }
+
+    if (parsed.data.assigned_to !== undefined && before.assigned_to !== parsed.data.assigned_to) {
+      void recordAuditAndEvent(config, {
+        ...eventBase,
+        eventType: parsed.data.assigned_to ? 'assigned' : 'unassigned',
+        auditAction: parsed.data.assigned_to ? 'conversation.assigned' : 'conversation.unassigned',
+        oldValue: { assigned_to: before.assigned_to },
+        newValue: { assigned_to: parsed.data.assigned_to },
+        payload: { from: before.assigned_to, to: parsed.data.assigned_to },
+      });
+    }
+
+    if (normalizedTags !== undefined) {
+      const beforeTags = new Set<string>((before.tags as string[] | null) ?? []);
+      const afterTags = new Set<string>(normalizedTags);
+      const added = [...afterTags].filter(t => !beforeTags.has(t));
+      const removed = [...beforeTags].filter(t => !afterTags.has(t));
+      for (const tag of added) {
+        void recordConversationEvent(config, {
+          ...eventBase,
+          eventType: 'tag_added',
+          payload: { tag },
+        });
+      }
+      for (const tag of removed) {
+        void recordConversationEvent(config, {
+          ...eventBase,
+          eventType: 'tag_removed',
+          payload: { tag },
+        });
+      }
+    }
+
+    return res.json({ ok: true, conversation: after });
+  } catch (err: any) {
+    console.error('[conversations PATCH] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
   }
 });

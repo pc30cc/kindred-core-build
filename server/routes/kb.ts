@@ -49,6 +49,12 @@ function normalizeLocale(v: string | undefined, fallback: Locale = 'en'): Locale
   return isLocale(short) ? short : fallback;
 }
 
+/** Coerce a possibly-array Express path param to a single string. */
+function paramStr(v: string | string[] | undefined): string | undefined {
+  if (Array.isArray(v)) return v[0];
+  return v;
+}
+
 function escapeHtml(input: string): string {
   return String(input || '')
     .replace(/&/g, '&amp;')
@@ -107,6 +113,19 @@ async function resolveWorkspaceForHost(config: ServerConfig, req: Request): Prom
 
 export const widgetKbRouter: Router = express.Router();
 
+/**
+ * Host→workspace probe used by the SPA-side public KB pages to discover
+ * the workspace bound to the current Host without exposing service-role
+ * data. Returns { workspace_id } or 404. Read-only and safe to expose:
+ * the resolution is the same one already used by the public SSR routes.
+ */
+widgetKbRouter.get('/help-host', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = await resolveWorkspaceForHost(config, req);
+  if (!workspaceId) return res.status(404).json({ error: 'no_workspace' });
+  return res.json({ workspace_id: workspaceId });
+});
+
 const categoriesSchema = z.object({
   workspace_id: z.string().uuid(),
   locale: z.string().min(2).max(10).optional(),
@@ -129,6 +148,43 @@ widgetKbRouter.get('/categories', async (req: Request, res: Response) => {
     .order('sort_order', { ascending: true });
 
   return res.json({ locale, categories: cats || [] });
+});
+
+const categoryArticlesSchema = z.object({
+  locale: z.string().min(2).max(10).optional(),
+  slug: z.string().min(1).max(200),
+});
+
+/**
+ * Public-helper used by the SPA-side category page to list articles in a
+ * category without requiring the SPA to know workspace_id. Workspace is
+ * resolved from Host (same rules as the SSR routes).
+ */
+widgetKbRouter.get('/category-articles', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = categoryArticlesSchema.safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
+  const workspaceId = await resolveWorkspaceForHost(config, req);
+  if (!workspaceId) return res.status(404).json({ error: 'no_workspace' });
+  const locale = normalizeLocale(parsed.data.locale);
+  const supabase = getServiceClient(config);
+  const { data: cat } = await supabase
+    .from('knowledge_base_categories')
+    .select('id')
+    .eq('workspace_id', workspaceId)
+    .eq('locale', locale)
+    .eq('slug', parsed.data.slug)
+    .maybeSingle();
+  if (!cat) return res.json({ articles: [] });
+  const { data: arts } = await supabase
+    .from('knowledge_base_articles')
+    .select('title, slug, excerpt')
+    .eq('workspace_id', workspaceId)
+    .eq('category_id', (cat as any).id)
+    .eq('locale', locale)
+    .eq('status', 'published')
+    .order('sort_order', { ascending: true });
+  return res.json({ articles: arts || [] });
 });
 
 const articleSchema = z.object({
@@ -344,8 +400,9 @@ publicKbRouter.get('/help/sitemap.xml', async (req: Request, res: Response) => {
 
 publicKbRouter.get('/help/:locale', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
-  const locale = normalizeLocale(req.params.locale);
-  if (req.params.locale !== locale) {
+  const rawLocale = paramStr(req.params.locale as any);
+  const locale = normalizeLocale(rawLocale);
+  if (rawLocale !== locale) {
     return res.redirect(302, `/help/${locale}`);
   }
   const workspaceId = await resolveWorkspaceForHost(config, req);
@@ -442,8 +499,9 @@ publicKbRouter.get('/help/:locale', async (req: Request, res: Response) => {
 
 publicKbRouter.get('/help/:locale/c/:slug', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
-  const locale = normalizeLocale(req.params.locale);
-  if (req.params.locale !== locale) return res.redirect(302, `/help/${locale}/c/${req.params.slug}`);
+  const rawLocale = paramStr(req.params.locale as any);
+  const locale = normalizeLocale(rawLocale);
+  if (rawLocale !== locale) return res.redirect(302, `/help/${locale}/c/${req.params.slug}`);
 
   const workspaceId = await resolveWorkspaceForHost(config, req);
   if (!workspaceId) return res.status(404).send('Not found');
@@ -518,8 +576,9 @@ publicKbRouter.get('/help/:locale/c/:slug', async (req: Request, res: Response) 
 
 publicKbRouter.get('/help/:locale/a/:slug', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
-  const locale = normalizeLocale(req.params.locale);
-  if (req.params.locale !== locale) return res.redirect(302, `/help/${locale}/a/${req.params.slug}`);
+  const rawLocale = paramStr(req.params.locale as any);
+  const locale = normalizeLocale(rawLocale);
+  if (rawLocale !== locale) return res.redirect(302, `/help/${locale}/a/${req.params.slug}`);
 
   const workspaceId = await resolveWorkspaceForHost(config, req);
   if (!workspaceId) return res.status(404).send('Not found');
@@ -600,8 +659,9 @@ publicKbRouter.get('/help/:locale/a/:slug', async (req: Request, res: Response) 
 
 publicKbRouter.get('/help/:locale/search', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
-  const locale = normalizeLocale(req.params.locale);
-  if (req.params.locale !== locale) {
+  const rawLocale = paramStr(req.params.locale as any);
+  const locale = normalizeLocale(rawLocale);
+  if (rawLocale !== locale) {
     const q = typeof req.query.q === 'string' ? req.query.q : '';
     return res.redirect(302, `/help/${locale}/search${q ? `?q=${encodeURIComponent(q)}` : ''}`);
   }

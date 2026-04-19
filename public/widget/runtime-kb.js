@@ -1,56 +1,87 @@
 /**
  * Widget Module: Knowledge Base
- * Lazy-loaded when user opens Help tab.
+ * Lazy-loaded when user opens Help tab. Talks to:
+ *   GET /api/widget/kb/categories
+ *   GET /api/widget/kb/article
+ *   GET /api/widget/kb/search
+ *
+ * Public API (window.__gs_mod_kb):
+ *   loadCategories({ apiBase, workspaceId, locale, sessionToken, onResult })
+ *   loadArticle   ({ apiBase, workspaceId, locale, sessionToken, slug, onResult })
+ *   searchArticles({ apiBase, workspaceId, locale, sessionToken, query, limit, signal, onResult })
  */
 (function () {
   'use strict';
 
+  function buildUrl(apiBase, path, params) {
+    var qs = [];
+    for (var k in params) {
+      if (Object.prototype.hasOwnProperty.call(params, k) && params[k] != null && params[k] !== '') {
+        qs.push(encodeURIComponent(k) + '=' + encodeURIComponent(params[k]));
+      }
+    }
+    return apiBase + path + (qs.length ? ('?' + qs.join('&')) : '');
+  }
+
+  function doFetch(url, sessionToken, signal) {
+    var opts = {
+      method: 'GET',
+      headers: { 'X-Widget-Token': sessionToken || '' },
+      credentials: 'include',
+    };
+    if (signal) opts.signal = signal;
+    return fetch(url, opts).then(function (r) {
+      if (!r.ok) throw new Error('http_' + r.status);
+      return r.json();
+    });
+  }
+
   window.__gs_mod_kb = {
-    loadArticles: function (opts) {
-      var apiBase = opts.apiBase;
-      var workspaceId = opts.workspaceId;
-      var sessionToken = opts.sessionToken;
-      var locale = opts.locale || 'en';
-      var onArticles = opts.onArticles;
+    loadCategories: function (opts) {
+      if (!opts || !opts.apiBase || !opts.workspaceId) {
+        if (opts && opts.onResult) opts.onResult({ ok: false, categories: [] });
+        return;
+      }
+      var url = buildUrl(opts.apiBase, '/api/widget/kb/categories', {
+        workspace_id: opts.workspaceId,
+        locale: opts.locale || 'en',
+      });
+      doFetch(url, opts.sessionToken)
+        .then(function (data) { opts.onResult({ ok: true, categories: data.categories || [] }); })
+        .catch(function () { opts.onResult({ ok: false, categories: [] }); });
+    },
 
-      if (!apiBase || !workspaceId) return;
-
-      fetch(
-        apiBase + '/api/widget/help-articles?workspace_id=' + encodeURIComponent(workspaceId) +
-        '&locale=' + encodeURIComponent(locale),
-        { headers: { 'X-Widget-Token': sessionToken || '' } }
-      )
-        .then(function (r) { return r.json(); })
-        .then(function (data) {
-          if (onArticles) onArticles(data.articles || []);
-        })
-        .catch(function () {
-          if (onArticles) onArticles([]);
-        });
+    loadArticle: function (opts) {
+      if (!opts || !opts.apiBase || !opts.workspaceId || !opts.slug) {
+        if (opts && opts.onResult) opts.onResult({ ok: false, article: null });
+        return;
+      }
+      var url = buildUrl(opts.apiBase, '/api/widget/kb/article', {
+        workspace_id: opts.workspaceId,
+        locale: opts.locale || 'en',
+        slug: opts.slug,
+      });
+      doFetch(url, opts.sessionToken)
+        .then(function (data) { opts.onResult({ ok: true, article: data.article || null }); })
+        .catch(function () { opts.onResult({ ok: false, article: null }); });
     },
 
     searchArticles: function (opts) {
-      var apiBase = opts.apiBase;
-      var workspaceId = opts.workspaceId;
-      var sessionToken = opts.sessionToken;
-      var query = opts.query || '';
-      var locale = opts.locale || 'en';
-      var onResults = opts.onResults;
-
-      if (!apiBase || !workspaceId || !query) return;
-
-      fetch(
-        apiBase + '/api/widget/help-articles?workspace_id=' + encodeURIComponent(workspaceId) +
-        '&locale=' + encodeURIComponent(locale) +
-        '&q=' + encodeURIComponent(query),
-        { headers: { 'X-Widget-Token': sessionToken || '' } }
-      )
-        .then(function (r) { return r.json(); })
-        .then(function (data) {
-          if (onResults) onResults(data.articles || []);
-        })
-        .catch(function () {
-          if (onResults) onResults([]);
+      if (!opts || !opts.apiBase || !opts.workspaceId || !opts.query) {
+        if (opts && opts.onResult) opts.onResult({ ok: true, results: [] });
+        return;
+      }
+      var url = buildUrl(opts.apiBase, '/api/widget/kb/search', {
+        workspace_id: opts.workspaceId,
+        locale: opts.locale || 'en',
+        q: opts.query,
+        limit: opts.limit || 8,
+      });
+      doFetch(url, opts.sessionToken, opts.signal)
+        .then(function (data) { opts.onResult({ ok: true, results: data.results || [] }); })
+        .catch(function (e) {
+          if (e && e.name === 'AbortError') return;
+          opts.onResult({ ok: false, results: [] });
         });
     },
   };

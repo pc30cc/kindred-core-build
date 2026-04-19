@@ -65,6 +65,12 @@ import AdminWidgetSettingsPage from "@/pages/admin/WidgetSettingsPage";
 
 import NotFound from "@/pages/NotFound";
 
+// Public Knowledge Base — SPA hydration on top of SSR-rendered first paint.
+import HelpIndexPage from "@/pages/public/kb/HelpIndexPage";
+import HelpCategoryPage from "@/pages/public/kb/HelpCategoryPage";
+import HelpArticlePage from "@/pages/public/kb/HelpArticlePage";
+import HelpSearchPage from "@/pages/public/kb/HelpSearchPage";
+
 const queryClient = new QueryClient();
 
 interface AppProps {
@@ -85,6 +91,15 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
             <Routes>
               {/* Root redirects to app */}
               <Route path="/" element={<Navigate to="/app" replace />} />
+
+              {/* Public Knowledge Base — SSR (Express) is the source of truth
+                  for first paint at /help/:locale/...; these client routes
+                  hydrate that paint and handle subsequent client-side nav. */}
+              <Route path="/help" element={<Navigate to="/help/en" replace />} />
+              <Route path="/help/:locale" element={<HelpIndexPage />} />
+              <Route path="/help/:locale/c/:slug" element={<HelpCategoryPage />} />
+              <Route path="/help/:locale/a/:slug" element={<HelpArticlePage />} />
+              <Route path="/help/:locale/search" element={<HelpSearchPage />} />
 
               {/* Auth */}
               <Route element={<AuthLayout />}>

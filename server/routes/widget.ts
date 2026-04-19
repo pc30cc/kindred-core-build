@@ -56,6 +56,8 @@ import { resolveVisitorIdentity, readVisitorCookie } from '../services/widget/vi
 import { widgetIdentityRouter } from './widgetIdentity.js';
 import { widgetAttachmentsRouter, attachUploadedFileToMessage, enrichMessagesWithAttachments } from './widgetAttachments.js';
 import { recordConversationEvent } from '../services/conversationEvents.js';
+import { resolveAvailability, snapshotToWirePayload } from '../services/widget/availability.js';
+import { sendEmail } from '../services/email/index.js';
 
 export const widgetRouter = Router();
 

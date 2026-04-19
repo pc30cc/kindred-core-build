@@ -1483,7 +1483,8 @@
       transport.loadHistory({
         onResult: function (result) {
           if (result.conversationId) {
-            chatStore.set({ conversationId: result.conversationId });
+          chatStore.set({ conversationId: result.conversationId });
+            try { document.cookie = 'gs_active=1; path=/; max-age=86400; SameSite=Lax'; } catch (_) {}
             transport.subscribeConversation(result.conversationId);
           }
           if (mergeIncoming(result.messages || [])) onChange();
@@ -2013,7 +2014,8 @@
       var conn = transportStore.get().connectionState;
       var pState = presenceStore.get();
       var availOk = pState.liveChatEnabled !== false
-        && !((pState.status === 'offline' || pState.status === 'unavailable') && pState.offlineMode === 'contact_fallback');
+        && !((pState.status === 'offline' || pState.status === 'unavailable')
+          && (pState.offlineMode === 'contact_fallback' || pState.offlineMode === 'capture_message'));
       attachBtn.disabled = !(conn === 'online' && availOk);
     }
     transportStore.subscribe(syncAttachButton);
@@ -2063,7 +2065,7 @@
       var pState = presenceStore.get();
       var availOk = pState.liveChatEnabled !== false
         && !((pState.status === 'offline' || pState.status === 'unavailable')
-          && pState.offlineMode === 'contact_fallback');
+          && (pState.offlineMode === 'contact_fallback' || pState.offlineMode === 'capture_message'));
       var canSend = conn === 'online' && shellStore.get().activeTab === 'chat' && availOk;
       msgInput.disabled = !canSend;
       sendBtn.disabled = !canSend;
@@ -2223,7 +2225,8 @@
         var pMode = presenceStore.get().offlineMode;
         var hasMessages = (chatStore.get().messages || []).length > 0;
         var shouldFallback = (pStatus === 'offline' || pStatus === 'unavailable')
-          && pMode === 'contact_fallback' && !hasMessages;
+          && (pMode === 'contact_fallback' || pMode === 'capture_message')
+          && !hasMessages;
         if (shouldFallback) {
           chatUI.renderContactFallback(body, identity, ctx.locale, presenceStore.get(), function () {
             renderBody();

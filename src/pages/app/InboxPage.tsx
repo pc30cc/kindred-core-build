@@ -3,6 +3,8 @@ import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useConversations, useConversationMessages, useSendMessage, useUpdateConversation, useDeleteAllConversations, useMarkConversationSeen } from '@/hooks/useConversations';
 import { useInboxRealtime } from '@/hooks/useInboxRealtime';
+import { useVisitorPresenceForConversation } from '@/hooks/useVisitorPresence';
+import { conversationsApi } from '@/lib/conversations-api';
 import { useQueryClient } from '@tanstack/react-query';
 import { useIsGlobalAdmin } from '@/hooks/useAdmin';
 import {

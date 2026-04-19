@@ -245,6 +245,10 @@ const en = {
     status: 'Status',
     created: 'Created',
     noActivity: 'No activity recorded yet',
+    presenceOnline: 'Online',
+    presenceIdle: 'Idle',
+    presenceOffline: 'Offline',
+    visitorTyping: 'typing…',
   },
   contacts: {
     title: 'Contacts',

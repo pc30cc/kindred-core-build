@@ -599,6 +599,20 @@ export default function InboxPage() {
               <div ref={messagesEndRef} />
             </div>
 
+            {/* ── Visitor typing indicator ── */}
+            {visitorTypingActive && (
+              <div className="px-4 py-1.5 text-[11px] text-muted-foreground flex items-center gap-2 bg-background border-t border-border/40" dir={dir}>
+                <span className="inline-flex gap-0.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: '300ms' }} />
+                </span>
+                <span>
+                  {(selected?.contacts?.name || t('inbox.visitor') || 'Visitor')} {t('inbox.visitorTyping') || 'typing…'}
+                </span>
+              </div>
+            )}
+
             {/* ── Input Area ── */}
             <div className="border-t border-border px-3 py-2.5 bg-card/50 shrink-0" dir={dir}>
               <div className={cn(
@@ -610,7 +624,7 @@ export default function InboxPage() {
                 <Textarea
                   placeholder={t('inbox.typeMessage') || 'Type a message...'}
                   value={message}
-                  onChange={e => setMessage(e.target.value)}
+                  onChange={e => { setMessage(e.target.value); if (e.target.value) emitTyping(); }}
                   onKeyDown={e => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();

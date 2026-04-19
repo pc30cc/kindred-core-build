@@ -1506,6 +1506,8 @@ export type Database = {
           artifact_hash: string | null
           artifact_path: string | null
           artifact_size_bytes: number | null
+          artifact_storage_key: string | null
+          artifact_storage_provider: string | null
           cancelled_at: string | null
           completed_at: string | null
           download_count: number
@@ -1529,6 +1531,8 @@ export type Database = {
           artifact_hash?: string | null
           artifact_path?: string | null
           artifact_size_bytes?: number | null
+          artifact_storage_key?: string | null
+          artifact_storage_provider?: string | null
           cancelled_at?: string | null
           completed_at?: string | null
           download_count?: number
@@ -1552,6 +1556,8 @@ export type Database = {
           artifact_hash?: string | null
           artifact_path?: string | null
           artifact_size_bytes?: number | null
+          artifact_storage_key?: string | null
+          artifact_storage_provider?: string | null
           cancelled_at?: string | null
           completed_at?: string | null
           download_count?: number

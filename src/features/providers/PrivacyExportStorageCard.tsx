@@ -94,11 +94,11 @@ export function PrivacyExportStorageCard() {
         .select('value')
         .eq('key', 'privacy_export_storage')
         .maybeSingle();
-      if (data?.value) {
-        const v = data.value as unknown as PolicyValue;
+      if (data?.value && typeof data.value === 'object' && !Array.isArray(data.value)) {
+        const v = data.value as Record<string, unknown>;
         setValue({
-          provider: v.provider || 'local',
-          config: v.config || {},
+          provider: (v.provider as Provider) || 'local',
+          config: (v.config as Record<string, string | undefined>) || {},
           allow_attachment_fallback: Boolean(v.allow_attachment_fallback),
         });
       }

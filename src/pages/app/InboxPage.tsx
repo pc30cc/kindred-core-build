@@ -325,6 +325,20 @@ export default function InboxPage() {
     resetAttachment();
   }, [att.attachmentId, workspace?.id, resetAttachment]);
 
+  // Phase 1 — operator typing emit (throttled to ≤1 publish per 2s while typing).
+  // Declared early so the canned-responses onMessageChange can reference it.
+  const lastTypingSentRef = useRef(0);
+  const emitTyping = useCallback(() => {
+    if (!workspace?.id || !selectedId) return;
+    const now = Date.now();
+    if (now - lastTypingSentRef.current < 2000) return;
+    lastTypingSentRef.current = now;
+    conversationsApi.sendTyping({
+      workspace_id: workspace.id,
+      conversation_id: selectedId,
+    });
+  }, [workspace?.id, selectedId]);
+
   // ─── Phase 6 — Canned responses integration ───
   // Locale used to rank: profile preferred locale → UI locale → 'en'.
   const { data: profile } = useProfile();
@@ -484,20 +498,6 @@ export default function InboxPage() {
     setMessage('');
     resetAttachment();
   };
-
-  // Phase 1 — operator typing emit (throttled to ≤1 publish per 2s while typing).
-  // Realtime-only ephemeral event; failure is silently ignored.
-  const lastTypingSentRef = useRef(0);
-  const emitTyping = useCallback(() => {
-    if (!workspace?.id || !selectedId) return;
-    const now = Date.now();
-    if (now - lastTypingSentRef.current < 2000) return;
-    lastTypingSentRef.current = now;
-    conversationsApi.sendTyping({
-      workspace_id: workspace.id,
-      conversation_id: selectedId,
-    });
-  }, [workspace?.id, selectedId]);
 
   // Reset visitor typing indicator + pending attachment when switching conversations.
   useEffect(() => {

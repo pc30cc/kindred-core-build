@@ -400,8 +400,9 @@ publicKbRouter.get('/help/sitemap.xml', async (req: Request, res: Response) => {
 
 publicKbRouter.get('/help/:locale', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
-  const locale = normalizeLocale(req.params.locale);
-  if (req.params.locale !== locale) {
+  const rawLocale = paramStr(req.params.locale as any);
+  const locale = normalizeLocale(rawLocale);
+  if (rawLocale !== locale) {
     return res.redirect(302, `/help/${locale}`);
   }
   const workspaceId = await resolveWorkspaceForHost(config, req);
@@ -498,8 +499,9 @@ publicKbRouter.get('/help/:locale', async (req: Request, res: Response) => {
 
 publicKbRouter.get('/help/:locale/c/:slug', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
-  const locale = normalizeLocale(req.params.locale);
-  if (req.params.locale !== locale) return res.redirect(302, `/help/${locale}/c/${req.params.slug}`);
+  const rawLocale = paramStr(req.params.locale as any);
+  const locale = normalizeLocale(rawLocale);
+  if (rawLocale !== locale) return res.redirect(302, `/help/${locale}/c/${req.params.slug}`);
 
   const workspaceId = await resolveWorkspaceForHost(config, req);
   if (!workspaceId) return res.status(404).send('Not found');

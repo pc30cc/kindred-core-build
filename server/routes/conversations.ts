@@ -31,8 +31,15 @@ import {
   attachUploadedFileToMessage,
   enrichMessagesWithAttachments,
 } from './widgetAttachments.js';
+import {
+  recordConversationEvent,
+  recordAuditAndEvent,
+} from '../services/conversationEvents.js';
 
 export const conversationsRouter = Router();
+
+const ALLOWED_STATUSES = ['open', 'pending', 'resolved', 'closed'] as const;
+const ALLOWED_PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
 
 const sendMessageSchema = z.object({
   conversation_id: z.string().uuid(),

@@ -3,6 +3,8 @@ import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useConversations, useConversationMessages, useSendMessage, useUpdateConversation, useDeleteAllConversations, useMarkConversationSeen } from '@/hooks/useConversations';
 import { useInboxRealtime } from '@/hooks/useInboxRealtime';
+import { useVisitorPresenceForConversation } from '@/hooks/useVisitorPresence';
+import { conversationsApi } from '@/lib/conversations-api';
 import { useQueryClient } from '@tanstack/react-query';
 import { useIsGlobalAdmin } from '@/hooks/useAdmin';
 import {
@@ -84,10 +86,20 @@ export default function InboxPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
 
-  // Wire inbox to the active realtime provider (Centrifugo).
-  // On a `message` push for the selected conversation, refresh the
-  // messages list so the agent sees visitor replies live.
+  // Wire inbox to the active realtime provider (Centrifugo / Supabase / polling).
+  // - On `message` push: refetch the message list (visitor replies appear live).
+  // - On `typing` push from the visitor: flash a transient "typing…" indicator.
   const qc = useQueryClient();
+  const [visitorTypingUntil, setVisitorTypingUntil] = useState(0);
+  const visitorTypingActive = visitorTypingUntil > Date.now();
+
+  // Tick re-renders so the typing indicator auto-hides without an extra event.
+  useEffect(() => {
+    if (!visitorTypingActive) return;
+    const t = setTimeout(() => setVisitorTypingUntil(0), Math.max(250, visitorTypingUntil - Date.now()));
+    return () => clearTimeout(t);
+  }, [visitorTypingUntil, visitorTypingActive]);
+
   useInboxRealtime({
     workspaceId: workspace?.id,
     conversationId: selectedId ?? undefined,
@@ -95,7 +107,17 @@ export default function InboxPage() {
       if (selectedId) qc.invalidateQueries({ queryKey: ['messages', selectedId] });
       qc.invalidateQueries({ queryKey: ['conversations'] });
     },
+    onTyping: (payload) => {
+      // Only react to visitor typing (ignore agent self-echo just in case).
+      const actor = (payload as { actor?: string })?.actor;
+      if (actor && actor !== 'visitor') return;
+      // Show indicator for ~3.5s; subsequent events extend the window.
+      setVisitorTypingUntil(Date.now() + 3500);
+    },
   });
+
+  // Visitor presence (online/idle/offline + current page) — polling-safe via 10s refetch.
+  const { data: presence } = useVisitorPresenceForConversation(workspace?.id, selectedId ?? undefined);
 
   const handleDeleteAll = async () => {
     if (!workspace?.id) return;
@@ -127,6 +149,23 @@ export default function InboxPage() {
     await sendMessage.mutateAsync({ body: message });
     setMessage('');
   };
+
+  // Phase 1 — operator typing emit (throttled to ≤1 publish per 2s while typing).
+  // Realtime-only ephemeral event; failure is silently ignored.
+  const lastTypingSentRef = useRef(0);
+  const emitTyping = useCallback(() => {
+    if (!workspace?.id || !selectedId) return;
+    const now = Date.now();
+    if (now - lastTypingSentRef.current < 2000) return;
+    lastTypingSentRef.current = now;
+    conversationsApi.sendTyping({
+      workspace_id: workspace.id,
+      conversation_id: selectedId,
+    });
+  }, [workspace?.id, selectedId]);
+
+  // Reset visitor typing indicator when switching conversations.
+  useEffect(() => { setVisitorTypingUntil(0); lastTypingSentRef.current = 0; }, [selectedId]);
 
   const getInitials = (name?: string | null, email?: string | null) => {
     if (name) return name.charAt(0).toUpperCase();
@@ -398,7 +437,37 @@ export default function InboxPage() {
                   <div className="text-[13px] font-bold text-foreground">
                     {selected.contacts?.name || selected.subject || `#${selectedId.slice(0, 8)}`}
                   </div>
-                  <div className="text-[11px] text-muted-foreground">{selected.contacts?.email}</div>
+                  <div className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                    {selected.contacts?.email && <span className="truncate">{selected.contacts.email}</span>}
+                    {presence && presence.status !== 'unknown' && (
+                      <>
+                        {selected.contacts?.email && <span className="opacity-30">•</span>}
+                        <span
+                          className={cn(
+                            'inline-flex items-center gap-1 font-medium',
+                            presence.status === 'online' && 'text-success',
+                            presence.status === 'idle' && 'text-warning',
+                            presence.status === 'offline' && 'text-muted-foreground',
+                          )}
+                          title={presence.current_page || undefined}
+                        >
+                          <span
+                            className={cn(
+                              'w-1.5 h-1.5 rounded-full',
+                              presence.status === 'online' && 'bg-success',
+                              presence.status === 'idle' && 'bg-warning',
+                              presence.status === 'offline' && 'bg-muted-foreground',
+                            )}
+                          />
+                          {presence.status === 'online'
+                            ? (t('inbox.presenceOnline') || 'Online')
+                            : presence.status === 'idle'
+                              ? (t('inbox.presenceIdle') || 'Idle')
+                              : (t('inbox.presenceOffline') || 'Offline')}
+                        </span>
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
               <div className="flex items-center gap-1.5">
@@ -530,6 +599,20 @@ export default function InboxPage() {
               <div ref={messagesEndRef} />
             </div>
 
+            {/* ── Visitor typing indicator ── */}
+            {visitorTypingActive && (
+              <div className="px-4 py-1.5 text-[11px] text-muted-foreground flex items-center gap-2 bg-background border-t border-border/40" dir={dir}>
+                <span className="inline-flex gap-0.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: '300ms' }} />
+                </span>
+                <span>
+                  {(selected?.contacts?.name || t('inbox.visitor') || 'Visitor')} {t('inbox.visitorTyping') || 'typing…'}
+                </span>
+              </div>
+            )}
+
             {/* ── Input Area ── */}
             <div className="border-t border-border px-3 py-2.5 bg-card/50 shrink-0" dir={dir}>
               <div className={cn(
@@ -541,7 +624,7 @@ export default function InboxPage() {
                 <Textarea
                   placeholder={t('inbox.typeMessage') || 'Type a message...'}
                   value={message}
-                  onChange={e => setMessage(e.target.value)}
+                  onChange={e => { setMessage(e.target.value); if (e.target.value) emitTyping(); }}
                   onKeyDown={e => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();

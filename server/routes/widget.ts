@@ -1132,11 +1132,19 @@ widgetRouter.put('/action', widgetRateLimit('default'), async (req: Request, res
     if (action === 'typing' && conversation_id) {
       const ownership = await verifyConversationOwnership(config, conversation_id, workspaceId!, visitor_id, session_id);
       if (!ownership.valid) return res.status(403).json({ error: 'Access denied', code: 'CONVERSATION_ACCESS_DENIED' });
-      // Broadcast typing event via Supabase Realtime
-      const channel = supabase.channel(`typing:${conversation_id}`);
-      await channel.send({ type: 'broadcast', event: 'typing', payload: { who: 'visitor', timestamp: new Date().toISOString() } });
-      supabase.removeChannel(channel);
-      return res.json({ ok: true });
+      // Publish ephemeral typing event on the canonical conversation channel
+      // (ws:<workspace_id>:conv:<cid>) using the active realtime publisher
+      // (Centrifugo or Supabase). Polling clients silently miss it — typing
+      // is best-effort by design.
+      const pub = await publishConversationEvent(config, workspaceId!, conversation_id, {
+        type: 'typing',
+        payload: {
+          actor: 'visitor',
+          conversation_id,
+          ts: Date.now(),
+        },
+      });
+      return res.json({ ok: true, published: pub.ok });
     }
 
     if (action === 'reopen_conversation' && conversation_id && workspaceId) {

@@ -247,6 +247,10 @@ const fa: TranslationKeys = {
     status: 'وضعیت',
     created: 'ایجاد شده',
     noActivity: 'هنوز فعالیتی ثبت نشده',
+    presenceOnline: 'آنلاین',
+    presenceIdle: 'بی‌فعالیت',
+    presenceOffline: 'آفلاین',
+    visitorTyping: 'در حال نوشتن…',
   },
   contacts: {
     title: 'مخاطبین',

@@ -247,6 +247,10 @@ const tr: TranslationKeys = {
     status: 'Durum',
     created: 'Oluşturulma',
     noActivity: 'Henüz aktivite kaydedilmedi',
+    presenceOnline: 'Çevrimiçi',
+    presenceIdle: 'Boşta',
+    presenceOffline: 'Çevrimdışı',
+    visitorTyping: 'yazıyor…',
   },
   contacts: {
     title: 'Kişiler',

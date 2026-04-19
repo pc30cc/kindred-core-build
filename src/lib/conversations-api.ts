@@ -51,4 +51,23 @@ export const conversationsApi = {
     if (!res.ok) throw new Error(json.error || `Send failed: ${res.status}`);
     return json as SendMessageResult;
   },
+
+  /**
+   * Phase 1 — emit ephemeral operator typing.
+   * Fire-and-forget; failure is silently ignored (typing is best-effort).
+   */
+  async sendTyping(payload: {
+    workspace_id: string;
+    conversation_id: string;
+  }): Promise<void> {
+    try {
+      await fetch(`${API_BASE}/api/conversations/typing`, {
+        method: 'POST',
+        headers: await authHeaders(),
+        body: JSON.stringify(payload),
+      });
+    } catch {
+      /* noop — typing is best-effort */
+    }
+  },
 };

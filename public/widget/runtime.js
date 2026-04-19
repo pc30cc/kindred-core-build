@@ -177,6 +177,7 @@
         msgSent: 'Sent',
         msgSeen: 'Seen',
         msgFailed: 'Not delivered',
+        typingOperator: 'Support is typing…',
       },
       fa: {
         chat: 'گفتگو', help: 'راهنما',
@@ -224,6 +225,7 @@
         msgSent: 'ارسال شد',
         msgSeen: 'دیده شد',
         msgFailed: 'ارسال نشد',
+        typingOperator: 'پشتیبانی در حال نوشتن…',
       },
       tr: {
         chat: 'Sohbet', help: 'Yardım',
@@ -271,6 +273,7 @@
         msgSent: 'Gönderildi',
         msgSeen: 'Görüldü',
         msgFailed: 'İletilemedi',
+        typingOperator: 'Destek yazıyor…',
       },
     };
     return {
@@ -1821,18 +1824,23 @@
     var bodyHtml = '<div class="body" data-body></div>';
     var attachCfg = (ctx.config && ctx.config.attachments) || { enabled: false };
     var inputHtml = chatEnabled
-      ? '<div class="attach-tray" data-attach-tray hidden></div>' +
+      ? '<div class="typing-row" data-typing-row hidden aria-live="polite">' +
+          '<span class="typing-dots"><span></span><span></span><span></span></span>' +
+          '<span class="typing-label" data-typing-label></span>' +
+        '</div>' +
+        '<div class="attach-tray" data-attach-tray hidden></div>' +
         '<div class="input-bar" data-input-bar>' +
         (attachCfg.enabled
           ? '<button type="button" class="attach-btn" data-attach-btn title="' + Util.escapeHtml(t('attachFile') || 'Attach file') + '" aria-label="' + Util.escapeHtml(t('attachFile') || 'Attach file') + '">' +
-              '<svg viewBox="0 0 24 24" width="18" height="18"><path d="M16.5 6v11.5a4 4 0 1 1-8 0V5a2.5 2.5 0 0 1 5 0v10.5a1 1 0 1 1-2 0V6H10v9.5a2.5 2.5 0 0 0 5 0V5a4 4 0 0 0-8 0v12.5a5.5 5.5 0 0 0 11 0V6h-1.5z" fill="currentColor"/></svg>' +
+              '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>' +
             '</button>' +
             '<input type="file" data-attach-input hidden accept="' + (attachCfg.allowedMimes || []).join(',') + '" />'
           : '') +
         '<input class="input" data-msg-input placeholder="' + Util.escapeHtml(t('typeMsg')) + '" />' +
         '<button type="button" class="send-btn" data-send-btn style="background:' + ctx.primaryColor + '">' +
         '<svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>' +
-        '</button></div>'
+        '</button>' +
+        '</div>'
       : '';
     var poweredHtml = brandName
       ? '<div class="powered">Powered by <a href="#">' + Util.escapeHtml(brandName) + '</a></div>'
@@ -1846,6 +1854,8 @@
       '</div>';
     shellDiv.appendChild(panel);
 
+    var typingRow = panel.querySelector('[data-typing-row]');
+    var typingLabel = panel.querySelector('[data-typing-label]');
     var body = panel.querySelector('[data-body]');
     var msgInput = panel.querySelector('[data-msg-input]');
     var sendBtn = panel.querySelector('[data-send-btn]');
@@ -2086,8 +2096,36 @@
       var d = getDraftFor(currentDraftKey());
       if (msgInput.value !== d) msgInput.value = d;
     }
+    // ─── Visitor typing emit (throttled to ≤1 publish per 2s) ───
+    // Realtime-only; if no realtime driver is active the call becomes a no-op
+    // server-side and the operator simply doesn't see typing.
+    var lastTypingSent = 0;
+    function maybeEmitTyping() {
+      var cid = chatStore.get().conversationId;
+      if (!cid) return;
+      if (transportStore.get().connectionState !== 'online') return;
+      var now = Date.now();
+      if (now - lastTypingSent < 2000) return;
+      lastTypingSent = now;
+      // Backend route: PUT /api/widget/action with action='typing' publishes
+      // an ephemeral envelope on ws:<workspace>:conv:<cid>. Best-effort.
+      try {
+        fetch(ctx.apiBase + '/api/widget/action', {
+          method: 'PUT',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json', 'X-Widget-Token': ctx.sessionToken || '' },
+          body: JSON.stringify({
+            action: 'typing',
+            workspace_id: ctx.workspaceId,
+            conversation_id: cid,
+            visitor_id: identityStore.get().visitorId || undefined,
+            session_id: identityStore.get().sessionId || undefined,
+          }),
+        }).catch(function () {});
+      } catch (_) {}
+    }
     if (msgInput) {
-      msgInput.addEventListener('input', syncDraftFromInput);
+      msgInput.addEventListener('input', function () { syncDraftFromInput(); maybeEmitTyping(); });
     }
 
     // Migrate pending draft → real conversationId the moment one is assigned.
@@ -2278,11 +2316,24 @@
     // that advertise supportsPresence). Always publishes initial state.
     presence.wire();
     // Typing inbound hook — only wire if driver advertises support.
-    if (transport.hasCapability && transport.hasCapability('supportsTyping')) {
-      transport.on('typing', function (_e) { /* future: render typing indicator */ });
+    // Operator typing renders a small "Support is typing…" indicator above
+    // the composer; auto-hides after 3.5s. Visitor self-echo is filtered.
+    var typingHideTimer = null;
+    function showOperatorTyping() {
+      if (!typingRow || !typingLabel) return;
+      typingLabel.textContent = t('typingOperator') || 'Support is typing…';
+      typingRow.hidden = false;
+      if (typingHideTimer) clearTimeout(typingHideTimer);
+      typingHideTimer = setTimeout(function () {
+        if (typingRow) typingRow.hidden = true;
+      }, 3500);
     }
     if (transport.hasCapability && transport.hasCapability('supportsTyping')) {
-      transport.on('typing', function (_e) { /* future: render typing indicator */ });
+      transport.on('typing', function (e) {
+        var actor = e && e.payload && e.payload.actor;
+        if (actor === 'visitor') return; // ignore self-echo
+        showOperatorTyping();
+      });
     }
 
     // ─── Boot sequence ───

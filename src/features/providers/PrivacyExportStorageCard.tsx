@@ -95,7 +95,7 @@ export function PrivacyExportStorageCard() {
         .eq('key', 'privacy_export_storage')
         .maybeSingle();
       if (data?.value) {
-        const v = data.value as PolicyValue;
+        const v = data.value as unknown as PolicyValue;
         setValue({
           provider: v.provider || 'local',
           config: v.config || {},

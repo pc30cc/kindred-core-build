@@ -1,14 +1,20 @@
 /**
- * Phase 3/4 — Conversation events recorder.
+ * Phase 3/4/5 — Conversation events recorder.
  *
  * Centralized helper to write a normalized timeline row into
  * public.conversation_events. The Inbox UI reads from this table directly;
  * audit_logs is written separately and remains the compliance source of truth.
  *
+ * Phase 5 addition: after a successful insert, this helper also publishes a
+ * lightweight `timeline_event` envelope on the per-conversation realtime
+ * channel so the Inbox activity timeline updates without polling. Callers
+ * that emit their own richer operator event (e.g. notes) can pass
+ * `skipRealtimeEcho: true` to avoid double-invalidation on the client.
+ *
  * Design rules:
  *  • Service-role only insert (RLS enforces this — never call from client).
- *  • Fail-safe: never throws. Timeline is best-effort; the underlying state
- *    change (status update, attachment, etc.) is still authoritative.
+ *  • Fail-safe: never throws. Timeline + realtime are best-effort; the
+ *    underlying state change is still authoritative.
  *  • Event types are an open string union to keep extensibility cheap.
  *    Recognized values today:
  *      'created' | 'identified' | 'assigned' | 'unassigned'
@@ -24,6 +30,7 @@
 
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
+import { publishOperatorEvent } from './realtime/publish.js';
 
 export type ConversationEventType =
   | 'created'
@@ -50,6 +57,12 @@ export interface RecordEventInput {
   actorType: ConversationActorType;
   actorId?: string | null;
   payload?: Record<string, unknown>;
+  /**
+   * Phase 5 — when true, do NOT publish a `timeline_event` realtime echo.
+   * Use this for events whose caller publishes a richer operator event
+   * (e.g. note_added) so the Inbox doesn't invalidate twice for one action.
+   */
+  skipRealtimeEcho?: boolean;
 }
 
 export async function recordConversationEvent(
@@ -68,12 +81,29 @@ export async function recordConversationEvent(
         actor_id: input.actorId ?? null,
         payload: input.payload ?? {},
       })
-      .select('id')
+      .select('id, created_at')
       .single();
     if (error) {
       console.warn('[conversationEvents] insert failed:', error.message);
       return { ok: false, reason: error.message };
     }
+
+    // Phase 5 — realtime echo. Operator-only `event` envelope. Best-effort.
+    // Skipped for events whose caller already publishes a richer envelope
+    // (currently: note_added / note_deleted).
+    if (!input.skipRealtimeEcho && data?.id) {
+      void publishOperatorEvent(config, {
+        kind: 'timeline_event',
+        conversation_id: input.conversationId,
+        workspace_id: input.workspaceId,
+        actor_id: input.actorId ?? null,
+        event_id: data.id,
+        event_type: input.eventType,
+        actor_type: input.actorType,
+        created_at: data.created_at,
+      }, { skipInboxChannel: true }); // timeline events only matter for the open conv
+    }
+
     return { ok: true, id: data?.id };
   } catch (err: any) {
     console.warn('[conversationEvents] threw:', err?.message || err);

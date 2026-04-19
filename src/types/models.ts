@@ -118,7 +118,9 @@ export interface Conversation {
 export interface ConversationMessage {
   id: string;
   conversation_id: string;
-  sender_type: 'agent' | 'contact' | 'system' | 'bot';
+  // Mirrors the DB enum public.sender_type. 'ai' = AI auto-reply,
+  // distinct from 'agent' (human operator) and 'bot' (legacy generic bot).
+  sender_type: 'agent' | 'contact' | 'system' | 'bot' | 'ai';
   sender_id: string | null;
   body: string;
   metadata: Record<string, unknown>;

@@ -44,10 +44,16 @@
 #                                       MUST match Super Admin → Providers →
 #                                       Realtime → "API Key".
 #   CENTRIFUGO_ALLOWED_ORIGINS        – Comma-separated origins allowed to
-#                                       connect via WebSocket
-#                                       (e.g. https://destekly.tr,https://app.destekly.tr).
-#                                       Include EVERY origin that embeds the
-#                                       widget loader.
+#                                       open a WebSocket. In a multi-tenant
+#                                       SaaS embed system this MUST be "*"
+#                                       so any customer domain can connect
+#                                       without a redeploy. Origin authorization
+#                                       is enforced by the backend
+#                                       (/api/realtime/connect + /subscribe)
+#                                       against the per-workspace allow-list
+#                                       (workspace_domains + widget_settings.allowed_domains).
+#                                       Centrifugo here is a transport layer,
+#                                       NOT the authorization layer.
 #
 # Optional environment variables:
 #   CENTRIFUGO_ADMIN                  – "true" to enable the admin UI
@@ -91,9 +97,15 @@ services:
       CENTRIFUGO_API_KEY: ${CENTRIFUGO_API_KEY}
       CENTRIFUGO_API_INSECURE: "false"
 
-      # --- Origins (REQUIRED for browser WebSocket clients) -------------
-      # Comma-separated string in the env, parsed by Centrifugo into a list.
-      CENTRIFUGO_ALLOWED_ORIGINS: ${CENTRIFUGO_ALLOWED_ORIGINS}
+      # --- Origins (transport-level only) -------------------------------
+      # IMPORTANT: In this multi-tenant SaaS, real authorization happens in
+      # the backend (/api/realtime/connect + /subscribe) against each
+      # workspace's dynamic allow-list (workspace_domains). Centrifugo's
+      # static `allowed_origins` cannot scale to arbitrary customer domains
+      # without redeploying, so we set it to "*" and rely on the backend
+      # gatekeeper. Defaulted to "*" — override only if you want an
+      # additional belt-and-suspenders cap at the transport layer.
+      CENTRIFUGO_ALLOWED_ORIGINS: ${CENTRIFUGO_ALLOWED_ORIGINS:-*}
 
       # --- Channel namespaces -------------------------------------------
       # Declared inline as JSON so the container needs no config file.

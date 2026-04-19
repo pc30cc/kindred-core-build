@@ -58,7 +58,7 @@ After this, the following endpoints must be reachable over HTTPS (these are the 
 |---|---|---|---|
 | `CENTRIFUGO_TOKEN_HMAC_SECRET_KEY` | ✅ | `64-char random hex` | HS256 secret. Generate with `openssl rand -hex 32`. **This is Centrifugo's own runtime variable name** — do NOT use the older `CENTRIFUGO_TOKEN_HMAC_SECRET` (Centrifugo logs `unknown key found in the environment` and ignores it). **Must match** the value entered in Super Admin → Providers → Realtime → "HMAC Token Secret". |
 | `CENTRIFUGO_API_KEY` | ✅ | `64-char random hex` | Server-to-server admin API key. **Must match** Super Admin → Providers → Realtime → "API Key". |
-| `CENTRIFUGO_ALLOWED_ORIGINS` | ✅ | `https://destekly.tr,https://app.destekly.tr` | Comma-separated list of every origin where the widget loader/runtime runs. Include all customer-facing domains that embed the widget. |
+| `CENTRIFUGO_ALLOWED_ORIGINS` | optional | `*` | **Multi-tenant note**: in this SaaS, real origin authorization is enforced by the backend (`/api/realtime/connect` + `/subscribe`) against each workspace's dynamic allow-list (`workspace_domains` + `widget_settings.allowed_domains`). Centrifugo is the transport layer only. **Default to `*`** so any customer domain can connect without a redeploy — the backend is the gatekeeper. Only set a static comma-separated list if you want an extra belt-and-suspenders cap at the transport layer (rarely needed). |
 | `CENTRIFUGO_ADMIN` | optional | `true` | Enables the admin UI. Off by default. |
 | `CENTRIFUGO_ADMIN_PASSWORD` | optional | — | Required if `CENTRIFUGO_ADMIN=true`. |
 | `CENTRIFUGO_ADMIN_SECRET` | optional | — | Required if `CENTRIFUGO_ADMIN=true`. |
@@ -94,7 +94,7 @@ After Centrifugo is running on `https://rt.destekly.tr`, log into the platform a
 | **HTTP API URL** (`api_url`) | `https://rt.destekly.tr/api` |
 | **API Key** (`api_key`) | the same value as `CENTRIFUGO_API_KEY` |
 | **HMAC Token Secret** (`token_hmac_secret`) | the same value as `CENTRIFUGO_TOKEN_HMAC_SECRET_KEY` |
-| **Allowed origins** | same list as `CENTRIFUGO_ALLOWED_ORIGINS` |
+| **Allowed origins** | leave empty (or `*`) — backend enforces per-workspace allow-list dynamically |
 | **Connect timeout (ms)** | `10000` |
 | **Subscribe timeout (ms)** | `10000` |
 | **Presence enabled** | ✅ |
@@ -116,7 +116,7 @@ In the Coolify UI for this service, the status badge must read **`Running`** (wi
 
 - Missing `CENTRIFUGO_TOKEN_HMAC_SECRET_KEY` or `CENTRIFUGO_API_KEY` → Centrifugo refuses to start.
 - Using the **old** name `CENTRIFUGO_TOKEN_HMAC_SECRET` instead of `CENTRIFUGO_TOKEN_HMAC_SECRET_KEY` → log line `unknown key found in the environment`. Rename in Coolify env, redeploy.
-- Malformed `CENTRIFUGO_ALLOWED_ORIGINS` (must be comma-separated, full scheme + host, no trailing slash).
+- `CENTRIFUGO_ALLOWED_ORIGINS` should normally be `*` (or unset) — the backend handles per-workspace origin enforcement dynamically. Setting a static list here means new customer domains will be rejected at the transport layer until you redeploy Centrifugo.
 
 ### 5.2 Server-to-server API is reachable (backend → Centrifugo)
 This is the call the Express backend makes for `Test connection` and for optional broadcasts.
@@ -175,7 +175,7 @@ Super Admin → Providers → Realtime → **Audit** should show your `configure
 - **Container logs `using config file` → `config file not found`** → an older compose file mounted `./deploy/centrifugo/config.json`. The current compose is env-driven and does NOT mount any config. Pull the latest `docker-compose.centrifugo.yml` and redeploy.
 - **`exec format error` / `unknown command "healthcheck"`** → you (or an older compose) added a `healthcheck:` block calling `centrifugo healthcheck`. That subcommand does not exist in v5.4.5. The current compose has no healthcheck on purpose — remove any local override.
 - **Coolify shows `Running (unhealthy)`** → only happens if a healthcheck is defined and failing. With the current compose there is no healthcheck and the badge will simply read `Running`. If you see `unhealthy`, you have a stale compose — redeploy with the latest file.
-- **`Origin not allowed` on WebSocket connect** → the page's `Origin` header is not in `CENTRIFUGO_ALLOWED_ORIGINS`. Add it (full scheme + host, no path), redeploy Centrifugo.
+- **`Origin not allowed for this workspace` (HTTP 403 from `/api/realtime/connect`)** → the customer domain is not in that workspace's `workspace_domains` (verified) or `widget_settings.allowed_domains`. Add the domain in the workspace settings (no Centrifugo redeploy needed). If you instead see `Origin not allowed` from Centrifugo (rare), `CENTRIFUGO_ALLOWED_ORIGINS` was set to a static list — change it to `*` and redeploy.
 - **`unauthorized` on connect** → the HMAC secret in the admin panel does not match `CENTRIFUGO_TOKEN_HMAC_SECRET_KEY`. Re-enter both, save, redeploy.
 - **`HTTP 401` on `Test connection`** → the API key does not match. Same fix as above for `CENTRIFUGO_API_KEY`.
 - **WebSocket immediately closes** → Coolify domain not configured for WebSocket. Re-check the domain settings.

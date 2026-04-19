@@ -11,8 +11,8 @@
   "api_key": "",
   "api_insecure": false,
 
-  "_comment_origins": "Browsers connecting via WebSocket must come from one of these origins. Comma-separated list provided via CENTRIFUGO_ALLOWED_ORIGINS env var (e.g. https://destekly.tr,https://app.destekly.tr).",
-  "allowed_origins": [],
+  "_comment_origins": "Multi-tenant SaaS: backend (/api/realtime/connect + /subscribe) enforces per-workspace origin allow-list against workspace_domains. Centrifugo is the transport layer only — keep allowed_origins permissive ['*'] so any customer domain can connect without a redeploy. The backend is the SOLE authorization gatekeeper.",
+  "allowed_origins": ["*"],
 
   "_comment_channels": "Channel namespace 'ws' matches the channel pattern issued by buildChannelName(workspaceId, conversationId) → 'ws:{workspace_id}:conv:{conversation_id}'. Subscribe tokens are required (private channels), presence/history enabled to support typing/presence capabilities.",
   "namespaces": [

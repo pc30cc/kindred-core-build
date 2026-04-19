@@ -696,7 +696,10 @@ export default function InboxPage() {
                           ? 'bg-primary/10 text-foreground rounded-es-sm'
                           : 'bg-secondary text-foreground rounded-ee-sm'
                       )}>
-                        <p>{msg.body}</p>
+                        {(msg as { attachment?: MessageAttachment | null }).attachment && (
+                          <MessageAttachmentView att={(msg as { attachment: MessageAttachment }).attachment} t={t} />
+                        )}
+                        {msg.body && <p className={cn((msg as any).attachment ? 'mt-2' : '')}>{msg.body}</p>}
                       </div>
                       {/* Copy action */}
                       <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1 mt-0.5">
@@ -730,10 +733,66 @@ export default function InboxPage() {
 
             {/* ── Input Area ── */}
             <div className="border-t border-border px-3 py-2.5 bg-card/50 shrink-0" dir={dir}>
+              {/* Pending attachment chip */}
+              {att.status !== 'idle' && (
+                <div className="mb-2 flex items-center gap-2 rounded-lg border border-border bg-secondary/40 px-2.5 py-2">
+                  <div className="w-8 h-8 rounded-md bg-background flex items-center justify-center shrink-0 text-muted-foreground">
+                    {att.mimeType.startsWith('image/')
+                      ? <ImageIcon className="w-4 h-4" />
+                      : <FileText className="w-4 h-4" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[12px] font-medium text-foreground truncate">{att.fileName}</div>
+                    <div className="text-[10px] text-muted-foreground flex items-center gap-1.5">
+                      <span>{humanSize(att.sizeBytes)}</span>
+                      <span className="opacity-40">•</span>
+                      <span className={cn(
+                        att.status === 'error' ? 'text-destructive' :
+                        att.status === 'ready' ? 'text-success' : 'text-muted-foreground'
+                      )}>
+                        {att.status === 'uploading' && (t('inbox.attachUploading') || 'Uploading…')}
+                        {att.status === 'ready' && (t('inbox.attachReady') || 'Ready to send')}
+                        {att.status === 'error' && (att.error || t('inbox.attachUploadFailed') || 'Upload failed')}
+                      </span>
+                    </div>
+                    {att.status === 'uploading' && (
+                      <Progress value={att.progress} className="h-1 mt-1.5" />
+                    )}
+                  </div>
+                  {att.status === 'error' && (
+                    <button
+                      onClick={retryUpload}
+                      className="text-[11px] font-medium text-primary hover:underline px-1.5"
+                    >
+                      {t('inbox.attachRetry') || 'Retry'}
+                    </button>
+                  )}
+                  <button
+                    onClick={removeAttachment}
+                    className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-destructive transition-colors shrink-0"
+                    aria-label={t('inbox.attachRemove') || 'Remove'}
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
               <div className={cn(
                 'flex gap-2 items-end rounded-xl border p-1.5 transition-colors border-border bg-secondary/30'
               )}>
-                <button className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors shrink-0">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,text/plain"
+                  onChange={onFilePicked}
+                />
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={att.status === 'uploading'}
+                  className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+                  title={t('inbox.attachFile') || 'Attach file'}
+                  aria-label={t('inbox.attachFile') || 'Attach file'}
+                >
                   <Paperclip className="w-4 h-4" />
                 </button>
                 <Textarea

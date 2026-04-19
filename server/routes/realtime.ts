@@ -124,6 +124,28 @@ realtimeRouter.post('/connect', async (req, res) => {
       });
     }
 
+    // Supabase Realtime → expose the public/anon key + URL so the widget
+    // can open a Realtime websocket directly. The anon key is a public
+    // (publishable) key and is already shipped to the dashboard browser
+    // bundle today; the service-role key is NEVER sent to the client.
+    if (resolved.effective_vendor === 'supabase') {
+      return res.json({
+        vendor: 'supabase',
+        supabase_url: config.supabaseUrl,
+        anon_key: config.supabaseAnonKey,
+        capabilities: resolved.capabilities,
+        fallback_policy: resolved.fallback_policy,
+        source: resolved.source,
+      });
+    }
+      return res.json({
+        vendor: 'polling_builtin',
+        capabilities: resolved.capabilities,
+        fallback_policy: resolved.fallback_policy,
+        source: resolved.source,
+      });
+    }
+
     // Centrifugo → issue HMAC connection token.
     const driver = await getCentrifugoDriver(config);
     if (!driver) {

@@ -4,6 +4,7 @@ import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useConversations, useConversationMessages, useSendMessage, useUpdateConversation, useDeleteAllConversations, useMarkConversationSeen } from '@/hooks/useConversations';
 import type { MessageAttachment } from '@/hooks/useConversations';
 import { useInboxRealtime } from '@/hooks/useInboxRealtime';
+import { useInboxListRealtime } from '@/hooks/useInboxListRealtime';
 import { useVisitorPresenceForConversation } from '@/hooks/useVisitorPresence';
 import { conversationsApi } from '@/lib/conversations-api';
 import { useQueryClient } from '@tanstack/react-query';
@@ -173,7 +174,34 @@ export default function InboxPage() {
       // Show indicator for ~3.5s; subsequent events extend the window.
       setVisitorTypingUntil(Date.now() + 3500);
     },
+    // Phase 5 — operator-side events on the per-conversation channel.
+    // Refresh notes/timeline caches so the open thread reflects new
+    // notes, status/priority/assignment/tag changes immediately.
+    onEvent: (payload) => {
+      const kind = (payload as { kind?: string })?.kind;
+      const convId = (payload as { conversation_id?: string })?.conversation_id;
+      if (!kind || !convId) return;
+      if (kind === 'note_added' || kind === 'note_deleted') {
+        qc.invalidateQueries({ queryKey: ['conversation-notes', convId, workspace?.id] });
+        qc.invalidateQueries({ queryKey: ['conversation-timeline', convId, workspace?.id] });
+        return;
+      }
+      if (
+        kind === 'conversation_updated' ||
+        kind === 'conversation_resolved' ||
+        kind === 'conversation_reopened' ||
+        kind === 'timeline_event'
+      ) {
+        qc.invalidateQueries({ queryKey: ['conversation-timeline', convId, workspace?.id] });
+        // The list-level patch is handled by useInboxListRealtime below.
+      }
+    },
   });
+
+  // Phase 5 — operator-only inbox-list channel: optimistically patch the
+  // conversation list when status/priority/assignee/tags change anywhere
+  // in the workspace, without needing a per-conversation subscription.
+  useInboxListRealtime(workspace?.id);
 
   // Visitor presence (online/idle/offline + current page) — polling-safe via 10s refetch.
   const { data: presence } = useVisitorPresenceForConversation(workspace?.id, selectedId ?? undefined);

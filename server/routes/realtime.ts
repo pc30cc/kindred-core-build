@@ -302,11 +302,15 @@ function mergeCentrifugo(prev: any, next: any): any {
   if (!next) return result;
   for (const k of Object.keys(next)) {
     const v = (next as any)[k];
-    // Empty string for secrets means "do not change".
-    if ((k === 'api_key' || k === 'token_hmac_secret') && (v === '' || v == null)) continue;
+    // Empty or masked secret values mean "do not change".
+    if ((k === 'api_key' || k === 'token_hmac_secret') && (v === '' || v == null || isMaskedSecretValue(v))) continue;
     result[k] = v;
   }
   return result;
+}
+
+function isMaskedSecretValue(value: unknown): boolean {
+  return typeof value === 'string' && value.includes('•');
 }
 
 function diffMask(prev: RealtimeProviderConfig, next: RealtimeProviderConfig): Record<string, any> {

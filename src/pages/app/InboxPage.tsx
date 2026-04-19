@@ -45,6 +45,48 @@ function humanSize(n: number): string {
   return (n / (1024 * 1024)).toFixed(n < 10 * 1024 * 1024 ? 1 : 0) + ' MB';
 }
 
+/**
+ * Attachment renderer for inbox messages. Always loads via the backend
+ * proxy /api/widget/attachments/:id (same route the visitor widget uses,
+ * re-checks workspace + conversation ownership). Provider URLs never reach
+ * the client.
+ */
+function MessageAttachmentView({
+  att,
+  t,
+}: {
+  att: { id: string; file_name: string; mime_type: string; size_bytes: number; kind: 'image' | 'file' };
+  t: (key: any) => string;
+}) {
+  const url = `${API_BASE}/api/widget/attachments/${encodeURIComponent(att.id)}`;
+  const isImage = att.kind === 'image' || /^image\//.test(att.mime_type);
+  if (isImage) {
+    return (
+      <a href={url} target="_blank" rel="noopener noreferrer" className="block max-w-[280px] rounded-lg overflow-hidden border border-border">
+        <img src={url} alt={att.file_name} loading="lazy" className="block w-full h-auto" />
+      </a>
+    );
+  }
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      download={att.file_name}
+      className="flex items-center gap-2.5 rounded-lg border border-border bg-background/60 px-2.5 py-2 max-w-[280px] hover:bg-background transition-colors"
+    >
+      <div className="w-8 h-8 rounded-md bg-secondary flex items-center justify-center shrink-0 text-muted-foreground">
+        <FileText className="w-4 h-4" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-[12px] font-medium text-foreground truncate">{att.file_name}</div>
+        <div className="text-[10px] text-muted-foreground">{humanSize(att.size_bytes)}</div>
+      </div>
+      <Download className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+    </a>
+  );
+}
+
 // ─── Constants ───
 const statusColors: Record<string, string> = {
   open: 'bg-success/15 text-success border-success/20',
@@ -812,7 +854,11 @@ export default function InboxPage() {
                 <Button
                   onClick={handleSend}
                   size="icon"
-                  disabled={!message.trim() || sendMessage.isPending}
+                  disabled={
+                    sendMessage.isPending ||
+                    att.status === 'uploading' ||
+                    (!message.trim() && att.status !== 'ready')
+                  }
                   className="h-9 w-9 rounded-lg shrink-0"
                 >
                   {sendMessage.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}

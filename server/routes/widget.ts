@@ -1673,3 +1673,65 @@ async function notifyOfflineCapture(
     }
   }
 }
+
+// ═══════════════════════════════════════════════
+// POST /admin/test-offline-email — Workspace member-only test send
+// ───────────────────────────────────────────────
+// Used by the Workspace → Widget → Availability tab to verify the
+// `offline_message_received` template + active email provider.
+// Always sends a sample payload; never touches conversations.
+// ═══════════════════════════════════════════════
+const testEmailSchema = z.object({
+  workspace_id: z.string().uuid(),
+  to: z.string().email().max(255),
+  locale: z.enum(['en', 'fa', 'tr']).optional(),
+});
+
+widgetRouter.post('/admin/test-offline-email', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = testEmailSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'invalid_payload', details: parsed.error.flatten() });
+  }
+  const { workspace_id, to, locale } = parsed.data;
+
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'missing_authorization' });
+  }
+  const token = authHeader.replace('Bearer ', '');
+  const sb = getServiceClient(config);
+  const { data: { user } = {} as any, error: userErr } = await sb.auth.getUser(token);
+  if (userErr || !user) {
+    return res.status(401).json({ error: 'invalid_token' });
+  }
+  const { data: isMember, error: memErr } = await sb.rpc('is_workspace_member', {
+    _workspace_id: workspace_id,
+    _user_id: user.id,
+  });
+  if (memErr) return res.status(500).json({ error: 'membership_check_failed' });
+  if (!isMember) return res.status(403).json({ error: 'forbidden' });
+
+  try {
+    await sendEmail(config, {
+      workspaceId: workspace_id,
+      to,
+      subject: '[TEST] New offline message',
+      html: '<p>This is a test of your offline message notification email.</p>',
+      text: 'This is a test of your offline message notification email.',
+      templateSlug: 'offline_message_received',
+      templateData: {
+        conversation_id: 'test-conversation-id',
+        contact_name: 'Test Visitor',
+        contact_email: 'visitor@example.com',
+        message_body:
+          'Hello — this is a test message confirming your offline notification pipeline works.',
+      },
+      locale: locale || 'en',
+    });
+    return res.json({ ok: true });
+  } catch (err: any) {
+    console.error('[admin/test-offline-email] failed:', err?.message);
+    return res.status(500).json({ error: 'send_failed', message: err?.message || 'unknown' });
+  }
+});

@@ -19,6 +19,11 @@ export interface WidgetPlatformSettings {
   max_message_length: number;
   rate_limit_messages_per_minute: number;
   admin_notes: string | null;
+  // ── Deployment URLs (single source of truth for widget loader/assets/api) ──
+  widget_loader_base_url: string | null;
+  widget_asset_base_url: string | null;
+  widget_public_base_url: string | null;
+  widget_api_base_url: string | null;
   created_at: string;
   updated_at: string;
   updated_by: string | null;

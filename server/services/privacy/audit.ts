@@ -18,7 +18,9 @@ export type PrivacyAuditAction =
   | 'privacy.delete.failed'
   | 'privacy.job.cancelled'
   | 'privacy.export.downloaded'
-  | 'privacy.reauth.issued';
+  | 'privacy.reauth.issued'
+  | 'privacy.export.expired_purged'
+  | 'privacy.export.expired_purge_failed';
 
 export async function writePrivacyAudit(
   config: ServerConfig,

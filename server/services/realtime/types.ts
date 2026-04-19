@@ -80,14 +80,32 @@ export const DISABLED_CAPABILITIES: RealtimeCapabilities = {
   supportsReconnectSignals: false,
 };
 
-/** Build a multi-tenant safe channel name. */
+/** Build a multi-tenant safe channel name for per-conversation traffic. */
 export function buildChannelName(workspaceId: string, conversationId: string): string {
   // Explicit, readable, multi-tenant safe.
   // ws:{workspace_id}:conv:{conversation_id}
   return `ws:${workspaceId}:conv:${conversationId}`;
 }
 
+/**
+ * Build the operator-only inbox channel name for a workspace.
+ * Carries `event` envelopes for conversation-list updates (status, priority,
+ * assignee, tags). Widget tokens MUST NOT be issuable for this channel.
+ */
+export function buildInboxChannelName(workspaceId: string): string {
+  return `ws:${workspaceId}:inbox`;
+}
+
 /** Validate that a channel name belongs to the given workspace. */
 export function channelBelongsToWorkspace(channel: string, workspaceId: string): boolean {
   return channel.startsWith(`ws:${workspaceId}:`);
+}
+
+/**
+ * Returns true iff the channel is the operator-only inbox channel for the
+ * given workspace. Used by token issuers to refuse minting widget tokens
+ * for this channel.
+ */
+export function isInboxChannel(channel: string, workspaceId: string): boolean {
+  return channel === `ws:${workspaceId}:inbox`;
 }

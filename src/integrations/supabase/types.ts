@@ -1825,6 +1825,8 @@ export type Database = {
           created_at: string
           default_allow_subdomains: boolean
           default_debug_mode: boolean
+          embed_footer_comment: string | null
+          embed_header_comment: string | null
           enforce_domain_validation: boolean
           force_chat_enabled: string
           force_kb_enabled: string
@@ -1848,6 +1850,8 @@ export type Database = {
           created_at?: string
           default_allow_subdomains?: boolean
           default_debug_mode?: boolean
+          embed_footer_comment?: string | null
+          embed_header_comment?: string | null
           enforce_domain_validation?: boolean
           force_chat_enabled?: string
           force_kb_enabled?: string
@@ -1871,6 +1875,8 @@ export type Database = {
           created_at?: string
           default_allow_subdomains?: boolean
           default_debug_mode?: boolean
+          embed_footer_comment?: string | null
+          embed_header_comment?: string | null
           enforce_domain_validation?: boolean
           force_chat_enabled?: string
           force_kb_enabled?: string

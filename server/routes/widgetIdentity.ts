@@ -270,6 +270,7 @@ widgetIdentityRouter.get('/history', widgetRateLimit('poll'), async (req: Reques
   const baseMessages = (msgs || []).map((m: any) => ({
     id: m.id,
     role: m.sender_type === 'contact' ? 'visitor' : m.sender_type === 'system' ? 'system' : 'agent',
+    sender_type: m.sender_type,
     text: m.body,
     time: m.created_at,
     metadata: m.metadata,

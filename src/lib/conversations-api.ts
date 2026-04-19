@@ -25,7 +25,7 @@ export interface SendMessageResult {
   message: {
     id: string;
     conversation_id: string;
-    sender_type: 'agent' | 'contact' | 'system' | 'ai';
+    sender_type: 'agent' | 'contact' | 'system' | 'bot' | 'ai';
     sender_id: string | null;
     body: string;
     created_at: string;

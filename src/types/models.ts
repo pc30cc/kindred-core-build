@@ -168,6 +168,20 @@ export interface WidgetSettings {
   visitor_tracking_enabled: boolean;
   locale: string;
   debug_mode: boolean;
+  // Phase 8 — Availability
+  live_chat_enabled: boolean;
+  offline_mode: 'hide_widget' | 'show_offline_message' | 'capture_message';
+  offline_message: string | null;
+  offline_message_localized: Record<string, string> | null;
+  availability_labels: Record<string, { online?: string; offline?: string }> | null;
+  business_hours: BusinessHoursConfig | null;
+}
+
+export interface BusinessHoursConfig {
+  enabled: boolean;
+  timezone: string;
+  weekly: Partial<Record<'sun' | 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat', Array<{ from: string; to: string }>>>;
+  overrides?: Array<{ date: string; closed?: boolean; intervals?: Array<{ from: string; to: string }>; label?: string }>;
 }
 
 export interface KnowledgeBaseArticle {

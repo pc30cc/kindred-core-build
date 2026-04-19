@@ -1,0 +1,131 @@
+/**
+ * Resolve the active client-side realtime provider for a given workspace.
+ *
+ * Resolution order (matches the agreed plan):
+ *   1. Workspace realtime override (provider_configs row, type='realtime',
+ *      is_active=true). The override is honored only if the named vendor
+ *      has a working client adapter on day one (centrifugo / supabase).
+ *   2. Global active provider — discovered by negotiating with the
+ *      backend via POST /api/realtime/operator-connect. The server is
+ *      already the single source of truth for vendor selection
+ *      (`server/services/realtime/index.ts → resolveRealtimeProvider`).
+ *   3. Polling fallback — always returned on failure or when realtime is
+ *      disabled. Never throws.
+ *
+ * The resolver returns an instance, never null. Callers can subscribe
+ * unconditionally and trust the polling adapter as a safe no-op.
+ *
+ * Per-workspace memoization keeps a single provider instance alive for
+ * the whole tab session, so repeated mounts of the Inbox don't
+ * re-negotiate or re-open sockets.
+ */
+
+import { supabase } from '@/lib/supabase';
+import type {
+  ClientRealtimeProvider,
+  RealtimeNegotiation,
+  RealtimeVendor,
+} from './types';
+import { CentrifugoClientProvider } from './providers/centrifugo';
+import { SupabaseRealtimeClientProvider } from './providers/supabase';
+import { PollingClientProvider } from './providers/polling';
+
+const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) || '';
+
+const SUPPORTED_VENDORS: RealtimeVendor[] = ['centrifugo', 'supabase'];
+
+const cache = new Map<string, Promise<ClientRealtimeProvider>>();
+
+async function authHeaders(): Promise<Record<string, string>> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  return session?.access_token
+    ? { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }
+    : { 'Content-Type': 'application/json' };
+}
+
+async function fetchWorkspaceOverride(workspaceId: string): Promise<RealtimeVendor | null> {
+  try {
+    const { data } = await supabase
+      .from('provider_configs')
+      .select('provider_name, is_active')
+      .eq('workspace_id', workspaceId)
+      .eq('provider_type', 'realtime')
+      .eq('is_active', true)
+      .maybeSingle();
+    const name = (data as any)?.provider_name as string | undefined;
+    if (!name) return null;
+    return SUPPORTED_VENDORS.includes(name as RealtimeVendor) ? (name as RealtimeVendor) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function negotiate(workspaceId: string): Promise<RealtimeNegotiation | null> {
+  try {
+    const res = await fetch(`${API_BASE}/api/realtime/operator-connect`, {
+      method: 'POST',
+      headers: await authHeaders(),
+      body: JSON.stringify({ workspace_id: workspaceId }),
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as RealtimeNegotiation;
+  } catch {
+    return null;
+  }
+}
+
+function buildAdapter(
+  vendor: RealtimeVendor,
+  negotiation: RealtimeNegotiation | null,
+): ClientRealtimeProvider {
+  try {
+    if (vendor === 'centrifugo' && negotiation?.ws_url && negotiation.token) {
+      return new CentrifugoClientProvider(negotiation);
+    }
+    if (vendor === 'supabase') {
+      return new SupabaseRealtimeClientProvider();
+    }
+  } catch {
+    /* fall through to polling */
+  }
+  return new PollingClientProvider();
+}
+
+export function resolveClientRealtimeProvider(workspaceId: string): Promise<ClientRealtimeProvider> {
+  const cached = cache.get(workspaceId);
+  if (cached) return cached;
+
+  const promise = (async (): Promise<ClientRealtimeProvider> => {
+    // 1. Workspace override (only if the vendor has a day-one adapter).
+    const override = await fetchWorkspaceOverride(workspaceId);
+    if (override === 'supabase') {
+      return new SupabaseRealtimeClientProvider();
+    }
+    // For centrifugo override we still need the negotiation to get ws_url + token.
+    const negotiation = await negotiate(workspaceId);
+
+    if (override === 'centrifugo' && negotiation?.ws_url && negotiation.token) {
+      return new CentrifugoClientProvider(negotiation);
+    }
+
+    // 2. Global active vendor as reported by the server.
+    if (negotiation && SUPPORTED_VENDORS.includes(negotiation.vendor)) {
+      return buildAdapter(negotiation.vendor, negotiation);
+    }
+
+    // 3. Fallback.
+    return new PollingClientProvider();
+  })();
+
+  cache.set(workspaceId, promise);
+  // If the negotiation fails permanently we still cache the polling result,
+  // which is the desired behavior (no retry storms).
+  return promise;
+}
+
+/** Test/debug only — clears the per-workspace memo. Not used in app code. */
+export function __resetClientRealtimeCache(): void {
+  cache.clear();
+}

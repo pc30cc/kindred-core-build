@@ -49,6 +49,12 @@ function normalizeLocale(v: string | undefined, fallback: Locale = 'en'): Locale
   return isLocale(short) ? short : fallback;
 }
 
+/** Coerce a possibly-array Express path param to a single string. */
+function paramStr(v: string | string[] | undefined): string | undefined {
+  if (Array.isArray(v)) return v[0];
+  return v;
+}
+
 function escapeHtml(input: string): string {
   return String(input || '')
     .replace(/&/g, '&amp;')

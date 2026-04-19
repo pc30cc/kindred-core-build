@@ -31,8 +31,22 @@ export interface SendMessageResult {
     created_at: string;
     metadata: Record<string, unknown>;
     seen_at: string | null;
+    attachment?: {
+      id: string;
+      file_name: string;
+      mime_type: string;
+      size_bytes: number;
+      kind: 'image' | 'file';
+    };
   };
   realtime: { published: boolean; reason: string | null };
+}
+
+export interface OperatorAttachmentInit {
+  attachment_id: string;
+  file_name: string;
+  mime_type: string;
+  size_bytes: number;
 }
 
 export const conversationsApi = {
@@ -41,6 +55,7 @@ export const conversationsApi = {
     conversation_id: string;
     body: string;
     metadata?: Record<string, unknown>;
+    attachment_id?: string | null;
   }): Promise<SendMessageResult> {
     const res = await fetch(`${API_BASE}/api/conversations/send-message`, {
       method: 'POST',
@@ -69,5 +84,80 @@ export const conversationsApi = {
     } catch {
       /* noop — typing is best-effort */
     }
+  },
+
+  // ─── Phase 2 — Operator attachment upload (Inbox composer) ─────
+  /**
+   * Reserve an attachment row server-side. Returns attachment_id +
+   * server-normalized metadata. Storage path is built by the server.
+   */
+  async initAttachment(payload: {
+    workspace_id: string;
+    conversation_id: string | null;
+    file: File;
+  }): Promise<OperatorAttachmentInit> {
+    const res = await fetch(`${API_BASE}/api/conversation-attachments/init`, {
+      method: 'POST',
+      headers: await authHeaders(),
+      body: JSON.stringify({
+        workspace_id: payload.workspace_id,
+        conversation_id: payload.conversation_id,
+        file_name: payload.file.name,
+        mime_type: payload.file.type || 'application/octet-stream',
+        size_bytes: payload.file.size,
+      }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || `Init failed: ${res.status}`);
+    return json as OperatorAttachmentInit;
+  },
+
+  /**
+   * Upload base64-encoded file bytes against a previously initialized
+   * attachment. Server streams to the active storage provider.
+   */
+  async uploadAttachment(payload: {
+    workspace_id: string;
+    attachment_id: string;
+    file: File;
+    onProgress?: (pct: number) => void;
+  }): Promise<{ attachment_id: string; status: string }> {
+    // Read file as base64 (mirrors widget flow). Progress is granular at
+    // read-completion since we use a single POST; consumers get 0→40→100.
+    payload.onProgress?.(5);
+    const b64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = String(reader.result || '');
+        const idx = result.indexOf(',');
+        resolve(idx >= 0 ? result.slice(idx + 1) : result);
+      };
+      reader.onerror = () => reject(reader.error || new Error('FileReader error'));
+      reader.readAsDataURL(payload.file);
+    });
+    payload.onProgress?.(40);
+
+    const res = await fetch(
+      `${API_BASE}/api/conversation-attachments/${encodeURIComponent(payload.attachment_id)}/upload`,
+      {
+        method: 'POST',
+        headers: await authHeaders(),
+        body: JSON.stringify({ workspace_id: payload.workspace_id, data: b64 }),
+      },
+    );
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || `Upload failed: ${res.status}`);
+    payload.onProgress?.(100);
+    return json;
+  },
+
+  async deleteAttachment(payload: {
+    workspace_id: string;
+    attachment_id: string;
+  }): Promise<void> {
+    await fetch(
+      `${API_BASE}/api/conversation-attachments/${encodeURIComponent(payload.attachment_id)}?workspace_id=${encodeURIComponent(payload.workspace_id)}`,
+      { method: 'DELETE', headers: await authHeaders() },
+    );
   },
 };

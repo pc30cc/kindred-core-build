@@ -180,6 +180,7 @@ Super Admin → Providers → Realtime → **Audit** should show your `configure
 - **Backend log: `Centrifugo configuration incomplete`** → one of `ws_url`, `api_url`, `api_key`, `token_hmac_secret` is empty in the admin form. Fill all four.
 - **Widget falls back to polling silently** → check `GET /api/realtime/admin/resolved` (admin-only). `effective_vendor` will tell you why (e.g. `polling_builtin` because health failed).
 - **Coolify deploy fails with `port is already allocated`** → you (or a previous attempt) added a `ports:` mapping. The current compose uses `expose:` only — do not add `ports:`.
+- **`curl https://rt.destekly.tr/health` returns `404`** → expected, not a bug. The public domain only routes the two endpoints we actually need (`/api` and `/connection/websocket`). The health endpoint is queried internally by the Docker healthcheck. Verify health using §5.1, §5.2, and §5.4 instead.
 
 ---
 

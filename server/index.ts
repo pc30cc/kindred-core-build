@@ -20,6 +20,7 @@ import { conversationsRouter } from './routes/conversations.js';
 import { conversationAttachmentsRouter } from './routes/conversationAttachments.js';
 import { conversationNotesRouter } from './routes/conversationNotes.js';
 import { cannedResponsesRouter } from './routes/cannedResponses.js';
+import { widgetKbRouter, publicKbRouter } from './routes/kb.js';
 import { startAttachmentJanitor } from './services/attachmentJanitor.js';
 import { widgetCorsMiddleware } from './middleware/widgetCors.js';
 import {

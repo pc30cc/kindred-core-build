@@ -19,6 +19,7 @@ import { realtimeRouter } from './routes/realtime.js';
 import { conversationsRouter } from './routes/conversations.js';
 import { conversationAttachmentsRouter } from './routes/conversationAttachments.js';
 import { conversationNotesRouter } from './routes/conversationNotes.js';
+import { cannedResponsesRouter } from './routes/cannedResponses.js';
 import { startAttachmentJanitor } from './services/attachmentJanitor.js';
 import { widgetCorsMiddleware } from './middleware/widgetCors.js';
 import {
@@ -138,6 +139,10 @@ app.use('/api/conversations', conversationNotesRouter);
 // Phase 2 — Operator attachments (Inbox-side). Reuses conversation_attachments
 // table + storage service; gated by Supabase JWT + workspace membership.
 app.use('/api/conversation-attachments', conversationAttachmentsRouter);
+
+// Phase 6 — Canned responses (operator reply templates). Workspace-scoped,
+// multilingual, no widget exposure. Auth + membership enforced per-route.
+app.use('/api/canned-responses', cannedResponsesRouter);
 
 // 404
 app.use((_req, res) => {

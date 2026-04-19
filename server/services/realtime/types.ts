@@ -3,7 +3,7 @@
  * No workspace-level overrides in this phase.
  */
 
-export type RealtimeVendor = 'centrifugo' | 'polling_builtin' | 'disabled';
+export type RealtimeVendor = 'centrifugo' | 'supabase' | 'polling_builtin' | 'disabled';
 export type FallbackPolicy = 'lenient' | 'strict';
 
 export interface RealtimeCapabilities {

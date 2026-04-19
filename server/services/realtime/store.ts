@@ -86,7 +86,7 @@ function normalize(
   if (src && 'provider_name' in src) {
     src = { vendor: src.provider_name, ...(src.config || {}) };
   }
-  const vendor = (src?.vendor === 'centrifugo' || src?.vendor === 'disabled' || src?.vendor === 'polling_builtin')
+  const vendor = (src?.vendor === 'centrifugo' || src?.vendor === 'supabase' || src?.vendor === 'disabled' || src?.vendor === 'polling_builtin')
     ? src.vendor
     : 'polling_builtin';
   return {

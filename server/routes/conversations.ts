@@ -26,6 +26,8 @@ import { getServiceClient } from '../supabase.js';
 import {
   publishConversationEvent,
   buildMessageEnvelope,
+  publishOperatorEvent,
+  type OperatorEventPayload,
 } from '../services/realtime/publish.js';
 import {
   attachUploadedFileToMessage,

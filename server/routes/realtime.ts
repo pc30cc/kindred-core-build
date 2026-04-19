@@ -94,6 +94,10 @@ realtimeRouter.post('/connect', async (req, res) => {
     if (!tokRes.valid || tokRes.workspaceId !== parsed.data.workspace_id) {
       return res.status(401).json({ error: 'Invalid widget session' });
     }
+
+    // Dynamic per-workspace origin enforcement (replaces static Centrifugo allowlist).
+    if (!(await enforceWorkspaceOrigin(req, res, config, parsed.data.workspace_id))) return;
+
     // Visitor identity comes from HttpOnly cookie (cross-tab/device safe).
     const visitor = readVisitorCookie(req as any, parsed.data.workspace_id);
     const subjectId = visitor?.v || `vt_${tokRes.nonce || 'anon'}`;

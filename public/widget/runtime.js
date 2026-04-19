@@ -157,6 +157,7 @@
         fallbackMessageLabel: 'Message',
         fallbackSubmit: 'Send message',
         fallbackSent: "Thanks — we've got your message and will reply shortly.",
+        fallbackSentTransitioning: "Thanks — we've got your message. We may be back online sooner than expected and will reply right away.",
         fallbackError: "Couldn't send right now. Please try again.",
         // Phase 6a — attachments
         attachFile: 'Attach file',

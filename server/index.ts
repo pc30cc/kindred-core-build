@@ -24,6 +24,7 @@ import { widgetKbRouter, publicKbRouter } from './routes/kb.js';
 import { privacyRouter } from './routes/privacy.js';
 import { startAttachmentJanitor } from './services/attachmentJanitor.js';
 import { startPrivacyWorker } from './services/privacy/worker.js';
+import { startPrivacyExpirySweep } from './services/privacy/expirySweep.js';
 import { widgetCorsMiddleware } from './middleware/widgetCors.js';
 import {
   ipBlockMiddleware,
@@ -175,6 +176,8 @@ app.listen(config.port, () => {
   startAttachmentJanitor(config);
   // GDPR — start privacy job worker (in-process loop).
   startPrivacyWorker(config);
+  // GDPR — start hourly TTL purge for expired export artifacts (provider-based).
+  startPrivacyExpirySweep(config);
 });
 
 export default app;

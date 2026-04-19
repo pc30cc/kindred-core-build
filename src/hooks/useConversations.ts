@@ -22,6 +22,23 @@ export function useConversations(workspaceId: string | undefined, status?: strin
   });
 }
 
+/**
+ * Public-safe attachment shape mirrored from the server's
+ * `enrichMessagesWithAttachments`. Provider URLs never reach the client —
+ * the Inbox loads files via the same backend proxy as the widget:
+ *   GET /api/widget/attachments/:id  (re-checks ownership)
+ */
+export interface MessageAttachment {
+  id: string;
+  file_name: string;
+  mime_type: string;
+  size_bytes: number;
+  kind: 'image' | 'file';
+}
+export type ConversationMessageWithAttachment = ConversationMessage & {
+  attachment?: MessageAttachment | null;
+};
+
 export function useConversationMessages(conversationId: string | undefined) {
   return useQuery({
     queryKey: ['messages', conversationId],
@@ -32,13 +49,56 @@ export function useConversationMessages(conversationId: string | undefined) {
         .eq('conversation_id', conversationId!)
         .order('created_at', { ascending: true });
       if (error) throw error;
-      return data as ConversationMessage[];
+      const messages = (data || []) as ConversationMessage[];
+
+      // Phase 2 — Enrich messages with attachment metadata. The widget's
+      // server route already does this for visitor reads; for the inbox we
+      // do it client-side via a single batched query keyed on message_id +
+      // metadata.attachment_id (covers both operator and visitor uploads).
+      const ids = new Set<string>();
+      const fromMeta = new Set<string>();
+      for (const m of messages) {
+        if (m?.id) ids.add(m.id);
+        const aid = (m?.metadata as any)?.attachment_id;
+        if (typeof aid === 'string') fromMeta.add(aid);
+      }
+      const attMap: Record<string, MessageAttachment> = {};
+      const byMsg: Record<string, MessageAttachment> = {};
+      if (ids.size || fromMeta.size) {
+        const orFilters: string[] = [];
+        if (ids.size) orFilters.push(`message_id.in.(${Array.from(ids).join(',')})`);
+        if (fromMeta.size) orFilters.push(`id.in.(${Array.from(fromMeta).join(',')})`);
+        const { data: atts } = await supabase
+          .from('conversation_attachments')
+          .select('id, file_name, mime_type, size_bytes, status, message_id')
+          .or(orFilters.join(','));
+        for (const a of (atts || []) as Array<{
+          id: string; file_name: string; mime_type: string;
+          size_bytes: number; status: string; message_id: string | null;
+        }>) {
+          if (a.status !== 'attached' && a.status !== 'uploaded') continue;
+          const meta: MessageAttachment = {
+            id: a.id,
+            file_name: a.file_name,
+            mime_type: a.mime_type,
+            size_bytes: a.size_bytes,
+            kind: a.mime_type.startsWith('image/') ? 'image' : 'file',
+          };
+          attMap[a.id] = meta;
+          if (a.message_id) byMsg[a.message_id] = meta;
+        }
+      }
+
+      return messages.map<ConversationMessageWithAttachment>((m) => {
+        const aid = (m?.metadata as any)?.attachment_id;
+        const att =
+          (typeof aid === 'string' && attMap[aid]) ||
+          (m.id && byMsg[m.id]) ||
+          null;
+        return att ? { ...m, attachment: att } : m;
+      });
     },
-    // Defensive dedupe: if any future code path patches a realtime row
-    // into the cache before the refetch lands, the consumer still sees
-    // a clean unique-by-id list. No-op for the current invalidate-only
-    // flow.
-    select: (rows) => dedupeById(rows as (ConversationMessage & { id: string })[]),
+    select: (rows) => dedupeById(rows as (ConversationMessageWithAttachment & { id: string })[]),
     enabled: !!conversationId,
   });
 }
@@ -49,9 +109,8 @@ export function useConversationMessages(conversationId: string | undefined) {
  * Routes through POST /api/conversations/send-message which:
  *   1. Inserts into conversation_messages.
  *   2. Updates conversations.updated_at.
- *   3. Publishes a `message` event to the Centrifugo channel
- *      `ws:<workspace_id>:conv:<conversation_id>` so the visitor's
- *      widget receives the reply live without a page refresh.
+ *   3. Optionally binds an operator-uploaded attachment_id to the message.
+ *   4. Publishes a `message` event so the visitor widget receives it live.
  *
  * If realtime is not configured, the publish is a no-op and the
  * widget falls back to polling (already wired in runtime.js).
@@ -62,12 +121,16 @@ export function useSendMessage(
 ) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ body }: { body: string; senderId?: string }) => {
+    mutationFn: async ({
+      body,
+      attachmentId,
+    }: { body: string; senderId?: string; attachmentId?: string | null }) => {
       if (!conversationId || !workspaceId) throw new Error('Missing conversation or workspace');
       const result = await conversationsApi.sendMessage({
         workspace_id: workspaceId,
         conversation_id: conversationId,
         body,
+        attachment_id: attachmentId ?? null,
         metadata: { source: 'inbox' },
       });
       return result;

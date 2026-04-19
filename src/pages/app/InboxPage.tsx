@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useConversations, useConversationMessages, useSendMessage, useUpdateConversation, useDeleteAllConversations, useMarkConversationSeen } from '@/hooks/useConversations';
+import type { MessageAttachment } from '@/hooks/useConversations';
 import { useInboxRealtime } from '@/hooks/useInboxRealtime';
 import { useVisitorPresenceForConversation } from '@/hooks/useVisitorPresence';
 import { conversationsApi } from '@/lib/conversations-api';
@@ -19,16 +20,72 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
+import { Progress } from '@/components/ui/progress';
 import {
   Inbox, Send, CheckCircle2, Filter, Plus, MessageSquare,
   ChevronDown, Search, MoreHorizontal, Archive,
   UserCheck, AlertCircle, Clock, Star, X,
   Mail, Phone, Globe, User, Eye, ChevronLeft, ChevronRight,
   Loader2, Bot, Copy, Paperclip, RefreshCw,
-  MessageCircle, Hash,
+  MessageCircle, Hash, FileText, Download, ImageIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+const ALLOWED_OPERATOR_MIMES = new Set([
+  'image/png', 'image/jpeg', 'image/webp', 'image/gif',
+  'application/pdf', 'text/plain',
+]);
+const MAX_OPERATOR_BYTES = 25 * 1024 * 1024;
+
+function humanSize(n: number): string {
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(0) + ' KB';
+  return (n / (1024 * 1024)).toFixed(n < 10 * 1024 * 1024 ? 1 : 0) + ' MB';
+}
+
+/**
+ * Attachment renderer for inbox messages. Always loads via the backend
+ * proxy /api/widget/attachments/:id (same route the visitor widget uses,
+ * re-checks workspace + conversation ownership). Provider URLs never reach
+ * the client.
+ */
+function MessageAttachmentView({
+  att,
+  t,
+}: {
+  att: { id: string; file_name: string; mime_type: string; size_bytes: number; kind: 'image' | 'file' };
+  t: (key: any) => string;
+}) {
+  const url = `${API_BASE}/api/widget/attachments/${encodeURIComponent(att.id)}`;
+  const isImage = att.kind === 'image' || /^image\//.test(att.mime_type);
+  if (isImage) {
+    return (
+      <a href={url} target="_blank" rel="noopener noreferrer" className="block max-w-[280px] rounded-lg overflow-hidden border border-border">
+        <img src={url} alt={att.file_name} loading="lazy" className="block w-full h-auto" />
+      </a>
+    );
+  }
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      download={att.file_name}
+      className="flex items-center gap-2.5 rounded-lg border border-border bg-background/60 px-2.5 py-2 max-w-[280px] hover:bg-background transition-colors"
+    >
+      <div className="w-8 h-8 rounded-md bg-secondary flex items-center justify-center shrink-0 text-muted-foreground">
+        <FileText className="w-4 h-4" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-[12px] font-medium text-foreground truncate">{att.file_name}</div>
+        <div className="text-[10px] text-muted-foreground">{humanSize(att.size_bytes)}</div>
+      </div>
+      <Download className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+    </a>
+  );
+}
 
 // ─── Constants ───
 const statusColors: Record<string, string> = {
@@ -144,10 +201,106 @@ export default function InboxPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [rawMessages?.length]);
 
+  // ─── Phase 2 — Operator attachment composer state ───
+  // Single pending attachment per draft (mirrors widget's design).
+  // State machine: idle → uploading → ready → (sent → idle) | error
+  type AttState = {
+    file: File | null;
+    attachmentId: string | null;
+    fileName: string;
+    mimeType: string;
+    sizeBytes: number;
+    status: 'idle' | 'uploading' | 'ready' | 'error';
+    progress: number;
+    error: string;
+  };
+  const initialAttState: AttState = {
+    file: null, attachmentId: null, fileName: '', mimeType: '',
+    sizeBytes: 0, status: 'idle', progress: 0, error: '',
+  };
+  const [att, setAtt] = useState<AttState>(initialAttState);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const resetAttachment = useCallback(() => setAtt(initialAttState), []);
+
+  const beginUpload = useCallback(async (file: File) => {
+    if (!workspace?.id) return;
+    if (!ALLOWED_OPERATOR_MIMES.has(file.type)) {
+      toast({
+        title: t('inbox.attachInvalidType') || 'File type not allowed',
+        description: file.type || 'unknown',
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (file.size > MAX_OPERATOR_BYTES) {
+      toast({
+        title: t('inbox.attachTooLarge') || 'File too large',
+        description: humanSize(MAX_OPERATOR_BYTES),
+        variant: 'destructive',
+      });
+      return;
+    }
+    setAtt({
+      file, attachmentId: null, fileName: file.name, mimeType: file.type,
+      sizeBytes: file.size, status: 'uploading', progress: 5, error: '',
+    });
+    try {
+      const init = await conversationsApi.initAttachment({
+        workspace_id: workspace.id,
+        conversation_id: selectedId ?? null,
+        file,
+      });
+      setAtt((s) => ({ ...s, attachmentId: init.attachment_id, progress: 20 }));
+      await conversationsApi.uploadAttachment({
+        workspace_id: workspace.id,
+        attachment_id: init.attachment_id,
+        file,
+        onProgress: (pct) => setAtt((s) => ({ ...s, progress: Math.max(s.progress, pct) })),
+      });
+      setAtt((s) => ({ ...s, status: 'ready', progress: 100 }));
+    } catch (e: any) {
+      setAtt((s) => ({ ...s, status: 'error', error: e?.message || 'Upload failed' }));
+      toast({
+        title: t('inbox.attachUploadFailed') || 'Upload failed',
+        description: e?.message || '',
+        variant: 'destructive',
+      });
+    }
+  }, [workspace?.id, selectedId, t]);
+
+  const onFilePicked: React.ChangeEventHandler<HTMLInputElement> = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-picking the same file later
+    if (file) beginUpload(file);
+  };
+
+  const retryUpload = useCallback(() => {
+    if (att.file) beginUpload(att.file);
+  }, [att.file, beginUpload]);
+
+  const removeAttachment = useCallback(() => {
+    if (att.attachmentId && workspace?.id) {
+      // Best-effort cleanup; ignore failures.
+      conversationsApi.deleteAttachment({
+        workspace_id: workspace.id, attachment_id: att.attachmentId,
+      }).catch(() => {});
+    }
+    resetAttachment();
+  }, [att.attachmentId, workspace?.id, resetAttachment]);
+
   const handleSend = async () => {
-    if (!message.trim() || !selectedId || !user) return;
-    await sendMessage.mutateAsync({ body: message });
+    if (!selectedId || !user) return;
+    const hasText = message.trim().length > 0;
+    const hasAttachment = att.status === 'ready' && !!att.attachmentId;
+    if (!hasText && !hasAttachment) return;
+    if (att.status === 'uploading') return; // wait for upload to finish
+    await sendMessage.mutateAsync({
+      body: message,
+      attachmentId: hasAttachment ? att.attachmentId : null,
+    });
     setMessage('');
+    resetAttachment();
   };
 
   // Phase 1 — operator typing emit (throttled to ≤1 publish per 2s while typing).
@@ -164,8 +317,12 @@ export default function InboxPage() {
     });
   }, [workspace?.id, selectedId]);
 
-  // Reset visitor typing indicator when switching conversations.
-  useEffect(() => { setVisitorTypingUntil(0); lastTypingSentRef.current = 0; }, [selectedId]);
+  // Reset visitor typing indicator + pending attachment when switching conversations.
+  useEffect(() => {
+    setVisitorTypingUntil(0);
+    lastTypingSentRef.current = 0;
+    resetAttachment();
+  }, [selectedId, resetAttachment]);
 
   const getInitials = (name?: string | null, email?: string | null) => {
     if (name) return name.charAt(0).toUpperCase();
@@ -581,7 +738,10 @@ export default function InboxPage() {
                           ? 'bg-primary/10 text-foreground rounded-es-sm'
                           : 'bg-secondary text-foreground rounded-ee-sm'
                       )}>
-                        <p>{msg.body}</p>
+                        {(msg as { attachment?: MessageAttachment | null }).attachment && (
+                          <MessageAttachmentView att={(msg as { attachment: MessageAttachment }).attachment} t={t} />
+                        )}
+                        {msg.body && <p className={cn((msg as any).attachment ? 'mt-2' : '')}>{msg.body}</p>}
                       </div>
                       {/* Copy action */}
                       <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1 mt-0.5">
@@ -615,10 +775,66 @@ export default function InboxPage() {
 
             {/* ── Input Area ── */}
             <div className="border-t border-border px-3 py-2.5 bg-card/50 shrink-0" dir={dir}>
+              {/* Pending attachment chip */}
+              {att.status !== 'idle' && (
+                <div className="mb-2 flex items-center gap-2 rounded-lg border border-border bg-secondary/40 px-2.5 py-2">
+                  <div className="w-8 h-8 rounded-md bg-background flex items-center justify-center shrink-0 text-muted-foreground">
+                    {att.mimeType.startsWith('image/')
+                      ? <ImageIcon className="w-4 h-4" />
+                      : <FileText className="w-4 h-4" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[12px] font-medium text-foreground truncate">{att.fileName}</div>
+                    <div className="text-[10px] text-muted-foreground flex items-center gap-1.5">
+                      <span>{humanSize(att.sizeBytes)}</span>
+                      <span className="opacity-40">•</span>
+                      <span className={cn(
+                        att.status === 'error' ? 'text-destructive' :
+                        att.status === 'ready' ? 'text-success' : 'text-muted-foreground'
+                      )}>
+                        {att.status === 'uploading' && (t('inbox.attachUploading') || 'Uploading…')}
+                        {att.status === 'ready' && (t('inbox.attachReady') || 'Ready to send')}
+                        {att.status === 'error' && (att.error || t('inbox.attachUploadFailed') || 'Upload failed')}
+                      </span>
+                    </div>
+                    {att.status === 'uploading' && (
+                      <Progress value={att.progress} className="h-1 mt-1.5" />
+                    )}
+                  </div>
+                  {att.status === 'error' && (
+                    <button
+                      onClick={retryUpload}
+                      className="text-[11px] font-medium text-primary hover:underline px-1.5"
+                    >
+                      {t('inbox.attachRetry') || 'Retry'}
+                    </button>
+                  )}
+                  <button
+                    onClick={removeAttachment}
+                    className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-destructive transition-colors shrink-0"
+                    aria-label={t('inbox.attachRemove') || 'Remove'}
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
               <div className={cn(
                 'flex gap-2 items-end rounded-xl border p-1.5 transition-colors border-border bg-secondary/30'
               )}>
-                <button className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors shrink-0">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,text/plain"
+                  onChange={onFilePicked}
+                />
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={att.status === 'uploading'}
+                  className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+                  title={t('inbox.attachFile') || 'Attach file'}
+                  aria-label={t('inbox.attachFile') || 'Attach file'}
+                >
                   <Paperclip className="w-4 h-4" />
                 </button>
                 <Textarea
@@ -638,7 +854,11 @@ export default function InboxPage() {
                 <Button
                   onClick={handleSend}
                   size="icon"
-                  disabled={!message.trim() || sendMessage.isPending}
+                  disabled={
+                    sendMessage.isPending ||
+                    att.status === 'uploading' ||
+                    (!message.trim() && att.status !== 'ready')
+                  }
                   className="h-9 w-9 rounded-lg shrink-0"
                 >
                   {sendMessage.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}

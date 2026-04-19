@@ -27,15 +27,23 @@ import {
   publishConversationEvent,
   buildMessageEnvelope,
 } from '../services/realtime/publish.js';
+import {
+  attachUploadedFileToMessage,
+  enrichMessagesWithAttachments,
+} from './widgetAttachments.js';
 
 export const conversationsRouter = Router();
 
 const sendMessageSchema = z.object({
   conversation_id: z.string().uuid(),
   workspace_id: z.string().uuid(),
-  body: z.string().min(1).max(50_000),
+  body: z.string().max(50_000).optional().default(''),
   metadata: z.record(z.unknown()).optional(),
-});
+  attachment_id: z.string().uuid().nullable().optional(),
+}).refine(
+  d => (d.body && d.body.trim().length > 0) || !!d.attachment_id,
+  { message: 'body or attachment_id required' }
+);
 
 /**
  * Authenticate the request as a workspace member.
@@ -164,20 +172,42 @@ conversationsRouter.post('/send-message', async (req, res) => {
       return res.status(404).json({ error: 'Conversation not found in workspace' });
     }
 
-    // Insert message.
+    // Insert message. body may be empty when only an attachment is sent.
+    const messageBody = parsed.data.body || '';
+    const baseMetadata: Record<string, unknown> = {
+      ...(parsed.data.metadata ?? {}),
+      source: (parsed.data.metadata as any)?.source ?? 'inbox',
+    };
+    if (parsed.data.attachment_id) baseMetadata.attachment_id = parsed.data.attachment_id;
+
     const { data: inserted, error: insErr } = await sb
       .from('conversation_messages')
       .insert({
         conversation_id: parsed.data.conversation_id,
-        body: parsed.data.body,
+        body: messageBody,
         sender_type: 'agent',
         sender_id: auth.userId,
-        metadata: parsed.data.metadata ?? { source: 'inbox' },
+        metadata: baseMetadata,
       })
       .select('id, conversation_id, sender_type, sender_id, body, created_at, metadata, seen_at')
       .single();
     if (insErr || !inserted) {
       return res.status(500).json({ error: insErr?.message || 'Insert failed' });
+    }
+
+    // Phase 2 — Bind operator-uploaded attachment to this message + conversation.
+    if (parsed.data.attachment_id && inserted?.id) {
+      const ok = await attachUploadedFileToMessage(
+        config,
+        parsed.data.attachment_id,
+        parsed.data.workspace_id,
+        parsed.data.conversation_id,
+        inserted.id,
+      );
+      if (!ok) {
+        console.warn('[conversations/send-message] failed to attach',
+          parsed.data.attachment_id, 'to', inserted.id);
+      }
     }
 
     // Bump conversation timestamp (and reopen if needed).
@@ -186,18 +216,23 @@ conversationsRouter.post('/send-message', async (req, res) => {
       .update({ updated_at: new Date().toISOString() })
       .eq('id', parsed.data.conversation_id);
 
-    // Publish to realtime — fire-and-forget semantics, but we surface the
-    // outcome so the UI can show "sent live" vs "saved (polling)".
+    // Enrich envelope with public-safe attachment metadata so the visitor
+    // widget renders the file via its proxy route. Same shape as visitor flow.
+    const [enriched] = await enrichMessagesWithAttachments(
+      config, parsed.data.workspace_id, [inserted as any]
+    );
+
+    // Publish to realtime — fire-and-forget semantics.
     const pub = await publishConversationEvent(
       config,
       parsed.data.workspace_id,
       parsed.data.conversation_id,
-      buildMessageEnvelope(inserted as any),
+      buildMessageEnvelope(enriched as any),
     );
 
     return res.json({
       ok: true,
-      message: inserted,
+      message: enriched,
       realtime: { published: pub.ok, reason: pub.reason ?? null },
     });
   } catch (err: any) {

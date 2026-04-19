@@ -1,0 +1,149 @@
+/**
+ * Conversations API — backend-mediated agent reply send.
+ *
+ * Flow (POST /api/conversations/send-message):
+ *   1. Verify the caller is an authenticated workspace member.
+ *   2. Insert into conversation_messages.
+ *   3. Bump conversations.updated_at.
+ *   4. Publish a `message` event to the Centrifugo conversation channel
+ *      (ws:<workspace_id>:conv:<conversation_id>) so the visitor widget
+ *      receives the agent reply live without polling/refresh.
+ *   5. Return the inserted row + a `realtime` flag indicating whether the
+ *      live publish actually went out (so the inbox UI can show a hint).
+ *
+ * Auth model:
+ *   • Bearer = Supabase user access token (same as src/lib/realtime-admin-api.ts).
+ *   • We resolve the user, then verify membership via is_workspace_member RPC.
+ *   • All DB writes go through the service-role client — RLS is enforced
+ *     at the route layer, not via the user's JWT (matches the admin pattern
+ *     already used by /api/realtime/admin and /api/admin).
+ */
+
+import { Router } from 'express';
+import { z } from 'zod';
+import type { ServerConfig } from '../config.js';
+import { getServiceClient } from '../supabase.js';
+import {
+  publishConversationEvent,
+  buildMessageEnvelope,
+} from '../services/realtime/publish.js';
+
+export const conversationsRouter = Router();
+
+const sendMessageSchema = z.object({
+  conversation_id: z.string().uuid(),
+  workspace_id: z.string().uuid(),
+  body: z.string().min(1).max(50_000),
+  metadata: z.record(z.unknown()).optional(),
+});
+
+/**
+ * Authenticate the request as a workspace member.
+ * Returns { userId, workspaceId } on success, sends 401/403 on failure.
+ */
+async function authorizeWorkspaceMember(
+  req: any,
+  res: any,
+  config: ServerConfig,
+  workspaceId: string,
+): Promise<{ userId: string } | null> {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) {
+    res.status(401).json({ error: 'Missing authorization' });
+    return null;
+  }
+  const token = authHeader.replace('Bearer ', '');
+  const sb = getServiceClient(config);
+  const {
+    data: { user },
+    error,
+  } = await sb.auth.getUser(token);
+  if (error || !user) {
+    res.status(401).json({ error: 'Invalid token' });
+    return null;
+  }
+
+  // Membership check via the same RPC used by RLS policies.
+  const { data: isMember, error: memErr } = await sb.rpc('is_workspace_member', {
+    _workspace_id: workspaceId,
+    _user_id: user.id,
+  });
+  if (memErr) {
+    res.status(500).json({ error: 'Membership check failed' });
+    return null;
+  }
+  if (!isMember) {
+    res.status(403).json({ error: 'Not a workspace member' });
+    return null;
+  }
+  return { userId: user.id };
+}
+
+conversationsRouter.post('/send-message', async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const parsed = sendMessageSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: 'Invalid payload',
+        details: parsed.error.flatten().fieldErrors,
+      });
+    }
+
+    const auth = await authorizeWorkspaceMember(req, res, config, parsed.data.workspace_id);
+    if (!auth) return; // response already sent
+
+    const sb = getServiceClient(config);
+
+    // Verify the conversation belongs to this workspace.
+    const { data: conv, error: convErr } = await sb
+      .from('conversations')
+      .select('id, workspace_id')
+      .eq('id', parsed.data.conversation_id)
+      .maybeSingle();
+    if (convErr) return res.status(500).json({ error: convErr.message });
+    if (!conv || conv.workspace_id !== parsed.data.workspace_id) {
+      return res.status(404).json({ error: 'Conversation not found in workspace' });
+    }
+
+    // Insert message.
+    const { data: inserted, error: insErr } = await sb
+      .from('conversation_messages')
+      .insert({
+        conversation_id: parsed.data.conversation_id,
+        body: parsed.data.body,
+        sender_type: 'agent',
+        sender_id: auth.userId,
+        metadata: parsed.data.metadata ?? { source: 'inbox' },
+      })
+      .select('id, conversation_id, sender_type, sender_id, body, created_at, metadata, seen_at')
+      .single();
+    if (insErr || !inserted) {
+      return res.status(500).json({ error: insErr?.message || 'Insert failed' });
+    }
+
+    // Bump conversation timestamp (and reopen if needed).
+    await sb
+      .from('conversations')
+      .update({ updated_at: new Date().toISOString() })
+      .eq('id', parsed.data.conversation_id);
+
+    // Publish to realtime — fire-and-forget semantics, but we surface the
+    // outcome so the UI can show "sent live" vs "saved (polling)".
+    const pub = await publishConversationEvent(
+      config,
+      parsed.data.workspace_id,
+      parsed.data.conversation_id,
+      buildMessageEnvelope(inserted as any),
+    );
+
+    return res.json({
+      ok: true,
+      message: inserted,
+      realtime: { published: pub.ok, reason: pub.reason ?? null },
+    });
+  } catch (err: any) {
+    console.error('[conversations/send-message] error:', err);
+    return res.status(500).json({ error: err?.message || 'Internal error' });
+  }
+});

@@ -225,6 +225,7 @@
         msgSent: 'ارسال شد',
         msgSeen: 'دیده شد',
         msgFailed: 'ارسال نشد',
+        typingOperator: 'پشتیبانی در حال نوشتن…',
       },
       tr: {
         chat: 'Sohbet', help: 'Yardım',
@@ -272,6 +273,7 @@
         msgSent: 'Gönderildi',
         msgSeen: 'Görüldü',
         msgFailed: 'İletilemedi',
+        typingOperator: 'Destek yazıyor…',
       },
     };
     return {

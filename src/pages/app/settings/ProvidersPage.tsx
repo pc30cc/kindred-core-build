@@ -21,6 +21,7 @@ import {
   maskSecret, getProviderStatus,
   type WsProviderType,
 } from '@/hooks/useWorkspaceProviders';
+import { WorkspacePrivacyStorageCard } from '@/features/providers/WorkspacePrivacyStorageCard';
 
 // ─── Status Badge ────────────────────────────────────────────────
 
@@ -520,6 +521,7 @@ export default function SettingsProvidersPage() {
           <EmailProviderCard workspaceId={workspace.id} settings={settings} />
           <AIProviderCard workspaceId={workspace.id} settings={settings} />
           <WebhookCard workspaceId={workspace.id} settings={settings} />
+          <WorkspacePrivacyStorageCard workspaceId={workspace.id} />
         </div>
       )}
     </div>

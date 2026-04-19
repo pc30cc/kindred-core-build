@@ -1483,7 +1483,8 @@
       transport.loadHistory({
         onResult: function (result) {
           if (result.conversationId) {
-            chatStore.set({ conversationId: result.conversationId });
+          chatStore.set({ conversationId: result.conversationId });
+            try { document.cookie = 'gs_active=1; path=/; max-age=86400; SameSite=Lax'; } catch (_) {}
             transport.subscribeConversation(result.conversationId);
           }
           if (mergeIncoming(result.messages || [])) onChange();

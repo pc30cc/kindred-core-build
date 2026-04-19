@@ -9,10 +9,19 @@ import { useProviderSummary, PROVIDER_TYPE_KEYS, providerRegistry, getFallbackLo
 import { PROVIDER_SCHEMAS } from '@/features/providers/schemas';
 import { AdminProviderCard } from '@/features/providers/AdminProviderCard';
 import { AdminRealtimeCard } from '@/features/providers/AdminRealtimeCard';
+import { PrivacyExportStorageCard } from '@/features/providers/PrivacyExportStorageCard';
 
 // Phase 3: realtime is configured globally via the dedicated card.
 function RenderProviderCard({ type }: { type: ProviderTypeKey }) {
   if (type === 'realtime') return <AdminRealtimeCard />;
+  if (type === 'storage') {
+    return (
+      <div className="space-y-4">
+        <AdminProviderCard type={type} />
+        <PrivacyExportStorageCard />
+      </div>
+    );
+  }
   return <AdminProviderCard type={type} />;
 }
 

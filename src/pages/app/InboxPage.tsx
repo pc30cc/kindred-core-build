@@ -1001,8 +1001,19 @@ export default function InboxPage() {
                 </div>
               )}
               <div className={cn(
-                'flex gap-2 items-end rounded-xl border p-1.5 transition-colors border-border bg-secondary/30'
+                'relative flex gap-2 items-end rounded-xl border p-1.5 transition-colors border-border bg-secondary/30'
               )}>
+                <CannedResponsePicker
+                  ref={pickerRef}
+                  workspaceId={workspace?.id}
+                  locale={operatorLocale}
+                  query={pickerQuery}
+                  open={pickerOpen}
+                  slashMode={pickerSlash}
+                  onSelect={insertCanned}
+                  onQueryChange={setPickerQuery}
+                  onClose={closePicker}
+                />
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -1019,11 +1030,52 @@ export default function InboxPage() {
                 >
                   <Paperclip className="w-4 h-4" />
                 </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (pickerOpen && !pickerSlash) { closePicker(); return; }
+                    setPickerSlash(false);
+                    setPickerQuery('');
+                    slashAnchorRef.current = null;
+                    setPickerOpen(true);
+                  }}
+                  className={cn(
+                    'p-1.5 rounded-lg transition-colors shrink-0',
+                    pickerOpen && !pickerSlash
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-secondary',
+                  )}
+                  title="Canned responses (type / for shortcut)"
+                  aria-label="Canned responses"
+                >
+                  <Sparkles className="w-4 h-4" />
+                </button>
                 <Textarea
+                  ref={messageInputRef}
                   placeholder={t('inbox.typeMessage') || 'Type a message...'}
                   value={message}
-                  onChange={e => { setMessage(e.target.value); if (e.target.value) emitTyping(); }}
+                  onChange={e => onMessageChange(e.target.value)}
+                  onSelect={() => {
+                    // Re-evaluate trigger on caret moves.
+                    const ta = messageInputRef.current;
+                    if (!ta) return;
+                    const trig = detectSlashTrigger(ta.value, ta.selectionStart ?? 0);
+                    if (trig) {
+                      slashAnchorRef.current = trig.anchor;
+                      setPickerSlash(true); setPickerOpen(true); setPickerQuery(trig.query);
+                    } else if (pickerSlash) {
+                      closePicker();
+                    }
+                  }}
                   onKeyDown={e => {
+                    // Picker key handling takes precedence when open.
+                    if (pickerOpen && pickerSlash) {
+                      if (e.key === 'ArrowDown') { if (pickerRef.current?.moveHighlight(1)) { e.preventDefault(); return; } }
+                      else if (e.key === 'ArrowUp') { if (pickerRef.current?.moveHighlight(-1)) { e.preventDefault(); return; } }
+                      else if (e.key === 'Enter' || e.key === 'Tab') {
+                        if (pickerRef.current?.commit()) { e.preventDefault(); return; }
+                      } else if (e.key === 'Escape') { e.preventDefault(); closePicker(); return; }
+                    }
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
                       handleSend();

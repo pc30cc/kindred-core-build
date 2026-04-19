@@ -21,7 +21,9 @@ import { conversationAttachmentsRouter } from './routes/conversationAttachments.
 import { conversationNotesRouter } from './routes/conversationNotes.js';
 import { cannedResponsesRouter } from './routes/cannedResponses.js';
 import { widgetKbRouter, publicKbRouter } from './routes/kb.js';
+import { privacyRouter } from './routes/privacy.js';
 import { startAttachmentJanitor } from './services/attachmentJanitor.js';
+import { startPrivacyWorker } from './services/privacy/worker.js';
 import { widgetCorsMiddleware } from './middleware/widgetCors.js';
 import {
   ipBlockMiddleware,
@@ -152,6 +154,10 @@ app.use('/api/conversation-attachments', conversationAttachmentsRouter);
 // multilingual, no widget exposure. Auth + membership enforced per-route.
 app.use('/api/canned-responses', cannedResponsesRouter);
 
+// GDPR — privacy export/delete jobs. Auth + admin role enforced per-route.
+// Worker loop runs in-process (see startPrivacyWorker below).
+app.use('/api/privacy', privacyRouter);
+
 // 404
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });
@@ -167,6 +173,8 @@ app.listen(config.port, () => {
   console.log(`Growth Suite server running on port ${config.port}`);
   // Phase 3 — start best-effort orphan-attachment sweeper.
   startAttachmentJanitor(config);
+  // GDPR — start privacy job worker (in-process loop).
+  startPrivacyWorker(config);
 });
 
 export default app;

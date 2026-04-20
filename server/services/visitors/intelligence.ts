@@ -201,7 +201,7 @@ export async function getVisitorIntelligence(
       id, status, current_page, updated_at, visitor_session_id, workspace_id,
       visitor_sessions!inner (
         id, visitor_id, workspace_id, current_page, referrer, browser, device, os,
-        country, city, ip_hash, started_at, last_seen_at
+        country, city, ip_hash, ip_raw, started_at, last_seen_at
       )
     `)
     .eq('workspace_id', workspaceId)
@@ -225,8 +225,10 @@ export async function getVisitorIntelligence(
       last_activity_at: session.last_seen_at, started_at: session.started_at,
       browser: session.browser, device: session.device, os: session.os, referrer: session.referrer,
       geo,
-      ip_display: buildIpDisplay(session.ip_hash),
-      ip_raw: null,
+      ip_display: canViewRaw && (session as any).ip_raw
+        ? (session as any).ip_raw
+        : buildIpDisplay(session.ip_hash),
+      ip_raw: canViewRaw ? ((session as any).ip_raw ?? null) : null,
       can_view_raw_ip: canViewRaw,
       contact: null, conversation: null,
     };

@@ -901,14 +901,22 @@ export default function InboxPage() {
             </div>
 
             {/* ── Chat Header — Mobile ── */}
-            <div className="md:hidden flex items-center gap-2 px-3 py-2.5 bg-card/60 border-b border-border/50 shrink-0">
-              <button onClick={() => { setSelectedId(null); setShowMobileList(true); }} className="p-1.5 rounded-xl hover:bg-secondary text-muted-foreground transition-colors">
+            <div className="md:hidden flex items-center gap-2 px-2 py-2 bg-card/60 border-b border-border/50 shrink-0">
+              <button
+                aria-label="Back to conversations"
+                onClick={() => { setSelectedId(null); setShowMobileList(true); }}
+                className="p-2 -m-1 rounded-xl hover:bg-secondary text-muted-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
                 {dir === 'rtl' ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
               </button>
-              <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+              <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0 overflow-hidden">
+                {selected.contacts?.avatar_url ? (
+                  <img src={selected.contacts.avatar_url} alt="" className="w-full h-full object-cover" />
+                ) : (
                 <span className="text-sm font-semibold text-primary">
                   {getInitials(selected.contacts?.name, selected.contacts?.email)}
                 </span>
+                )}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-[13px] font-bold text-foreground truncate">
@@ -920,13 +928,22 @@ export default function InboxPage() {
                   </span>
                 </div>
               </div>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-0.5 shrink-0">
                 {selected.status === 'open' && (
-                  <button onClick={() => workspace?.id && updateConv.mutate({ id: selectedId, workspace_id: workspace.id, status: 'resolved' })} className="p-2 rounded-xl text-success hover:bg-success/10 transition-colors">
+                  <button
+                    aria-label={t('inbox.resolve') || 'Resolve'}
+                    onClick={() => workspace?.id && updateConv.mutate({ id: selectedId, workspace_id: workspace.id, status: 'resolved' })}
+                    className="p-2 rounded-xl text-success hover:bg-success/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
                     <CheckCircle2 className="w-5 h-5" />
                   </button>
                 )}
-                <button onClick={() => setShowSidebar(!showSidebar)} className="p-2 rounded-xl text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors">
+                <button
+                  aria-label={showSidebar ? 'Hide details' : 'Show details'}
+                  aria-expanded={showSidebar}
+                  onClick={() => setShowSidebar(!showSidebar)}
+                  className="p-2 rounded-xl text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
                   <Eye className="w-5 h-5" />
                 </button>
               </div>

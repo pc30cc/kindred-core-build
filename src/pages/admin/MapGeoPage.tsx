@@ -285,6 +285,42 @@ export default function MapGeoPage() {
                   </div>
                 </div>
                 <div className="space-y-2">
+                  <Label>Quick presets</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {([
+                      { label: '🇹🇷 Turkey',  lat: 39.0,  lng: 35.0,  zoom: 6 },
+                      { label: '🇮🇷 Iran',    lat: 32.4,  lng: 53.7,  zoom: 5 },
+                      { label: '🇺🇸 USA',     lat: 39.5,  lng: -98.35, zoom: 4 },
+                      { label: '🇪🇺 Europe',  lat: 54.0,  lng: 15.0,  zoom: 4 },
+                      { label: '🌍 World',    lat: 20.0,  lng: 0.0,   zoom: 2 },
+                    ] as const).map((p) => (
+                      <Button
+                        key={p.label}
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          const next = {
+                            ...settings,
+                            behavior: {
+                              ...settings.behavior,
+                              default_center_mode: 'fixed' as const,
+                              default_center_lat: p.lat,
+                              default_center_lng: p.lng,
+                              default_zoom: p.zoom,
+                            },
+                          };
+                          setSettings(next);
+                          save({ behavior: next.behavior });
+                        }}
+                      >
+                        {p.label}
+                      </Button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground">Click a preset to set center + zoom. The preview above and the Visitors page will use it as the initial view.</p>
+                </div>
+                <div className="space-y-2">
                   <Label>Live preview</Label>
                   <MapTilesPreview
                     tileUrl={settings.tiles.url_template}

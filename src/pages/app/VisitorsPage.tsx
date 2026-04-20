@@ -415,6 +415,61 @@ export default function VisitorsPage() {
               </ul>
             )}
           </div>
+
+          {/* Footer controls — refresh, include offline, warm geo */}
+          <div className="border-t border-border p-2.5 space-y-2 bg-muted/20">
+            <div className="flex items-center justify-between gap-2">
+              <label className="flex items-center gap-2 text-[11px] text-muted-foreground cursor-pointer select-none">
+                <Switch checked={includeOffline} onCheckedChange={setIncludeOffline} />
+                {t('visitors.includeOffline')}
+              </label>
+              <Button
+                size="sm" variant="ghost"
+                className="h-7 px-2 text-[11px]"
+                onClick={() => { live.refetch(); map.refetch(); }}
+                disabled={live.isFetching}
+                aria-label={t('visitors.refresh')}
+              >
+                <RefreshCcw className={cn('w-3 h-3 me-1', live.isFetching && 'animate-spin')} />
+                {t('visitors.refresh')}
+              </Button>
+            </div>
+            {isAdmin && (
+              <Button
+                size="sm" variant="outline"
+                className="w-full h-7 text-[11px]"
+                onClick={onWarmGeo}
+                disabled={warming}
+                title={t('visitors.warmGeoDesc')}
+                aria-label={t('visitors.warmGeoCta')}
+              >
+                <Flame className={cn('w-3 h-3 me-1', warming && 'animate-pulse')} />
+                {warming ? t('visitors.warmGeoRunning') : t('visitors.warmGeoCta')}
+              </Button>
+            )}
+            {geoInsight.total > 0 && (
+              <div
+                className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-muted-foreground pt-1"
+                aria-label={t('visitors.insightTitle')}
+              >
+                <span className="inline-flex items-center gap-1">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-success" aria-hidden />
+                  <span className="text-foreground tabular-nums">{geoInsight.precise}</span>
+                  <span>{t('visitors.insightPrecise')}</span>
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-warning" aria-hidden />
+                  <span className="text-foreground tabular-nums">{geoInsight.approximate}</span>
+                  <span>{t('visitors.insightApproximate')}</span>
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-muted-foreground/60" aria-hidden />
+                  <span className="text-foreground tabular-nums">{geoInsight.unavailable}</span>
+                  <span>{t('visitors.insightUnavailable')}</span>
+                </span>
+              </div>
+            )}
+          </div>
           </>
           )}
         </div>

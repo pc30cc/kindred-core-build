@@ -28,6 +28,13 @@ export interface GeoResult {
   city: string | null;
   latitude: number | null;
   longitude: number | null;
+  /** Best precision the resolver could achieve. */
+  accuracy_level: 'country' | 'region' | 'city' | null;
+  /** True when only centroid/session metadata was available. */
+  is_fallback: boolean;
+  /** Provider name that produced the coords (or 'centroid' / 'cache'). */
+  source_provider: string | null;
+  timezone: string | null;
   /**
    * Resolution source:
    *   - cache    : from visitor_geo_cache (provider-warmed, valid TTL)

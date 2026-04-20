@@ -1027,7 +1027,11 @@ export default function InboxPage() {
             )}
 
             {/* ── Input Area ── */}
-            <div className="border-t border-border px-3 py-3 bg-card/60 shrink-0" dir={dir}>
+            <div
+              className="border-t border-border px-3 py-3 bg-card/60 shrink-0"
+              style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
+              dir={dir}
+            >
               {/* Pending attachment chip */}
               {att.status !== 'idle' && (
                 <div className="mb-2 flex items-center gap-2 rounded-lg border border-border bg-secondary/40 px-2.5 py-2">

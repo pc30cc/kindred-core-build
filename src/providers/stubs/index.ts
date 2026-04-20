@@ -176,17 +176,20 @@ export const stubMapTilesProvider: MapTilesProvider = {
   isEnabled() { return false; },
 };
 
-// --- OpenStreetMap default Map Tiles provider (no key required) ---
+// --- "Tiles not configured" stub (self-host safe default) ---
+// Replaces the old silent OSM fallback. The Visitors map renders a
+// placeholder grid + admin banner when this is returned. Operators
+// must configure a self-hosted tile URL via /admin/map-geo.
 export const osmMapTilesProvider: MapTilesProvider = {
   getConfig() {
     return {
-      enabled: true,
-      provider: 'osm',
-      tileUrl: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-      attribution: '© OpenStreetMap contributors',
-      maxZoom: 19,
-      minZoom: 1,
+      enabled: false,
+      provider: 'none',
+      tileUrl: '',
+      attribution: '',
+      maxZoom: 0,
+      minZoom: 0,
     };
   },
-  isEnabled() { return true; },
+  isEnabled() { return false; },
 };

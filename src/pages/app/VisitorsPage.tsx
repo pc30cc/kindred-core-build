@@ -142,6 +142,31 @@ export default function VisitorsPage() {
     return { online, active, countries, pages };
   }, [visitors]);
 
+  // Geo source breakdown — drives the header insight strip. Derived from the
+  // same `visitors` array as the list/map so it updates in realtime when the
+  // realtime hook patches the cache (no extra refetch).
+  const geoInsight = useMemo(() => {
+    let precise = 0, approximate = 0, unavailable = 0;
+    for (const v of visitors) {
+      const s = v.geo.source;
+      if (s === 'provider' || s === 'cache') precise++;
+      else if (s === 'centroid') approximate++;
+      else unavailable++;
+    }
+    const total = visitors.length;
+    const pct = (n: number) => (total > 0 ? Math.round((n / total) * 100) : 0);
+    return {
+      total,
+      precise,
+      approximate,
+      unavailable,
+      withoutLocation: map.data?.without_location ?? unavailable,
+      pctPrecise: pct(precise),
+      pctApprox: pct(approximate),
+      pctUnavailable: pct(unavailable),
+    };
+  }, [visitors, map.data?.without_location]);
+
   const statusDot: Record<string, string> = {
     online: 'bg-success',
     idle: 'bg-warning',

@@ -105,7 +105,7 @@ function buildFromConfig(
   // ── Self-hosted tile server (TileServer GL etc.) ─────────────────
   if (name === 'tileserver_selfhosted') {
     const url = get('tile_url');
-    if (!url) return { config: DEFAULT_OSM, fallback: { reason: 'missing tile_url' } };
+    if (!url) return { config: UNCONFIGURED, fallback: { reason: 'missing tile_url' } };
     return { config: {
       enabled: true,
       provider: 'tileserver_selfhosted',
@@ -121,7 +121,7 @@ function buildFromConfig(
   // ── Self-hosted OpenMapTiles ─────────────────────────────────────
   if (name === 'openmaptiles_selfhosted') {
     const url = get('tile_url');
-    if (!url) return { config: DEFAULT_OSM, fallback: { reason: 'missing tile_url' } };
+    if (!url) return { config: UNCONFIGURED, fallback: { reason: 'missing tile_url' } };
     return { config: {
       enabled: true,
       provider: 'openmaptiles_selfhosted',
@@ -137,7 +137,7 @@ function buildFromConfig(
   }
   if (name === 'maptiler') {
     const key = get('api_key');
-    if (!key) return { config: DEFAULT_OSM, fallback: { reason: 'missing api_key' } };
+    if (!key) return { config: UNCONFIGURED, fallback: { reason: 'missing api_key' } };
     const style = get('style') || 'streets-v2';
     return { config: {
       enabled: true, provider: 'maptiler',

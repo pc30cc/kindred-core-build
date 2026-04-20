@@ -241,6 +241,36 @@ async function writeCache(
   );
 }
 
+/**
+ * Persist normalized geo cache columns onto a visitor_sessions row.
+ * This is the read-path optimization: map/list APIs query the session
+ * directly with no JOIN and no per-row resolver call.
+ */
+export async function persistSessionGeo(
+  config: ServerConfig,
+  sessionId: string,
+  result: GeoResult,
+): Promise<void> {
+  if (!sessionId) return;
+  const sb = getServiceClient(config);
+  await sb
+    .from('visitor_sessions')
+    .update({
+      geo_country_code: result.country_code,
+      geo_country_name: result.country,
+      geo_region: result.region,
+      geo_city: result.city,
+      geo_latitude: result.latitude,
+      geo_longitude: result.longitude,
+      geo_timezone: result.timezone,
+      geo_accuracy_level: result.accuracy_level,
+      geo_source_provider: result.source_provider,
+      geo_is_fallback: result.is_fallback,
+      geo_resolved_at: new Date().toISOString(),
+    })
+    .eq('id', sessionId);
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // Provider adapters — each takes a raw IP and returns a partial GeoResult.
 // All adapters fail-soft: they return null on any error so callers fall back

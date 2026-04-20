@@ -571,7 +571,7 @@ visitorsAdminRouter.get('/:id/page-history', async (req: Request, res: Response)
     // Recent pages (most-recent first) for the timeline.
     const { data, error } = await sb
       .from('visitor_page_views')
-      .select('id, url, viewed_at')
+      .select('id, url, title, viewed_at')
       .eq('workspace_id', workspaceId)
       .eq('visitor_session_id', req.params.id)
       .order('viewed_at', { ascending: false })
@@ -581,7 +581,7 @@ visitorsAdminRouter.get('/:id/page-history', async (req: Request, res: Response)
     // Earliest page-view in this session = the landing/entry page.
     const { data: firstRows } = await sb
       .from('visitor_page_views')
-      .select('id, url, viewed_at')
+      .select('id, url, title, viewed_at')
       .eq('workspace_id', workspaceId)
       .eq('visitor_session_id', req.params.id)
       .order('viewed_at', { ascending: true })
@@ -600,13 +600,14 @@ visitorsAdminRouter.get('/:id/page-history', async (req: Request, res: Response)
     const firstPage = firstRows?.[0] ?? null;
     const entry = {
       landing_url: firstPage?.url ?? sess?.current_page ?? null,
+      landing_title: (firstPage as any)?.title ?? null,
       landed_at: firstPage?.viewed_at ?? sess?.started_at ?? null,
       referrer: sess?.referrer ?? null,
     };
     const current = items[0]
-      ? { url: items[0].url, viewed_at: items[0].viewed_at }
+      ? { url: items[0].url, title: (items[0] as any).title ?? null, viewed_at: items[0].viewed_at }
       : sess?.current_page
-        ? { url: sess.current_page, viewed_at: sess.started_at ?? null }
+        ? { url: sess.current_page, title: null, viewed_at: sess.started_at ?? null }
         : null;
 
     res.json({ items, entry, current });

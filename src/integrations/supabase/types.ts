@@ -2001,6 +2001,7 @@ export type Database = {
       visitor_page_views: {
         Row: {
           id: number
+          title: string | null
           url: string
           viewed_at: string
           visitor_session_id: string
@@ -2008,6 +2009,7 @@ export type Database = {
         }
         Insert: {
           id?: number
+          title?: string | null
           url: string
           viewed_at?: string
           visitor_session_id: string
@@ -2015,6 +2017,7 @@ export type Database = {
         }
         Update: {
           id?: number
+          title?: string | null
           url?: string
           viewed_at?: string
           visitor_session_id?: string

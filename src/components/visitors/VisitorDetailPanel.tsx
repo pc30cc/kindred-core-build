@@ -180,9 +180,9 @@ function PageJourney({
   onToggle,
   t,
 }: {
-  entry: { landing_url: string | null; landed_at: string | null; referrer: string | null } | null;
-  current: { url: string; viewed_at: string | null } | null;
-  items: Array<{ id: number; url: string; viewed_at: string }>;
+  entry: { landing_url: string | null; landing_title?: string | null; landed_at: string | null; referrer: string | null } | null;
+  current: { url: string; title?: string | null; viewed_at: string | null } | null;
+  items: Array<{ id: number; url: string; title?: string | null; viewed_at: string }>;
   showAll: boolean;
   onToggle: () => void;
   t: (k: string, vars?: Record<string, string>) => string;
@@ -220,7 +220,12 @@ function PageJourney({
               {t('visitors.entryPoint')}
             </span>
           </div>
-          <div className="text-xs text-foreground truncate font-medium" title={entry.landing_url}>
+          {entry.landing_title && (
+            <div className="text-xs text-foreground truncate font-medium" title={entry.landing_title}>
+              {entry.landing_title}
+            </div>
+          )}
+          <div className={`text-[11px] truncate ${entry.landing_title ? 'text-muted-foreground/90 font-mono' : 'text-foreground font-medium'}`} title={entry.landing_url}>
             {entry.landing_url}
           </div>
           <div className="text-[10px] text-muted-foreground mt-0.5 flex items-center gap-1.5 flex-wrap">
@@ -247,7 +252,12 @@ function PageJourney({
               {t('visitors.currentlyOn')}
             </span>
           </div>
-          <div className="text-xs text-foreground truncate font-medium" title={current.url}>
+          {current.title && (
+            <div className="text-xs text-foreground truncate font-medium" title={current.title}>
+              {current.title}
+            </div>
+          )}
+          <div className={`text-[11px] truncate ${current.title ? 'text-muted-foreground/90 font-mono' : 'text-foreground font-medium'}`} title={current.url}>
             {current.url}
           </div>
           {current.viewed_at && (
@@ -274,7 +284,12 @@ function PageJourney({
             {visibleMiddle.map((p) => (
               <li key={p.id} className="ps-3 relative">
                 <span className="absolute -start-[5px] top-1.5 w-2 h-2 rounded-full bg-muted-foreground/50 ring-2 ring-background" />
-                <div className="text-xs text-foreground truncate" title={p.url}>{p.url}</div>
+                {p.title && (
+                  <div className="text-xs text-foreground truncate font-medium" title={p.title}>{p.title}</div>
+                )}
+                <div className={`text-[11px] truncate ${p.title ? 'text-muted-foreground/90 font-mono' : 'text-xs text-foreground'}`} title={p.url}>
+                  {p.url}
+                </div>
                 <div className="text-[10px] text-muted-foreground">
                   {relativeTime(p.viewed_at, t)}
                 </div>

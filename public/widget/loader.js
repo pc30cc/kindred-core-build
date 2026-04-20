@@ -509,6 +509,14 @@
       try { return window.location.pathname + (window.location.search || ''); }
       catch (_) { return window.location.pathname; }
     }
+    // Capture the document title for richer page-history entries. Falls back
+    // to null so the server can decide whether to store it.
+    function currentTitle() {
+      try {
+        var t = (document.title || '').trim();
+        return t ? t.slice(0, 300) : null;
+      } catch (_) { return null; }
+    }
     fetch(apiBase + "/api/widget/track", {
       method: "POST",
       credentials: "include",
@@ -517,6 +525,7 @@
         workspace_id: workspaceId,
         event: "page_view",
         current_page: currentPage(),
+        page_title: currentTitle(),
         referrer: document.referrer || null,
         browser: detectBrowser(),
         device: /Mobi|Android/i.test(navigator.userAgent) ? "Mobile" : "Desktop",
@@ -538,6 +547,7 @@
               action: "heartbeat",
               session_id: sessionId,
               current_page: currentPage(),
+              page_title: currentTitle(),
             }),
           }).catch(function () {});
         }

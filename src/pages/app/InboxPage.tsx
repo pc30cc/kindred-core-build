@@ -551,7 +551,7 @@ export default function InboxPage() {
     <div className="flex h-full" dir={dir}>
       {/* ═══════ LEFT: Conversation List ═══════ */}
       <div className={cn(
-        'w-full md:w-[340px] lg:w-[380px] shrink-0 border-e border-border flex flex-col bg-card',
+        'w-full md:w-[300px] lg:w-[340px] xl:w-[380px] shrink-0 border-e border-border flex flex-col bg-card',
         selectedId && !showMobileList ? 'hidden md:flex' : 'flex'
       )}>
         {/* Header */}

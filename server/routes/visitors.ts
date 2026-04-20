@@ -6,6 +6,7 @@ import type { ServerConfig } from '../config.js';
 import { isWorkspaceOriginAllowed } from '../services/widget/public.js';
 import { listVisitorIntelligence, getVisitorIntelligence } from '../services/visitors/intelligence.js';
 import { resolveMapTilesConfig } from '../services/maptiles/index.js';
+import { publishVisitorEvent } from '../services/realtime/publish.js';
 
 export const visitorRouter = Router();
 

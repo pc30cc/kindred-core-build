@@ -99,7 +99,7 @@ function relTime(iso: string | undefined | null): string {
 }
 
 /** Compact, label-driven HTML tooltip with location + status + page. */
-function buildTooltipHtml(m: MapMarker & { last_activity_at?: string }): string {
+function buildTooltipHtml(m: MapMarker): string {
   const loc = [m.city, m.country].filter(Boolean).join(', ') || 'Unknown location';
   const statusColor = STATUS_COLORS[m.status] ?? STATUS_COLORS.unknown;
   const statusLabel = STATUS_LABEL[m.status] ?? 'Unknown';

@@ -446,6 +446,7 @@ visitorsAdminRouter.get('/map', async (req: Request, res: Response) => {
         city: i.geo.city,
         current_page: i.current_page,
         source: i.geo.source,
+        last_activity_at: i.last_activity_at,
       }));
     const without_location = items.length - markers.length;
     // Geo source breakdown — fuels the header insight chip on the Visitors page.

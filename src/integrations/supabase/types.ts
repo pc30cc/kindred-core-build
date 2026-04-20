@@ -1902,6 +1902,48 @@ export type Database = {
         }
         Relationships: []
       }
+      visitor_geo_cache: {
+        Row: {
+          city: string | null
+          country: string | null
+          country_code: string | null
+          expires_at: string
+          id: string
+          ip_hash: string
+          latitude: number | null
+          longitude: number | null
+          region: string | null
+          resolved_at: string
+          source: string
+        }
+        Insert: {
+          city?: string | null
+          country?: string | null
+          country_code?: string | null
+          expires_at?: string
+          id?: string
+          ip_hash: string
+          latitude?: number | null
+          longitude?: number | null
+          region?: string | null
+          resolved_at?: string
+          source?: string
+        }
+        Update: {
+          city?: string | null
+          country?: string | null
+          country_code?: string | null
+          expires_at?: string
+          id?: string
+          ip_hash?: string
+          latitude?: number | null
+          longitude?: number | null
+          region?: string | null
+          resolved_at?: string
+          source?: string
+        }
+        Relationships: []
+      }
       visitor_presence: {
         Row: {
           current_page: string | null

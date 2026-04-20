@@ -4,7 +4,7 @@ import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import { loadConfig } from './config.js';
 import { widgetRouter } from './routes/widget.js';
-import { visitorRouter } from './routes/visitors.js';
+import { visitorRouter, visitorsAdminRouter } from './routes/visitors.js';
 import { healthRouter } from './routes/health.js';
 import { emailRouter } from './routes/email.js';
 import { authSecurityRouter } from './routes/auth.js';
@@ -107,6 +107,10 @@ app.use(publicKbRouter);
 
 // Visitor tracking — dynamic CORS + rate limit
 app.use('/api/visitors', widgetCorsMiddleware(), visitorRateLimiter, visitorRouter);
+
+// Visitor intelligence (operator-side, authenticated). Standard appCors,
+// auth+membership enforced per-route. Lower rate-limit footprint vs widget.
+app.use('/api/visitor-intel', visitorsAdminRouter);
 
 // Email — workspace-scoped rate limit
 app.use('/api/email', emailRateLimiter, emailRouter);

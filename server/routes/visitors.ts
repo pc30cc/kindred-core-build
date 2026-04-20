@@ -491,6 +491,11 @@ visitorsAdminRouter.get('/map-config', async (req: Request, res: Response) => {
     let default_center: { lat: number; lng: number; zoom: number; mode: 'auto' | 'fixed' } = {
       lat: 0, lng: 0, zoom: 2, mode: 'auto',
     };
+    let presence = {
+      heartbeat_interval_ms: 15_000,
+      live_refresh_ms: 5_000,
+      stale_after_ms: 60_000,
+    };
     try {
       const { getMapGeoSettings } = await import('../services/geo/settings.js');
       const s = await getMapGeoSettings(config);
@@ -504,8 +509,13 @@ visitorsAdminRouter.get('/map-config', async (req: Request, res: Response) => {
         zoom: s.behavior?.default_zoom ?? 2,
         mode: s.behavior?.default_center_mode ?? 'auto',
       };
+      presence = {
+        heartbeat_interval_ms: (s as any).presence?.heartbeat_interval_ms ?? presence.heartbeat_interval_ms,
+        live_refresh_ms: (s as any).presence?.live_refresh_ms ?? presence.live_refresh_ms,
+        stale_after_ms: (s as any).presence?.stale_after_ms ?? presence.stale_after_ms,
+      };
     } catch { /* best-effort */ }
-    res.json({ ...cfg, display, default_center });
+    res.json({ ...cfg, display, default_center, presence });
   } catch (err) {
     console.error('[visitors.map-config] failed:', err);
     res.status(500).json({ error: 'Internal error' });

@@ -65,6 +65,19 @@ export interface MapGeoSettings {
     /** Whether the map panel should grow to viewport height instead of a fixed px. */
     fill_viewport: boolean;
   };
+  /**
+   * Realtime presence cadence — controls how quickly a new visitor shows
+   * up in the panel and how aggressively the widget pings the server.
+   * All values in milliseconds. Lower = more responsive, higher = cheaper.
+   */
+  presence: {
+    /** Widget loader heartbeat interval (ms). Default 30000. */
+    heartbeat_interval_ms: number;
+    /** Visitors-page list/map refetch interval (ms). Default 10000. */
+    live_refresh_ms: number;
+    /** Marks a visitor offline after this many ms without activity. Default 90000. */
+    stale_after_ms: number;
+  };
 }
 
 const DEFAULTS: MapGeoSettings = {
@@ -116,6 +129,11 @@ const DEFAULTS: MapGeoSettings = {
   display: {
     height_px: 600,
     fill_viewport: true,
+  },
+  presence: {
+    heartbeat_interval_ms: 15_000,
+    live_refresh_ms: 5_000,
+    stale_after_ms: 60_000,
   },
 };
 

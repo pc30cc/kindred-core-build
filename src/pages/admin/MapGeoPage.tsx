@@ -572,7 +572,67 @@ export default function MapGeoPage() {
               <div className="space-y-2"><Label>{t('admin.mapGeo.behavior.defaultZoom')}</Label>
                 <Input type="number" value={draft.behavior.default_zoom}
                   onChange={(e) => setField('behavior', { default_zoom: Number(e.target.value) })} /></div>
-              <SectionFooter sections={['behavior']} />
+
+              {/* Presence cadence — controls how fast new visitors appear */}
+              <div className="border-t pt-4 space-y-4">
+                <div>
+                  <h3 className="text-sm font-semibold">Realtime presence</h3>
+                  <p className="text-xs text-muted-foreground">
+                    Tunes how quickly the Visitors page reflects new sessions.
+                    Lower values feel snappier but cost more requests.
+                  </p>
+                </div>
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label>Live refresh (ms)</Label>
+                    <Input
+                      type="number" min={2000} step={1000}
+                      value={(draft as any).presence?.live_refresh_ms ?? 5000}
+                      onChange={(e) => setField('presence' as any, { live_refresh_ms: Number(e.target.value) } as any)}
+                    />
+                    <p className="text-[11px] text-muted-foreground">Visitors page polling. Recommended: 3000–8000.</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Widget heartbeat (ms)</Label>
+                    <Input
+                      type="number" min={5000} step={1000}
+                      value={(draft as any).presence?.heartbeat_interval_ms ?? 15000}
+                      onChange={(e) => setField('presence' as any, { heartbeat_interval_ms: Number(e.target.value) } as any)}
+                    />
+                    <p className="text-[11px] text-muted-foreground">How often each browser pings the server. Recommended: 10000–30000.</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Stale after (ms)</Label>
+                    <Input
+                      type="number" min={15000} step={5000}
+                      value={(draft as any).presence?.stale_after_ms ?? 60000}
+                      onChange={(e) => setField('presence' as any, { stale_after_ms: Number(e.target.value) } as any)}
+                    />
+                    <p className="text-[11px] text-muted-foreground">Mark a visitor offline after this much inactivity. Recommended: 45000–120000.</p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {([
+                    { label: '⚡ Snappy (3s / 10s / 45s)', refresh: 3000, hb: 10000, stale: 45000 },
+                    { label: '⚖️ Balanced (5s / 15s / 60s)', refresh: 5000, hb: 15000, stale: 60000 },
+                    { label: '🐢 Economy (10s / 30s / 120s)', refresh: 10000, hb: 30000, stale: 120000 },
+                  ] as const).map((p) => (
+                    <Button
+                      key={p.label}
+                      type="button" size="sm" variant="outline"
+                      onClick={() => setField('presence' as any, {
+                        live_refresh_ms: p.refresh,
+                        heartbeat_interval_ms: p.hb,
+                        stale_after_ms: p.stale,
+                      } as any)}
+                    >
+                      {p.label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              <SectionFooter sections={['behavior', 'presence' as any]} />
             </CardContent>
           </Card>
         </TabsContent>

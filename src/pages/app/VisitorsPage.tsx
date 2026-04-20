@@ -23,6 +23,7 @@ import {
   Search, Eye, Globe2, Users, FileText, Monitor, MapPin,
   RefreshCcw, AlertTriangle, Wifi, MessageSquare, X, Flame,
 } from 'lucide-react';
+import { OsIcon } from '@/components/visitors/OsIcon';
 
 function relativeTime(iso: string, t: (k: string, vars?: Record<string, string>) => string) {
   const diffSec = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
@@ -374,7 +375,11 @@ export default function VisitorsPage() {
                       >
                         <div className="relative shrink-0">
                           <div className="w-9 h-9 rounded-full bg-secondary flex items-center justify-center">
-                            <Monitor className="w-4 h-4 text-muted-foreground" />
+                            <OsIcon
+                              os={v.os}
+                              device={v.device}
+                              className="w-4 h-4 text-muted-foreground"
+                            />
                           </div>
                           <span
                             className={cn(

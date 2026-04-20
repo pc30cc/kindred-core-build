@@ -230,7 +230,7 @@ export async function getVisitorIntelligence(
     .select(`
       id, status, current_page, updated_at, visitor_session_id, workspace_id,
       visitor_sessions!inner (
-        id, visitor_id, workspace_id, current_page, referrer, browser, device, os,
+        id, visitor_id, workspace_id, contact_id, current_page, referrer, browser, device, os,
         country, city, ip_hash, ip_raw, started_at, last_seen_at
       )
     `)
@@ -249,6 +249,17 @@ export async function getVisitorIntelligence(
     const geo = await resolveVisitorGeo(config, workspaceId, {
       country: session.country, city: session.city, ip_hash: session.ip_hash,
     });
+    // Resolve the session-pinned contact even when the visitor is offline
+    // (no presence row) so the detail panel still shows their name.
+    let offlineContact: VisitorIntelligenceItem['contact'] = null;
+    if ((session as any).contact_id) {
+      const { data: c } = await sb
+        .from('contacts')
+        .select('id, name, email, avatar_url')
+        .eq('id', (session as any).contact_id)
+        .maybeSingle();
+      if (c) offlineContact = c;
+    }
     return {
       id: session.id, visitor_id: session.visitor_id, workspace_id: session.workspace_id,
       status: 'offline', current_page: session.current_page,
@@ -260,7 +271,7 @@ export async function getVisitorIntelligence(
         : buildIpDisplay(session.ip_hash),
       ip_raw: canViewRaw ? ((session as any).ip_raw ?? null) : null,
       can_view_raw_ip: canViewRaw,
-      contact: null, conversation: null,
+      contact: offlineContact, conversation: null,
     };
   }
 
@@ -277,11 +288,14 @@ export async function getVisitorIntelligence(
     .limit(1)
     .maybeSingle();
   let contact: VisitorIntelligenceItem['contact'] = null;
-  if (conv?.contact_id) {
+  // Same precedence rule as the list query: session.contact_id wins, then
+  // fall back to the most recent conversation's contact_id.
+  const resolvedContactId = (session.contact_id as string | null) ?? conv?.contact_id ?? null;
+  if (resolvedContactId) {
     const { data: c } = await sb
       .from('contacts')
       .select('id, name, email, avatar_url')
-      .eq('id', conv.contact_id)
+      .eq('id', resolvedContactId)
       .maybeSingle();
     if (c) contact = c;
   }

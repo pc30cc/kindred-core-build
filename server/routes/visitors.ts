@@ -621,50 +621,49 @@ visitorsAdminRouter.post('/warm-geo', async (req: Request, res: Response) => {
   try {
     const { data: sessions, error } = await sb
       .from('visitor_sessions')
-      .select('id, country, city, ip_hash, ip_raw, last_seen_at')
+      .select('id, country, city, ip_hash, ip_raw, last_seen_at, geo_accuracy_level, geo_is_fallback, geo_resolved_at')
       .eq('workspace_id', workspaceId)
       .gte('last_seen_at', since)
       .order('last_seen_at', { ascending: false })
       .limit(limit);
     if (error) throw error;
 
-    const counts = { processed: 0, enriched: 0, cached: 0, centroid: 0, skipped: 0, failed: 0 };
-
-    // Cheap pre-pass: read existing cache rows in one query so we can skip
-    // already-warm hashes without forcing re-enrichment.
-    const hashes = (sessions ?? []).map((s) => s.ip_hash).filter(Boolean) as string[];
-    const cachedHashes = new Set<string>();
-    if (hashes.length && !force) {
-      const { data: cacheRows } = await sb
-        .from('visitor_geo_cache')
-        .select('ip_hash, expires_at')
-        .in('ip_hash', hashes);
-      for (const row of cacheRows ?? []) {
-        if (!row.expires_at || new Date(row.expires_at).getTime() > now) {
-          cachedHashes.add(row.ip_hash as string);
-        }
-      }
-    }
+    const counts = {
+      scanned: 0,
+      enriched: 0,
+      skipped_no_raw_ip: 0,
+      skipped_already_good: 0,
+      failed: 0,
+      fallback_count: 0,
+    };
 
     for (const s of sessions ?? []) {
-      counts.processed++;
-      if (!force && s.ip_hash && cachedHashes.has(s.ip_hash as string)) {
-        counts.skipped++;
+      counts.scanned++;
+
+      // Skip sessions that already have city-level geo (unless force).
+      if (!force && s.geo_accuracy_level === 'city' && s.geo_is_fallback === false) {
+        counts.skipped_already_good++;
         continue;
       }
+
+      // Privacy-safe rule: only re-enrich when raw IP is still on file.
+      // We never fabricate centroid as a "re-enrichment".
+      const rawIp = (s as any).ip_raw as string | null;
+      if (!rawIp) {
+        counts.skipped_no_raw_ip++;
+        continue;
+      }
+
       try {
         const result = await resolveVisitorGeo(config, workspaceId, {
           country: s.country,
           city: s.city,
           ip_hash: s.ip_hash,
-          // Provider lookups need raw IP. If the workspace doesn't store it,
-          // we fall through to centroid — which is still a useful warm op.
-          raw_ip: (s as any).ip_raw ?? null,
+          raw_ip: rawIp,
         });
-        if (result.source === 'provider') counts.enriched++;
-        else if (result.source === 'cache') counts.cached++;
-        else if (result.source === 'centroid') counts.centroid++;
-        else counts.skipped++;
+        await persistSessionGeo(config, s.id, result);
+        if (result.is_fallback) counts.fallback_count++;
+        else counts.enriched++;
       } catch (err) {
         counts.failed++;
         console.warn('[visitors.warm-geo] row failed:', (err as Error).message);

@@ -1,8 +1,12 @@
 import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
+import { useWorkspaceRole } from '@/hooks/useWorkspaceRole';
 import { useLiveVisitors, useVisitorMap, useVisitorMapConfig } from '@/hooks/useVisitors';
 import { useVisitorsRealtime } from '@/hooks/useVisitorsRealtime';
+import { warmVisitorGeo } from '@/lib/visitors-api';
+import { useQueryClient } from '@tanstack/react-query';
+import { toast } from '@/hooks/use-toast';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -17,7 +21,7 @@ import type { VisitorIntelItem, MapMarker } from '@/lib/visitors-api';
 import { cn } from '@/lib/utils';
 import {
   Search, Eye, Globe2, Users, FileText, Monitor, MapPin,
-  RefreshCcw, AlertTriangle, Wifi, MessageSquare, X,
+  RefreshCcw, AlertTriangle, Wifi, MessageSquare, X, Flame,
 } from 'lucide-react';
 
 function relativeTime(iso: string, t: (k: string, vars?: Record<string, string>) => string) {

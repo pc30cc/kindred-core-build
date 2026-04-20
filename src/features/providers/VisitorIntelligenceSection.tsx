@@ -14,7 +14,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { MapPin, Map as MapIcon, ShieldCheck, Cloud, Server, Power, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { MapPin, Map as MapIcon, ShieldCheck, Cloud, Server, Power, AlertTriangle, CheckCircle2, ArrowRightLeft } from 'lucide-react';
 import { getGlobalDefaultProvider } from '@/providers';
 import { getVendorSchema } from './schemas';
 
@@ -169,6 +169,28 @@ export function VisitorIntelligenceSection() {
         ? 'Map canvas disabled — visitors are listed without geographic display.'
         : undefined;
 
+  // Detect a silent fallback caused by missing required config (e.g. tileserver
+  // selected but `tile_url` not set). The map config endpoint enforces this at
+  // request time; here we approximate it by checking for the presence of the
+  // most-essential field in the stored config so admins see a warning *before*
+  // visitors hit the map page.
+  const mapMissing = (() => {
+    if (!mapCfg) return null;
+    const cfg = (mapCfg.config ?? {}) as Record<string, any>;
+    if (mapVendorName === 'tileserver_selfhosted' || mapVendorName === 'openmaptiles_selfhosted' || mapVendorName === 'custom') {
+      if (!cfg.tile_url) return 'tile_url';
+    }
+    if (mapVendorName === 'maptiler' && !cfg.api_key) return 'api_key';
+    if (mapVendorName === 'mapbox' && !cfg.access_token) return 'access_token';
+    return null;
+  })();
+  const mapEffectiveLabel = mapMissing
+    ? `${mapLabel} → OpenStreetMap (public)`
+    : mapLabel;
+  const mapFallbackComputed = mapMissing
+    ? `Configured provider "${mapLabel}" is missing required field "${mapMissing}" — silently falling back to public OSM tiles. Visitors page will show a "Fallback" badge.`
+    : mapFallback;
+
   return (
     <Card className="bg-card border-border">
       <CardHeader className="pb-3">
@@ -195,11 +217,23 @@ export function VisitorIntelligenceSection() {
             icon={MapIcon}
             title="Map Tiles"
             vendorName={mapVendorName}
-            vendorLabel={mapLabel}
-            deployment={mapDeployment}
-            fallbackReason={mapFallback}
+            vendorLabel={mapEffectiveLabel}
+            deployment={mapMissing ? 'builtin' : mapDeployment}
+            fallbackReason={mapFallbackComputed}
           />
         </div>
+
+        {mapMissing && (
+          <div className="flex items-start gap-2 p-2.5 rounded-md border border-warning/30 bg-warning/5 text-[11px]">
+            <ArrowRightLeft className="h-3.5 w-3.5 text-warning mt-0.5 shrink-0" />
+            <div className="text-foreground">
+              <strong className="text-warning">Silent fallback active.</strong>{' '}
+              Configured: <code className="font-mono">{mapVendorName}</code>{' '}
+              · Effective: <code className="font-mono">osm_public</code>{' '}
+              · Reason: missing <code className="font-mono">{mapMissing}</code>.
+            </div>
+          </div>
+        )}
 
         <div className="space-y-2">
           <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
@@ -226,7 +260,9 @@ export function VisitorIntelligenceSection() {
         </div>
 
         <div className="text-[11px] text-muted-foreground border-t border-border pt-2 leading-relaxed">
-          <strong className="text-foreground">Resolution order</strong> · workspace override → platform default → centroid fallback (geo) / OSM public (tiles) → explicit none. Failures always fall back gracefully — the Visitors page never breaks if a provider is unavailable.
+          <strong className="text-foreground">Resolution order</strong> · workspace override → platform default → centroid fallback (geo) / OSM public (tiles) → explicit none.
+          When a configured provider is missing required fields, the system silently falls back and surfaces a <strong>Fallback</strong> badge on the map and a warning here.
+          Operators can re-enrich recent visitor sessions from the Visitors page header (admin role only).
         </div>
       </CardContent>
     </Card>

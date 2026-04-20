@@ -22,19 +22,12 @@ services:
       # In Coolify: attach a "Persistent Storage" volume to /data.
       - tileserver-data:/data
     command: ["--public_url", "/", "--port", "8080"]
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
 
   tileserver-proxy:
     image: caddy:2-alpine
     restart: unless-stopped
     depends_on:
-      tileserver:
-        condition: service_healthy
+      - tileserver
     expose:
       - "80"
     command:

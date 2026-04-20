@@ -52,6 +52,121 @@ interface GeoProviderConfig {
   config: Record<string, unknown> | null;
 }
 
+/**
+ * Read the platform-level map_geo_settings runtime config (cached 30s in
+ * process). Single source of truth for the strict-priority pipeline,
+ * MaxMind defaults, and centroid-fallback policy. Workspaces inherit
+ * platform settings today; per-workspace overrides can be layered later
+ * without touching this resolver.
+ */
+let _mapGeoCache: { value: any; at: number } | null = null;
+const MAP_GEO_TTL_MS = 30_000;
+
+export interface MapGeoSettings {
+  enabled: boolean;
+  default_provider: string;
+  preferred_precision: 'country' | 'region' | 'city';
+  allow_centroid_fallback: boolean;
+  min_accuracy_for_map: 'country' | 'region' | 'city';
+  store_raw_ip: boolean;
+  raw_ip_retention_days: number;
+  auto_enrich_on_session_create: boolean;
+  maxmind_local: {
+    enabled: boolean;
+    db_path: string;
+    auto_reload: boolean;
+    cache_ttl_seconds: number;
+  };
+  map: {
+    show_only_valid_coords: boolean;
+    ignore_fallback_only_points: boolean;
+    default_center_mode: 'auto' | 'manual';
+    default_lat: number;
+    default_lng: number;
+    default_zoom: number;
+    include_geo_labels: boolean;
+    debug_mode: boolean;
+  };
+  jobs: {
+    warm_lookback_days: number;
+    warm_limit: number;
+    warm_force_reenrich: boolean;
+  };
+}
+
+const DEFAULT_MAP_GEO: MapGeoSettings = {
+  enabled: true,
+  default_provider: 'maxmind_local',
+  preferred_precision: 'city',
+  allow_centroid_fallback: true,
+  min_accuracy_for_map: 'country',
+  store_raw_ip: false,
+  raw_ip_retention_days: 30,
+  auto_enrich_on_session_create: true,
+  maxmind_local: {
+    enabled: true,
+    db_path: '/app/data/GeoLite2-City.mmdb',
+    auto_reload: true,
+    cache_ttl_seconds: 86400,
+  },
+  map: {
+    show_only_valid_coords: true,
+    ignore_fallback_only_points: false,
+    default_center_mode: 'auto',
+    default_lat: 20,
+    default_lng: 0,
+    default_zoom: 2,
+    include_geo_labels: true,
+    debug_mode: false,
+  },
+  jobs: {
+    warm_lookback_days: 7,
+    warm_limit: 500,
+    warm_force_reenrich: false,
+  },
+};
+
+export async function getMapGeoSettings(config: ServerConfig): Promise<MapGeoSettings> {
+  const now = Date.now();
+  if (_mapGeoCache && now - _mapGeoCache.at < MAP_GEO_TTL_MS) return _mapGeoCache.value;
+  const sb = getServiceClient(config);
+  const { data } = await sb
+    .from('app_runtime_config')
+    .select('value')
+    .eq('key', 'map_geo_settings')
+    .maybeSingle();
+  const merged: MapGeoSettings = {
+    ...DEFAULT_MAP_GEO,
+    ...((data?.value as Partial<MapGeoSettings>) ?? {}),
+    maxmind_local: { ...DEFAULT_MAP_GEO.maxmind_local, ...((data?.value as any)?.maxmind_local ?? {}) },
+    map: { ...DEFAULT_MAP_GEO.map, ...((data?.value as any)?.map ?? {}) },
+    jobs: { ...DEFAULT_MAP_GEO.jobs, ...((data?.value as any)?.jobs ?? {}) },
+  };
+  _mapGeoCache = { value: merged, at: now };
+  return merged;
+}
+
+/** Force-clear the in-process cache after settings are written. */
+export function invalidateMapGeoSettingsCache(): void {
+  _mapGeoCache = null;
+}
+
+/** Compute accuracy level from a normalized provider/centroid result. */
+function computeAccuracy(r: { city: string | null; region: string | null; country_code: string | null }): 'country' | 'region' | 'city' | null {
+  if (r.city) return 'city';
+  if (r.region) return 'region';
+  if (r.country_code) return 'country';
+  return null;
+}
+
+const PRECISION_RANK: Record<'country' | 'region' | 'city', number> = { country: 1, region: 2, city: 3 };
+
+/** Returns true when actual >= required precision. */
+function meetsPrecision(actual: 'country' | 'region' | 'city' | null, required: 'country' | 'region' | 'city'): boolean {
+  if (!actual) return false;
+  return PRECISION_RANK[actual] >= PRECISION_RANK[required];
+}
+
 /** Resolve which geo_enrichment provider is active for this workspace. */
 async function resolveProviderConfig(
   config: ServerConfig,

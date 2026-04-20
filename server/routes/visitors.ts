@@ -245,6 +245,13 @@ visitorRouter.post('/heartbeat', async (req: Request, res: Response) => {
       }
     }
 
+    // Read previous current_page so we only append a new page-view on change.
+    const { data: prevSession } = await supabase
+      .from('visitor_sessions')
+      .select('id, workspace_id, visitor_id, current_page')
+      .eq('id', session_id)
+      .maybeSingle();
+
     await supabase
       .from('visitor_sessions')
       .update({
@@ -261,6 +268,39 @@ visitorRouter.post('/heartbeat', async (req: Request, res: Response) => {
         updated_at: new Date().toISOString(),
       })
       .eq('visitor_session_id', session_id);
+
+    // Append a page-view only if the URL changed (avoids spam from heartbeats).
+    if (
+      prevSession?.workspace_id &&
+      current_page &&
+      current_page !== prevSession.current_page
+    ) {
+      try {
+        await supabase.from('visitor_page_views').insert({
+          workspace_id: prevSession.workspace_id,
+          visitor_session_id: session_id,
+          url: current_page.slice(0, 2048),
+        });
+      } catch (e) {
+        console.warn('[visitors.heartbeat] page-view insert failed:', (e as any)?.message);
+      }
+    }
+
+    // Realtime push — best-effort.
+    if (prevSession?.workspace_id) {
+      publishVisitorEvent(config, {
+        kind: 'visitor.upsert',
+        workspace_id: prevSession.workspace_id,
+        session_id,
+        patch: {
+          status,
+          current_page: current_page ?? null,
+          last_activity_at: new Date().toISOString(),
+          visitor_id: prevSession.visitor_id ?? undefined,
+        },
+        occurred_at: new Date().toISOString(),
+      }).catch(() => {});
+    }
 
     res.json({ status: 'ok' });
   } catch (err) {
@@ -288,10 +328,26 @@ visitorRouter.post('/disconnect', async (req: Request, res: Response) => {
   const supabase = getServiceClient(config);
 
   try {
+    // Look up workspace_id so we can publish a `visitor.remove` event.
+    const { data: session } = await supabase
+      .from('visitor_sessions')
+      .select('workspace_id')
+      .eq('id', parsed.data.session_id)
+      .maybeSingle();
+
     await supabase
       .from('visitor_presence')
       .update({ status: 'offline', updated_at: new Date().toISOString() })
       .eq('visitor_session_id', parsed.data.session_id);
+
+    if (session?.workspace_id) {
+      publishVisitorEvent(config, {
+        kind: 'visitor.remove',
+        workspace_id: session.workspace_id,
+        session_id: parsed.data.session_id,
+        occurred_at: new Date().toISOString(),
+      }).catch(() => {});
+    }
 
     res.json({ status: 'ok' });
   } catch (err) {

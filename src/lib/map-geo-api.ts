@@ -24,6 +24,7 @@ export interface MapGeoSettings {
   maxmind_update: { mode: 'manual' | 'auto'; account_id: string; license_key: string; edition_id: string; interval_hours: number; last_run_at: string | null; last_status: string | null; last_error: string | null };
   tiles: { provider: string; url_template: string; attribution: string; min_zoom: number; max_zoom: number; subdomains: string };
   behavior: { show_only_valid_coords: boolean; ignore_fallback_only: boolean; include_geo_labels: boolean; debug_metadata: boolean; default_center_mode: 'auto' | 'fixed'; default_center_lat: number; default_center_lng: number; default_zoom: number };
+  display: { height_px: number; fill_viewport: boolean };
 }
 
 async function call<T>(method: string, path: string, body?: any): Promise<T> {

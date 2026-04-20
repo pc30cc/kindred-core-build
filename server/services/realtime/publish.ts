@@ -24,7 +24,11 @@
 
 import type { ServerConfig } from '../../config.js';
 import { resolvePublisher } from './resolvePublisher.js';
-import { buildChannelName, buildInboxChannelName } from './types.js';
+import {
+  buildChannelName,
+  buildInboxChannelName,
+  buildVisitorsChannelName,
+} from './types.js';
 import type { ConversationEventEnvelope } from './publishers/types.js';
 import { rtDebug, rtWarn } from './debug.js';
 
@@ -176,4 +180,61 @@ export async function publishOperatorEvent(
   }
 
   await Promise.allSettled(tasks);
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Visitor Intelligence event envelopes
+//   Channel: ws:<workspace_id>:visitors  (operator-only)
+//   Envelope: { type: 'event', payload: { kind, ... } }
+//   kinds: 'visitor.upsert' | 'visitor.remove'
+//
+// Polling fallback: if realtime is disabled or the publisher fails, the
+// Visitors page's React Query refetch (10–15s) keeps the UI fresh.
+// ─────────────────────────────────────────────────────────────────────
+
+export type VisitorEventKind = 'visitor.upsert' | 'visitor.remove';
+
+export interface VisitorEventPayload {
+  kind: VisitorEventKind;
+  workspace_id: string;
+  /** visitor_session_id (the row id used as key in the UI list/map). */
+  session_id: string;
+  /** Lightweight diff so the client can patch its cache without a refetch. */
+  patch?: {
+    status?: 'online' | 'idle' | 'offline' | 'unknown';
+    current_page?: string | null;
+    last_activity_at?: string;
+    visitor_id?: string;
+  };
+  occurred_at: string;
+}
+
+export async function publishVisitorEvent(
+  config: ServerConfig,
+  payload: VisitorEventPayload,
+): Promise<void> {
+  const envelope: ConversationEventEnvelope = {
+    type: 'event',
+    payload: payload as unknown as Record<string, unknown>,
+  };
+  try {
+    const publisher = await resolvePublisher(config, payload.workspace_id);
+    const channel = buildVisitorsChannelName(payload.workspace_id);
+    rtDebug('publish', 'visitors:attempt', {
+      vendor: publisher.vendor,
+      channel,
+      kind: payload.kind,
+    });
+    const result = await publisher.publish(channel, envelope);
+    if (!result.ok) {
+      rtWarn('publish', 'visitors:skipped', {
+        vendor: publisher.vendor,
+        channel,
+        kind: payload.kind,
+        reason: result.reason,
+      });
+    }
+  } catch (err: any) {
+    rtWarn('publish', 'visitors:error', { error: err?.message || String(err) });
+  }
 }

@@ -2,18 +2,22 @@ import { useMemo, useState } from 'react';
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useLiveVisitors, useVisitorMap, useVisitorMapConfig } from '@/hooks/useVisitors';
+import { useVisitorsRealtime } from '@/hooks/useVisitorsRealtime';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
 import { VisitorMap } from '@/components/visitors/VisitorMap';
 import { VisitorDrawer } from '@/components/visitors/VisitorDrawer';
-import type { VisitorIntelItem } from '@/lib/visitors-api';
+import type { VisitorIntelItem, MapMarker } from '@/lib/visitors-api';
 import { cn } from '@/lib/utils';
 import {
   Search, Eye, Globe2, Users, FileText, Monitor, MapPin,
-  RefreshCcw, AlertTriangle, Wifi,
+  RefreshCcw, AlertTriangle, Wifi, MessageSquare, X,
 } from 'lucide-react';
 
 function relativeTime(iso: string, t: (k: string, vars?: Record<string, string>) => string) {
@@ -31,25 +35,67 @@ export default function VisitorsPage() {
   const [includeOffline, setIncludeOffline] = useState(false);
   const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [filterOnline, setFilterOnline] = useState(false);
+  const [filterHasConv, setFilterHasConv] = useState(false);
+  const [filterCountry, setFilterCountry] = useState<string>('all');
 
   const live = useLiveVisitors(wsId, includeOffline);
   const map = useVisitorMap(wsId);
   const mapConfig = useVisitorMapConfig(wsId);
+  // Realtime push: patches the cached live + map data; falls back to polling.
+  useVisitorsRealtime(wsId);
 
   const visitors: VisitorIntelItem[] = live.data?.items ?? [];
 
+  // Country list derived from current visitors (for the dropdown).
+  const countryOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const v of visitors) {
+      const code = v.geo.country_code;
+      const name = v.geo.country;
+      if (code && name && !seen.has(code)) seen.set(code, name);
+    }
+    return [...seen.entries()]
+      .map(([code, name]) => ({ code, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [visitors]);
+
   const filtered = useMemo(() => {
-    if (!search.trim()) return visitors;
     const q = search.trim().toLowerCase();
-    return visitors.filter(v =>
-      (v.current_page || '').toLowerCase().includes(q) ||
-      (v.geo.country || '').toLowerCase().includes(q) ||
-      (v.geo.city || '').toLowerCase().includes(q) ||
-      (v.browser || '').toLowerCase().includes(q) ||
-      (v.contact?.name || '').toLowerCase().includes(q) ||
-      (v.contact?.email || '').toLowerCase().includes(q)
-    );
-  }, [visitors, search]);
+    return visitors.filter((v) => {
+      if (filterOnline && v.status !== 'online') return false;
+      if (filterHasConv && !v.conversation) return false;
+      if (filterCountry !== 'all' && v.geo.country_code !== filterCountry) return false;
+      if (!q) return true;
+      return (
+        (v.current_page || '').toLowerCase().includes(q) ||
+        (v.geo.country || '').toLowerCase().includes(q) ||
+        (v.geo.city || '').toLowerCase().includes(q) ||
+        (v.browser || '').toLowerCase().includes(q) ||
+        (v.contact?.name || '').toLowerCase().includes(q) ||
+        (v.contact?.email || '').toLowerCase().includes(q)
+      );
+    });
+  }, [visitors, search, filterOnline, filterHasConv, filterCountry]);
+
+  // Map markers must reflect the same filter set as the list, so the two
+  // surfaces stay in sync. Build a Set of allowed session ids and intersect.
+  const filteredMarkers: MapMarker[] = useMemo(() => {
+    const allMarkers = map.data?.markers ?? [];
+    const filtersActive =
+      !!search.trim() || filterOnline || filterHasConv || filterCountry !== 'all';
+    if (!filtersActive) return allMarkers;
+    const allowed = new Set(filtered.map((v) => v.id));
+    return allMarkers.filter((m) => allowed.has(m.id));
+  }, [map.data?.markers, filtered, search, filterOnline, filterHasConv, filterCountry]);
+
+  const activeFilterCount =
+    (filterOnline ? 1 : 0) + (filterHasConv ? 1 : 0) + (filterCountry !== 'all' ? 1 : 0);
+  const resetFilters = () => {
+    setFilterOnline(false);
+    setFilterHasConv(false);
+    setFilterCountry('all');
+  };
 
   const stats = useMemo(() => {
     const online = visitors.filter(v => v.status === 'online').length;
@@ -130,6 +176,64 @@ export default function VisitorsPage() {
                 className="ps-9 h-9"
                 aria-label={t('visitors.searchPlaceholder')}
               />
+            </div>
+            {/* Filter chips */}
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setFilterOnline((v) => !v)}
+                aria-pressed={filterOnline}
+                className={cn(
+                  'inline-flex items-center gap-1 h-6 px-2 rounded-full text-[11px] border transition-colors',
+                  filterOnline
+                    ? 'bg-success/15 border-success/30 text-success'
+                    : 'bg-background border-border text-muted-foreground hover:bg-muted/50'
+                )}
+              >
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-success" />
+                {t('visitors.filterOnline')}
+              </button>
+              <button
+                type="button"
+                onClick={() => setFilterHasConv((v) => !v)}
+                aria-pressed={filterHasConv}
+                className={cn(
+                  'inline-flex items-center gap-1 h-6 px-2 rounded-full text-[11px] border transition-colors',
+                  filterHasConv
+                    ? 'bg-primary/10 border-primary/30 text-primary'
+                    : 'bg-background border-border text-muted-foreground hover:bg-muted/50'
+                )}
+              >
+                <MessageSquare className="w-3 h-3" />
+                {t('visitors.filterHasConversation')}
+              </button>
+              <Select value={filterCountry} onValueChange={setFilterCountry}>
+                <SelectTrigger
+                  className="h-6 px-2 w-auto min-w-[110px] text-[11px] rounded-full border-border bg-background gap-1"
+                  aria-label={t('visitors.filterCountry')}
+                >
+                  <Globe2 className="w-3 h-3 text-muted-foreground" />
+                  <SelectValue placeholder={t('visitors.filterCountryAll')} />
+                </SelectTrigger>
+                <SelectContent className="max-h-60">
+                  <SelectItem value="all">{t('visitors.filterCountryAll')}</SelectItem>
+                  {countryOptions.map((c) => (
+                    <SelectItem key={c.code} value={c.code}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {activeFilterCount > 0 && (
+                <button
+                  type="button"
+                  onClick={resetFilters}
+                  className="inline-flex items-center gap-1 h-6 px-2 rounded-full text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                >
+                  <X className="w-3 h-3" />
+                  {t('visitors.filterReset')}
+                </button>
+              )}
             </div>
             <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
               <span>{t('visitors.activeSessions')}</span>
@@ -238,11 +342,11 @@ export default function VisitorsPage() {
             <>
               <VisitorMap
                 config={mapConfig.data}
-                markers={map.data?.markers ?? []}
+                markers={filteredMarkers}
                 selectedId={selectedId}
                 onSelect={setSelectedId}
               />
-              {mapConfig.data?.enabled && !mapConfig.data?.fallback_no_map && (map.data?.markers.length ?? 0) === 0 && !map.isLoading && (
+              {mapConfig.data?.enabled && !mapConfig.data?.fallback_no_map && filteredMarkers.length === 0 && !map.isLoading && (
                 <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
                   <div className="bg-card/90 border border-border rounded-lg px-4 py-3 text-center shadow-sm pointer-events-auto max-w-xs">
                     <Users className="w-6 h-6 text-muted-foreground/40 mx-auto mb-1" />

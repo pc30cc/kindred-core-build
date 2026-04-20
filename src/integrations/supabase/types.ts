@@ -1944,6 +1944,45 @@ export type Database = {
         }
         Relationships: []
       }
+      visitor_page_views: {
+        Row: {
+          id: number
+          url: string
+          viewed_at: string
+          visitor_session_id: string
+          workspace_id: string
+        }
+        Insert: {
+          id?: number
+          url: string
+          viewed_at?: string
+          visitor_session_id: string
+          workspace_id: string
+        }
+        Update: {
+          id?: number
+          url?: string
+          viewed_at?: string
+          visitor_session_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "visitor_page_views_visitor_session_id_fkey"
+            columns: ["visitor_session_id"]
+            isOneToOne: false
+            referencedRelation: "visitor_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "visitor_page_views_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       visitor_presence: {
         Row: {
           current_page: string | null

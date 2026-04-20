@@ -6,6 +6,7 @@ import type { ServerConfig } from '../config.js';
 import { isWorkspaceOriginAllowed } from '../services/widget/public.js';
 import { listVisitorIntelligence, getVisitorIntelligence } from '../services/visitors/intelligence.js';
 import { resolveMapTilesConfig } from '../services/maptiles/index.js';
+import { publishVisitorEvent } from '../services/realtime/publish.js';
 
 export const visitorRouter = Router();
 
@@ -149,6 +150,19 @@ visitorRouter.post('/track', async (req: Request, res: Response) => {
       sessionId = newSession!.id;
     }
 
+    // Append a page-view row (best-effort; failures must not block tracking).
+    if (data.current_page) {
+      try {
+        await supabase.from('visitor_page_views').insert({
+          workspace_id: data.workspace_id,
+          visitor_session_id: sessionId,
+          url: data.current_page.slice(0, 2048),
+        });
+      } catch (e) {
+        console.warn('[visitors.track] page-view insert failed:', (e as any)?.message);
+      }
+    }
+
     // Upsert presence
     const { data: existingPresence } = await supabase
       .from('visitor_presence')
@@ -175,6 +189,20 @@ visitorRouter.post('/track', async (req: Request, res: Response) => {
           current_page: data.current_page,
         });
     }
+
+    // Realtime push to operator visitors channel — best-effort.
+    publishVisitorEvent(config, {
+      kind: 'visitor.upsert',
+      workspace_id: data.workspace_id,
+      session_id: sessionId,
+      patch: {
+        status: 'online',
+        current_page: data.current_page ?? null,
+        last_activity_at: new Date().toISOString(),
+        visitor_id: data.visitor_id,
+      },
+      occurred_at: new Date().toISOString(),
+    }).catch(() => {});
 
     res.json({ session_id: sessionId, status: 'tracked' });
   } catch (err) {
@@ -217,6 +245,13 @@ visitorRouter.post('/heartbeat', async (req: Request, res: Response) => {
       }
     }
 
+    // Read previous current_page so we only append a new page-view on change.
+    const { data: prevSession } = await supabase
+      .from('visitor_sessions')
+      .select('id, workspace_id, visitor_id, current_page')
+      .eq('id', session_id)
+      .maybeSingle();
+
     await supabase
       .from('visitor_sessions')
       .update({
@@ -233,6 +268,39 @@ visitorRouter.post('/heartbeat', async (req: Request, res: Response) => {
         updated_at: new Date().toISOString(),
       })
       .eq('visitor_session_id', session_id);
+
+    // Append a page-view only if the URL changed (avoids spam from heartbeats).
+    if (
+      prevSession?.workspace_id &&
+      current_page &&
+      current_page !== prevSession.current_page
+    ) {
+      try {
+        await supabase.from('visitor_page_views').insert({
+          workspace_id: prevSession.workspace_id,
+          visitor_session_id: session_id,
+          url: current_page.slice(0, 2048),
+        });
+      } catch (e) {
+        console.warn('[visitors.heartbeat] page-view insert failed:', (e as any)?.message);
+      }
+    }
+
+    // Realtime push — best-effort.
+    if (prevSession?.workspace_id) {
+      publishVisitorEvent(config, {
+        kind: 'visitor.upsert',
+        workspace_id: prevSession.workspace_id,
+        session_id,
+        patch: {
+          status,
+          current_page: current_page ?? null,
+          last_activity_at: new Date().toISOString(),
+          visitor_id: prevSession.visitor_id ?? undefined,
+        },
+        occurred_at: new Date().toISOString(),
+      }).catch(() => {});
+    }
 
     res.json({ status: 'ok' });
   } catch (err) {
@@ -260,10 +328,26 @@ visitorRouter.post('/disconnect', async (req: Request, res: Response) => {
   const supabase = getServiceClient(config);
 
   try {
+    // Look up workspace_id so we can publish a `visitor.remove` event.
+    const { data: session } = await supabase
+      .from('visitor_sessions')
+      .select('workspace_id')
+      .eq('id', parsed.data.session_id)
+      .maybeSingle();
+
     await supabase
       .from('visitor_presence')
       .update({ status: 'offline', updated_at: new Date().toISOString() })
       .eq('visitor_session_id', parsed.data.session_id);
+
+    if (session?.workspace_id) {
+      publishVisitorEvent(config, {
+        kind: 'visitor.remove',
+        workspace_id: session.workspace_id,
+        session_id: parsed.data.session_id,
+        occurred_at: new Date().toISOString(),
+      }).catch(() => {});
+    }
 
     res.json({ status: 'ok' });
   } catch (err) {
@@ -369,6 +453,10 @@ visitorsAdminRouter.get('/map-config', async (req: Request, res: Response) => {
  * Used by the detail drawer.
  */
 visitorsAdminRouter.get('/:id', async (req: Request, res: Response) => {
+  // Sub-route guard: /:id/page-history is handled below.
+  if (req.params.id === 'live' || req.params.id === 'map' || req.params.id === 'map-config') {
+    return res.status(404).json({ error: 'Not found' });
+  }
   const config = (req as any).serverConfig as ServerConfig;
   const workspaceId = (req.query.workspace_id as string) || '';
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
@@ -382,6 +470,37 @@ visitorsAdminRouter.get('/:id', async (req: Request, res: Response) => {
     res.json(item);
   } catch (err) {
     console.error('[visitors.detail] failed:', err);
+    res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+/**
+ * GET /api/visitor-intel/:id/page-history?workspace_id=...&limit=20
+ *
+ * Returns ordered (most-recent first) page-view rows for a session.
+ */
+visitorsAdminRouter.get('/:id/page-history', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = (req.query.workspace_id as string) || '';
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
+
+  const auth = await authorizeWorkspaceMember(req, res, config, workspaceId);
+  if (!auth) return;
+
+  const limit = Math.min(Math.max(Number(req.query.limit ?? 20), 1), 100);
+  try {
+    const sb = getServiceClient(config);
+    const { data, error } = await sb
+      .from('visitor_page_views')
+      .select('id, url, viewed_at')
+      .eq('workspace_id', workspaceId)
+      .eq('visitor_session_id', req.params.id)
+      .order('viewed_at', { ascending: false })
+      .limit(limit);
+    if (error) throw error;
+    res.json({ items: data ?? [] });
+  } catch (err) {
+    console.error('[visitors.page-history] failed:', err);
     res.status(500).json({ error: 'Internal error' });
   }
 });

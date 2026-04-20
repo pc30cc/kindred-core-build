@@ -31,7 +31,11 @@ import {
   getWorkspaceOriginRules,
 } from '../services/widget/public.js';
 import { isOriginAllowed } from '../utils/domain.js';
-import { channelBelongsToWorkspace, isInboxChannel } from '../services/realtime/types.js';
+import {
+  channelBelongsToWorkspace,
+  isInboxChannel,
+  isVisitorsChannel,
+} from '../services/realtime/types.js';
 
 export const realtimeRouter = Router();
 
@@ -220,10 +224,12 @@ realtimeRouter.post('/subscribe', async (req, res) => {
     // Strict channel naming — never trust client-supplied channel names.
     const channel = `ws:${parsed.data.workspace_id}:conv:${parsed.data.conversation_id}`;
     if (!channelBelongsToWorkspace(channel, parsed.data.workspace_id)
-        || isInboxChannel(channel, parsed.data.workspace_id)) {
+        || isInboxChannel(channel, parsed.data.workspace_id)
+        || isVisitorsChannel(channel, parsed.data.workspace_id)) {
       // Defense in depth: widget tokens MUST NEVER be issued for the
-      // operator-only inbox channel. Schema already prevents this (the
-      // channel name does not match :conv:<uuid>) but we reject explicitly.
+      // operator-only inbox or visitors channels. Schema already prevents
+      // this (the channel name does not match :conv:<uuid>) but we reject
+      // explicitly.
       return res.status(403).json({ error: 'Channel not allowed' });
     }
     const tk = driver.issueSubscriptionToken({
@@ -356,6 +362,36 @@ realtimeRouter.post('/operator-inbox-subscribe', async (req, res) => {
     return res.json({ vendor: 'centrifugo', channel, token: tk.token, expires_at: tk.expires_at });
   } catch (err: any) {
     console.error('[realtime/operator-inbox-subscribe]', err);
+    res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────
+//  OPERATOR (visitor intelligence): /api/realtime/operator-visitors-subscribe
+//  Issues a Centrifugo subscription token for the operator-only channel
+//  `ws:<workspace_id>:visitors`. Carries `event` envelopes with
+//  payload.kind = 'visitor.upsert' | 'visitor.remove' for the live
+//  Visitors page (list + map).
+// ─────────────────────────────────────────────────────────────────────
+const operatorVisitorsSubscribeSchema = z.object({ workspace_id: z.string().uuid() });
+
+realtimeRouter.post('/operator-visitors-subscribe', async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const parsed = operatorVisitorsSubscribeSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid request' });
+    const user = await authorizeOperator(req, res, config, parsed.data.workspace_id);
+    if (!user) return;
+
+    const driver = await getCentrifugoDriver(config);
+    if (!driver) return res.json({ vendor: 'polling_builtin' });
+    const channel = `ws:${parsed.data.workspace_id}:visitors`;
+    const tk = driver.issueSubscriptionToken({
+      sub: `op_${user.id}`, channel, workspaceId: parsed.data.workspace_id,
+    });
+    return res.json({ vendor: 'centrifugo', channel, token: tk.token, expires_at: tk.expires_at });
+  } catch (err: any) {
+    console.error('[realtime/operator-visitors-subscribe]', err);
     res.status(500).json({ error: 'Internal error' });
   }
 });

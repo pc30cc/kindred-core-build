@@ -109,3 +109,20 @@ export function channelBelongsToWorkspace(channel: string, workspaceId: string):
 export function isInboxChannel(channel: string, workspaceId: string): boolean {
   return channel === `ws:${workspaceId}:inbox`;
 }
+
+/**
+ * Build the operator-only Visitor Intelligence channel name for a workspace.
+ * Carries `visitor.upsert` / `visitor.remove` envelopes for the live visitor
+ * list and map. Widget tokens MUST NOT be issuable for this channel.
+ */
+export function buildVisitorsChannelName(workspaceId: string): string {
+  return `ws:${workspaceId}:visitors`;
+}
+
+/**
+ * Returns true iff the channel is the operator-only visitors channel for
+ * the given workspace.
+ */
+export function isVisitorsChannel(channel: string, workspaceId: string): boolean {
+  return channel === `ws:${workspaceId}:visitors`;
+}

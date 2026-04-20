@@ -1,11 +1,14 @@
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { useVisitorDetail } from '@/hooks/useVisitors';
+import { useVisitorDetail, useVisitorPageHistory } from '@/hooks/useVisitors';
 import { useNavigate } from 'react-router-dom';
 import { useWorkspacePath } from '@/hooks/useWorkspace';
-import { Copy, MessageSquare, User, Globe, Monitor, MapPin, Clock, ExternalLink } from 'lucide-react';
+import {
+  Copy, MessageSquare, User, Globe, Monitor, MapPin, Clock, ExternalLink, History,
+} from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+import { useTranslation } from '@/i18n';
 
 interface Props {
   workspaceId: string | undefined;
@@ -14,14 +17,16 @@ interface Props {
 }
 
 export function VisitorDrawer({ workspaceId, sessionId, onClose }: Props) {
+  const { t } = useTranslation();
   const { data, isLoading } = useVisitorDetail(workspaceId, sessionId);
+  const history = useVisitorPageHistory(workspaceId, sessionId);
   const navigate = useNavigate();
   const wsPath = useWorkspacePath();
 
   const open = !!sessionId;
   const copy = (label: string, value: string) => {
     navigator.clipboard.writeText(value);
-    toast({ title: 'Copied', description: `${label} copied to clipboard` });
+    toast({ title: t('visitors.copied'), description: `${label}` });
   };
 
   return (
@@ -91,6 +96,38 @@ export function VisitorDrawer({ workspaceId, sessionId, onClose }: Props) {
               <Row icon={<ExternalLink className="w-3.5 h-3.5" />} label="Referrer" value={data.referrer || '—'} truncate />
               <Row icon={<Clock className="w-3.5 h-3.5" />} label="Last activity"
                 value={new Date(data.last_activity_at).toLocaleString()} />
+            </div>
+
+            {/* Page-history timeline */}
+            <div className="pt-2 border-t border-border">
+              <div className="flex items-center gap-2 mb-2">
+                <History className="w-3.5 h-3.5 text-muted-foreground" />
+                <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                  {t('visitors.pageHistory')}
+                </span>
+                {history.data?.items?.length ? (
+                  <Badge variant="outline" className="text-[10px] ms-auto">
+                    {history.data.items.length}
+                  </Badge>
+                ) : null}
+              </div>
+              {history.isLoading ? (
+                <p className="text-xs text-muted-foreground">{t('visitors.pageHistoryLoading')}</p>
+              ) : !history.data?.items?.length ? (
+                <p className="text-xs text-muted-foreground">{t('visitors.pageHistoryEmpty')}</p>
+              ) : (
+                <ol className="relative ms-1.5 border-s border-border/70 space-y-2 pt-1">
+                  {history.data.items.map((p) => (
+                    <li key={p.id} className="ps-3 relative">
+                      <span className="absolute -start-[5px] top-1.5 w-2 h-2 rounded-full bg-primary/70 ring-2 ring-background" />
+                      <div className="text-xs text-foreground truncate" title={p.url}>{p.url}</div>
+                      <div className="text-[10px] text-muted-foreground">
+                        {new Date(p.viewed_at).toLocaleString()}
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              )}
             </div>
           </div>
         )}

@@ -136,7 +136,7 @@ export default function AdminMapGeoPage() {
       setWarmResult(r);
       toast({
         title: t('admin.mapGeo.toasts.warmDone'),
-        description: `${r.enriched} enriched · ${r.skipped_no_raw_ip} skipped (no raw IP)`,
+        description: `${t('admin.mapGeo.jobs.stats.enriched')}: ${r.enriched} · ${t('admin.mapGeo.jobs.stats.skipped_no_raw_ip')}: ${r.skipped_no_raw_ip}`,
       });
     },
     onError: (err: any) => toast({
@@ -460,7 +460,7 @@ export default function AdminMapGeoPage() {
               ['fallback_count', warmResult.fallback_count],
             ] as const).map(([k, v]) => (
               <div key={k} className="p-2 rounded-md border border-border bg-muted/20 flex items-center justify-between">
-                <span className="text-muted-foreground">{t(`admin.mapGeo.jobs.stats.${k}` as any)}</span>
+                <span className="text-muted-foreground">{t(`admin.mapGeo.jobs.stats.${k}` as Parameters<typeof t>[0])}</span>
                 <span className="font-mono text-foreground">{v}</span>
               </div>
             ))}

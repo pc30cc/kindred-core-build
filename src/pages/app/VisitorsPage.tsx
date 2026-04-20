@@ -534,12 +534,6 @@ export default function VisitorsPage() {
           )}
         </div>
       </div>
-
-      <VisitorDrawer
-        workspaceId={wsId}
-        sessionId={selectedId}
-        onClose={() => setSelectedId(null)}
-      />
     </div>
   );
 }

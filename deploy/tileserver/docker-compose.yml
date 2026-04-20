@@ -7,11 +7,13 @@ services:
   tileserver:
     image: maptiler/tileserver-gl:latest
     restart: unless-stopped
-    # Coolify maps the public domain → container :8080 automatically.
+    # Coolify's reverse proxy maps the public domain → container :8080
+    # automatically via the `expose` directive. Do NOT bind host ports
+    # (`ports:`) — port 8080 is usually already taken on the host by
+    # Coolify itself or another service, which causes:
+    #   "Bind for 0.0.0.0:8080 failed: port is already allocated"
     expose:
       - "8080"
-    ports:
-      - "8080:8080"
     volumes:
       # Persist .mbtiles + custom styles across rebuilds.
       # In Coolify: attach a "Persistent Storage" volume to /data.

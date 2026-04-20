@@ -8,6 +8,7 @@ import { resolveMapTilesConfig } from '../services/maptiles/index.js';
 import { publishVisitorEvent } from '../services/realtime/publish.js';
 import { getClientIp, hashIp } from '../utils/clientIp.js';
 import { resolveVisitorGeo, getActiveGeoProvider } from '../services/geo/index.js';
+import { enrichVisitorSessionGeo } from '../services/geo/index.js';
 
 export const visitorRouter = Router();
 

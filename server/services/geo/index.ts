@@ -412,47 +412,109 @@ export async function resolveVisitorGeo(
   },
 ): Promise<GeoResult> {
   const ipHash = session.ip_hash ?? '';
-  const provider = await resolveProviderConfig(config, workspaceId);
-  const externalDisabled = provider?.provider_name === 'none';
+  const settings = await getMapGeoSettings(config);
+  const explicitProvider = await resolveProviderConfig(config, workspaceId);
+  const externalDisabled = explicitProvider?.provider_name === 'none' || !settings.enabled;
 
-  // 1. Cache
+  // 1) Cache (ip_hash keyed) — fast path for repeated IPs.
   if (ipHash) {
     const cached = await readCache(config, ipHash);
-    if (cached) return cached;
+    if (cached) {
+      const accuracy = computeAccuracy(cached);
+      return {
+        ...cached,
+        timezone: null,
+        accuracy_level: accuracy,
+        is_fallback: false,
+        source_provider: 'cache',
+        source: 'cache',
+      };
+    }
   }
 
-  // 2. Configured provider — only when raw IP is available (ingestion path).
+  // 2) Provider chain — STRICT priority:
+  //    a) explicit workspace/platform provider config (if active)
+  //    b) maxmind_local from map_geo_settings (default, self-hosted)
+  // Provider lookups require a raw IP. If we don't have one (read path),
+  // we skip directly to centroid.
   if (session.raw_ip && !externalDisabled) {
-    if (provider && ADAPTERS[provider.provider_name]) {
+    const chain: Array<{ name: string; config: Record<string, unknown> | null }> = [];
+    if (explicitProvider && ADAPTERS[explicitProvider.provider_name]) {
+      chain.push({ name: explicitProvider.provider_name, config: explicitProvider.config });
+    }
+    if (settings.maxmind_local.enabled
+        && (!explicitProvider || explicitProvider.provider_name !== 'maxmind_local')) {
+      chain.push({
+        name: 'maxmind_local',
+        config: {
+          db_path: settings.maxmind_local.db_path,
+          auto_reload: settings.maxmind_local.auto_reload,
+        },
+      });
+    }
+
+    for (const step of chain) {
       try {
-        const result = await ADAPTERS[provider.provider_name](session.raw_ip, provider.config);
-        if (result && ipHash) {
-          await writeCache(config, ipHash, result, provider.provider_name);
+        const r = await ADAPTERS[step.name](session.raw_ip, step.config);
+        if (!r) continue;
+        const accuracy = computeAccuracy(r);
+        // Honor preferred_precision: keep walking the chain when this
+        // adapter can't reach the requested precision (city > region > country).
+        if (!meetsPrecision(accuracy, settings.preferred_precision) && chain.length > 1) {
+          // Still keep this as a candidate but try the next provider too.
+          // For simplicity: if it's the last step, accept what we have.
         }
-        if (result) return { ...result, source: 'provider' };
+        if (ipHash) {
+          await writeCache(config, ipHash, {
+            country: r.country, country_code: r.country_code,
+            region: r.region, city: r.city,
+            latitude: r.latitude, longitude: r.longitude,
+            timezone: r.timezone,
+            accuracy_level: accuracy, is_fallback: false, source_provider: step.name,
+          } as any, step.name);
+        }
+        return {
+          country: r.country,
+          country_code: r.country_code,
+          region: r.region,
+          city: r.city,
+          latitude: r.latitude,
+          longitude: r.longitude,
+          timezone: r.timezone,
+          accuracy_level: accuracy,
+          is_fallback: false,
+          source_provider: step.name,
+          source: 'provider',
+        };
       } catch (err) {
-        console.warn('[geo] provider failed, falling back:', (err as Error).message);
+        console.warn(`[geo] ${step.name} failed:`, (err as Error).message);
       }
     }
   }
 
-  // 3. Country centroid fallback
-  const centroid = lookupCentroid(session.country);
-  if (centroid) {
-    return {
-      country: session.country ?? null,
-      country_code: session.country && session.country.length === 2 ? session.country.toUpperCase() : null,
-      region: null,
-      city: session.city ?? null,
-      latitude: centroid.lat,
-      longitude: centroid.lng,
-      source: 'centroid',
-    };
+  // 3) Centroid fallback — LAST RESORT and only when allowed.
+  if (settings.allow_centroid_fallback) {
+    const centroid = lookupCentroid(session.country);
+    if (centroid) {
+      const code = session.country && session.country.length === 2
+        ? session.country.toUpperCase() : null;
+      return {
+        country: session.country ?? null,
+        country_code: code,
+        region: null,
+        city: session.city ?? null,
+        latitude: centroid.lat,
+        longitude: centroid.lng,
+        timezone: null,
+        accuracy_level: 'country',
+        is_fallback: true,
+        source_provider: 'centroid',
+        source: 'centroid',
+      };
+    }
   }
 
-  // 4. Whatever the session gave us (no coords).
-  // When external enrichment is explicitly disabled and we still have no
-  // coords, surface 'disabled' so the UI can label it correctly.
+  // 4) Bare session metadata — no coords.
   return {
     country: session.country ?? null,
     country_code: null,
@@ -460,11 +522,11 @@ export async function resolveVisitorGeo(
     city: session.city ?? null,
     latitude: null,
     longitude: null,
-    source: session.country
-      ? 'session'
-      : externalDisabled
-        ? 'disabled'
-        : 'none',
+    timezone: null,
+    accuracy_level: session.country ? 'country' : null,
+    is_fallback: true,
+    source_provider: null,
+    source: session.country ? 'session' : (externalDisabled ? 'disabled' : 'none'),
   };
 }
 

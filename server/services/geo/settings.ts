@@ -55,6 +55,16 @@ export interface MapGeoSettings {
     default_center_lng: number;
     default_zoom: number;
   };
+  /**
+   * Display tuning for the Visitors page map canvas. Persisted server-side
+   * so changes are global (per-platform) and survive redeploys.
+   */
+  display: {
+    /** Height (px) of the map panel on the Visitors page. */
+    height_px: number;
+    /** Whether the map panel should grow to viewport height instead of a fixed px. */
+    fill_viewport: boolean;
+  };
 }
 
 const DEFAULTS: MapGeoSettings = {
@@ -102,6 +112,10 @@ const DEFAULTS: MapGeoSettings = {
     default_center_lat: 0,
     default_center_lng: 0,
     default_zoom: 2,
+  },
+  display: {
+    height_px: 600,
+    fill_viewport: true,
   },
 };
 

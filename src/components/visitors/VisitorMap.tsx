@@ -48,9 +48,14 @@ export function VisitorMap({ config, markers, selectedId, onSelect }: Props) {
   useEffect(() => {
     if (!containerRef.current || !config?.enabled || !config.tile_url) return;
     if (mapRef.current) return;
+    const center: [number, number] = [
+      config.default_center?.lat ?? 20,
+      config.default_center?.lng ?? 0,
+    ];
+    const zoom = config.default_center?.zoom ?? 1;
     const map = L.map(containerRef.current, {
-      center: [20, 0],
-      zoom: 1,
+      center,
+      zoom,
       worldCopyJump: true,
       zoomControl: false,
       attributionControl: true,
@@ -80,7 +85,10 @@ export function VisitorMap({ config, markers, selectedId, onSelect }: Props) {
       clusterRef.current = null;
       markerIndex.current.clear();
     };
-  }, [config?.enabled, config?.tile_url, config?.attribution, config?.max_zoom, config?.min_zoom]);
+  }, [
+    config?.enabled, config?.tile_url, config?.attribution, config?.max_zoom, config?.min_zoom,
+    config?.default_center?.lat, config?.default_center?.lng, config?.default_center?.zoom,
+  ]);
 
   // Diff markers when data changes — add new, update existing, remove gone.
   // Avoids full clearLayers rebuilds (jank + memory churn at 200–500 markers).

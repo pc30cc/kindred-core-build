@@ -104,6 +104,10 @@ const settingsPatchSchema = z.object({
     default_center_lng: z.number().optional(),
     default_zoom: z.number().int().min(0).max(22).optional(),
   }).partial().optional(),
+  display: z.object({
+    height_px: z.number().int().min(240).max(2000).optional(),
+    fill_viewport: z.boolean().optional(),
+  }).partial().optional(),
 }).strict();
 
 mapGeoRouter.put('/settings', async (req, res) => {

@@ -483,7 +483,28 @@ visitorsAdminRouter.get('/map-config', async (req: Request, res: Response) => {
 
   try {
     const cfg = await resolveMapTilesConfig(config, workspaceId);
-    res.json(cfg);
+    // Augment with platform display defaults (height + center/zoom) so the
+    // Visitors page can size the map canvas and frame the initial view
+    // without an extra round-trip.
+    let display = { height_px: 600, fill_viewport: true };
+    let default_center: { lat: number; lng: number; zoom: number; mode: 'auto' | 'fixed' } = {
+      lat: 0, lng: 0, zoom: 2, mode: 'auto',
+    };
+    try {
+      const { getMapGeoSettings } = await import('../services/geo/settings.js');
+      const s = await getMapGeoSettings(config);
+      display = {
+        height_px: s.display?.height_px ?? 600,
+        fill_viewport: s.display?.fill_viewport ?? true,
+      };
+      default_center = {
+        lat: s.behavior?.default_center_lat ?? 0,
+        lng: s.behavior?.default_center_lng ?? 0,
+        zoom: s.behavior?.default_zoom ?? 2,
+        mode: s.behavior?.default_center_mode ?? 'auto',
+      };
+    } catch { /* best-effort */ }
+    res.json({ ...cfg, display, default_center });
   } catch (err) {
     console.error('[visitors.map-config] failed:', err);
     res.status(500).json({ error: 'Internal error' });

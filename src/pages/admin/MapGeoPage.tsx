@@ -12,6 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import { Loader2, MapPin, AlertTriangle, CheckCircle2, RefreshCw, Trash2, PlayCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { mapGeoApi, type MapGeoSettings } from '@/lib/map-geo-api';
+import { MapTilesPreview } from '@/components/admin/MapTilesPreview';
 
 export default function MapGeoPage() {
   const { t } = useTranslation();
@@ -214,19 +215,89 @@ export default function MapGeoPage() {
             <CardHeader><CardTitle>{t('admin.mapGeo.tabs.tiles')}</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2"><Label>{t('admin.mapGeo.tiles.urlTemplate')}</Label>
-                <Input defaultValue={settings.tiles.url_template}
-                  onBlur={(e) => save({ tiles: { ...settings.tiles, url_template: e.target.value } })} />
+                <Input
+                  value={settings.tiles.url_template}
+                  onChange={(e) => setSettings({ ...settings, tiles: { ...settings.tiles, url_template: e.target.value } })}
+                  onBlur={(e) => save({ tiles: { ...settings.tiles, url_template: e.target.value } })}
+                />
                 <p className="text-xs text-muted-foreground">{t('admin.mapGeo.tiles.urlTemplateHint')}</p></div>
               <div className="space-y-2"><Label>{t('admin.mapGeo.tiles.attribution')}</Label>
-                <Input defaultValue={settings.tiles.attribution}
-                  onBlur={(e) => save({ tiles: { ...settings.tiles, attribution: e.target.value } })} /></div>
+                <Input
+                  value={settings.tiles.attribution}
+                  onChange={(e) => setSettings({ ...settings, tiles: { ...settings.tiles, attribution: e.target.value } })}
+                  onBlur={(e) => save({ tiles: { ...settings.tiles, attribution: e.target.value } })}
+                /></div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2"><Label>{t('admin.mapGeo.tiles.minZoom')}</Label>
-                  <Input type="number" defaultValue={settings.tiles.min_zoom}
+                  <Input type="number" value={settings.tiles.min_zoom}
+                    onChange={(e) => setSettings({ ...settings, tiles: { ...settings.tiles, min_zoom: Number(e.target.value) } })}
                     onBlur={(e) => save({ tiles: { ...settings.tiles, min_zoom: Number(e.target.value) } })} /></div>
                 <div className="space-y-2"><Label>{t('admin.mapGeo.tiles.maxZoom')}</Label>
-                  <Input type="number" defaultValue={settings.tiles.max_zoom}
+                  <Input type="number" value={settings.tiles.max_zoom}
+                    onChange={(e) => setSettings({ ...settings, tiles: { ...settings.tiles, max_zoom: Number(e.target.value) } })}
                     onBlur={(e) => save({ tiles: { ...settings.tiles, max_zoom: Number(e.target.value) } })} /></div>
+              </div>
+              {/* Display + initial framing */}
+              <div className="border-t pt-4 space-y-4">
+                <div>
+                  <h3 className="text-sm font-semibold">Map display on Visitors page</h3>
+                  <p className="text-xs text-muted-foreground">Default size and starting view for the embedded map.</p>
+                </div>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label>Fill viewport height</Label>
+                    <p className="text-xs text-muted-foreground">When on, the map fills the available viewport height. When off, uses the fixed height below.</p>
+                  </div>
+                  <Switch
+                    checked={settings.display.fill_viewport}
+                    onCheckedChange={(v) => { setSettings({ ...settings, display: { ...settings.display, fill_viewport: v } }); save({ display: { ...settings.display, fill_viewport: v } }); }}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Map height (px)</Label>
+                  <Input
+                    type="number" min={240} max={2000}
+                    value={settings.display.height_px}
+                    onChange={(e) => setSettings({ ...settings, display: { ...settings.display, height_px: Number(e.target.value) } })}
+                    onBlur={(e) => save({ display: { ...settings.display, height_px: Number(e.target.value) } })}
+                    disabled={settings.display.fill_viewport}
+                  />
+                  <p className="text-xs text-muted-foreground">Used when "Fill viewport" is off. Recommended: 480–800.</p>
+                </div>
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label>Default center lat</Label>
+                    <Input type="number" step="0.0001" value={settings.behavior.default_center_lat}
+                      onChange={(e) => setSettings({ ...settings, behavior: { ...settings.behavior, default_center_lat: Number(e.target.value) } })}
+                      onBlur={(e) => save({ behavior: { ...settings.behavior, default_center_lat: Number(e.target.value) } })} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Default center lng</Label>
+                    <Input type="number" step="0.0001" value={settings.behavior.default_center_lng}
+                      onChange={(e) => setSettings({ ...settings, behavior: { ...settings.behavior, default_center_lng: Number(e.target.value) } })}
+                      onBlur={(e) => save({ behavior: { ...settings.behavior, default_center_lng: Number(e.target.value) } })} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Default zoom</Label>
+                    <Input type="number" min={0} max={22} value={settings.behavior.default_zoom}
+                      onChange={(e) => setSettings({ ...settings, behavior: { ...settings.behavior, default_zoom: Number(e.target.value) } })}
+                      onBlur={(e) => save({ behavior: { ...settings.behavior, default_zoom: Number(e.target.value) } })} />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Live preview</Label>
+                  <MapTilesPreview
+                    tileUrl={settings.tiles.url_template}
+                    attribution={settings.tiles.attribution}
+                    minZoom={settings.tiles.min_zoom}
+                    maxZoom={settings.tiles.max_zoom}
+                    centerLat={settings.behavior.default_center_lat}
+                    centerLng={settings.behavior.default_center_lng}
+                    zoom={settings.behavior.default_zoom}
+                    heightPx={settings.display.fill_viewport ? 480 : settings.display.height_px}
+                  />
+                  <p className="text-xs text-muted-foreground">Reflects the values above instantly. Tiles load from the URL you entered — verify the provider is reachable.</p>
+                </div>
               </div>
               {health?.tiles && (
                 <div className="flex items-center gap-2">

@@ -68,6 +68,9 @@ export interface MapTilesConfig {
   fallback_provider?: string | null;
   fallback_reason?: string | null;
   health_status?: 'healthy' | 'unconfigured' | 'fallback' | 'disabled';
+  // Display + initial framing — populated by /map-config
+  display?: { height_px: number; fill_viewport: boolean };
+  default_center?: { lat: number; lng: number; zoom: number; mode: 'auto' | 'fixed' };
 }
 
 export interface MapMarker {

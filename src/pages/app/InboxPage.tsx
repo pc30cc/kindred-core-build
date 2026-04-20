@@ -671,64 +671,87 @@ export default function InboxPage() {
                   key={conv.id}
                   onClick={() => { setSelectedId(conv.id); setShowMobileList(false); }}
                   className={cn(
-                    'group/item px-3 py-3.5 cursor-pointer transition-all border-b border-border/30',
+                    'group/item relative px-3 py-3 cursor-pointer transition-colors border-b border-border/30',
                     isActive
-                      ? 'bg-primary/[0.08] border-s-2 border-s-primary'
+                      ? 'bg-primary/[0.07]'
                       : hasUnread
-                        ? 'bg-primary/[0.03] hover:bg-primary/[0.06]'
-                        : 'hover:bg-secondary/50'
+                        ? 'bg-card hover:bg-secondary/40'
+                        : 'hover:bg-secondary/40'
                   )}
                   dir={dir}
                 >
+                  {/* Active indicator rail (LTR/RTL aware) */}
+                  {isActive && (
+                    <div className={cn(
+                      'absolute top-0 bottom-0 w-[3px] bg-primary rounded-full',
+                      dir === 'rtl' ? 'right-0' : 'left-0',
+                    )} />
+                  )}
                   <div className="flex items-start gap-3">
                     {/* Avatar */}
                     <div className="relative shrink-0">
                       <div className={cn(
-                        'w-11 h-11 rounded-full flex items-center justify-center text-sm font-semibold shadow-sm',
-                        isActive ? 'bg-primary text-primary-foreground' : 'bg-primary/10 text-primary'
+                        'w-10 h-10 rounded-full flex items-center justify-center text-[13px] font-semibold overflow-hidden ring-1',
+                        isActive
+                          ? 'bg-primary text-primary-foreground ring-primary/30'
+                          : 'bg-primary/10 text-primary ring-primary/15'
                       )}>
                         {conv.contacts?.avatar_url ? (
-                          <img src={conv.contacts.avatar_url} className="w-11 h-11 rounded-full object-cover" alt="" />
+                          <img src={conv.contacts.avatar_url} className="w-full h-full object-cover" alt="" />
                         ) : (
                           getInitials(conv.contacts?.name, conv.contacts?.email)
                         )}
                       </div>
-                      {hasUnread && (
-                        <div className="absolute -top-0.5 -end-0.5 w-3 h-3 rounded-full bg-primary border-2 border-card animate-pulse" />
-                      )}
+                      {/* Status dot — replaces noisy "unread" pulse */}
+                      <div className={cn(
+                        'absolute -bottom-0.5 -end-0.5 w-3 h-3 rounded-full border-2 border-card',
+                        statusDots[conv.status ?? 'open'],
+                      )} />
                     </div>
 
                     {/* Content */}
                     <div className={cn('flex-1 min-w-0', dir === 'rtl' ? 'text-right' : 'text-left')}>
                       {/* Row 1: Name + time */}
-                      <div className="flex items-center justify-between mb-0.5">
-                        <span className={cn('text-[13px] truncate', hasUnread ? 'font-semibold text-foreground' : 'font-medium text-foreground/80')}>
+                      <div className="flex items-baseline justify-between gap-2 mb-0.5">
+                        <span className={cn(
+                          'text-[13px] truncate leading-tight',
+                          hasUnread ? 'font-semibold text-foreground' : 'font-medium text-foreground/85',
+                        )}>
                           {name}
                         </span>
                         <span className={cn(
-                          'text-[11px] shrink-0',
-                          dir === 'rtl' ? 'mr-2' : 'ml-2',
-                          hasUnread ? 'text-primary font-semibold' : 'text-muted-foreground'
+                          'text-[10.5px] shrink-0 tabular-nums',
+                          hasUnread ? 'text-primary font-semibold' : 'text-muted-foreground',
                         )} dir="ltr">
                           {conv.updated_at ? timeAgo(conv.updated_at) : ''}
                         </span>
                       </div>
-                      {/* Row 2: Subject */}
-                      <p className={cn('text-[12px] truncate mb-1.5 leading-relaxed', hasUnread ? 'text-foreground font-medium' : 'text-muted-foreground')}>
-                        {conv.subject || t('inbox.noMessages')}
+                      {/* Row 2: Subject / preview */}
+                      <p className={cn(
+                        'text-[12px] truncate mb-1.5 leading-snug',
+                        hasUnread ? 'text-foreground/90' : 'text-muted-foreground',
+                      )}>
+                        {conv.subject || (t('inbox.noMessages') || 'No messages yet')}
                       </p>
-                      {/* Row 3: Status badges */}
+                      {/* Row 3: Status + meta */}
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className={cn('text-[10px] px-2 py-0.5 rounded-full font-medium border', statusColors[conv.status ?? 'open'])}>
+                        <span className={cn(
+                          'inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md font-medium',
+                          'bg-secondary/60 text-foreground/70',
+                        )}>
+                          <span className={cn('w-1.5 h-1.5 rounded-full', statusDots[conv.status ?? 'open'])} />
                           {statusLabels[conv.status ?? 'open']}
                         </span>
-                        {hasUnread && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-primary/10 text-primary">
-                            {t('inbox.unread') || 'Unread'}
+                        {conv.priority && conv.priority !== 'normal' && (
+                          <span className={cn(
+                            'text-[10px] px-1.5 py-0.5 rounded-md font-medium bg-secondary/60',
+                            priorityColors[conv.priority] || 'text-muted-foreground',
+                          )}>
+                            {conv.priority}
                           </span>
                         )}
                         {conv.assigned_to && (
-                          <span className="text-[10px] text-muted-foreground/50 flex items-center gap-0.5">
+                          <span className="text-[10px] text-muted-foreground/60 flex items-center" title="Assigned">
                             <UserCheck className="w-3 h-3" />
                           </span>
                         )}
@@ -876,63 +899,98 @@ export default function InboxPage() {
               </div>
             </div>
 
-            {/* ── Messages Area ── */}
-            <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 bg-background" ref={messagesContainerRef}>
-              {rawMessages?.map(msg => {
-                // Treat any non-visitor sender as the support side of the
-                // thread. AI auto-replies (sender_type === 'ai') and system
-                // messages render on the same side as a human agent so the
-                // visitor↔support layout stays consistent.
+            {/* ── Messages Area ──
+                Operator UI convention: "you" (agent/AI) align RIGHT, visitor LEFT.
+                Mirrors WhatsApp/Intercom/Crisp behavior so operators read their
+                own replies on the side closest to the composer. */}
+            <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 bg-background" ref={messagesContainerRef}>
+              {rawMessages?.map((msg, idx) => {
                 const isVisitor = msg.sender_type === 'contact';
                 const isAgent = !isVisitor;
                 const isAi = msg.sender_type === 'ai';
+                const prev = idx > 0 ? rawMessages[idx - 1] : null;
+                const sameSenderAsPrev = prev && prev.sender_type === msg.sender_type;
+                // Group consecutive bubbles from the same sender — hide repeating
+                // avatar/header to declutter the thread.
+                const showAvatar = !sameSenderAsPrev;
+                const showMeta = !sameSenderAsPrev;
                 return (
-                  <div key={msg.id} className={cn('flex gap-2.5 group', isAgent ? 'flex-row' : 'flex-row-reverse')}>
-                    {/* Avatar */}
-                    {isAgent ? (
-                      <div className={cn(
-                        'w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-1 shadow-sm',
-                        isAi ? 'bg-accent/20 text-accent-foreground' : 'bg-primary/15 text-primary',
-                      )}>
-                        <Bot className="w-4 h-4" />
-                      </div>
-                    ) : (
-                      <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-1 bg-secondary text-secondary-foreground shadow-sm">
-                        <User className="w-4 h-4" />
-                      </div>
+                  <div
+                    key={msg.id}
+                    className={cn(
+                      'flex gap-2.5 group',
+                      isAgent ? 'flex-row-reverse' : 'flex-row',
+                      sameSenderAsPrev ? '-mt-2.5' : '',
                     )}
-                    <div className="max-w-[75%]">
-                      <div className={cn('text-[10px] text-muted-foreground mb-0.5 flex items-center gap-1', isAgent ? '' : 'text-start')}>
-                        <span>
-                          {isAgent ? (t('inbox.support') || 'Support') : (selected?.contacts?.name || t('inbox.visitor') || 'Visitor')}
-                        </span>
-                        {isAi && (
-                          <span className="px-1 py-px rounded bg-accent/30 text-accent-foreground text-[9px] font-medium uppercase tracking-wide">
-                            AI
+                  >
+                    {/* Avatar — hidden on grouped follow-ups, replaced by spacer */}
+                    {showAvatar ? (
+                      isAgent ? (
+                        <div className={cn(
+                          'w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5 shadow-sm ring-1',
+                          isAi
+                            ? 'bg-accent/30 text-accent-foreground ring-accent/40'
+                            : 'bg-primary/15 text-primary ring-primary/20',
+                        )}>
+                          <Bot className="w-4 h-4" />
+                        </div>
+                      ) : (
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5 bg-secondary text-secondary-foreground shadow-sm ring-1 ring-border/40 overflow-hidden">
+                          {selected?.contacts?.avatar_url ? (
+                            <img src={selected.contacts.avatar_url} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <User className="w-4 h-4" />
+                          )}
+                        </div>
+                      )
+                    ) : (
+                      <div className="w-8 shrink-0" aria-hidden />
+                    )}
+                    <div className={cn('max-w-[75%] flex flex-col', isAgent ? 'items-end' : 'items-start')}>
+                      {showMeta && (
+                        <div className="text-[10px] text-muted-foreground mb-1 flex items-center gap-1.5">
+                          <span className="font-medium">
+                            {isAgent
+                              ? (isAi ? 'AI' : (t('inbox.support') || 'Support'))
+                              : (selected?.contacts?.name || t('inbox.visitor') || 'Visitor')}
                           </span>
-                        )}
-                        <span className="opacity-40">•</span>
-                        <span>{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                      </div>
+                          {isAi && (
+                            <span className="px-1 py-px rounded bg-accent/40 text-accent-foreground text-[9px] font-semibold uppercase tracking-wide">
+                              AUTO
+                            </span>
+                          )}
+                          <span className="opacity-30">•</span>
+                          <span dir="ltr">{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                        </div>
+                      )}
                       <div className={cn(
-                        'rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed',
+                        'rounded-2xl px-3.5 py-2 text-[13px] leading-relaxed shadow-sm',
                         isAgent
-                          ? 'bg-primary/10 text-foreground rounded-es-sm'
-                          : 'bg-secondary text-foreground rounded-ee-sm'
+                          ? 'bg-primary text-primary-foreground rounded-ee-sm'
+                          : 'bg-secondary text-foreground rounded-es-sm'
                       )}>
                         {(msg as { attachment?: MessageAttachment | null }).attachment && (
                           <MessageAttachmentView att={(msg as { attachment: MessageAttachment }).attachment} t={t} />
                         )}
-                        {msg.body && <p className={cn((msg as any).attachment ? 'mt-2' : '')}>{msg.body}</p>}
+                        {msg.body && <p className={cn((msg as any).attachment ? 'mt-2' : '', 'whitespace-pre-wrap break-words')}>{msg.body}</p>}
                       </div>
-                      {/* Copy action */}
-                      <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1 mt-0.5">
+                      {/* Hover actions + seen state */}
+                      <div className={cn(
+                        'flex items-center gap-2 mt-1 h-3.5',
+                        isAgent ? 'flex-row-reverse' : 'flex-row',
+                      )}>
                         <button
                           onClick={() => { navigator.clipboard.writeText(msg.body); toast({ title: 'Copied!' }); }}
-                          className="text-muted-foreground hover:text-foreground p-0.5 rounded"
+                          className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground p-0.5 rounded"
+                          aria-label="Copy"
                         >
                           <Copy className="w-3 h-3" />
                         </button>
+                        {isAgent && (msg as { seen_at?: string | null }).seen_at && idx === rawMessages.length - 1 && (
+                          <span className="text-[10px] text-primary/70 font-medium flex items-center gap-1" dir="ltr">
+                            <CheckCircle2 className="w-3 h-3" /> Seen
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -956,7 +1014,7 @@ export default function InboxPage() {
             )}
 
             {/* ── Input Area ── */}
-            <div className="border-t border-border px-3 py-2.5 bg-card/50 shrink-0" dir={dir}>
+            <div className="border-t border-border px-3 py-3 bg-card/60 shrink-0" dir={dir}>
               {/* Pending attachment chip */}
               {att.status !== 'idle' && (
                 <div className="mb-2 flex items-center gap-2 rounded-lg border border-border bg-secondary/40 px-2.5 py-2">
@@ -1001,7 +1059,8 @@ export default function InboxPage() {
                 </div>
               )}
               <div className={cn(
-                'relative flex gap-2 items-end rounded-xl border p-1.5 transition-colors border-border bg-secondary/30'
+                'relative flex gap-1 items-end rounded-xl border bg-background p-1.5 transition-shadow shadow-sm',
+                'border-border focus-within:border-primary/40 focus-within:ring-2 focus-within:ring-primary/15',
               )}>
                 <CannedResponsePicker
                   ref={pickerRef}
@@ -1081,7 +1140,7 @@ export default function InboxPage() {
                       handleSend();
                     }
                   }}
-                  className="min-h-[36px] max-h-24 resize-none border-0 bg-transparent text-[15px] focus-visible:ring-0 p-1"
+                  className="min-h-[36px] max-h-32 resize-none border-0 bg-transparent text-[14px] leading-relaxed focus-visible:ring-0 px-1.5 py-1.5"
                   rows={1}
                   dir={dir}
                 />
@@ -1093,13 +1152,20 @@ export default function InboxPage() {
                     att.status === 'uploading' ||
                     (!message.trim() && att.status !== 'ready')
                   }
-                  className="h-9 w-9 rounded-lg shrink-0"
+                  className="h-9 w-9 rounded-lg shrink-0 transition-transform active:scale-95"
                 >
                   {sendMessage.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                 </Button>
               </div>
-              <div className="text-[9px] text-muted-foreground/50 mt-1">
-                {t('inbox.enterToSend') || 'Enter to send · Shift+Enter for new line'}
+              <div className="text-[10px] text-muted-foreground/60 mt-1.5 px-1 flex items-center gap-2">
+                <kbd className="px-1 py-0.5 rounded bg-secondary/60 border border-border/40 text-[9px] font-mono font-semibold">Enter</kbd>
+                <span>{t('inbox.enterToSend') || 'to send'}</span>
+                <span className="opacity-30">·</span>
+                <kbd className="px-1 py-0.5 rounded bg-secondary/60 border border-border/40 text-[9px] font-mono font-semibold">Shift+Enter</kbd>
+                <span>new line</span>
+                <span className="opacity-30">·</span>
+                <kbd className="px-1 py-0.5 rounded bg-secondary/60 border border-border/40 text-[9px] font-mono font-semibold">/</kbd>
+                <span>shortcuts</span>
               </div>
             </div>
           </>

@@ -1467,12 +1467,35 @@ const geoEnrichmentVendors: ProviderVendor[] = [
   {
     name: 'centroid', label: 'Centroid (Built-in)',
     description: 'Country/city centroid from bundled table. No external calls. Always available.',
+    deployment: 'builtin', recommendation: 'simple',
     fields: [],
+  },
+  {
+    name: 'maxmind_local', label: 'MaxMind GeoIP2 (Local DB)',
+    description: 'Self-hosted GeoIP2/GeoLite2 .mmdb file. Recommended for production self-host. No external calls.',
+    docsUrl: 'https://dev.maxmind.com/geoip/geolite2-free-geolocation-data',
+    deployment: 'selfhosted', recommendation: 'production-selfhost',
+    fields: [
+      { key: 'db_path', label: 'MMDB File Path', type: 'text', required: true,
+        placeholder: '/var/lib/geoip/GeoLite2-City.mmdb',
+        hint: 'Absolute path on the server filesystem. Mount as a volume in Docker.' },
+      { key: 'edition', label: 'Edition', type: 'select', options: [
+        { value: 'GeoLite2-City', label: 'GeoLite2 City (free)' },
+        { value: 'GeoIP2-City', label: 'GeoIP2 City (paid, more accurate)' },
+        { value: 'GeoLite2-Country', label: 'GeoLite2 Country (free, country only)' },
+        { value: 'GeoIP2-Country', label: 'GeoIP2 Country (paid, country only)' },
+      ], hint: 'Used only for display — actual edition is detected from the MMDB file.' },
+      { key: 'version', label: 'DB Version / Build Date', type: 'text',
+        placeholder: '2026-04-01', hint: 'Optional — for operator bookkeeping.' },
+      { key: 'auto_reload', label: 'Auto-reload on file change', type: 'toggle',
+        hint: 'Watch the file and reopen on update (requires restart-free updates).' },
+    ],
   },
   {
     name: 'ipapi', label: 'ipapi.co',
     description: 'Free tier IP geolocation API. Optional API key for higher limits.',
     docsUrl: 'https://ipapi.co/api',
+    deployment: 'external', recommendation: 'cloud',
     fields: [
       { key: 'api_key', label: 'API Key', type: 'password', hint: 'Optional — leave empty for free tier' },
     ],
@@ -1481,14 +1504,16 @@ const geoEnrichmentVendors: ProviderVendor[] = [
     name: 'ipinfo', label: 'IPinfo',
     description: 'Accurate IP geolocation with company & ASN data',
     docsUrl: 'https://ipinfo.io/developers',
+    deployment: 'external', recommendation: 'cloud',
     fields: [
       { key: 'api_token', label: 'Access Token', type: 'password', required: true },
     ],
   },
   {
-    name: 'maxmind', label: 'MaxMind GeoIP2',
-    description: 'Industry-standard IP geolocation. Web Service API.',
+    name: 'maxmind', label: 'MaxMind GeoIP2 (Web Service)',
+    description: 'MaxMind cloud Web Service API — billed per query. For local DB use "MaxMind GeoIP2 (Local DB)".',
     docsUrl: 'https://dev.maxmind.com/geoip',
+    deployment: 'external', recommendation: 'cloud',
     fields: [
       { key: 'account_id', label: 'Account ID', type: 'text', required: true },
       { key: 'license_key', label: 'License Key', type: 'password', required: true },
@@ -1498,9 +1523,16 @@ const geoEnrichmentVendors: ProviderVendor[] = [
     name: 'ipgeolocation', label: 'ipgeolocation.io',
     description: 'IP geolocation with timezone, ASN, threat data',
     docsUrl: 'https://ipgeolocation.io/documentation.html',
+    deployment: 'external', recommendation: 'cloud',
     fields: [
       { key: 'api_key', label: 'API Key', type: 'password', required: true },
     ],
+  },
+  {
+    name: 'none', label: 'Disabled (No enrichment)',
+    description: 'Skip provider lookup entirely. Centroid remains available as ultimate fallback.',
+    deployment: 'disabled',
+    fields: [],
   },
 ];
 

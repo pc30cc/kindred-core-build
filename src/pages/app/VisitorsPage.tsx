@@ -224,10 +224,10 @@ export default function VisitorsPage() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-3.5rem)] animate-fade-in">
-      {/* Body: list + map */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-[minmax(320px,420px)_1fr] min-h-0">
-        {/* Left: list */}
-        <div className="flex flex-col border-e border-border min-h-0 max-h-[60vh] lg:max-h-none">
+      {/* Body: full-bleed map with floating list overlay */}
+      <div className="flex-1 relative min-h-0">
+        {/* Left: list — floating panel over the map on lg+, stacked on mobile */}
+        <div className="absolute z-[500] top-3 start-3 bottom-3 w-[360px] max-w-[calc(100%-1.5rem)] hidden lg:flex flex-col bg-card/95 backdrop-blur-sm border border-border rounded-xl shadow-elevated overflow-hidden min-h-0">
           {selectedId ? (
             <VisitorDetailPanel
               workspaceId={wsId}

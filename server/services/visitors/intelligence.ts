@@ -97,8 +97,17 @@ export async function listVisitorIntelligence(
 ): Promise<VisitorIntelligenceItem[]> {
   const sb = getServiceClient(config);
   const limit = Math.min(opts.limit ?? 200, 500);
-  const staleMinutes = opts.staleMinutes ?? 30;
-  const since = new Date(Date.now() - staleMinutes * 60_000).toISOString();
+  // Pull the configured stale window from platform settings so the
+  // Visitors page can be tuned without redeploying. Falls back to 30 min.
+  let staleMs = (opts.staleMinutes ?? 30) * 60_000;
+  try {
+    const { getMapGeoSettings } = await import('../geo/settings.js');
+    const s = await getMapGeoSettings(config);
+    if ((s as any).presence?.stale_after_ms) {
+      staleMs = Math.max(15_000, (s as any).presence.stale_after_ms);
+    }
+  } catch { /* keep default */ }
+  const since = new Date(Date.now() - staleMs).toISOString();
   const canViewRaw = isAdminRole(opts.viewerRole ?? null);
 
   const { data: rows, error } = await sb

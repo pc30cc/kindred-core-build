@@ -1,0 +1,1 @@
+ALTER TABLE public.visitor_page_views ADD COLUMN IF NOT EXISTS title TEXT;

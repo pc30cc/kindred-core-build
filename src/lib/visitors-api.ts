@@ -120,17 +120,20 @@ export function fetchVisitorDetail(workspaceId: string, sessionId: string) {
 export interface VisitorPageView {
   id: number;
   url: string;
+  title: string | null;
   viewed_at: string;
 }
 
 export interface VisitorPageHistoryEntry {
   landing_url: string | null;
+  landing_title: string | null;
   landed_at: string | null;
   referrer: string | null;
 }
 
 export interface VisitorPageHistoryCurrent {
   url: string;
+  title: string | null;
   viewed_at: string | null;
 }
 

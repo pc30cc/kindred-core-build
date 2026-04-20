@@ -1127,6 +1127,7 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
               workspace_id: workspaceId,
               visitor_session_id: existing.id,
               url: String(normalizedPageUrl).slice(0, 2048),
+              title: page_title ? String(page_title).slice(0, 300) : null,
             });
           } catch (e: any) {
             console.warn('[widget-track] page-view insert failed:', e?.message);
@@ -1160,6 +1161,7 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
                 workspace_id: workspaceId,
                 visitor_session_id: newSession.id,
                 url: String(normalizedPageUrl).slice(0, 2048),
+                title: page_title ? String(page_title).slice(0, 300) : null,
               });
             } catch (e: any) {
               console.warn('[widget-track] first page-view insert failed:', e?.message);
@@ -1214,7 +1216,7 @@ widgetRouter.put('/action', widgetRateLimit('default'), async (req: Request, res
   const workspaceId = resolveWorkspaceId(req, res, req.body?.workspace_id);
   if (res.headersSent) return;
 
-  const { action, conversation_id, visitor_id, session_id, visitor_name, visitor_email, visitor_phone, current_page } = req.body;
+  const { action, conversation_id, visitor_id, session_id, visitor_name, visitor_email, visitor_phone, current_page, page_title } = req.body;
   const supabase = getServiceClient(config);
 
   try {
@@ -1259,6 +1261,7 @@ widgetRouter.put('/action', widgetRateLimit('default'), async (req: Request, res
               workspace_id: workspaceId,
               visitor_session_id: session_id,
               url: String(current_page).slice(0, 2048),
+              title: page_title ? String(page_title).slice(0, 300) : null,
             });
           } catch (e: any) {
             console.warn('[widget-action] page-view insert failed:', e?.message);

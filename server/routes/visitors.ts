@@ -94,13 +94,17 @@ visitorRouter.post('/track', async (req: Request, res: Response) => {
     // Validate workspace exists and has tracking enabled
     const { data: widget } = await supabase
       .from('widget_settings')
-      .select('visitor_tracking_enabled, allowed_domains, allow_subdomains')
+      .select('visitor_tracking_enabled, allowed_domains, allow_subdomains, store_raw_ip')
       .eq('workspace_id', data.workspace_id)
       .single();
 
     if (!widget || !widget.visitor_tracking_enabled) {
       return res.status(403).json({ error: 'Visitor tracking not enabled' });
     }
+
+    // Privacy gate: only persist raw IP when the workspace explicitly opts in.
+    const storeRawIp = (widget as any).store_raw_ip === true;
+    const ipRawForStorage = storeRawIp ? clientIp : null;
 
     const origin = typeof req.headers.origin === 'string'
       ? req.headers.origin

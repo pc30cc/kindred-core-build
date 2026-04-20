@@ -4,8 +4,44 @@ import { createHash } from 'crypto';
 import { getServiceClient } from '../supabase.js';
 import type { ServerConfig } from '../config.js';
 import { isWorkspaceOriginAllowed } from '../services/widget/public.js';
+import { listVisitorIntelligence, getVisitorIntelligence } from '../services/visitors/intelligence.js';
+import { resolveMapTilesConfig } from '../services/maptiles/index.js';
 
 export const visitorRouter = Router();
+
+// ============================================
+// Auth helper for operator-side reads.
+// Same pattern used in conversations.ts / cannedResponses.ts:
+// Bearer = Supabase user access token; verify workspace membership via RPC.
+// ============================================
+async function authorizeWorkspaceMember(
+  req: Request,
+  res: Response,
+  config: ServerConfig,
+  workspaceId: string,
+): Promise<{ userId: string } | null> {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) {
+    res.status(401).json({ error: 'Missing authorization' });
+    return null;
+  }
+  const token = authHeader.replace('Bearer ', '');
+  const sb = getServiceClient(config);
+  const { data: { user }, error } = await sb.auth.getUser(token);
+  if (error || !user) {
+    res.status(401).json({ error: 'Invalid token' });
+    return null;
+  }
+  const { data: isMember } = await sb.rpc('is_workspace_member', {
+    _workspace_id: workspaceId,
+    _user_id: user.id,
+  });
+  if (!isMember) {
+    res.status(403).json({ error: 'Not a workspace member' });
+    return null;
+  }
+  return { userId: user.id };
+}
 
 // ============================================
 // POST /api/visitors/track
@@ -225,6 +261,120 @@ visitorRouter.post('/disconnect', async (req: Request, res: Response) => {
     res.json({ status: 'ok' });
   } catch (err) {
     console.error('Disconnect error:', err);
+    res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+// ============================================
+// OPERATOR-SIDE READS (authenticated)
+// ============================================
+
+/**
+ * GET /api/visitors/live?workspace_id=...&include_offline=0
+ *
+ * Returns the normalized visitor intelligence list. Backend resolves
+ * presence + session + geo + linked contact/conversation in one shot.
+ */
+visitorRouter.get('/live', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = (req.query.workspace_id as string) || '';
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
+
+  const auth = await authorizeWorkspaceMember(req, res, config, workspaceId);
+  if (!auth) return;
+
+  try {
+    const items = await listVisitorIntelligence(config, workspaceId, {
+      includeOffline: req.query.include_offline === '1',
+      staleMinutes: req.query.stale_minutes ? Number(req.query.stale_minutes) : 30,
+      limit: req.query.limit ? Number(req.query.limit) : 200,
+    });
+    res.json({ items });
+  } catch (err) {
+    console.error('[visitors.live] failed:', err);
+    res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+/**
+ * GET /api/visitors/map?workspace_id=...
+ *
+ * Returns map markers (subset of live shape: id, status, geo, current_page).
+ * Visitors without coordinates are excluded — the list endpoint still has them.
+ */
+visitorRouter.get('/map', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = (req.query.workspace_id as string) || '';
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
+
+  const auth = await authorizeWorkspaceMember(req, res, config, workspaceId);
+  if (!auth) return;
+
+  try {
+    const items = await listVisitorIntelligence(config, workspaceId, { includeOffline: false });
+    const markers = items
+      .filter(i => i.geo.latitude != null && i.geo.longitude != null)
+      .map(i => ({
+        id: i.id,
+        status: i.status,
+        lat: i.geo.latitude,
+        lng: i.geo.longitude,
+        country: i.geo.country,
+        country_code: i.geo.country_code,
+        city: i.geo.city,
+        current_page: i.current_page,
+        source: i.geo.source,
+      }));
+    res.json({ markers, total: items.length });
+  } catch (err) {
+    console.error('[visitors.map] failed:', err);
+    res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+/**
+ * GET /api/visitors/map-config?workspace_id=...
+ *
+ * Returns the resolved map_tiles provider config the client should use.
+ * Falls back to free OSM tiles when nothing is configured.
+ */
+visitorRouter.get('/map-config', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = (req.query.workspace_id as string) || '';
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
+
+  const auth = await authorizeWorkspaceMember(req, res, config, workspaceId);
+  if (!auth) return;
+
+  try {
+    const cfg = await resolveMapTilesConfig(config, workspaceId);
+    res.json(cfg);
+  } catch (err) {
+    console.error('[visitors.map-config] failed:', err);
+    res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+/**
+ * GET /api/visitors/:id?workspace_id=...
+ *
+ * Detail for a single visitor session — full intelligence shape.
+ * Used by the detail drawer.
+ */
+visitorRouter.get('/:id', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = (req.query.workspace_id as string) || '';
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
+
+  const auth = await authorizeWorkspaceMember(req, res, config, workspaceId);
+  if (!auth) return;
+
+  try {
+    const item = await getVisitorIntelligence(config, workspaceId, req.params.id);
+    if (!item) return res.status(404).json({ error: 'Not found' });
+    res.json(item);
+  } catch (err) {
+    console.error('[visitors.detail] failed:', err);
     res.status(500).json({ error: 'Internal error' });
   }
 });

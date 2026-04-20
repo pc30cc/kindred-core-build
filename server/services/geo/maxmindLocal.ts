@@ -45,6 +45,7 @@ export interface LocalLookupResult {
   city: string | null;
   latitude: number | null;
   longitude: number | null;
+  timezone: string | null;
 }
 
 export async function lookupMaxmindLocal(
@@ -64,6 +65,7 @@ export async function lookupMaxmindLocal(
       city: r.city?.names?.en ?? null,
       latitude: r.location?.latitude ?? null,
       longitude: r.location?.longitude ?? null,
+      timezone: r.location?.time_zone ?? null,
     };
   } catch (err) {
     console.warn('[geo:maxmind_local] lookup failed:', (err as Error).message);

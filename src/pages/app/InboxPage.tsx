@@ -1179,11 +1179,26 @@ export default function InboxPage() {
         )}
       </div>
 
-      {/* ═══════ RIGHT: Contact Sidebar ═══════ */}
+      {/* ═══════ RIGHT: Contact Sidebar ═══════
+          Desktop ≥lg: inline panel (280px)
+          Tablet/mobile: drawer overlay (slides from inline-end), backdrop tap closes */}
       {selected && showSidebar && (
-        <div className={cn(
-          'hidden lg:flex w-[280px] border-s border-border flex-col bg-card/40 shrink-0 overflow-hidden'
-        )}>
+        <>
+          {/* Mobile/tablet backdrop — only below lg */}
+          <button
+            type="button"
+            aria-label="Close panel"
+            onClick={() => setShowSidebar(false)}
+            className="lg:hidden fixed inset-0 z-40 bg-foreground/30 backdrop-blur-[2px] animate-in fade-in"
+          />
+          <div className={cn(
+            'flex w-[300px] max-w-[88vw] border-s border-border flex-col bg-card shrink-0 overflow-hidden',
+            // Mobile/tablet: drawer
+            'fixed top-0 bottom-0 z-50 shadow-elevated lg:shadow-none',
+            dir === 'rtl' ? 'left-0' : 'right-0',
+            // Desktop: inline
+            'lg:static lg:z-auto lg:w-[280px]',
+          )}>
           {/* Sidebar tabs */}
           <div className="flex border-b border-border bg-card/60">
             {([

@@ -963,9 +963,9 @@ export default function InboxPage() {
                         >
                           <Copy className="w-3 h-3" />
                         </button>
-                        {isAgent && msg.seen_at && idx === rawMessages.length - 1 && (
+                        {isAgent && (msg as { seen_at?: string | null }).seen_at && idx === rawMessages.length - 1 && (
                           <span className="text-[10px] text-primary/70 font-medium flex items-center gap-1" dir="ltr">
-                            <CheckCircle2 className="w-3 h-3" /> {t('inbox.seen') || 'Seen'}
+                            <CheckCircle2 className="w-3 h-3" /> Seen
                           </span>
                         )}
                       </div>

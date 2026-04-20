@@ -72,6 +72,23 @@ const NO_MAP: MapTilesConfig = {
 };
 
 /**
+ * "Tiles not configured" sentinel — returned in production self-host mode
+ * when no provider is configured or the configured provider is invalid.
+ * The UI renders a placeholder grid + admin banner instead of silently
+ * pulling from public OSM. This is the new safe default.
+ */
+const UNCONFIGURED: MapTilesConfig = {
+  enabled: false,
+  provider: 'none',
+  tile_url: null,
+  attribution: '',
+  max_zoom: 0,
+  min_zoom: 0,
+  deployment: 'disabled',
+  fallback_no_map: true,
+};
+
+/**
  * Build the renderer config for a given provider name + raw config blob.
  * Returns both the active config and any silent fallback metadata so the
  * UI can communicate what is actually being rendered (precision/observability).
@@ -88,7 +105,7 @@ function buildFromConfig(
   // ── Self-hosted tile server (TileServer GL etc.) ─────────────────
   if (name === 'tileserver_selfhosted') {
     const url = get('tile_url');
-    if (!url) return { config: DEFAULT_OSM, fallback: { reason: 'missing tile_url' } };
+    if (!url) return { config: UNCONFIGURED, fallback: { reason: 'missing tile_url' } };
     return { config: {
       enabled: true,
       provider: 'tileserver_selfhosted',
@@ -104,7 +121,7 @@ function buildFromConfig(
   // ── Self-hosted OpenMapTiles ─────────────────────────────────────
   if (name === 'openmaptiles_selfhosted') {
     const url = get('tile_url');
-    if (!url) return { config: DEFAULT_OSM, fallback: { reason: 'missing tile_url' } };
+    if (!url) return { config: UNCONFIGURED, fallback: { reason: 'missing tile_url' } };
     return { config: {
       enabled: true,
       provider: 'openmaptiles_selfhosted',
@@ -120,7 +137,7 @@ function buildFromConfig(
   }
   if (name === 'maptiler') {
     const key = get('api_key');
-    if (!key) return { config: DEFAULT_OSM, fallback: { reason: 'missing api_key' } };
+    if (!key) return { config: UNCONFIGURED, fallback: { reason: 'missing api_key' } };
     const style = get('style') || 'streets-v2';
     return { config: {
       enabled: true, provider: 'maptiler',
@@ -132,7 +149,7 @@ function buildFromConfig(
   if (name === 'mapbox') {
     const token = get('access_token');
     const style = get('style_id') || 'mapbox/streets-v12';
-    if (!token) return { config: DEFAULT_OSM, fallback: { reason: 'missing access_token' } };
+    if (!token) return { config: UNCONFIGURED, fallback: { reason: 'missing access_token' } };
     return { config: {
       enabled: true, provider: 'mapbox',
       tile_url: `https://api.mapbox.com/styles/v1/${style}/tiles/{z}/{x}/{y}?access_token=${token}`,
@@ -152,7 +169,7 @@ function buildFromConfig(
   }
   if (name === 'custom') {
     const url = get('tile_url');
-    if (!url) return { config: DEFAULT_OSM, fallback: { reason: 'missing tile_url' } };
+    if (!url) return { config: UNCONFIGURED, fallback: { reason: 'missing tile_url' } };
     return { config: {
       enabled: true, provider: 'custom', tile_url: url,
       attribution: get('attribution') || '',
@@ -162,8 +179,9 @@ function buildFromConfig(
       fallback_no_map: false,
     } };
   }
-  // Unknown provider name — fall back safely.
-  return { config: DEFAULT_OSM, fallback: { reason: `unknown provider: ${name}` } };
+  // Unknown provider name — show "tiles not configured" placeholder
+  // (production safe; never silently calls public OSM).
+  return { config: UNCONFIGURED, fallback: { reason: `unknown provider: ${name}` } };
 }
 
 export async function resolveMapTilesConfig(
@@ -194,8 +212,10 @@ export async function resolveMapTilesConfig(
       .maybeSingle();
     if (platform) { requested = platform.provider_name; built = buildFromConfig(platform.provider_name, platform.config as any); }
   }
-  // Default: free OSM, no key required, self-host friendly.
-  if (!built) built = { config: DEFAULT_OSM };
+  // Self-host safe default: no public OSM, no external network call.
+  // Operator must explicitly configure a self-hosted tile URL via
+  // /admin/map-geo. Until then the UI shows a "Tiles not configured" banner.
+  if (!built) built = { config: UNCONFIGURED, fallback: { reason: 'no provider configured' } };
 
   // Annotate the resolved config with observability metadata.
   const resolved = built.config.provider;

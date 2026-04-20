@@ -1044,6 +1044,60 @@ export type Database = {
           },
         ]
       }
+      geo_ip_cache: {
+        Row: {
+          accuracy_level: string | null
+          city: string | null
+          country_code: string | null
+          country_name: string | null
+          expires_at: string
+          id: string
+          ip_hash: string
+          is_fallback: boolean
+          latitude: number | null
+          longitude: number | null
+          payload: Json
+          region: string | null
+          resolved_at: string
+          source: string
+          timezone: string | null
+        }
+        Insert: {
+          accuracy_level?: string | null
+          city?: string | null
+          country_code?: string | null
+          country_name?: string | null
+          expires_at?: string
+          id?: string
+          ip_hash: string
+          is_fallback?: boolean
+          latitude?: number | null
+          longitude?: number | null
+          payload?: Json
+          region?: string | null
+          resolved_at?: string
+          source?: string
+          timezone?: string | null
+        }
+        Update: {
+          accuracy_level?: string | null
+          city?: string | null
+          country_code?: string | null
+          country_name?: string | null
+          expires_at?: string
+          id?: string
+          ip_hash?: string
+          is_fallback?: boolean
+          latitude?: number | null
+          longitude?: number | null
+          payload?: Json
+          region?: string | null
+          resolved_at?: string
+          source?: string
+          timezone?: string | null
+        }
+        Relationships: []
+      }
       identity_merges: {
         Row: {
           contact_id: string

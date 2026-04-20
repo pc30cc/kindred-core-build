@@ -16,6 +16,7 @@ import { billingRouter } from './routes/billing.js';
 import { plansRouter } from './routes/plans.js';
 import { adminRouter } from './routes/admin.js';
 import { realtimeRouter } from './routes/realtime.js';
+import { mapGeoRouter } from './routes/mapGeo.js';
 import { conversationsRouter } from './routes/conversations.js';
 import { conversationAttachmentsRouter } from './routes/conversationAttachments.js';
 import { conversationNotesRouter } from './routes/conversationNotes.js';
@@ -139,6 +140,9 @@ app.use('/api/plans', plansRouter);
 
 // Admin — moderate rate limit
 app.use('/api/admin', adminRateLimiter, adminRouter);
+
+// Platform admin: Map & Geo (mounted under /api/admin/map-geo, admin role enforced inside)
+app.use('/api/admin/map-geo', adminRateLimiter, mapGeoRouter);
 
 // Realtime — admin config + widget connect/subscribe (auth handled per-route).
 // Public widget endpoints get the dynamic widget CORS; admin endpoints rely on the

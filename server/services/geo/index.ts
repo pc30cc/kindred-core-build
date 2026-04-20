@@ -19,6 +19,7 @@
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { lookupCentroid } from './centroids.js';
+import { lookupMaxmindLocal } from './maxmindLocal.js';
 
 export interface GeoResult {
   country: string | null;
@@ -194,11 +195,26 @@ const maxmindAdapter: Adapter = async (ip, cfg) => {
   };
 };
 
+/**
+ * MaxMind local MMDB adapter — fully self-hosted, no external calls.
+ * Reads from a GeoLite2/GeoIP2 .mmdb file mounted on the server filesystem.
+ * Uses an in-process LRU of opened DB readers keyed by path so we don't
+ * reopen the file on every request.
+ */
+const maxmindLocalAdapter: Adapter = async (ip, cfg) => {
+  const dbPath = (cfg?.db_path as string) || '';
+  if (!dbPath) return null;
+  return lookupMaxmindLocal(dbPath, ip, {
+    autoReload: cfg?.auto_reload === true || cfg?.auto_reload === 'true',
+  });
+};
+
 const ADAPTERS: Record<string, Adapter> = {
   ipapi: ipapiAdapter,
   ipinfo: ipinfoAdapter,
   ipgeolocation: ipgeolocationAdapter,
   maxmind: maxmindAdapter,
+  maxmind_local: maxmindLocalAdapter,
 };
 
 /**
@@ -230,6 +246,10 @@ export async function resolveVisitorGeo(
   // 2. Configured provider — only when raw IP is available (ingestion path).
   if (session.raw_ip) {
     const provider = await resolveProviderConfig(config, workspaceId);
+    // Explicit "none" — operator opted out of provider lookup.
+    if (provider && provider.provider_name === 'none') {
+      // fall through to centroid
+    } else
     if (provider && ADAPTERS[provider.provider_name]) {
       try {
         const result = await ADAPTERS[provider.provider_name](session.raw_ip, provider.config);

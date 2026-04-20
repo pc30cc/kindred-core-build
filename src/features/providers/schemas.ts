@@ -25,6 +25,16 @@ export interface ProviderVendor {
   locales?: ('en' | 'fa' | 'tr')[];
   /** Currency this vendor operates in */
   currency?: string;
+  /**
+   * Deployment classification for self-host operators.
+   * - `selfhosted`  : runs entirely on operator infra, no external calls
+   * - `external`    : depends on a public/cloud vendor
+   * - `builtin`     : ships in the codebase, no infra needed (centroid, OSM public)
+   * - `disabled`    : explicit no-op / off
+   */
+  deployment?: 'selfhosted' | 'external' | 'builtin' | 'disabled';
+  /** Recommended setup tag, surfaced in admin UI as a hint badge. */
+  recommendation?: 'simple' | 'production-selfhost' | 'cloud';
 }
 
 export interface ProviderTypeSchema {
@@ -1457,12 +1467,35 @@ const geoEnrichmentVendors: ProviderVendor[] = [
   {
     name: 'centroid', label: 'Centroid (Built-in)',
     description: 'Country/city centroid from bundled table. No external calls. Always available.',
+    deployment: 'builtin', recommendation: 'simple',
     fields: [],
+  },
+  {
+    name: 'maxmind_local', label: 'MaxMind GeoIP2 (Local DB)',
+    description: 'Self-hosted GeoIP2/GeoLite2 .mmdb file. Recommended for production self-host. No external calls.',
+    docsUrl: 'https://dev.maxmind.com/geoip/geolite2-free-geolocation-data',
+    deployment: 'selfhosted', recommendation: 'production-selfhost',
+    fields: [
+      { key: 'db_path', label: 'MMDB File Path', type: 'text', required: true,
+        placeholder: '/var/lib/geoip/GeoLite2-City.mmdb',
+        hint: 'Absolute path on the server filesystem. Mount as a volume in Docker.' },
+      { key: 'edition', label: 'Edition', type: 'select', options: [
+        { value: 'GeoLite2-City', label: 'GeoLite2 City (free)' },
+        { value: 'GeoIP2-City', label: 'GeoIP2 City (paid, more accurate)' },
+        { value: 'GeoLite2-Country', label: 'GeoLite2 Country (free, country only)' },
+        { value: 'GeoIP2-Country', label: 'GeoIP2 Country (paid, country only)' },
+      ], hint: 'Used only for display — actual edition is detected from the MMDB file.' },
+      { key: 'version', label: 'DB Version / Build Date', type: 'text',
+        placeholder: '2026-04-01', hint: 'Optional — for operator bookkeeping.' },
+      { key: 'auto_reload', label: 'Auto-reload on file change', type: 'toggle',
+        hint: 'Watch the file and reopen on update (requires restart-free updates).' },
+    ],
   },
   {
     name: 'ipapi', label: 'ipapi.co',
     description: 'Free tier IP geolocation API. Optional API key for higher limits.',
     docsUrl: 'https://ipapi.co/api',
+    deployment: 'external', recommendation: 'cloud',
     fields: [
       { key: 'api_key', label: 'API Key', type: 'password', hint: 'Optional — leave empty for free tier' },
     ],
@@ -1471,14 +1504,16 @@ const geoEnrichmentVendors: ProviderVendor[] = [
     name: 'ipinfo', label: 'IPinfo',
     description: 'Accurate IP geolocation with company & ASN data',
     docsUrl: 'https://ipinfo.io/developers',
+    deployment: 'external', recommendation: 'cloud',
     fields: [
       { key: 'api_token', label: 'Access Token', type: 'password', required: true },
     ],
   },
   {
-    name: 'maxmind', label: 'MaxMind GeoIP2',
-    description: 'Industry-standard IP geolocation. Web Service API.',
+    name: 'maxmind', label: 'MaxMind GeoIP2 (Web Service)',
+    description: 'MaxMind cloud Web Service API — billed per query. For local DB use "MaxMind GeoIP2 (Local DB)".',
     docsUrl: 'https://dev.maxmind.com/geoip',
+    deployment: 'external', recommendation: 'cloud',
     fields: [
       { key: 'account_id', label: 'Account ID', type: 'text', required: true },
       { key: 'license_key', label: 'License Key', type: 'password', required: true },
@@ -1488,9 +1523,16 @@ const geoEnrichmentVendors: ProviderVendor[] = [
     name: 'ipgeolocation', label: 'ipgeolocation.io',
     description: 'IP geolocation with timezone, ASN, threat data',
     docsUrl: 'https://ipgeolocation.io/documentation.html',
+    deployment: 'external', recommendation: 'cloud',
     fields: [
       { key: 'api_key', label: 'API Key', type: 'password', required: true },
     ],
+  },
+  {
+    name: 'none', label: 'Disabled (No enrichment)',
+    description: 'Skip provider lookup entirely. Centroid remains available as ultimate fallback.',
+    deployment: 'disabled',
+    fields: [],
   },
 ];
 
@@ -1499,15 +1541,60 @@ const geoEnrichmentVendors: ProviderVendor[] = [
 // =============================================
 const mapTilesVendors: ProviderVendor[] = [
   {
-    name: 'osm', label: 'OpenStreetMap (default)',
-    description: 'Free raster tiles. No API key. Self-host friendly. Recommended default.',
+    name: 'osm_public', label: 'OpenStreetMap (public tiles)',
+    description: 'Free raster tiles from openstreetmap.org. No API key. Best for simple installs and dev. Subject to OSM tile usage policy.',
     docsUrl: 'https://www.openstreetmap.org',
+    deployment: 'builtin', recommendation: 'simple',
     fields: [],
+  },
+  {
+    name: 'tileserver_selfhosted', label: 'TileServer GL (Self-Hosted)',
+    description: 'Connect your own raster/vector tile server. Recommended for production self-host. Zero external dependency.',
+    docsUrl: 'https://github.com/maptiler/tileserver-gl',
+    deployment: 'selfhosted', recommendation: 'production-selfhost',
+    fields: [
+      { key: 'tile_url', label: 'Tile URL Template', type: 'url', required: true,
+        placeholder: 'https://tiles.yourdomain.com/styles/basic/{z}/{x}/{y}.png',
+        hint: 'Must contain {z}/{x}/{y}. Use {r} for retina if your server supports it.' },
+      { key: 'mode', label: 'Tile Mode', type: 'select', options: [
+        { value: 'raster', label: 'Raster (PNG/JPG)' },
+        { value: 'vector', label: 'Vector (PBF/MVT)' },
+      ], hint: 'Raster works with the current Leaflet renderer. Vector requires MapLibre — coming soon.' },
+      { key: 'attribution', label: 'Attribution', type: 'text',
+        placeholder: '© OpenStreetMap contributors',
+        hint: 'Required by OSM data licence if your tiles are derived from OSM.' },
+      { key: 'min_zoom', label: 'Min Zoom', type: 'number', placeholder: '1' },
+      { key: 'max_zoom', label: 'Max Zoom', type: 'number', placeholder: '19' },
+      { key: 'health_url', label: 'Health Check URL', type: 'url',
+        placeholder: 'https://tiles.yourdomain.com/health',
+        hint: 'Optional. If set, admin UI uses this for live status.' },
+    ],
+  },
+  {
+    name: 'openmaptiles_selfhosted', label: 'OpenMapTiles (Self-Hosted)',
+    description: 'Self-hosted OpenMapTiles stack with style URL. Recommended for fully branded production maps.',
+    docsUrl: 'https://openmaptiles.org/docs',
+    deployment: 'selfhosted', recommendation: 'production-selfhost',
+    fields: [
+      { key: 'tile_url', label: 'Raster Tile URL', type: 'url', required: true,
+        placeholder: 'https://maps.yourdomain.com/styles/osm-bright/{z}/{x}/{y}.png',
+        hint: 'Raster fallback used by the Leaflet renderer.' },
+      { key: 'style_url', label: 'Style URL (Vector)', type: 'url',
+        placeholder: 'https://maps.yourdomain.com/styles/osm-bright/style.json',
+        hint: 'Optional. Used when the renderer supports MapLibre vector tiles.' },
+      { key: 'attribution', label: 'Attribution', type: 'text',
+        placeholder: '© OpenMapTiles © OpenStreetMap contributors' },
+      { key: 'min_zoom', label: 'Min Zoom', type: 'number', placeholder: '1' },
+      { key: 'max_zoom', label: 'Max Zoom', type: 'number', placeholder: '19' },
+      { key: 'health_url', label: 'Health Check URL', type: 'url',
+        placeholder: 'https://maps.yourdomain.com/health' },
+    ],
   },
   {
     name: 'maptiler', label: 'MapTiler',
     description: 'Vector & raster tiles with multiple styles',
     docsUrl: 'https://docs.maptiler.com',
+    deployment: 'external', recommendation: 'cloud',
     fields: [
       { key: 'api_key', label: 'API Key', type: 'password', required: true },
       { key: 'style', label: 'Map Style', type: 'select', options: [
@@ -1522,6 +1609,7 @@ const mapTilesVendors: ProviderVendor[] = [
     name: 'mapbox', label: 'Mapbox',
     description: 'High-quality vector tiles and styles',
     docsUrl: 'https://docs.mapbox.com',
+    deployment: 'external', recommendation: 'cloud',
     fields: [
       { key: 'access_token', label: 'Access Token', type: 'password', required: true },
       { key: 'style', label: 'Style URL', type: 'text', placeholder: 'mapbox/streets-v12' },
@@ -1531,6 +1619,7 @@ const mapTilesVendors: ProviderVendor[] = [
     name: 'stadia', label: 'Stadia Maps',
     description: 'Privacy-friendly map tiles, OSM-based',
     docsUrl: 'https://docs.stadiamaps.com',
+    deployment: 'external', recommendation: 'cloud',
     fields: [
       { key: 'api_key', label: 'API Key', type: 'password', hint: 'Optional in dev, required in production' },
       { key: 'style', label: 'Style', type: 'select', options: [
@@ -1544,6 +1633,7 @@ const mapTilesVendors: ProviderVendor[] = [
   {
     name: 'none', label: 'No Map (List Only)',
     description: 'Disable the map canvas. Visitors are listed without geographic display.',
+    deployment: 'disabled',
     fields: [],
   },
 ];

@@ -226,7 +226,7 @@ export default function VisitorsPage() {
     <div className="flex flex-col h-[calc(100vh-3.5rem)] animate-fade-in">
       {/* Header */}
       <div className="px-4 sm:px-6 pt-4 pb-3 border-b border-border">
-        <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="page-header">{t('visitors.title')}</h1>
             <p className="page-subtitle">{t('visitors.subtitle')}</p>
@@ -260,26 +260,10 @@ export default function VisitorsPage() {
           </div>
         </div>
 
-        {/* Stat cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          {statCards.map(s => (
-            <div key={s.label} className="stat-card">
-              <div className="flex items-center justify-between mb-3">
-                <div className={cn('w-9 h-9 rounded-lg flex items-center justify-center', s.bg)}>
-                  <s.icon className={cn('w-4 h-4', s.color)} />
-                </div>
-                {s.pulse && <div className="h-2 w-2 rounded-full bg-success animate-pulse" />}
-              </div>
-              <div className="text-2xl font-bold text-foreground">{s.value}</div>
-              <div className="text-xs text-muted-foreground mt-1">{s.label}</div>
-            </div>
-          ))}
-        </div>
-
         {/* Geo insight strip — minimal, realtime, only renders when relevant */}
         {geoInsight.total > 0 && (
           <div
-            className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-muted-foreground"
+            className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-muted-foreground"
             aria-label={t('visitors.insightTitle')}
           >
             <span className="font-medium text-foreground/80 me-1">

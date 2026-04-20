@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { useVisitorDetail, useVisitorPageHistory } from '@/hooks/useVisitors';
 import { useNavigate } from 'react-router-dom';
 import { useWorkspacePath } from '@/hooks/useWorkspace';
+import { useState } from 'react';
 import {
   Copy, MessageSquare, User, Globe, Monitor, MapPin, Clock, ExternalLink, History,
 } from 'lucide-react';
@@ -22,6 +23,7 @@ export function VisitorDrawer({ workspaceId, sessionId, onClose }: Props) {
   const history = useVisitorPageHistory(workspaceId, sessionId);
   const navigate = useNavigate();
   const wsPath = useWorkspacePath();
+  const [showAllPages, setShowAllPages] = useState(false);
 
   const open = !!sessionId;
   const copy = (label: string, value: string) => {
@@ -116,17 +118,37 @@ export function VisitorDrawer({ workspaceId, sessionId, onClose }: Props) {
               ) : !history.data?.items?.length ? (
                 <p className="text-xs text-muted-foreground">{t('visitors.pageHistoryEmpty')}</p>
               ) : (
-                <ol className="relative ms-1.5 border-s border-border/70 space-y-2 pt-1">
-                  {history.data.items.map((p) => (
-                    <li key={p.id} className="ps-3 relative">
-                      <span className="absolute -start-[5px] top-1.5 w-2 h-2 rounded-full bg-primary/70 ring-2 ring-background" />
-                      <div className="text-xs text-foreground truncate" title={p.url}>{p.url}</div>
-                      <div className="text-[10px] text-muted-foreground">
-                        {new Date(p.viewed_at).toLocaleString()}
-                      </div>
-                    </li>
-                  ))}
-                </ol>
+                (() => {
+                  const items = history.data.items;
+                  const CAP = 8;
+                  const visible = showAllPages ? items : items.slice(0, CAP);
+                  return (
+                    <>
+                      <ol className="relative ms-1.5 border-s border-border/70 space-y-2 pt-1">
+                        {visible.map((p) => (
+                          <li key={p.id} className="ps-3 relative">
+                            <span className="absolute -start-[5px] top-1.5 w-2 h-2 rounded-full bg-primary/70 ring-2 ring-background" />
+                            <div className="text-xs text-foreground truncate" title={p.url}>{p.url}</div>
+                            <div className="text-[10px] text-muted-foreground">
+                              {new Date(p.viewed_at).toLocaleString()}
+                            </div>
+                          </li>
+                        ))}
+                      </ol>
+                      {items.length > CAP && (
+                        <button
+                          type="button"
+                          onClick={() => setShowAllPages((v) => !v)}
+                          className="mt-2 text-[11px] text-primary hover:underline"
+                        >
+                          {showAllPages
+                            ? t('visitors.pageHistoryShowLess')
+                            : t('visitors.pageHistoryShowAll', { n: String(items.length) })}
+                        </button>
+                      )}
+                    </>
+                  );
+                })()
               )}
             </div>
           </div>

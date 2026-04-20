@@ -389,6 +389,8 @@ const tr: TranslationKeys = {
     pageHistoryEmpty: 'Henüz sayfa geçmişi yok',
     pageHistoryLoading: 'Geçmiş yükleniyor…',
     pageHistoryShowMore: 'Daha fazla göster',
+    pageHistoryShowAll: 'Tümünü göster ({n})',
+    pageHistoryShowLess: 'Daha az göster',
     rtConnected: 'Canlı',
     rtPolling: 'Yoklama',
   },

@@ -389,6 +389,8 @@ const fa: TranslationKeys = {
     pageHistoryEmpty: 'هنوز تاریخچه‌ای ثبت نشده',
     pageHistoryLoading: 'در حال بارگذاری تاریخچه…',
     pageHistoryShowMore: 'نمایش بیشتر',
+    pageHistoryShowAll: 'نمایش همه ({n})',
+    pageHistoryShowLess: 'نمایش کمتر',
     rtConnected: 'زنده',
     rtPolling: 'پل‌زنی',
   },

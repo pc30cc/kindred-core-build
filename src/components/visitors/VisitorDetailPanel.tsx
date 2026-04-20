@@ -6,7 +6,7 @@ import { useWorkspacePath } from '@/hooks/useWorkspace';
 import { useState } from 'react';
 import {
   Copy, MessageSquare, User, Globe, Monitor, MapPin, Clock, ExternalLink, History,
-  Wifi, ShieldCheck, ShieldAlert, ShieldX, ArrowLeft,
+  Wifi, ShieldCheck, ShieldAlert, ShieldX, ArrowLeft, LogIn, Navigation,
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { useTranslation } from '@/i18n';

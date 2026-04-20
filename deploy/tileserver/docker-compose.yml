@@ -15,23 +15,36 @@ services:
     # which is exactly what our Visitors map needs.
     image: maptiler/tileserver-gl-light:latest
     restart: unless-stopped
-    # Run on container port 80 so Coolify can route the public domain
-    # without any custom port suffix or magic env variables.
     expose:
-      - "80"
+      - "8080"
     volumes:
       # Persist .mbtiles + custom styles across rebuilds.
       # In Coolify: attach a "Persistent Storage" volume to /data.
       - tileserver-data:/data
-    # Default config.json shipped with the image is fine; it auto-discovers
-      # any .mbtiles files in /data and exposes them at /data/<id>/...
-    command: ["--public_url", "/", "--port", "80"]
+    command: ["--public_url", "/", "--port", "8080"]
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  tileserver-proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      tileserver:
+        condition: service_healthy
+    expose:
+      - "80"
+    volumes:
+      - ./deploy/tileserver/Caddyfile:/etc/caddy/Caddyfile:ro
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 20s
+      start_period: 10s
 
 volumes:
   tileserver-data:

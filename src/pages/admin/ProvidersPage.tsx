@@ -1,6 +1,5 @@
 import { useState, useCallback } from 'react';
-import { Link } from 'react-router-dom';
-import { Activity, CheckCircle, AlertTriangle, XCircle, RefreshCw, Search, BarChart3, MapPin, ArrowRight } from 'lucide-react';
+import { Activity, CheckCircle, AlertTriangle, XCircle, RefreshCw, Search, BarChart3 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -224,20 +223,7 @@ export default function AdminProvidersPage() {
                   {group.label}
                 </h3>
                 {group.label === 'Visitor Intelligence' && (
-                  <>
-                    <VisitorIntelligenceSection />
-                    <Link to="/admin/providers/map-geo"
-                      className="flex items-center justify-between p-3 rounded-md border border-primary/30 bg-primary/5 hover:bg-primary/10 transition-colors">
-                      <div className="flex items-center gap-2">
-                        <MapPin className="h-4 w-4 text-primary" />
-                        <div>
-                          <p className="text-sm font-semibold text-foreground">Configure Map &amp; Geo</p>
-                          <p className="text-[11px] text-muted-foreground">Geo enrichment pipeline, MaxMind health, map filters, diagnostics & warm-geo jobs.</p>
-                        </div>
-                      </div>
-                      <ArrowRight className="h-4 w-4 text-primary" />
-                    </Link>
-                  </>
+                  <VisitorIntelligenceSection />
                 )}
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                   {types.map((type) => (

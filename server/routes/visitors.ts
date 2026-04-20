@@ -435,62 +435,23 @@ visitorsAdminRouter.get('/map', async (req: Request, res: Response) => {
   if (!auth) return;
 
   try {
-    // Pull platform map_geo_settings to enforce admin-defined map filters.
-    // These knobs let operators reduce noise (e.g. drop centroid-only points)
-    // without changing client-side rendering.
-    const settings = await getMapGeoSettings(config).catch(() => null);
-    const minAccuracy = settings?.min_accuracy_for_map ?? 'country';
-    const ignoreFallback = settings?.map.ignore_fallback_only_points === true;
-    const showOnlyValid = settings?.map.show_only_valid_coords !== false;
-    const includeLabels = settings?.map.include_geo_labels !== false;
-    const debugMode = settings?.map.debug_mode === true;
-    const ACC_RANK: Record<'country' | 'region' | 'city', number> = { country: 1, region: 2, city: 3 };
-    const minRank = ACC_RANK[minAccuracy];
-
     const items = await listVisitorIntelligence(config, workspaceId, {
       includeOffline: false,
       viewerRole: auth.role,
     });
     const markers = items
-      .filter(i => {
-        const lat = i.geo.latitude, lng = i.geo.longitude;
-        // Always require numeric, finite coordinates when show_only_valid_coords.
-        if (showOnlyValid) {
-          if (typeof lat !== 'number' || typeof lng !== 'number') return false;
-          if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
-          if (lat === 0 && lng === 0) return false;
-        } else if (lat == null || lng == null) {
-          return false;
-        }
-        // ignore_fallback_only_points: drop centroid/session-derived points.
-        if (ignoreFallback && i.geo.is_fallback) return false;
-        // min_accuracy_for_map: keep only points that meet/exceed the bar.
-        const acc = i.geo.accuracy_level;
-        if (!acc) return minRank <= 1; // accept country bar as floor when unknown
-        if (ACC_RANK[acc] < minRank) return false;
-        return true;
-      })
-      .map(i => {
-        const base: any = {
-          id: i.id,
-          status: i.status,
-          lat: i.geo.latitude,
-          lng: i.geo.longitude,
-          source: i.geo.source,
-        };
-        if (includeLabels) {
-          base.country = i.geo.country;
-          base.country_code = i.geo.country_code;
-          base.city = i.geo.city;
-          base.current_page = i.current_page;
-        }
-        if (debugMode) {
-          base.accuracy_level = i.geo.accuracy_level;
-          base.is_fallback = i.geo.is_fallback;
-          base.source_provider = i.geo.source_provider;
-        }
-        return base;
-      });
+      .filter(i => i.geo.latitude != null && i.geo.longitude != null)
+      .map(i => ({
+        id: i.id,
+        status: i.status,
+        lat: i.geo.latitude,
+        lng: i.geo.longitude,
+        country: i.geo.country,
+        country_code: i.geo.country_code,
+        city: i.geo.city,
+        current_page: i.current_page,
+        source: i.geo.source,
+      }));
     const without_location = items.length - markers.length;
     // Geo source breakdown — fuels the header insight chip on the Visitors page.
     // 'cache' counts as 'precise' for UX purposes (cache rows came from a real provider).
@@ -504,17 +465,7 @@ visitorsAdminRouter.get('/map', async (req: Request, res: Response) => {
       else if (s === 'disabled') source_counts.disabled++;
       else source_counts.unavailable++;
     }
-    res.json({
-      markers,
-      total: items.length,
-      without_location,
-      source_counts,
-      filters_applied: {
-        min_accuracy_for_map: minAccuracy,
-        ignore_fallback_only_points: ignoreFallback,
-        show_only_valid_coords: showOnlyValid,
-      },
-    });
+    res.json({ markers, total: items.length, without_location, source_counts });
   } catch (err) {
     console.error('[visitors.map] failed:', err);
     res.status(500).json({ error: 'Internal error' });

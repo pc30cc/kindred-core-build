@@ -2609,6 +2609,34 @@
           notify.showToast(senderName, preview);
         }
         notify.playBeep();
+        // ─── Operator-initiated outreach: auto-open the panel ───
+        // When the visitor receives an agent message but has never sent one
+        // themselves, treat it as proactive outreach (operator clicked
+        // "Start chat" from the Visitors page). Auto-open the chat panel so
+        // the visitor immediately sees the incoming message instead of just
+        // a launcher badge. We keep this gated to:
+        //   • panel currently closed
+        //   • zero visitor-authored messages in the merged history
+        //   • we have an active conversation id (set by mergeIncoming via
+        //     bootstrapHistory or polling's onConversation callback)
+        // After the visitor replies once, this branch never fires again on
+        // the same conversation (subsequent agent messages only buzz/toast).
+        if (!panelOpen) {
+          var msgsNow = chatStore.get().messages || [];
+          var hasVisitorMsg = false;
+          for (var vm = 0; vm < msgsNow.length; vm++) {
+            if (msgsNow[vm].sender === 'visitor') { hasVisitorMsg = true; break; }
+          }
+          if (!hasVisitorMsg) {
+            // Switch to chat tab + open. Mirrors the public open() path so
+            // launcher state, focus, and unread clearing all behave normally.
+            shellStore.set({ activeTab: 'chat', isOpen: true });
+            if (launcher) launcher.classList.add('open');
+            if (panel) panel.classList.add('visible');
+            notify.hideToast();
+            renderBody();
+          }
+        }
       }
     });
     transport.on('reconnect', function () {

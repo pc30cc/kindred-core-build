@@ -301,6 +301,14 @@ export default function VisitorsPage() {
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-[minmax(320px,420px)_1fr] min-h-0">
         {/* Left: list */}
         <div className="flex flex-col border-e border-border min-h-0 max-h-[60vh] lg:max-h-none">
+          {selectedId ? (
+            <VisitorDetailPanel
+              workspaceId={wsId}
+              sessionId={selectedId}
+              onBack={() => setSelectedId(null)}
+            />
+          ) : (
+          <>
           <div className="p-3 border-b border-border">
             <div className="relative">
               <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden />

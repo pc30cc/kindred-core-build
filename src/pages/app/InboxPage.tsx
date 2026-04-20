@@ -566,7 +566,7 @@ export default function InboxPage() {
             </div>
             <div className="flex items-center gap-1">
               <button
-                aria-label={t('inbox.refresh') || 'Refresh'}
+                aria-label="Refresh"
                 onClick={() => qc.invalidateQueries({ queryKey: ['conversations'] })}
                 className="p-2 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >

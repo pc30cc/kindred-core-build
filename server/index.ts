@@ -41,6 +41,13 @@ const config = loadConfig();
 
 const app = express();
 
+// Trust upstream reverse proxies (nginx / Cloudflare / Coolify). Without this,
+// req.ip would always be the proxy's address and our IP-extraction utility
+// wouldn't be able to reach x-forwarded-for / cf-connecting-ip safely. We use
+// "loopback, linklocal, uniquelocal" so only proxies on private networks are
+// trusted — public IPs in the chain are still treated as untrusted hops.
+app.set('trust proxy', 'loopback, linklocal, uniquelocal');
+
 // Security headers
 app.use(helmet());
 

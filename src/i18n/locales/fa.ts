@@ -393,6 +393,13 @@ const fa: TranslationKeys = {
     pageHistoryShowLess: 'نمایش کمتر',
     rtConnected: 'زنده',
     rtPolling: 'پل‌زنی',
+    ipAddress: 'آدرس IP',
+    ipMasked: 'پنهان‌شده',
+    geoPrecise: 'دقیق',
+    geoApproximate: 'تقریبی',
+    geoUnavailable: 'نامشخص',
+    noLocationReason: 'موقعیت در دسترس نیست — ارائه‌دهنده جغرافیایی پیکربندی نشده یا IP قابل تشخیص نبود.',
+    mapWithoutLocation: '{{n}} بدون موقعیت',
   },
   knowledgeBase: {
     title: 'پایگاه دانش',

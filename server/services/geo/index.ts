@@ -7,12 +7,14 @@
  * privacy-preserving).
  *
  * Resolution order (per request):
- *   1. visitor_geo_cache (by ip_hash) if not expired
- *   2. configured geo_enrichment provider (workspace override → platform default)
- *   3. centroid lookup against the visitor's stored country
- *   4. null coords (UI degrades to country-only display)
+ *   1. visitor_geo_cache (by ip_hash) if not expired           → 'cache'
+ *   2. configured geo_enrichment provider (raw IP required)    → 'provider'
+ *   3. centroid lookup against the visitor's stored country    → 'centroid'
+ *   4. session-only metadata or none                            → 'session' | 'none'
  *
- * The cache is keyed by ip_hash so we never store raw IPs.
+ * The cache is keyed by ip_hash so we never store raw IPs at rest.
+ * Raw IPs only travel in-process during a single request — they are NEVER
+ * persisted or returned in API responses.
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
@@ -29,7 +31,7 @@ export interface GeoResult {
 }
 
 interface GeoProviderConfig {
-  provider_name: string; // 'ipapi' | 'ipinfo' | 'centroid' | etc.
+  provider_name: string;
   config: Record<string, unknown> | null;
 }
 
@@ -39,7 +41,6 @@ async function resolveProviderConfig(
   workspaceId: string | null,
 ): Promise<GeoProviderConfig | null> {
   const sb = getServiceClient(config);
-  // Workspace-level override
   if (workspaceId) {
     const { data: ws } = await sb
       .from('provider_configs')
@@ -50,7 +51,6 @@ async function resolveProviderConfig(
       .maybeSingle();
     if (ws) return { provider_name: ws.provider_name, config: ws.config as any };
   }
-  // Platform default (workspace_id IS NULL)
   const { data: platform } = await sb
     .from('provider_configs')
     .select('provider_name, config, is_active')
@@ -84,7 +84,6 @@ async function readCache(config: ServerConfig, ipHash: string): Promise<GeoResul
   };
 }
 
-/** Persist a successful provider lookup to the cache. */
 async function writeCache(
   config: ServerConfig,
   ipHash: string,
@@ -110,27 +109,115 @@ async function writeCache(
   );
 }
 
-/** Built-in `ipapi.co` adapter — opt-in only when configured. */
-async function callIpapi(ipHash: string, providerCfg: Record<string, unknown> | null): Promise<Omit<GeoResult, 'source'> | null> {
-  // The hash itself can't be looked up — but operators can use this provider
-  // upstream (where the raw IP is still available via x-forwarded-for in their
-  // own proxy layer) by providing a per-IP base URL. For the MVP, we treat the
-  // provider as enabled-but-no-op when we only have the hash; centroid fallback
-  // wins. This keeps the integration honest and privacy-safe.
-  void providerCfg;
-  void ipHash;
-  return null;
-}
+// ────────────────────────────────────────────────────────────────────────────
+// Provider adapters — each takes a raw IP and returns a partial GeoResult.
+// All adapters fail-soft: they return null on any error so callers fall back
+// to centroid resolution. Raw IPs never leave the process boundary except in
+// the outbound HTTP request to the configured provider.
+// ────────────────────────────────────────────────────────────────────────────
+
+type Adapter = (ip: string, cfg: Record<string, unknown> | null) => Promise<Omit<GeoResult, 'source'> | null>;
+
+const ipapiAdapter: Adapter = async (ip, cfg) => {
+  const apiKey = (cfg?.api_key as string) || '';
+  const url = `https://ipapi.co/${encodeURIComponent(ip)}/json/${apiKey ? `?key=${apiKey}` : ''}`;
+  const r = await fetch(url, { headers: { 'User-Agent': 'lovable-visitor-intel/1.0' } });
+  if (!r.ok) return null;
+  const j = await r.json() as any;
+  if (j.error) return null;
+  return {
+    country: j.country_name ?? null,
+    country_code: j.country_code ?? null,
+    region: j.region ?? null,
+    city: j.city ?? null,
+    latitude: typeof j.latitude === 'number' ? j.latitude : null,
+    longitude: typeof j.longitude === 'number' ? j.longitude : null,
+  };
+};
+
+const ipinfoAdapter: Adapter = async (ip, cfg) => {
+  const token = (cfg?.api_token as string) || '';
+  if (!token) return null;
+  const url = `https://ipinfo.io/${encodeURIComponent(ip)}?token=${token}`;
+  const r = await fetch(url, { headers: { 'User-Agent': 'lovable-visitor-intel/1.0' } });
+  if (!r.ok) return null;
+  const j = await r.json() as any;
+  let lat: number | null = null, lng: number | null = null;
+  if (typeof j.loc === 'string' && j.loc.includes(',')) {
+    const [a, b] = j.loc.split(',');
+    lat = Number(a); lng = Number(b);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) { lat = null; lng = null; }
+  }
+  return {
+    country: j.country ?? null,
+    country_code: j.country ?? null,
+    region: j.region ?? null,
+    city: j.city ?? null,
+    latitude: lat,
+    longitude: lng,
+  };
+};
+
+const ipgeolocationAdapter: Adapter = async (ip, cfg) => {
+  const apiKey = (cfg?.api_key as string) || '';
+  if (!apiKey) return null;
+  const url = `https://api.ipgeolocation.io/ipgeo?apiKey=${apiKey}&ip=${encodeURIComponent(ip)}`;
+  const r = await fetch(url);
+  if (!r.ok) return null;
+  const j = await r.json() as any;
+  return {
+    country: j.country_name ?? null,
+    country_code: j.country_code2 ?? null,
+    region: j.state_prov ?? null,
+    city: j.city ?? null,
+    latitude: j.latitude ? Number(j.latitude) : null,
+    longitude: j.longitude ? Number(j.longitude) : null,
+  };
+};
+
+const maxmindAdapter: Adapter = async (ip, cfg) => {
+  const accountId = (cfg?.account_id as string) || '';
+  const license = (cfg?.license_key as string) || '';
+  if (!accountId || !license) return null;
+  const url = `https://geoip.maxmind.com/geoip/v2.1/city/${encodeURIComponent(ip)}`;
+  const auth = Buffer.from(`${accountId}:${license}`).toString('base64');
+  const r = await fetch(url, { headers: { Authorization: `Basic ${auth}` } });
+  if (!r.ok) return null;
+  const j = await r.json() as any;
+  return {
+    country: j.country?.names?.en ?? null,
+    country_code: j.country?.iso_code ?? null,
+    region: j.subdivisions?.[0]?.names?.en ?? null,
+    city: j.city?.names?.en ?? null,
+    latitude: j.location?.latitude ?? null,
+    longitude: j.location?.longitude ?? null,
+  };
+};
+
+const ADAPTERS: Record<string, Adapter> = {
+  ipapi: ipapiAdapter,
+  ipinfo: ipinfoAdapter,
+  ipgeolocation: ipgeolocationAdapter,
+  maxmind: maxmindAdapter,
+};
 
 /**
- * Main entrypoint. `session` carries whatever the client tracked
- * (browser/os/country/city), `ipHash` is the SHA-256(ip).slice(0,16)
- * already stored on the session.
+ * Main entrypoint.
+ *
+ * `rawIp` — the in-process raw IP. ONLY pass this on the ingestion path
+ * (visitors.ts /track), where the IP is freshly extracted from the request.
+ * For operator-side reads we never have the raw IP, so we rely on the
+ * `visitor_geo_cache` lookup keyed by `ip_hash`.
  */
 export async function resolveVisitorGeo(
   config: ServerConfig,
   workspaceId: string | null,
-  session: { country?: string | null; city?: string | null; ip_hash?: string | null },
+  session: {
+    country?: string | null;
+    city?: string | null;
+    ip_hash?: string | null;
+    raw_ip?: string | null;
+  },
 ): Promise<GeoResult> {
   const ipHash = session.ip_hash ?? '';
 
@@ -140,21 +227,19 @@ export async function resolveVisitorGeo(
     if (cached) return cached;
   }
 
-  // 2. Configured provider (best effort)
-  const provider = await resolveProviderConfig(config, workspaceId);
-  if (provider) {
-    try {
-      let result: Omit<GeoResult, 'source'> | null = null;
-      if (provider.provider_name === 'ipapi') {
-        result = await callIpapi(ipHash, provider.config);
+  // 2. Configured provider — only when raw IP is available (ingestion path).
+  if (session.raw_ip) {
+    const provider = await resolveProviderConfig(config, workspaceId);
+    if (provider && ADAPTERS[provider.provider_name]) {
+      try {
+        const result = await ADAPTERS[provider.provider_name](session.raw_ip, provider.config);
+        if (result && ipHash) {
+          await writeCache(config, ipHash, result, provider.provider_name);
+        }
+        if (result) return { ...result, source: 'provider' };
+      } catch (err) {
+        console.warn('[geo] provider failed, falling back:', (err as Error).message);
       }
-      // 'centroid' provider name is explicitly the no-network fallback.
-      if (result) {
-        await writeCache(config, ipHash, result, provider.provider_name);
-        return { ...result, source: 'provider' };
-      }
-    } catch (err) {
-      console.warn('[geo] provider failed, falling back to centroid:', (err as Error).message);
     }
   }
 

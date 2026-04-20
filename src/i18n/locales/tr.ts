@@ -393,6 +393,13 @@ const tr: TranslationKeys = {
     pageHistoryShowLess: 'Daha az göster',
     rtConnected: 'Canlı',
     rtPolling: 'Yoklama',
+    ipAddress: 'IP adresi',
+    ipMasked: 'maskelendi',
+    geoPrecise: 'Hassas',
+    geoApproximate: 'Yaklaşık',
+    geoUnavailable: 'Bilinmiyor',
+    noLocationReason: 'Konum kullanılamıyor — geo sağlayıcı yapılandırılmadı veya IP çözülemedi.',
+    mapWithoutLocation: '{{n}} konumsuz',
   },
   knowledgeBase: {
     title: 'Bilgi Bankası',

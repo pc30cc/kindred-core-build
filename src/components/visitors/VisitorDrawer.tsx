@@ -7,6 +7,7 @@ import { useWorkspacePath } from '@/hooks/useWorkspace';
 import { useState } from 'react';
 import {
   Copy, MessageSquare, User, Globe, Monitor, MapPin, Clock, ExternalLink, History,
+  Wifi, ShieldCheck, ShieldAlert, ShieldX,
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { useTranslation } from '@/i18n';
@@ -89,9 +90,8 @@ export function VisitorDrawer({ workspaceId, sessionId, onClose }: Props) {
             {/* Info grid */}
             <div className="space-y-3 text-sm">
               <Row icon={<Globe className="w-3.5 h-3.5" />} label="Current page" value={data.current_page} truncate />
-              <Row icon={<MapPin className="w-3.5 h-3.5" />} label="Location"
-                value={[data.geo.city, data.geo.country].filter(Boolean).join(', ') || '—'}
-                hint={data.geo.source !== 'none' ? `via ${data.geo.source}` : undefined} />
+              <LocationRow data={data} t={t} />
+              <IpRow data={data} t={t} onCopy={copy} />
               <Row icon={<Monitor className="w-3.5 h-3.5" />} label="Browser / OS"
                 value={[data.browser, data.os].filter(Boolean).join(' · ') || '—'} />
               <Row icon={<Monitor className="w-3.5 h-3.5" />} label="Device" value={data.device || '—'} />
@@ -168,6 +168,87 @@ function Row({ icon, label, value, hint, truncate }: {
         <div className="text-[11px] text-muted-foreground uppercase tracking-wide">{label}</div>
         <div className={`text-sm text-foreground ${truncate ? 'truncate' : ''}`}>
           {value || '—'}{hint && <span className="ms-1 text-[11px] text-muted-foreground">({hint})</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Location row with privacy-aware geo-source badge:
+ *   - cache/provider → "Precise" (green)
+ *   - centroid       → "Approximate" (amber)
+ *   - session/none   → "Unavailable" (muted)
+ */
+function LocationRow({ data, t }: { data: any; t: (k: string) => string }) {
+  const loc = [data.geo.city, data.geo.country].filter(Boolean).join(', ');
+  const src = data.geo.source as 'cache' | 'provider' | 'centroid' | 'session' | 'none';
+  const isPrecise = src === 'provider' || src === 'cache';
+  const isApprox = src === 'centroid';
+  const Icon = isPrecise ? ShieldCheck : isApprox ? ShieldAlert : ShieldX;
+  const cls = isPrecise
+    ? 'text-success bg-success/10 border-success/20'
+    : isApprox
+      ? 'text-warning bg-warning/10 border-warning/20'
+      : 'text-muted-foreground bg-muted/40 border-border';
+  const label = isPrecise
+    ? t('visitors.geoPrecise')
+    : isApprox
+      ? t('visitors.geoApproximate')
+      : t('visitors.geoUnavailable');
+  return (
+    <div className="flex items-start gap-2.5">
+      <span className="mt-0.5 text-muted-foreground"><MapPin className="w-3.5 h-3.5" /></span>
+      <div className="min-w-0 flex-1">
+        <div className="text-[11px] text-muted-foreground uppercase tracking-wide">
+          {t('visitors.location')}
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-sm text-foreground">{loc || '—'}</span>
+          <span className={`inline-flex items-center gap-1 px-1.5 h-4 rounded text-[10px] border ${cls}`}>
+            <Icon className="w-2.5 h-2.5" />
+            {label}
+          </span>
+        </div>
+        {!loc && (
+          <div className="text-[11px] text-muted-foreground mt-0.5">
+            {t('visitors.noLocationReason')}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** IP address row — shows the masked display value; copy is always allowed. */
+function IpRow({ data, t, onCopy }: {
+  data: any; t: (k: string) => string; onCopy: (label: string, value: string) => void;
+}) {
+  const value = data.ip_raw || data.ip_display || '—';
+  return (
+    <div className="flex items-start gap-2.5">
+      <span className="mt-0.5 text-muted-foreground"><Wifi className="w-3.5 h-3.5" /></span>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] text-muted-foreground uppercase tracking-wide">
+            {t('visitors.ipAddress')}
+          </span>
+          {!data.can_view_raw_ip && (
+            <span className="text-[10px] text-muted-foreground/80">{t('visitors.ipMasked')}</span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <code className="text-sm text-foreground font-mono truncate">{value}</code>
+          {value !== '—' && (
+            <button
+              type="button"
+              onClick={() => onCopy(t('visitors.ipAddress'), value)}
+              className="text-muted-foreground hover:text-foreground"
+              aria-label={t('common.copy')}
+            >
+              <Copy className="w-3 h-3" />
+            </button>
+          )}
         </div>
       </div>
     </div>

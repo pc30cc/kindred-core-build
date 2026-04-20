@@ -1,12 +1,13 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import { createHash } from 'crypto';
 import { getServiceClient } from '../supabase.js';
 import type { ServerConfig } from '../config.js';
 import { isWorkspaceOriginAllowed } from '../services/widget/public.js';
 import { listVisitorIntelligence, getVisitorIntelligence } from '../services/visitors/intelligence.js';
 import { resolveMapTilesConfig } from '../services/maptiles/index.js';
 import { publishVisitorEvent } from '../services/realtime/publish.js';
+import { getClientIp, hashIp } from '../utils/clientIp.js';
+import { resolveVisitorGeo } from '../services/geo/index.js';
 
 export const visitorRouter = Router();
 
@@ -27,7 +28,7 @@ async function authorizeWorkspaceMember(
   res: Response,
   config: ServerConfig,
   workspaceId: string,
-): Promise<{ userId: string } | null> {
+): Promise<{ userId: string; role: string | null } | null> {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) {
     res.status(401).json({ error: 'Missing authorization' });
@@ -48,7 +49,14 @@ async function authorizeWorkspaceMember(
     res.status(403).json({ error: 'Not a workspace member' });
     return null;
   }
-  return { userId: user.id };
+  // Resolve workspace role for IP-exposure decisions.
+  const { data: member } = await sb
+    .from('workspace_members')
+    .select('role')
+    .eq('workspace_id', workspaceId)
+    .eq('user_id', user.id)
+    .maybeSingle();
+  return { userId: user.id, role: (member?.role as string | null) ?? null };
 }
 
 // ============================================
@@ -76,9 +84,11 @@ visitorRouter.post('/track', async (req: Request, res: Response) => {
   const data = parsed.data;
   const supabase = getServiceClient(config);
 
-  // Hash IP for privacy
-  const clientIp = req.ip || req.headers['x-forwarded-for']?.toString() || 'unknown';
-  const ipHash = createHash('sha256').update(clientIp).digest('hex').slice(0, 16);
+  // Resolve the real client IP (Cloudflare → XFF → X-Real-IP → socket).
+  // We hash it for at-rest storage; the raw IP only lives in this scope and
+  // is passed to the geo provider (if configured) for warm-cache enrichment.
+  const clientIp = getClientIp(req);
+  const ipHash = hashIp(clientIp);
 
   try {
     // Validate workspace exists and has tracking enabled
@@ -148,6 +158,17 @@ visitorRouter.post('/track', async (req: Request, res: Response) => {
         return res.status(500).json({ error: 'Failed to create session' });
       }
       sessionId = newSession!.id;
+    }
+
+    // Best-effort geo enrichment at ingest time. Calls the configured
+    // geo_enrichment provider (if any) and warms visitor_geo_cache so
+    // operator-side reads return precise coords without re-calling the
+    // provider on every poll. Failures are silent — the resolver falls
+    // back to centroid on the read path.
+    if (clientIp && ipHash) {
+      resolveVisitorGeo(config, data.workspace_id, {
+        country: null, city: null, ip_hash: ipHash, raw_ip: clientIp,
+      }).catch(() => {});
     }
 
     // Append a page-view row (best-effort; failures must not block tracking).
@@ -379,6 +400,7 @@ visitorsAdminRouter.get('/live', async (req: Request, res: Response) => {
       includeOffline: req.query.include_offline === '1',
       staleMinutes: req.query.stale_minutes ? Number(req.query.stale_minutes) : 30,
       limit: req.query.limit ? Number(req.query.limit) : 200,
+      viewerRole: auth.role,
     });
     res.json({ items });
   } catch (err) {
@@ -402,7 +424,10 @@ visitorsAdminRouter.get('/map', async (req: Request, res: Response) => {
   if (!auth) return;
 
   try {
-    const items = await listVisitorIntelligence(config, workspaceId, { includeOffline: false });
+    const items = await listVisitorIntelligence(config, workspaceId, {
+      includeOffline: false,
+      viewerRole: auth.role,
+    });
     const markers = items
       .filter(i => i.geo.latitude != null && i.geo.longitude != null)
       .map(i => ({
@@ -416,7 +441,8 @@ visitorsAdminRouter.get('/map', async (req: Request, res: Response) => {
         current_page: i.current_page,
         source: i.geo.source,
       }));
-    res.json({ markers, total: items.length });
+    const without_location = items.length - markers.length;
+    res.json({ markers, total: items.length, without_location });
   } catch (err) {
     console.error('[visitors.map] failed:', err);
     res.status(500).json({ error: 'Internal error' });
@@ -465,7 +491,9 @@ visitorsAdminRouter.get('/:id', async (req: Request, res: Response) => {
   if (!auth) return;
 
   try {
-    const item = await getVisitorIntelligence(config, workspaceId, req.params.id);
+    const item = await getVisitorIntelligence(config, workspaceId, req.params.id, {
+      viewerRole: auth.role,
+    });
     if (!item) return res.status(404).json({ error: 'Not found' });
     res.json(item);
   } catch (err) {

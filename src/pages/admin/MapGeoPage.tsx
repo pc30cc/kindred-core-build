@@ -30,10 +30,10 @@ import {
 
 function StatusBadge({ ok, label, warning }: { ok: boolean; label: string; warning?: boolean }) {
   const cls = ok
-    ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+    ? 'bg-success/15 text-success border-success/30'
     : warning
-      ? 'bg-amber-500/15 text-amber-400 border-amber-500/30'
-      : 'bg-red-500/15 text-red-400 border-red-500/30';
+      ? 'bg-warning/15 text-warning border-warning/30'
+      : 'bg-destructive/15 text-destructive border-destructive/30';
   const Icon = ok ? CheckCircle2 : warning ? AlertTriangle : XCircle;
   return (
     <Badge className={`${cls} text-[10px] h-5`}>
@@ -157,8 +157,8 @@ export default function AdminMapGeoPage() {
     return (
       <div className="space-y-4">
         <Card className="bg-card border-border">
-          <CardContent className="py-4 text-sm text-red-400 flex items-center gap-2">
-            <XCircle className="h-4 w-4" /> {t('admin.mapGeo.loadError' as any)}
+          <CardContent className="py-4 text-sm text-destructive flex items-center gap-2">
+            <XCircle className="h-4 w-4" /> {t('admin.mapGeo.loadError')}
           </CardContent>
         </Card>
       </div>
@@ -232,8 +232,8 @@ export default function AdminMapGeoPage() {
         {overviewIssues.length > 0 && (
           <div className="space-y-1.5">
             {overviewIssues.map((m, i) => (
-              <div key={i} className="flex items-start gap-2 p-2 rounded-md border border-amber-500/30 bg-amber-500/5 text-[11px] text-foreground">
-                <AlertTriangle className="h-3.5 w-3.5 text-amber-400 mt-0.5 shrink-0" />
+              <div key={i} className="flex items-start gap-2 p-2 rounded-md border border-warning/30 bg-warning/5 text-[11px] text-foreground">
+                <AlertTriangle className="h-3.5 w-3.5 text-warning mt-0.5 shrink-0" />
                 <span>{m}</span>
               </div>
             ))}
@@ -355,8 +355,8 @@ export default function AdminMapGeoPage() {
                 <code className="font-mono text-foreground break-all">{status.db_path || '—'}</code>
               </div>
               {status.error && (
-                <div className="md:col-span-2 p-2 rounded-md border border-red-500/30 bg-red-500/5 text-red-400">
-                  <strong>{t('admin.mapGeo.status.error' as any)}:</strong> {status.error}
+                <div className="md:col-span-2 p-2 rounded-md border border-destructive/30 bg-destructive/5 text-destructive">
+                  <strong>{t('admin.mapGeo.status.error')}:</strong> {status.error}
                 </div>
               )}
               {status.mtime && (
@@ -502,8 +502,8 @@ export default function AdminMapGeoPage() {
               </div>
             </div>
             {testResult.fallback_reason && (
-              <div className="p-2 rounded-md border border-amber-500/30 bg-amber-500/5 text-[11px] text-foreground flex items-start gap-2">
-                <AlertTriangle className="h-3.5 w-3.5 text-amber-400 mt-0.5 shrink-0" />
+              <div className="p-2 rounded-md border border-warning/30 bg-warning/5 text-[11px] text-foreground flex items-start gap-2">
+                <AlertTriangle className="h-3.5 w-3.5 text-warning mt-0.5 shrink-0" />
                 <span>{testResult.fallback_reason}</span>
               </div>
             )}

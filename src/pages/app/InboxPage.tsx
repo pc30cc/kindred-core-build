@@ -684,9 +684,7 @@ export default function InboxPage() {
               </div>
               <div>
                 <p className="text-[13px] font-medium text-foreground">
-                  {search
-                    ? (t('inbox.noResults') || 'No matches found')
-                    : (t('inbox.noMessages') || 'No conversations')}
+                  {search ? 'No matches found' : (t('inbox.noMessages') || 'No conversations')}
                 </p>
                 <p className="text-[11px] text-muted-foreground mt-1">
                   {search ? `"${search}"` : (filter !== 'all' ? statusLabels[filter] : '')}

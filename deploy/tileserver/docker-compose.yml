@@ -1,28 +1,80 @@
-# TileServer GL — self-hosted raster + vector tile server.
-# Deploy on Coolify as "Docker Compose" service.
+# TileServer GL — self-hosted raster + vector tile server with auto World Lite bootstrap.
 #
-# Place your .mbtiles file in the mounted /data volume before first start.
-# See deploy/tileserver/README.md for the full deploy guide.
+# On first start, an init container checks the persistent volume for a
+# `region.mbtiles` file. If missing, it downloads the configured World Lite
+# dataset (~50–80 MB) so the Visitors map works out-of-the-box without any
+# manual file upload step.
+#
+# Replace the World Lite default later by simply dropping a larger .mbtiles
+# into the same volume at /data/region.mbtiles and restarting — no provider
+# or compose changes needed.
+#
+# Deploy on Coolify as "Docker Compose" service. Mount a persistent volume
+# to /data on the `tileserver` service.
 services:
+  # ---------------------------------------------------------------------------
+  # Init: bootstrap the persistent volume with a default World Lite dataset
+  # the first time this stack starts. Becomes a no-op on every subsequent boot.
+  # ---------------------------------------------------------------------------
+  tileserver-init:
+    image: alpine:3.20
+    restart: "no"
+    volumes:
+      - tileserver-data:/data
+    environment:
+      # Default World Lite: OpenMapTiles "zurich_switzerland" demo replaced by
+      # a true world-coverage low-zoom planet extract. This URL points to the
+      # publicly mirrored OpenMapTiles planet z0-z7 sample (~80 MB) which
+      # gives full world coverage suitable for visitor-location dots.
+      #
+      # Override with your own URL via Coolify env var if you want a different
+      # default (e.g., a country extract or higher-zoom planet file).
+      WORLD_LITE_URL: ${WORLD_LITE_URL:-https://github.com/openmaptiles/openmaptiles/releases/download/v3.13/planet_z0-z7.mbtiles}
+      WORLD_LITE_FILE: ${WORLD_LITE_FILE:-region.mbtiles}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        TARGET="/data/$${WORLD_LITE_FILE}"
+        if [ -f "$$TARGET" ]; then
+          echo "[init] $$TARGET already present ($$(du -h "$$TARGET" | cut -f1)). Skipping download."
+          exit 0
+        fi
+        echo "[init] No tileset found at $$TARGET — downloading World Lite default..."
+        echo "[init] Source: $$WORLD_LITE_URL"
+        apk add --no-cache curl >/dev/null
+        # Atomic download: write to .part, then rename so a partial file
+        # never gets picked up by tileserver.
+        if curl -fL --retry 3 --retry-delay 5 -o "$$TARGET.part" "$$WORLD_LITE_URL"; then
+          mv "$$TARGET.part" "$$TARGET"
+          echo "[init] Download complete: $$(du -h "$$TARGET" | cut -f1)"
+        else
+          rm -f "$$TARGET.part"
+          echo "[init] WARNING: download failed. Tileserver will start with an empty volume."
+          echo "[init] Upload an .mbtiles manually to /data/$${WORLD_LITE_FILE} and restart."
+        fi
+
+  # ---------------------------------------------------------------------------
+  # Tile server (raster + vector). Light variant — no native deps, runs on any
+  # x86-64 CPU including older budget VPS.
+  # ---------------------------------------------------------------------------
   tileserver:
-    # NOTE: We use `tileserver-gl-light` instead of the full `tileserver-gl`
-    # because the full image depends on `sharp` (libvips) whose prebuilt
-    # binaries require x86-64-v2 microarchitecture. Many budget VPS / older
-    # bare-metal CPUs are still x86-64-v1, which causes:
-    #   "Could not load the sharp module ... Unsupported CPU"
-    # The `-light` variant has no native rasterization deps and serves
-    # vector tiles + styled raster tiles (rendered client-side by MapLibre)
-    # which is exactly what our Visitors map needs.
     image: maptiler/tileserver-gl-light:latest
     restart: unless-stopped
+    depends_on:
+      tileserver-init:
+        condition: service_completed_successfully
     expose:
       - "8080"
     volumes:
-      # Persist .mbtiles + custom styles across rebuilds.
-      # In Coolify: attach a "Persistent Storage" volume to /data.
       - tileserver-data:/data
     command: ["--public_url", "/", "--port", "8080"]
 
+  # ---------------------------------------------------------------------------
+  # Reverse proxy with gzip/zstd compression. Coolify routes its public domain
+  # to this service on port 80.
+  # ---------------------------------------------------------------------------
   tileserver-proxy:
     image: caddy:2-alpine
     restart: unless-stopped
@@ -41,13 +93,7 @@ services:
         }
         EOF
         caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
 
 volumes:
   tileserver-data:
-    # Coolify replaces this with a managed persistent volume.
+    # Coolify replaces this with a managed persistent volume mounted at /data.

@@ -278,7 +278,16 @@ export async function persistSessionGeo(
 // the outbound HTTP request to the configured provider.
 // ────────────────────────────────────────────────────────────────────────────
 
-type Adapter = (ip: string, cfg: Record<string, unknown> | null) => Promise<Omit<GeoResult, 'source'> | null>;
+type AdapterResult = {
+  country: string | null;
+  country_code: string | null;
+  region: string | null;
+  city: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  timezone: string | null;
+};
+type Adapter = (ip: string, cfg: Record<string, unknown> | null) => Promise<AdapterResult | null>;
 
 const ipapiAdapter: Adapter = async (ip, cfg) => {
   const apiKey = (cfg?.api_key as string) || '';
@@ -294,6 +303,7 @@ const ipapiAdapter: Adapter = async (ip, cfg) => {
     city: j.city ?? null,
     latitude: typeof j.latitude === 'number' ? j.latitude : null,
     longitude: typeof j.longitude === 'number' ? j.longitude : null,
+    timezone: j.timezone ?? null,
   };
 };
 
@@ -317,6 +327,7 @@ const ipinfoAdapter: Adapter = async (ip, cfg) => {
     city: j.city ?? null,
     latitude: lat,
     longitude: lng,
+    timezone: j.timezone ?? null,
   };
 };
 
@@ -334,6 +345,7 @@ const ipgeolocationAdapter: Adapter = async (ip, cfg) => {
     city: j.city ?? null,
     latitude: j.latitude ? Number(j.latitude) : null,
     longitude: j.longitude ? Number(j.longitude) : null,
+    timezone: j.time_zone?.name ?? null,
   };
 };
 
@@ -353,6 +365,7 @@ const maxmindAdapter: Adapter = async (ip, cfg) => {
     city: j.city?.names?.en ?? null,
     latitude: j.location?.latitude ?? null,
     longitude: j.location?.longitude ?? null,
+    timezone: j.location?.time_zone ?? null,
   };
 };
 
@@ -360,7 +373,9 @@ const maxmindAdapter: Adapter = async (ip, cfg) => {
  * MaxMind local MMDB adapter — fully self-hosted, no external calls.
  * Reads from a GeoLite2/GeoIP2 .mmdb file mounted on the server filesystem.
  * Uses an in-process LRU of opened DB readers keyed by path so we don't
- * reopen the file on every request.
+ * reopen the file on every request. When no explicit `db_path` is set in
+ * the provider config, we fall back to the platform map_geo_settings DB
+ * path so admins can manage the location centrally.
  */
 const maxmindLocalAdapter: Adapter = async (ip, cfg) => {
   const dbPath = (cfg?.db_path as string) || '';

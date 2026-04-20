@@ -379,3 +379,64 @@ export async function getActiveGeoProvider(
     is_disabled: cfg.provider_name === 'none',
   };
 }
+
+/**
+ * Enrich a single visitor_session row with geo data and persist the
+ * `geo_*` columns. Safe to call fire-and-forget from the widget /track
+ * route — never throws, never blocks the response. Uses cache when
+ * available; only writes if we actually resolved usable coordinates or
+ * country info beyond what's already stored.
+ */
+export async function enrichVisitorSessionGeo(
+  config: ServerConfig,
+  params: {
+    sessionId: string;
+    workspaceId: string;
+    ipHash?: string | null;
+    rawIp?: string | null;
+  },
+): Promise<void> {
+  try {
+    const result = await resolveVisitorGeo(config, params.workspaceId, {
+      ip_hash: params.ipHash ?? null,
+      raw_ip: params.rawIp ?? null,
+    });
+    if (!result || (result.source === 'none' || result.source === 'disabled')) return;
+    if (
+      result.country_code == null &&
+      result.city == null &&
+      result.latitude == null &&
+      result.longitude == null
+    ) {
+      return;
+    }
+    const sb = getServiceClient(config);
+    await sb
+      .from('visitor_sessions')
+      .update({
+        geo_country_code: result.country_code,
+        geo_country_name: result.country,
+        geo_region: result.region,
+        geo_city: result.city,
+        geo_latitude: result.latitude,
+        geo_longitude: result.longitude,
+        geo_source_provider: result.source,
+        geo_is_fallback: result.source === 'centroid' || result.source === 'session',
+        geo_accuracy_level: result.city
+          ? 'city'
+          : result.region
+            ? 'region'
+            : result.country_code
+              ? 'country'
+              : null,
+        geo_resolved_at: new Date().toISOString(),
+        // Mirror simple country/city onto legacy columns for older readers.
+        country: result.country_code ?? result.country ?? undefined,
+        city: result.city ?? undefined,
+      })
+      .eq('id', params.sessionId)
+      .eq('workspace_id', params.workspaceId);
+  } catch (err) {
+    console.warn('[geo] enrichVisitorSessionGeo failed:', (err as Error).message);
+  }
+}

@@ -5,7 +5,15 @@
 # See deploy/tileserver/README.md for the full deploy guide.
 services:
   tileserver:
-    image: maptiler/tileserver-gl:latest
+    # NOTE: We use `tileserver-gl-light` instead of the full `tileserver-gl`
+    # because the full image depends on `sharp` (libvips) whose prebuilt
+    # binaries require x86-64-v2 microarchitecture. Many budget VPS / older
+    # bare-metal CPUs are still x86-64-v1, which causes:
+    #   "Could not load the sharp module ... Unsupported CPU"
+    # The `-light` variant has no native rasterization deps and serves
+    # vector tiles + styled raster tiles (rendered client-side by MapLibre)
+    # which is exactly what our Visitors map needs.
+    image: maptiler/tileserver-gl-light:latest
     restart: unless-stopped
     # Coolify's reverse proxy maps the public domain → container :8080
     # automatically via the `expose` directive. Do NOT bind host ports

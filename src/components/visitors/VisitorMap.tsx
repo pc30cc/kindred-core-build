@@ -50,16 +50,17 @@ export function VisitorMap({ config, markers, selectedId, onSelect }: Props) {
     if (mapRef.current) return;
     const map = L.map(containerRef.current, {
       center: [20, 0],
-      zoom: 2,
+      zoom: 1,
       worldCopyJump: true,
-      zoomControl: true,
+      zoomControl: false,
       attributionControl: true,
       preferCanvas: true, // Better perf with hundreds of markers.
     });
+    L.control.zoom({ position: 'topright' }).addTo(map);
     L.tileLayer(config.tile_url, {
       attribution: config.attribution,
       maxZoom: config.max_zoom,
-      minZoom: config.min_zoom,
+      minZoom: Math.min(config.min_zoom, 1),
     }).addTo(map);
 
     const cluster = L.markerClusterGroup({
@@ -164,7 +165,7 @@ export function VisitorMap({ config, markers, selectedId, onSelect }: Props) {
       <div ref={containerRef} className="h-full w-full" style={{ background: 'hsl(var(--muted))' }} />
       {statusBadge && (
         <div
-          className={`absolute top-2 end-2 z-[400] inline-flex items-center gap-1 px-2 h-5 rounded-full text-[10px] border backdrop-blur ${statusBadge.cls}`}
+          className={`absolute bottom-2 end-2 z-[400] inline-flex items-center gap-1 px-2 h-5 rounded-full text-[10px] border backdrop-blur ${statusBadge.cls}`}
           title={statusBadge.title}
           role="status"
         >

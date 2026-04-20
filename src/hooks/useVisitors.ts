@@ -6,6 +6,7 @@ import {
   fetchVisitorMap,
   fetchVisitorMapConfig,
   fetchVisitorDetail,
+  fetchVisitorPageHistory,
 } from '@/lib/visitors-api';
 
 export function useOnlineVisitors(workspaceId: string | undefined) {
@@ -80,5 +81,18 @@ export function useVisitorDetail(workspaceId: string | undefined, sessionId: str
     queryFn: () => fetchVisitorDetail(workspaceId!, sessionId!),
     enabled: !!workspaceId && !!sessionId,
     refetchInterval: 15_000,
+  });
+}
+
+/** Page-history timeline for the drawer. */
+export function useVisitorPageHistory(
+  workspaceId: string | undefined,
+  sessionId: string | null,
+) {
+  return useQuery({
+    queryKey: ['visitor-intel-page-history', workspaceId, sessionId],
+    queryFn: () => fetchVisitorPageHistory(workspaceId!, sessionId!),
+    enabled: !!workspaceId && !!sessionId,
+    refetchInterval: 30_000,
   });
 }

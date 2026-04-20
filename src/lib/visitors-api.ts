@@ -90,3 +90,20 @@ export function fetchVisitorDetail(workspaceId: string, sessionId: string) {
   const q = new URLSearchParams({ workspace_id: workspaceId });
   return get<VisitorIntelItem>(`/api/visitor-intel/${sessionId}?${q}`);
 }
+
+export interface VisitorPageView {
+  id: number;
+  url: string;
+  viewed_at: string;
+}
+
+export function fetchVisitorPageHistory(
+  workspaceId: string,
+  sessionId: string,
+  limit = 20,
+) {
+  const q = new URLSearchParams({ workspace_id: workspaceId, limit: String(limit) });
+  return get<{ items: VisitorPageView[] }>(
+    `/api/visitor-intel/${sessionId}/page-history?${q}`,
+  );
+}

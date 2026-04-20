@@ -71,6 +71,8 @@ export interface MapTilesConfig {
   // Display + initial framing — populated by /map-config
   display?: { height_px: number; fill_viewport: boolean };
   default_center?: { lat: number; lng: number; zoom: number; mode: 'auto' | 'fixed' };
+  /** Realtime cadence — drives polling intervals on the Visitors page. */
+  presence?: { heartbeat_interval_ms: number; live_refresh_ms: number; stale_after_ms: number };
 }
 
 export interface MapMarker {

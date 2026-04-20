@@ -206,7 +206,7 @@ export function VisitorMap({ config, markers, selectedId, onSelect }: Props) {
     const cluster = clusterRef.current;
     if (!cluster) return;
     const next = new Set<string>();
-    const toAdd: L.CircleMarker[] = [];
+    const toAdd: L.Marker[] = [];
 
     for (const m of markers) {
       next.add(m.id);

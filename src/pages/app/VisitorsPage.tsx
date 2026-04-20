@@ -1,8 +1,12 @@
 import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
+import { useWorkspaceRole } from '@/hooks/useWorkspaceRole';
 import { useLiveVisitors, useVisitorMap, useVisitorMapConfig } from '@/hooks/useVisitors';
 import { useVisitorsRealtime } from '@/hooks/useVisitorsRealtime';
+import { warmVisitorGeo } from '@/lib/visitors-api';
+import { useQueryClient } from '@tanstack/react-query';
+import { toast } from '@/hooks/use-toast';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -17,7 +21,7 @@ import type { VisitorIntelItem, MapMarker } from '@/lib/visitors-api';
 import { cn } from '@/lib/utils';
 import {
   Search, Eye, Globe2, Users, FileText, Monitor, MapPin,
-  RefreshCcw, AlertTriangle, Wifi, MessageSquare, X,
+  RefreshCcw, AlertTriangle, Wifi, MessageSquare, X, Flame,
 } from 'lucide-react';
 
 function relativeTime(iso: string, t: (k: string, vars?: Record<string, string>) => string) {
@@ -31,6 +35,43 @@ export default function VisitorsPage() {
   const { t } = useTranslation();
   const workspace = useCurrentWorkspace();
   const wsId = workspace?.id;
+  const { data: role } = useWorkspaceRole(wsId);
+  const isAdmin = role === 'owner' || role === 'admin';
+  const qc = useQueryClient();
+  const [warming, setWarming] = useState(false);
+
+  const onWarmGeo = useCallback(async () => {
+    if (!wsId || warming) return;
+    setWarming(true);
+    try {
+      const r = await warmVisitorGeo(wsId, { lookback_days: 7, limit: 100 });
+      if (r.status === 'noop') {
+        toast({
+          title: t('visitors.warmGeoCta'),
+          description: t('visitors.warmGeoNoop', { state: r.reason ?? 'unknown' }),
+        });
+      } else {
+        toast({
+          title: t('visitors.warmGeoCta'),
+          description: t('visitors.warmGeoDone', {
+            enriched: String(r.enriched), cached: String(r.cached),
+            centroid: String(r.centroid), skipped: String(r.skipped),
+          }),
+        });
+        qc.invalidateQueries({ queryKey: ['visitor-intel-live', wsId] });
+        qc.invalidateQueries({ queryKey: ['visitor-intel-map', wsId] });
+      }
+    } catch (err: any) {
+      const msg = String(err?.message || '');
+      toast({
+        title: t('visitors.warmGeoCta'),
+        description: msg.includes('Cooldown') ? t('visitors.warmGeoCooldown') : msg,
+        variant: 'destructive',
+      });
+    } finally {
+      setWarming(false);
+    }
+  }, [wsId, warming, qc, t]);
 
   const [includeOffline, setIncludeOffline] = useState(false);
   const [search, setSearch] = useState('');
@@ -204,6 +245,18 @@ export default function VisitorsPage() {
               <RefreshCcw className={cn('w-3.5 h-3.5 me-1.5', live.isFetching && 'animate-spin')} />
               {t('visitors.refresh')}
             </Button>
+            {isAdmin && (
+              <Button
+                size="sm" variant="outline"
+                onClick={onWarmGeo}
+                disabled={warming}
+                title={t('visitors.warmGeoDesc')}
+                aria-label={t('visitors.warmGeoCta')}
+              >
+                <Flame className={cn('w-3.5 h-3.5 me-1.5', warming && 'animate-pulse')} />
+                {warming ? t('visitors.warmGeoRunning') : t('visitors.warmGeoCta')}
+              </Button>
+            )}
           </div>
         </div>
 

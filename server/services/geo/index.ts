@@ -28,7 +28,16 @@ export interface GeoResult {
   city: string | null;
   latitude: number | null;
   longitude: number | null;
-  source: 'cache' | 'provider' | 'centroid' | 'session' | 'none';
+  /**
+   * Resolution source:
+   *   - cache    : from visitor_geo_cache (provider-warmed, valid TTL)
+   *   - provider : freshly resolved by the configured geo provider
+   *   - centroid : country/city centroid fallback (approximate)
+   *   - session  : country-only metadata captured at session time, no coords
+   *   - disabled : provider explicitly set to 'none' AND no centroid match
+   *   - none     : nothing configured and no centroid available
+   */
+  source: 'cache' | 'provider' | 'centroid' | 'session' | 'disabled' | 'none';
 }
 
 interface GeoProviderConfig {
@@ -236,6 +245,8 @@ export async function resolveVisitorGeo(
   },
 ): Promise<GeoResult> {
   const ipHash = session.ip_hash ?? '';
+  const provider = await resolveProviderConfig(config, workspaceId);
+  const externalDisabled = provider?.provider_name === 'none';
 
   // 1. Cache
   if (ipHash) {
@@ -244,12 +255,7 @@ export async function resolveVisitorGeo(
   }
 
   // 2. Configured provider — only when raw IP is available (ingestion path).
-  if (session.raw_ip) {
-    const provider = await resolveProviderConfig(config, workspaceId);
-    // Explicit "none" — operator opted out of provider lookup.
-    if (provider && provider.provider_name === 'none') {
-      // fall through to centroid
-    } else
+  if (session.raw_ip && !externalDisabled) {
     if (provider && ADAPTERS[provider.provider_name]) {
       try {
         const result = await ADAPTERS[provider.provider_name](session.raw_ip, provider.config);
@@ -277,7 +283,9 @@ export async function resolveVisitorGeo(
     };
   }
 
-  // 4. Whatever the session gave us (no coords)
+  // 4. Whatever the session gave us (no coords).
+  // When external enrichment is explicitly disabled and we still have no
+  // coords, surface 'disabled' so the UI can label it correctly.
   return {
     country: session.country ?? null,
     country_code: null,
@@ -285,6 +293,27 @@ export async function resolveVisitorGeo(
     city: session.city ?? null,
     latitude: null,
     longitude: null,
-    source: session.country ? 'session' : 'none',
+    source: session.country
+      ? 'session'
+      : externalDisabled
+        ? 'disabled'
+        : 'none',
+  };
+}
+
+/**
+ * Read the currently active geo_enrichment provider for this workspace
+ * (or platform fallback). Used by the admin warm endpoint to report
+ * what is actually being applied.
+ */
+export async function getActiveGeoProvider(
+  config: ServerConfig,
+  workspaceId: string | null,
+): Promise<{ provider_name: string | null; is_disabled: boolean }> {
+  const cfg = await resolveProviderConfig(config, workspaceId);
+  if (!cfg) return { provider_name: null, is_disabled: false };
+  return {
+    provider_name: cfg.provider_name,
+    is_disabled: cfg.provider_name === 'none',
   };
 }

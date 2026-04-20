@@ -28,7 +28,7 @@ export interface VisitorGeo {
   city: string | null;
   latitude: number | null;
   longitude: number | null;
-  source: 'cache' | 'provider' | 'centroid' | 'session' | 'none';
+  source: 'cache' | 'provider' | 'centroid' | 'session' | 'disabled' | 'none';
 }
 
 export interface VisitorIntelItem {
@@ -62,6 +62,12 @@ export interface MapTilesConfig {
   max_zoom: number;
   min_zoom: number;
   fallback_no_map: boolean;
+  // Observability fields (added in hardening pass)
+  requested_provider?: string | null;
+  resolved_provider?: string;
+  fallback_provider?: string | null;
+  fallback_reason?: string | null;
+  health_status?: 'healthy' | 'unconfigured' | 'fallback' | 'disabled';
 }
 
 export interface MapMarker {
@@ -88,7 +94,7 @@ export function fetchVisitorMap(workspaceId: string) {
     markers: MapMarker[];
     total: number;
     without_location: number;
-    source_counts: { precise: number; approximate: number; unavailable: number };
+    source_counts: { precise: number; approximate: number; unavailable: number; disabled?: number };
   }>(
     `/api/visitor-intel/map?${q}`,
   );
@@ -119,4 +125,37 @@ export function fetchVisitorPageHistory(
   return get<{ items: VisitorPageView[] }>(
     `/api/visitor-intel/${sessionId}/page-history?${q}`,
   );
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Admin: warm visitor geo cache through the active provider.
+// Bounded server-side (admin role + cooldown + lookback/limit caps).
+// ────────────────────────────────────────────────────────────────────
+export interface WarmGeoResult {
+  status: 'ok' | 'noop';
+  provider: string | null;
+  reason?: 'provider_disabled' | 'provider_unconfigured';
+  lookback_days?: number;
+  processed: number;
+  enriched: number;
+  cached: number;
+  centroid: number;
+  skipped: number;
+  failed: number;
+}
+
+export async function warmVisitorGeo(
+  workspaceId: string,
+  opts: { lookback_days?: number; limit?: number; force?: boolean } = {},
+): Promise<WarmGeoResult> {
+  const res = await fetch(`${API_BASE}/api/visitor-intel/warm-geo`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+    body: JSON.stringify({ workspace_id: workspaceId, ...opts }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(body.error || `API error: ${res.status}`);
+  }
+  return res.json();
 }

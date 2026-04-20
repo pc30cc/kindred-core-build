@@ -413,6 +413,23 @@ const en = {
     storeRawIp: 'Store raw visitor IP',
     storeRawIpHint: 'Required to show full IPs in the visitor drawer (admins only). Off by default for privacy.',
     storeRawIpWarning: 'Privacy notice: enabling this stores the raw client IP for each visitor session. Make sure your privacy policy covers it.',
+    // Geo precision — extended semantics
+    geoExternalDisabled: 'External enrichment off',
+    noLocationReasonDisabled: 'External IP enrichment is disabled. Country/city centroid will be used when available.',
+    // Map provider observability
+    mapStatusActive: 'Active',
+    mapStatusFallback: 'Fallback',
+    mapStatusDisabled: 'Disabled',
+    mapFallbackPrefix: 'Falling back to {{provider}}',
+    mapFallbackReason: 'Reason: {{reason}}',
+    // Geo warm action
+    warmGeoTitle: 'Re-enrich recent visitors',
+    warmGeoDesc: 'Run the active geo provider against recent sessions and refresh the cache.',
+    warmGeoCta: 'Warm geo cache',
+    warmGeoRunning: 'Warming…',
+    warmGeoCooldown: 'Please wait a moment before retrying.',
+    warmGeoNoop: 'Nothing to do — geo provider is {{state}}.',
+    warmGeoDone: 'Done · {{enriched}} enriched, {{cached}} cached, {{centroid}} centroid, {{skipped}} skipped',
   },
   knowledgeBase: {
     title: 'Knowledge Base',

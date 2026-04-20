@@ -182,20 +182,25 @@ function Row({ icon, label, value, hint, truncate }: {
  */
 function LocationRow({ data, t }: { data: any; t: (k: string) => string }) {
   const loc = [data.geo.city, data.geo.country].filter(Boolean).join(', ');
-  const src = data.geo.source as 'cache' | 'provider' | 'centroid' | 'session' | 'none';
+  const src = data.geo.source as 'cache' | 'provider' | 'centroid' | 'session' | 'disabled' | 'none';
   const isPrecise = src === 'provider' || src === 'cache';
   const isApprox = src === 'centroid';
+  const isDisabled = src === 'disabled';
   const Icon = isPrecise ? ShieldCheck : isApprox ? ShieldAlert : ShieldX;
   const cls = isPrecise
     ? 'text-success bg-success/10 border-success/20'
     : isApprox
       ? 'text-warning bg-warning/10 border-warning/20'
-      : 'text-muted-foreground bg-muted/40 border-border';
+      : isDisabled
+        ? 'text-info bg-info/10 border-info/20'
+        : 'text-muted-foreground bg-muted/40 border-border';
   const label = isPrecise
     ? t('visitors.geoPrecise')
     : isApprox
       ? t('visitors.geoApproximate')
-      : t('visitors.geoUnavailable');
+      : isDisabled
+        ? t('visitors.geoExternalDisabled')
+        : t('visitors.geoUnavailable');
   return (
     <div className="flex items-start gap-2.5">
       <span className="mt-0.5 text-muted-foreground"><MapPin className="w-3.5 h-3.5" /></span>
@@ -212,7 +217,7 @@ function LocationRow({ data, t }: { data: any; t: (k: string) => string }) {
         </div>
         {!loc && (
           <div className="text-[11px] text-muted-foreground mt-0.5">
-            {t('visitors.noLocationReason')}
+            {isDisabled ? t('visitors.noLocationReasonDisabled') : t('visitors.noLocationReason')}
           </div>
         )}
       </div>

@@ -1,0 +1,31 @@
+# TileServer GL — self-hosted raster + vector tile server.
+# Deploy on Coolify as "Docker Compose" service.
+#
+# Place your .mbtiles file in the mounted /data volume before first start.
+# See deploy/tileserver/README.md for the full deploy guide.
+services:
+  tileserver:
+    image: maptiler/tileserver-gl:latest
+    restart: unless-stopped
+    # Coolify maps the public domain → container :8080 automatically.
+    expose:
+      - "8080"
+    ports:
+      - "8080:8080"
+    volumes:
+      # Persist .mbtiles + custom styles across rebuilds.
+      # In Coolify: attach a "Persistent Storage" volume to /data.
+      - tileserver-data:/data
+    # Default config.json shipped with the image is fine; it auto-discovers
+      # any .mbtiles files in /data and exposes them at /data/<id>/...
+    command: ["--public_url", "/", "--port", "8080"]
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  tileserver-data:
+    # Coolify replaces this with a managed persistent volume.

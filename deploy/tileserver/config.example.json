@@ -1,0 +1,34 @@
+{
+  "options": {
+    "paths": {
+      "root": "/data",
+      "fonts": "fonts",
+      "sprites": "sprites",
+      "styles": "styles",
+      "mbtiles": ""
+    },
+    "serveAllStyles": true,
+    "serveAllFonts": true,
+    "formatQuality": {
+      "jpeg": 80,
+      "webp": 90
+    },
+    "maxScaleFactor": 3,
+    "maxSize": 2048,
+    "pbfAlias": "pbf"
+  },
+  "styles": {
+    "basic": {
+      "style": "basic-preview/style.json",
+      "tilejson": {
+        "type": "overlay",
+        "bounds": [-180, -85.05112877980659, 180, 85.0511287798066]
+      }
+    }
+  },
+  "data": {
+    "v3": {
+      "mbtiles": "region.mbtiles"
+    }
+  }
+}

@@ -11,6 +11,7 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { getMapGeoSettings } from '../geo/settings.js';
 
 export interface MapTilesConfig {
   enabled: boolean;
@@ -191,6 +192,30 @@ export async function resolveMapTilesConfig(
   const sb = getServiceClient(config);
   let requested: string | null = null;
   let built: { config: MapTilesConfig; fallback?: { reason: string } } | null = null;
+
+  // Highest priority: platform-wide runtime settings (admin → /admin/map-geo).
+  // This is the canonical self-host configuration surface. If `tiles.url_template`
+  // is set, it overrides everything else and is used as a self-hosted custom source.
+  try {
+    const mapGeo = await getMapGeoSettings(config);
+    if (mapGeo.tiles.url_template) {
+      requested = mapGeo.tiles.provider || 'custom';
+      built = {
+        config: {
+          enabled: true,
+          provider: 'custom',
+          tile_url: mapGeo.tiles.url_template,
+          attribution: mapGeo.tiles.attribution || '',
+          max_zoom: mapGeo.tiles.max_zoom || 19,
+          min_zoom: mapGeo.tiles.min_zoom || 0,
+          deployment: 'selfhosted',
+          fallback_no_map: false,
+        },
+      };
+    }
+  } catch {
+    // Fall through to provider_configs path.
+  }
 
   if (workspaceId) {
     const { data: ws } = await sb

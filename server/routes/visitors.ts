@@ -1,12 +1,13 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import { createHash } from 'crypto';
 import { getServiceClient } from '../supabase.js';
 import type { ServerConfig } from '../config.js';
 import { isWorkspaceOriginAllowed } from '../services/widget/public.js';
 import { listVisitorIntelligence, getVisitorIntelligence } from '../services/visitors/intelligence.js';
 import { resolveMapTilesConfig } from '../services/maptiles/index.js';
 import { publishVisitorEvent } from '../services/realtime/publish.js';
+import { getClientIp, hashIp } from '../utils/clientIp.js';
+import { resolveVisitorGeo } from '../services/geo/index.js';
 
 export const visitorRouter = Router();
 
@@ -76,9 +77,11 @@ visitorRouter.post('/track', async (req: Request, res: Response) => {
   const data = parsed.data;
   const supabase = getServiceClient(config);
 
-  // Hash IP for privacy
-  const clientIp = req.ip || req.headers['x-forwarded-for']?.toString() || 'unknown';
-  const ipHash = createHash('sha256').update(clientIp).digest('hex').slice(0, 16);
+  // Resolve the real client IP (Cloudflare → XFF → X-Real-IP → socket).
+  // We hash it for at-rest storage; the raw IP only lives in this scope and
+  // is passed to the geo provider (if configured) for warm-cache enrichment.
+  const clientIp = getClientIp(req);
+  const ipHash = hashIp(clientIp);
 
   try {
     // Validate workspace exists and has tracking enabled
@@ -148,6 +151,17 @@ visitorRouter.post('/track', async (req: Request, res: Response) => {
         return res.status(500).json({ error: 'Failed to create session' });
       }
       sessionId = newSession!.id;
+    }
+
+    // Best-effort geo enrichment at ingest time. Calls the configured
+    // geo_enrichment provider (if any) and warms visitor_geo_cache so
+    // operator-side reads return precise coords without re-calling the
+    // provider on every poll. Failures are silent — the resolver falls
+    // back to centroid on the read path.
+    if (clientIp && ipHash) {
+      resolveVisitorGeo(config, data.workspace_id, {
+        country: null, city: null, ip_hash: ipHash, raw_ip: clientIp,
+      }).catch(() => {});
     }
 
     // Append a page-view row (best-effort; failures must not block tracking).

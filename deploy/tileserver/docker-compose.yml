@@ -15,29 +15,19 @@ services:
     # which is exactly what our Visitors map needs.
     image: maptiler/tileserver-gl-light:latest
     restart: unless-stopped
-    # Coolify magic env: tells the reverse proxy that this service is
-    # reachable on container port 8080 under the FQDN you set in the UI.
-    # Without this, Coolify's proxy defaults to port 80 → returns
-    # 503 "no available server" because nothing listens on 80.
-    # See: https://coolify.io/docs/knowledge-base/docker/compose#coolify-s-magic-environment-variables
-    environment:
-      - SERVICE_FQDN_TILESERVER_8080
-    # Coolify's reverse proxy maps the public domain → container :8080
-    # automatically via the `expose` directive. Do NOT bind host ports
-    # (`ports:`) — port 8080 is usually already taken on the host by
-    # Coolify itself or another service, which causes:
-    #   "Bind for 0.0.0.0:8080 failed: port is already allocated"
+    # Run on container port 80 so Coolify can route the public domain
+    # without any custom port suffix or magic env variables.
     expose:
-      - "8080"
+      - "80"
     volumes:
       # Persist .mbtiles + custom styles across rebuilds.
       # In Coolify: attach a "Persistent Storage" volume to /data.
       - tileserver-data:/data
     # Default config.json shipped with the image is fine; it auto-discovers
       # any .mbtiles files in /data and exposes them at /data/<id>/...
-    command: ["--public_url", "/", "--port", "8080"]
+    command: ["--public_url", "/", "--port", "80"]
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
       interval: 30s
       timeout: 5s
       retries: 3

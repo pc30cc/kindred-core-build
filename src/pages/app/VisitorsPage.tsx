@@ -475,7 +475,14 @@ export default function VisitorsPage() {
         </div>
 
         {/* Right: map canvas */}
-        <div className="relative min-h-[40vh] lg:min-h-0 bg-muted/20">
+        <div
+          className="relative min-h-[40vh] lg:min-h-0 bg-muted/20"
+          style={
+            mapConfig.data?.display && !mapConfig.data.display.fill_viewport
+              ? { height: `${mapConfig.data.display.height_px}px` }
+              : undefined
+          }
+        >
           {mapConfig.isLoading ? (
             <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground">
               {t('visitors.mapLoading')}

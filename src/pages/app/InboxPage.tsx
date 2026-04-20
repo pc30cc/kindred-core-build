@@ -619,7 +619,11 @@ export default function InboxPage() {
           </div>
 
           {/* Filter tabs */}
-          <div className="flex gap-1 overflow-x-auto pb-0.5 scrollbar-hide">
+          <div
+            role="tablist"
+            aria-label={t('inbox.title') || 'Inbox'}
+            className="flex gap-1 overflow-x-auto pb-0.5 scrollbar-hide -mx-1 px-1"
+          >
             {(['open', 'pending', 'resolved', 'closed', 'all'] as FilterStatus[]).map(s => {
               const count = s === 'all' ? (conversations?.length || 0) : (statusCounts[s] || 0);
               const isActive = filter === s;
@@ -627,9 +631,12 @@ export default function InboxPage() {
               return (
                 <button
                   key={s}
+                  role="tab"
+                  aria-selected={isActive}
                   onClick={() => setFilter(s)}
                   className={cn(
                     'flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[10px] font-semibold transition-all whitespace-nowrap border',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-card',
                     isActive
                       ? 'bg-primary/10 text-primary border-primary/25 shadow-sm'
                       : 'bg-transparent text-muted-foreground border-transparent hover:bg-secondary/60 hover:text-foreground'

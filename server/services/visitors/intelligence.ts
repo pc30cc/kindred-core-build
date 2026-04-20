@@ -115,7 +115,7 @@ export async function listVisitorIntelligence(
     .select(`
       id, status, current_page, updated_at, visitor_session_id, workspace_id,
       visitor_sessions!inner (
-        id, visitor_id, workspace_id, current_page, referrer, browser, device, os,
+        id, visitor_id, workspace_id, contact_id, current_page, referrer, browser, device, os,
         country, city, ip_hash, ip_raw, started_at, last_seen_at
       )
     `)
@@ -133,6 +133,16 @@ export async function listVisitorIntelligence(
   const convsBySession = new Map<string, { id: string; status: string | null; subject: string | null; contact_id: string | null }>();
   const contactsById = new Map<string, { id: string; name: string | null; email: string | null; avatar_url: string | null }>();
 
+  // Collect contact ids that are pinned directly on each visitor_session
+  // (this is the canonical link populated by prechat / continuity-token /
+  // identity-merge flows — *every* visitor that has typed their name or
+  // matched an existing contact has it set here, even before a conversation
+  // is created). Looking these up first guarantees the Visitors list shows
+  // a real name for those sessions rather than "Unknown visitor".
+  const sessionContactIds = (rows ?? [])
+    .map(r => (r.visitor_sessions as any).contact_id)
+    .filter(Boolean) as string[];
+
   if (sessionIds.length) {
     const { data: convs } = await sb
       .from('conversations')
@@ -147,7 +157,11 @@ export async function listVisitorIntelligence(
         });
       }
     }
-    const contactIds = [...convsBySession.values()].map(c => c.contact_id).filter(Boolean) as string[];
+    // Union of contact ids from sessions + their conversations.
+    const contactIds = Array.from(new Set([
+      ...sessionContactIds,
+      ...[...convsBySession.values()].map(c => c.contact_id).filter(Boolean) as string[],
+    ]));
     if (contactIds.length) {
       const { data: cts } = await sb
         .from('contacts')
@@ -165,7 +179,14 @@ export async function listVisitorIntelligence(
       country: session.country, city: session.city, ip_hash: session.ip_hash,
     });
     const conv = convsBySession.get(session.id) ?? null;
-    const contact = conv?.contact_id ? contactsById.get(conv.contact_id) ?? null : null;
+    // Prefer the session-pinned contact (set the moment the visitor identified
+    // via prechat or matched an existing contact). Fall back to the contact
+    // attached to the most recent conversation. This guarantees identified
+    // visitors show their real name in the list — without merging two
+    // separate visitors that happen to share an IP, because the lookup
+    // is keyed on the session row, not the IP.
+    const contactId = session.contact_id ?? conv?.contact_id ?? null;
+    const contact = contactId ? contactsById.get(contactId) ?? null : null;
     const status = mergeStatus(r.status, r.updated_at, session.last_seen_at);
     if (!opts.includeOffline && status === 'offline') continue;
 
@@ -209,7 +230,7 @@ export async function getVisitorIntelligence(
     .select(`
       id, status, current_page, updated_at, visitor_session_id, workspace_id,
       visitor_sessions!inner (
-        id, visitor_id, workspace_id, current_page, referrer, browser, device, os,
+        id, visitor_id, workspace_id, contact_id, current_page, referrer, browser, device, os,
         country, city, ip_hash, ip_raw, started_at, last_seen_at
       )
     `)
@@ -228,6 +249,17 @@ export async function getVisitorIntelligence(
     const geo = await resolveVisitorGeo(config, workspaceId, {
       country: session.country, city: session.city, ip_hash: session.ip_hash,
     });
+    // Resolve the session-pinned contact even when the visitor is offline
+    // (no presence row) so the detail panel still shows their name.
+    let offlineContact: VisitorIntelligenceItem['contact'] = null;
+    if ((session as any).contact_id) {
+      const { data: c } = await sb
+        .from('contacts')
+        .select('id, name, email, avatar_url')
+        .eq('id', (session as any).contact_id)
+        .maybeSingle();
+      if (c) offlineContact = c;
+    }
     return {
       id: session.id, visitor_id: session.visitor_id, workspace_id: session.workspace_id,
       status: 'offline', current_page: session.current_page,
@@ -239,7 +271,7 @@ export async function getVisitorIntelligence(
         : buildIpDisplay(session.ip_hash),
       ip_raw: canViewRaw ? ((session as any).ip_raw ?? null) : null,
       can_view_raw_ip: canViewRaw,
-      contact: null, conversation: null,
+      contact: offlineContact, conversation: null,
     };
   }
 
@@ -256,11 +288,14 @@ export async function getVisitorIntelligence(
     .limit(1)
     .maybeSingle();
   let contact: VisitorIntelligenceItem['contact'] = null;
-  if (conv?.contact_id) {
+  // Same precedence rule as the list query: session.contact_id wins, then
+  // fall back to the most recent conversation's contact_id.
+  const resolvedContactId = (session.contact_id as string | null) ?? conv?.contact_id ?? null;
+  if (resolvedContactId) {
     const { data: c } = await sb
       .from('contacts')
       .select('id, name, email, avatar_url')
-      .eq('id', conv.contact_id)
+      .eq('id', resolvedContactId)
       .maybeSingle();
     if (c) contact = c;
   }

@@ -132,6 +132,23 @@ export function VisitorMap({ config, markers, selectedId, onSelect }: Props) {
     if (toAdd.length) cluster.addLayers(toAdd);
   }, [markers, selectedId, t]);
 
+  // Compute a small status badge so operators can tell at a glance whether
+  // the map is using their configured provider, a silent fallback, or is off.
+  const statusBadge = (() => {
+    if (!config) return null;
+    if (config.health_status === 'fallback') {
+      return {
+        label: t('visitors.mapStatusFallback'),
+        cls: 'bg-warning/15 text-warning border-warning/30',
+        title: [
+          t('visitors.mapFallbackPrefix', { provider: config.resolved_provider || config.provider }),
+          config.fallback_reason ? t('visitors.mapFallbackReason', { reason: config.fallback_reason }) : '',
+        ].filter(Boolean).join(' · '),
+      };
+    }
+    return null; // 'healthy' / 'unconfigured' / 'disabled' don't need an inline badge.
+  })();
+
   if (!config || !config.enabled || config.fallback_no_map) {
     return (
       <div className="h-full w-full flex flex-col items-center justify-center bg-muted/30 text-muted-foreground p-8 text-center">
@@ -142,5 +159,19 @@ export function VisitorMap({ config, markers, selectedId, onSelect }: Props) {
     );
   }
 
-  return <div ref={containerRef} className="h-full w-full" style={{ background: 'hsl(var(--muted))' }} />;
+  return (
+    <div className="relative h-full w-full">
+      <div ref={containerRef} className="h-full w-full" style={{ background: 'hsl(var(--muted))' }} />
+      {statusBadge && (
+        <div
+          className={`absolute top-2 end-2 z-[400] inline-flex items-center gap-1 px-2 h-5 rounded-full text-[10px] border backdrop-blur ${statusBadge.cls}`}
+          title={statusBadge.title}
+          role="status"
+        >
+          <span className="inline-block w-1.5 h-1.5 rounded-full bg-warning" aria-hidden />
+          {statusBadge.label}
+        </div>
+      )}
+    </div>
+  );
 }

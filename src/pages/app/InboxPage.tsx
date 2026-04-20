@@ -1333,6 +1333,7 @@ export default function InboxPage() {
             )}
           </ScrollArea>
         </div>
+        </>
       )}
     </div>
   );

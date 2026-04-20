@@ -666,13 +666,32 @@ export default function InboxPage() {
         {/* Conversation items */}
         <ScrollArea className="flex-1">
           {isLoading ? (
-            <div className="flex items-center justify-center py-16">
-              <Loader2 className="w-5 h-5 animate-spin text-primary" />
+            <div className="px-3 py-3 space-y-2" aria-busy="true" aria-label="Loading conversations">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="flex gap-3 p-2 animate-pulse">
+                  <div className="w-10 h-10 rounded-full bg-secondary/60 shrink-0" />
+                  <div className="flex-1 space-y-2 py-1">
+                    <div className="h-3 bg-secondary/60 rounded w-3/4" />
+                    <div className="h-2.5 bg-secondary/40 rounded w-1/2" />
+                  </div>
+                </div>
+              ))}
             </div>
           ) : !filteredConvos?.length ? (
-            <div className="py-16 text-center">
-              <MessageSquare className="w-10 h-10 mx-auto mb-3 text-muted-foreground/20" />
-              <p className="text-xs text-muted-foreground">{t('inbox.noMessages') || 'No conversations'}</p>
+            <div className="py-16 px-6 text-center flex flex-col items-center gap-3">
+              <div className="w-14 h-14 rounded-2xl bg-secondary/40 flex items-center justify-center">
+                <MessageSquare className="w-7 h-7 text-muted-foreground/40" />
+              </div>
+              <div>
+                <p className="text-[13px] font-medium text-foreground">
+                  {search
+                    ? (t('inbox.noResults') || 'No matches found')
+                    : (t('inbox.noMessages') || 'No conversations')}
+                </p>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  {search ? `"${search}"` : (filter !== 'all' ? statusLabels[filter] : '')}
+                </p>
+              </div>
             </div>
           ) : (
             filteredConvos.map(conv => {

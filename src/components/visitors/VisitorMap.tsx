@@ -52,19 +52,26 @@ const STATUS_LABEL: Record<string, string> = {
  */
 function buildVisitorIcon(status: MapMarker['status'], selected: boolean): L.DivIcon {
   const color = STATUS_COLORS[status] ?? STATUS_COLORS.unknown;
-  const ring = selected ? '0 0 0 3px hsl(var(--primary) / 0.55)' : '0 0 0 2px #fff';
-  const size = selected ? 16 : 12;
-  const pulse = status === 'online'
-    ? `<span class="visitor-pulse" style="background:${color}"></span>`
-    : '';
+  const size = selected ? 18 : 14;
+  const ring = selected
+    ? `0 0 0 3px hsl(var(--primary) / 0.55), 0 0 12px ${color}`
+    : `0 0 0 2px #fff, 0 0 8px ${color}aa`;
+  // Two staggered rings + a soft glow give the "live signal" feel without
+  // overwhelming the map. Idle uses a gentler single ring; offline is static.
+  const rings = status === 'online'
+    ? `<span class="vm-ring vm-ring-1" style="background:${color}"></span>
+       <span class="vm-ring vm-ring-2" style="background:${color}"></span>
+       <span class="vm-glow" style="background:radial-gradient(circle, ${color}66 0%, transparent 70%)"></span>`
+    : status === 'idle'
+      ? `<span class="vm-ring vm-ring-slow" style="background:${color}"></span>`
+      : '';
+  const core = status === 'online'
+    ? `<span class="vm-core-online" style="background:${color}; box-shadow:${ring}"></span>`
+    : `<span class="visitor-dot" style="background:${color}; box-shadow:${ring}; width:${size}px; height:${size}px"></span>`;
   const html = `
     <span class="visitor-marker-wrap" style="width:${size}px;height:${size}px">
-      ${pulse}
-      <span class="visitor-dot" style="
-        background:${color};
-        box-shadow:${ring}, 0 1px 2px rgba(0,0,0,.35);
-        width:${size}px;height:${size}px;
-      "></span>
+      ${rings}
+      ${core}
     </span>
   `;
   return L.divIcon({
@@ -72,7 +79,7 @@ function buildVisitorIcon(status: MapMarker['status'], selected: boolean): L.Div
     html,
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
-    tooltipAnchor: [0, -size / 2 - 2],
+    tooltipAnchor: [0, -size / 2 - 4],
   });
 }
 

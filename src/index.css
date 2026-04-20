@@ -323,21 +323,68 @@ html[lang="en"] * {
   border-radius: 9999px;
   display: block;
 }
-.visitor-pulse {
+
+/* Online "live" core — subtle inner shimmer keeps the dot alive even
+   between ring pulses. Uses transform-only animation (cheap on GPU). */
+.vm-core-online {
   position: absolute;
-  inset: -4px;
+  inset: 0;
   border-radius: 9999px;
-  opacity: 0.55;
-  animation: visitor-pulse 1.8s ease-out infinite;
+  display: block;
+  z-index: 3;
+  animation: vm-core-breathe 2.2s ease-in-out infinite;
+}
+@keyframes vm-core-breathe {
+  0%, 100% { transform: scale(1);    filter: brightness(1);   }
+  50%      { transform: scale(1.08); filter: brightness(1.2); }
+}
+
+/* Two staggered expanding rings — the classic "live ping" effect.
+   ring-2 is delayed half a cycle so there's always a wave in flight. */
+.vm-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
   pointer-events: none;
+  z-index: 1;
+  opacity: 0;
+  animation: vm-ring-pulse 2s cubic-bezier(0.22, 0.61, 0.36, 1) infinite;
 }
-@keyframes visitor-pulse {
-  0%   { transform: scale(0.6); opacity: 0.55; }
-  80%  { transform: scale(2.2); opacity: 0;    }
-  100% { transform: scale(2.2); opacity: 0;    }
+.vm-ring-1 { animation-delay: 0s; }
+.vm-ring-2 { animation-delay: 1s; }
+.vm-ring-slow {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0;
+  animation: vm-ring-pulse 3.2s ease-out infinite;
 }
+@keyframes vm-ring-pulse {
+  0%   { transform: scale(0.7); opacity: 0.7; }
+  70%  { transform: scale(2.6); opacity: 0;   }
+  100% { transform: scale(2.6); opacity: 0;   }
+}
+
+/* Soft radial glow under the dot — gives the marker a subtle aura that
+   reads as "lit up" against both light and dark tile themes. */
+.vm-glow {
+  position: absolute;
+  inset: -10px;
+  border-radius: 9999px;
+  pointer-events: none;
+  z-index: 0;
+  animation: vm-glow-breathe 2.2s ease-in-out infinite;
+}
+@keyframes vm-glow-breathe {
+  0%, 100% { opacity: 0.55; transform: scale(1);    }
+  50%      { opacity: 0.9;  transform: scale(1.15); }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .visitor-pulse { animation: none; }
+  .vm-ring, .vm-ring-slow, .vm-core-online, .vm-glow { animation: none; }
+  .vm-ring, .vm-ring-slow { opacity: 0.35; }
 }
 
 /* Tooltip — replace Leaflet's default white box with a themed card. */

@@ -363,11 +363,13 @@ export default function MapGeoPage() {
                   <Label>Quick presets</Label>
                   <div className="flex flex-wrap gap-2">
                     {([
-                      { label: '🇹🇷 Turkey',  lat: 39.0,  lng: 35.0,  zoom: 6 },
-                      { label: '🇮🇷 Iran',    lat: 32.4,  lng: 53.7,  zoom: 5 },
-                      { label: '🇺🇸 USA',     lat: 39.5,  lng: -98.35, zoom: 4 },
-                      { label: '🇪🇺 Europe',  lat: 54.0,  lng: 15.0,  zoom: 4 },
-                      { label: '🌍 World',    lat: 20.0,  lng: 0.0,   zoom: 2 },
+                      // Zoom values chosen so the whole region fits in a
+                      // ~480px tall map without cropping borders.
+                      { label: '🇹🇷 Turkey',  lat: 39.0,  lng: 35.0,   zoom: 5 },
+                      { label: '🇮🇷 Iran',    lat: 32.4,  lng: 53.7,   zoom: 5 },
+                      { label: '🇺🇸 USA',     lat: 39.5,  lng: -98.35, zoom: 3 },
+                      { label: '🇪🇺 Europe',  lat: 54.0,  lng: 15.0,   zoom: 3 },
+                      { label: '🌍 World',    lat: 20.0,  lng: 0.0,    zoom: 2 },
                     ] as const).map((p) => (
                       <Button
                         key={p.label}

@@ -72,6 +72,23 @@ const NO_MAP: MapTilesConfig = {
 };
 
 /**
+ * "Tiles not configured" sentinel — returned in production self-host mode
+ * when no provider is configured or the configured provider is invalid.
+ * The UI renders a placeholder grid + admin banner instead of silently
+ * pulling from public OSM. This is the new safe default.
+ */
+const UNCONFIGURED: MapTilesConfig = {
+  enabled: false,
+  provider: 'none',
+  tile_url: null,
+  attribution: '',
+  max_zoom: 0,
+  min_zoom: 0,
+  deployment: 'disabled',
+  fallback_no_map: true,
+};
+
+/**
  * Build the renderer config for a given provider name + raw config blob.
  * Returns both the active config and any silent fallback metadata so the
  * UI can communicate what is actually being rendered (precision/observability).

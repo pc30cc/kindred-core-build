@@ -1451,6 +1451,104 @@ const smsVendors: ProviderVendor[] = [
 ];
 
 // =============================================
+// GEO ENRICHMENT VENDORS (server-side IP→geo)
+// =============================================
+const geoEnrichmentVendors: ProviderVendor[] = [
+  {
+    name: 'centroid', label: 'Centroid (Built-in)',
+    description: 'Country/city centroid from bundled table. No external calls. Always available.',
+    fields: [],
+  },
+  {
+    name: 'ipapi', label: 'ipapi.co',
+    description: 'Free tier IP geolocation API. Optional API key for higher limits.',
+    docsUrl: 'https://ipapi.co/api',
+    fields: [
+      { key: 'api_key', label: 'API Key', type: 'password', hint: 'Optional — leave empty for free tier' },
+    ],
+  },
+  {
+    name: 'ipinfo', label: 'IPinfo',
+    description: 'Accurate IP geolocation with company & ASN data',
+    docsUrl: 'https://ipinfo.io/developers',
+    fields: [
+      { key: 'api_token', label: 'Access Token', type: 'password', required: true },
+    ],
+  },
+  {
+    name: 'maxmind', label: 'MaxMind GeoIP2',
+    description: 'Industry-standard IP geolocation. Web Service API.',
+    docsUrl: 'https://dev.maxmind.com/geoip',
+    fields: [
+      { key: 'account_id', label: 'Account ID', type: 'text', required: true },
+      { key: 'license_key', label: 'License Key', type: 'password', required: true },
+    ],
+  },
+  {
+    name: 'ipgeolocation', label: 'ipgeolocation.io',
+    description: 'IP geolocation with timezone, ASN, threat data',
+    docsUrl: 'https://ipgeolocation.io/documentation.html',
+    fields: [
+      { key: 'api_key', label: 'API Key', type: 'password', required: true },
+    ],
+  },
+];
+
+// =============================================
+// MAP TILES VENDORS (frontend map renderer source)
+// =============================================
+const mapTilesVendors: ProviderVendor[] = [
+  {
+    name: 'osm', label: 'OpenStreetMap (default)',
+    description: 'Free raster tiles. No API key. Self-host friendly. Recommended default.',
+    docsUrl: 'https://www.openstreetmap.org',
+    fields: [],
+  },
+  {
+    name: 'maptiler', label: 'MapTiler',
+    description: 'Vector & raster tiles with multiple styles',
+    docsUrl: 'https://docs.maptiler.com',
+    fields: [
+      { key: 'api_key', label: 'API Key', type: 'password', required: true },
+      { key: 'style', label: 'Map Style', type: 'select', options: [
+        { value: 'streets-v2', label: 'Streets' },
+        { value: 'basic-v2', label: 'Basic' },
+        { value: 'bright-v2', label: 'Bright' },
+        { value: 'dataviz', label: 'Data Viz' },
+      ]},
+    ],
+  },
+  {
+    name: 'mapbox', label: 'Mapbox',
+    description: 'High-quality vector tiles and styles',
+    docsUrl: 'https://docs.mapbox.com',
+    fields: [
+      { key: 'access_token', label: 'Access Token', type: 'password', required: true },
+      { key: 'style', label: 'Style URL', type: 'text', placeholder: 'mapbox/streets-v12' },
+    ],
+  },
+  {
+    name: 'stadia', label: 'Stadia Maps',
+    description: 'Privacy-friendly map tiles, OSM-based',
+    docsUrl: 'https://docs.stadiamaps.com',
+    fields: [
+      { key: 'api_key', label: 'API Key', type: 'password', hint: 'Optional in dev, required in production' },
+      { key: 'style', label: 'Style', type: 'select', options: [
+        { value: 'alidade_smooth', label: 'Alidade Smooth' },
+        { value: 'alidade_smooth_dark', label: 'Alidade Smooth Dark' },
+        { value: 'osm_bright', label: 'OSM Bright' },
+        { value: 'outdoors', label: 'Outdoors' },
+      ]},
+    ],
+  },
+  {
+    name: 'none', label: 'No Map (List Only)',
+    description: 'Disable the map canvas. Visitors are listed without geographic display.',
+    fields: [],
+  },
+];
+
+// =============================================
 // MASTER SCHEMA MAP
 // =============================================
 export const PROVIDER_SCHEMAS: Record<string, ProviderTypeSchema> = {
@@ -1528,6 +1626,16 @@ export const PROVIDER_SCHEMAS: Record<string, ProviderTypeSchema> = {
     type: 'cdn', label: 'CDN / Assets', icon: 'Globe',
     description: 'Asset delivery and CDN management',
     vendors: cdnVendors, allowWorkspaceOverride: true,
+  },
+  geo_enrichment: {
+    type: 'geo_enrichment', label: 'Geo Enrichment', icon: 'MapPin',
+    description: 'IP→geo lookup for visitor intelligence (centroid fallback always available)',
+    vendors: geoEnrichmentVendors, allowWorkspaceOverride: true,
+  },
+  map_tiles: {
+    type: 'map_tiles', label: 'Map Tiles', icon: 'Map',
+    description: 'Map tile source for the Visitors map canvas',
+    vendors: mapTilesVendors, allowWorkspaceOverride: true,
   },
 };
 

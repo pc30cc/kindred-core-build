@@ -50,16 +50,17 @@ export function VisitorMap({ config, markers, selectedId, onSelect }: Props) {
     if (mapRef.current) return;
     const map = L.map(containerRef.current, {
       center: [20, 0],
-      zoom: 2,
+      zoom: 1,
       worldCopyJump: true,
-      zoomControl: true,
+      zoomControl: false,
       attributionControl: true,
       preferCanvas: true, // Better perf with hundreds of markers.
     });
+    L.control.zoom({ position: 'topright' }).addTo(map);
     L.tileLayer(config.tile_url, {
       attribution: config.attribution,
       maxZoom: config.max_zoom,
-      minZoom: config.min_zoom,
+      minZoom: Math.min(config.min_zoom, 1),
     }).addTo(map);
 
     const cluster = L.markerClusterGroup({

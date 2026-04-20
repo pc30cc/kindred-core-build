@@ -15,6 +15,13 @@ services:
     # which is exactly what our Visitors map needs.
     image: maptiler/tileserver-gl-light:latest
     restart: unless-stopped
+    # Coolify magic env: tells the reverse proxy that this service is
+    # reachable on container port 8080 under the FQDN you set in the UI.
+    # Without this, Coolify's proxy defaults to port 80 → returns
+    # 503 "no available server" because nothing listens on 80.
+    # See: https://coolify.io/docs/knowledge-base/docker/compose#coolify-s-magic-environment-variables
+    environment:
+      - SERVICE_FQDN_TILESERVER_8080
     # Coolify's reverse proxy maps the public domain → container :8080
     # automatically via the `expose` directive. Do NOT bind host ports
     # (`ports:`) — port 8080 is usually already taken on the host by

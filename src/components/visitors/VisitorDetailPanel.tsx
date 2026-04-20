@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { useTranslation } from '@/i18n';
-import { OsIcon } from '@/components/visitors/OsIcon';
+import { OsAvatar } from '@/components/visitors/OsIcon';
 
 interface Props {
   workspaceId: string | undefined;
@@ -64,9 +64,12 @@ export function VisitorDetailPanel({ workspaceId, sessionId, onBack }: Props) {
           <div className="space-y-5">
             {/* Identity row */}
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-secondary flex items-center justify-center shrink-0">
-                <OsIcon os={data.os} device={data.device} className="w-4 h-4 text-muted-foreground" />
-              </div>
+              <OsAvatar
+                os={data.os}
+                device={data.device}
+                className="w-10 h-10 shrink-0"
+                iconClassName="w-5 h-5"
+              />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium truncate">

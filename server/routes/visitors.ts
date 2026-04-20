@@ -28,7 +28,7 @@ async function authorizeWorkspaceMember(
   res: Response,
   config: ServerConfig,
   workspaceId: string,
-): Promise<{ userId: string } | null> {
+): Promise<{ userId: string; role: string | null } | null> {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) {
     res.status(401).json({ error: 'Missing authorization' });
@@ -49,7 +49,14 @@ async function authorizeWorkspaceMember(
     res.status(403).json({ error: 'Not a workspace member' });
     return null;
   }
-  return { userId: user.id };
+  // Resolve workspace role for IP-exposure decisions.
+  const { data: member } = await sb
+    .from('workspace_members')
+    .select('role')
+    .eq('workspace_id', workspaceId)
+    .eq('user_id', user.id)
+    .maybeSingle();
+  return { userId: user.id, role: (member?.role as string | null) ?? null };
 }
 
 // ============================================
@@ -393,6 +400,7 @@ visitorsAdminRouter.get('/live', async (req: Request, res: Response) => {
       includeOffline: req.query.include_offline === '1',
       staleMinutes: req.query.stale_minutes ? Number(req.query.stale_minutes) : 30,
       limit: req.query.limit ? Number(req.query.limit) : 200,
+      viewerRole: auth.role,
     });
     res.json({ items });
   } catch (err) {
@@ -416,7 +424,10 @@ visitorsAdminRouter.get('/map', async (req: Request, res: Response) => {
   if (!auth) return;
 
   try {
-    const items = await listVisitorIntelligence(config, workspaceId, { includeOffline: false });
+    const items = await listVisitorIntelligence(config, workspaceId, {
+      includeOffline: false,
+      viewerRole: auth.role,
+    });
     const markers = items
       .filter(i => i.geo.latitude != null && i.geo.longitude != null)
       .map(i => ({
@@ -430,7 +441,8 @@ visitorsAdminRouter.get('/map', async (req: Request, res: Response) => {
         current_page: i.current_page,
         source: i.geo.source,
       }));
-    res.json({ markers, total: items.length });
+    const without_location = items.length - markers.length;
+    res.json({ markers, total: items.length, without_location });
   } catch (err) {
     console.error('[visitors.map] failed:', err);
     res.status(500).json({ error: 'Internal error' });
@@ -479,7 +491,9 @@ visitorsAdminRouter.get('/:id', async (req: Request, res: Response) => {
   if (!auth) return;
 
   try {
-    const item = await getVisitorIntelligence(config, workspaceId, req.params.id);
+    const item = await getVisitorIntelligence(config, workspaceId, req.params.id, {
+      viewerRole: auth.role,
+    });
     if (!item) return res.status(404).json({ error: 'Not found' });
     res.json(item);
   } catch (err) {

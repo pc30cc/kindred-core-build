@@ -474,8 +474,8 @@ export default function VisitorsPage() {
           )}
         </div>
 
-        {/* Right: map canvas */}
-        <div className="relative min-h-[40vh] lg:min-h-0 bg-muted/20">
+        {/* Right: map canvas — fills the full container */}
+        <div className="relative h-full w-full bg-muted/20">
           {mapConfig.isLoading ? (
             <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground">
               {t('visitors.mapLoading')}
@@ -489,7 +489,7 @@ export default function VisitorsPage() {
                 onSelect={setSelectedId}
               />
               {/* Stat overlay — Crisp-style floating panel on top of the map */}
-              <div className="pointer-events-none absolute top-3 start-3 z-[400] flex flex-wrap gap-2 max-w-[calc(100%-1.5rem)]">
+              <div className="pointer-events-none absolute top-3 end-3 z-[400] flex flex-wrap gap-2 justify-end max-w-[calc(100%-400px)]">
                 {statCards.map(s => (
                   <div
                     key={s.label}

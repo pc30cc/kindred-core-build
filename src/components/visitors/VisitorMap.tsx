@@ -32,6 +32,99 @@ const STATUS_COLORS: Record<string, string> = {
   unknown: 'hsl(215, 20%, 65%)',
 };
 
+const STATUS_LABEL: Record<string, string> = {
+  online: 'Online',
+  idle: 'Idle',
+  offline: 'Offline',
+  unknown: 'Unknown',
+};
+
+/**
+ * Build a richer Leaflet divIcon for a visitor marker.
+ *
+ * Why divIcon over circleMarker:
+ *  - Lets us layer a CSS pulse halo for "online" without canvas tricks.
+ *  - Keeps the inner dot crisp and gives us a real DOM node we can style
+ *    with semantic tokens (selected ring, status colors).
+ *
+ * The HTML is intentionally tiny so the cluster plugin stays cheap even
+ * with hundreds of markers — no images, no SVG, just two divs + box-shadow.
+ */
+function buildVisitorIcon(status: MapMarker['status'], selected: boolean): L.DivIcon {
+  const color = STATUS_COLORS[status] ?? STATUS_COLORS.unknown;
+  const ring = selected ? '0 0 0 3px hsl(var(--primary) / 0.55)' : '0 0 0 2px #fff';
+  const size = selected ? 16 : 12;
+  const pulse = status === 'online'
+    ? `<span class="visitor-pulse" style="background:${color}"></span>`
+    : '';
+  const html = `
+    <span class="visitor-marker-wrap" style="width:${size}px;height:${size}px">
+      ${pulse}
+      <span class="visitor-dot" style="
+        background:${color};
+        box-shadow:${ring}, 0 1px 2px rgba(0,0,0,.35);
+        width:${size}px;height:${size}px;
+      "></span>
+    </span>
+  `;
+  return L.divIcon({
+    className: 'visitor-marker',
+    html,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+    tooltipAnchor: [0, -size / 2 - 2],
+  });
+}
+
+/** Trim a URL/path for the tooltip — host + first path segment is enough. */
+function shortPage(p: string | null | undefined): string {
+  if (!p) return '';
+  try {
+    const u = new URL(p, 'http://x');
+    const host = u.host && u.host !== 'x' ? u.host : '';
+    const path = u.pathname.length > 28 ? u.pathname.slice(0, 28) + '…' : u.pathname;
+    return host ? `${host}${path}` : path;
+  } catch {
+    return p.length > 32 ? p.slice(0, 32) + '…' : p;
+  }
+}
+
+function relTime(iso: string | undefined | null): string {
+  if (!iso) return '';
+  const diff = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+  if (diff < 60) return 'just now';
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
+/** Compact, label-driven HTML tooltip with location + status + page. */
+function buildTooltipHtml(m: MapMarker & { last_activity_at?: string }): string {
+  const loc = [m.city, m.country].filter(Boolean).join(', ') || 'Unknown location';
+  const statusColor = STATUS_COLORS[m.status] ?? STATUS_COLORS.unknown;
+  const statusLabel = STATUS_LABEL[m.status] ?? 'Unknown';
+  const page = shortPage(m.current_page);
+  const flag = m.country_code
+    ? `<span class="vm-flag">${m.country_code.toUpperCase()}</span>`
+    : '';
+  const when = relTime(m.last_activity_at);
+  return `
+    <div class="vm-tip">
+      <div class="vm-tip-row vm-tip-head">
+        <span class="vm-status-dot" style="background:${statusColor}"></span>
+        <span class="vm-status-label">${statusLabel}</span>
+        ${when ? `<span class="vm-when">· ${when}</span>` : ''}
+      </div>
+      <div class="vm-tip-row vm-tip-loc">
+        ${flag}<span class="vm-loc-text">${loc}</span>
+      </div>
+      ${page ? `<div class="vm-tip-row vm-page">${page}</div>` : ''}
+      ${m.source === 'centroid'
+        ? `<div class="vm-tip-row vm-approx">Approximate location</div>` : ''}
+    </div>
+  `;
+}
+
 export function VisitorMap({ config, markers, selectedId, onSelect }: Props) {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -39,7 +132,7 @@ export function VisitorMap({ config, markers, selectedId, onSelect }: Props) {
   const clusterRef = useRef<L.MarkerClusterGroup | null>(null);
   // Track existing markers by id so we can diff incrementally instead of
   // tearing down the whole cluster on every realtime patch / filter change.
-  const markerIndex = useRef<Map<string, L.CircleMarker>>(new Map());
+  const markerIndex = useRef<Map<string, L.Marker>>(new Map());
   // Stable click handler ref so per-marker listeners don't need rebinding.
   const onSelectRef = useRef(onSelect);
   useEffect(() => { onSelectRef.current = onSelect; }, [onSelect]);
@@ -117,37 +210,36 @@ export function VisitorMap({ config, markers, selectedId, onSelect }: Props) {
 
     for (const m of markers) {
       next.add(m.id);
-      const color = STATUS_COLORS[m.status] ?? STATUS_COLORS.unknown;
       const isSelected = m.id === selectedId;
       const existing = markerIndex.current.get(m.id);
       if (existing) {
-        // Patch in place: cheap style update, optional re-position.
-        existing.setStyle({
-          radius: isSelected ? 9 : 6,
-          weight: isSelected ? 3 : 2,
-          fillColor: color,
-        });
+        // Patch in place: swap icon for status/selection changes, reposition
+        // when realtime moves the visitor.
+        existing.setIcon(buildVisitorIcon(m.status, isSelected));
+        existing.setTooltipContent(buildTooltipHtml(m));
         const ll = existing.getLatLng();
         if (ll.lat !== m.lat || ll.lng !== m.lng) existing.setLatLng([m.lat, m.lng]);
       } else {
-        const marker = L.circleMarker([m.lat, m.lng], {
-          radius: isSelected ? 9 : 6,
-          weight: isSelected ? 3 : 2,
-          color: '#fff',
-          fillColor: color,
-          fillOpacity: 0.85,
+        const marker = L.marker([m.lat, m.lng], {
+          icon: buildVisitorIcon(m.status, isSelected),
+          riseOnHover: true,
+          keyboard: false,
         });
         const id = m.id;
         marker.on('click', () => onSelectRef.current?.(id));
-        const label = [m.city, m.country].filter(Boolean).join(', ') || t('visitors.unknownLocation');
-        marker.bindTooltip(label, { direction: 'top', offset: [0, -6] });
+        marker.bindTooltip(buildTooltipHtml(m), {
+          direction: 'top',
+          offset: [0, -4],
+          opacity: 1,
+          className: 'vm-tooltip',
+        });
         markerIndex.current.set(id, marker);
         toAdd.push(marker);
       }
     }
 
     // Remove markers that are no longer present.
-    const toRemove: L.CircleMarker[] = [];
+    const toRemove: L.Marker[] = [];
     for (const [id, marker] of markerIndex.current) {
       if (!next.has(id)) {
         toRemove.push(marker);

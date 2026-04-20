@@ -266,23 +266,24 @@ input:disabled, button:disabled {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 16px;
+  padding: 10px 14px 12px;
   border-top: 1px solid #E5E7EB;
-  background: #FAFBFC;
+  background: #fff;
 }
 .input {
   flex: 1;
   border: 1px solid #E5E7EB;
   border-radius: 20px;
-  padding: 8px 14px;
+  padding: 9px 14px;
   font-size: 13px;
   outline: none;
-  background: #fff;
+  background: #F8FAFC;
   color: #1F2937;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .input:focus {
   border-color: var(--gs-primary, #3B82F6);
+  background: #fff;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--gs-primary, #3B82F6) 12%, transparent);
 }
 .input::placeholder { color: #9CA3AF; }
@@ -295,8 +296,9 @@ input:disabled, button:disabled {
   justify-content: center;
   color: #fff;
   transition: opacity 0.15s ease, transform 0.1s ease;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
 }
-.send-btn:hover { opacity: 0.9; }
+.send-btn:hover { opacity: 0.92; transform: translateY(-1px); }
 .send-btn:active { transform: scale(0.92); }
 .send-btn svg { width: 16px; height: 16px; fill: currentColor; }
 

@@ -491,6 +491,26 @@ export default function VisitorsPage() {
                 selectedId={selectedId}
                 onSelect={setSelectedId}
               />
+              {/* Stat overlay — Crisp-style floating panel on top of the map */}
+              <div className="pointer-events-none absolute top-3 start-3 z-[400] flex flex-wrap gap-2 max-w-[calc(100%-1.5rem)]">
+                {statCards.map(s => (
+                  <div
+                    key={s.label}
+                    className="pointer-events-auto flex items-center gap-2 rounded-lg bg-card/95 backdrop-blur-sm border border-border shadow-sm px-3 py-2 min-w-[120px]"
+                  >
+                    <div className={cn('w-8 h-8 rounded-md flex items-center justify-center shrink-0', s.bg)}>
+                      <s.icon className={cn('w-4 h-4', s.color)} />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-lg font-bold text-foreground leading-none tabular-nums">{s.value}</span>
+                        {s.pulse && <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" />}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground mt-0.5 truncate">{s.label}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
               {mapConfig.data?.enabled && !mapConfig.data?.fallback_no_map && filteredMarkers.length === 0 && !map.isLoading && (
                 <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
                   <div className="bg-card/90 border border-border rounded-lg px-4 py-3 text-center shadow-sm pointer-events-auto max-w-xs">

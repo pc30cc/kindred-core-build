@@ -6,11 +6,12 @@ import { useWorkspacePath } from '@/hooks/useWorkspace';
 import { useState } from 'react';
 import {
   Copy, MessageSquare, User, Globe, Monitor, MapPin, Clock, ExternalLink, History,
-  Wifi, ShieldCheck, ShieldAlert, ShieldX, ArrowLeft, LogIn, Navigation,
+  Wifi, ShieldCheck, ShieldAlert, ShieldX, ArrowLeft, LogIn, Navigation, Send, Loader2,
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { useTranslation } from '@/i18n';
 import { OsAvatar } from '@/components/visitors/OsIcon';
+import { conversationsApi } from '@/lib/conversations-api';
 
 interface Props {
   workspaceId: string | undefined;
@@ -30,11 +31,37 @@ export function VisitorDetailPanel({ workspaceId, sessionId, onBack }: Props) {
   const navigate = useNavigate();
   const wsPath = useWorkspacePath();
   const [showAllPages, setShowAllPages] = useState(false);
+  const [startingChat, setStartingChat] = useState(false);
 
   const copy = (label: string, value: string) => {
     navigator.clipboard.writeText(value);
     toast({ title: t('visitors.copied'), description: label });
   };
+
+  /**
+   * Operator outreach: open existing conversation if one exists for this
+   * visitor session, otherwise spin up a new one and jump to the inbox so
+   * the operator can compose the first message.
+   */
+  async function handleStartChat() {
+    if (!workspaceId || !data) return;
+    setStartingChat(true);
+    try {
+      const result = await conversationsApi.startFromVisitor({
+        workspace_id: workspaceId,
+        visitor_session_id: data.id,
+      });
+      navigate(`${wsPath('/inbox')}?c=${result.conversation_id}`);
+    } catch (err: any) {
+      toast({
+        title: t('common.error' as 'common.copy') || 'Error',
+        description: err?.message || 'Failed to start chat',
+        variant: 'destructive',
+      });
+    } finally {
+      setStartingChat(false);
+    }
+  }
 
   return (
     <div className="flex flex-col h-full min-h-0">

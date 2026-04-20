@@ -8,6 +8,7 @@ import { resolveMapTilesConfig } from '../services/maptiles/index.js';
 import { publishVisitorEvent } from '../services/realtime/publish.js';
 import { getClientIp, hashIp } from '../utils/clientIp.js';
 import { resolveVisitorGeo, getActiveGeoProvider } from '../services/geo/index.js';
+import { enrichVisitorSessionGeo } from '../services/geo/index.js';
 
 export const visitorRouter = Router();
 
@@ -597,16 +598,11 @@ visitorsAdminRouter.post('/warm-geo', async (req: Request, res: Response) => {
   const limit = Math.min(Math.max(Number(req.body?.limit ?? 100), 1), 500);
   const force = req.body?.force === true || req.body?.force === '1';
 
-  // Resolve active provider so we can short-circuit cleanly when disabled.
+  // Resolve active provider for reporting only — we no longer short-circuit
+  // when "unconfigured" because the maxmind_local self-host path is driven by
+  // /admin/map-geo settings (not provider_configs). resolveVisitorGeo handles
+  // both paths transparently.
   const active = await getActiveGeoProvider(config, workspaceId);
-  if (!active.provider_name || active.is_disabled) {
-    return res.json({
-      status: 'noop',
-      reason: active.is_disabled ? 'provider_disabled' : 'provider_unconfigured',
-      provider: active.provider_name,
-      processed: 0, enriched: 0, cached: 0, centroid: 0, skipped: 0, failed: 0,
-    });
-  }
 
   warmCooldown.set(workspaceId, now);
   const sb = getServiceClient(config);
@@ -615,7 +611,7 @@ visitorsAdminRouter.post('/warm-geo', async (req: Request, res: Response) => {
   try {
     const { data: sessions, error } = await sb
       .from('visitor_sessions')
-      .select('id, country, city, ip_hash, ip_raw, last_seen_at')
+      .select('id, country, city, ip_hash, ip_raw, last_seen_at, geo_resolved_at')
       .eq('workspace_id', workspaceId)
       .gte('last_seen_at', since)
       .order('last_seen_at', { ascending: false })
@@ -642,7 +638,9 @@ visitorsAdminRouter.post('/warm-geo', async (req: Request, res: Response) => {
 
     for (const s of sessions ?? []) {
       counts.processed++;
-      if (!force && s.ip_hash && cachedHashes.has(s.ip_hash as string)) {
+      // Skip only if cache is warm AND the session itself was already enriched.
+      // Otherwise we must still write the geo_* columns onto the row.
+      if (!force && s.ip_hash && cachedHashes.has(s.ip_hash as string) && (s as any).geo_resolved_at) {
         counts.skipped++;
         continue;
       }
@@ -654,6 +652,14 @@ visitorsAdminRouter.post('/warm-geo', async (req: Request, res: Response) => {
           // Provider lookups need raw IP. If the workspace doesn't store it,
           // we fall through to centroid — which is still a useful warm op.
           raw_ip: (s as any).ip_raw ?? null,
+        });
+        // Persist geo_* columns onto the session itself so the visitors list
+        // and map can render without a per-row resolve.
+        await enrichVisitorSessionGeo(config, {
+          sessionId: s.id as string,
+          workspaceId,
+          ipHash: s.ip_hash as string | null,
+          rawIp: (s as any).ip_raw ?? null,
         });
         if (result.source === 'provider') counts.enriched++;
         else if (result.source === 'cache') counts.cached++;

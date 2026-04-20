@@ -802,12 +802,14 @@ export default function InboxPage() {
         !selectedId || showMobileList ? 'hidden md:flex' : 'flex'
       )}>
         {!selected ? (
-          <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground bg-background">
-            <div className="w-16 h-16 rounded-2xl bg-primary mx-auto mb-4 flex items-center justify-center" style={{ boxShadow: 'var(--shadow-glow)' }}>
+          <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground bg-background px-6 text-center">
+            <div className="w-16 h-16 rounded-2xl bg-primary mb-4 flex items-center justify-center" style={{ boxShadow: 'var(--shadow-glow)' }}>
               <MessageCircle className="h-8 w-8 text-primary-foreground" />
             </div>
             <h2 className="text-lg font-semibold text-foreground">{platformName || 'Inbox'}</h2>
-            <p className="text-sm text-muted-foreground mt-1">{t('inbox.selectConversation') || 'Select a conversation to start replying'}</p>
+            <p className="text-sm text-muted-foreground mt-1 max-w-xs">
+              {t('inbox.selectConversation') || 'Select a conversation to start replying'}
+            </p>
           </div>
         ) : (
           <>

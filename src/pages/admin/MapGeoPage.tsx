@@ -21,15 +21,19 @@ export default function MapGeoPage() {
   const [health, setHealth] = useState<any>(null);
   const [testIp, setTestIp] = useState('');
   const [testResult, setTestResult] = useState<any>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
+    setLoadError(null);
     try {
-      const [s, h] = await Promise.all([mapGeoApi.getSettings(), mapGeoApi.health().catch(() => null)]);
+      const s = await mapGeoApi.getSettings();
       setSettings(s.settings);
-      setHealth(h);
+      mapGeoApi.health().then(setHealth).catch(() => setHealth(null));
     } catch (e: any) {
-      toast.error(e.message);
+      const msg = e?.message || 'Failed to load Map & Geo settings';
+      setLoadError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -51,8 +55,35 @@ export default function MapGeoPage() {
     }
   };
 
-  if (loading || !settings) {
+  if (loading) {
     return <div className="flex items-center justify-center p-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
+  }
+
+  if (loadError || !settings) {
+    return (
+      <div className="container mx-auto p-6 max-w-3xl space-y-4">
+        <div className="flex items-start gap-3">
+          <MapPin className="h-7 w-7 text-primary mt-1" />
+          <div>
+            <h1 className="text-2xl font-bold">{t('admin.mapGeo.title')}</h1>
+            <p className="text-sm text-muted-foreground">{t('admin.mapGeo.subtitle')}</p>
+          </div>
+        </div>
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>API unreachable</AlertTitle>
+          <AlertDescription>
+            {loadError || 'Settings unavailable.'}
+            <div className="mt-2 text-xs opacity-80">
+              The admin UI calls the backend at <code>/api/admin/map-geo/*</code>.
+              In the Lovable preview the production API host may be unreachable —
+              this works after deploying the server (Coolify) on your real domain.
+            </div>
+          </AlertDescription>
+        </Alert>
+        <Button variant="outline" onClick={load}><RefreshCw className="h-4 w-4 me-2" />Retry</Button>
+      </div>
+    );
   }
 
   const tilesUnconfigured = !settings.tiles.url_template;

@@ -224,10 +224,10 @@ export default function VisitorsPage() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-3.5rem)] animate-fade-in">
-      {/* Body: full-bleed map with floating list overlay */}
-      <div className="flex-1 relative min-h-0">
-        {/* Left: list — floating panel over the map on lg+, stacked on mobile */}
-        <div className="absolute z-[500] top-3 start-3 bottom-3 w-[360px] max-w-[calc(100%-1.5rem)] hidden lg:flex flex-col bg-card/95 backdrop-blur-sm border border-border rounded-xl shadow-elevated overflow-hidden min-h-0">
+      {/* Body: list + map */}
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-[minmax(320px,420px)_1fr] min-h-0">
+        {/* Left: list */}
+        <div className="flex flex-col border-e border-border min-h-0 max-h-[60vh] lg:max-h-none">
           {selectedId ? (
             <VisitorDetailPanel
               workspaceId={wsId}
@@ -474,8 +474,8 @@ export default function VisitorsPage() {
           )}
         </div>
 
-        {/* Right: map canvas — fills the full container */}
-        <div className="relative h-full w-full bg-muted/20">
+        {/* Right: map canvas */}
+        <div className="relative min-h-[40vh] lg:min-h-0 bg-muted/20">
           {mapConfig.isLoading ? (
             <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground">
               {t('visitors.mapLoading')}
@@ -489,7 +489,7 @@ export default function VisitorsPage() {
                 onSelect={setSelectedId}
               />
               {/* Stat overlay — Crisp-style floating panel on top of the map */}
-              <div className="pointer-events-none absolute top-3 end-3 z-[400] flex flex-wrap gap-2 justify-end max-w-[calc(100%-400px)]">
+              <div className="pointer-events-none absolute top-3 start-3 z-[400] flex flex-wrap gap-2 max-w-[calc(100%-1.5rem)]">
                 {statCards.map(s => (
                   <div
                     key={s.label}

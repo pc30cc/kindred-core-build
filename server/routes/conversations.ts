@@ -55,6 +55,16 @@ const sendMessageSchema = z.object({
 );
 
 /**
+ * Schema for starting a proactive conversation from the Visitors page.
+ * The operator targets a visitor_session; we either reuse the most-recent
+ * open conversation tied to that session, or create a new one.
+ */
+const startFromVisitorSchema = z.object({
+  workspace_id: z.string().uuid(),
+  visitor_session_id: z.string().uuid(),
+});
+
+/**
  * Authenticate the request as a workspace member.
  * Returns { userId, workspaceId } on success, sends 401/403 on failure.
  */
@@ -261,6 +271,97 @@ conversationsRouter.post('/send-message', async (req, res) => {
     });
   } catch (err: any) {
     console.error('[conversations/send-message] error:', err);
+    return res.status(500).json({ error: err?.message || 'Internal error' });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// POST /api/conversations/start-from-visitor
+//
+// Operator-initiated outreach from the Visitors page. Given a visitor
+// session, returns an existing open conversation (most-recent) or
+// creates a fresh one tied to that session + its contact (if any).
+// Idempotent for repeated clicks: an open conversation is reused.
+// ═══════════════════════════════════════════════════════════════════
+conversationsRouter.post('/start-from-visitor', async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const parsed = startFromVisitorSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: 'Invalid payload',
+        details: parsed.error.flatten().fieldErrors,
+      });
+    }
+    const auth = await authorizeWorkspaceMember(req, res, config, parsed.data.workspace_id);
+    if (!auth) return;
+
+    const sb = getServiceClient(config);
+
+    // Verify the visitor session belongs to this workspace.
+    const { data: session, error: sessErr } = await sb
+      .from('visitor_sessions')
+      .select('id, workspace_id, contact_id, visitor_id')
+      .eq('id', parsed.data.visitor_session_id)
+      .eq('workspace_id', parsed.data.workspace_id)
+      .maybeSingle();
+    if (sessErr) return res.status(500).json({ error: sessErr.message });
+    if (!session) return res.status(404).json({ error: 'Visitor session not found' });
+
+    // Reuse the most-recent NON-resolved/closed conversation for this
+    // visitor session if one exists — avoids spawning duplicates when
+    // operators click the button multiple times.
+    const { data: existing } = await sb
+      .from('conversations')
+      .select('id, status')
+      .eq('workspace_id', parsed.data.workspace_id)
+      .eq('visitor_session_id', parsed.data.visitor_session_id)
+      .in('status', ['open', 'pending'])
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (existing?.id) {
+      return res.json({ ok: true, conversation_id: existing.id, created: false });
+    }
+
+    // Create a new conversation. We do NOT seed a message — the operator
+    // composes their first message in the inbox, which routes through the
+    // existing /send-message endpoint (carrying realtime publish, attachments,
+    // and timeline events for free).
+    const { data: created, error: createErr } = await sb
+      .from('conversations')
+      .insert({
+        workspace_id: parsed.data.workspace_id,
+        visitor_session_id: parsed.data.visitor_session_id,
+        contact_id: session.contact_id ?? null,
+        status: 'open',
+        priority: 'normal',
+      })
+      .select('id')
+      .single();
+
+    if (createErr || !created) {
+      return res.status(500).json({ error: createErr?.message || 'Create failed' });
+    }
+
+    // Timeline event so the inbox shows where this conversation came from.
+    void recordConversationEvent(config, {
+      workspaceId: parsed.data.workspace_id,
+      conversationId: created.id,
+      eventType: 'conversation_started',
+      actorType: 'agent',
+      actorId: auth.userId,
+      payload: {
+        source: 'visitor_outreach',
+        visitor_session_id: parsed.data.visitor_session_id,
+        visitor_id: session.visitor_id,
+      },
+    });
+
+    return res.json({ ok: true, conversation_id: created.id, created: true });
+  } catch (err: any) {
+    console.error('[conversations/start-from-visitor] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
   }
 });

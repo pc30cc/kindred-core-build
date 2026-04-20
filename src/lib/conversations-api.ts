@@ -161,6 +161,26 @@ export const conversationsApi = {
     );
   },
 
+  /**
+   * Operator-initiated outreach from the Visitors page. Returns an open
+   * conversation for the visitor (reused if one already exists, otherwise
+   * created). The caller then navigates to /inbox?c=<id> to compose the
+   * first message through the normal send-message flow.
+   */
+  async startFromVisitor(payload: {
+    workspace_id: string;
+    visitor_session_id: string;
+  }): Promise<{ ok: boolean; conversation_id: string; created: boolean }> {
+    const res = await fetch(`${API_BASE}/api/conversations/start-from-visitor`, {
+      method: 'POST',
+      headers: await authHeaders(),
+      body: JSON.stringify(payload),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || `Start failed: ${res.status}`);
+    return json;
+  },
+
   // ─── Phase 3 — Editable conversation fields ────────────────────
   /**
    * Patch one or more editable conversation fields. Allowed:

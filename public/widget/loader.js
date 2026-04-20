@@ -27,7 +27,7 @@
   }
   window.__gs_loaded = true;
 
-  var LOADER_VERSION = "2026-04-18-shell-v4";
+  var LOADER_VERSION = "2026-04-20-outreach-autoopen";
   var ELEMENT_TAG = "gs-widget";
 
   // DEBUG defaults to OFF in production. Opt in via:

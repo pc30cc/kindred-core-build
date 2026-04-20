@@ -16,7 +16,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { VisitorMap } from '@/components/visitors/VisitorMap';
-import { VisitorDrawer } from '@/components/visitors/VisitorDrawer';
+import { VisitorDetailPanel } from '@/components/visitors/VisitorDetailPanel';
 import type { VisitorIntelItem, MapMarker } from '@/lib/visitors-api';
 import { cn } from '@/lib/utils';
 import {
@@ -301,6 +301,14 @@ export default function VisitorsPage() {
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-[minmax(320px,420px)_1fr] min-h-0">
         {/* Left: list */}
         <div className="flex flex-col border-e border-border min-h-0 max-h-[60vh] lg:max-h-none">
+          {selectedId ? (
+            <VisitorDetailPanel
+              workspaceId={wsId}
+              sessionId={selectedId}
+              onBack={() => setSelectedId(null)}
+            />
+          ) : (
+          <>
           <div className="p-3 border-b border-border">
             <div className="relative">
               <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden />
@@ -475,6 +483,8 @@ export default function VisitorsPage() {
               </ul>
             )}
           </div>
+          </>
+          )}
         </div>
 
         {/* Right: map canvas */}
@@ -524,12 +534,6 @@ export default function VisitorsPage() {
           )}
         </div>
       </div>
-
-      <VisitorDrawer
-        workspaceId={wsId}
-        sessionId={selectedId}
-        onClose={() => setSelectedId(null)}
-      />
     </div>
   );
 }

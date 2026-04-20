@@ -7,7 +7,7 @@ import { listVisitorIntelligence, getVisitorIntelligence } from '../services/vis
 import { resolveMapTilesConfig } from '../services/maptiles/index.js';
 import { publishVisitorEvent } from '../services/realtime/publish.js';
 import { getClientIp, hashIp } from '../utils/clientIp.js';
-import { resolveVisitorGeo } from '../services/geo/index.js';
+import { resolveVisitorGeo, getActiveGeoProvider } from '../services/geo/index.js';
 
 export const visitorRouter = Router();
 
@@ -545,6 +545,135 @@ visitorsAdminRouter.get('/:id/page-history', async (req: Request, res: Response)
     res.json({ items: data ?? [] });
   } catch (err) {
     console.error('[visitors.page-history] failed:', err);
+    res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+// ============================================
+// POST /api/visitor-intel/warm-geo
+// ============================================
+/**
+ * Re-enriches recent visitor sessions through the currently configured
+ * geo_enrichment provider. Bounded by:
+ *   - workspace scope (RLS-equivalent via membership check)
+ *   - admin/owner role only
+ *   - lookback window (default 7 days, max 30)
+ *   - row cap (default 100, max 500)
+ *   - per-workspace cooldown (60s) to prevent abuse
+ *
+ * Behavior:
+ *   - Skips rows that already have a fresh visitor_geo_cache hit unless `force=1`.
+ *   - Reuses the existing geo pipeline so cache + TTL + adapter rules apply.
+ *   - Failures per row are isolated; result reports per-source counts.
+ *   - When provider is 'none' or unconfigured, returns a clear status without
+ *     touching anything (centroid fallback continues as-is on read).
+ */
+const warmCooldown = new Map<string, number>(); // workspaceId → last run epoch ms
+
+visitorsAdminRouter.post('/warm-geo', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = (req.body?.workspace_id as string) || (req.query.workspace_id as string) || '';
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
+
+  const auth = await authorizeWorkspaceMember(req, res, config, workspaceId);
+  if (!auth) return;
+
+  // Admin/owner only. Agents and other roles cannot trigger backfill.
+  if (auth.role !== 'owner' && auth.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin role required' });
+  }
+
+  const now = Date.now();
+  const last = warmCooldown.get(workspaceId) ?? 0;
+  if (now - last < 60_000) {
+    return res.status(429).json({
+      error: 'Cooldown active',
+      retry_after_ms: 60_000 - (now - last),
+    });
+  }
+
+  const lookbackDays = Math.min(Math.max(Number(req.body?.lookback_days ?? 7), 1), 30);
+  const limit = Math.min(Math.max(Number(req.body?.limit ?? 100), 1), 500);
+  const force = req.body?.force === true || req.body?.force === '1';
+
+  // Resolve active provider so we can short-circuit cleanly when disabled.
+  const active = await getActiveGeoProvider(config, workspaceId);
+  if (!active.provider_name || active.is_disabled) {
+    return res.json({
+      status: 'noop',
+      reason: active.is_disabled ? 'provider_disabled' : 'provider_unconfigured',
+      provider: active.provider_name,
+      processed: 0, enriched: 0, cached: 0, centroid: 0, skipped: 0, failed: 0,
+    });
+  }
+
+  warmCooldown.set(workspaceId, now);
+  const sb = getServiceClient(config);
+  const since = new Date(now - lookbackDays * 24 * 60 * 60 * 1000).toISOString();
+
+  try {
+    const { data: sessions, error } = await sb
+      .from('visitor_sessions')
+      .select('id, country, city, ip_hash, ip_raw, last_seen_at')
+      .eq('workspace_id', workspaceId)
+      .gte('last_seen_at', since)
+      .order('last_seen_at', { ascending: false })
+      .limit(limit);
+    if (error) throw error;
+
+    const counts = { processed: 0, enriched: 0, cached: 0, centroid: 0, skipped: 0, failed: 0 };
+
+    // Cheap pre-pass: read existing cache rows in one query so we can skip
+    // already-warm hashes without forcing re-enrichment.
+    const hashes = (sessions ?? []).map((s) => s.ip_hash).filter(Boolean) as string[];
+    const cachedHashes = new Set<string>();
+    if (hashes.length && !force) {
+      const { data: cacheRows } = await sb
+        .from('visitor_geo_cache')
+        .select('ip_hash, expires_at')
+        .in('ip_hash', hashes);
+      for (const row of cacheRows ?? []) {
+        if (!row.expires_at || new Date(row.expires_at).getTime() > now) {
+          cachedHashes.add(row.ip_hash as string);
+        }
+      }
+    }
+
+    for (const s of sessions ?? []) {
+      counts.processed++;
+      if (!force && s.ip_hash && cachedHashes.has(s.ip_hash as string)) {
+        counts.skipped++;
+        continue;
+      }
+      try {
+        const result = await resolveVisitorGeo(config, workspaceId, {
+          country: s.country,
+          city: s.city,
+          ip_hash: s.ip_hash,
+          // Provider lookups need raw IP. If the workspace doesn't store it,
+          // we fall through to centroid — which is still a useful warm op.
+          raw_ip: (s as any).ip_raw ?? null,
+        });
+        if (result.source === 'provider') counts.enriched++;
+        else if (result.source === 'cache') counts.cached++;
+        else if (result.source === 'centroid') counts.centroid++;
+        else counts.skipped++;
+      } catch (err) {
+        counts.failed++;
+        console.warn('[visitors.warm-geo] row failed:', (err as Error).message);
+      }
+    }
+
+    res.json({
+      status: 'ok',
+      provider: active.provider_name,
+      lookback_days: lookbackDays,
+      ...counts,
+    });
+  } catch (err) {
+    console.error('[visitors.warm-geo] failed:', err);
+    // Allow retry sooner if the whole batch failed.
+    warmCooldown.delete(workspaceId);
     res.status(500).json({ error: 'Internal error' });
   }
 });

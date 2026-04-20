@@ -264,8 +264,10 @@ export async function getVisitorIntelligence(
     started_at: session.started_at,
     browser: session.browser, device: session.device, os: session.os, referrer: session.referrer,
     geo,
-    ip_display: buildIpDisplay(session.ip_hash),
-    ip_raw: null,
+    ip_display: canViewRaw && session.ip_raw
+      ? session.ip_raw
+      : buildIpDisplay(session.ip_hash),
+    ip_raw: canViewRaw ? (session.ip_raw ?? null) : null,
     can_view_raw_ip: canViewRaw,
     contact,
     conversation: conv ? { id: conv.id, status: conv.status, subject: conv.subject } : null,

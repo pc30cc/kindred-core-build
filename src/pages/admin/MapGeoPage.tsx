@@ -403,6 +403,36 @@ export default function MapGeoPage() {
           <Card>
             <CardHeader><CardTitle>{t('admin.mapGeo.tabs.tiles')}</CardTitle></CardHeader>
             <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label>Tile preset</Label>
+                <Select
+                  value={
+                    TILE_PRESETS.find((p) => p.url === draft.tiles.url_template)?.id ?? 'custom'
+                  }
+                  onValueChange={(id) => {
+                    if (id === 'custom') return;
+                    const p = TILE_PRESETS.find((x) => x.id === id);
+                    if (!p) return;
+                    // Apply URL + attribution + safe maxZoom in one shot.
+                    setField('tiles', {
+                      url_template: p.url,
+                      attribution: p.attribution,
+                      max_zoom: Math.min(draft.tiles.max_zoom || p.maxZoom, p.maxZoom),
+                    });
+                  }}
+                >
+                  <SelectTrigger><SelectValue placeholder="Choose a built-in style…" /></SelectTrigger>
+                  <SelectContent className="max-h-80">
+                    <SelectItem value="custom">Custom (use fields below)</SelectItem>
+                    {TILE_PRESETS.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>{p.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Free, no-API-key tile sources. ☀️ = light/minimal, 🌙 = dark. Picking a preset fills the URL + attribution below — you still need to click <strong>Save settings</strong>.
+                </p>
+              </div>
               <div className="space-y-2"><Label>{t('admin.mapGeo.tiles.urlTemplate')}</Label>
                 <Input
                   value={draft.tiles.url_template}

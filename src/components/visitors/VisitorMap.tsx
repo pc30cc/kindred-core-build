@@ -43,6 +43,12 @@ export function VisitorMap({ config, markers, selectedId, onSelect }: Props) {
   // Stable click handler ref so per-marker listeners don't need rebinding.
   const onSelectRef = useRef(onSelect);
   useEffect(() => { onSelectRef.current = onSelect; }, [onSelect]);
+  // Auto-fit guard: only frame to visitor bounds the first time we see a
+  // non-empty marker set after init. Subsequent realtime patches must not
+  // hijack the user's pan/zoom — operators should stay in control once
+  // they've interacted with the map.
+  const didAutoFitRef = useRef(false);
+  const userInteractedRef = useRef(false);
 
   // Init / teardown
   useEffect(() => {
@@ -79,11 +85,22 @@ export function VisitorMap({ config, markers, selectedId, onSelect }: Props) {
     clusterRef.current = cluster;
     mapRef.current = map;
 
+    // Treat any manual zoom/drag as "user took control" — stop auto-fitting.
+    const markInteracted = () => { userInteractedRef.current = true; };
+    map.on('dragstart', markInteracted);
+    map.on('zoomstart', (e: any) => {
+      // Programmatic fitBounds also fires zoomstart; ignore those by checking
+      // the originalEvent presence (only set for user-driven zooms).
+      if (e?.originalEvent) markInteracted();
+    });
+
     return () => {
       map.remove();
       mapRef.current = null;
       clusterRef.current = null;
       markerIndex.current.clear();
+      didAutoFitRef.current = false;
+      userInteractedRef.current = false;
     };
   }, [
     config?.enabled, config?.tile_url, config?.attribution, config?.max_zoom, config?.min_zoom,
@@ -139,6 +156,20 @@ export function VisitorMap({ config, markers, selectedId, onSelect }: Props) {
     }
     if (toRemove.length) cluster.removeLayers(toRemove);
     if (toAdd.length) cluster.addLayers(toAdd);
+
+    // Auto-fit to visible visitors the first time we have markers, so the
+    // map always opens framed on the actual online crowd rather than the
+    // generic country/world default. After this, the configured default
+    // center is only used when there are zero markers.
+    const map = mapRef.current;
+    if (map && !didAutoFitRef.current && !userInteractedRef.current && markers.length > 0) {
+      const bounds = L.latLngBounds(markers.map((m) => [m.lat, m.lng] as [number, number]));
+      if (bounds.isValid()) {
+        // Cap maxZoom so a single-city cluster doesn't slam to street level.
+        map.fitBounds(bounds, { padding: [40, 40], maxZoom: 8, animate: false });
+        didAutoFitRef.current = true;
+      }
+    }
   }, [markers, selectedId, t]);
 
   // Compute a small status badge so operators can tell at a glance whether

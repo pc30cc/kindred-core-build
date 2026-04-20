@@ -299,26 +299,22 @@ export default function MapGeoPage() {
             <CardContent className="space-y-4">
               <div className="space-y-2"><Label>{t('admin.mapGeo.tiles.urlTemplate')}</Label>
                 <Input
-                  value={settings.tiles.url_template}
-                  onChange={(e) => setSettings({ ...settings, tiles: { ...settings.tiles, url_template: e.target.value } })}
-                  onBlur={(e) => save({ tiles: { ...settings.tiles, url_template: e.target.value } })}
+                  value={draft.tiles.url_template}
+                  onChange={(e) => setField('tiles', { url_template: e.target.value })}
                 />
                 <p className="text-xs text-muted-foreground">{t('admin.mapGeo.tiles.urlTemplateHint')}</p></div>
               <div className="space-y-2"><Label>{t('admin.mapGeo.tiles.attribution')}</Label>
                 <Input
-                  value={settings.tiles.attribution}
-                  onChange={(e) => setSettings({ ...settings, tiles: { ...settings.tiles, attribution: e.target.value } })}
-                  onBlur={(e) => save({ tiles: { ...settings.tiles, attribution: e.target.value } })}
+                  value={draft.tiles.attribution}
+                  onChange={(e) => setField('tiles', { attribution: e.target.value })}
                 /></div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2"><Label>{t('admin.mapGeo.tiles.minZoom')}</Label>
-                  <Input type="number" value={settings.tiles.min_zoom}
-                    onChange={(e) => setSettings({ ...settings, tiles: { ...settings.tiles, min_zoom: Number(e.target.value) } })}
-                    onBlur={(e) => save({ tiles: { ...settings.tiles, min_zoom: Number(e.target.value) } })} /></div>
+                  <Input type="number" value={draft.tiles.min_zoom}
+                    onChange={(e) => setField('tiles', { min_zoom: Number(e.target.value) })} /></div>
                 <div className="space-y-2"><Label>{t('admin.mapGeo.tiles.maxZoom')}</Label>
-                  <Input type="number" value={settings.tiles.max_zoom}
-                    onChange={(e) => setSettings({ ...settings, tiles: { ...settings.tiles, max_zoom: Number(e.target.value) } })}
-                    onBlur={(e) => save({ tiles: { ...settings.tiles, max_zoom: Number(e.target.value) } })} /></div>
+                  <Input type="number" value={draft.tiles.max_zoom}
+                    onChange={(e) => setField('tiles', { max_zoom: Number(e.target.value) })} /></div>
               </div>
               {/* Display + initial framing */}
               <div className="border-t pt-4 space-y-4">
@@ -332,39 +328,35 @@ export default function MapGeoPage() {
                     <p className="text-xs text-muted-foreground">When on, the map fills the available viewport height. When off, uses the fixed height below.</p>
                   </div>
                   <Switch
-                    checked={settings.display.fill_viewport}
-                    onCheckedChange={(v) => { setSettings({ ...settings, display: { ...settings.display, fill_viewport: v } }); save({ display: { ...settings.display, fill_viewport: v } }); }}
+                    checked={draft.display.fill_viewport}
+                    onCheckedChange={(v) => setField('display', { fill_viewport: v })}
                   />
                 </div>
                 <div className="space-y-2">
                   <Label>Map height (px)</Label>
                   <Input
                     type="number" min={240} max={2000}
-                    value={settings.display.height_px}
-                    onChange={(e) => setSettings({ ...settings, display: { ...settings.display, height_px: Number(e.target.value) } })}
-                    onBlur={(e) => save({ display: { ...settings.display, height_px: Number(e.target.value) } })}
-                    disabled={settings.display.fill_viewport}
+                    value={draft.display.height_px}
+                    onChange={(e) => setField('display', { height_px: Number(e.target.value) })}
+                    disabled={draft.display.fill_viewport}
                   />
                   <p className="text-xs text-muted-foreground">Used when "Fill viewport" is off. Recommended: 480–800.</p>
                 </div>
                 <div className="grid grid-cols-3 gap-4">
                   <div className="space-y-2">
                     <Label>Default center lat</Label>
-                    <Input type="number" step="0.0001" value={settings.behavior.default_center_lat}
-                      onChange={(e) => setSettings({ ...settings, behavior: { ...settings.behavior, default_center_lat: Number(e.target.value) } })}
-                      onBlur={(e) => save({ behavior: { ...settings.behavior, default_center_lat: Number(e.target.value) } })} />
+                    <Input type="number" step="0.0001" value={draft.behavior.default_center_lat}
+                      onChange={(e) => setField('behavior', { default_center_lat: Number(e.target.value) })} />
                   </div>
                   <div className="space-y-2">
                     <Label>Default center lng</Label>
-                    <Input type="number" step="0.0001" value={settings.behavior.default_center_lng}
-                      onChange={(e) => setSettings({ ...settings, behavior: { ...settings.behavior, default_center_lng: Number(e.target.value) } })}
-                      onBlur={(e) => save({ behavior: { ...settings.behavior, default_center_lng: Number(e.target.value) } })} />
+                    <Input type="number" step="0.0001" value={draft.behavior.default_center_lng}
+                      onChange={(e) => setField('behavior', { default_center_lng: Number(e.target.value) })} />
                   </div>
                   <div className="space-y-2">
                     <Label>Default zoom</Label>
-                    <Input type="number" min={0} max={22} value={settings.behavior.default_zoom}
-                      onChange={(e) => setSettings({ ...settings, behavior: { ...settings.behavior, default_zoom: Number(e.target.value) } })}
-                      onBlur={(e) => save({ behavior: { ...settings.behavior, default_zoom: Number(e.target.value) } })} />
+                    <Input type="number" min={0} max={22} value={draft.behavior.default_zoom}
+                      onChange={(e) => setField('behavior', { default_zoom: Number(e.target.value) })} />
                   </div>
                 </div>
                 <div className="space-y-2">
@@ -382,40 +374,32 @@ export default function MapGeoPage() {
                         type="button"
                         size="sm"
                         variant="outline"
-                        onClick={() => {
-                          const next = {
-                            ...settings,
-                            behavior: {
-                              ...settings.behavior,
-                              default_center_mode: 'fixed' as const,
-                              default_center_lat: p.lat,
-                              default_center_lng: p.lng,
-                              default_zoom: p.zoom,
-                            },
-                          };
-                          setSettings(next);
-                          save({ behavior: next.behavior });
-                        }}
+                        onClick={() => setField('behavior', {
+                          default_center_mode: 'fixed',
+                          default_center_lat: p.lat,
+                          default_center_lng: p.lng,
+                          default_zoom: p.zoom,
+                        })}
                       >
                         {p.label}
                       </Button>
                     ))}
                   </div>
-                  <p className="text-xs text-muted-foreground">Click a preset to set center + zoom. The preview above and the Visitors page will use it as the initial view.</p>
+                  <p className="text-xs text-muted-foreground">Click a preset to set center + zoom in the draft. Don't forget to click Save settings.</p>
                 </div>
                 <div className="space-y-2">
                   <Label>Live preview</Label>
                   <MapTilesPreview
-                    tileUrl={settings.tiles.url_template}
-                    attribution={settings.tiles.attribution}
-                    minZoom={settings.tiles.min_zoom}
-                    maxZoom={settings.tiles.max_zoom}
-                    centerLat={settings.behavior.default_center_lat}
-                    centerLng={settings.behavior.default_center_lng}
-                    zoom={settings.behavior.default_zoom}
-                    heightPx={settings.display.fill_viewport ? 480 : settings.display.height_px}
+                    tileUrl={draft.tiles.url_template}
+                    attribution={draft.tiles.attribution}
+                    minZoom={draft.tiles.min_zoom}
+                    maxZoom={draft.tiles.max_zoom}
+                    centerLat={draft.behavior.default_center_lat}
+                    centerLng={draft.behavior.default_center_lng}
+                    zoom={draft.behavior.default_zoom}
+                    heightPx={draft.display.fill_viewport ? 480 : draft.display.height_px}
                   />
-                  <p className="text-xs text-muted-foreground">Reflects the values above instantly. Tiles load from the URL you entered — verify the provider is reachable.</p>
+                  <p className="text-xs text-muted-foreground">Reflects the draft values instantly. Click Save settings to persist.</p>
                 </div>
               </div>
               {health?.tiles && (
@@ -429,6 +413,7 @@ export default function MapGeoPage() {
                   </Badge>
                 </div>
               )}
+              <SectionFooter sections={['tiles', 'display', 'behavior']} />
             </CardContent>
           </Card>
         </TabsContent>
@@ -439,16 +424,17 @@ export default function MapGeoPage() {
             <CardHeader><CardTitle>{t('admin.mapGeo.tabs.behavior')}</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between"><Label>{t('admin.mapGeo.behavior.showOnlyValidCoords')}</Label>
-                <Switch checked={settings.behavior.show_only_valid_coords} onCheckedChange={(v) => save({ behavior: { ...settings.behavior, show_only_valid_coords: v } })} /></div>
+                <Switch checked={draft.behavior.show_only_valid_coords} onCheckedChange={(v) => setField('behavior', { show_only_valid_coords: v })} /></div>
               <div className="flex items-center justify-between"><Label>{t('admin.mapGeo.behavior.ignoreFallbackOnly')}</Label>
-                <Switch checked={settings.behavior.ignore_fallback_only} onCheckedChange={(v) => save({ behavior: { ...settings.behavior, ignore_fallback_only: v } })} /></div>
+                <Switch checked={draft.behavior.ignore_fallback_only} onCheckedChange={(v) => setField('behavior', { ignore_fallback_only: v })} /></div>
               <div className="flex items-center justify-between"><Label>{t('admin.mapGeo.behavior.includeGeoLabels')}</Label>
-                <Switch checked={settings.behavior.include_geo_labels} onCheckedChange={(v) => save({ behavior: { ...settings.behavior, include_geo_labels: v } })} /></div>
+                <Switch checked={draft.behavior.include_geo_labels} onCheckedChange={(v) => setField('behavior', { include_geo_labels: v })} /></div>
               <div className="flex items-center justify-between"><Label>{t('admin.mapGeo.behavior.debugMetadata')}</Label>
-                <Switch checked={settings.behavior.debug_metadata} onCheckedChange={(v) => save({ behavior: { ...settings.behavior, debug_metadata: v } })} /></div>
+                <Switch checked={draft.behavior.debug_metadata} onCheckedChange={(v) => setField('behavior', { debug_metadata: v })} /></div>
               <div className="space-y-2"><Label>{t('admin.mapGeo.behavior.defaultZoom')}</Label>
-                <Input type="number" defaultValue={settings.behavior.default_zoom}
-                  onBlur={(e) => save({ behavior: { ...settings.behavior, default_zoom: Number(e.target.value) } })} /></div>
+                <Input type="number" value={draft.behavior.default_zoom}
+                  onChange={(e) => setField('behavior', { default_zoom: Number(e.target.value) })} /></div>
+              <SectionFooter sections={['behavior']} />
             </CardContent>
           </Card>
         </TabsContent>

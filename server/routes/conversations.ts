@@ -55,6 +55,16 @@ const sendMessageSchema = z.object({
 );
 
 /**
+ * Schema for starting a proactive conversation from the Visitors page.
+ * The operator targets a visitor_session; we either reuse the most-recent
+ * open conversation tied to that session, or create a new one.
+ */
+const startFromVisitorSchema = z.object({
+  workspace_id: z.string().uuid(),
+  visitor_session_id: z.string().uuid(),
+});
+
+/**
  * Authenticate the request as a workspace member.
  * Returns { userId, workspaceId } on success, sends 401/403 on failure.
  */

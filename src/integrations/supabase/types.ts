@@ -2033,17 +2033,6 @@ export type Database = {
           country: string | null
           current_page: string | null
           device: string | null
-          geo_accuracy_level: string | null
-          geo_city: string | null
-          geo_country_code: string | null
-          geo_country_name: string | null
-          geo_is_fallback: boolean | null
-          geo_latitude: number | null
-          geo_longitude: number | null
-          geo_region: string | null
-          geo_resolved_at: string | null
-          geo_source_provider: string | null
-          geo_timezone: string | null
           id: string
           identity_state: string
           ip_hash: string | null
@@ -2063,17 +2052,6 @@ export type Database = {
           country?: string | null
           current_page?: string | null
           device?: string | null
-          geo_accuracy_level?: string | null
-          geo_city?: string | null
-          geo_country_code?: string | null
-          geo_country_name?: string | null
-          geo_is_fallback?: boolean | null
-          geo_latitude?: number | null
-          geo_longitude?: number | null
-          geo_region?: string | null
-          geo_resolved_at?: string | null
-          geo_source_provider?: string | null
-          geo_timezone?: string | null
           id?: string
           identity_state?: string
           ip_hash?: string | null
@@ -2093,17 +2071,6 @@ export type Database = {
           country?: string | null
           current_page?: string | null
           device?: string | null
-          geo_accuracy_level?: string | null
-          geo_city?: string | null
-          geo_country_code?: string | null
-          geo_country_name?: string | null
-          geo_is_fallback?: boolean | null
-          geo_latitude?: number | null
-          geo_longitude?: number | null
-          geo_region?: string | null
-          geo_resolved_at?: string | null
-          geo_source_provider?: string | null
-          geo_timezone?: string | null
           id?: string
           identity_state?: string
           ip_hash?: string | null

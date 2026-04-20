@@ -28,13 +28,6 @@ export interface GeoResult {
   city: string | null;
   latitude: number | null;
   longitude: number | null;
-  /** Best precision the resolver could achieve. */
-  accuracy_level: 'country' | 'region' | 'city' | null;
-  /** True when only centroid/session metadata was available. */
-  is_fallback: boolean;
-  /** Provider name that produced the coords (or 'centroid' / 'cache'). */
-  source_provider: string | null;
-  timezone: string | null;
   /**
    * Resolution source:
    *   - cache    : from visitor_geo_cache (provider-warmed, valid TTL)
@@ -50,121 +43,6 @@ export interface GeoResult {
 interface GeoProviderConfig {
   provider_name: string;
   config: Record<string, unknown> | null;
-}
-
-/**
- * Read the platform-level map_geo_settings runtime config (cached 30s in
- * process). Single source of truth for the strict-priority pipeline,
- * MaxMind defaults, and centroid-fallback policy. Workspaces inherit
- * platform settings today; per-workspace overrides can be layered later
- * without touching this resolver.
- */
-let _mapGeoCache: { value: any; at: number } | null = null;
-const MAP_GEO_TTL_MS = 30_000;
-
-export interface MapGeoSettings {
-  enabled: boolean;
-  default_provider: string;
-  preferred_precision: 'country' | 'region' | 'city';
-  allow_centroid_fallback: boolean;
-  min_accuracy_for_map: 'country' | 'region' | 'city';
-  store_raw_ip: boolean;
-  raw_ip_retention_days: number;
-  auto_enrich_on_session_create: boolean;
-  maxmind_local: {
-    enabled: boolean;
-    db_path: string;
-    auto_reload: boolean;
-    cache_ttl_seconds: number;
-  };
-  map: {
-    show_only_valid_coords: boolean;
-    ignore_fallback_only_points: boolean;
-    default_center_mode: 'auto' | 'manual';
-    default_lat: number;
-    default_lng: number;
-    default_zoom: number;
-    include_geo_labels: boolean;
-    debug_mode: boolean;
-  };
-  jobs: {
-    warm_lookback_days: number;
-    warm_limit: number;
-    warm_force_reenrich: boolean;
-  };
-}
-
-const DEFAULT_MAP_GEO: MapGeoSettings = {
-  enabled: true,
-  default_provider: 'maxmind_local',
-  preferred_precision: 'city',
-  allow_centroid_fallback: true,
-  min_accuracy_for_map: 'country',
-  store_raw_ip: false,
-  raw_ip_retention_days: 30,
-  auto_enrich_on_session_create: true,
-  maxmind_local: {
-    enabled: true,
-    db_path: '/app/data/GeoLite2-City.mmdb',
-    auto_reload: true,
-    cache_ttl_seconds: 86400,
-  },
-  map: {
-    show_only_valid_coords: true,
-    ignore_fallback_only_points: false,
-    default_center_mode: 'auto',
-    default_lat: 20,
-    default_lng: 0,
-    default_zoom: 2,
-    include_geo_labels: true,
-    debug_mode: false,
-  },
-  jobs: {
-    warm_lookback_days: 7,
-    warm_limit: 500,
-    warm_force_reenrich: false,
-  },
-};
-
-export async function getMapGeoSettings(config: ServerConfig): Promise<MapGeoSettings> {
-  const now = Date.now();
-  if (_mapGeoCache && now - _mapGeoCache.at < MAP_GEO_TTL_MS) return _mapGeoCache.value;
-  const sb = getServiceClient(config);
-  const { data } = await sb
-    .from('app_runtime_config')
-    .select('value')
-    .eq('key', 'map_geo_settings')
-    .maybeSingle();
-  const merged: MapGeoSettings = {
-    ...DEFAULT_MAP_GEO,
-    ...((data?.value as Partial<MapGeoSettings>) ?? {}),
-    maxmind_local: { ...DEFAULT_MAP_GEO.maxmind_local, ...((data?.value as any)?.maxmind_local ?? {}) },
-    map: { ...DEFAULT_MAP_GEO.map, ...((data?.value as any)?.map ?? {}) },
-    jobs: { ...DEFAULT_MAP_GEO.jobs, ...((data?.value as any)?.jobs ?? {}) },
-  };
-  _mapGeoCache = { value: merged, at: now };
-  return merged;
-}
-
-/** Force-clear the in-process cache after settings are written. */
-export function invalidateMapGeoSettingsCache(): void {
-  _mapGeoCache = null;
-}
-
-/** Compute accuracy level from a normalized provider/centroid result. */
-function computeAccuracy(r: { city: string | null; region: string | null; country_code: string | null }): 'country' | 'region' | 'city' | null {
-  if (r.city) return 'city';
-  if (r.region) return 'region';
-  if (r.country_code) return 'country';
-  return null;
-}
-
-const PRECISION_RANK: Record<'country' | 'region' | 'city', number> = { country: 1, region: 2, city: 3 };
-
-/** Returns true when actual >= required precision. */
-function meetsPrecision(actual: 'country' | 'region' | 'city' | null, required: 'country' | 'region' | 'city'): boolean {
-  if (!actual) return false;
-  return PRECISION_RANK[actual] >= PRECISION_RANK[required];
 }
 
 /** Resolve which geo_enrichment provider is active for this workspace. */
@@ -241,36 +119,6 @@ async function writeCache(
   );
 }
 
-/**
- * Persist normalized geo cache columns onto a visitor_sessions row.
- * This is the read-path optimization: map/list APIs query the session
- * directly with no JOIN and no per-row resolver call.
- */
-export async function persistSessionGeo(
-  config: ServerConfig,
-  sessionId: string,
-  result: GeoResult,
-): Promise<void> {
-  if (!sessionId) return;
-  const sb = getServiceClient(config);
-  await sb
-    .from('visitor_sessions')
-    .update({
-      geo_country_code: result.country_code,
-      geo_country_name: result.country,
-      geo_region: result.region,
-      geo_city: result.city,
-      geo_latitude: result.latitude,
-      geo_longitude: result.longitude,
-      geo_timezone: result.timezone,
-      geo_accuracy_level: result.accuracy_level,
-      geo_source_provider: result.source_provider,
-      geo_is_fallback: result.is_fallback,
-      geo_resolved_at: new Date().toISOString(),
-    })
-    .eq('id', sessionId);
-}
-
 // ────────────────────────────────────────────────────────────────────────────
 // Provider adapters — each takes a raw IP and returns a partial GeoResult.
 // All adapters fail-soft: they return null on any error so callers fall back
@@ -278,16 +126,7 @@ export async function persistSessionGeo(
 // the outbound HTTP request to the configured provider.
 // ────────────────────────────────────────────────────────────────────────────
 
-type AdapterResult = {
-  country: string | null;
-  country_code: string | null;
-  region: string | null;
-  city: string | null;
-  latitude: number | null;
-  longitude: number | null;
-  timezone: string | null;
-};
-type Adapter = (ip: string, cfg: Record<string, unknown> | null) => Promise<AdapterResult | null>;
+type Adapter = (ip: string, cfg: Record<string, unknown> | null) => Promise<Omit<GeoResult, 'source'> | null>;
 
 const ipapiAdapter: Adapter = async (ip, cfg) => {
   const apiKey = (cfg?.api_key as string) || '';
@@ -303,7 +142,6 @@ const ipapiAdapter: Adapter = async (ip, cfg) => {
     city: j.city ?? null,
     latitude: typeof j.latitude === 'number' ? j.latitude : null,
     longitude: typeof j.longitude === 'number' ? j.longitude : null,
-    timezone: j.timezone ?? null,
   };
 };
 
@@ -327,7 +165,6 @@ const ipinfoAdapter: Adapter = async (ip, cfg) => {
     city: j.city ?? null,
     latitude: lat,
     longitude: lng,
-    timezone: j.timezone ?? null,
   };
 };
 
@@ -345,7 +182,6 @@ const ipgeolocationAdapter: Adapter = async (ip, cfg) => {
     city: j.city ?? null,
     latitude: j.latitude ? Number(j.latitude) : null,
     longitude: j.longitude ? Number(j.longitude) : null,
-    timezone: j.time_zone?.name ?? null,
   };
 };
 
@@ -365,7 +201,6 @@ const maxmindAdapter: Adapter = async (ip, cfg) => {
     city: j.city?.names?.en ?? null,
     latitude: j.location?.latitude ?? null,
     longitude: j.location?.longitude ?? null,
-    timezone: j.location?.time_zone ?? null,
   };
 };
 
@@ -373,9 +208,7 @@ const maxmindAdapter: Adapter = async (ip, cfg) => {
  * MaxMind local MMDB adapter — fully self-hosted, no external calls.
  * Reads from a GeoLite2/GeoIP2 .mmdb file mounted on the server filesystem.
  * Uses an in-process LRU of opened DB readers keyed by path so we don't
- * reopen the file on every request. When no explicit `db_path` is set in
- * the provider config, we fall back to the platform map_geo_settings DB
- * path so admins can manage the location centrally.
+ * reopen the file on every request.
  */
 const maxmindLocalAdapter: Adapter = async (ip, cfg) => {
   const dbPath = (cfg?.db_path as string) || '';
@@ -412,109 +245,47 @@ export async function resolveVisitorGeo(
   },
 ): Promise<GeoResult> {
   const ipHash = session.ip_hash ?? '';
-  const settings = await getMapGeoSettings(config);
-  const explicitProvider = await resolveProviderConfig(config, workspaceId);
-  const externalDisabled = explicitProvider?.provider_name === 'none' || !settings.enabled;
+  const provider = await resolveProviderConfig(config, workspaceId);
+  const externalDisabled = provider?.provider_name === 'none';
 
-  // 1) Cache (ip_hash keyed) — fast path for repeated IPs.
+  // 1. Cache
   if (ipHash) {
     const cached = await readCache(config, ipHash);
-    if (cached) {
-      const accuracy = computeAccuracy(cached);
-      return {
-        ...cached,
-        timezone: null,
-        accuracy_level: accuracy,
-        is_fallback: false,
-        source_provider: 'cache',
-        source: 'cache',
-      };
-    }
+    if (cached) return cached;
   }
 
-  // 2) Provider chain — STRICT priority:
-  //    a) explicit workspace/platform provider config (if active)
-  //    b) maxmind_local from map_geo_settings (default, self-hosted)
-  // Provider lookups require a raw IP. If we don't have one (read path),
-  // we skip directly to centroid.
+  // 2. Configured provider — only when raw IP is available (ingestion path).
   if (session.raw_ip && !externalDisabled) {
-    const chain: Array<{ name: string; config: Record<string, unknown> | null }> = [];
-    if (explicitProvider && ADAPTERS[explicitProvider.provider_name]) {
-      chain.push({ name: explicitProvider.provider_name, config: explicitProvider.config });
-    }
-    if (settings.maxmind_local.enabled
-        && (!explicitProvider || explicitProvider.provider_name !== 'maxmind_local')) {
-      chain.push({
-        name: 'maxmind_local',
-        config: {
-          db_path: settings.maxmind_local.db_path,
-          auto_reload: settings.maxmind_local.auto_reload,
-        },
-      });
-    }
-
-    for (const step of chain) {
+    if (provider && ADAPTERS[provider.provider_name]) {
       try {
-        const r = await ADAPTERS[step.name](session.raw_ip, step.config);
-        if (!r) continue;
-        const accuracy = computeAccuracy(r);
-        // Honor preferred_precision: keep walking the chain when this
-        // adapter can't reach the requested precision (city > region > country).
-        if (!meetsPrecision(accuracy, settings.preferred_precision) && chain.length > 1) {
-          // Still keep this as a candidate but try the next provider too.
-          // For simplicity: if it's the last step, accept what we have.
+        const result = await ADAPTERS[provider.provider_name](session.raw_ip, provider.config);
+        if (result && ipHash) {
+          await writeCache(config, ipHash, result, provider.provider_name);
         }
-        if (ipHash) {
-          await writeCache(config, ipHash, {
-            country: r.country, country_code: r.country_code,
-            region: r.region, city: r.city,
-            latitude: r.latitude, longitude: r.longitude,
-            timezone: r.timezone,
-            accuracy_level: accuracy, is_fallback: false, source_provider: step.name,
-          } as any, step.name);
-        }
-        return {
-          country: r.country,
-          country_code: r.country_code,
-          region: r.region,
-          city: r.city,
-          latitude: r.latitude,
-          longitude: r.longitude,
-          timezone: r.timezone,
-          accuracy_level: accuracy,
-          is_fallback: false,
-          source_provider: step.name,
-          source: 'provider',
-        };
+        if (result) return { ...result, source: 'provider' };
       } catch (err) {
-        console.warn(`[geo] ${step.name} failed:`, (err as Error).message);
+        console.warn('[geo] provider failed, falling back:', (err as Error).message);
       }
     }
   }
 
-  // 3) Centroid fallback — LAST RESORT and only when allowed.
-  if (settings.allow_centroid_fallback) {
-    const centroid = lookupCentroid(session.country);
-    if (centroid) {
-      const code = session.country && session.country.length === 2
-        ? session.country.toUpperCase() : null;
-      return {
-        country: session.country ?? null,
-        country_code: code,
-        region: null,
-        city: session.city ?? null,
-        latitude: centroid.lat,
-        longitude: centroid.lng,
-        timezone: null,
-        accuracy_level: 'country',
-        is_fallback: true,
-        source_provider: 'centroid',
-        source: 'centroid',
-      };
-    }
+  // 3. Country centroid fallback
+  const centroid = lookupCentroid(session.country);
+  if (centroid) {
+    return {
+      country: session.country ?? null,
+      country_code: session.country && session.country.length === 2 ? session.country.toUpperCase() : null,
+      region: null,
+      city: session.city ?? null,
+      latitude: centroid.lat,
+      longitude: centroid.lng,
+      source: 'centroid',
+    };
   }
 
-  // 4) Bare session metadata — no coords.
+  // 4. Whatever the session gave us (no coords).
+  // When external enrichment is explicitly disabled and we still have no
+  // coords, surface 'disabled' so the UI can label it correctly.
   return {
     country: session.country ?? null,
     country_code: null,
@@ -522,11 +293,11 @@ export async function resolveVisitorGeo(
     city: session.city ?? null,
     latitude: null,
     longitude: null,
-    timezone: null,
-    accuracy_level: session.country ? 'country' : null,
-    is_fallback: true,
-    source_provider: null,
-    source: session.country ? 'session' : (externalDisabled ? 'disabled' : 'none'),
+    source: session.country
+      ? 'session'
+      : externalDisabled
+        ? 'disabled'
+        : 'none',
   };
 }
 
@@ -540,15 +311,9 @@ export async function getActiveGeoProvider(
   workspaceId: string | null,
 ): Promise<{ provider_name: string | null; is_disabled: boolean }> {
   const cfg = await resolveProviderConfig(config, workspaceId);
-  const settings = await getMapGeoSettings(config);
-  if (cfg) {
-    return { provider_name: cfg.provider_name, is_disabled: cfg.provider_name === 'none' || !settings.enabled };
-  }
-  // Fall back to platform map_geo_settings — maxmind_local is implicit
-  // when enabled. This is what makes the strict-priority pipeline work
-  // out of the box without an explicit provider_configs row.
-  if (settings.enabled && settings.maxmind_local.enabled) {
-    return { provider_name: 'maxmind_local', is_disabled: false };
-  }
-  return { provider_name: null, is_disabled: !settings.enabled };
+  if (!cfg) return { provider_name: null, is_disabled: false };
+  return {
+    provider_name: cfg.provider_name,
+    is_disabled: cfg.provider_name === 'none',
+  };
 }

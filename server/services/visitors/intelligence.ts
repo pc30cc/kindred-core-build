@@ -18,37 +18,7 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
-import { resolveVisitorGeo, type GeoResult, getMapGeoSettings } from '../geo/index.js';
-
-/**
- * Build a GeoResult from the normalized geo_* columns persisted on
- * visitor_sessions. This is the FAST READ PATH — no provider call, no
- * JOIN, no centroid recomputation. The columns were populated at ingest
- * (or by the warm-geo job) so we trust them as the source of truth.
- *
- * Returns null when the session has no usable geo data (caller may then
- * fall back to the live resolver, but that path now NEVER hits a
- * provider since raw IP is unavailable on read).
- */
-function geoFromSession(s: any): GeoResult | null {
-  const hasCoords = typeof s.geo_latitude === 'number' && typeof s.geo_longitude === 'number';
-  const hasAny = hasCoords || s.geo_country_code || s.country;
-  if (!hasAny) return null;
-  const accuracy = (s.geo_accuracy_level as 'country' | 'region' | 'city' | null) ?? null;
-  return {
-    country: s.geo_country_name ?? s.country ?? null,
-    country_code: s.geo_country_code ?? null,
-    region: s.geo_region ?? null,
-    city: s.geo_city ?? s.city ?? null,
-    latitude: hasCoords ? s.geo_latitude : null,
-    longitude: hasCoords ? s.geo_longitude : null,
-    timezone: s.geo_timezone ?? null,
-    accuracy_level: accuracy,
-    is_fallback: s.geo_is_fallback === true,
-    source_provider: s.geo_source_provider ?? null,
-    source: s.geo_source_provider === 'centroid' ? 'centroid' : 'cache',
-  };
-}
+import { resolveVisitorGeo, type GeoResult } from '../geo/index.js';
 
 export interface VisitorIntelligenceItem {
   // Identity
@@ -137,10 +107,7 @@ export async function listVisitorIntelligence(
       id, status, current_page, updated_at, visitor_session_id, workspace_id,
       visitor_sessions!inner (
         id, visitor_id, workspace_id, current_page, referrer, browser, device, os,
-        country, city, ip_hash, ip_raw, started_at, last_seen_at,
-        geo_country_code, geo_country_name, geo_region, geo_city,
-        geo_latitude, geo_longitude, geo_timezone,
-        geo_accuracy_level, geo_source_provider, geo_is_fallback, geo_resolved_at
+        country, city, ip_hash, ip_raw, started_at, last_seen_at
       )
     `)
     .eq('workspace_id', workspaceId)
@@ -185,11 +152,7 @@ export async function listVisitorIntelligence(
 
   for (const r of rows ?? []) {
     const session = r.visitor_sessions as any;
-    // Read path: prefer cached normalized geo on the session row.
-    // Resolver only runs as a last resort, and even then it has no raw IP
-    // so it's bounded to cache + centroid (which is now correctly the
-    // last fallback per map_geo_settings).
-    const geo = geoFromSession(session) ?? await resolveVisitorGeo(config, workspaceId, {
+    const geo = await resolveVisitorGeo(config, workspaceId, {
       country: session.country, city: session.city, ip_hash: session.ip_hash,
     });
     const conv = convsBySession.get(session.id) ?? null;
@@ -238,10 +201,7 @@ export async function getVisitorIntelligence(
       id, status, current_page, updated_at, visitor_session_id, workspace_id,
       visitor_sessions!inner (
         id, visitor_id, workspace_id, current_page, referrer, browser, device, os,
-        country, city, ip_hash, ip_raw, started_at, last_seen_at,
-        geo_country_code, geo_country_name, geo_region, geo_city,
-        geo_latitude, geo_longitude, geo_timezone,
-        geo_accuracy_level, geo_source_provider, geo_is_fallback, geo_resolved_at
+        country, city, ip_hash, ip_raw, started_at, last_seen_at
       )
     `)
     .eq('workspace_id', workspaceId)
@@ -256,7 +216,7 @@ export async function getVisitorIntelligence(
       .eq('id', sessionId)
       .maybeSingle();
     if (!session) return null;
-    const geo = geoFromSession(session) ?? await resolveVisitorGeo(config, workspaceId, {
+    const geo = await resolveVisitorGeo(config, workspaceId, {
       country: session.country, city: session.city, ip_hash: session.ip_hash,
     });
     return {
@@ -275,7 +235,7 @@ export async function getVisitorIntelligence(
   }
 
   const session = presence.visitor_sessions as any;
-  const geo = geoFromSession(session) ?? await resolveVisitorGeo(config, workspaceId, {
+  const geo = await resolveVisitorGeo(config, workspaceId, {
     country: session.country, city: session.city, ip_hash: session.ip_hash,
   });
   const { data: conv } = await sb

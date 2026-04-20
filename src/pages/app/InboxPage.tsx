@@ -671,64 +671,87 @@ export default function InboxPage() {
                   key={conv.id}
                   onClick={() => { setSelectedId(conv.id); setShowMobileList(false); }}
                   className={cn(
-                    'group/item px-3 py-3.5 cursor-pointer transition-all border-b border-border/30',
+                    'group/item relative px-3 py-3 cursor-pointer transition-colors border-b border-border/30',
                     isActive
-                      ? 'bg-primary/[0.08] border-s-2 border-s-primary'
+                      ? 'bg-primary/[0.07]'
                       : hasUnread
-                        ? 'bg-primary/[0.03] hover:bg-primary/[0.06]'
-                        : 'hover:bg-secondary/50'
+                        ? 'bg-card hover:bg-secondary/40'
+                        : 'hover:bg-secondary/40'
                   )}
                   dir={dir}
                 >
+                  {/* Active indicator rail (LTR/RTL aware) */}
+                  {isActive && (
+                    <div className={cn(
+                      'absolute top-0 bottom-0 w-[3px] bg-primary rounded-full',
+                      dir === 'rtl' ? 'right-0' : 'left-0',
+                    )} />
+                  )}
                   <div className="flex items-start gap-3">
                     {/* Avatar */}
                     <div className="relative shrink-0">
                       <div className={cn(
-                        'w-11 h-11 rounded-full flex items-center justify-center text-sm font-semibold shadow-sm',
-                        isActive ? 'bg-primary text-primary-foreground' : 'bg-primary/10 text-primary'
+                        'w-10 h-10 rounded-full flex items-center justify-center text-[13px] font-semibold overflow-hidden ring-1',
+                        isActive
+                          ? 'bg-primary text-primary-foreground ring-primary/30'
+                          : 'bg-primary/10 text-primary ring-primary/15'
                       )}>
                         {conv.contacts?.avatar_url ? (
-                          <img src={conv.contacts.avatar_url} className="w-11 h-11 rounded-full object-cover" alt="" />
+                          <img src={conv.contacts.avatar_url} className="w-full h-full object-cover" alt="" />
                         ) : (
                           getInitials(conv.contacts?.name, conv.contacts?.email)
                         )}
                       </div>
-                      {hasUnread && (
-                        <div className="absolute -top-0.5 -end-0.5 w-3 h-3 rounded-full bg-primary border-2 border-card animate-pulse" />
-                      )}
+                      {/* Status dot — replaces noisy "unread" pulse */}
+                      <div className={cn(
+                        'absolute -bottom-0.5 -end-0.5 w-3 h-3 rounded-full border-2 border-card',
+                        statusDots[conv.status ?? 'open'],
+                      )} />
                     </div>
 
                     {/* Content */}
                     <div className={cn('flex-1 min-w-0', dir === 'rtl' ? 'text-right' : 'text-left')}>
                       {/* Row 1: Name + time */}
-                      <div className="flex items-center justify-between mb-0.5">
-                        <span className={cn('text-[13px] truncate', hasUnread ? 'font-semibold text-foreground' : 'font-medium text-foreground/80')}>
+                      <div className="flex items-baseline justify-between gap-2 mb-0.5">
+                        <span className={cn(
+                          'text-[13px] truncate leading-tight',
+                          hasUnread ? 'font-semibold text-foreground' : 'font-medium text-foreground/85',
+                        )}>
                           {name}
                         </span>
                         <span className={cn(
-                          'text-[11px] shrink-0',
-                          dir === 'rtl' ? 'mr-2' : 'ml-2',
-                          hasUnread ? 'text-primary font-semibold' : 'text-muted-foreground'
+                          'text-[10.5px] shrink-0 tabular-nums',
+                          hasUnread ? 'text-primary font-semibold' : 'text-muted-foreground',
                         )} dir="ltr">
                           {conv.updated_at ? timeAgo(conv.updated_at) : ''}
                         </span>
                       </div>
-                      {/* Row 2: Subject */}
-                      <p className={cn('text-[12px] truncate mb-1.5 leading-relaxed', hasUnread ? 'text-foreground font-medium' : 'text-muted-foreground')}>
-                        {conv.subject || t('inbox.noMessages')}
+                      {/* Row 2: Subject / preview */}
+                      <p className={cn(
+                        'text-[12px] truncate mb-1.5 leading-snug',
+                        hasUnread ? 'text-foreground/90' : 'text-muted-foreground',
+                      )}>
+                        {conv.subject || (t('inbox.noMessages') || 'No messages yet')}
                       </p>
-                      {/* Row 3: Status badges */}
+                      {/* Row 3: Status + meta */}
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className={cn('text-[10px] px-2 py-0.5 rounded-full font-medium border', statusColors[conv.status ?? 'open'])}>
+                        <span className={cn(
+                          'inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md font-medium',
+                          'bg-secondary/60 text-foreground/70',
+                        )}>
+                          <span className={cn('w-1.5 h-1.5 rounded-full', statusDots[conv.status ?? 'open'])} />
                           {statusLabels[conv.status ?? 'open']}
                         </span>
-                        {hasUnread && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-primary/10 text-primary">
-                            {t('inbox.unread') || 'Unread'}
+                        {conv.priority && conv.priority !== 'normal' && (
+                          <span className={cn(
+                            'text-[10px] px-1.5 py-0.5 rounded-md font-medium bg-secondary/60',
+                            priorityColors[conv.priority] || 'text-muted-foreground',
+                          )}>
+                            {conv.priority}
                           </span>
                         )}
                         {conv.assigned_to && (
-                          <span className="text-[10px] text-muted-foreground/50 flex items-center gap-0.5">
+                          <span className="text-[10px] text-muted-foreground/60 flex items-center" title="Assigned">
                             <UserCheck className="w-3 h-3" />
                           </span>
                         )}

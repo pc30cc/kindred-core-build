@@ -565,10 +565,17 @@ export default function InboxPage() {
               </span>
             </div>
             <div className="flex items-center gap-1">
-              <button className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors">
+              <button
+                aria-label={t('inbox.refresh') || 'Refresh'}
+                onClick={() => qc.invalidateQueries({ queryKey: ['conversations'] })}
+                className="p-2 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
                 <RefreshCw className="w-3.5 h-3.5" />
               </button>
-              <button className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors">
+              <button
+                aria-label="New conversation"
+                className="p-2 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
                 <Plus className="w-3.5 h-3.5" />
               </button>
               {isGlobalAdmin && (

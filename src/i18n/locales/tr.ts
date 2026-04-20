@@ -400,6 +400,13 @@ const tr: TranslationKeys = {
     geoUnavailable: 'Bilinmiyor',
     noLocationReason: 'Konum kullanılamıyor — geo sağlayıcı yapılandırılmadı veya IP çözülemedi.',
     mapWithoutLocation: '{{n}} konumsuz',
+    insightPrecise: 'Hassas',
+    insightApproximate: 'Yaklaşık',
+    insightUnavailable: 'Bilinmiyor',
+    insightTitle: 'Konum istihbaratı',
+    storeRawIp: 'Ham ziyaretçi IP\'sini sakla',
+    storeRawIpHint: 'Panelde tam IP\'yi göstermek için gerekli (yalnızca yöneticiler). Gizlilik için varsayılan olarak kapalıdır.',
+    storeRawIpWarning: 'Gizlilik uyarısı: etkinleştirildiğinde her ziyaretçi oturumu için ham IP saklanır. Gizlilik politikanızın bunu kapsadığından emin olun.',
   },
   knowledgeBase: {
     title: 'Bilgi Bankası',

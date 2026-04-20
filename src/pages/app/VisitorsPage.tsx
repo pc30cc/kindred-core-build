@@ -142,6 +142,31 @@ export default function VisitorsPage() {
     return { online, active, countries, pages };
   }, [visitors]);
 
+  // Geo source breakdown — drives the header insight strip. Derived from the
+  // same `visitors` array as the list/map so it updates in realtime when the
+  // realtime hook patches the cache (no extra refetch).
+  const geoInsight = useMemo(() => {
+    let precise = 0, approximate = 0, unavailable = 0;
+    for (const v of visitors) {
+      const s = v.geo.source;
+      if (s === 'provider' || s === 'cache') precise++;
+      else if (s === 'centroid') approximate++;
+      else unavailable++;
+    }
+    const total = visitors.length;
+    const pct = (n: number) => (total > 0 ? Math.round((n / total) * 100) : 0);
+    return {
+      total,
+      precise,
+      approximate,
+      unavailable,
+      withoutLocation: map.data?.without_location ?? unavailable,
+      pctPrecise: pct(precise),
+      pctApprox: pct(approximate),
+      pctUnavailable: pct(unavailable),
+    };
+  }, [visitors, map.data?.without_location]);
+
   const statusDot: Record<string, string> = {
     online: 'bg-success',
     idle: 'bg-warning',
@@ -197,6 +222,42 @@ export default function VisitorsPage() {
             </div>
           ))}
         </div>
+
+        {/* Geo insight strip — minimal, realtime, only renders when relevant */}
+        {geoInsight.total > 0 && (
+          <div
+            className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-muted-foreground"
+            aria-label={t('visitors.insightTitle')}
+          >
+            <span className="font-medium text-foreground/80 me-1">
+              {t('visitors.insightTitle')}
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-success" aria-hidden />
+              <span className="text-foreground tabular-nums">{geoInsight.precise}</span>
+              <span>{t('visitors.insightPrecise')}</span>
+              <span className="text-muted-foreground/60">({geoInsight.pctPrecise}%)</span>
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-warning" aria-hidden />
+              <span className="text-foreground tabular-nums">{geoInsight.approximate}</span>
+              <span>{t('visitors.insightApproximate')}</span>
+              <span className="text-muted-foreground/60">({geoInsight.pctApprox}%)</span>
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-muted-foreground/60" aria-hidden />
+              <span className="text-foreground tabular-nums">{geoInsight.unavailable}</span>
+              <span>{t('visitors.insightUnavailable')}</span>
+              <span className="text-muted-foreground/60">({geoInsight.pctUnavailable}%)</span>
+            </span>
+            {geoInsight.withoutLocation > 0 && (
+              <span className="inline-flex items-center gap-1 ms-auto text-muted-foreground/80">
+                <MapPin className="w-3 h-3" aria-hidden />
+                {t('visitors.mapWithoutLocation', { n: String(geoInsight.withoutLocation) })}
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Body: list + map */}

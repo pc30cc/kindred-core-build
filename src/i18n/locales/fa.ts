@@ -400,6 +400,13 @@ const fa: TranslationKeys = {
     geoUnavailable: 'نامشخص',
     noLocationReason: 'موقعیت در دسترس نیست — ارائه‌دهنده جغرافیایی پیکربندی نشده یا IP قابل تشخیص نبود.',
     mapWithoutLocation: '{{n}} بدون موقعیت',
+    insightPrecise: 'دقیق',
+    insightApproximate: 'تقریبی',
+    insightUnavailable: 'نامشخص',
+    insightTitle: 'اطلاعات موقعیت',
+    storeRawIp: 'ذخیره IP خام بازدیدکننده',
+    storeRawIpHint: 'برای نمایش IP کامل در پنل (فقط مدیران) لازم است. به‌طور پیش‌فرض غیرفعال است.',
+    storeRawIpWarning: 'هشدار حریم خصوصی: با فعال‌سازی، IP خام هر بازدیدکننده ذخیره می‌شود. مطمئن شوید سیاست حریم خصوصی شما این مورد را پوشش می‌دهد.',
   },
   knowledgeBase: {
     title: 'پایگاه دانش',

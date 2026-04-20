@@ -94,13 +94,17 @@ visitorRouter.post('/track', async (req: Request, res: Response) => {
     // Validate workspace exists and has tracking enabled
     const { data: widget } = await supabase
       .from('widget_settings')
-      .select('visitor_tracking_enabled, allowed_domains, allow_subdomains')
+      .select('visitor_tracking_enabled, allowed_domains, allow_subdomains, store_raw_ip')
       .eq('workspace_id', data.workspace_id)
       .single();
 
     if (!widget || !widget.visitor_tracking_enabled) {
       return res.status(403).json({ error: 'Visitor tracking not enabled' });
     }
+
+    // Privacy gate: only persist raw IP when the workspace explicitly opts in.
+    const storeRawIp = (widget as any).store_raw_ip === true;
+    const ipRawForStorage = storeRawIp ? clientIp : null;
 
     const origin = typeof req.headers.origin === 'string'
       ? req.headers.origin
@@ -149,6 +153,7 @@ visitorRouter.post('/track', async (req: Request, res: Response) => {
           device: data.device,
           os: data.os,
           ip_hash: ipHash,
+          ip_raw: ipRawForStorage,
         })
         .select('id')
         .single();
@@ -442,7 +447,18 @@ visitorsAdminRouter.get('/map', async (req: Request, res: Response) => {
         source: i.geo.source,
       }));
     const without_location = items.length - markers.length;
-    res.json({ markers, total: items.length, without_location });
+    // Geo source breakdown — fuels the header insight chip on the Visitors page.
+    // 'cache' counts as 'precise' for UX purposes (cache rows came from a real provider).
+    const source_counts = {
+      precise: 0, approximate: 0, unavailable: 0,
+    };
+    for (const i of items) {
+      const s = i.geo.source;
+      if (s === 'provider' || s === 'cache') source_counts.precise++;
+      else if (s === 'centroid') source_counts.approximate++;
+      else source_counts.unavailable++;
+    }
+    res.json({ markers, total: items.length, without_location, source_counts });
   } catch (err) {
     console.error('[visitors.map] failed:', err);
     res.status(500).json({ error: 'Internal error' });

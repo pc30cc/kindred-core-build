@@ -404,6 +404,15 @@ const en = {
     geoUnavailable: 'Unavailable',
     noLocationReason: 'Location not available — no geo provider configured or IP could not be resolved.',
     mapWithoutLocation: '{{n}} without location',
+    // Header insight (precise / approximate / unavailable breakdown)
+    insightPrecise: 'Precise',
+    insightApproximate: 'Approximate',
+    insightUnavailable: 'Unavailable',
+    insightTitle: 'Location intelligence',
+    // Workspace-level raw IP capture toggle
+    storeRawIp: 'Store raw visitor IP',
+    storeRawIpHint: 'Required to show full IPs in the visitor drawer (admins only). Off by default for privacy.',
+    storeRawIpWarning: 'Privacy notice: enabling this stores the raw client IP for each visitor session. Make sure your privacy policy covers it.',
   },
   knowledgeBase: {
     title: 'Knowledge Base',

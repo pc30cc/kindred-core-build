@@ -84,7 +84,12 @@ export function fetchLiveVisitors(workspaceId: string, includeOffline = false) {
 
 export function fetchVisitorMap(workspaceId: string) {
   const q = new URLSearchParams({ workspace_id: workspaceId });
-  return get<{ markers: MapMarker[]; total: number; without_location: number }>(
+  return get<{
+    markers: MapMarker[];
+    total: number;
+    without_location: number;
+    source_counts: { precise: number; approximate: number; unavailable: number };
+  }>(
     `/api/visitor-intel/map?${q}`,
   );
 }

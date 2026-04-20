@@ -72,12 +72,21 @@ export default function AdminProvidersPage() {
   const communicationTypes: ProviderTypeKey[] = ['email', 'sms', 'notification'];
   const infrastructureTypes: ProviderTypeKey[] = ['storage', 'cache', 'cdn', 'search'];
   const businessTypes: ProviderTypeKey[] = ['ai', 'billing', 'feature_flag', 'widget', 'captcha'];
+  // Visitor Intelligence — visibility-only group. The actual provider cards
+  // live in PROVIDER_TYPE_KEYS exactly once; this group simply re-references
+  // them so admins can find geo + map config side-by-side.
+  const visitorIntelTypes: ProviderTypeKey[] = (
+    ['geo_enrichment', 'map_tiles'] as ProviderTypeKey[]
+  ).filter((t) => (PROVIDER_TYPE_KEYS as readonly string[]).includes(t));
 
   const groups = [
     { label: 'Core Infrastructure', types: coreTypes },
     { label: 'Communication', types: communicationTypes },
     { label: 'Infrastructure & Storage', types: infrastructureTypes },
     { label: 'Business & Security', types: businessTypes },
+    ...(visitorIntelTypes.length > 0
+      ? [{ label: 'Visitor Intelligence', types: visitorIntelTypes }]
+      : []),
   ];
 
   return (

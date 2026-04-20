@@ -231,6 +231,33 @@ export default function WidgetPage() {
                       />
                     </div>
                   ))}
+
+                  {/* Privacy: optional raw IP capture (default OFF). */}
+                  <div className="pt-4 mt-2 border-t border-border space-y-3">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex items-start gap-3 min-w-0">
+                        <div className="p-2 rounded-lg bg-warning/10 shrink-0">
+                          <Shield className="h-4 w-4 text-warning" />
+                        </div>
+                        <div className="min-w-0">
+                          <Label className="text-sm">{t('visitors.storeRawIp')}</Label>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {t('visitors.storeRawIpHint')}
+                          </p>
+                        </div>
+                      </div>
+                      <Switch
+                        checked={(widget as any)?.store_raw_ip ?? false}
+                        onCheckedChange={(v) => handleToggle('store_raw_ip', v)}
+                      />
+                    </div>
+                    {(widget as any)?.store_raw_ip && (
+                      <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-[11px] text-warning">
+                        <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                        <span>{t('visitors.storeRawIpWarning')}</span>
+                      </div>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
             </TabsContent>

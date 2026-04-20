@@ -153,6 +153,7 @@ visitorRouter.post('/track', async (req: Request, res: Response) => {
           device: data.device,
           os: data.os,
           ip_hash: ipHash,
+          ip_raw: ipRawForStorage,
         })
         .select('id')
         .single();

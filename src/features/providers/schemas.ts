@@ -25,6 +25,16 @@ export interface ProviderVendor {
   locales?: ('en' | 'fa' | 'tr')[];
   /** Currency this vendor operates in */
   currency?: string;
+  /**
+   * Deployment classification for self-host operators.
+   * - `selfhosted`  : runs entirely on operator infra, no external calls
+   * - `external`    : depends on a public/cloud vendor
+   * - `builtin`     : ships in the codebase, no infra needed (centroid, OSM public)
+   * - `disabled`    : explicit no-op / off
+   */
+  deployment?: 'selfhosted' | 'external' | 'builtin' | 'disabled';
+  /** Recommended setup tag, surfaced in admin UI as a hint badge. */
+  recommendation?: 'simple' | 'production-selfhost' | 'cloud';
 }
 
 export interface ProviderTypeSchema {

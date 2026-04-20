@@ -123,13 +123,28 @@ export interface VisitorPageView {
   viewed_at: string;
 }
 
+export interface VisitorPageHistoryEntry {
+  landing_url: string | null;
+  landed_at: string | null;
+  referrer: string | null;
+}
+
+export interface VisitorPageHistoryCurrent {
+  url: string;
+  viewed_at: string | null;
+}
+
 export function fetchVisitorPageHistory(
   workspaceId: string,
   sessionId: string,
   limit = 20,
 ) {
   const q = new URLSearchParams({ workspace_id: workspaceId, limit: String(limit) });
-  return get<{ items: VisitorPageView[] }>(
+  return get<{
+    items: VisitorPageView[];
+    entry: VisitorPageHistoryEntry | null;
+    current: VisitorPageHistoryCurrent | null;
+  }>(
     `/api/visitor-intel/${sessionId}/page-history?${q}`,
   );
 }

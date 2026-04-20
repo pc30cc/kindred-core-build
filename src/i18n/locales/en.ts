@@ -393,6 +393,13 @@ const en = {
     pageHistoryShowMore: 'Show more',
     pageHistoryShowAll: 'Show all {n}',
     pageHistoryShowLess: 'Show less',
+    // Entry / current page (page-history header)
+    entryPoint: 'Entry point',
+    currentlyOn: 'Currently on',
+    landedAt: 'Landed {when}',
+    cameFrom: 'Came from {source}',
+    cameFromDirect: 'Direct visit',
+    pageJourney: 'Journey',
     // Realtime status
     rtConnected: 'Live',
     rtPolling: 'Polling',

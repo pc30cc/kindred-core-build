@@ -6,7 +6,7 @@ import { useWorkspacePath } from '@/hooks/useWorkspace';
 import { useState } from 'react';
 import {
   Copy, MessageSquare, User, Globe, Monitor, MapPin, Clock, ExternalLink, History,
-  Wifi, ShieldCheck, ShieldAlert, ShieldX, ArrowLeft,
+  Wifi, ShieldCheck, ShieldAlert, ShieldX, ArrowLeft, LogIn, Navigation,
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { useTranslation } from '@/i18n';
@@ -134,40 +134,15 @@ export function VisitorDetailPanel({ workspaceId, sessionId, onBack }: Props) {
               </div>
               {history.isLoading ? (
                 <p className="text-xs text-muted-foreground">{t('visitors.pageHistoryLoading')}</p>
-              ) : !history.data?.items?.length ? (
-                <p className="text-xs text-muted-foreground">{t('visitors.pageHistoryEmpty')}</p>
               ) : (
-                (() => {
-                  const items = history.data.items;
-                  const CAP = 8;
-                  const visible = showAllPages ? items : items.slice(0, CAP);
-                  return (
-                    <>
-                      <ol className="relative ms-1.5 border-s border-border/70 space-y-2 pt-1">
-                        {visible.map((p) => (
-                          <li key={p.id} className="ps-3 relative">
-                            <span className="absolute -start-[5px] top-1.5 w-2 h-2 rounded-full bg-primary/70 ring-2 ring-background" />
-                            <div className="text-xs text-foreground truncate" title={p.url}>{p.url}</div>
-                            <div className="text-[10px] text-muted-foreground">
-                              {new Date(p.viewed_at).toLocaleString()}
-                            </div>
-                          </li>
-                        ))}
-                      </ol>
-                      {items.length > CAP && (
-                        <button
-                          type="button"
-                          onClick={() => setShowAllPages((v) => !v)}
-                          className="mt-2 text-[11px] text-primary hover:underline"
-                        >
-                          {showAllPages
-                            ? t('visitors.pageHistoryShowLess')
-                            : t('visitors.pageHistoryShowAll', { n: String(items.length) })}
-                        </button>
-                      )}
-                    </>
-                  );
-                })()
+                <PageJourney
+                  entry={history.data?.entry ?? null}
+                  current={history.data?.current ?? null}
+                  items={history.data?.items ?? []}
+                  showAll={showAllPages}
+                  onToggle={() => setShowAllPages((v) => !v)}
+                  t={t}
+                />
               )}
             </div>
           </div>
@@ -191,6 +166,153 @@ function Row({ icon, label, value, hint, truncate }: {
       </div>
     </div>
   );
+}
+
+/**
+ * Visitor journey: shows where the visitor entered from (referrer + landing
+ * page), the current page they're on, and the navigation timeline between.
+ */
+function PageJourney({
+  entry,
+  current,
+  items,
+  showAll,
+  onToggle,
+  t,
+}: {
+  entry: { landing_url: string | null; landed_at: string | null; referrer: string | null } | null;
+  current: { url: string; viewed_at: string | null } | null;
+  items: Array<{ id: number; url: string; viewed_at: string }>;
+  showAll: boolean;
+  onToggle: () => void;
+  t: (k: string, vars?: Record<string, string>) => string;
+}) {
+  const hasAny = !!entry?.landing_url || !!current?.url || items.length > 0;
+  if (!hasAny) {
+    return <p className="text-xs text-muted-foreground">{t('visitors.pageHistoryEmpty')}</p>;
+  }
+
+  // Pretty-format a referrer URL → hostname only (or "Direct visit").
+  const refSource = (() => {
+    const r = entry?.referrer?.trim();
+    if (!r) return null;
+    try {
+      return new URL(r).hostname.replace(/^www\./, '');
+    } catch {
+      return r;
+    }
+  })();
+
+  // The "between" pages = all items except the most-recent (current) one.
+  const middle = items.length > 1 ? items.slice(1) : [];
+  const CAP = 6;
+  const visibleMiddle = showAll ? middle : middle.slice(0, CAP);
+  const hiddenCount = middle.length - visibleMiddle.length;
+
+  return (
+    <div className="space-y-3">
+      {/* Entry point card */}
+      {entry?.landing_url && (
+        <div className="rounded-md border border-success/20 bg-success/5 p-2.5">
+          <div className="flex items-center gap-1.5 mb-1">
+            <LogIn className="w-3 h-3 text-success" />
+            <span className="text-[10px] uppercase tracking-wide text-success font-medium">
+              {t('visitors.entryPoint')}
+            </span>
+          </div>
+          <div className="text-xs text-foreground truncate font-medium" title={entry.landing_url}>
+            {entry.landing_url}
+          </div>
+          <div className="text-[10px] text-muted-foreground mt-0.5 flex items-center gap-1.5 flex-wrap">
+            {entry.landed_at && <span>{relativeTime(entry.landed_at, t)}</span>}
+            <span className="opacity-50">·</span>
+            <span>
+              {refSource
+                ? t('visitors.cameFrom', { source: refSource })
+                : t('visitors.cameFromDirect')}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Currently on card */}
+      {current?.url && (
+        <div className="rounded-md border border-primary/20 bg-primary/5 p-2.5">
+          <div className="flex items-center gap-1.5 mb-1">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
+            </span>
+            <span className="text-[10px] uppercase tracking-wide text-primary font-medium">
+              {t('visitors.currentlyOn')}
+            </span>
+          </div>
+          <div className="text-xs text-foreground truncate font-medium" title={current.url}>
+            {current.url}
+          </div>
+          {current.viewed_at && (
+            <div className="text-[10px] text-muted-foreground mt-0.5">
+              {relativeTime(current.viewed_at, t)}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Journey between entry and current */}
+      {middle.length > 0 && (
+        <div className="pt-1">
+          <div className="flex items-center gap-1.5 mb-2">
+            <Navigation className="w-3 h-3 text-muted-foreground" />
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+              {t('visitors.pageJourney')}
+            </span>
+            <Badge variant="outline" className="text-[10px] ms-auto">
+              {middle.length}
+            </Badge>
+          </div>
+          <ol className="relative ms-1.5 border-s border-border/70 space-y-2 pt-1">
+            {visibleMiddle.map((p) => (
+              <li key={p.id} className="ps-3 relative">
+                <span className="absolute -start-[5px] top-1.5 w-2 h-2 rounded-full bg-muted-foreground/50 ring-2 ring-background" />
+                <div className="text-xs text-foreground truncate" title={p.url}>{p.url}</div>
+                <div className="text-[10px] text-muted-foreground">
+                  {relativeTime(p.viewed_at, t)}
+                </div>
+              </li>
+            ))}
+          </ol>
+          {(hiddenCount > 0 || showAll) && middle.length > CAP && (
+            <button
+              type="button"
+              onClick={onToggle}
+              className="mt-2 text-[11px] text-primary hover:underline"
+            >
+              {showAll
+                ? t('visitors.pageHistoryShowLess')
+                : t('visitors.pageHistoryShowAll', { n: String(middle.length) })}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Lightweight relative-time formatter used inside the journey cards.
+ * Falls back to a localized date string for anything older than ~7 days.
+ */
+function relativeTime(iso: string, t: (k: string, vars?: Record<string, string>) => string): string {
+  const then = new Date(iso).getTime();
+  if (!Number.isFinite(then)) return '';
+  const diffSec = Math.max(0, Math.round((Date.now() - then) / 1000));
+  let when: string;
+  if (diffSec < 45) when = `${diffSec}s ago`;
+  else if (diffSec < 3600) when = `${Math.round(diffSec / 60)}m ago`;
+  else if (diffSec < 86400) when = `${Math.round(diffSec / 3600)}h ago`;
+  else if (diffSec < 7 * 86400) when = `${Math.round(diffSec / 86400)}d ago`;
+  else when = new Date(iso).toLocaleDateString();
+  return t('visitors.landedAt', { when });
 }
 
 function LocationRow({ data, t }: { data: any; t: (k: string) => string }) {

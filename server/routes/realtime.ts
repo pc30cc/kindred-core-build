@@ -31,7 +31,11 @@ import {
   getWorkspaceOriginRules,
 } from '../services/widget/public.js';
 import { isOriginAllowed } from '../utils/domain.js';
-import { channelBelongsToWorkspace, isInboxChannel } from '../services/realtime/types.js';
+import {
+  channelBelongsToWorkspace,
+  isInboxChannel,
+  isVisitorsChannel,
+} from '../services/realtime/types.js';
 
 export const realtimeRouter = Router();
 
@@ -220,10 +224,12 @@ realtimeRouter.post('/subscribe', async (req, res) => {
     // Strict channel naming — never trust client-supplied channel names.
     const channel = `ws:${parsed.data.workspace_id}:conv:${parsed.data.conversation_id}`;
     if (!channelBelongsToWorkspace(channel, parsed.data.workspace_id)
-        || isInboxChannel(channel, parsed.data.workspace_id)) {
+        || isInboxChannel(channel, parsed.data.workspace_id)
+        || isVisitorsChannel(channel, parsed.data.workspace_id)) {
       // Defense in depth: widget tokens MUST NEVER be issued for the
-      // operator-only inbox channel. Schema already prevents this (the
-      // channel name does not match :conv:<uuid>) but we reject explicitly.
+      // operator-only inbox or visitors channels. Schema already prevents
+      // this (the channel name does not match :conv:<uuid>) but we reject
+      // explicitly.
       return res.status(403).json({ error: 'Channel not allowed' });
     }
     const tk = driver.issueSubscriptionToken({

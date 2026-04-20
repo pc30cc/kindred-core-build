@@ -453,6 +453,10 @@ visitorsAdminRouter.get('/map-config', async (req: Request, res: Response) => {
  * Used by the detail drawer.
  */
 visitorsAdminRouter.get('/:id', async (req: Request, res: Response) => {
+  // Sub-route guard: /:id/page-history is handled below.
+  if (req.params.id === 'live' || req.params.id === 'map' || req.params.id === 'map-config') {
+    return res.status(404).json({ error: 'Not found' });
+  }
   const config = (req as any).serverConfig as ServerConfig;
   const workspaceId = (req.query.workspace_id as string) || '';
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
@@ -466,6 +470,37 @@ visitorsAdminRouter.get('/:id', async (req: Request, res: Response) => {
     res.json(item);
   } catch (err) {
     console.error('[visitors.detail] failed:', err);
+    res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+/**
+ * GET /api/visitor-intel/:id/page-history?workspace_id=...&limit=20
+ *
+ * Returns ordered (most-recent first) page-view rows for a session.
+ */
+visitorsAdminRouter.get('/:id/page-history', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = (req.query.workspace_id as string) || '';
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
+
+  const auth = await authorizeWorkspaceMember(req, res, config, workspaceId);
+  if (!auth) return;
+
+  const limit = Math.min(Math.max(Number(req.query.limit ?? 20), 1), 100);
+  try {
+    const sb = getServiceClient(config);
+    const { data, error } = await sb
+      .from('visitor_page_views')
+      .select('id, url, viewed_at')
+      .eq('workspace_id', workspaceId)
+      .eq('visitor_session_id', req.params.id)
+      .order('viewed_at', { ascending: false })
+      .limit(limit);
+    if (error) throw error;
+    res.json({ items: data ?? [] });
+  } catch (err) {
+    console.error('[visitors.page-history] failed:', err);
     res.status(500).json({ error: 'Internal error' });
   }
 });

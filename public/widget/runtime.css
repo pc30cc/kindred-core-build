@@ -844,6 +844,27 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
     bottom: 0 !important;
     left: 0 !important;
     right: 0 !important;
+    /* Honor iOS notches / safe areas */
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+  .input-bar {
+    padding-bottom: max(12px, env(safe-area-inset-bottom, 0));
+  }
+  /* Larger touch targets on mobile (44×44 WCAG minimum) */
+  .send-btn,
+  .attach-btn {
+    width: 40px;
+    height: 40px;
+  }
+  .tab {
+    padding: 13px 0;
+    font-size: 13px;
+  }
+  .input {
+    font-size: 16px; /* prevents iOS Safari zoom-on-focus */
+  }
+  .header {
+    padding-top: max(18px, env(safe-area-inset-top, 0));
   }
   .gs-toast,
   .gs-toast.bottom-right,

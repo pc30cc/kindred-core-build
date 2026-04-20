@@ -15,6 +15,112 @@ import { mapGeoApi, type MapGeoSettings } from '@/lib/map-geo-api';
 import { MapTilesPreview } from '@/components/admin/MapTilesPreview';
 
 /**
+ * Tile provider presets — all free / no-key sources, picked for visual
+ * variety: standard, light/minimal, dark, and topographic. Operators can
+ * still type a custom URL template; the preset just fills the two fields.
+ *
+ * NOTE: Carto and Stadia ask for attribution — we surface the canonical
+ * strings so the map UI stays compliant. OSM is the safe default.
+ */
+const TILE_PRESETS: Array<{
+  id: string;
+  label: string;
+  theme: 'light' | 'dark' | 'standard' | 'topo';
+  url: string;
+  attribution: string;
+  maxZoom: number;
+}> = [
+  {
+    id: 'osm',
+    label: 'OpenStreetMap (standard)',
+    theme: 'standard',
+    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    attribution: '© OpenStreetMap contributors',
+    maxZoom: 19,
+  },
+  {
+    id: 'carto-voyager',
+    label: 'Carto Voyager (balanced)',
+    theme: 'standard',
+    url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+    attribution: '© OpenStreetMap contributors © CARTO',
+    maxZoom: 20,
+  },
+  {
+    id: 'carto-positron',
+    label: 'Carto Positron (light, minimal) ☀️',
+    theme: 'light',
+    url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+    attribution: '© OpenStreetMap contributors © CARTO',
+    maxZoom: 20,
+  },
+  {
+    id: 'carto-positron-nolabels',
+    label: 'Carto Positron — no labels (ultra clean) ☀️',
+    theme: 'light',
+    url: 'https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png',
+    attribution: '© OpenStreetMap contributors © CARTO',
+    maxZoom: 20,
+  },
+  {
+    id: 'carto-dark',
+    label: 'Carto Dark Matter (dark) 🌙',
+    theme: 'dark',
+    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    attribution: '© OpenStreetMap contributors © CARTO',
+    maxZoom: 20,
+  },
+  {
+    id: 'carto-dark-nolabels',
+    label: 'Carto Dark Matter — no labels 🌙',
+    theme: 'dark',
+    url: 'https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png',
+    attribution: '© OpenStreetMap contributors © CARTO',
+    maxZoom: 20,
+  },
+  {
+    id: 'stadia-smooth',
+    label: 'Stadia Alidade Smooth (light) ☀️',
+    theme: 'light',
+    url: 'https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}{r}.png',
+    attribution: '© Stadia Maps © OpenMapTiles © OpenStreetMap contributors',
+    maxZoom: 20,
+  },
+  {
+    id: 'stadia-smooth-dark',
+    label: 'Stadia Alidade Smooth Dark 🌙',
+    theme: 'dark',
+    url: 'https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png',
+    attribution: '© Stadia Maps © OpenMapTiles © OpenStreetMap contributors',
+    maxZoom: 20,
+  },
+  {
+    id: 'esri-gray',
+    label: 'Esri World Gray Canvas (very minimal) ☀️',
+    theme: 'light',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Tiles © Esri',
+    maxZoom: 16,
+  },
+  {
+    id: 'esri-dark-gray',
+    label: 'Esri World Dark Gray Canvas 🌙',
+    theme: 'dark',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Tiles © Esri',
+    maxZoom: 16,
+  },
+  {
+    id: 'opentopo',
+    label: 'OpenTopoMap (topographic)',
+    theme: 'topo',
+    url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+    attribution: 'Map data: © OpenStreetMap contributors, SRTM | Map style: © OpenTopoMap (CC-BY-SA)',
+    maxZoom: 17,
+  },
+];
+
+/**
  * Map & Geo settings page.
  *
  * Edits are kept in a local `draft` and only persisted when the operator

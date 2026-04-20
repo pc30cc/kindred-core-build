@@ -2036,6 +2036,7 @@ export type Database = {
           id: string
           identity_state: string
           ip_hash: string | null
+          ip_raw: string | null
           last_seen_at: string | null
           metadata: Json
           os: string | null
@@ -2054,6 +2055,7 @@ export type Database = {
           id?: string
           identity_state?: string
           ip_hash?: string | null
+          ip_raw?: string | null
           last_seen_at?: string | null
           metadata?: Json
           os?: string | null
@@ -2072,6 +2074,7 @@ export type Database = {
           id?: string
           identity_state?: string
           ip_hash?: string | null
+          ip_raw?: string | null
           last_seen_at?: string | null
           metadata?: Json
           os?: string | null
@@ -2270,6 +2273,7 @@ export type Database = {
           read_receipts_enabled: boolean
           secondary_color: string | null
           show_logo: boolean | null
+          store_raw_ip: boolean
           support_mode: string | null
           theme: string | null
           updated_at: string | null
@@ -2319,6 +2323,7 @@ export type Database = {
           read_receipts_enabled?: boolean
           secondary_color?: string | null
           show_logo?: boolean | null
+          store_raw_ip?: boolean
           support_mode?: string | null
           theme?: string | null
           updated_at?: string | null
@@ -2368,6 +2373,7 @@ export type Database = {
           read_receipts_enabled?: boolean
           secondary_color?: string | null
           show_logo?: boolean | null
+          store_raw_ip?: boolean
           support_mode?: string | null
           theme?: string | null
           updated_at?: string | null

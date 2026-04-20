@@ -396,6 +396,14 @@ const en = {
     // Realtime status
     rtConnected: 'Live',
     rtPolling: 'Polling',
+    // IP & geo precision (drawer)
+    ipAddress: 'IP address',
+    ipMasked: 'masked',
+    geoPrecise: 'Precise',
+    geoApproximate: 'Approximate',
+    geoUnavailable: 'Unavailable',
+    noLocationReason: 'Location not available — no geo provider configured or IP could not be resolved.',
+    mapWithoutLocation: '{{n}} without location',
   },
   knowledgeBase: {
     title: 'Knowledge Base',

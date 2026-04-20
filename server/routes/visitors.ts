@@ -150,6 +150,19 @@ visitorRouter.post('/track', async (req: Request, res: Response) => {
       sessionId = newSession!.id;
     }
 
+    // Append a page-view row (best-effort; failures must not block tracking).
+    if (data.current_page) {
+      try {
+        await supabase.from('visitor_page_views').insert({
+          workspace_id: data.workspace_id,
+          visitor_session_id: sessionId,
+          url: data.current_page.slice(0, 2048),
+        });
+      } catch (e) {
+        console.warn('[visitors.track] page-view insert failed:', (e as any)?.message);
+      }
+    }
+
     // Upsert presence
     const { data: existingPresence } = await supabase
       .from('visitor_presence')
@@ -176,6 +189,20 @@ visitorRouter.post('/track', async (req: Request, res: Response) => {
           current_page: data.current_page,
         });
     }
+
+    // Realtime push to operator visitors channel — best-effort.
+    publishVisitorEvent(config, {
+      kind: 'visitor.upsert',
+      workspace_id: data.workspace_id,
+      session_id: sessionId,
+      patch: {
+        status: 'online',
+        current_page: data.current_page ?? null,
+        last_activity_at: new Date().toISOString(),
+        visitor_id: data.visitor_id,
+      },
+      occurred_at: new Date().toISOString(),
+    }).catch(() => {});
 
     res.json({ session_id: sessionId, status: 'tracked' });
   } catch (err) {

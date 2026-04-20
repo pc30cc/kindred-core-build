@@ -1134,7 +1134,37 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
             status: 'online',
             current_page: normalizedPageUrl,
           });
+          // Fire-and-forget geo enrichment — never block the widget response.
+          // Uses MaxMind local DB when configured (city-level), with cache.
+          void enrichVisitorSessionGeo(config, {
+            sessionId: newSession.id,
+            workspaceId,
+            ipHash,
+            rawIp: clientIp,
+          });
         }
+      }
+
+      // Existing-session path: enrich if geo fields are still empty (e.g.
+      // session was created before MaxMind was configured).
+      if (activeSessionId) {
+        void (async () => {
+          try {
+            const { data: row } = await supabase
+              .from('visitor_sessions')
+              .select('geo_resolved_at')
+              .eq('id', activeSessionId)
+              .maybeSingle();
+            if (!row || !row.geo_resolved_at) {
+              await enrichVisitorSessionGeo(config, {
+                sessionId: activeSessionId!,
+                workspaceId,
+                ipHash,
+                rawIp: clientIp,
+              });
+            }
+          } catch {/* best-effort */}
+        })();
       }
     }
 

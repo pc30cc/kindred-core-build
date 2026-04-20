@@ -18,7 +18,37 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
-import { resolveVisitorGeo, type GeoResult } from '../geo/index.js';
+import { resolveVisitorGeo, type GeoResult, getMapGeoSettings } from '../geo/index.js';
+
+/**
+ * Build a GeoResult from the normalized geo_* columns persisted on
+ * visitor_sessions. This is the FAST READ PATH — no provider call, no
+ * JOIN, no centroid recomputation. The columns were populated at ingest
+ * (or by the warm-geo job) so we trust them as the source of truth.
+ *
+ * Returns null when the session has no usable geo data (caller may then
+ * fall back to the live resolver, but that path now NEVER hits a
+ * provider since raw IP is unavailable on read).
+ */
+function geoFromSession(s: any): GeoResult | null {
+  const hasCoords = typeof s.geo_latitude === 'number' && typeof s.geo_longitude === 'number';
+  const hasAny = hasCoords || s.geo_country_code || s.country;
+  if (!hasAny) return null;
+  const accuracy = (s.geo_accuracy_level as 'country' | 'region' | 'city' | null) ?? null;
+  return {
+    country: s.geo_country_name ?? s.country ?? null,
+    country_code: s.geo_country_code ?? null,
+    region: s.geo_region ?? null,
+    city: s.geo_city ?? s.city ?? null,
+    latitude: hasCoords ? s.geo_latitude : null,
+    longitude: hasCoords ? s.geo_longitude : null,
+    timezone: s.geo_timezone ?? null,
+    accuracy_level: accuracy,
+    is_fallback: s.geo_is_fallback === true,
+    source_provider: s.geo_source_provider ?? null,
+    source: s.geo_source_provider === 'centroid' ? 'centroid' : 'cache',
+  };
+}
 
 export interface VisitorIntelligenceItem {
   // Identity

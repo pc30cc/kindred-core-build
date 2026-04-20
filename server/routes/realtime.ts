@@ -367,6 +367,36 @@ realtimeRouter.post('/operator-inbox-subscribe', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────
+//  OPERATOR (visitor intelligence): /api/realtime/operator-visitors-subscribe
+//  Issues a Centrifugo subscription token for the operator-only channel
+//  `ws:<workspace_id>:visitors`. Carries `event` envelopes with
+//  payload.kind = 'visitor.upsert' | 'visitor.remove' for the live
+//  Visitors page (list + map).
+// ─────────────────────────────────────────────────────────────────────
+const operatorVisitorsSubscribeSchema = z.object({ workspace_id: z.string().uuid() });
+
+realtimeRouter.post('/operator-visitors-subscribe', async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const parsed = operatorVisitorsSubscribeSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid request' });
+    const user = await authorizeOperator(req, res, config, parsed.data.workspace_id);
+    if (!user) return;
+
+    const driver = await getCentrifugoDriver(config);
+    if (!driver) return res.json({ vendor: 'polling_builtin' });
+    const channel = `ws:${parsed.data.workspace_id}:visitors`;
+    const tk = driver.issueSubscriptionToken({
+      sub: `op_${user.id}`, channel, workspaceId: parsed.data.workspace_id,
+    });
+    return res.json({ vendor: 'centrifugo', channel, token: tk.token, expires_at: tk.expires_at });
+  } catch (err: any) {
+    console.error('[realtime/operator-visitors-subscribe]', err);
+    res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────
 //  ADMIN: /api/realtime/admin/*
 // ─────────────────────────────────────────────────────────────────────
 async function requireAdmin(req: any, res: any, next: any) {

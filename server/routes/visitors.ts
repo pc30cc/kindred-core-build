@@ -9,6 +9,13 @@ import { resolveMapTilesConfig } from '../services/maptiles/index.js';
 
 export const visitorRouter = Router();
 
+/**
+ * Operator-side router. Mounted under a different prefix in `index.ts`
+ * so the standard appCors applies (we don't want widget-origin CORS for
+ * authenticated reads coming from the operator panel).
+ */
+export const visitorsAdminRouter = Router();
+
 // ============================================
 // Auth helper for operator-side reads.
 // Same pattern used in conversations.ts / cannedResponses.ts:
@@ -270,12 +277,12 @@ visitorRouter.post('/disconnect', async (req: Request, res: Response) => {
 // ============================================
 
 /**
- * GET /api/visitors/live?workspace_id=...&include_offline=0
+ * GET /api/visitor-intel/live?workspace_id=...&include_offline=0
  *
  * Returns the normalized visitor intelligence list. Backend resolves
  * presence + session + geo + linked contact/conversation in one shot.
  */
-visitorRouter.get('/live', async (req: Request, res: Response) => {
+visitorsAdminRouter.get('/live', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
   const workspaceId = (req.query.workspace_id as string) || '';
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
@@ -297,12 +304,12 @@ visitorRouter.get('/live', async (req: Request, res: Response) => {
 });
 
 /**
- * GET /api/visitors/map?workspace_id=...
+ * GET /api/visitor-intel/map?workspace_id=...
  *
  * Returns map markers (subset of live shape: id, status, geo, current_page).
  * Visitors without coordinates are excluded — the list endpoint still has them.
  */
-visitorRouter.get('/map', async (req: Request, res: Response) => {
+visitorsAdminRouter.get('/map', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
   const workspaceId = (req.query.workspace_id as string) || '';
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
@@ -333,12 +340,12 @@ visitorRouter.get('/map', async (req: Request, res: Response) => {
 });
 
 /**
- * GET /api/visitors/map-config?workspace_id=...
+ * GET /api/visitor-intel/map-config?workspace_id=...
  *
  * Returns the resolved map_tiles provider config the client should use.
  * Falls back to free OSM tiles when nothing is configured.
  */
-visitorRouter.get('/map-config', async (req: Request, res: Response) => {
+visitorsAdminRouter.get('/map-config', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
   const workspaceId = (req.query.workspace_id as string) || '';
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
@@ -356,12 +363,12 @@ visitorRouter.get('/map-config', async (req: Request, res: Response) => {
 });
 
 /**
- * GET /api/visitors/:id?workspace_id=...
+ * GET /api/visitor-intel/:id?workspace_id=...
  *
  * Detail for a single visitor session — full intelligence shape.
  * Used by the detail drawer.
  */
-visitorRouter.get('/:id', async (req: Request, res: Response) => {
+visitorsAdminRouter.get('/:id', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
   const workspaceId = (req.query.workspace_id as string) || '';
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });

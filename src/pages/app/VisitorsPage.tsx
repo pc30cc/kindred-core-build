@@ -483,6 +483,8 @@ export default function VisitorsPage() {
               </ul>
             )}
           </div>
+          </>
+          )}
         </div>
 
         {/* Right: map canvas */}

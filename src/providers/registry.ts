@@ -9,13 +9,17 @@ import type {
   AIProvider, StorageProvider, SearchProvider, NotificationProvider,
   CacheProvider, FeatureFlagProvider, WidgetDeliveryProvider, SmsProvider,
 } from '@/types/providers';
-import type { BillingProvider, CaptchaProvider, CDNProvider } from '@/types/providers-extended';
+import type {
+  BillingProvider, CaptchaProvider, CDNProvider,
+  GeoEnrichmentProvider, MapTilesProvider,
+} from '@/types/providers-extended';
 
 // All supported provider type keys
 export const PROVIDER_TYPE_KEYS = [
   'auth', 'database', 'realtime', 'email', 'sms', 'ai', 'storage',
   'search', 'notification', 'cache', 'feature_flag',
   'widget', 'billing', 'captcha', 'cdn',
+  'geo_enrichment', 'map_tiles',
 ] as const;
 
 export type ProviderTypeKey = typeof PROVIDER_TYPE_KEYS[number];
@@ -37,6 +41,8 @@ export interface ProviderTypeMap {
   billing: BillingProvider;
   captcha: CaptchaProvider;
   cdn: CDNProvider;
+  geo_enrichment: GeoEnrichmentProvider;
+  map_tiles: MapTilesProvider;
 }
 
 export type ProviderHealth = 'healthy' | 'degraded' | 'down' | 'unknown';

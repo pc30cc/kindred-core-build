@@ -9,7 +9,10 @@ import type {
   AIProvider, StorageProvider, SearchProvider, NotificationProvider,
   CacheProvider, FeatureFlagProvider, WidgetDeliveryProvider, SmsProvider,
 } from '@/types/providers';
-import type { BillingProvider, CaptchaProvider, CDNProvider } from '@/types/providers-extended';
+import type {
+  BillingProvider, CaptchaProvider, CDNProvider,
+  GeoEnrichmentProvider, MapTilesProvider,
+} from '@/types/providers-extended';
 
 const warn = (provider: string, method: string) =>
   console.warn(`[StubProvider] ${provider}.${method}() called — no real provider configured.`);
@@ -150,4 +153,40 @@ export const stubCDNProvider: CDNProvider = {
   async purge() { warn('cdn', 'purge'); return { data: null, error: err('cdn') }; },
   getAssetUrl(path: string) { return path; },
   async upload() { warn('cdn', 'upload'); return { data: null, error: err('cdn') }; },
+};
+
+// --- Geo Enrichment Stub (centroid-only, always safe fallback) ---
+export const stubGeoEnrichmentProvider: GeoEnrichmentProvider = {
+  async lookup() { return null; },
+  isEnabled() { return false; },
+};
+
+// --- Map Tiles Stub (no-map fallback) ---
+export const stubMapTilesProvider: MapTilesProvider = {
+  getConfig() {
+    return {
+      enabled: false,
+      provider: 'none',
+      tileUrl: null,
+      attribution: '',
+      maxZoom: 18,
+      minZoom: 1,
+    };
+  },
+  isEnabled() { return false; },
+};
+
+// --- OpenStreetMap default Map Tiles provider (no key required) ---
+export const osmMapTilesProvider: MapTilesProvider = {
+  getConfig() {
+    return {
+      enabled: true,
+      provider: 'osm',
+      tileUrl: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      attribution: '© OpenStreetMap contributors',
+      maxZoom: 19,
+      minZoom: 1,
+    };
+  },
+  isEnabled() { return true; },
 };

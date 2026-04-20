@@ -22,6 +22,9 @@ import {
   stubCaptchaProvider,
   stubCDNProvider,
   stubSmsProvider,
+  stubGeoEnrichmentProvider,
+  stubMapTilesProvider,
+  osmMapTilesProvider,
 } from './stubs';
 
 let bootstrapped = false;
@@ -152,11 +155,36 @@ export function bootstrapProviders(): void {
     meta: { vendor: 'stub', builtIn: true },
   });
 
+  // --- Geo Enrichment: stub fallback (centroid only, server-side resolution) ---
+  providerRegistry.register('geo_enrichment', 'stub', stubGeoEnrichmentProvider, {
+    priority: 100,
+    meta: {
+      vendor: 'stub',
+      builtIn: true,
+      description: 'No external IP→geo lookup. Centroid fallback always available server-side.',
+    },
+  });
+
+  // --- Map Tiles: OpenStreetMap default (no key) + stub no-map fallback ---
+  providerRegistry.register('map_tiles', 'osm', osmMapTilesProvider, {
+    priority: 0,
+    meta: {
+      vendor: 'openstreetmap',
+      builtIn: true,
+      description: 'OpenStreetMap raster tiles. No API key required. Self-host friendly.',
+    },
+  });
+  providerRegistry.register('map_tiles', 'stub', stubMapTilesProvider, {
+    priority: 100,
+    meta: { vendor: 'stub', builtIn: true, description: 'No-map fallback' },
+  });
+
   // Set active defaults for core providers
   providerRegistry.setActive('auth', 'supabase');
   providerRegistry.setActive('database', 'supabase');
   providerRegistry.setActive('realtime', 'supabase');
   providerRegistry.setActive('email', 'api');
+  providerRegistry.setActive('map_tiles', 'osm');
 
   console.info('[Providers] Bootstrap complete:', providerRegistry.getSummary());
 }

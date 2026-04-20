@@ -598,16 +598,11 @@ visitorsAdminRouter.post('/warm-geo', async (req: Request, res: Response) => {
   const limit = Math.min(Math.max(Number(req.body?.limit ?? 100), 1), 500);
   const force = req.body?.force === true || req.body?.force === '1';
 
-  // Resolve active provider so we can short-circuit cleanly when disabled.
+  // Resolve active provider for reporting only — we no longer short-circuit
+  // when "unconfigured" because the maxmind_local self-host path is driven by
+  // /admin/map-geo settings (not provider_configs). resolveVisitorGeo handles
+  // both paths transparently.
   const active = await getActiveGeoProvider(config, workspaceId);
-  if (!active.provider_name || active.is_disabled) {
-    return res.json({
-      status: 'noop',
-      reason: active.is_disabled ? 'provider_disabled' : 'provider_unconfigured',
-      provider: active.provider_name,
-      processed: 0, enriched: 0, cached: 0, centroid: 0, skipped: 0, failed: 0,
-    });
-  }
 
   warmCooldown.set(workspaceId, now);
   const sb = getServiceClient(config);

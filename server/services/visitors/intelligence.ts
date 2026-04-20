@@ -107,7 +107,7 @@ export async function listVisitorIntelligence(
       id, status, current_page, updated_at, visitor_session_id, workspace_id,
       visitor_sessions!inner (
         id, visitor_id, workspace_id, current_page, referrer, browser, device, os,
-        country, city, ip_hash, started_at, last_seen_at
+        country, city, ip_hash, ip_raw, started_at, last_seen_at
       )
     `)
     .eq('workspace_id', workspaceId)
@@ -171,8 +171,12 @@ export async function listVisitorIntelligence(
       browser: session.browser, device: session.device, os: session.os,
       referrer: session.referrer,
       geo,
-      ip_display: buildIpDisplay(session.ip_hash),
-      ip_raw: null, // never persisted; reserved for future opt-in capture
+      // Admin-only: surface real raw IP when the workspace toggle persisted it.
+      // Everyone else gets a stable hash-anchored placeholder.
+      ip_display: canViewRaw && session.ip_raw
+        ? session.ip_raw
+        : buildIpDisplay(session.ip_hash),
+      ip_raw: canViewRaw ? (session.ip_raw ?? null) : null,
       can_view_raw_ip: canViewRaw,
       contact,
       conversation: conv ? { id: conv.id, status: conv.status, subject: conv.subject } : null,

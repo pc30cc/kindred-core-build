@@ -302,3 +302,81 @@ html[lang="en"] {
 html[lang="en"] * {
   font-feature-settings: "lnum" 1;
 }
+
+/* ─────────────────────────────────────────────────────────────────────
+   Visitor map markers + tooltips
+   Custom Leaflet divIcon look — pulse halo for online visitors, semantic
+   theme tokens so light/dark stays consistent with the app shell.
+   ───────────────────────────────────────────────────────────────────── */
+.leaflet-container .visitor-marker {
+  background: transparent;
+  border: 0;
+}
+.visitor-marker-wrap {
+  position: relative;
+  display: inline-block;
+  pointer-events: auto;
+}
+.visitor-dot {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  display: block;
+}
+.visitor-pulse {
+  position: absolute;
+  inset: -4px;
+  border-radius: 9999px;
+  opacity: 0.55;
+  animation: visitor-pulse 1.8s ease-out infinite;
+  pointer-events: none;
+}
+@keyframes visitor-pulse {
+  0%   { transform: scale(0.6); opacity: 0.55; }
+  80%  { transform: scale(2.2); opacity: 0;    }
+  100% { transform: scale(2.2); opacity: 0;    }
+}
+@media (prefers-reduced-motion: reduce) {
+  .visitor-pulse { animation: none; }
+}
+
+/* Tooltip — replace Leaflet's default white box with a themed card. */
+.leaflet-tooltip.vm-tooltip {
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 11px;
+  line-height: 1.35;
+  box-shadow: 0 8px 24px -8px hsl(var(--foreground) / 0.25);
+  white-space: nowrap;
+}
+.leaflet-tooltip.vm-tooltip::before { display: none; } /* hide default arrow */
+.vm-tip { display: flex; flex-direction: column; gap: 3px; min-width: 140px; }
+.vm-tip-row { display: flex; align-items: center; gap: 6px; }
+.vm-tip-head { font-weight: 600; }
+.vm-status-dot {
+  width: 6px; height: 6px; border-radius: 9999px;
+  box-shadow: 0 0 0 2px hsl(var(--popover));
+}
+.vm-status-label { color: hsl(var(--foreground)); }
+.vm-when { color: hsl(var(--muted-foreground)); font-weight: 400; }
+.vm-flag {
+  display: inline-block;
+  font-size: 9px; font-weight: 700; letter-spacing: 0.04em;
+  padding: 1px 5px; border-radius: 4px;
+  background: hsl(var(--muted)); color: hsl(var(--muted-foreground));
+}
+.vm-loc-text { color: hsl(var(--foreground)); font-weight: 500; }
+.vm-page {
+  color: hsl(var(--muted-foreground));
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  max-width: 240px;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.vm-approx {
+  color: hsl(var(--warning, 38 92% 50%));
+  font-size: 10px; font-style: italic;
+}

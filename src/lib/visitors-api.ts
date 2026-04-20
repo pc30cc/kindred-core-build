@@ -83,6 +83,8 @@ export interface MapMarker {
   city: string | null;
   current_page: string | null;
   source: VisitorGeo['source'];
+  /** ISO timestamp of last presence/page activity — drives "x min ago" in tooltip. */
+  last_activity_at?: string;
 }
 
 export function fetchLiveVisitors(workspaceId: string, includeOffline = false) {

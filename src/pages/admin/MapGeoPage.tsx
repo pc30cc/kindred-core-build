@@ -74,6 +74,30 @@ export default function MapGeoPage() {
     }
   };
 
+  /** Persist multiple sections in one PUT (used by tabs that span sections). */
+  const saveSections = async (sections: (keyof MapGeoSettings)[]) => {
+    if (!draft) return;
+    setSaving(true);
+    try {
+      const patch: any = {};
+      for (const s of sections) patch[s] = draft[s];
+      const r = await mapGeoApi.updateSettings(patch);
+      setSettings(r.settings);
+      setDraft((prev) => {
+        if (!prev) return r.settings;
+        const next = { ...prev };
+        for (const s of sections) (next as any)[s] = (r.settings as any)[s];
+        return next;
+      });
+      toast.success(t('admin.mapGeo.saved'));
+      mapGeoApi.health().then(setHealth).catch(() => {});
+    } catch (e: any) {
+      toast.error(e.message || t('admin.mapGeo.saveError'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   /** Compare draft vs persisted for a single section (shallow JSON eq). */
   const isDirty = (section: keyof MapGeoSettings): boolean => {
     if (!draft || !settings) return false;
@@ -124,19 +148,19 @@ export default function MapGeoPage() {
 
   const tilesUnconfigured = !settings.tiles.url_template;
 
-  /** Footer with Save / Reset for a single tab. */
-  const SectionFooter = ({ section }: { section: keyof MapGeoSettings }) => {
-    const dirty = isDirty(section);
+  /** Footer with Save / Reset for one or more sections of the draft. */
+  const SectionFooter = ({ sections }: { sections: (keyof MapGeoSettings)[] }) => {
+    const dirty = sections.some((s) => isDirty(s));
     return (
       <div className="flex items-center justify-between gap-2 border-t pt-4 mt-4">
         <div className="text-xs text-muted-foreground">
           {dirty ? <span className="text-warning font-medium">● Unsaved changes</span> : <span>All changes saved</span>}
         </div>
         <div className="flex gap-2">
-          <Button variant="ghost" size="sm" onClick={() => resetSection(section)} disabled={!dirty || saving}>
+          <Button variant="ghost" size="sm" onClick={() => sections.forEach(resetSection)} disabled={!dirty || saving}>
             <Undo2 className="h-4 w-4 me-2" />Reset
           </Button>
-          <Button size="sm" onClick={() => saveSection(section)} disabled={!dirty || saving}>
+          <Button size="sm" onClick={() => saveSections(sections)} disabled={!dirty || saving}>
             {saving ? <Loader2 className="h-4 w-4 me-2 animate-spin" /> : <Save className="h-4 w-4 me-2" />}
             Save settings
           </Button>

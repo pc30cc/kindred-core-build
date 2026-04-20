@@ -1014,7 +1014,7 @@ export default function InboxPage() {
             )}
 
             {/* ── Input Area ── */}
-            <div className="border-t border-border px-3 py-2.5 bg-card/50 shrink-0" dir={dir}>
+            <div className="border-t border-border px-3 py-3 bg-card/60 shrink-0" dir={dir}>
               {/* Pending attachment chip */}
               {att.status !== 'idle' && (
                 <div className="mb-2 flex items-center gap-2 rounded-lg border border-border bg-secondary/40 px-2.5 py-2">
@@ -1059,7 +1059,8 @@ export default function InboxPage() {
                 </div>
               )}
               <div className={cn(
-                'relative flex gap-2 items-end rounded-xl border p-1.5 transition-colors border-border bg-secondary/30'
+                'relative flex gap-1 items-end rounded-xl border bg-background p-1.5 transition-shadow shadow-sm',
+                'border-border focus-within:border-primary/40 focus-within:ring-2 focus-within:ring-primary/15',
               )}>
                 <CannedResponsePicker
                   ref={pickerRef}
@@ -1139,7 +1140,7 @@ export default function InboxPage() {
                       handleSend();
                     }
                   }}
-                  className="min-h-[36px] max-h-24 resize-none border-0 bg-transparent text-[15px] focus-visible:ring-0 p-1"
+                  className="min-h-[36px] max-h-32 resize-none border-0 bg-transparent text-[14px] leading-relaxed focus-visible:ring-0 px-1.5 py-1.5"
                   rows={1}
                   dir={dir}
                 />
@@ -1151,13 +1152,20 @@ export default function InboxPage() {
                     att.status === 'uploading' ||
                     (!message.trim() && att.status !== 'ready')
                   }
-                  className="h-9 w-9 rounded-lg shrink-0"
+                  className="h-9 w-9 rounded-lg shrink-0 transition-transform active:scale-95"
                 >
                   {sendMessage.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                 </Button>
               </div>
-              <div className="text-[9px] text-muted-foreground/50 mt-1">
-                {t('inbox.enterToSend') || 'Enter to send · Shift+Enter for new line'}
+              <div className="text-[10px] text-muted-foreground/60 mt-1.5 px-1 flex items-center gap-2">
+                <kbd className="px-1 py-0.5 rounded bg-secondary/60 border border-border/40 text-[9px] font-mono font-semibold">Enter</kbd>
+                <span>{t('inbox.enterToSend') || 'to send'}</span>
+                <span className="opacity-30">·</span>
+                <kbd className="px-1 py-0.5 rounded bg-secondary/60 border border-border/40 text-[9px] font-mono font-semibold">Shift+Enter</kbd>
+                <span>new line</span>
+                <span className="opacity-30">·</span>
+                <kbd className="px-1 py-0.5 rounded bg-secondary/60 border border-border/40 text-[9px] font-mono font-semibold">/</kbd>
+                <span>shortcuts</span>
               </div>
             </div>
           </>

@@ -171,7 +171,19 @@ export function bootstrapProviders(): void {
     meta: {
       vendor: 'openstreetmap',
       builtIn: true,
-      description: 'OpenStreetMap raster tiles. No API key required. Self-host friendly.',
+      description: 'OpenStreetMap public tiles. No API key required. Best for simple installs.',
+      // Legacy registry name kept for backwards compatibility — schema renamed to osm_public.
+      aliasOf: 'osm_public',
+    },
+  });
+  // Register the same instance under the new schema name so admin UI lookups
+  // by `osm_public` resolve to the working OSM provider.
+  providerRegistry.register('map_tiles', 'osm_public', osmMapTilesProvider, {
+    priority: 0,
+    meta: {
+      vendor: 'openstreetmap',
+      builtIn: true,
+      description: 'OpenStreetMap public tiles. No API key required. Best for simple installs.',
     },
   });
   providerRegistry.register('map_tiles', 'stub', stubMapTilesProvider, {

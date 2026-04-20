@@ -222,6 +222,42 @@ export default function VisitorsPage() {
             </div>
           ))}
         </div>
+
+        {/* Geo insight strip — minimal, realtime, only renders when relevant */}
+        {geoInsight.total > 0 && (
+          <div
+            className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-muted-foreground"
+            aria-label={t('visitors.insightTitle')}
+          >
+            <span className="font-medium text-foreground/80 me-1">
+              {t('visitors.insightTitle')}
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-success" aria-hidden />
+              <span className="text-foreground tabular-nums">{geoInsight.precise}</span>
+              <span>{t('visitors.insightPrecise')}</span>
+              <span className="text-muted-foreground/60">({geoInsight.pctPrecise}%)</span>
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-warning" aria-hidden />
+              <span className="text-foreground tabular-nums">{geoInsight.approximate}</span>
+              <span>{t('visitors.insightApproximate')}</span>
+              <span className="text-muted-foreground/60">({geoInsight.pctApprox}%)</span>
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-muted-foreground/60" aria-hidden />
+              <span className="text-foreground tabular-nums">{geoInsight.unavailable}</span>
+              <span>{t('visitors.insightUnavailable')}</span>
+              <span className="text-muted-foreground/60">({geoInsight.pctUnavailable}%)</span>
+            </span>
+            {geoInsight.withoutLocation > 0 && (
+              <span className="inline-flex items-center gap-1 ms-auto text-muted-foreground/80">
+                <MapPin className="w-3 h-3" aria-hidden />
+                {t('visitors.mapWithoutLocation', { n: String(geoInsight.withoutLocation) })}
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Body: list + map */}

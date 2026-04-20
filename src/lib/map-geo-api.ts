@@ -25,6 +25,7 @@ export interface MapGeoSettings {
   tiles: { provider: string; url_template: string; attribution: string; min_zoom: number; max_zoom: number; subdomains: string };
   behavior: { show_only_valid_coords: boolean; ignore_fallback_only: boolean; include_geo_labels: boolean; debug_metadata: boolean; default_center_mode: 'auto' | 'fixed'; default_center_lat: number; default_center_lng: number; default_zoom: number };
   display: { height_px: number; fill_viewport: boolean };
+  presence: { heartbeat_interval_ms: number; live_refresh_ms: number; stale_after_ms: number };
 }
 
 async function call<T>(method: string, path: string, body?: any): Promise<T> {

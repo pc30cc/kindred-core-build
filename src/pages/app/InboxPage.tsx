@@ -910,7 +910,13 @@ export default function InboxPage() {
                 Operator UI convention: "you" (agent/AI) align RIGHT, visitor LEFT.
                 Mirrors WhatsApp/Intercom/Crisp behavior so operators read their
                 own replies on the side closest to the composer. */}
-            <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 bg-background" ref={messagesContainerRef}>
+            <div
+              className="flex-1 overflow-y-auto px-3 sm:px-4 py-4 space-y-4 bg-background overscroll-contain"
+              ref={messagesContainerRef}
+              role="log"
+              aria-live="polite"
+              aria-relevant="additions"
+            >
               {rawMessages?.map((msg, idx) => {
                 const isVisitor = msg.sender_type === 'contact';
                 const isAgent = !isVisitor;

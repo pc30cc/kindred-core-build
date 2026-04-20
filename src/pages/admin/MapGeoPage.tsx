@@ -81,11 +81,16 @@ export default function AdminMapGeoPage() {
   const settingsQ = useQuery({
     queryKey: ['admin', 'map-geo', 'settings'],
     queryFn: () => mapGeoAdminApi.getSettings().then(r => r.settings),
+    retry: 1,
+    retryDelay: 500,
+    staleTime: 30_000,
   });
   const statusQ = useQuery({
     queryKey: ['admin', 'map-geo', 'maxmind-status'],
     queryFn: () => mapGeoAdminApi.maxmindStatus(),
     refetchInterval: 30_000,
+    retry: 1,
+    retryDelay: 500,
   });
 
   // Local editable copy. Reset on server reload.

@@ -540,9 +540,15 @@ export async function getActiveGeoProvider(
   workspaceId: string | null,
 ): Promise<{ provider_name: string | null; is_disabled: boolean }> {
   const cfg = await resolveProviderConfig(config, workspaceId);
-  if (!cfg) return { provider_name: null, is_disabled: false };
-  return {
-    provider_name: cfg.provider_name,
-    is_disabled: cfg.provider_name === 'none',
-  };
+  const settings = await getMapGeoSettings(config);
+  if (cfg) {
+    return { provider_name: cfg.provider_name, is_disabled: cfg.provider_name === 'none' || !settings.enabled };
+  }
+  // Fall back to platform map_geo_settings — maxmind_local is implicit
+  // when enabled. This is what makes the strict-priority pipeline work
+  // out of the box without an explicit provider_configs row.
+  if (settings.enabled && settings.maxmind_local.enabled) {
+    return { provider_name: 'maxmind_local', is_disabled: false };
+  }
+  return { provider_name: null, is_disabled: !settings.enabled };
 }

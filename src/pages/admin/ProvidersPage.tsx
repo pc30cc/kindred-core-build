@@ -10,6 +10,7 @@ import { PROVIDER_SCHEMAS } from '@/features/providers/schemas';
 import { AdminProviderCard } from '@/features/providers/AdminProviderCard';
 import { AdminRealtimeCard } from '@/features/providers/AdminRealtimeCard';
 import { PrivacyExportStorageCard } from '@/features/providers/PrivacyExportStorageCard';
+import { VisitorIntelligenceSection } from '@/features/providers/VisitorIntelligenceSection';
 
 // Phase 3: realtime is configured globally via the dedicated card.
 function RenderProviderCard({ type }: { type: ProviderTypeKey }) {
@@ -221,6 +222,9 @@ export default function AdminProvidersPage() {
                 <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
                   {group.label}
                 </h3>
+                {group.label === 'Visitor Intelligence' && (
+                  <VisitorIntelligenceSection />
+                )}
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                   {types.map((type) => (
                     <RenderProviderCard key={type} type={type} />

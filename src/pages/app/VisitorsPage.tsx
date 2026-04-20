@@ -35,6 +35,43 @@ export default function VisitorsPage() {
   const { t } = useTranslation();
   const workspace = useCurrentWorkspace();
   const wsId = workspace?.id;
+  const { data: role } = useWorkspaceRole(wsId);
+  const isAdmin = role === 'owner' || role === 'admin';
+  const qc = useQueryClient();
+  const [warming, setWarming] = useState(false);
+
+  const onWarmGeo = useCallback(async () => {
+    if (!wsId || warming) return;
+    setWarming(true);
+    try {
+      const r = await warmVisitorGeo(wsId, { lookback_days: 7, limit: 100 });
+      if (r.status === 'noop') {
+        toast({
+          title: t('visitors.warmGeoCta'),
+          description: t('visitors.warmGeoNoop', { state: r.reason ?? 'unknown' }),
+        });
+      } else {
+        toast({
+          title: t('visitors.warmGeoCta'),
+          description: t('visitors.warmGeoDone', {
+            enriched: String(r.enriched), cached: String(r.cached),
+            centroid: String(r.centroid), skipped: String(r.skipped),
+          }),
+        });
+        qc.invalidateQueries({ queryKey: ['visitor-intel-live', wsId] });
+        qc.invalidateQueries({ queryKey: ['visitor-intel-map', wsId] });
+      }
+    } catch (err: any) {
+      const msg = String(err?.message || '');
+      toast({
+        title: t('visitors.warmGeoCta'),
+        description: msg.includes('Cooldown') ? t('visitors.warmGeoCooldown') : msg,
+        variant: 'destructive',
+      });
+    } finally {
+      setWarming(false);
+    }
+  }, [wsId, warming, qc, t]);
 
   const [includeOffline, setIncludeOffline] = useState(false);
   const [search, setSearch] = useState('');

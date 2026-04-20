@@ -503,6 +503,12 @@
   // ─── Visitor tracking (background, identity owned by HttpOnly cookie) ───
   function startTracking(apiBase, workspaceId, token) {
     if (!apiBase || !workspaceId) return;
+    // Use path + search so query-string-driven views (e.g. ?article=42) get
+    // their own row. Hash is excluded — most apps treat it as in-page state.
+    function currentPage() {
+      try { return window.location.pathname + (window.location.search || ''); }
+      catch (_) { return window.location.pathname; }
+    }
     fetch(apiBase + "/api/widget/track", {
       method: "POST",
       credentials: "include",
@@ -510,7 +516,7 @@
       body: JSON.stringify({
         workspace_id: workspaceId,
         event: "page_view",
-        current_page: window.location.pathname,
+        current_page: currentPage(),
         referrer: document.referrer || null,
         browser: detectBrowser(),
         device: /Mobi|Android/i.test(navigator.userAgent) ? "Mobile" : "Desktop",
@@ -521,7 +527,8 @@
       .then(function (data) {
         var sessionId = data && data.session_id ? data.session_id : null;
         if (!sessionId) return;
-        setInterval(function () {
+        var lastPage = currentPage();
+        function ping() {
           fetch(apiBase + "/api/widget/action", {
             method: "PUT",
             credentials: "include",
@@ -530,10 +537,45 @@
               workspace_id: workspaceId,
               action: "heartbeat",
               session_id: sessionId,
-              current_page: window.location.pathname,
+              current_page: currentPage(),
             }),
           }).catch(function () {});
-        }, 30000);
+        }
+        // Background heartbeat — keeps presence "online" and refreshes
+        // last_seen_at so the operator UI stays accurate.
+        setInterval(ping, 30000);
+
+        // SPA navigation: many host sites (React/Vue/Next) don't reload the
+        // page when the URL changes. Without this, page_history would only
+        // ever record the very first URL. We listen for the three signals
+        // that cover ~all client-side routers:
+        //   - popstate           → back/forward buttons
+        //   - pushState/replace  → router.push / router.replace
+        //   - hashchange         → legacy hash routing (#/foo)
+        function onUrlChange() {
+          var now = currentPage();
+          if (now === lastPage) return;
+          lastPage = now;
+          // Fire an immediate ping so the new URL is logged without waiting
+          // up to 30 seconds for the next heartbeat tick.
+          ping();
+        }
+        try {
+          var origPush = history.pushState;
+          var origReplace = history.replaceState;
+          history.pushState = function () {
+            var r = origPush.apply(this, arguments);
+            try { onUrlChange(); } catch (_) {}
+            return r;
+          };
+          history.replaceState = function () {
+            var r = origReplace.apply(this, arguments);
+            try { onUrlChange(); } catch (_) {}
+            return r;
+          };
+          window.addEventListener("popstate", onUrlChange);
+          window.addEventListener("hashchange", onUrlChange);
+        } catch (_) {/* read-only history in some sandboxes */}
       })
       .catch(function () {});
   }

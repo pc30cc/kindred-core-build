@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useLiveVisitors, useVisitorMap, useVisitorMapConfig } from '@/hooks/useVisitors';
@@ -77,6 +77,43 @@ export default function VisitorsPage() {
       );
     });
   }, [visitors, search, filterOnline, filterHasConv, filterCountry]);
+
+  // Keyboard navigation: ↑/↓ moves the focused row, Enter opens the drawer,
+  // Esc closes it. Roving tabindex pattern keeps Tab order shallow.
+  const listRef = useRef<HTMLUListElement>(null);
+  const focusRow = useCallback((id: string | null) => {
+    if (!id) return;
+    const el = listRef.current?.querySelector<HTMLButtonElement>(
+      `button[data-visitor-id="${id}"]`,
+    );
+    el?.focus();
+  }, []);
+  const onListKeyDown = useCallback((e: React.KeyboardEvent<HTMLUListElement>) => {
+    if (filtered.length === 0) return;
+    const active = document.activeElement as HTMLElement | null;
+    const currentId = active?.dataset?.visitorId ?? null;
+    const idx = currentId ? filtered.findIndex((v) => v.id === currentId) : -1;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      const next = filtered[Math.min(filtered.length - 1, idx + 1)] ?? filtered[0];
+      focusRow(next.id);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      const next = filtered[Math.max(0, idx - 1)] ?? filtered[0];
+      focusRow(next.id);
+    } else if (e.key === 'Enter' && currentId) {
+      e.preventDefault();
+      setSelectedId(currentId);
+    }
+  }, [filtered, focusRow]);
+  // Esc closes the drawer (Sheet already does this when focused; this covers
+  // the case where focus stayed on the list).
+  useEffect(() => {
+    if (!selectedId) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setSelectedId(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selectedId]);
 
   // Map markers must reflect the same filter set as the list, so the two
   // surfaces stay in sync. Build a Set of allowed session ids and intersect.
@@ -271,7 +308,14 @@ export default function VisitorsPage() {
                 {!search && <p className="text-xs text-muted-foreground">{t('visitors.emptyDesc')}</p>}
               </div>
             ) : (
-              <ul className="divide-y divide-border/60" role="list">
+              <ul
+                ref={listRef}
+                className="divide-y divide-border/60 outline-none"
+                role="listbox"
+                aria-label={t('visitors.activeSessions')}
+                tabIndex={-1}
+                onKeyDown={onListKeyDown}
+              >
                 {filtered.map(v => {
                   const isSelected = selectedId === v.id;
                   const name = v.contact?.name || v.contact?.email || t('visitors.unknownVisitor');
@@ -280,6 +324,9 @@ export default function VisitorsPage() {
                     <li key={v.id}>
                       <button
                         type="button"
+                        data-visitor-id={v.id}
+                        role="option"
+                        aria-selected={isSelected}
                         onClick={() => setSelectedId(v.id)}
                         className={cn(
                           'w-full text-start px-3 py-2.5 flex items-center gap-3 transition-colors',

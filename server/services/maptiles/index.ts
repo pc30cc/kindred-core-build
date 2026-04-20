@@ -36,6 +36,17 @@ export interface MapTilesConfig {
   health_url?: string | null;
   // True if the renderer should fall back to the no-map list-only mode.
   fallback_no_map: boolean;
+  // ── Observability fields (added in hardening pass) ────────────────
+  /** Provider the operator actually configured (or null when unset). */
+  requested_provider?: string | null;
+  /** Provider currently powering tile rendering. May differ from requested. */
+  resolved_provider?: string;
+  /** Set when we silently fell back from `requested_provider`. */
+  fallback_provider?: string | null;
+  /** Human-readable reason for the fallback (e.g. "missing tile_url"). */
+  fallback_reason?: string | null;
+  /** Coarse health classification for the resolved provider. */
+  health_status?: 'healthy' | 'unconfigured' | 'fallback' | 'disabled';
 }
 
 const DEFAULT_OSM: MapTilesConfig = {

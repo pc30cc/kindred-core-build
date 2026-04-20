@@ -177,6 +177,64 @@ export default function VisitorsPage() {
                 aria-label={t('visitors.searchPlaceholder')}
               />
             </div>
+            {/* Filter chips */}
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setFilterOnline((v) => !v)}
+                aria-pressed={filterOnline}
+                className={cn(
+                  'inline-flex items-center gap-1 h-6 px-2 rounded-full text-[11px] border transition-colors',
+                  filterOnline
+                    ? 'bg-success/15 border-success/30 text-success'
+                    : 'bg-background border-border text-muted-foreground hover:bg-muted/50'
+                )}
+              >
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-success" />
+                {t('visitors.filterOnline')}
+              </button>
+              <button
+                type="button"
+                onClick={() => setFilterHasConv((v) => !v)}
+                aria-pressed={filterHasConv}
+                className={cn(
+                  'inline-flex items-center gap-1 h-6 px-2 rounded-full text-[11px] border transition-colors',
+                  filterHasConv
+                    ? 'bg-primary/10 border-primary/30 text-primary'
+                    : 'bg-background border-border text-muted-foreground hover:bg-muted/50'
+                )}
+              >
+                <MessageSquare className="w-3 h-3" />
+                {t('visitors.filterHasConversation')}
+              </button>
+              <Select value={filterCountry} onValueChange={setFilterCountry}>
+                <SelectTrigger
+                  className="h-6 px-2 w-auto min-w-[110px] text-[11px] rounded-full border-border bg-background gap-1"
+                  aria-label={t('visitors.filterCountry')}
+                >
+                  <Globe2 className="w-3 h-3 text-muted-foreground" />
+                  <SelectValue placeholder={t('visitors.filterCountryAll')} />
+                </SelectTrigger>
+                <SelectContent className="max-h-60">
+                  <SelectItem value="all">{t('visitors.filterCountryAll')}</SelectItem>
+                  {countryOptions.map((c) => (
+                    <SelectItem key={c.code} value={c.code}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {activeFilterCount > 0 && (
+                <button
+                  type="button"
+                  onClick={resetFilters}
+                  className="inline-flex items-center gap-1 h-6 px-2 rounded-full text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                >
+                  <X className="w-3 h-3" />
+                  {t('visitors.filterReset')}
+                </button>
+              )}
+            </div>
             <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
               <span>{t('visitors.activeSessions')}</span>
               <span>{t('visitors.visitorsCount', { count: String(filtered.length) })}</span>
@@ -284,11 +342,11 @@ export default function VisitorsPage() {
             <>
               <VisitorMap
                 config={mapConfig.data}
-                markers={map.data?.markers ?? []}
+                markers={filteredMarkers}
                 selectedId={selectedId}
                 onSelect={setSelectedId}
               />
-              {mapConfig.data?.enabled && !mapConfig.data?.fallback_no_map && (map.data?.markers.length ?? 0) === 0 && !map.isLoading && (
+              {mapConfig.data?.enabled && !mapConfig.data?.fallback_no_map && filteredMarkers.length === 0 && !map.isLoading && (
                 <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
                   <div className="bg-card/90 border border-border rounded-lg px-4 py-3 text-center shadow-sm pointer-events-auto max-w-xs">
                     <Users className="w-6 h-6 text-muted-foreground/40 mx-auto mb-1" />

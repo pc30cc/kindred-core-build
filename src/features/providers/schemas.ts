@@ -1541,15 +1541,60 @@ const geoEnrichmentVendors: ProviderVendor[] = [
 // =============================================
 const mapTilesVendors: ProviderVendor[] = [
   {
-    name: 'osm', label: 'OpenStreetMap (default)',
-    description: 'Free raster tiles. No API key. Self-host friendly. Recommended default.',
+    name: 'osm_public', label: 'OpenStreetMap (public tiles)',
+    description: 'Free raster tiles from openstreetmap.org. No API key. Best for simple installs and dev. Subject to OSM tile usage policy.',
     docsUrl: 'https://www.openstreetmap.org',
+    deployment: 'builtin', recommendation: 'simple',
     fields: [],
+  },
+  {
+    name: 'tileserver_selfhosted', label: 'TileServer GL (Self-Hosted)',
+    description: 'Connect your own raster/vector tile server. Recommended for production self-host. Zero external dependency.',
+    docsUrl: 'https://github.com/maptiler/tileserver-gl',
+    deployment: 'selfhosted', recommendation: 'production-selfhost',
+    fields: [
+      { key: 'tile_url', label: 'Tile URL Template', type: 'url', required: true,
+        placeholder: 'https://tiles.yourdomain.com/styles/basic/{z}/{x}/{y}.png',
+        hint: 'Must contain {z}/{x}/{y}. Use {r} for retina if your server supports it.' },
+      { key: 'mode', label: 'Tile Mode', type: 'select', options: [
+        { value: 'raster', label: 'Raster (PNG/JPG)' },
+        { value: 'vector', label: 'Vector (PBF/MVT)' },
+      ], hint: 'Raster works with the current Leaflet renderer. Vector requires MapLibre — coming soon.' },
+      { key: 'attribution', label: 'Attribution', type: 'text',
+        placeholder: '© OpenStreetMap contributors',
+        hint: 'Required by OSM data licence if your tiles are derived from OSM.' },
+      { key: 'min_zoom', label: 'Min Zoom', type: 'number', placeholder: '1' },
+      { key: 'max_zoom', label: 'Max Zoom', type: 'number', placeholder: '19' },
+      { key: 'health_url', label: 'Health Check URL', type: 'url',
+        placeholder: 'https://tiles.yourdomain.com/health',
+        hint: 'Optional. If set, admin UI uses this for live status.' },
+    ],
+  },
+  {
+    name: 'openmaptiles_selfhosted', label: 'OpenMapTiles (Self-Hosted)',
+    description: 'Self-hosted OpenMapTiles stack with style URL. Recommended for fully branded production maps.',
+    docsUrl: 'https://openmaptiles.org/docs',
+    deployment: 'selfhosted', recommendation: 'production-selfhost',
+    fields: [
+      { key: 'tile_url', label: 'Raster Tile URL', type: 'url', required: true,
+        placeholder: 'https://maps.yourdomain.com/styles/osm-bright/{z}/{x}/{y}.png',
+        hint: 'Raster fallback used by the Leaflet renderer.' },
+      { key: 'style_url', label: 'Style URL (Vector)', type: 'url',
+        placeholder: 'https://maps.yourdomain.com/styles/osm-bright/style.json',
+        hint: 'Optional. Used when the renderer supports MapLibre vector tiles.' },
+      { key: 'attribution', label: 'Attribution', type: 'text',
+        placeholder: '© OpenMapTiles © OpenStreetMap contributors' },
+      { key: 'min_zoom', label: 'Min Zoom', type: 'number', placeholder: '1' },
+      { key: 'max_zoom', label: 'Max Zoom', type: 'number', placeholder: '19' },
+      { key: 'health_url', label: 'Health Check URL', type: 'url',
+        placeholder: 'https://maps.yourdomain.com/health' },
+    ],
   },
   {
     name: 'maptiler', label: 'MapTiler',
     description: 'Vector & raster tiles with multiple styles',
     docsUrl: 'https://docs.maptiler.com',
+    deployment: 'external', recommendation: 'cloud',
     fields: [
       { key: 'api_key', label: 'API Key', type: 'password', required: true },
       { key: 'style', label: 'Map Style', type: 'select', options: [
@@ -1564,6 +1609,7 @@ const mapTilesVendors: ProviderVendor[] = [
     name: 'mapbox', label: 'Mapbox',
     description: 'High-quality vector tiles and styles',
     docsUrl: 'https://docs.mapbox.com',
+    deployment: 'external', recommendation: 'cloud',
     fields: [
       { key: 'access_token', label: 'Access Token', type: 'password', required: true },
       { key: 'style', label: 'Style URL', type: 'text', placeholder: 'mapbox/streets-v12' },
@@ -1573,6 +1619,7 @@ const mapTilesVendors: ProviderVendor[] = [
     name: 'stadia', label: 'Stadia Maps',
     description: 'Privacy-friendly map tiles, OSM-based',
     docsUrl: 'https://docs.stadiamaps.com',
+    deployment: 'external', recommendation: 'cloud',
     fields: [
       { key: 'api_key', label: 'API Key', type: 'password', hint: 'Optional in dev, required in production' },
       { key: 'style', label: 'Style', type: 'select', options: [
@@ -1586,6 +1633,7 @@ const mapTilesVendors: ProviderVendor[] = [
   {
     name: 'none', label: 'No Map (List Only)',
     description: 'Disable the map canvas. Visitors are listed without geographic display.',
+    deployment: 'disabled',
     fields: [],
   },
 ];

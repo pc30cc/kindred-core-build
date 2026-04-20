@@ -876,63 +876,98 @@ export default function InboxPage() {
               </div>
             </div>
 
-            {/* ── Messages Area ── */}
-            <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 bg-background" ref={messagesContainerRef}>
-              {rawMessages?.map(msg => {
-                // Treat any non-visitor sender as the support side of the
-                // thread. AI auto-replies (sender_type === 'ai') and system
-                // messages render on the same side as a human agent so the
-                // visitor↔support layout stays consistent.
+            {/* ── Messages Area ──
+                Operator UI convention: "you" (agent/AI) align RIGHT, visitor LEFT.
+                Mirrors WhatsApp/Intercom/Crisp behavior so operators read their
+                own replies on the side closest to the composer. */}
+            <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 bg-background" ref={messagesContainerRef}>
+              {rawMessages?.map((msg, idx) => {
                 const isVisitor = msg.sender_type === 'contact';
                 const isAgent = !isVisitor;
                 const isAi = msg.sender_type === 'ai';
+                const prev = idx > 0 ? rawMessages[idx - 1] : null;
+                const sameSenderAsPrev = prev && prev.sender_type === msg.sender_type;
+                // Group consecutive bubbles from the same sender — hide repeating
+                // avatar/header to declutter the thread.
+                const showAvatar = !sameSenderAsPrev;
+                const showMeta = !sameSenderAsPrev;
                 return (
-                  <div key={msg.id} className={cn('flex gap-2.5 group', isAgent ? 'flex-row' : 'flex-row-reverse')}>
-                    {/* Avatar */}
-                    {isAgent ? (
-                      <div className={cn(
-                        'w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-1 shadow-sm',
-                        isAi ? 'bg-accent/20 text-accent-foreground' : 'bg-primary/15 text-primary',
-                      )}>
-                        <Bot className="w-4 h-4" />
-                      </div>
-                    ) : (
-                      <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-1 bg-secondary text-secondary-foreground shadow-sm">
-                        <User className="w-4 h-4" />
-                      </div>
+                  <div
+                    key={msg.id}
+                    className={cn(
+                      'flex gap-2.5 group',
+                      isAgent ? 'flex-row-reverse' : 'flex-row',
+                      sameSenderAsPrev ? '-mt-2.5' : '',
                     )}
-                    <div className="max-w-[75%]">
-                      <div className={cn('text-[10px] text-muted-foreground mb-0.5 flex items-center gap-1', isAgent ? '' : 'text-start')}>
-                        <span>
-                          {isAgent ? (t('inbox.support') || 'Support') : (selected?.contacts?.name || t('inbox.visitor') || 'Visitor')}
-                        </span>
-                        {isAi && (
-                          <span className="px-1 py-px rounded bg-accent/30 text-accent-foreground text-[9px] font-medium uppercase tracking-wide">
-                            AI
+                  >
+                    {/* Avatar — hidden on grouped follow-ups, replaced by spacer */}
+                    {showAvatar ? (
+                      isAgent ? (
+                        <div className={cn(
+                          'w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5 shadow-sm ring-1',
+                          isAi
+                            ? 'bg-accent/30 text-accent-foreground ring-accent/40'
+                            : 'bg-primary/15 text-primary ring-primary/20',
+                        )}>
+                          <Bot className="w-4 h-4" />
+                        </div>
+                      ) : (
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5 bg-secondary text-secondary-foreground shadow-sm ring-1 ring-border/40 overflow-hidden">
+                          {selected?.contacts?.avatar_url ? (
+                            <img src={selected.contacts.avatar_url} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <User className="w-4 h-4" />
+                          )}
+                        </div>
+                      )
+                    ) : (
+                      <div className="w-8 shrink-0" aria-hidden />
+                    )}
+                    <div className={cn('max-w-[75%] flex flex-col', isAgent ? 'items-end' : 'items-start')}>
+                      {showMeta && (
+                        <div className="text-[10px] text-muted-foreground mb-1 flex items-center gap-1.5">
+                          <span className="font-medium">
+                            {isAgent
+                              ? (isAi ? 'AI' : (t('inbox.support') || 'Support'))
+                              : (selected?.contacts?.name || t('inbox.visitor') || 'Visitor')}
                           </span>
-                        )}
-                        <span className="opacity-40">•</span>
-                        <span>{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                      </div>
+                          {isAi && (
+                            <span className="px-1 py-px rounded bg-accent/40 text-accent-foreground text-[9px] font-semibold uppercase tracking-wide">
+                              AUTO
+                            </span>
+                          )}
+                          <span className="opacity-30">•</span>
+                          <span dir="ltr">{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                        </div>
+                      )}
                       <div className={cn(
-                        'rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed',
+                        'rounded-2xl px-3.5 py-2 text-[13px] leading-relaxed shadow-sm',
                         isAgent
-                          ? 'bg-primary/10 text-foreground rounded-es-sm'
-                          : 'bg-secondary text-foreground rounded-ee-sm'
+                          ? 'bg-primary text-primary-foreground rounded-ee-sm'
+                          : 'bg-secondary text-foreground rounded-es-sm'
                       )}>
                         {(msg as { attachment?: MessageAttachment | null }).attachment && (
                           <MessageAttachmentView att={(msg as { attachment: MessageAttachment }).attachment} t={t} />
                         )}
-                        {msg.body && <p className={cn((msg as any).attachment ? 'mt-2' : '')}>{msg.body}</p>}
+                        {msg.body && <p className={cn((msg as any).attachment ? 'mt-2' : '', 'whitespace-pre-wrap break-words')}>{msg.body}</p>}
                       </div>
-                      {/* Copy action */}
-                      <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1 mt-0.5">
+                      {/* Hover actions + seen state */}
+                      <div className={cn(
+                        'flex items-center gap-2 mt-1 h-3.5',
+                        isAgent ? 'flex-row-reverse' : 'flex-row',
+                      )}>
                         <button
                           onClick={() => { navigator.clipboard.writeText(msg.body); toast({ title: 'Copied!' }); }}
-                          className="text-muted-foreground hover:text-foreground p-0.5 rounded"
+                          className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground p-0.5 rounded"
+                          aria-label="Copy"
                         >
                           <Copy className="w-3 h-3" />
                         </button>
+                        {isAgent && msg.seen_at && idx === rawMessages.length - 1 && (
+                          <span className="text-[10px] text-primary/70 font-medium flex items-center gap-1" dir="ltr">
+                            <CheckCircle2 className="w-3 h-3" /> {t('inbox.seen') || 'Seen'}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>

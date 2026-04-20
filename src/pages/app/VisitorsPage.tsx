@@ -16,11 +16,11 @@ import {
   RefreshCcw, AlertTriangle, Wifi,
 } from 'lucide-react';
 
-function relativeTime(iso: string, t: (k: string, vars?: Record<string, unknown>) => string) {
+function relativeTime(iso: string, t: (k: string, vars?: Record<string, string>) => string) {
   const diffSec = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
   if (diffSec < 60) return t('visitors.just_now');
-  if (diffSec < 3600) return t('visitors.minutesAgo', { n: Math.floor(diffSec / 60) });
-  return t('visitors.hoursAgo', { n: Math.floor(diffSec / 3600) });
+  if (diffSec < 3600) return t('visitors.minutesAgo', { n: String(Math.floor(diffSec / 60)) });
+  return t('visitors.hoursAgo', { n: String(Math.floor(diffSec / 3600)) });
 }
 
 export default function VisitorsPage() {
@@ -133,7 +133,7 @@ export default function VisitorsPage() {
             </div>
             <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
               <span>{t('visitors.activeSessions')}</span>
-              <span>{t('visitors.visitorsCount', { count: filtered.length })}</span>
+              <span>{t('visitors.visitorsCount', { count: String(filtered.length) })}</span>
             </div>
           </div>
 
@@ -210,7 +210,7 @@ export default function VisitorsPage() {
                               <span className="truncate">{loc}</span>
                             </span>
                             <span className="text-muted-foreground/50">·</span>
-                            <span className="shrink-0">{relativeTime(v.last_activity_at, t)}</span>
+                            <span className="shrink-0">{relativeTime(v.last_activity_at, t as (k: string, p?: Record<string, string>) => string)}</span>
                           </div>
                           {v.current_page && (
                             <div className="mt-1 text-[11px] text-muted-foreground/80 truncate flex items-center gap-1">

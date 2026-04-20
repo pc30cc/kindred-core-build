@@ -447,7 +447,18 @@ visitorsAdminRouter.get('/map', async (req: Request, res: Response) => {
         source: i.geo.source,
       }));
     const without_location = items.length - markers.length;
-    res.json({ markers, total: items.length, without_location });
+    // Geo source breakdown — fuels the header insight chip on the Visitors page.
+    // 'cache' counts as 'precise' for UX purposes (cache rows came from a real provider).
+    const source_counts = {
+      precise: 0, approximate: 0, unavailable: 0,
+    };
+    for (const i of items) {
+      const s = i.geo.source;
+      if (s === 'provider' || s === 'cache') source_counts.precise++;
+      else if (s === 'centroid') source_counts.approximate++;
+      else source_counts.unavailable++;
+    }
+    res.json({ markers, total: items.length, without_location, source_counts });
   } catch (err) {
     console.error('[visitors.map] failed:', err);
     res.status(500).json({ error: 'Internal error' });

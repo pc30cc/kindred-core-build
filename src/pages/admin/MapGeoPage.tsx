@@ -81,11 +81,16 @@ export default function AdminMapGeoPage() {
   const settingsQ = useQuery({
     queryKey: ['admin', 'map-geo', 'settings'],
     queryFn: () => mapGeoAdminApi.getSettings().then(r => r.settings),
+    retry: 1,
+    retryDelay: 500,
+    staleTime: 30_000,
   });
   const statusQ = useQuery({
     queryKey: ['admin', 'map-geo', 'maxmind-status'],
     queryFn: () => mapGeoAdminApi.maxmindStatus(),
     refetchInterval: 30_000,
+    retry: 1,
+    retryDelay: 500,
   });
 
   // Local editable copy. Reset on server reload.
@@ -145,22 +150,37 @@ export default function AdminMapGeoPage() {
     }),
   });
 
-  if (settingsQ.isLoading || !draft) {
+  if (settingsQ.isError) {
+    const errMsg = (settingsQ.error as Error)?.message || '';
     return (
-      <div className="flex items-center justify-center py-16">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+      <div className="space-y-4">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Link to="/admin/providers" className="hover:text-foreground inline-flex items-center gap-1">
+            <ArrowLeft className="h-3 w-3" /> {t('admin.nav.providers')}
+          </Link>
+        </div>
+        <Card className="bg-card border-destructive/30">
+          <CardContent className="py-6 space-y-3">
+            <div className="flex items-center gap-2 text-sm text-destructive">
+              <XCircle className="h-4 w-4" /> {t('admin.mapGeo.loadError')}
+            </div>
+            {errMsg && (
+              <p className="text-xs text-muted-foreground font-mono break-all">{errMsg}</p>
+            )}
+            <Button size="sm" variant="outline" onClick={() => settingsQ.refetch()}>
+              <RefreshCw className="h-3 w-3 me-1" />
+              {t('admin.mapGeo.actions.refresh')}
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
-  if (settingsQ.isError) {
+  if (settingsQ.isLoading || !draft) {
     return (
-      <div className="space-y-4">
-        <Card className="bg-card border-border">
-          <CardContent className="py-4 text-sm text-destructive flex items-center gap-2">
-            <XCircle className="h-4 w-4" /> {t('admin.mapGeo.loadError')}
-          </CardContent>
-        </Card>
+      <div className="flex items-center justify-center py-16">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
       </div>
     );
   }

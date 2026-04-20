@@ -245,6 +245,18 @@ export default function VisitorsPage() {
               <RefreshCcw className={cn('w-3.5 h-3.5 me-1.5', live.isFetching && 'animate-spin')} />
               {t('visitors.refresh')}
             </Button>
+            {isAdmin && (
+              <Button
+                size="sm" variant="outline"
+                onClick={onWarmGeo}
+                disabled={warming}
+                title={t('visitors.warmGeoDesc')}
+                aria-label={t('visitors.warmGeoCta')}
+              >
+                <Flame className={cn('w-3.5 h-3.5 me-1.5', warming && 'animate-pulse')} />
+                {warming ? t('visitors.warmGeoRunning') : t('visitors.warmGeoCta')}
+              </Button>
+            )}
           </div>
         </div>
 

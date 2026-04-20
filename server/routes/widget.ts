@@ -58,6 +58,7 @@ import { widgetAttachmentsRouter, attachUploadedFileToMessage, enrichMessagesWit
 import { recordConversationEvent } from '../services/conversationEvents.js';
 import { resolveAvailability, snapshotToWirePayload } from '../services/widget/availability.js';
 import { sendEmail } from '../services/email/index.js';
+import { enrichVisitorSessionGeo } from '../services/geo/index.js';
 
 export const widgetRouter = Router();
 

@@ -256,7 +256,7 @@ export async function getVisitorIntelligence(
       .eq('id', sessionId)
       .maybeSingle();
     if (!session) return null;
-    const geo = await resolveVisitorGeo(config, workspaceId, {
+    const geo = geoFromSession(session) ?? await resolveVisitorGeo(config, workspaceId, {
       country: session.country, city: session.city, ip_hash: session.ip_hash,
     });
     return {
@@ -275,7 +275,7 @@ export async function getVisitorIntelligence(
   }
 
   const session = presence.visitor_sessions as any;
-  const geo = await resolveVisitorGeo(config, workspaceId, {
+  const geo = geoFromSession(session) ?? await resolveVisitorGeo(config, workspaceId, {
     country: session.country, city: session.city, ip_hash: session.ip_hash,
   });
   const { data: conv } = await sb

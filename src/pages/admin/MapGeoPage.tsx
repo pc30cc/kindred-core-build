@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from '@/i18n';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -9,14 +9,22 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, MapPin, AlertTriangle, CheckCircle2, RefreshCw, Trash2, PlayCircle } from 'lucide-react';
+import { Loader2, MapPin, AlertTriangle, CheckCircle2, RefreshCw, Trash2, PlayCircle, Save, Undo2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { mapGeoApi, type MapGeoSettings } from '@/lib/map-geo-api';
 import { MapTilesPreview } from '@/components/admin/MapTilesPreview';
 
+/**
+ * Map & Geo settings page.
+ *
+ * Edits are kept in a local `draft` and only persisted when the operator
+ * clicks "Save settings" in the active tab. Each tab saves only its own
+ * section, with an "unsaved changes" indicator + Reset button.
+ */
 export default function MapGeoPage() {
   const { t } = useTranslation();
   const [settings, setSettings] = useState<MapGeoSettings | null>(null);
+  const [draft, setDraft] = useState<MapGeoSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [health, setHealth] = useState<any>(null);
@@ -30,6 +38,7 @@ export default function MapGeoPage() {
     try {
       const s = await mapGeoApi.getSettings();
       setSettings(s.settings);
+      setDraft(s.settings);
       mapGeoApi.health().then(setHealth).catch(() => setHealth(null));
     } catch (e: any) {
       const msg = e?.message || 'Failed to load Map & Geo settings';
@@ -42,11 +51,20 @@ export default function MapGeoPage() {
 
   useEffect(() => { load(); }, []);
 
-  const save = async (patch: Partial<MapGeoSettings>) => {
+  /**
+   * Persist a single section of the draft to the server. Section save keeps
+   * the API surface scoped — operators can save Geo without flushing
+   * unrelated draft edits in other tabs.
+   */
+  const saveSection = async <K extends keyof MapGeoSettings>(section: K) => {
+    if (!draft) return;
     setSaving(true);
     try {
-      const r = await mapGeoApi.updateSettings(patch);
+      const r = await mapGeoApi.updateSettings({ [section]: draft[section] } as any);
       setSettings(r.settings);
+      // Keep the draft in sync with persisted state for this section,
+      // but preserve the user's in-progress edits in other tabs.
+      setDraft((prev) => prev ? { ...prev, [section]: r.settings[section] } : r.settings);
       toast.success(t('admin.mapGeo.saved'));
       mapGeoApi.health().then(setHealth).catch(() => {});
     } catch (e: any) {
@@ -56,11 +74,28 @@ export default function MapGeoPage() {
     }
   };
 
+  /** Compare draft vs persisted for a single section (shallow JSON eq). */
+  const isDirty = (section: keyof MapGeoSettings): boolean => {
+    if (!draft || !settings) return false;
+    return JSON.stringify(draft[section]) !== JSON.stringify(settings[section]);
+  };
+
+  /** Revert one tab's draft back to the last persisted state. */
+  const resetSection = (section: keyof MapGeoSettings) => {
+    if (!settings || !draft) return;
+    setDraft({ ...draft, [section]: settings[section] });
+  };
+
+  /** Patch helper: update a nested field on the draft for a given section. */
+  const setField = <K extends keyof MapGeoSettings>(section: K, patch: Partial<MapGeoSettings[K]>) => {
+    setDraft((prev) => prev ? { ...prev, [section]: { ...(prev[section] as any), ...patch } } : prev);
+  };
+
   if (loading) {
     return <div className="flex items-center justify-center p-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
   }
 
-  if (loadError || !settings) {
+  if (loadError || !settings || !draft) {
     return (
       <div className="container mx-auto p-6 max-w-3xl space-y-4">
         <div className="flex items-start gap-3">
@@ -88,6 +123,27 @@ export default function MapGeoPage() {
   }
 
   const tilesUnconfigured = !settings.tiles.url_template;
+
+  /** Footer with Save / Reset for a single tab. */
+  const SectionFooter = ({ section }: { section: keyof MapGeoSettings }) => {
+    const dirty = isDirty(section);
+    return (
+      <div className="flex items-center justify-between gap-2 border-t pt-4 mt-4">
+        <div className="text-xs text-muted-foreground">
+          {dirty ? <span className="text-warning font-medium">● Unsaved changes</span> : <span>All changes saved</span>}
+        </div>
+        <div className="flex gap-2">
+          <Button variant="ghost" size="sm" onClick={() => resetSection(section)} disabled={!dirty || saving}>
+            <Undo2 className="h-4 w-4 me-2" />Reset
+          </Button>
+          <Button size="sm" onClick={() => saveSection(section)} disabled={!dirty || saving}>
+            {saving ? <Loader2 className="h-4 w-4 me-2 animate-spin" /> : <Save className="h-4 w-4 me-2" />}
+            Save settings
+          </Button>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="container mx-auto p-6 max-w-5xl space-y-6">
@@ -123,30 +179,31 @@ export default function MapGeoPage() {
             <CardHeader><CardTitle>{t('admin.mapGeo.tabs.geo')}</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between"><Label>{t('admin.mapGeo.geo.enabled')}</Label>
-                <Switch checked={settings.geo.enabled} onCheckedChange={(v) => save({ geo: { ...settings.geo, enabled: v } })} /></div>
+                <Switch checked={draft.geo.enabled} onCheckedChange={(v) => setField('geo', { enabled: v })} /></div>
               <div className="space-y-2"><Label>{t('admin.mapGeo.geo.defaultProvider')}</Label>
-                <Select value={settings.geo.default_provider} onValueChange={(v) => save({ geo: { ...settings.geo, default_provider: v } })}>
+                <Select value={draft.geo.default_provider} onValueChange={(v) => setField('geo', { default_provider: v })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent><SelectItem value="maxmind_local">maxmind_local</SelectItem><SelectItem value="none">none</SelectItem></SelectContent>
                 </Select></div>
               <div className="space-y-2"><Label>{t('admin.mapGeo.geo.preferredPrecision')}</Label>
-                <Select value={settings.geo.preferred_precision} onValueChange={(v: any) => save({ geo: { ...settings.geo, preferred_precision: v } })}>
+                <Select value={draft.geo.preferred_precision} onValueChange={(v: any) => setField('geo', { preferred_precision: v })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent><SelectItem value="country">country</SelectItem><SelectItem value="region">region</SelectItem><SelectItem value="city">city</SelectItem></SelectContent>
                 </Select></div>
               <div className="flex items-center justify-between"><Label>{t('admin.mapGeo.geo.allowCentroidFallback')}</Label>
-                <Switch checked={settings.geo.allow_centroid_fallback} onCheckedChange={(v) => save({ geo: { ...settings.geo, allow_centroid_fallback: v } })} /></div>
+                <Switch checked={draft.geo.allow_centroid_fallback} onCheckedChange={(v) => setField('geo', { allow_centroid_fallback: v })} /></div>
               <div className="flex items-center justify-between">
                 <div><Label>{t('admin.mapGeo.geo.storeRawIp')}</Label><p className="text-xs text-muted-foreground">{t('admin.mapGeo.geo.storeRawIpHint')}</p></div>
-                <Switch checked={settings.geo.store_raw_ip} onCheckedChange={(v) => save({ geo: { ...settings.geo, store_raw_ip: v } })} /></div>
+                <Switch checked={draft.geo.store_raw_ip} onCheckedChange={(v) => setField('geo', { store_raw_ip: v })} /></div>
               <div className="space-y-2"><Label>{t('admin.mapGeo.geo.rawIpRetentionDays')}</Label>
-                <Input type="number" defaultValue={settings.geo.raw_ip_retention_days}
-                  onBlur={(e) => save({ geo: { ...settings.geo, raw_ip_retention_days: Number(e.target.value) } })} /></div>
+                <Input type="number" value={draft.geo.raw_ip_retention_days}
+                  onChange={(e) => setField('geo', { raw_ip_retention_days: Number(e.target.value) })} /></div>
               <div className="flex items-center justify-between"><Label>{t('admin.mapGeo.geo.autoEnrich')}</Label>
-                <Switch checked={settings.geo.auto_enrich_on_session_create} onCheckedChange={(v) => save({ geo: { ...settings.geo, auto_enrich_on_session_create: v } })} /></div>
+                <Switch checked={draft.geo.auto_enrich_on_session_create} onCheckedChange={(v) => setField('geo', { auto_enrich_on_session_create: v })} /></div>
               <div className="space-y-2"><Label>{t('admin.mapGeo.geo.cacheTtlSeconds')}</Label>
-                <Input type="number" defaultValue={settings.geo.cache_ttl_seconds}
-                  onBlur={(e) => save({ geo: { ...settings.geo, cache_ttl_seconds: Number(e.target.value) } })} /></div>
+                <Input type="number" value={draft.geo.cache_ttl_seconds}
+                  onChange={(e) => setField('geo', { cache_ttl_seconds: Number(e.target.value) })} /></div>
+              <SectionFooter section="geo" />
             </CardContent>
           </Card>
         </TabsContent>
@@ -158,13 +215,13 @@ export default function MapGeoPage() {
               <CardDescription>{t('admin.mapGeo.maxmind.notice')}</CardDescription></CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between"><Label>{t('admin.mapGeo.maxmind.enabled')}</Label>
-                <Switch checked={settings.maxmind_local.enabled} onCheckedChange={(v) => save({ maxmind_local: { ...settings.maxmind_local, enabled: v } })} /></div>
+                <Switch checked={draft.maxmind_local.enabled} onCheckedChange={(v) => setField('maxmind_local', { enabled: v })} /></div>
               <div className="space-y-2"><Label>{t('admin.mapGeo.maxmind.dbPath')}</Label>
-                <Input defaultValue={settings.maxmind_local.db_path}
-                  onBlur={(e) => save({ maxmind_local: { ...settings.maxmind_local, db_path: e.target.value } })} />
+                <Input value={draft.maxmind_local.db_path}
+                  onChange={(e) => setField('maxmind_local', { db_path: e.target.value })} />
                 <p className="text-xs text-muted-foreground">{t('admin.mapGeo.maxmind.dbPathHint')}</p></div>
               <div className="flex items-center justify-between"><Label>{t('admin.mapGeo.maxmind.autoReload')}</Label>
-                <Switch checked={settings.maxmind_local.auto_reload} onCheckedChange={(v) => save({ maxmind_local: { ...settings.maxmind_local, auto_reload: v } })} /></div>
+                <Switch checked={draft.maxmind_local.auto_reload} onCheckedChange={(v) => setField('maxmind_local', { auto_reload: v })} /></div>
               {health?.maxmind_local && (
                 <Alert variant={health.maxmind_local.ok ? 'default' : 'destructive'}>
                   {health.maxmind_local.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
@@ -174,6 +231,7 @@ export default function MapGeoPage() {
                   </AlertDescription>
                 </Alert>
               )}
+              <SectionFooter section="maxmind_local" />
             </CardContent>
           </Card>
         </TabsContent>
@@ -185,7 +243,7 @@ export default function MapGeoPage() {
               <CardDescription>{t('admin.mapGeo.updates.runNowHint')}</CardDescription></CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2"><Label>{t('admin.mapGeo.updates.mode')}</Label>
-                <Select value={settings.maxmind_update.mode} onValueChange={(v: any) => save({ maxmind_update: { ...settings.maxmind_update, mode: v } })}>
+                <Select value={draft.maxmind_update.mode} onValueChange={(v: any) => setField('maxmind_update', { mode: v })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="manual">{t('admin.mapGeo.updates.modeManual')}</SelectItem>
@@ -193,18 +251,19 @@ export default function MapGeoPage() {
                   </SelectContent>
                 </Select></div>
               <div className="space-y-2"><Label>{t('admin.mapGeo.updates.accountId')}</Label>
-                <Input defaultValue={settings.maxmind_update.account_id}
-                  onBlur={(e) => save({ maxmind_update: { ...settings.maxmind_update, account_id: e.target.value } })} /></div>
+                <Input value={draft.maxmind_update.account_id}
+                  onChange={(e) => setField('maxmind_update', { account_id: e.target.value })} /></div>
               <div className="space-y-2"><Label>{t('admin.mapGeo.updates.licenseKey')}</Label>
-                <Input type="password" defaultValue={settings.maxmind_update.license_key}
-                  onBlur={(e) => { if (e.target.value && e.target.value !== '••••••••') save({ maxmind_update: { ...settings.maxmind_update, license_key: e.target.value } }); }} />
+                <Input type="password" value={draft.maxmind_update.license_key}
+                  onChange={(e) => setField('maxmind_update', { license_key: e.target.value })} />
                 <p className="text-xs text-muted-foreground">{t('admin.mapGeo.updates.licenseKeyHint')}</p></div>
               <div className="space-y-2"><Label>{t('admin.mapGeo.updates.editionId')}</Label>
-                <Input defaultValue={settings.maxmind_update.edition_id}
-                  onBlur={(e) => save({ maxmind_update: { ...settings.maxmind_update, edition_id: e.target.value } })} /></div>
+                <Input value={draft.maxmind_update.edition_id}
+                  onChange={(e) => setField('maxmind_update', { edition_id: e.target.value })} /></div>
               <Button variant="outline" onClick={async () => { try { const r = await mapGeoApi.runUpdate(); toast.success(r.instructions); } catch (e: any) { toast.error(e.message); } }}>
                 <PlayCircle className="h-4 w-4 me-2" />{t('admin.mapGeo.updates.runNow')}
               </Button>
+              <SectionFooter section="maxmind_update" />
             </CardContent>
           </Card>
         </TabsContent>

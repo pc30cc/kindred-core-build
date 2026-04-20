@@ -1229,6 +1229,13 @@ widgetRouter.put('/action', widgetRateLimit('default'), async (req: Request, res
       }
 
       if (session_id) {
+        // Read the previous current_page first so heartbeats only log a new
+        // page-view row when the URL actually changed (avoids ~120 rows/hr
+        // of duplicates from the 30 s heartbeat loop).
+        const { data: prevSess } = await supabase.from('visitor_sessions')
+          .select('current_page').eq('id', session_id).maybeSingle();
+        const prevPage = prevSess?.current_page ?? null;
+
         let sessionUpdate = supabase.from('visitor_sessions')
           .update({ last_seen_at: now, current_page: current_page || null })
           .eq('workspace_id', workspaceId)
@@ -1245,6 +1252,18 @@ widgetRouter.put('/action', widgetRateLimit('default'), async (req: Request, res
           .update({ status: 'online', current_page: current_page || null, updated_at: now })
           .eq('workspace_id', workspaceId)
           .eq('visitor_session_id', session_id);
+
+        if (current_page && current_page !== prevPage) {
+          try {
+            await supabase.from('visitor_page_views').insert({
+              workspace_id: workspaceId,
+              visitor_session_id: session_id,
+              url: String(current_page).slice(0, 2048),
+            });
+          } catch (e: any) {
+            console.warn('[widget-action] page-view insert failed:', e?.message);
+          }
+        }
 
         return res.json({ ok: true });
       }

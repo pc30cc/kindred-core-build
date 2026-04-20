@@ -16,7 +16,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { VisitorMap } from '@/components/visitors/VisitorMap';
-import { VisitorDrawer } from '@/components/visitors/VisitorDrawer';
+import { VisitorDetailPanel } from '@/components/visitors/VisitorDetailPanel';
 import type { VisitorIntelItem, MapMarker } from '@/lib/visitors-api';
 import { cn } from '@/lib/utils';
 import {

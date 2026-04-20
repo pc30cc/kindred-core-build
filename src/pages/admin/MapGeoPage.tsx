@@ -227,7 +227,7 @@ export default function MapGeoPage() {
               <div className="space-y-2"><Label>{t('admin.mapGeo.geo.cacheTtlSeconds')}</Label>
                 <Input type="number" value={draft.geo.cache_ttl_seconds}
                   onChange={(e) => setField('geo', { cache_ttl_seconds: Number(e.target.value) })} /></div>
-              <SectionFooter section="geo" />
+              <SectionFooter sections={['geo']} />
             </CardContent>
           </Card>
         </TabsContent>
@@ -255,7 +255,7 @@ export default function MapGeoPage() {
                   </AlertDescription>
                 </Alert>
               )}
-              <SectionFooter section="maxmind_local" />
+              <SectionFooter sections={['maxmind_local']} />
             </CardContent>
           </Card>
         </TabsContent>
@@ -287,7 +287,7 @@ export default function MapGeoPage() {
               <Button variant="outline" onClick={async () => { try { const r = await mapGeoApi.runUpdate(); toast.success(r.instructions); } catch (e: any) { toast.error(e.message); } }}>
                 <PlayCircle className="h-4 w-4 me-2" />{t('admin.mapGeo.updates.runNow')}
               </Button>
-              <SectionFooter section="maxmind_update" />
+              <SectionFooter sections={['maxmind_update']} />
             </CardContent>
           </Card>
         </TabsContent>

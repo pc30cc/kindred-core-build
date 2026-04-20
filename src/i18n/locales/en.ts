@@ -391,6 +391,8 @@ const en = {
     pageHistoryEmpty: 'No page history yet',
     pageHistoryLoading: 'Loading history…',
     pageHistoryShowMore: 'Show more',
+    pageHistoryShowAll: 'Show all {n}',
+    pageHistoryShowLess: 'Show less',
     // Realtime status
     rtConnected: 'Live',
     rtPolling: 'Polling',

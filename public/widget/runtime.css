@@ -38,6 +38,17 @@ input:disabled, button:disabled {
   cursor: not-allowed;
 }
 
+/* Keyboard focus — visible ring on every interactive element.
+   Mouse-only focus stays clean (no ring) thanks to :focus-visible. */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--gs-primary, #3B82F6);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
 /* ─── Panel ─── */
 .panel {
   position: fixed;
@@ -229,6 +240,7 @@ input:disabled, button:disabled {
   font-size: 13px;
   line-height: 1.5;
   word-break: break-word;
+  overflow-wrap: anywhere;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
 }
 .msg.operator {
@@ -844,6 +856,27 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
     bottom: 0 !important;
     left: 0 !important;
     right: 0 !important;
+    /* Honor iOS notches / safe areas */
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+  .input-bar {
+    padding-bottom: max(12px, env(safe-area-inset-bottom, 0));
+  }
+  /* Larger touch targets on mobile (44×44 WCAG minimum) */
+  .send-btn,
+  .attach-btn {
+    width: 40px;
+    height: 40px;
+  }
+  .tab {
+    padding: 13px 0;
+    font-size: 13px;
+  }
+  .input {
+    font-size: 16px; /* prevents iOS Safari zoom-on-focus */
+  }
+  .header {
+    padding-top: max(18px, env(safe-area-inset-top, 0));
   }
   .gs-toast,
   .gs-toast.bottom-right,

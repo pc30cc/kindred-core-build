@@ -38,6 +38,17 @@ input:disabled, button:disabled {
   cursor: not-allowed;
 }
 
+/* Keyboard focus — visible ring on every interactive element.
+   Mouse-only focus stays clean (no ring) thanks to :focus-visible. */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--gs-primary, #3B82F6);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
 /* ─── Panel ─── */
 .panel {
   position: fixed;

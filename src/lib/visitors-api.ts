@@ -44,6 +44,12 @@ export interface VisitorIntelItem {
   os: string | null;
   referrer: string | null;
   geo: VisitorGeo;
+  /** Always present — masked or hash-derived placeholder. Safe for any role. */
+  ip_display: string;
+  /** Raw IP — populated only when can_view_raw_ip is true AND backend has it. */
+  ip_raw: string | null;
+  /** Whether the requester (workspace role) is allowed to see the raw IP. */
+  can_view_raw_ip: boolean;
   contact: { id: string; name: string | null; email: string | null; avatar_url: string | null } | null;
   conversation: { id: string; status: string | null; subject: string | null } | null;
 }
@@ -78,7 +84,9 @@ export function fetchLiveVisitors(workspaceId: string, includeOffline = false) {
 
 export function fetchVisitorMap(workspaceId: string) {
   const q = new URLSearchParams({ workspace_id: workspaceId });
-  return get<{ markers: MapMarker[]; total: number }>(`/api/visitor-intel/map?${q}`);
+  return get<{ markers: MapMarker[]; total: number; without_location: number }>(
+    `/api/visitor-intel/map?${q}`,
+  );
 }
 
 export function fetchVisitorMapConfig(workspaceId: string) {

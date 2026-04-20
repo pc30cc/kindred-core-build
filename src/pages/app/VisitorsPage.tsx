@@ -224,79 +224,6 @@ export default function VisitorsPage() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-3.5rem)] animate-fade-in">
-      {/* Header */}
-      <div className="px-4 sm:px-6 pt-4 pb-3 border-b border-border">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h1 className="page-header">{t('visitors.title')}</h1>
-            <p className="page-subtitle">{t('visitors.subtitle')}</p>
-          </div>
-          <div className="flex items-center gap-3">
-            <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
-              <Switch checked={includeOffline} onCheckedChange={setIncludeOffline} />
-              {t('visitors.includeOffline')}
-            </label>
-            <Button
-              size="sm" variant="outline"
-              onClick={() => { live.refetch(); map.refetch(); }}
-              disabled={live.isFetching}
-              aria-label={t('visitors.refresh')}
-            >
-              <RefreshCcw className={cn('w-3.5 h-3.5 me-1.5', live.isFetching && 'animate-spin')} />
-              {t('visitors.refresh')}
-            </Button>
-            {isAdmin && (
-              <Button
-                size="sm" variant="outline"
-                onClick={onWarmGeo}
-                disabled={warming}
-                title={t('visitors.warmGeoDesc')}
-                aria-label={t('visitors.warmGeoCta')}
-              >
-                <Flame className={cn('w-3.5 h-3.5 me-1.5', warming && 'animate-pulse')} />
-                {warming ? t('visitors.warmGeoRunning') : t('visitors.warmGeoCta')}
-              </Button>
-            )}
-          </div>
-        </div>
-
-        {/* Geo insight strip — minimal, realtime, only renders when relevant */}
-        {geoInsight.total > 0 && (
-          <div
-            className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-muted-foreground"
-            aria-label={t('visitors.insightTitle')}
-          >
-            <span className="font-medium text-foreground/80 me-1">
-              {t('visitors.insightTitle')}
-            </span>
-            <span className="inline-flex items-center gap-1.5">
-              <span className="inline-block w-1.5 h-1.5 rounded-full bg-success" aria-hidden />
-              <span className="text-foreground tabular-nums">{geoInsight.precise}</span>
-              <span>{t('visitors.insightPrecise')}</span>
-              <span className="text-muted-foreground/60">({geoInsight.pctPrecise}%)</span>
-            </span>
-            <span className="inline-flex items-center gap-1.5">
-              <span className="inline-block w-1.5 h-1.5 rounded-full bg-warning" aria-hidden />
-              <span className="text-foreground tabular-nums">{geoInsight.approximate}</span>
-              <span>{t('visitors.insightApproximate')}</span>
-              <span className="text-muted-foreground/60">({geoInsight.pctApprox}%)</span>
-            </span>
-            <span className="inline-flex items-center gap-1.5">
-              <span className="inline-block w-1.5 h-1.5 rounded-full bg-muted-foreground/60" aria-hidden />
-              <span className="text-foreground tabular-nums">{geoInsight.unavailable}</span>
-              <span>{t('visitors.insightUnavailable')}</span>
-              <span className="text-muted-foreground/60">({geoInsight.pctUnavailable}%)</span>
-            </span>
-            {geoInsight.withoutLocation > 0 && (
-              <span className="inline-flex items-center gap-1 ms-auto text-muted-foreground/80">
-                <MapPin className="w-3 h-3" aria-hidden />
-                {t('visitors.mapWithoutLocation', { n: String(geoInsight.withoutLocation) })}
-              </span>
-            )}
-          </div>
-        )}
-      </div>
-
       {/* Body: list + map */}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-[minmax(320px,420px)_1fr] min-h-0">
         {/* Left: list */}
@@ -310,6 +237,11 @@ export default function VisitorsPage() {
           ) : (
           <>
           <div className="p-3 border-b border-border">
+            {/* Compact title above search */}
+            <div className="mb-2 px-0.5">
+              <h1 className="text-sm font-semibold text-foreground leading-tight">{t('visitors.title')}</h1>
+              <p className="text-[11px] text-muted-foreground leading-tight">{t('visitors.subtitle')}</p>
+            </div>
             <div className="relative">
               <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden />
               <Input
@@ -481,6 +413,61 @@ export default function VisitorsPage() {
                   );
                 })}
               </ul>
+            )}
+          </div>
+
+          {/* Footer controls — refresh, include offline, warm geo */}
+          <div className="border-t border-border p-2.5 space-y-2 bg-muted/20">
+            <div className="flex items-center justify-between gap-2">
+              <label className="flex items-center gap-2 text-[11px] text-muted-foreground cursor-pointer select-none">
+                <Switch checked={includeOffline} onCheckedChange={setIncludeOffline} />
+                {t('visitors.includeOffline')}
+              </label>
+              <Button
+                size="sm" variant="ghost"
+                className="h-7 px-2 text-[11px]"
+                onClick={() => { live.refetch(); map.refetch(); }}
+                disabled={live.isFetching}
+                aria-label={t('visitors.refresh')}
+              >
+                <RefreshCcw className={cn('w-3 h-3 me-1', live.isFetching && 'animate-spin')} />
+                {t('visitors.refresh')}
+              </Button>
+            </div>
+            {isAdmin && (
+              <Button
+                size="sm" variant="outline"
+                className="w-full h-7 text-[11px]"
+                onClick={onWarmGeo}
+                disabled={warming}
+                title={t('visitors.warmGeoDesc')}
+                aria-label={t('visitors.warmGeoCta')}
+              >
+                <Flame className={cn('w-3 h-3 me-1', warming && 'animate-pulse')} />
+                {warming ? t('visitors.warmGeoRunning') : t('visitors.warmGeoCta')}
+              </Button>
+            )}
+            {geoInsight.total > 0 && (
+              <div
+                className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-muted-foreground pt-1"
+                aria-label={t('visitors.insightTitle')}
+              >
+                <span className="inline-flex items-center gap-1">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-success" aria-hidden />
+                  <span className="text-foreground tabular-nums">{geoInsight.precise}</span>
+                  <span>{t('visitors.insightPrecise')}</span>
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-warning" aria-hidden />
+                  <span className="text-foreground tabular-nums">{geoInsight.approximate}</span>
+                  <span>{t('visitors.insightApproximate')}</span>
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-muted-foreground/60" aria-hidden />
+                  <span className="text-foreground tabular-nums">{geoInsight.unavailable}</span>
+                  <span>{t('visitors.insightUnavailable')}</span>
+                </span>
+              </div>
             )}
           </div>
           </>

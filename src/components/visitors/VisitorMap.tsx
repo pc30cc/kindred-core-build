@@ -152,10 +152,22 @@ export function VisitorMap({ config, markers, selectedId, onSelect }: Props) {
 
   if (!config || !config.enabled || config.fallback_no_map) {
     return (
-      <div className="h-full w-full flex flex-col items-center justify-center bg-muted/30 text-muted-foreground p-8 text-center">
-        <Globe2 className="w-10 h-10 mb-3 opacity-40" />
-        <p className="text-sm font-medium text-foreground mb-1">{t('visitors.mapDisabledTitle')}</p>
-        <p className="text-xs max-w-xs">{t('visitors.mapDisabledDesc')}</p>
+      <div className="relative h-full w-full overflow-hidden bg-muted/20">
+        {/* Semantic grid placeholder — no external tile fetch. */}
+        <div
+          className="absolute inset-0 opacity-40"
+          style={{
+            backgroundImage:
+              'linear-gradient(hsl(var(--border)) 1px, transparent 1px), linear-gradient(90deg, hsl(var(--border)) 1px, transparent 1px)',
+            backgroundSize: '40px 40px',
+          }}
+          aria-hidden
+        />
+        <div className="relative h-full w-full flex flex-col items-center justify-center text-muted-foreground p-8 text-center">
+          <Globe2 className="w-10 h-10 mb-3 opacity-50" />
+          <p className="text-sm font-medium text-foreground mb-1">{t('visitors.mapDisabledTitle')}</p>
+          <p className="text-xs max-w-xs">{t('visitors.mapDisabledDesc')}</p>
+        </div>
       </div>
     );
   }

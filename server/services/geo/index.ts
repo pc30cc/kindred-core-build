@@ -20,6 +20,8 @@ import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { lookupCentroid } from './centroids.js';
 import { lookupMaxmindLocal } from './maxmindLocal.js';
+import { readIpCache, writeIpCache } from './ipCache.js';
+import { getMapGeoSettings } from './settings.js';
 
 export interface GeoResult {
   country: string | null;
@@ -245,32 +247,92 @@ export async function resolveVisitorGeo(
   },
 ): Promise<GeoResult> {
   const ipHash = session.ip_hash ?? '';
+  // Load admin runtime settings (cached cheaply by Postgres). These take
+  // precedence over the legacy provider_configs row for self-host defaults.
+  const mapGeo = await getMapGeoSettings(config).catch(() => null);
   const provider = await resolveProviderConfig(config, workspaceId);
-  const externalDisabled = provider?.provider_name === 'none';
+  const defaultProvider = mapGeo?.geo.default_provider ?? provider?.provider_name ?? 'maxmind_local';
+  const externalDisabled = defaultProvider === 'none' || provider?.provider_name === 'none';
+  const allowCentroid = mapGeo?.geo.allow_centroid_fallback ?? true;
+  const cacheTtl = mapGeo?.geo.cache_ttl_seconds ?? 30 * 24 * 60 * 60;
 
-  // 1. Cache
+  // 1a. Legacy visitor_geo_cache (kept for backwards compatibility).
   if (ipHash) {
     const cached = await readCache(config, ipHash);
     if (cached) return cached;
   }
-
-  // 2. Configured provider — only when raw IP is available (ingestion path).
-  if (session.raw_ip && !externalDisabled) {
-    if (provider && ADAPTERS[provider.provider_name]) {
-      try {
-        const result = await ADAPTERS[provider.provider_name](session.raw_ip, provider.config);
-        if (result && ipHash) {
-          await writeCache(config, ipHash, result, provider.provider_name);
-        }
-        if (result) return { ...result, source: 'provider' };
-      } catch (err) {
-        console.warn('[geo] provider failed, falling back:', (err as Error).message);
-      }
+  // 1b. New geo_ip_cache (cross-workspace, ip_hash keyed).
+  if (ipHash) {
+    const ipCached = await readIpCache(config, ipHash);
+    if (ipCached && ipCached.latitude !== null && ipCached.longitude !== null) {
+      return {
+        country: ipCached.country_name,
+        country_code: ipCached.country_code,
+        region: ipCached.region,
+        city: ipCached.city,
+        latitude: ipCached.latitude,
+        longitude: ipCached.longitude,
+        source: 'cache',
+      };
     }
   }
 
-  // 3. Country centroid fallback
-  const centroid = lookupCentroid(session.country);
+  // 2a. Self-hosted maxmind_local first (preferred default, no external call).
+  if (session.raw_ip && mapGeo?.maxmind_local.enabled && mapGeo.maxmind_local.db_path && !externalDisabled) {
+    try {
+      const local = await lookupMaxmindLocal(mapGeo.maxmind_local.db_path, session.raw_ip, {
+        autoReload: mapGeo.maxmind_local.auto_reload,
+      });
+      if (local) {
+        if (ipHash) {
+          await writeIpCache(config, ipHash, {
+            source: 'maxmind_local',
+            country_code: local.country_code,
+            country_name: local.country,
+            region: local.region,
+            city: local.city,
+            latitude: local.latitude,
+            longitude: local.longitude,
+            timezone: null,
+            accuracy_level: local.city ? 'city' : local.region ? 'region' : 'country',
+            is_fallback: false,
+          }, cacheTtl);
+          await writeCache(config, ipHash, local, 'maxmind_local');
+        }
+        return { ...local, source: 'provider' };
+      }
+    } catch (err) {
+      console.warn('[geo] maxmind_local failed:', (err as Error).message);
+    }
+  }
+
+  // 2b. Optional configured provider (legacy path).
+  if (session.raw_ip && !externalDisabled && provider && ADAPTERS[provider.provider_name]) {
+    try {
+      const result = await ADAPTERS[provider.provider_name](session.raw_ip, provider.config);
+      if (result && ipHash) {
+        await writeCache(config, ipHash, result, provider.provider_name);
+        await writeIpCache(config, ipHash, {
+          source: provider.provider_name,
+          country_code: result.country_code,
+          country_name: result.country,
+          region: result.region,
+          city: result.city,
+          latitude: result.latitude,
+          longitude: result.longitude,
+          timezone: null,
+          accuracy_level: result.city ? 'city' : result.region ? 'region' : 'country',
+          is_fallback: false,
+        }, cacheTtl);
+      }
+      if (result) return { ...result, source: 'provider' };
+    } catch (err) {
+      console.warn('[geo] provider failed, falling back:', (err as Error).message);
+    }
+  }
+
+  // 3. Country centroid fallback (only when allowed by admin policy).
+  const centroid = allowCentroid ? lookupCentroid(session.country) : null;
   if (centroid) {
     return {
       country: session.country ?? null,

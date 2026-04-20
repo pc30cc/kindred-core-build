@@ -2,18 +2,22 @@ import { useMemo, useState } from 'react';
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useLiveVisitors, useVisitorMap, useVisitorMapConfig } from '@/hooks/useVisitors';
+import { useVisitorsRealtime } from '@/hooks/useVisitorsRealtime';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
 import { VisitorMap } from '@/components/visitors/VisitorMap';
 import { VisitorDrawer } from '@/components/visitors/VisitorDrawer';
-import type { VisitorIntelItem } from '@/lib/visitors-api';
+import type { VisitorIntelItem, MapMarker } from '@/lib/visitors-api';
 import { cn } from '@/lib/utils';
 import {
   Search, Eye, Globe2, Users, FileText, Monitor, MapPin,
-  RefreshCcw, AlertTriangle, Wifi,
+  RefreshCcw, AlertTriangle, Wifi, MessageSquare, X,
 } from 'lucide-react';
 
 function relativeTime(iso: string, t: (k: string, vars?: Record<string, string>) => string) {
@@ -31,25 +35,67 @@ export default function VisitorsPage() {
   const [includeOffline, setIncludeOffline] = useState(false);
   const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [filterOnline, setFilterOnline] = useState(false);
+  const [filterHasConv, setFilterHasConv] = useState(false);
+  const [filterCountry, setFilterCountry] = useState<string>('all');
 
   const live = useLiveVisitors(wsId, includeOffline);
   const map = useVisitorMap(wsId);
   const mapConfig = useVisitorMapConfig(wsId);
+  // Realtime push: patches the cached live + map data; falls back to polling.
+  useVisitorsRealtime(wsId);
 
   const visitors: VisitorIntelItem[] = live.data?.items ?? [];
 
+  // Country list derived from current visitors (for the dropdown).
+  const countryOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const v of visitors) {
+      const code = v.geo.country_code;
+      const name = v.geo.country;
+      if (code && name && !seen.has(code)) seen.set(code, name);
+    }
+    return [...seen.entries()]
+      .map(([code, name]) => ({ code, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [visitors]);
+
   const filtered = useMemo(() => {
-    if (!search.trim()) return visitors;
     const q = search.trim().toLowerCase();
-    return visitors.filter(v =>
-      (v.current_page || '').toLowerCase().includes(q) ||
-      (v.geo.country || '').toLowerCase().includes(q) ||
-      (v.geo.city || '').toLowerCase().includes(q) ||
-      (v.browser || '').toLowerCase().includes(q) ||
-      (v.contact?.name || '').toLowerCase().includes(q) ||
-      (v.contact?.email || '').toLowerCase().includes(q)
-    );
-  }, [visitors, search]);
+    return visitors.filter((v) => {
+      if (filterOnline && v.status !== 'online') return false;
+      if (filterHasConv && !v.conversation) return false;
+      if (filterCountry !== 'all' && v.geo.country_code !== filterCountry) return false;
+      if (!q) return true;
+      return (
+        (v.current_page || '').toLowerCase().includes(q) ||
+        (v.geo.country || '').toLowerCase().includes(q) ||
+        (v.geo.city || '').toLowerCase().includes(q) ||
+        (v.browser || '').toLowerCase().includes(q) ||
+        (v.contact?.name || '').toLowerCase().includes(q) ||
+        (v.contact?.email || '').toLowerCase().includes(q)
+      );
+    });
+  }, [visitors, search, filterOnline, filterHasConv, filterCountry]);
+
+  // Map markers must reflect the same filter set as the list, so the two
+  // surfaces stay in sync. Build a Set of allowed session ids and intersect.
+  const filteredMarkers: MapMarker[] = useMemo(() => {
+    const allMarkers = map.data?.markers ?? [];
+    const filtersActive =
+      !!search.trim() || filterOnline || filterHasConv || filterCountry !== 'all';
+    if (!filtersActive) return allMarkers;
+    const allowed = new Set(filtered.map((v) => v.id));
+    return allMarkers.filter((m) => allowed.has(m.id));
+  }, [map.data?.markers, filtered, search, filterOnline, filterHasConv, filterCountry]);
+
+  const activeFilterCount =
+    (filterOnline ? 1 : 0) + (filterHasConv ? 1 : 0) + (filterCountry !== 'all' ? 1 : 0);
+  const resetFilters = () => {
+    setFilterOnline(false);
+    setFilterHasConv(false);
+    setFilterCountry('all');
+  };
 
   const stats = useMemo(() => {
     const online = visitors.filter(v => v.status === 'online').length;

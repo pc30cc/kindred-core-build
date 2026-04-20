@@ -64,6 +64,7 @@ import AdminSecurityPage from "@/pages/admin/SecurityPage";
 import AdminDatabasePage from "@/pages/admin/DatabasePage";
 import AdminBootstrapPage from "@/pages/admin/BootstrapPage";
 import AdminWidgetSettingsPage from "@/pages/admin/WidgetSettingsPage";
+import AdminMapGeoPage from "@/pages/admin/MapGeoPage";
 
 import NotFound from "@/pages/NotFound";
 
@@ -126,6 +127,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <Route path="/admin/users" element={<AdminUsersPage />} />
                 <Route path="/admin/workspaces" element={<AdminWorkspacesPage />} />
                 <Route path="/admin/providers" element={<AdminProvidersPage />} />
+                <Route path="/admin/map-geo" element={<AdminMapGeoPage />} />
                 <Route path="/admin/widget-settings" element={<AdminWidgetSettingsPage />} />
                 <Route path="/admin/system" element={<AdminSystemPage />} />
                 <Route path="/admin/feature-flags" element={<AdminFeatureFlagsPage />} />

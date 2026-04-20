@@ -1100,6 +1100,10 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
 
       if (existing) {
         activeSessionId = existing.id;
+        // Detect URL change BEFORE we overwrite current_page so we can log it.
+        const { data: prevRow } = await supabase.from('visitor_sessions')
+          .select('current_page').eq('id', existing.id).maybeSingle();
+        const prevPage = prevRow?.current_page ?? null;
         await supabase.from('visitor_sessions')
           .update({
             current_page: normalizedPageUrl,
@@ -1113,6 +1117,21 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
         await supabase.from('visitor_presence')
           .update({ status: 'online', current_page: normalizedPageUrl, updated_at: new Date().toISOString() })
           .eq('visitor_session_id', existing.id);
+
+        // Append a page-view row when the URL is new for this session.
+        // First page_view of an existing session also counts (prevPage may
+        // be null on rehydrated sessions).
+        if (normalizedPageUrl && normalizedPageUrl !== prevPage) {
+          try {
+            await supabase.from('visitor_page_views').insert({
+              workspace_id: workspaceId,
+              visitor_session_id: existing.id,
+              url: String(normalizedPageUrl).slice(0, 2048),
+            });
+          } catch (e: any) {
+            console.warn('[widget-track] page-view insert failed:', e?.message);
+          }
+        }
       } else if (visitor_id) {
         const { data: newSession } = await supabase
           .from('visitor_sessions').insert({
@@ -1134,6 +1153,18 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
             status: 'online',
             current_page: normalizedPageUrl,
           });
+          // Always log the very first page view of a brand-new session.
+          if (normalizedPageUrl) {
+            try {
+              await supabase.from('visitor_page_views').insert({
+                workspace_id: workspaceId,
+                visitor_session_id: newSession.id,
+                url: String(normalizedPageUrl).slice(0, 2048),
+              });
+            } catch (e: any) {
+              console.warn('[widget-track] first page-view insert failed:', e?.message);
+            }
+          }
           // Fire-and-forget geo enrichment — never block the widget response.
           // Uses MaxMind local DB when configured (city-level), with cache.
           void enrichVisitorSessionGeo(config, {

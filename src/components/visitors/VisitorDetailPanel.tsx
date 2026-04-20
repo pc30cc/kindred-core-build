@@ -134,40 +134,15 @@ export function VisitorDetailPanel({ workspaceId, sessionId, onBack }: Props) {
               </div>
               {history.isLoading ? (
                 <p className="text-xs text-muted-foreground">{t('visitors.pageHistoryLoading')}</p>
-              ) : !history.data?.items?.length ? (
-                <p className="text-xs text-muted-foreground">{t('visitors.pageHistoryEmpty')}</p>
               ) : (
-                (() => {
-                  const items = history.data.items;
-                  const CAP = 8;
-                  const visible = showAllPages ? items : items.slice(0, CAP);
-                  return (
-                    <>
-                      <ol className="relative ms-1.5 border-s border-border/70 space-y-2 pt-1">
-                        {visible.map((p) => (
-                          <li key={p.id} className="ps-3 relative">
-                            <span className="absolute -start-[5px] top-1.5 w-2 h-2 rounded-full bg-primary/70 ring-2 ring-background" />
-                            <div className="text-xs text-foreground truncate" title={p.url}>{p.url}</div>
-                            <div className="text-[10px] text-muted-foreground">
-                              {new Date(p.viewed_at).toLocaleString()}
-                            </div>
-                          </li>
-                        ))}
-                      </ol>
-                      {items.length > CAP && (
-                        <button
-                          type="button"
-                          onClick={() => setShowAllPages((v) => !v)}
-                          className="mt-2 text-[11px] text-primary hover:underline"
-                        >
-                          {showAllPages
-                            ? t('visitors.pageHistoryShowLess')
-                            : t('visitors.pageHistoryShowAll', { n: String(items.length) })}
-                        </button>
-                      )}
-                    </>
-                  );
-                })()
+                <PageJourney
+                  entry={history.data?.entry ?? null}
+                  current={history.data?.current ?? null}
+                  items={history.data?.items ?? []}
+                  showAll={showAllPages}
+                  onToggle={() => setShowAllPages((v) => !v)}
+                  t={t}
+                />
               )}
             </div>
           </div>

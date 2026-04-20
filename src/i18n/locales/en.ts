@@ -378,6 +378,22 @@ const en = {
     linkedConversation: 'Linked conversation',
     notLinked: 'Not linked',
     drawerLoading: 'Loading visitor…',
+    // Filters
+    filterAll: 'All',
+    filterOnline: 'Online',
+    filterHasConversation: 'Has conversation',
+    filterCountry: 'Country',
+    filterCountryAll: 'All countries',
+    filterReset: 'Clear filters',
+    filtersActive: '{{n}} active',
+    // Page history
+    pageHistory: 'Page history',
+    pageHistoryEmpty: 'No page history yet',
+    pageHistoryLoading: 'Loading history…',
+    pageHistoryShowMore: 'Show more',
+    // Realtime status
+    rtConnected: 'Live',
+    rtPolling: 'Polling',
   },
   knowledgeBase: {
     title: 'Knowledge Base',

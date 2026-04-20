@@ -7,7 +7,7 @@ import { listVisitorIntelligence, getVisitorIntelligence } from '../services/vis
 import { resolveMapTilesConfig } from '../services/maptiles/index.js';
 import { publishVisitorEvent } from '../services/realtime/publish.js';
 import { getClientIp, hashIp } from '../utils/clientIp.js';
-import { resolveVisitorGeo, getActiveGeoProvider } from '../services/geo/index.js';
+import { resolveVisitorGeo, getActiveGeoProvider, persistSessionGeo, getMapGeoSettings } from '../services/geo/index.js';
 
 export const visitorRouter = Router();
 
@@ -165,15 +165,21 @@ visitorRouter.post('/track', async (req: Request, res: Response) => {
       sessionId = newSession!.id;
     }
 
-    // Best-effort geo enrichment at ingest time. Calls the configured
-    // geo_enrichment provider (if any) and warms visitor_geo_cache so
-    // operator-side reads return precise coords without re-calling the
-    // provider on every poll. Failures are silent — the resolver falls
-    // back to centroid on the read path.
-    if (clientIp && ipHash) {
-      resolveVisitorGeo(config, data.workspace_id, {
-        country: null, city: null, ip_hash: ipHash, raw_ip: clientIp,
-      }).catch(() => {});
+    // Best-effort geo enrichment at ingest time. Resolves through the
+    // strict-priority pipeline (cache → maxmind_local → other providers
+    // → centroid) and persists normalized geo columns directly onto the
+    // visitor_sessions row so map/list reads need no JOIN and never
+    // re-call providers. Failures are silent.
+    if (clientIp && ipHash && sessionId) {
+      const settings = await getMapGeoSettings(config).catch(() => null);
+      if (!settings || settings.auto_enrich_on_session_create !== false) {
+        const sid = sessionId;
+        resolveVisitorGeo(config, data.workspace_id, {
+          country: null, city: null, ip_hash: ipHash, raw_ip: clientIp,
+        })
+          .then((geo) => persistSessionGeo(config, sid, geo).catch(() => {}))
+          .catch(() => {});
+      }
     }
 
     // Append a page-view row (best-effort; failures must not block tracking).

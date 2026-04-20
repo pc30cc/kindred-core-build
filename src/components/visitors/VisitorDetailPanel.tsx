@@ -112,11 +112,25 @@ export function VisitorDetailPanel({ workspaceId, sessionId, onBack }: Props) {
 
             {/* Quick actions */}
             <div className="grid grid-cols-2 gap-2">
-              {data.conversation && (
+              {data.conversation ? (
                 <Button size="sm" variant="default"
                   onClick={() => navigate(`${wsPath('/inbox')}?c=${data.conversation!.id}`)}>
                   <MessageSquare className="w-3.5 h-3.5 me-1.5" />
                   {t('visitors.openChat')}
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="default"
+                  onClick={handleStartChat}
+                  disabled={startingChat}
+                >
+                  {startingChat ? (
+                    <Loader2 className="w-3.5 h-3.5 me-1.5 animate-spin" />
+                  ) : (
+                    <Send className="w-3.5 h-3.5 me-1.5" />
+                  )}
+                  {t('visitors.startChat')}
                 </Button>
               )}
               {data.contact && (

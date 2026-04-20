@@ -9,6 +9,7 @@ import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { z } from 'zod';
 import { adminWidgetRouter } from './adminWidget.js';
+import { adminMapGeoRouter } from './adminMapGeo.js';
 
 export const adminRouter = Router();
 
@@ -46,6 +47,9 @@ adminRouter.use(requireAdmin);
 
 // Widget diagnostics (server-side URL test for super admin)
 adminRouter.use('/widget', adminWidgetRouter);
+
+// Map & Geo platform control surface (settings + diagnostics + warm-geo)
+adminRouter.use('/map-geo', adminMapGeoRouter);
 
 // ─── Send Password Reset Link ────────────────────────────────────
 const resetLinkSchema = z.object({

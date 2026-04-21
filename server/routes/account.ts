@@ -362,3 +362,234 @@ accountRouter.post('/change-password', async (req, res) => {
     return res.status(500).json({ error: err?.message || 'Failed to change password' });
   }
 });
+
+// ─── SECURITY: Active sessions + login history ───────────────────
+//
+// We read directly from Supabase's managed `auth.sessions` table via
+// service-role; the JS SDK does not expose a list endpoint for it.
+// `auth.sessions` columns we rely on:
+//   id (uuid), user_id (uuid), created_at, updated_at, refreshed_at,
+//   user_agent (text), ip (inet), not_after (timestamptz)
+//
+// `login_attempts` (already in our schema) powers the recent login history.
+
+interface SessionRow {
+  id: string;
+  user_id: string;
+  created_at: string | null;
+  updated_at: string | null;
+  refreshed_at: string | null;
+  not_after: string | null;
+  user_agent: string | null;
+  ip: string | null;
+}
+
+function parseUserAgent(ua: string | null): { browser: string; os: string; device: string } {
+  if (!ua) return { browser: 'Unknown', os: 'Unknown', device: 'Unknown' };
+  const lower = ua.toLowerCase();
+  let browser = 'Unknown';
+  if (lower.includes('edg/')) browser = 'Edge';
+  else if (lower.includes('chrome/') && !lower.includes('chromium')) browser = 'Chrome';
+  else if (lower.includes('firefox/')) browser = 'Firefox';
+  else if (lower.includes('safari/') && !lower.includes('chrome')) browser = 'Safari';
+  else if (lower.includes('opera') || lower.includes('opr/')) browser = 'Opera';
+
+  let os = 'Unknown';
+  if (lower.includes('windows nt')) os = 'Windows';
+  else if (lower.includes('mac os x') || lower.includes('macintosh')) os = 'macOS';
+  else if (lower.includes('android')) os = 'Android';
+  else if (lower.includes('iphone') || lower.includes('ipad') || lower.includes('ios')) os = 'iOS';
+  else if (lower.includes('linux')) os = 'Linux';
+
+  let device = 'Desktop';
+  if (lower.includes('mobile') || lower.includes('iphone') || lower.includes('android')) device = 'Mobile';
+  else if (lower.includes('tablet') || lower.includes('ipad')) device = 'Tablet';
+
+  return { browser, os, device };
+}
+
+async function enrichIpForDisplay(config: ServerConfig, rawIp: string | null) {
+  if (!rawIp) {
+    return { ip_display: '', country: null as string | null, country_code: null as string | null, city: null as string | null, region: null as string | null };
+  }
+  try {
+    const geo = await resolveVisitorGeo(config, null, {
+      raw_ip: rawIp,
+      ip_hash: hashIp(rawIp),
+    });
+    return {
+      ip_display: maskIp(rawIp),
+      country: geo.country,
+      country_code: geo.country_code,
+      city: geo.city,
+      region: geo.region,
+    };
+  } catch {
+    return { ip_display: maskIp(rawIp), country: null, country_code: null, city: null, region: null };
+  }
+}
+
+/**
+ * GET /api/account/security/sessions
+ * Lists every active Supabase auth session for the current user, enriched
+ * with parsed UA + geo (best-effort). The current session id is computed
+ * by matching the bearer token's `session_id` claim when available.
+ */
+accountRouter.get('/security/sessions', async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const user = (req as any).authUser;
+    const sb = getServiceClient(config);
+
+    const { data, error } = await sb
+      .schema('auth' as any)
+      .from('sessions' as any)
+      .select('id, user_id, created_at, updated_at, refreshed_at, not_after, user_agent, ip')
+      .eq('user_id', user.id)
+      .order('updated_at', { ascending: false })
+      .limit(50);
+
+    if (error) {
+      console.error('[account/security] list sessions error:', error.message);
+      return res.status(500).json({ error: 'Failed to load sessions' });
+    }
+
+    // Decode the caller token to detect the active session id (if present).
+    let currentSessionId: string | null = null;
+    try {
+      const auth = req.headers.authorization || '';
+      const tok = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+      const parts = tok.split('.');
+      if (parts.length === 3) {
+        const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+        if (typeof payload?.session_id === 'string') currentSessionId = payload.session_id;
+      }
+    } catch {
+      // ignore — current-session detection is purely cosmetic.
+    }
+
+    const rows = (data ?? []) as SessionRow[];
+    const enriched = await Promise.all(rows.map(async (row) => {
+      const ua = parseUserAgent(row.user_agent);
+      const geo = await enrichIpForDisplay(config, row.ip);
+      return {
+        id: row.id,
+        is_current: currentSessionId ? row.id === currentSessionId : false,
+        created_at: row.created_at,
+        last_active_at: row.refreshed_at || row.updated_at || row.created_at,
+        not_after: row.not_after,
+        user_agent_raw: row.user_agent,
+        browser: ua.browser,
+        os: ua.os,
+        device: ua.device,
+        ip: geo.ip_display,
+        country: geo.country,
+        country_code: geo.country_code,
+        city: geo.city,
+        region: geo.region,
+      };
+    }));
+
+    return res.json({ sessions: enriched, current_session_id: currentSessionId });
+  } catch (err: any) {
+    console.error('[account/security] sessions error:', err);
+    return res.status(500).json({ error: err?.message || 'Failed to load sessions' });
+  }
+});
+
+/**
+ * DELETE /api/account/security/sessions/:id
+ * Revoke a single session by id (or `?all=1` to revoke every session except
+ * the current one). Deletion of the row in `auth.sessions` invalidates
+ * Supabase refresh tokens immediately; access tokens expire on their normal
+ * 1h schedule.
+ */
+accountRouter.delete('/security/sessions/:id', async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const user = (req as any).authUser;
+    const sb = getServiceClient(config);
+    const sessionId = String(req.params.id || '').trim();
+    const all = req.query.all === '1' || req.query.all === 'true';
+
+    if (!all && !sessionId) {
+      return res.status(400).json({ error: 'Missing session id' });
+    }
+
+    // Detect current session id so "revoke all others" doesn't kick the caller.
+    let currentSessionId: string | null = null;
+    try {
+      const auth = req.headers.authorization || '';
+      const tok = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+      const parts = tok.split('.');
+      if (parts.length === 3) {
+        const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+        if (typeof payload?.session_id === 'string') currentSessionId = payload.session_id;
+      }
+    } catch { /* ignore */ }
+
+    const table = sb.schema('auth' as any).from('sessions' as any);
+    let query = table.delete().eq('user_id', user.id);
+    if (all) {
+      if (currentSessionId) query = query.neq('id', currentSessionId);
+    } else {
+      query = query.eq('id', sessionId);
+    }
+    const { error } = await query;
+    if (error) {
+      console.error('[account/security] revoke session error:', error.message);
+      return res.status(500).json({ error: 'Failed to revoke session' });
+    }
+    return res.json({ success: true });
+  } catch (err: any) {
+    console.error('[account/security] revoke error:', err);
+    return res.status(500).json({ error: err?.message || 'Failed to revoke session' });
+  }
+});
+
+/**
+ * GET /api/account/security/login-history
+ * Returns the most recent login attempts (success + failure) from the
+ * `login_attempts` table, scoped to the caller's email.
+ */
+accountRouter.get('/security/login-history', async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const user = (req as any).authUser;
+    if (!user.email) return res.json({ entries: [] });
+    const sb = getServiceClient(config);
+
+    const limit = Math.min(Math.max(Number(req.query.limit) || 25, 1), 100);
+
+    const { data, error } = await sb
+      .from('login_attempts')
+      .select('id, email, ip_address, success, created_at')
+      .eq('email', user.email.trim().toLowerCase())
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    if (error) {
+      console.error('[account/security] login history error:', error.message);
+      return res.status(500).json({ error: 'Failed to load login history' });
+    }
+
+    const entries = await Promise.all((data ?? []).map(async (row: any) => {
+      const geo = await enrichIpForDisplay(config, row.ip_address);
+      return {
+        id: row.id,
+        created_at: row.created_at,
+        success: !!row.success,
+        ip: geo.ip_display,
+        country: geo.country,
+        country_code: geo.country_code,
+        city: geo.city,
+        region: geo.region,
+      };
+    }));
+
+    return res.json({ entries });
+  } catch (err: any) {
+    console.error('[account/security] login-history error:', err);
+    return res.status(500).json({ error: err?.message || 'Failed to load login history' });
+  }
+});

@@ -23,14 +23,15 @@
     return apiBase + path + (qs.length ? ('?' + qs.join('&')) : '');
   }
 
-  function doFetch(url, sessionToken, signal) {
-    var opts = {
-      method: 'GET',
-      headers: { 'X-Widget-Token': sessionToken || '' },
-      credentials: 'include',
+  function doFetch(url, opts, signal) {
+    var fetchWith = opts.fetchWith || function (u, init) {
+      init = init || {}; init.credentials = init.credentials || 'include';
+      var h = init.headers || {}; h['X-Widget-Token'] = opts.sessionToken || '';
+      init.headers = h; return fetch(u, init);
     };
-    if (signal) opts.signal = signal;
-    return fetch(url, opts).then(function (r) {
+    var init = { method: 'GET', headers: {} };
+    if (signal) init.signal = signal;
+    return fetchWith(url, init).then(function (r) {
       if (!r.ok) throw new Error('http_' + r.status);
       return r.json();
     });
@@ -46,7 +47,7 @@
         workspace_id: opts.workspaceId,
         locale: opts.locale || 'en',
       });
-      doFetch(url, opts.sessionToken)
+      doFetch(url, opts)
         .then(function (data) { opts.onResult({ ok: true, categories: data.categories || [] }); })
         .catch(function () { opts.onResult({ ok: false, categories: [] }); });
     },
@@ -61,7 +62,7 @@
         locale: opts.locale || 'en',
         slug: opts.slug,
       });
-      doFetch(url, opts.sessionToken)
+      doFetch(url, opts)
         .then(function (data) { opts.onResult({ ok: true, article: data.article || null }); })
         .catch(function () { opts.onResult({ ok: false, article: null }); });
     },
@@ -77,7 +78,7 @@
         q: opts.query,
         limit: opts.limit || 8,
       });
-      doFetch(url, opts.sessionToken, opts.signal)
+      doFetch(url, opts, opts.signal)
         .then(function (data) { opts.onResult({ ok: true, results: data.results || [] }); })
         .catch(function (e) {
           if (e && e.name === 'AbortError') return;

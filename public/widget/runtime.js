@@ -2277,6 +2277,30 @@
       primaryColor: config.primaryColor || '#3B82F6',
       shell: shell,
     };
+
+    // ─── Token manager (Task 2): proactive refresh + reactive 401/403 retry.
+    // Wraps every authenticated widget request. ctx.sessionToken stays as a
+    // *snapshot* for backward compatibility, but ctx.fetchWith is the real
+    // path used by all new code and by the chat/kb modules below.
+    var tokenMgr = createTokenManager(ctx.sessionToken, ctx.apiBase);
+    tokenMgr.onChange(function (t) { ctx.sessionToken = t; });
+    ctx.fetchWith = tokenMgr.fetchWith;
+    ctx.getToken = tokenMgr.get;
+    ctx.tokenManager = tokenMgr;
+    // Expose template slug in the runtime context for CSS scoping + future
+    // template-aware behavior. Today only 'default' is registered server-side.
+    ctx.templateSlug = config.templateSlug || 'default';
+    try {
+      var rootEl = (shell && shell.shellEl) || null;
+      if (rootEl) rootEl.setAttribute('data-template', ctx.templateSlug);
+    } catch (_) {}
+
+    // Tear down the token manager when the panel is unloaded by the host
+    // page (SPA route swap). Prevents orphaned refresh timers.
+    if (typeof window !== 'undefined' && window.addEventListener) {
+      window.addEventListener('pagehide', function () { try { tokenMgr.destroy(); } catch (_) {} }, { once: true });
+    }
+
     var t = function (key) { return I18n.t(ctx.locale, key); };
 
     var chatEnabled = config.features && config.features.chat !== false;

@@ -446,11 +446,10 @@ export default function TeamPage() {
       {activeSection === 'invitations' && (
         <>
           {/* Create Invitation */}
-          <Card>
-            <CardContent className="p-6 space-y-4">
+          <section className="rounded-xl border border-border/60 bg-card/40 p-6 space-y-4">
               <div className="flex items-center gap-2">
                 <UserPlus className="w-5 h-5 text-primary" />
-                <h3 className="text-sm font-semibold">{t('team.inviteNew')}</h3>
+                <h3 className="text-sm font-semibold text-foreground">{t('team.inviteNew')}</h3>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="space-y-2">
@@ -515,18 +514,17 @@ export default function TeamPage() {
                   </Button>
                 </div>
               )}
-            </CardContent>
-          </Card>
+          </section>
 
           {/* Active Invitations */}
-          <Card>
-            <div className="p-4 border-b border-border">
-              <h3 className="text-sm font-semibold">{t('team.activeInvitations')}</h3>
+          <section className="rounded-xl border border-border/60 bg-card/40 overflow-hidden">
+            <div className="px-5 py-4 border-b border-border/60">
+              <h3 className="text-sm font-semibold text-foreground">{t('team.activeInvitations')}</h3>
             </div>
             {activeInvites.length === 0 ? (
-              <p className="text-center text-muted-foreground py-8">{t('team.noInvitations')}</p>
+              <p className="text-center text-sm text-muted-foreground py-10">{t('team.noInvitations')}</p>
             ) : (
-              <div className="divide-y divide-border">
+              <div className="divide-y divide-border/60">
                 {activeInvites.map((inv: any) => (
                   <InvitationRow
                     key={inv.id}
@@ -542,15 +540,15 @@ export default function TeamPage() {
                 ))}
               </div>
             )}
-          </Card>
+          </section>
 
           {/* Expired / Revoked Invitations */}
           {inactiveInvites.length > 0 && (
-            <Card>
-              <div className="p-4 border-b border-border">
-                <h3 className="text-sm font-semibold">{t('team.expiredInvitations')}</h3>
+            <section className="rounded-xl border border-border/60 bg-card/40 overflow-hidden">
+              <div className="px-5 py-4 border-b border-border/60">
+                <h3 className="text-sm font-semibold text-foreground">{t('team.expiredInvitations')}</h3>
               </div>
-              <div className="divide-y divide-border">
+              <div className="divide-y divide-border/60">
                 {inactiveInvites.map((inv: any) => (
                   <InvitationRow
                     key={inv.id}
@@ -564,19 +562,18 @@ export default function TeamPage() {
                   />
                 ))}
               </div>
-            </Card>
+            </section>
           )}
         </>
       )}
 
       {/* ═══════════ Roles Tab ═══════════ */}
       {activeSection === 'roles' && (
-        <div className="space-y-4">
-          <p className="text-sm text-muted-foreground">{t('team.rolesDesc')}</p>
+        <div className="space-y-5">
+          <p className="text-sm text-muted-foreground -mt-4">{t('team.rolesDesc')}</p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {allRolesWithOwner.map(role => (
-              <Card key={role}>
-                <CardContent className="p-5">
+              <div key={role} className="rounded-xl border border-border/60 bg-card/40 p-5 transition-colors hover:border-border">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
                       <Badge className={`text-xs px-2.5 py-1 border ${roleColors[role] || roleColors.viewer}`}>
@@ -586,17 +583,16 @@ export default function TeamPage() {
                         ({roleStats[role] || 0} {t('team.membersCount')})
                       </span>
                     </div>
-                    {role === 'owner' && <Crown className="w-4 h-4 text-amber-400" />}
+                    {role === 'owner' && <Crown className="w-4 h-4 text-amber-500" />}
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     {(rolePermissionKeys[role] || []).map(permKey => (
-                      <span key={permKey} className="text-[10px] px-2 py-0.5 rounded-full bg-secondary/50 text-muted-foreground border border-border/50">
+                      <span key={permKey} className="text-[10px] px-2 py-0.5 rounded-full bg-muted/50 text-muted-foreground border border-border/50">
                         {(t as any)(`team.${permKey}`)}
                       </span>
                     ))}
                   </div>
-                </CardContent>
-              </Card>
+              </div>
             ))}
           </div>
         </div>

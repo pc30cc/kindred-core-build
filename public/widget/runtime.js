@@ -968,22 +968,56 @@
       if (s === 'online' || s === 'idle') {
         bannerEl.className = 'connection-banner';
         bannerEl.textContent = '';
+        if (bannerEl.__gsShowTimer) {
+          clearTimeout(bannerEl.__gsShowTimer);
+          bannerEl.__gsShowTimer = null;
+        }
         return;
       }
-      var label = '';
-      var cls = 'connection-banner visible';
-      if (s === 'offline') { label = t('offline'); cls += ' offline'; }
-      else if (s === 'reconnecting') { label = t('reconnecting'); cls += ' reconnecting'; }
-      else if (s === 'connecting') { label = t('connecting'); cls += ' connecting'; }
-      bannerEl.className = cls;
-      bannerEl.innerHTML = '';
-      var dot = document.createElement('span');
-      dot.className = 'conn-dot';
-      dot.setAttribute('aria-hidden', 'true');
-      bannerEl.appendChild(dot);
-      var span = document.createElement('span');
-      span.textContent = label;
-      bannerEl.appendChild(span);
+      // Offline is shown immediately (user needs to know).
+      // connecting/reconnecting are transient — show only if they persist
+      // longer than the grace window so brief blips don't flash a noisy banner.
+      var paint = function () {
+        var label = '';
+        var cls = 'connection-banner visible';
+        if (s === 'offline') { label = t('offline'); cls += ' offline'; }
+        else if (s === 'reconnecting') { label = t('reconnecting'); cls += ' reconnecting'; }
+        else if (s === 'connecting') { label = t('connecting'); cls += ' connecting'; }
+        bannerEl.className = cls;
+        bannerEl.innerHTML = '';
+        var dot = document.createElement('span');
+        dot.className = 'conn-dot';
+        dot.setAttribute('aria-hidden', 'true');
+        bannerEl.appendChild(dot);
+        var span = document.createElement('span');
+        span.className = 'conn-label';
+        span.textContent = label;
+        bannerEl.appendChild(span);
+      };
+      if (bannerEl.__gsShowTimer) {
+        clearTimeout(bannerEl.__gsShowTimer);
+        bannerEl.__gsShowTimer = null;
+      }
+      if (s === 'offline') {
+        paint();
+      } else {
+        // Keep current banner state until grace window elapses; if currently
+        // hidden, schedule a delayed reveal. Avoids flashing on quick recovery.
+        var alreadyVisible = bannerEl.classList.contains('visible');
+        if (alreadyVisible) {
+          paint();
+        } else {
+          bannerEl.__gsShowTimer = setTimeout(function () {
+            bannerEl.__gsShowTimer = null;
+            // Re-check latest state — only paint if still not online.
+            var latest = transportStore.get().connectionState;
+            if (latest === 'connecting' || latest === 'reconnecting') {
+              s = latest;
+              paint();
+            }
+          }, 3500);
+        }
+      }
     }
 
     return {

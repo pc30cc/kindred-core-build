@@ -381,17 +381,24 @@ export async function resolveStorageConfig(serverConfig: ServerConfig, workspace
 }
 
 function mapDBConfigToStorage(provider: string, c: any): StorageConfig {
+  // Bunny Storage now ships with FTP-style fields in the admin UI
+  // (username / hostname / connection_type / port / password). Map them
+  // to the existing storage primitives so upload/delete handlers keep
+  // working without provider-specific code paths.
+  const bunnyApiKey = c.api_key || c.password;
+  const bunnyZone = c.storage_zone || c.username;
+  const bunnyEndpoint = c.endpoint || c.hostname;
   return {
     provider,
-    apiKey: c.api_key,
-    storageZone: c.storage_zone,
+    apiKey: bunnyApiKey,
+    storageZone: bunnyZone,
     region: c.region,
     cdnUrl: c.cdn_url || c.cdn_endpoint || c.public_url,
     accessKeyId: c.access_key_id || c.access_key,
     secretAccessKey: c.secret_access_key || c.secret_key,
     bucket: c.bucket || c.container,
     s3Region: c.region,
-    endpoint: c.endpoint,
+    endpoint: bunnyEndpoint,
     maxFileSizeMB: c.max_file_size ? parseInt(c.max_file_size) : undefined,
   };
 }

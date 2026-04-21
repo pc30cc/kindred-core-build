@@ -142,7 +142,7 @@ widgetAttachmentsRouter.post('/init', enforceWidgetToken, async (req: Request, r
   let convId: string | null = null;
   if (data.conversation_id) {
     const ownership = await verifyConversationOwnership(
-      config, data.conversation_id, workspaceId, data.visitor_id, data.session_id
+      config, data.conversation_id, workspaceId, data.visitor_id, data.session_id, req
     );
     if (ownership.valid) convId = data.conversation_id;
   }
@@ -304,7 +304,7 @@ widgetAttachmentsRouter.get('/:id', enforceWidgetToken, async (req: Request, res
   // If the attachment is bound to a conversation, the visitor must own it.
   if (row.conversation_id) {
     const ownership = await verifyConversationOwnership(
-      config, row.conversation_id, workspaceId, visitorId, sessionId
+      config, row.conversation_id, workspaceId, visitorId, sessionId, req
     );
     if (!ownership.valid) return res.status(403).json({ error: 'Forbidden' });
   }

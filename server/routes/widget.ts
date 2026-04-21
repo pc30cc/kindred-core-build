@@ -253,6 +253,10 @@ widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), async (req: Reques
     // No-cache
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
     res.set('Pragma', 'no-cache');
+    // Cloudflare/CDN-aware bypass — `Cache-Control: no-store` alone is not
+    // always honored by edge caches that have their own override rules.
+    res.set('CDN-Cache-Control', 'no-store');
+    res.set('Cloudflare-CDN-Cache-Control', 'no-store');
 
     // Get branding for platform display name
     const { data: branding } = await supabase

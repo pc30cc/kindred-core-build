@@ -616,6 +616,17 @@ textarea:focus-visible {
   background: #F1F5F9;
 }
 
+/* Inline required-field marker — single red asterisk next to the label.
+   Replaces the verbose "required" / "optional" pill badges. */
+.prechat-req-mark {
+  color: #DC2626;
+  font-weight: 700;
+  margin-inline-start: 4px;
+  font-size: 13px;
+  line-height: 1;
+  vertical-align: baseline;
+}
+
 .prechat-control {
   position: relative;
   display: flex;
@@ -828,6 +839,62 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 .kb-status { color: #6B7280; font-size: 13px; padding: 16px 4px; }
 .kb-empty { padding: 18px 4px; color: #6B7280; font-size: 13px; display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
 .kb-root[dir="rtl"] .kb-empty { align-items: flex-end; }
+
+/* Centered empty state — used when no articles exist or search has zero
+   results. Replaces the left-aligned default with a hero-style layout. */
+.kb-empty.kb-empty-centered {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 14px;
+  padding: 36px 16px 28px;
+  min-height: 220px;
+}
+.kb-root[dir="rtl"] .kb-empty.kb-empty-centered { align-items: center; }
+.kb-empty-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #F1F5F9 0%, #E2E8F0 100%);
+  color: #94A3B8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.kb-empty-text {
+  margin: 0;
+  font-size: 14px;
+  color: #475569;
+  font-weight: 500;
+  max-width: 240px;
+}
+
+/* Pro CTA — gradient pill with icon + label, lifts on hover. */
+.kb-cta.kb-cta-pro {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 999px;
+  background: var(--gs-primary, #3B82F6);
+  color: #fff;
+  border: 0;
+  cursor: pointer;
+  box-shadow: 0 6px 16px -6px color-mix(in srgb, var(--gs-primary, #3B82F6) 60%, transparent),
+              0 1px 0 0 rgba(255,255,255,.2) inset;
+  transition: transform .15s ease, box-shadow .15s ease, filter .15s ease;
+}
+.kb-cta.kb-cta-pro:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.05);
+  box-shadow: 0 10px 22px -8px color-mix(in srgb, var(--gs-primary, #3B82F6) 70%, transparent),
+              0 1px 0 0 rgba(255,255,255,.25) inset;
+}
+.kb-cta.kb-cta-pro:active { transform: translateY(0); filter: brightness(0.97); }
+.kb-cta-icon { display: inline-flex; align-items: center; }
+
 .kb-cta {
   background: var(--gs-primary, #3B82F6);
   color: #fff;

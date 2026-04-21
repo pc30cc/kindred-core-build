@@ -1661,15 +1661,18 @@
         var label = t(key);
         var ph = t('prechat' + key.charAt(0).toUpperCase() + key.slice(1) + 'Ph') || label;
         var req = identity.isRequired(key);
+        // Inline "required" marker — single red asterisk next to the label,
+        // matching native form conventions. Optional fields show nothing.
         var badge = req
-          ? '<span class="prechat-badge req">' + Util.escapeHtml(t('required')) + '</span>'
-          : '<span class="prechat-badge opt">' + Util.escapeHtml(t('prechatOptional')) + '</span>';
+          ? '<span class="prechat-req-mark" aria-label="' + Util.escapeHtml(t('required')) + '" title="' + Util.escapeHtml(t('required')) + '">*</span>'
+          : '';
         var ac = key === 'name' ? 'name' : key === 'email' ? 'email' : 'tel';
         var inputDir = key === 'email' || key === 'phone' ? 'ltr' : '';
         return '<div class="prechat-field" data-field="' + key + '">' +
             '<div class="prechat-row">' +
-              '<label class="prechat-label" for="prechat-' + key + '">' + Util.escapeHtml(label) + '</label>' +
-              badge +
+              '<label class="prechat-label" for="prechat-' + key + '">' +
+                Util.escapeHtml(label) + badge +
+              '</label>' +
             '</div>' +
             '<div class="prechat-control">' +
               '<span class="prechat-icon" aria-hidden="true">' + ICONS[key] + '</span>' +
@@ -2119,10 +2122,18 @@
       } else if (view === 'results') {
         var results = s.searchResults || [];
         if (!results.length) {
-          html += '<div class="kb-empty">' +
-            '<p>' + Util.escapeHtml(t('kbZeroResults')) + '</p>' +
-            '<button type="button" class="kb-cta" data-kb-action="switch-chat">' +
-              Util.escapeHtml(t('kbSwitchToChat')) +
+          html += '<div class="kb-empty kb-empty-centered">' +
+            '<div class="kb-empty-icon" aria-hidden="true">' +
+              '<svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">' +
+                '<circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>' +
+              '</svg>' +
+            '</div>' +
+            '<p class="kb-empty-text">' + Util.escapeHtml(t('kbZeroResults')) + '</p>' +
+            '<button type="button" class="kb-cta kb-cta-pro" data-kb-action="switch-chat">' +
+              '<span class="kb-cta-icon" aria-hidden="true">' +
+                '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>' +
+              '</span>' +
+              '<span>' + Util.escapeHtml(t('kbSwitchToChat')) + '</span>' +
             '</button>' +
           '</div>';
         } else {
@@ -2141,10 +2152,20 @@
         // 'list' — categories + (no search)
         var cats = s.categories || [];
         if (!cats.length) {
-          html += '<div class="kb-empty"><p>' + Util.escapeHtml(t('noArticles')) + '</p>' +
-            '<button type="button" class="kb-cta" data-kb-action="switch-chat">' +
-              Util.escapeHtml(t('kbSwitchToChat')) +
-            '</button></div>';
+          html += '<div class="kb-empty kb-empty-centered">' +
+            '<div class="kb-empty-icon" aria-hidden="true">' +
+              '<svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">' +
+                '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>' +
+              '</svg>' +
+            '</div>' +
+            '<p class="kb-empty-text">' + Util.escapeHtml(t('noArticles')) + '</p>' +
+            '<button type="button" class="kb-cta kb-cta-pro" data-kb-action="switch-chat">' +
+              '<span class="kb-cta-icon" aria-hidden="true">' +
+                '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>' +
+              '</span>' +
+              '<span>' + Util.escapeHtml(t('kbSwitchToChat')) + '</span>' +
+            '</button>' +
+          '</div>';
         } else {
           html += '<div class="kb-section-h">' + Util.escapeHtml(t('kbCategories')) + '</div>';
           html += '<div class="kb-list">';
@@ -2548,10 +2569,16 @@
             t2.classList.toggle('active', t2.getAttribute('data-tab') === 'chat');
           });
         } catch (_) {}
+        // renderBody() is the single source of truth for composer visibility:
+        // it hides the input bar when pre-chat is required (unidentified
+        // visitor) or when the offline contact-fallback form owns the input.
+        // Do NOT force inputBar to flex here — that would let an unidentified
+        // visitor type before completing pre-chat.
         renderBody();
-        if (inputBar) inputBar.style.display = 'flex';
-        restoreDraftToInput();
-        if (msgInput) { try { msgInput.focus(); } catch (_) {} }
+        if (identityStore.get().loaded && !identity.needsPrechat()) {
+          restoreDraftToInput();
+          if (msgInput) { try { msgInput.focus(); } catch (_) {} }
+        }
       },
     });
     var notify = createNotify(ctx, transportStore, notifyStore, uiPrefsStore, shellStore, t);

@@ -593,3 +593,135 @@ accountRouter.get('/security/login-history', async (req, res) => {
     return res.status(500).json({ error: err?.message || 'Failed to load login history' });
   }
 });
+
+// ─── WORKSPACE ICON UPLOAD ──────────────────────────────────────
+//
+// Mirrors the avatar upload flow but writes to the workspace-scoped
+// `branding/<workspaceId>/icon-...` key and persists the resulting URL
+// to `workspace_branding.logo_url`. Caller must be a member of the
+// workspace (any role) — verified by RLS via service-role lookup.
+
+const workspaceIconSchema = z.object({
+  workspaceId: z.string().uuid(),
+  data: z.string().min(10),
+  contentType: z.string().regex(/^image\/(png|jpe?g|webp|gif|svg\+xml)$/i),
+  fileName: z.string().max(160).optional(),
+});
+
+async function userIsWorkspaceMember(config: ServerConfig, userId: string, workspaceId: string): Promise<boolean> {
+  const sb = getServiceClient(config);
+  const { data } = await sb
+    .from('workspace_members')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('workspace_id', workspaceId)
+    .maybeSingle();
+  return !!data;
+}
+
+accountRouter.post('/workspace-icon', async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const user = (req as any).authUser;
+    const parsed = workspaceIconSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten().fieldErrors });
+    }
+
+    const { workspaceId, contentType } = parsed.data;
+    if (!(await userIsWorkspaceMember(config, user.id, workspaceId))) {
+      return res.status(403).json({ error: 'Not a member of this workspace' });
+    }
+
+    const buffer = Buffer.from(parsed.data.data, 'base64');
+    if (buffer.length === 0) return res.status(400).json({ error: 'Empty file' });
+    if (buffer.length > 5 * 1024 * 1024) {
+      return res.status(413).json({ error: 'Icon must be smaller than 5 MB' });
+    }
+
+    const ext = extFromContentType(contentType);
+    const fileKey = `branding/${workspaceId}/icon-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.${ext}`;
+
+    const result = await uploadFile(config, {
+      workspaceId,
+      fileKey,
+      data: buffer,
+      contentType,
+    });
+    if (!result.success || !result.url) {
+      return res.status(500).json({ error: result.error || 'Upload failed' });
+    }
+
+    const sb = getServiceClient(config);
+
+    // Best-effort cleanup of the previous icon
+    const { data: prevBranding } = await sb
+      .from('workspace_branding')
+      .select('logo_url')
+      .eq('workspace_id', workspaceId)
+      .maybeSingle();
+    const prev = prevBranding?.logo_url;
+    if (prev && typeof prev === 'string') {
+      const marker = `/branding/${workspaceId}/`;
+      const idx = prev.indexOf(marker);
+      if (idx >= 0) {
+        const oldKey = prev.slice(idx + 1);
+        if (oldKey && oldKey !== fileKey) {
+          await deleteFile(config, workspaceId, oldKey).catch(() => undefined);
+        }
+      }
+    }
+
+    const { error: saveError } = await sb
+      .from('workspace_branding')
+      .update({ logo_url: result.url, updated_at: new Date().toISOString() })
+      .eq('workspace_id', workspaceId);
+
+    if (saveError) {
+      console.error('[account] workspace icon persistence error:', saveError.message);
+      return res.status(500).json({ error: 'Icon uploaded but workspace update failed' });
+    }
+
+    return res.json({ success: true, url: result.url, fileKey: result.fileKey });
+  } catch (err: any) {
+    console.error('[account] workspace icon upload error:', err);
+    return res.status(500).json({ error: err?.message || 'Workspace icon upload failed' });
+  }
+});
+
+accountRouter.delete('/workspace-icon', async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const user = (req as any).authUser;
+    const workspaceId = String(req.query.workspaceId || '').trim();
+    if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
+    if (!(await userIsWorkspaceMember(config, user.id, workspaceId))) {
+      return res.status(403).json({ error: 'Not a member of this workspace' });
+    }
+
+    const sb = getServiceClient(config);
+    const { data: prevBranding } = await sb
+      .from('workspace_branding')
+      .select('logo_url')
+      .eq('workspace_id', workspaceId)
+      .maybeSingle();
+    const prev = prevBranding?.logo_url;
+    if (prev && typeof prev === 'string') {
+      const marker = `/branding/${workspaceId}/`;
+      const idx = prev.indexOf(marker);
+      if (idx >= 0) {
+        const oldKey = prev.slice(idx + 1);
+        if (oldKey) await deleteFile(config, workspaceId, oldKey).catch(() => undefined);
+      }
+    }
+
+    await sb
+      .from('workspace_branding')
+      .update({ logo_url: null, updated_at: new Date().toISOString() })
+      .eq('workspace_id', workspaceId);
+
+    return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || 'Failed to remove workspace icon' });
+  }
+});

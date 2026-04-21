@@ -637,7 +637,7 @@ widgetRouter.get('/poll', widgetRateLimit('poll'), async (req: Request, res: Res
 
     const { data: msgs } = await supabase
       .from('conversation_messages')
-      .select('id, body, sender_type, created_at, metadata, seen_at')
+      .select('id, body, sender_type, sender_id, created_at, metadata, seen_at')
       .eq('conversation_id', activeConversationId)
       .order('created_at', { ascending: false })
       .limit(200);
@@ -651,7 +651,7 @@ widgetRouter.get('/poll', widgetRateLimit('poll'), async (req: Request, res: Res
       // distinguish 'ai' from 'agent' without re-parsing metadata.
       sender_type: m.sender_type,
       // Raw sender id is needed below to look up profile (avatar/name).
-      _sender_id: m.metadata?.sender_id || null,
+      _sender_id: m.sender_id || null,
       text: m.body,
       time: m.created_at,
       metadata: m.metadata,

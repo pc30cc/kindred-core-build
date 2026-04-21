@@ -2196,6 +2196,7 @@ export type Database = {
           created_at: string
           default_allow_subdomains: boolean
           default_debug_mode: boolean
+          default_welcome_message: string
           embed_footer_comment: string | null
           embed_header_comment: string | null
           enforce_domain_validation: boolean
@@ -2221,6 +2222,7 @@ export type Database = {
           created_at?: string
           default_allow_subdomains?: boolean
           default_debug_mode?: boolean
+          default_welcome_message?: string
           embed_footer_comment?: string | null
           embed_header_comment?: string | null
           enforce_domain_validation?: boolean
@@ -2246,6 +2248,7 @@ export type Database = {
           created_at?: string
           default_allow_subdomains?: boolean
           default_debug_mode?: boolean
+          default_welcome_message?: string
           embed_footer_comment?: string | null
           embed_header_comment?: string | null
           enforce_domain_validation?: boolean

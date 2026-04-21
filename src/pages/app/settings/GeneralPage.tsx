@@ -51,7 +51,7 @@ export default function SettingsGeneralPage() {
 
   // Pull primary domain (display only — managed in Domains page).
   const { data: primaryDomain } = useQuery({
-    queryKey: ['workspace-primary-domain', workspace?.id],
+    queryKey: ['workspace-primary-domain', 'full', workspace?.id],
     enabled: !!workspace,
     queryFn: async () => {
       const { data } = await supabase

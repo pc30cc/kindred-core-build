@@ -204,6 +204,12 @@ function buildConnection(workspaceId: string, negotiation: RealtimeNegotiation):
  */
 function openSocket(conn: SharedConnection): Promise<void> {
   conn.closed = false;
+  // Bump the connection generation. Any in-flight async task bound to the
+  // PREVIOUS generation (e.g. a resubscribeAll loop that started against
+  // the old socket and was still running when onclose fired) will compare
+  // its captured generation against this new value and bail out instead
+  // of spamming `socket_closed` errors against the dead socket.
+  conn.generation += 1;
   conn.ws = new WebSocket(conn.wsUrl);
   attachSocketHandlers(conn);
   return new Promise<void>((resolve, reject) => {

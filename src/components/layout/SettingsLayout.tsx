@@ -7,7 +7,7 @@ import {
   User, CreditCard, Settings, MessageSquare, Inbox, Mail,
   BookOpen, BarChart3, ChevronDown, ChevronLeft, ChevronRight,
   Globe, Palette, Languages, Plug, Shield, Users,
-  MessageCircleReply, ShieldCheck,
+  MessageCircleReply, ShieldCheck, Monitor,
 } from 'lucide-react';
 
 interface SettingsGroup {
@@ -26,6 +26,7 @@ const settingsGroupsDef: SettingsGroup[] = [
       { key: 'availability', label: 'Availability', subPath: '/settings/availability' },
       { key: 'security', label: 'Security', subPath: '/settings/security' },
       { key: 'privacy', label: 'Privacy', subPath: '/settings/privacy' },
+      { key: 'interface', label: 'Interface', subPath: '/settings/interface' },
     ],
   },
   {

@@ -298,6 +298,11 @@ export default function WidgetPage() {
               )}
             </TabsContent>
 
+            {/* ─── Pre-chat ─── */}
+            <TabsContent value="prechat">
+              <PrechatSection workspaceId={workspace?.id} />
+            </TabsContent>
+
             {/* ─── Domains ─── */}
             <TabsContent value="domains">
               <Card className="card-elevated">

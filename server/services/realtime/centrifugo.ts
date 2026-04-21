@@ -40,7 +40,11 @@ export class CentrifugoDriver {
       throw new Error('Centrifugo ws_url not configured');
     }
 
-    const ttl = subject.expires_in_seconds ?? this.cfg.token_ttl_seconds ?? 300; // default 5 min
+    // Default TTL = 30min. Long enough to survive normal tab backgrounding
+    // (browsers throttle setTimeout on hidden tabs to 1Hz, so a 5min token
+    // could die before the proactive-refresh timer fires). The client still
+    // proactively refreshes ~60s before expiry; this is a safety floor.
+    const ttl = subject.expires_in_seconds ?? this.cfg.token_ttl_seconds ?? 1800;
     const exp = Math.floor(Date.now() / 1000) + ttl;
 
     // Centrifugo expects { sub, exp } at minimum.
@@ -74,7 +78,7 @@ export class CentrifugoDriver {
     if (!this.cfg.token_hmac_secret) {
       throw new Error('Centrifugo token_hmac_secret not configured');
     }
-    const ttl = params.expiresInSeconds ?? this.cfg.token_ttl_seconds ?? 300;
+    const ttl = params.expiresInSeconds ?? this.cfg.token_ttl_seconds ?? 1800;
     const exp = Math.floor(Date.now() / 1000) + ttl;
     const token = jwt.sign(
       {

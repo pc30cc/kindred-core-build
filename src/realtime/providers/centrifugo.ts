@@ -27,9 +27,11 @@ const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) || ''
 
 /**
  * How long before a token's `expires_at` we proactively refresh it.
- * Centrifugo TTLs are typically 600s; 60s is a comfortable lead time.
+ * Server now issues 30min TTLs by default; refreshing 2min ahead gives
+ * us plenty of margin even on a tab the browser has throttled to 1Hz
+ * setTimeout while it was backgrounded.
  */
-const TOKEN_REFRESH_LEAD_MS = 60_000;
+const TOKEN_REFRESH_LEAD_MS = 120_000;
 
 /** Backoff schedule (ms) for socket reconnect attempts. Capped at 30s. */
 const RECONNECT_DELAYS_MS = [500, 1_000, 2_000, 4_000, 8_000, 15_000, 30_000];
@@ -207,7 +209,11 @@ function openSocket(conn: SharedConnection): Promise<void> {
         conn.subs.forEach((set) => set.forEach((h) => h.onStatus?.('open')));
         if (!settled) { settled = true; resolve(); }
       } catch (err) {
-        if (!settled) { settled = true; reject(err); }
+        // Surface the real Centrifugo error message so scheduleReconnect
+        // can detect token-related failures and force a re-negotiation.
+        const e: any = err;
+        const msg = e?.message || e?.reason || (typeof e === 'string' ? e : 'connect_failed');
+        if (!settled) { settled = true; reject(new Error(msg)); }
       }
     };
     const onErr = () => {
@@ -308,13 +314,34 @@ function scheduleReconnect(conn: SharedConnection): void {
   conn.reconnectTimer = setTimeout(async () => {
     conn.reconnectTimer = null;
     if (conn.disposed) return;
-    // Refresh the connection token if it's expired or near expiry.
-    if (Date.now() >= conn.tokenExpiresAt - TOKEN_REFRESH_LEAD_MS) {
+    // Decide whether we MUST re-negotiate before opening a new socket.
+    // We don't trust the local `tokenExpiresAt` alone — server clock skew
+    // or a previous server-side rejection of our token can leave us with
+    // a "locally fresh" but server-rejected token, which would loop
+    // forever. Force a re-negotiation when:
+    //   1) the token is at/near expiry by our clock, OR
+    //   2) we've already failed to (re)open the socket at least once
+    //      (reconnectAttempt > 1) — the previous failure was almost
+    //      certainly a token issue at the server, even if we think the
+    //      token is still valid.
+    const localExpired = Date.now() >= conn.tokenExpiresAt - TOKEN_REFRESH_LEAD_MS;
+    const mustRefreshDueToFailure = conn.reconnectAttempt > 1;
+    if (localExpired || mustRefreshDueToFailure) {
+      // Bust the per-workspace negotiation cache so we don't get a stale
+      // token handed back from a memoized resolver.
+      try {
+        const { invalidateClientRealtimeCache } = await import('../resolveClientRealtimeProvider');
+        invalidateClientRealtimeCache(conn.workspaceId);
+      } catch { /* noop */ }
       const fresh = await negotiateConnect(conn.workspaceId);
       if (fresh?.token && fresh.ws_url) {
         conn.token = fresh.token;
         conn.tokenExpiresAt = (fresh.expires_at || 0) * 1000 || Date.now() + 9 * 60_000;
         conn.wsUrl = fresh.ws_url;
+        rtDebug('centrifugo', 'reconnect: fresh token negotiated', {
+          expiresInMs: conn.tokenExpiresAt - Date.now(),
+          reason: localExpired ? 'local_expired' : 'prior_failure',
+        });
       } else {
         rtWarn('centrifugo', 'token refresh failed; will retry');
         scheduleReconnect(conn);
@@ -324,7 +351,13 @@ function scheduleReconnect(conn: SharedConnection): void {
     try {
       await openSocket(conn);
     } catch (err) {
-      rtWarn('centrifugo', 'reconnect open failed', { error: (err as any)?.message });
+      const msg = String((err as any)?.message || err || '');
+      rtWarn('centrifugo', 'reconnect open failed', { error: msg });
+      // If the failure looks like a token problem, mark the local expiry
+      // as past so the NEXT scheduleReconnect cycle definitely re-negotiates.
+      if (/token|expired|unauthorized|401/i.test(msg)) {
+        conn.tokenExpiresAt = 0;
+      }
       // Loop will continue via onclose → scheduleReconnect.
     }
   }, delay);
@@ -397,7 +430,14 @@ function sendOnConn(conn: SharedConnection, key: string, body: Record<string, un
     }, 8000);
     conn.pending[id] = (reply) => {
       clearTimeout(timeout);
-      if (reply?.error) reject(reply.error);
+      if (reply?.error) {
+        // Build a real Error so callers (and our reconnect heuristics) get
+        // a stable `.message`. Centrifugo error shape: { code, message }.
+        const e = reply.error;
+        const err = new Error(e?.message || `centrifugo_error_${e?.code || 'unknown'}`);
+        (err as any).code = e?.code;
+        reject(err);
+      }
       else resolve(reply?.[key] ?? {});
     };
     try {

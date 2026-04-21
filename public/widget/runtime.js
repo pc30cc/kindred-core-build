@@ -2838,9 +2838,16 @@
         Array.prototype.forEach.call(tabs, function (t2) { t2.classList.remove('active'); });
         tab.classList.add('active');
         renderBody();
-        if (inputBar) inputBar.style.display = shellStore.get().activeTab === 'chat' ? 'flex' : 'none';
-        // Restore preserved draft when returning to chat tab
-        if (shellStore.get().activeTab === 'chat') restoreDraftToInput();
+        // NOTE: do NOT force inputBar visibility here. renderBody() is the
+        // single source of truth — it hides the composer when pre-chat is
+        // required, when the offline contact-fallback form owns the input,
+        // or when on the help tab. Forcing 'flex' would re-show the composer
+        // for an unidentified visitor (pre-chat bypass bug).
+        if (shellStore.get().activeTab === 'chat'
+            && identityStore.get().loaded
+            && !identity.needsPrechat()) {
+          restoreDraftToInput();
+        }
       });
     });
 

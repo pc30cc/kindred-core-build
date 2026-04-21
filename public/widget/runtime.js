@@ -1661,15 +1661,18 @@
         var label = t(key);
         var ph = t('prechat' + key.charAt(0).toUpperCase() + key.slice(1) + 'Ph') || label;
         var req = identity.isRequired(key);
+        // Inline "required" marker — single red asterisk next to the label,
+        // matching native form conventions. Optional fields show nothing.
         var badge = req
-          ? '<span class="prechat-badge req">' + Util.escapeHtml(t('required')) + '</span>'
-          : '<span class="prechat-badge opt">' + Util.escapeHtml(t('prechatOptional')) + '</span>';
+          ? '<span class="prechat-req-mark" aria-label="' + Util.escapeHtml(t('required')) + '" title="' + Util.escapeHtml(t('required')) + '">*</span>'
+          : '';
         var ac = key === 'name' ? 'name' : key === 'email' ? 'email' : 'tel';
         var inputDir = key === 'email' || key === 'phone' ? 'ltr' : '';
         return '<div class="prechat-field" data-field="' + key + '">' +
             '<div class="prechat-row">' +
-              '<label class="prechat-label" for="prechat-' + key + '">' + Util.escapeHtml(label) + '</label>' +
-              badge +
+              '<label class="prechat-label" for="prechat-' + key + '">' +
+                Util.escapeHtml(label) + badge +
+              '</label>' +
             '</div>' +
             '<div class="prechat-control">' +
               '<span class="prechat-icon" aria-hidden="true">' + ICONS[key] + '</span>' +

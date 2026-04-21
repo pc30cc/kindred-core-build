@@ -1370,7 +1370,7 @@ widgetRouter.put('/action', widgetRateLimit('default'), async (req: Request, res
     }
 
     if (action === 'typing' && conversation_id) {
-      const ownership = await verifyConversationOwnership(config, conversation_id, workspaceId!, visitor_id, session_id);
+      const ownership = await verifyConversationOwnership(config, conversation_id, workspaceId!, visitor_id, session_id, req);
       if (!ownership.valid) {
         console.warn(
           `[widget-action] typing denied: workspace=${workspaceId} conv=${conversation_id} ` +

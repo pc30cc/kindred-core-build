@@ -15,7 +15,7 @@ import {
   siHtml5, siWordpress, siShopify, siPrestashop, siWoocommerce,
   siGmail, siInstagram, siMessenger, siTelegram, siX, siWhatsapp,
   siApple, siAndroid, siReact,
-} from 'simple-icons/icons';
+} from 'simple-icons';
 
 type SimpleIcon = { path: string; hex: string; title: string };
 

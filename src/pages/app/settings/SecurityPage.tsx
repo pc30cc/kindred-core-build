@@ -104,7 +104,7 @@ function LocationCell({
 }
 
 export default function SettingsSecurityPage() {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const { locale } = useI18n();
   const qc = useQueryClient();
 

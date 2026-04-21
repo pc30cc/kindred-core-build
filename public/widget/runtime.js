@@ -1011,7 +1011,7 @@
                   return;
                 }
                 rtDriver = mod.create(ctx, resolved, {
-                  onConnectionState: function (s) { setConnectionState(s); },
+                  onConnectionState: function (s) { onDriverState(s, resolvedVendor); },
                   onMessage: function (e) { emit('message', e); },
                   onTyping: function (e) { emit('typing', e); },
                   onPresence: function (e) { emit('presence', e); },
@@ -1019,7 +1019,15 @@
                   fallbackToPolling: fallback,
                 });
                 rtDriver.connect();
-                if (subscribedConversation) rtDriver.subscribeConversation(subscribedConversation);
+                // Resubscribe canonical conversation. FSM is the source of
+                // truth for the active cid — it survives driver swaps and
+                // BFCache restores, so a freshly loaded driver always
+                // re-binds the right channel.
+                var cidNow = (fsm && fsm.getConversation()) || subscribedConversation;
+                if (cidNow) {
+                  subscribedConversation = cidNow;
+                  rtDriver.subscribeConversation(cidNow);
+                }
               });
               return;
             }

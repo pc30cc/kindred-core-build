@@ -40,8 +40,8 @@ const settingsGroupsDef: SettingsGroup[] = [
       { key: 'integrations', label: 'Setup & Integrations', subPath: '/settings/integrations' },
       { key: 'branding', label: 'Branding', subPath: '/settings/branding' },
       { key: 'domains', label: 'Domains', subPath: '/settings/domains' },
-      { key: 'team', label: 'Team Members', subPath: '/team' },
-      { key: 'privacyRequests', label: 'Privacy Requests', subPath: '/privacy-requests' },
+      { key: 'team', label: 'Team Members', subPath: '/settings/team' },
+      { key: 'privacyRequests', label: 'Privacy Requests', subPath: '/settings/privacy-requests' },
     ],
   },
   {

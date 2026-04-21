@@ -21,7 +21,7 @@ const settingsGroupsDef: SettingsGroup[] = [
   {
     key: 'account', label: 'Account', icon: User,
     items: [
-      { key: 'profile', label: 'Profile', subPath: '/settings/profile' },
+      { key: 'profile', label: 'Account Information', subPath: '/settings/profile' },
       { key: 'privacy', label: 'Privacy', subPath: '/settings/privacy' },
     ],
   },

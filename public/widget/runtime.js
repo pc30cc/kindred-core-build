@@ -967,13 +967,27 @@
 
           function fallback(reason) {
             Util.warn('[transport] realtime fallback:', reason);
-            rtDriver = null;
+            // Tear down the realtime driver — it lost; polling owns state now.
+            if (rtDriver) {
+              try { rtDriver.disconnect && rtDriver.disconnect(); } catch (_) {}
+              rtDriver = null;
+            }
             capabilities.driver = 'polling';
             capabilities.supportsRealtime = false;
             capabilities.supportsTyping = false;
             capabilities.supportsPresence = false;
-            if (fallbackPolicy === 'lenient') startPolling();
-            else setConnectionState('offline');
+            if (fallbackPolicy === 'lenient') {
+              startPolling();
+              // FSM: 'degraded' makes the fallback explicit. Composer stays
+              // sendable (polling can deliver), but diagnostics + future
+              // recovery hooks know we are NOT on the primary path.
+              if (fsm && fsm.get() !== 'degraded') {
+                fsm.transition('degraded', 'fallback:' + (reason || 'rt_failed'));
+              }
+            } else {
+              if (fsm) fsm.transition('offline', 'strict_fallback:' + (reason || 'rt_failed'));
+              else setConnectionState('offline');
+            }
           }
 
           // Vendor needs a real driver module — load via resolver.

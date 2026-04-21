@@ -29,6 +29,7 @@ import { privacyRouter } from './routes/privacy.js';
 import { startAttachmentJanitor } from './services/attachmentJanitor.js';
 import { startPrivacyWorker } from './services/privacy/worker.js';
 import { startPrivacyExpirySweep } from './services/privacy/expirySweep.js';
+import { invalidateManifestCache, getManifestDiagnostics } from './services/widget/manifest.js';
 import { widgetCorsMiddleware } from './middleware/widgetCors.js';
 import {
   ipBlockMiddleware,
@@ -205,6 +206,34 @@ app.listen(config.port, () => {
   startPrivacyWorker(config);
   // GDPR — start hourly TTL purge for expired export artifacts (provider-based).
   startPrivacyExpirySweep(config);
+
+  // ─── Post-deploy widget manifest invalidation ────────────────────
+  // The in-memory widget manifest cache is per-process, so a fresh deploy
+  // (which restarts this process) starts with an empty cache anyway. BUT:
+  //  - In rolling deployments, multiple replicas may briefly serve old
+  //    hashed asset names if their cached manifest pre-dates the new
+  //    frontend build.
+  //  - The remote-fetch path uses ETag revalidation, which can return 304
+  //    against a stale cached body if we keep a residual entry in memory
+  //    from before the boot completed.
+  // Force-invalidate at startup, then warm the cache by reading it once
+  // so the first widget request doesn't pay the cold-fetch latency.
+  invalidateManifestCache();
+  // Defer the warm-up so it doesn't block the listen() callback. The
+  // remote fetch has a 4s timeout; even worst-case it just logs and
+  // moves on without crashing the server.
+  setTimeout(() => {
+    try {
+      const diag = getManifestDiagnostics();
+      console.log(
+        `[startup] widget manifest warmed: source=${diag.source}, ` +
+          `loaderVersion=${diag.loaderVersion}, ` +
+          `runtimeJs=${diag.runtimeJs}`,
+      );
+    } catch (err: any) {
+      console.warn('[startup] widget manifest warm-up failed:', err?.message || err);
+    }
+  }, 100);
 });
 
 export default app;

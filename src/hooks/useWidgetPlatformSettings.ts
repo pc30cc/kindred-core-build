@@ -27,6 +27,9 @@ export interface WidgetPlatformSettings {
   // ── Embed snippet wrappers (rendered above/below the <script> tag) ──
   embed_header_comment: string | null;
   embed_footer_comment: string | null;
+  // Default operator welcome bubble shown when a visitor opens chat with
+  // no prior messages. Workspaces can override via `widget_settings.welcome_message`.
+  default_welcome_message: string;
   created_at: string;
   updated_at: string;
   updated_by: string | null;

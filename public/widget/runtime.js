@@ -1302,10 +1302,23 @@
     }
 
     function renderEmpty(body) {
+      // Server-authoritative welcome message (workspace override → platform default).
+      // Rendered as a real operator bubble — same look & feel as a live operator
+      // reply — so the visitor immediately sees the conversation has "started".
+      // Falls back to the i18n `intro` string only if backend sent nothing.
+      var welcome = (ctx.config && typeof ctx.config.welcomeMessage === 'string' && ctx.config.welcomeMessage.trim().length > 0)
+        ? ctx.config.welcomeMessage
+        : t('intro');
+      var lines = String(welcome).split(/\n+/).map(function (l) {
+        return Util.escapeHtml(l);
+      }).join('<br>');
       body.innerHTML =
-        '<div class="empty">' +
-        '<svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>' +
-        '<p>' + Util.escapeHtml(t('intro')) + '</p></div>';
+        '<div class="messages welcome-only">' +
+          '<div class="msg-row operator">' +
+            '<div class="msg operator welcome-bubble">' + lines + '</div>' +
+          '</div>' +
+        '</div>';
+      body.scrollTop = body.scrollHeight;
     }
 
     // ─── Phase 6b — attachment renderer (provider-safe) ───
@@ -2633,12 +2646,19 @@
       if (tab === 'chat') {
         if (!identityStore.get().loaded) { renderLoading(); return; }
         if (identity.needsPrechat()) {
+          // Composer must be invisible while pre-chat is showing — visitor
+          // cannot send a message until they've identified themselves.
+          if (inputBar) inputBar.style.display = 'none';
           chatUI.renderPreChat(body, identity, ctx.locale, function () {
+            // Pre-chat just submitted → reveal composer for the now-identified visitor.
+            if (inputBar) inputBar.style.display = 'flex';
             renderBody();
             if (msgInput) setTimeout(function () { msgInput.focus(); }, 100);
           });
           return;
         }
+        // Identified visitor on chat tab → composer visible.
+        if (inputBar) inputBar.style.display = 'flex';
         // Phase 5 — when offline + contact_fallback mode and there's no
         // active thread yet, render the fallback form instead of the chat.
         var pStatus = presenceStore.get().status;
@@ -2648,6 +2668,8 @@
           && (pMode === 'contact_fallback' || pMode === 'capture_message')
           && !hasMessages;
         if (shouldFallback) {
+          // Contact-fallback form owns the input area — hide the chat composer.
+          if (inputBar) inputBar.style.display = 'none';
           chatUI.renderContactFallback(body, identity, ctx.locale, presenceStore.get(), function () {
             renderBody();
           });
@@ -2655,6 +2677,7 @@
         }
         chatUI.renderChat(body);
       } else if (tab === 'help') {
+        if (inputBar) inputBar.style.display = 'none';
         kbUI.ensure(function () { kbUI.render(body); });
       }
     }

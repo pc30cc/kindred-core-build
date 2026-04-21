@@ -105,6 +105,23 @@ export default function AdminWidgetSettingsPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
+              <div className="rounded-lg border border-border p-4 space-y-2 bg-muted/20">
+                <div className="flex items-center gap-2">
+                  <MessageSquare className="h-4 w-4 text-primary" />
+                  <Label className="text-sm font-medium">Default welcome message</Label>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Shown as the first operator bubble inside the widget after the pre-chat form is submitted (or immediately, if pre-chat is disabled). Workspaces can override this in their widget settings.
+                </p>
+                <Textarea
+                  rows={2}
+                  value={settings.default_welcome_message || ''}
+                  onChange={(e) => update({ default_welcome_message: e.target.value })}
+                  placeholder="Hello! How can we help you?"
+                  className="resize-none"
+                />
+              </div>
+
               {[
                 { key: 'prechat_name_policy', label: 'Name', icon: MessageSquare },
                 { key: 'prechat_email_policy', label: 'Email', icon: Mail },

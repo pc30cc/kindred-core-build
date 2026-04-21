@@ -7,7 +7,7 @@ import {
   User, CreditCard, Settings, MessageSquare, Inbox, Mail,
   BookOpen, BarChart3, ChevronDown, ChevronLeft, ChevronRight,
   Globe, Palette, Languages, Plug, Shield, Users,
-  MessageCircleReply, ShieldCheck, Monitor,
+  MessageCircleReply, ShieldCheck, Monitor, Bot,
 } from 'lucide-react';
 
 interface SettingsGroup {
@@ -64,7 +64,14 @@ const settingsGroupsDef: SettingsGroup[] = [
   },
   {
     key: 'knowledgeBase', label: 'Knowledge Base', icon: BookOpen,
-    items: [{ key: 'translations', label: 'Translations', subPath: '/settings/translations' }],
+    items: [
+      { key: 'kb', label: 'Articles', subPath: '/settings/knowledge-base' },
+      { key: 'translations', label: 'Translations', subPath: '/settings/translations' },
+    ],
+  },
+  {
+    key: 'ai', label: 'AI', icon: Bot,
+    items: [{ key: 'ai', label: 'AI Settings', subPath: '/settings/ai' }],
   },
 ];
 

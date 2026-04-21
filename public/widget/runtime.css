@@ -357,8 +357,6 @@ textarea:focus-visible {
   color: #EF4444;
   margin-top: 6px;
   display: none;
-  display: -webkit-box;
-  display: none;
 }
 .prechat-error.visible {
   display: flex;

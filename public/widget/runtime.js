@@ -278,6 +278,114 @@
   }
 
   // ════════════════════════════════════════════════════════════════════
+  // LifecycleFSM — Phase 2 deterministic widget lifecycle
+  //
+  // Single source of truth for the widget's connection/session lifecycle.
+  // The transport/identity/UI layers ASK the FSM what to render and TELL
+  // the FSM about events — they never fabricate transitions on their own.
+  //
+  // States (intentionally distinct, do NOT collapse):
+  //   bootstrapping       — initial load, identity not yet resolved
+  //   restoring_session   — identity resolved, history fetch in flight
+  //   connecting          — first transport connect attempt
+  //   subscribing         — connected, awaiting per-conversation subscribe
+  //   connected           — realtime healthy + (no cid) or (cid subscribed)
+  //   degraded            — primary realtime failed, polling fallback active
+  //   reconnecting        — transient transport drop, retry in flight
+  //   waking              — wake from page-visibility/BFCache, full recovery
+  //   offline             — browser navigator.onLine === false
+  //   unavailable         — server says widget disabled / business hours
+  //   auth_expired        — session token cannot be refreshed (cookie dead)
+  //   failed              — terminal: bootstrap permanently failed
+  //   idle                — manually disconnected (panel destroyed)
+  //
+  // Allowed transitions are EXPLICIT in TRANSITIONS below. Any disallowed
+  // transition is logged (debug only) and ignored — the FSM never silently
+  // drifts into an inconsistent state.
+  // ════════════════════════════════════════════════════════════════════
+  function createLifecycleFSM() {
+    var TRANSITIONS = {
+      bootstrapping:     ['restoring_session', 'unavailable', 'auth_expired', 'failed', 'idle'],
+      restoring_session: ['connecting', 'unavailable', 'failed', 'idle'],
+      connecting:        ['subscribing', 'connected', 'degraded', 'reconnecting', 'offline', 'unavailable', 'auth_expired', 'failed', 'idle'],
+      subscribing:       ['connected', 'degraded', 'reconnecting', 'offline', 'auth_expired', 'idle'],
+      connected:         ['subscribing', 'reconnecting', 'degraded', 'offline', 'waking', 'auth_expired', 'idle'],
+      degraded:          ['connecting', 'reconnecting', 'connected', 'offline', 'waking', 'auth_expired', 'idle'],
+      reconnecting:      ['connecting', 'subscribing', 'connected', 'degraded', 'offline', 'waking', 'auth_expired', 'failed', 'idle'],
+      waking:            ['restoring_session', 'connecting', 'subscribing', 'connected', 'degraded', 'offline', 'auth_expired', 'failed', 'idle'],
+      offline:           ['waking', 'reconnecting', 'connecting', 'idle'],
+      unavailable:       ['waking', 'connecting', 'reconnecting', 'connected', 'idle'],
+      auth_expired:      ['waking', 'restoring_session', 'idle'],
+      failed:            ['waking', 'idle'],
+      idle:              ['bootstrapping', 'waking'],
+    };
+
+    // States that map to "transport actively connected" — used by the
+    // composer/banner to decide if sending is allowed.
+    var SENDABLE = { connected: 1, degraded: 1 };
+    // States considered "in-flight" — banner shows reconnecting/connecting.
+    var BUSY = { bootstrapping: 1, restoring_session: 1, connecting: 1, subscribing: 1, reconnecting: 1, waking: 1 };
+
+    var current = 'idle';
+    var listeners = [];
+    var history = [];   // last 20 transitions, debug only
+    var activeConversationId = null;
+    // Stable contract for UI: a single "connection_state" mapping for the
+    // existing transportStore consumers (banner, composer). One mapping,
+    // computed in one place.
+    function toLegacy(state) {
+      if (state === 'idle') return 'idle';
+      if (state === 'offline') return 'offline';
+      if (state === 'unavailable' || state === 'failed' || state === 'auth_expired') return 'offline';
+      if (SENDABLE[state]) return 'online';
+      return state === 'bootstrapping' || state === 'restoring_session' || state === 'connecting' || state === 'subscribing' || state === 'waking'
+        ? 'connecting'
+        : 'reconnecting';
+    }
+
+    function get() { return current; }
+
+    function transition(next, meta) {
+      if (next === current) return false;
+      var allowed = TRANSITIONS[current] || [];
+      if (allowed.indexOf(next) === -1) {
+        Util.warn('[fsm] illegal transition', current, '→', next, meta || '');
+        return false;
+      }
+      var prev = current;
+      current = next;
+      var entry = { at: Date.now(), from: prev, to: next, meta: meta || null };
+      history.push(entry);
+      if (history.length > 20) history.shift();
+      Util.log('[fsm]', prev, '→', next, meta || '');
+      for (var i = 0; i < listeners.length; i++) {
+        try { listeners[i]({ state: next, previous: prev, meta: meta }); }
+        catch (e) { Util.warn('fsm listener err', e); }
+      }
+      return true;
+    }
+
+    return {
+      get: get,
+      transition: transition,
+      legacyConnectionState: function () { return toLegacy(current); },
+      isSendable: function () { return !!SENDABLE[current]; },
+      isBusy: function () { return !!BUSY[current]; },
+      isOffline: function () { return current === 'offline' || current === 'unavailable' || current === 'failed' || current === 'auth_expired'; },
+      isDegraded: function () { return current === 'degraded'; },
+      onChange: function (fn) {
+        listeners.push(fn);
+        return function () {
+          var i = listeners.indexOf(fn); if (i !== -1) listeners.splice(i, 1);
+        };
+      },
+      setConversation: function (cid) { activeConversationId = cid || null; },
+      getConversation: function () { return activeConversationId; },
+      history: function () { return history.slice(); },
+    };
+  }
+
+  // ════════════════════════════════════════════════════════════════════
   // Lazy module loader (chat / kb)
   // ════════════════════════════════════════════════════════════════════
   var ModuleLoader = (function () {

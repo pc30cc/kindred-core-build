@@ -13,6 +13,7 @@ import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useTranslation } from '@/i18n';
 import { supabase } from '@/lib/supabase';
+import { useTeamPresence, presenceMap } from '@/hooks/useTeamPresence';
 import { toast } from 'sonner';
 import {
   Users, UserPlus, Shield, Loader2, Copy, Trash2,

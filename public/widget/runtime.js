@@ -2525,6 +2525,10 @@
     var posClass = uiPrefsStore.get().position;
     var brandName = config.brandName || '';
     var welcomeMessage = config.welcomeMessage || 'Hi there 👋\nHow can we help you today?';
+    // Workspace logo (set by admin under Branding) — surfaced in the panel
+    // header. Falls back to the first letter of the brand name when missing.
+    var brandLogoUrl = config.logoUrl || '';
+    var brandInitial = (brandName || 'S').trim().charAt(0).toUpperCase();
 
     var existingPanel = shadowRoot.querySelector ? shadowRoot.querySelector('.panel') : null;
     if (existingPanel && existingPanel.parentNode) existingPanel.parentNode.removeChild(existingPanel);
@@ -2532,9 +2536,19 @@
     var panel = document.createElement('div');
     panel.className = 'panel ' + posClass;
 
+    var brandBadgeHtml = brandLogoUrl
+      ? '<span class="header-brand-badge has-logo">' +
+          '<img src="' + Util.escapeHtml(brandLogoUrl) + '" alt="' + Util.escapeHtml(brandName || 'Support') + '" loading="lazy" decoding="async" />' +
+        '</span>'
+      : '<span class="header-brand-badge">' + Util.escapeHtml(brandInitial) + '</span>';
     var headerHtml = '<div class="header">' +
-      '<div class="header-title">' + Util.escapeHtml(brandName || 'Support') + '</div>' +
-      '<div class="header-subtitle">' + Util.escapeHtml(welcomeMessage).replace(/\n/g, '<br>') + '</div>' +
+      '<div class="header-brand">' +
+        brandBadgeHtml +
+        '<div class="header-brand-text">' +
+          '<div class="header-title">' + Util.escapeHtml(brandName || 'Support') + '</div>' +
+          '<div class="header-subtitle">' + Util.escapeHtml(welcomeMessage).replace(/\n/g, '<br>') + '</div>' +
+        '</div>' +
+      '</div>' +
       '<div class="presence" data-presence aria-live="polite">' +
         '<span class="presence-dot" data-presence-dot></span>' +
         '<span class="presence-label" data-presence-label></span>' +

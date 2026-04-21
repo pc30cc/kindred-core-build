@@ -44,6 +44,36 @@ export function AppSidebar() {
 
   const brandLetter = useMemo(() => (platformName || 'A').charAt(0), [platformName]);
 
+  // Availability — used for the "invisible mode" quick toggle in the user menu
+  const queryClient = useQueryClient();
+  const { data: availability } = useQuery({
+    queryKey: ['availability', 'me'],
+    queryFn: fetchAvailability,
+    enabled: !!user,
+    staleTime: 30_000,
+  });
+  const invisible = !!availability?.prefs?.force_offline;
+  const toggleInvisible = useMutation({
+    mutationFn: () => updateAvailability({ force_offline: !invisible }),
+    onSuccess: (res) => {
+      queryClient.setQueryData(['availability', 'me'], res);
+      queryClient.invalidateQueries({ queryKey: ['team-presence'] });
+      toast({
+        title: res.prefs.force_offline ? 'Invisible mode enabled' : 'Invisible mode disabled',
+        description: res.prefs.force_offline
+          ? 'You now appear offline to visitors.'
+          : 'You are visible based on your availability schedule.',
+      });
+    },
+    onError: (err: any) => {
+      toast({
+        title: 'Failed to update status',
+        description: err?.message || 'Please try again.',
+        variant: 'destructive',
+      });
+    },
+  });
+
   // Close menus on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {

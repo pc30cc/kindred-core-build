@@ -468,9 +468,19 @@
     runtimeLoading = true;
 
     var assetBase = configData._assetBase;
-    var runtimeCss = configData.styleUrl || (assetBase ? assetBase + "/widget/runtime.css" : "");
-    var runtimeJs = configData.runtimeUrl || (assetBase ? assetBase + "/widget/runtime.js" : "");
-    if (!runtimeJs) {
+    // ─────────────────────────────────────────────────────────────
+    // Asset URL resolution — STRICT.
+    // We deliberately do NOT fall back to unhashed `/widget/runtime.css`
+    // / `/widget/runtime.js` if the backend config didn't provide
+    // hashed URLs. The unhashed files exist on the CDN (copied from
+    // `public/widget/`) and a year-long cache on them would pin an
+    // OLD widget version for the visitor — that was the "old style
+    // sometimes appears" bug. Better to fail loudly so a refresh
+    // recovers than to silently serve stale assets for a year.
+    // ─────────────────────────────────────────────────────────────
+    var runtimeCss = configData.styleUrl || "";
+    var runtimeJs = configData.runtimeUrl || "";
+    if (!runtimeJs || !runtimeCss) {
       warn("No runtime URL");
       runtimeLoading = false;
       showShellError("Chat resources unavailable.");

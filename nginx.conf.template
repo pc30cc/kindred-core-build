@@ -104,10 +104,40 @@ server {
     # Uses regex prefix so it wins over the SPA fallback `location /`.
     location ^~ /widget/ {
         root /usr/share/nginx/html;
-        expires 365d;
-        add_header Cache-Control "public, max-age=31536000, immutable" always;
-        add_header X-Widget-Asset "runtime" always;
         add_header Access-Control-Allow-Origin "*" always;
+
+        # ─────────────────────────────────────────────────────────────
+        # Cache policy split:
+        #   • Hashed assets  (e.g. runtime.4f424b04.css)  → immutable 1y
+        #   • Unhashed assets (e.g. runtime.css)           → no-store
+        #
+        # WHY: Both `public/widget/runtime.css` (unhashed, dev-only) and
+        # `dist/widget/runtime.HASH.css` (hashed, prod) end up under
+        # /usr/share/nginx/html/widget/. If we cache the UNHASHED file
+        # for a year, any request that ever falls back to it (because
+        # the backend manifest was stale or a host CDN cached a stale
+        # config) will pin the OLD widget styles for that user for a
+        # full year. That was the exact symptom: "sometimes the old
+        # style appears." We now refuse to long-cache unhashed runtime
+        # files — only the content-addressed ones get immutable.
+        # ─────────────────────────────────────────────────────────────
+        location ~* ^/widget/.*\.[a-f0-9]{8}\.(?:js|css)$ {
+            root /usr/share/nginx/html;
+            expires 365d;
+            add_header Cache-Control "public, max-age=31536000, immutable" always;
+            add_header X-Widget-Asset "runtime-hashed" always;
+            add_header Access-Control-Allow-Origin "*" always;
+            try_files $uri =404;
+        }
+
+        # Unhashed runtime/css/js fallbacks — never cache. If any client
+        # ever loads these by accident, we want them to re-validate next
+        # time so a fresh deploy converges.
+        expires -1;
+        add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+        add_header CDN-Cache-Control "no-store" always;
+        add_header Cloudflare-CDN-Cache-Control "no-store" always;
+        add_header X-Widget-Asset "runtime-unhashed" always;
         # Hard 404 — DO NOT fall back to index.html for /widget/* paths.
         try_files $uri =404;
     }

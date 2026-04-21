@@ -37,6 +37,7 @@ const settingsGroupsDef: SettingsGroup[] = [
     key: 'workspace', label: 'Workspace Settings', icon: Settings,
     items: [
       { key: 'general', label: 'Workspace Information', subPath: '/settings/general' },
+      { key: 'integrations', label: 'Setup & Integrations', subPath: '/settings/integrations' },
       { key: 'branding', label: 'Branding', subPath: '/settings/branding' },
       { key: 'domains', label: 'Domains', subPath: '/settings/domains' },
       { key: 'team', label: 'Team Members', subPath: '/team' },

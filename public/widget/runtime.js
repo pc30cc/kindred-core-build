@@ -1559,6 +1559,12 @@
         if (s.messages[lv].sender === 'visitor') { lastVisitorIdx = lv; break; }
       }
       var html = '<div class="messages">';
+      // Group consecutive operator messages so we only show the avatar on the
+      // last bubble of a streak (Intercom/Zendesk convention). Otherwise a
+      // long agent reply produces a wall of repeated avatars.
+      var groupKeys = s.messages.map(function (m) {
+        return m.sender === 'visitor' ? 'v' : ('op:' + (m.senderName || '') + '|' + (m.senderAvatar || ''));
+      });
       s.messages.forEach(function (m, idx) {
         var bg = m.sender === 'visitor' ? 'style="background:' + ctx.primaryColor + '"' : '';
         var cls = m.sender === 'visitor' ? 'visitor' : 'operator';
@@ -1582,7 +1588,29 @@
           statusHtml = '<div class="msg-status status-' + m.status + '">' + icon +
             '<span class="msg-status-label">' + Util.escapeHtml(label) + '</span></div>';
         }
+
+        // Avatar slot: only shown on the LAST bubble of an operator streak,
+        // so the visitor sees one face per message group. Visitor messages
+        // have no avatar slot (their bubbles are right-aligned).
+        var avatarHtml = '';
+        if (cls === 'operator') {
+          var isLastInStreak = idx === s.messages.length - 1 || groupKeys[idx + 1] !== groupKeys[idx];
+          if (isLastInStreak) {
+            if (m.senderAvatar) {
+              avatarHtml = '<span class="msg-avatar has-img">' +
+                '<img src="' + Util.escapeHtml(m.senderAvatar) + '" alt="' + Util.escapeHtml(m.senderName || 'Operator') + '" loading="lazy" decoding="async" />' +
+              '</span>';
+            } else {
+              var initial = ((m.senderName || ctx.config.brandName || 'S').trim().charAt(0) || 'S').toUpperCase();
+              avatarHtml = '<span class="msg-avatar" aria-hidden="true">' + Util.escapeHtml(initial) + '</span>';
+            }
+          } else {
+            avatarHtml = '<span class="msg-avatar msg-avatar-spacer" aria-hidden="true"></span>';
+          }
+        }
+
         html += '<div class="msg-row ' + cls + '">' +
+          avatarHtml +
           '<div class="msg ' + cls + extraCls + '" ' + bg + '>' +
             (hasText ? Util.escapeHtml(m.body) : '') + attHtml +
           '</div>' +

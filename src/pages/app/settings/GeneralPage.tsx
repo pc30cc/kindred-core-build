@@ -242,13 +242,12 @@ export default function SettingsGeneralPage() {
               {t('workspaceInfo.domain')} <span className="text-destructive">*</span>
             </Label>
             <Input
-              defaultValue={primaryDomain?.domain || ''}
-              placeholder="example.com"
+              key={`dom-${workspace.id}-${primaryDomain?.domain ?? ''}`}
+              value={primaryDomain?.domain || ''}
+              placeholder={primaryDomain?.domain || '—'}
               readOnly
               className="bg-muted/30 cursor-not-allowed"
-              title={t('workspaceInfo.domainReadOnlyHint')}
             />
-            <p className="text-[11px] text-muted-foreground">{t('workspaceInfo.domainReadOnlyHint')}</p>
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs font-medium text-foreground">

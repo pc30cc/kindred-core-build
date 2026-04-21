@@ -604,12 +604,12 @@ export default function TeamPage() {
 
 function StatCard({ icon: Icon, label, value }: { icon: any; label: string; value: number }) {
   return (
-    <div className="rounded-lg border bg-card p-4">
-      <div className="flex items-center gap-2 text-muted-foreground mb-1">
-        <Icon className="w-4 h-4" />
-        <span className="text-xs">{label}</span>
+    <div className="rounded-xl border border-border/60 bg-card/40 p-4 transition-colors hover:border-border">
+      <div className="flex items-center gap-2 text-muted-foreground mb-1.5">
+        <Icon className="w-3.5 h-3.5" />
+        <span className="text-[11px] font-medium uppercase tracking-wide">{label}</span>
       </div>
-      <div className="text-2xl font-bold">{value}</div>
+      <div className="text-2xl font-semibold text-foreground">{value}</div>
     </div>
   );
 }

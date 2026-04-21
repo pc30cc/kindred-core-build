@@ -121,7 +121,7 @@ server {
         # style appears." We now refuse to long-cache unhashed runtime
         # files — only the content-addressed ones get immutable.
         # ─────────────────────────────────────────────────────────────
-        location ~* ^/widget/.*\.[a-f0-9]{8}\.(?:js|css)$ {
+        location ~* "^/widget/.*\.[a-f0-9]{8}\.(?:js|css)$" {
             root /usr/share/nginx/html;
             expires 365d;
             add_header Cache-Control "public, max-age=31536000, immutable" always;

@@ -397,6 +397,14 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
 
   const supabase = getServiceClient(config);
 
+  // /config drives runtime URLs (with hashed asset names). MUST never be
+  // cached at the edge — a stale config returns dead asset URLs after
+  // a deploy and the launcher silently fails.
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('CDN-Cache-Control', 'no-store');
+  res.set('Cloudflare-CDN-Cache-Control', 'no-store');
+
   try {
     const [
       { data: widget, error },

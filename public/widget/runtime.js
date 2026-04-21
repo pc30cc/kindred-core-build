@@ -882,6 +882,28 @@
       setConnectionState('idle');
     }
 
+    /**
+     * Force a clean reconnect cycle. Used after the page returns from a
+     * long background sleep (visibilitychange / pageshow) where the
+     * realtime socket may have died silently and the token may have been
+     * disabled by max-failure backoff. Idempotent — safe to call multiple
+     * times.
+     */
+    function reconnect() {
+      Util.log('[transport] forced reconnect');
+      try {
+        if (rtDriver && rtDriver.disconnect) rtDriver.disconnect();
+      } catch (_) {}
+      rtDriver = null;
+      stopPolling();
+      consecutiveFailures = 0;
+      lastSuccessAt = 0;
+      browserOnline = (typeof navigator === 'undefined') ? true : navigator.onLine !== false;
+      if (!browserOnline) { setConnectionState('offline'); return; }
+      setConnectionState('connecting');
+      resolveRealtimeAndStart();
+    }
+
     // ─── Typing — delegated to realtime driver if available, no-op otherwise.
     function sendTyping(payload) {
       if (rtDriver && rtDriver.sendTyping) rtDriver.sendTyping(payload);
@@ -890,6 +912,7 @@
     return {
       connect: connect,
       disconnect: disconnect,
+      reconnect: reconnect,
       subscribeConversation: subscribeConversation,
       unsubscribeConversation: unsubscribeConversation,
       sendMessage: sendMessage,
@@ -2457,6 +2480,64 @@
     // page (SPA route swap). Prevents orphaned refresh timers.
     if (typeof window !== 'undefined' && window.addEventListener) {
       window.addEventListener('pagehide', function () { try { tokenMgr.destroy(); } catch (_) {} }, { once: true });
+    }
+
+    // ─── Visibility / wake-up recovery ───────────────────────────────
+    // When the user returns to a tab that was backgrounded for a long
+    // time, the realtime socket has often been killed by the browser or
+    // the OS, and the proactive token refresh may have hit its failure
+    // ceiling and disabled itself. Without an explicit recovery hook
+    // the widget would sit on "Connecting…" until full reload.
+    //
+    // On every visibility/pageshow transition back to foreground we:
+    //   1) revive the token manager (resets failure counter, kicks a
+    //      fresh /session/refresh round-trip — the HttpOnly `dvsid`
+    //      cookie is still valid as long as the user has any session),
+    //   2) ask the transport to reconnect from scratch — which will
+    //      re-resolve the realtime vendor and re-open the socket with
+    //      a fresh token.
+    if (typeof document !== 'undefined' && document.addEventListener) {
+      var __wakeInflight = false;
+      var triggerWake = function (reason) {
+        if (__wakeInflight) return;
+        __wakeInflight = true;
+        try {
+          if (tokenMgr && tokenMgr.isDisabled && tokenMgr.isDisabled()) {
+            try { tokenMgr.revive(); } catch (_) {}
+          } else if (tokenMgr && tokenMgr.refresh) {
+            // Even when not disabled, the token may be near expiry after a
+            // long sleep. Fire-and-forget refresh; failure is handled
+            // internally by the manager.
+            try { tokenMgr.refresh().catch(function () {}); } catch (_) {}
+          }
+          if (ctx && ctx.transport && typeof ctx.transport.reconnect === 'function') {
+            ctx.transport.reconnect();
+          }
+          Util.log('[wake] recovery triggered (' + reason + ')');
+        } finally {
+          // Debounce: ignore duplicate wake events for ~2s.
+          setTimeout(function () { __wakeInflight = false; }, 2000);
+        }
+      };
+      document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'visible') triggerWake('visibilitychange');
+      });
+      if (typeof window !== 'undefined' && window.addEventListener) {
+        window.addEventListener('pageshow', function (e) {
+          // pageshow with persisted=true means restored from BFCache —
+          // a definitive signal that all sockets are dead.
+          triggerWake(e && e.persisted ? 'bfcache' : 'pageshow');
+        });
+        window.addEventListener('focus', function () {
+          // focus is a weaker signal; only act if we know we're offline.
+          try {
+            var s = transportStore && transportStore.get && transportStore.get();
+            if (s && (s.connectionState === 'offline' || s.connectionState === 'reconnecting')) {
+              triggerWake('focus');
+            }
+          } catch (_) {}
+        });
+      }
     }
 
     var t = function (key) { return I18n.t(ctx.locale, key); };

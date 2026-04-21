@@ -58,14 +58,28 @@ export async function getEnabledTemplateSlugs(supabase: SupabaseClient): Promise
 /**
  * Resolves the active template slug for a workspace.
  *
- * Currently always returns `default` because no workspace-level selection
- * exists yet — but the signature already accepts `workspaceId` so a
- * future migration can add `widget_settings.template_slug` without
- * touching call sites.
+ * Reads `widget_settings.template_slug` for the workspace and validates
+ * it against the registered templates. If the chosen template is missing
+ * or has been disabled by the platform admin, we silently fall back to
+ * `'default'` so the widget never lands in an unrenderable state.
  */
 export async function getActiveTemplateSlug(
-  _supabase: SupabaseClient,
-  _workspaceId?: string | null,
+  supabase: SupabaseClient,
+  workspaceId?: string | null,
 ): Promise<string> {
-  return DEFAULT_TEMPLATE_SLUG;
+  if (!workspaceId) return DEFAULT_TEMPLATE_SLUG;
+  const { data: ws } = await supabase
+    .from('widget_settings')
+    .select('template_slug')
+    .eq('workspace_id', workspaceId)
+    .maybeSingle();
+  const slug = (ws as any)?.template_slug || DEFAULT_TEMPLATE_SLUG;
+  if (slug === DEFAULT_TEMPLATE_SLUG) return DEFAULT_TEMPLATE_SLUG;
+  const { data: tpl } = await supabase
+    .from('widget_templates')
+    .select('slug, enabled')
+    .eq('slug', slug)
+    .maybeSingle();
+  if (!tpl || !(tpl as any).enabled) return DEFAULT_TEMPLATE_SLUG;
+  return slug;
 }

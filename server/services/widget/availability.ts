@@ -25,6 +25,7 @@
 
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { anyOperatorOnline } from './operatorPresence.js';
 
 export type AvailabilityState = 'online' | 'offline';
 export type OfflineMode = 'hide_widget' | 'show_offline_message' | 'capture_message';
@@ -33,6 +34,7 @@ export type AvailabilityReason =
   | 'outside_hours'
   | 'override_closed'
   | 'always_offline'
+  | 'no_operators_online'
   | 'disabled';
 
 export interface AvailabilitySnapshot {
@@ -285,6 +287,34 @@ export async function resolveAvailability(
   const within = isWithin(intervals, parts.h, parts.min);
 
   if (within) {
+    // Within business hours — but if every operator is force-offline or
+    // outside their own personal schedule, flip the widget to offline so
+    // visitors aren't promised "we're online" when nobody can reply.
+    // Failing-open (treat as online) when the workspace literally has
+    // zero members keeps brand-new workspaces usable.
+    try {
+      const { anyOnline, memberCount } = await anyOperatorOnline(
+        config,
+        workspaceId,
+        now,
+      );
+      if (memberCount > 0 && !anyOnline) {
+        return {
+          state: 'offline',
+          reason: 'no_operators_online',
+          next_open_at: null,
+          timezone: tz,
+          offline_mode: offlineMode,
+          labels,
+          offline_message: offlineMessage,
+        };
+      }
+    } catch (err: any) {
+      // Never block the bootstrap on presence lookup failure — fall
+      // through to the within_hours online state.
+      console.warn('[availability] operator presence lookup failed:', err?.message);
+    }
+
     return {
       state: 'online',
       reason: 'within_hours',

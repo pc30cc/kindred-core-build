@@ -38,6 +38,7 @@ import {
   Copy, Check, ExternalLink, HelpCircle, Code2, ArrowRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { BrandIcon } from '@/components/integrations/BrandIcon';
 
 /* ---------- Channel catalog ----------------------------------------- */
 
@@ -53,8 +54,6 @@ interface CmsGuide {
 interface Channel {
   id: string;
   name: string;
-  /** Inline SVG markup or single emoji used as a fallback brand mark. */
-  brandMark: React.ReactNode;
   status: ChannelStatus;
   /** When 'available' + cms is set, opens an install dialog with that guide. */
   cms?: CmsGuide;
@@ -69,19 +68,6 @@ interface ChannelGroup {
   channels: Channel[];
   /** Two- or three-column grid. Defaults to three. */
   columns?: 2 | 3;
-}
-
-/** Tiny helper so we don't pull a 200+ KB icon library for brand colors. */
-function BrandSquare({ bg, label }: { bg: string; label: string }) {
-  return (
-    <span
-      className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-sm font-bold text-white shadow-sm"
-      style={{ backgroundColor: bg }}
-      aria-hidden
-    >
-      {label}
-    </span>
-  );
 }
 
 /* ---------- Page ---------------------------------------------------- */
@@ -130,7 +116,6 @@ export default function SettingsIntegrationsPage() {
       channels: [
         {
           id: 'html', name: 'HTML', status: 'available',
-          brandMark: <BrandSquare bg="#0EA5E9" label="</>" />,
           cms: {
             steps: [
               t('integrationsPage.html.step1'),
@@ -141,7 +126,6 @@ export default function SettingsIntegrationsPage() {
         },
         {
           id: 'wordpress', name: 'WordPress', status: 'available',
-          brandMark: <BrandSquare bg="#21759B" label="W" />,
           cms: {
             steps: [
               t('integrationsPage.wordpress.step1'),
@@ -154,7 +138,6 @@ export default function SettingsIntegrationsPage() {
         },
         {
           id: 'shopify', name: 'Shopify', status: 'available',
-          brandMark: <BrandSquare bg="#95BF47" label="S" />,
           cms: {
             steps: [
               t('integrationsPage.shopify.step1'),
@@ -167,7 +150,6 @@ export default function SettingsIntegrationsPage() {
         },
         {
           id: 'prestashop', name: 'Prestashop', status: 'available',
-          brandMark: <BrandSquare bg="#DF0067" label="P" />,
           cms: {
             steps: [
               t('integrationsPage.prestashop.step1'),
@@ -178,7 +160,6 @@ export default function SettingsIntegrationsPage() {
         },
         {
           id: 'woocommerce', name: 'WooCommerce', status: 'available',
-          brandMark: <BrandSquare bg="#7F54B3" label="W" />,
           cms: {
             steps: [
               t('integrationsPage.woocommerce.step1'),
@@ -191,7 +172,6 @@ export default function SettingsIntegrationsPage() {
         },
         {
           id: 'whmcs', name: 'WHMCS', status: 'available',
-          brandMark: <BrandSquare bg="#1F75BC" label="W" />,
           cms: {
             steps: [
               t('integrationsPage.whmcs.step1'),
@@ -203,7 +183,6 @@ export default function SettingsIntegrationsPage() {
         },
         {
           id: 'adobe', name: 'Adobe Commerce', status: 'soon',
-          brandMark: <BrandSquare bg="#EB1000" label="A" />,
           soonReason: t('integrationsPage.soon.cms'),
         },
       ],
@@ -213,9 +192,6 @@ export default function SettingsIntegrationsPage() {
       title: t('integrationsPage.groups.email'),
       description: t('integrationsPage.groups.emailDesc'),
       channels: [
-        { id: 'gmail', name: 'Gmail', status: 'soon', brandMark: <BrandSquare bg="#EA4335" label="G" />, soonReason: t('integrationsPage.soon.email') },
-        { id: 'outlook', name: 'Outlook', status: 'soon', brandMark: <BrandSquare bg="#0078D4" label="O" />, soonReason: t('integrationsPage.soon.email') },
-        { id: 'email', name: 'Email (IMAP)', status: 'soon', brandMark: <BrandSquare bg="#64748B" label="@" />, soonReason: t('integrationsPage.soon.email') },
       ],
     },
     {
@@ -223,12 +199,6 @@ export default function SettingsIntegrationsPage() {
       title: t('integrationsPage.groups.messaging'),
       description: t('integrationsPage.groups.messagingDesc'),
       channels: [
-        { id: 'instagram', name: 'Instagram', status: 'soon', brandMark: <BrandSquare bg="#E1306C" label="IG" />, soonReason: t('integrationsPage.soon.oauth') },
-        { id: 'messenger', name: 'Messenger', status: 'soon', brandMark: <BrandSquare bg="#0084FF" label="M" />, soonReason: t('integrationsPage.soon.oauth') },
-        { id: 'slack', name: 'Slack', status: 'soon', brandMark: <BrandSquare bg="#4A154B" label="S" />, soonReason: t('integrationsPage.soon.oauth') },
-        { id: 'telegram', name: 'Telegram', status: 'soon', brandMark: <BrandSquare bg="#229ED9" label="T" />, soonReason: t('integrationsPage.soon.oauth') },
-        { id: 'twitter', name: 'X (Twitter)', status: 'soon', brandMark: <BrandSquare bg="#000000" label="X" />, soonReason: t('integrationsPage.soon.oauth') },
-        { id: 'whatsapp', name: 'WhatsApp', status: 'soon', brandMark: <BrandSquare bg="#25D366" label="W" />, soonReason: t('integrationsPage.soon.oauth') },
       ],
     },
     {
@@ -236,9 +206,6 @@ export default function SettingsIntegrationsPage() {
       title: t('integrationsPage.groups.sdk'),
       description: t('integrationsPage.groups.sdkDesc'),
       channels: [
-        { id: 'ios', name: 'iOS SDK', status: 'soon', brandMark: <BrandSquare bg="#0F172A" label="" /> as any, soonReason: t('integrationsPage.soon.sdk') },
-        { id: 'android', name: 'Android SDK', status: 'soon', brandMark: <BrandSquare bg="#3DDC84" label="A" />, soonReason: t('integrationsPage.soon.sdk') },
-        { id: 'reactnative', name: 'React Native SDK', status: 'soon', brandMark: <BrandSquare bg="#61DAFB" label="R" />, soonReason: t('integrationsPage.soon.sdk') },
       ],
     },
   ];
@@ -332,7 +299,7 @@ export default function SettingsIntegrationsPage() {
             <>
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-3">
-                  {openChannel.brandMark}
+                  <BrandIcon id={openChannel.id} size={40} />
                   <span>
                     {t('integrationsPage.installOn')} {openChannel.name}
                   </span>
@@ -426,7 +393,7 @@ function ChannelCard({
           : 'hover:border-primary/40 hover:bg-accent/40 hover:shadow-sm',
       )}
     >
-      {channel.brandMark}
+      <BrandIcon id={channel.id} />
       <span className="flex-1 text-sm font-medium text-foreground">
         {channel.name}
       </span>

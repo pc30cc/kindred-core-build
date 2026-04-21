@@ -306,50 +306,51 @@ export default function TeamPage() {
   }
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">{t('team.title')}</h1>
-          <p className="text-sm text-muted-foreground">{t('team.subtitle')}</p>
+    <div className="space-y-10 animate-fade-in pb-12">
+      {/* Header — matches Settings pages */}
+      <header className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-semibold text-foreground">{t('team.title')}</h1>
+          <HelpCircle className="h-4 w-4 text-muted-foreground" />
         </div>
-        <span className="text-sm text-muted-foreground">
+        <span className="text-xs text-muted-foreground">
           {members.length} {t('team.totalMembers').toLowerCase()}
         </span>
-      </div>
+      </header>
 
-      {/* Section Tabs */}
-      <div className="flex items-center gap-2 p-1 rounded-xl bg-secondary/50 border border-border w-fit">
-        <button
-          onClick={() => setActiveSection('members')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-            activeSection === 'members' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
-          }`}
-        >
-          <Users className="w-4 h-4" />{t('team.tabMembers')}
-        </button>
-        <button
-          onClick={() => setActiveSection('invitations')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-            activeSection === 'invitations' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
-          }`}
-        >
-          <Mail className="w-4 h-4" />{t('team.tabInvitations')}
-          {activeInvites.length > 0 && (
-            <span className="ml-1 px-1.5 py-0.5 text-[10px] rounded-full bg-primary-foreground/20">
-              {activeInvites.length}
-            </span>
-          )}
-        </button>
-        <button
-          onClick={() => setActiveSection('roles')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-            activeSection === 'roles' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
-          }`}
-        >
-          <Shield className="w-4 h-4" />{t('team.tabRoles')}
-        </button>
-      </div>
+      {/* Section Tabs — quiet pill nav */}
+      <nav className="flex items-center gap-1 border-b border-border/60 -mt-4">
+        {[
+          { key: 'members',     icon: Users,  label: t('team.tabMembers'),     badge: 0 },
+          { key: 'invitations', icon: Mail,   label: t('team.tabInvitations'), badge: activeInvites.length },
+          { key: 'roles',       icon: Shield, label: t('team.tabRoles'),       badge: 0 },
+        ].map(tab => {
+          const active = activeSection === tab.key;
+          const Icon = tab.icon;
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setActiveSection(tab.key as any)}
+              className={`relative flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors ${
+                active
+                  ? 'text-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <Icon className="w-4 h-4" />
+              {tab.label}
+              {tab.badge > 0 && (
+                <span className="ml-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary/15 px-1 text-[10px] font-semibold text-primary">
+                  {tab.badge}
+                </span>
+              )}
+              {active && (
+                <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-primary" />
+              )}
+            </button>
+          );
+        })}
+      </nav>
 
       {/* ═══════════ Members Tab ═══════════ */}
       {activeSection === 'members' && (

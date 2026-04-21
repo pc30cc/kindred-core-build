@@ -21,8 +21,18 @@ import type {
   RealtimeNegotiation,
   RealtimeSubscription,
 } from '../types';
+import { rtDebug, rtWarn } from '../debug';
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) || '';
+
+/**
+ * How long before a token's `expires_at` we proactively refresh it.
+ * Centrifugo TTLs are typically 600s; 60s is a comfortable lead time.
+ */
+const TOKEN_REFRESH_LEAD_MS = 60_000;
+
+/** Backoff schedule (ms) for socket reconnect attempts. Capped at 30s. */
+const RECONNECT_DELAYS_MS = [500, 1_000, 2_000, 4_000, 8_000, 15_000, 30_000];
 
 interface SubscribeResponse {
   vendor: 'centrifugo' | 'polling_builtin';
@@ -38,6 +48,26 @@ async function authHeaders(): Promise<Record<string, string>> {
   return session?.access_token
     ? { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }
     : { 'Content-Type': 'application/json' };
+}
+
+/**
+ * Fetch a fresh connection negotiation. Used both for the initial open and
+ * for proactive token refresh / reconnect after expiry. Independent of the
+ * provider's cached negotiation so a long-lived tab never gets stuck on a
+ * stale token.
+ */
+async function negotiateConnect(workspaceId: string): Promise<RealtimeNegotiation | null> {
+  try {
+    const res = await fetch(`${API_BASE}/api/realtime/operator-connect`, {
+      method: 'POST',
+      headers: await authHeaders(),
+      body: JSON.stringify({ workspace_id: workspaceId }),
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as RealtimeNegotiation;
+  } catch {
+    return null;
+  }
 }
 
 async function operatorSubscribe(

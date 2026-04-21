@@ -367,9 +367,9 @@ export default function TeamPage() {
           </div>
 
           {/* Members List */}
-          <section className="rounded-xl border border-border/60 bg-card/40 overflow-hidden">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 px-5 py-4 border-b border-border/60">
-              <h3 className="text-sm font-semibold text-foreground">{t('team.membersList')}</h3>
+          <Card className="overflow-hidden border-border/60 shadow-sm">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-border/60 px-6 py-4">
+              <h2 className="text-base font-semibold text-foreground">{t('team.membersList')}</h2>
               <div className="relative w-full sm:w-64">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <Input
@@ -393,7 +393,7 @@ export default function TeamPage() {
                   const presence = presenceByUser.get(m.user_id);
                   const isOnline = presence?.state === 'online';
                   return (
-                    <div key={m.id} className="flex items-center gap-4 px-5 py-3.5 hover:bg-muted/50 transition-colors">
+                    <div key={m.id} className="flex items-center gap-4 px-6 py-4 hover:bg-muted/40 transition-colors">
                       <div className="relative shrink-0">
                         <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
                           <span className="text-sm font-semibold text-primary">
@@ -437,11 +437,11 @@ export default function TeamPage() {
                   );
                 })}
                 {filteredMembers.length === 0 && (
-                  <p className="text-center text-sm text-muted-foreground py-10">{t('team.noMembers')}</p>
+                  <p className="text-center text-sm text-muted-foreground py-12">{t('team.noMembers')}</p>
                 )}
               </div>
             )}
-          </section>
+          </Card>
         </>
       )}
 

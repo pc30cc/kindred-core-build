@@ -157,6 +157,11 @@
             setState('online');
             if (hooks.onReconnect) hooks.onReconnect();
           }
+          // Fire subscribe-ack so the runtime FSM can complete
+          // 'subscribing' → 'connected'. Mirrors centrifugo driver.
+          if (hooks.onSubscribed) {
+            try { hooks.onSubscribed({ channel: name }); } catch (_) {}
+          }
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
           log('[rt:supabase] channel ' + name + ' status=' + status);
           delete channels[name];

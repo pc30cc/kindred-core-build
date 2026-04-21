@@ -1035,6 +1035,23 @@
                   onTyping: function (e) { emit('typing', e); },
                   onPresence: function (e) { emit('presence', e); },
                   onReconnect: function () { emit('reconnect', {}); },
+                  // Subscribe-ack from the driver — proves the per-conversation
+                  // channel is live and the visitor is sendable. This is the
+                  // ONLY signal that completes 'subscribing' → 'connected'
+                  // after refresh. Without it the FSM would hang in
+                  // 'subscribing' (incoming pushes still work, but composer
+                  // stays disabled because BUSY[subscribing]=1).
+                  onSubscribed: function (e) {
+                    if (!fsm) return;
+                    var cur = fsm.get();
+                    var activeCid = fsm.getConversation();
+                    // Only complete if this ack is for the active conversation
+                    // (or the driver didn't tell us which one — be permissive).
+                    if (e && e.conversationId && activeCid && e.conversationId !== activeCid) return;
+                    if (cur === 'subscribing' || cur === 'reconnecting' || cur === 'waking' || cur === 'degraded') {
+                      fsm.transition('connected', 'driver:subscribed');
+                    }
+                  },
                   fallbackToPolling: fallback,
                 });
                 rtDriver.connect();

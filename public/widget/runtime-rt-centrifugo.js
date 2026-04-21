@@ -362,7 +362,16 @@
         var channel = tk.channel || fallbackChannel;
         if (subscribedChannels[channel]) return;
         command('subscribe', { channel: channel, token: tk.token }, { timeoutMs: 8000 })
-          .then(function () { subscribedChannels[channel] = true; })
+          .then(function () {
+            subscribedChannels[channel] = true;
+            // Fire the subscribe-ack hook so the runtime FSM can transition
+            // 'subscribing' → 'connected'. Without this signal the widget
+            // stays in 'subscribing' forever after refresh, leaving the
+            // composer non-sendable even though incoming pushes work.
+            if (hooks.onSubscribed) {
+              try { hooks.onSubscribed({ channel: channel, conversationId: cid }); } catch (_) {}
+            }
+          })
           .catch(function (err) { log('[rt:centrifugo] subscribe failed', channel, err); });
       });
     }

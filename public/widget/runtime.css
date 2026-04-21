@@ -333,6 +333,50 @@ textarea:focus-visible {
   border-bottom-right-radius: 5px;
 }
 
+/* ─── Per-message operator avatar (Intercom-style) ─── */
+/* The chat renderer wraps each message in `.msg-row`. For operator rows we
+   prepend a small avatar slot so visitors see WHO is replying. The avatar
+   is rendered only on the LAST bubble of an operator streak (the renderer
+   adds `.msg-avatar-spacer` for grouped follow-ups so vertical alignment
+   stays consistent). */
+.msg-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+.msg-row.operator { justify-content: flex-start; }
+.msg-row.visitor  { justify-content: flex-end; }
+.msg-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--gs-primary, #3B82F6) 18%, #E5E7EB);
+  color: var(--gs-primary, #3B82F6);
+  font-size: 12px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  align-self: flex-end;
+  margin-bottom: 2px;
+}
+.msg-avatar.has-img { background: #fff; }
+.msg-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.msg-avatar-spacer {
+  background: transparent;
+  box-shadow: none;
+}
+/* Bubble can fill more width once the avatar takes its 28px slot. */
+.msg-row.operator .msg { max-width: calc(80% - 36px); }
+
 /* Empty state */
 .empty {
   display: flex;

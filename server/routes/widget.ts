@@ -572,6 +572,46 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
 // ═══════════════════════════════════════════════
 // GET /poll — Poll for new messages
 // ═══════════════════════════════════════════════
+/**
+ * Resolve operator profile (full_name + avatar_url) for any agent/ai message.
+ * Single batched lookup keeps /poll and /history fast even on long threads.
+ * Visitor + system messages are passed through unchanged.
+ */
+async function enrichMessagesWithSender(supabase: any, messages: any[]): Promise<any[]> {
+  if (!messages || !messages.length) return messages || [];
+  const ids = Array.from(new Set(
+    messages
+      .filter((m) => m._sender_id && (m.role === 'agent' || m.sender_type === 'agent' || m.sender_type === 'ai'))
+      .map((m) => m._sender_id as string)
+  ));
+  let profileMap = new Map<string, { name: string | null; avatar: string | null }>();
+  if (ids.length) {
+    try {
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('id, full_name, avatar_url')
+        .in('id', ids);
+      (profiles || []).forEach((p: any) => {
+        profileMap.set(p.id, { name: p.full_name || null, avatar: p.avatar_url || null });
+      });
+    } catch (e: any) {
+      console.warn('[widget-sender-enrich] profile lookup failed:', e?.message || e);
+    }
+  }
+  return messages.map((m) => {
+    const { _sender_id, ...rest } = m;
+    if (m.role === 'agent' || m.sender_type === 'agent' || m.sender_type === 'ai') {
+      const profile = _sender_id ? profileMap.get(_sender_id) : null;
+      return {
+        ...rest,
+        sender_name: profile?.name || null,
+        sender_avatar: profile?.avatar || null,
+      };
+    }
+    return rest;
+  });
+}
+
 widgetRouter.get('/poll', widgetRateLimit('poll'), async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
   const workspaceId = resolveWorkspaceId(req, res, req.query.workspace_id as string);

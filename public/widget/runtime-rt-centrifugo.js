@@ -289,6 +289,15 @@
           })
           .catch(function (err) {
             log('[rt:centrifugo] connect rejected', err);
+            // If server rejected our token (code 109 / message contains
+            // "expired"/"token"), invalidate the local expiry so the next
+            // reconnect cycle ALWAYS fetches a fresh one.
+            var msg = (err && (err.message || err.reason)) || '';
+            var code = err && err.code;
+            if (code === 109 || /token|expired|unauthorized/i.test(String(msg))) {
+              connectTokenExpiresAt = 0;
+              connectToken = '';
+            }
             try { ws.close(); } catch (_) {}
           });
       };

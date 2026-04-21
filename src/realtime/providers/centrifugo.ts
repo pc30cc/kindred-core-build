@@ -428,7 +428,7 @@ export class CentrifugoClientProvider implements ClientRealtimeProvider {
     const wsUrl = this.negotiation.ws_url!;
     let conn = sharedConns.get(wsUrl);
     if (!conn || conn.closed) {
-      conn = buildConnection(this.negotiation);
+      conn = buildConnection(parsed.workspaceId, this.negotiation);
       sharedConns.set(wsUrl, conn);
     }
 
@@ -437,21 +437,31 @@ export class CentrifugoClientProvider implements ClientRealtimeProvider {
       await conn.ready;
     } catch (err: any) {
       handlers.onStatus?.('error', { reason: String(err?.message || err) });
-      throw err;
+      // Don't throw — let the auto-reconnect loop bring the socket back up
+      // and re-subscribe. Inform the caller via status; React Query polling
+      // continues to drive the UI in the meantime.
+      // Falling through would require returning a no-op subscription handle.
+      return { unsubscribe: () => { /* noop — never opened */ } };
     }
 
-    let sub: SubscribeResponse | null = null;
-    if (parsed.kind === 'conversation') {
-      sub = await operatorSubscribe(parsed.workspaceId, parsed.conversationId);
-    } else if (parsed.kind === 'inbox') {
-      sub = await operatorInboxSubscribe(parsed.workspaceId);
-    } else if (parsed.kind === 'visitors') {
-      sub = await operatorVisitorsSubscribe(parsed.workspaceId);
-    }
+    // Build a refresh closure so the reconnect loop can re-issue subscribe
+    // tokens transparently after socket rotation / token expiry.
+    const refresh = (): Promise<SubscribeResponse | null> => {
+      if (parsed.kind === 'conversation') return operatorSubscribe(parsed.workspaceId, parsed.conversationId);
+      if (parsed.kind === 'inbox') return operatorInboxSubscribe(parsed.workspaceId);
+      return operatorVisitorsSubscribe(parsed.workspaceId);
+    };
+    const sub = await refresh();
     if (!sub || sub.vendor !== 'centrifugo' || !sub.channel || !sub.token) {
       throw new Error('subscribe_token_unavailable');
     }
     await sendOnConn(conn, 'subscribe', { channel: sub.channel, token: sub.token });
+    conn.subTokens.set(sub.channel, {
+      channel: sub.channel,
+      token: sub.token,
+      expiresAt: (sub.expires_at || 0) * 1000 || Date.now() + 9 * 60_000,
+      refresh,
+    });
 
     if (!conn.subs.has(sub.channel)) conn.subs.set(sub.channel, new Set());
     conn.subs.get(sub.channel)!.add(handlers);
@@ -467,12 +477,16 @@ export class CentrifugoClientProvider implements ClientRealtimeProvider {
           set.delete(handlers);
           if (set.size === 0) {
             localConn.subs.delete(channelKey);
+            localConn.subTokens.delete(channelKey);
             // Best-effort unsubscribe; ignore errors (socket may already be closed).
             sendOnConn(localConn, 'unsubscribe', { channel: channelKey }).catch(() => {});
           }
         }
         // If no channels remain, close the shared socket to free resources.
         if (localConn.subs.size === 0 && !localConn.closed) {
+          localConn.disposed = true;
+          if (localConn.reconnectTimer) { clearTimeout(localConn.reconnectTimer); localConn.reconnectTimer = null; }
+          if (localConn.refreshTimer) { clearTimeout(localConn.refreshTimer); localConn.refreshTimer = null; }
           try {
             localConn.ws.close();
           } catch {

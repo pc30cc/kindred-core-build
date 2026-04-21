@@ -64,7 +64,14 @@ const settingsGroupsDef: SettingsGroup[] = [
   },
   {
     key: 'knowledgeBase', label: 'Knowledge Base', icon: BookOpen,
-    items: [{ key: 'translations', label: 'Translations', subPath: '/settings/translations' }],
+    items: [
+      { key: 'kb', label: 'Articles', subPath: '/settings/knowledge-base' },
+      { key: 'translations', label: 'Translations', subPath: '/settings/translations' },
+    ],
+  },
+  {
+    key: 'ai', label: 'AI', icon: Bot,
+    items: [{ key: 'ai', label: 'AI Settings', subPath: '/settings/ai' }],
   },
 ];
 

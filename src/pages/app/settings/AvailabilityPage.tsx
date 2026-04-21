@@ -231,6 +231,9 @@ export default function AvailabilityPage() {
       qc.setQueryData(['availability'], resp);
       setPrefs(resp.prefs);
       setSavingKey(null);
+      // Invalidate workspace-wide team presence so the dot in Team
+      // page / inbox flips immediately for the rest of the team too.
+      qc.invalidateQueries({ queryKey: ['team-presence'] });
     },
     onError: (err: Error) => {
       setSavingKey(null);

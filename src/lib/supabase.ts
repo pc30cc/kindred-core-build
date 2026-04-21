@@ -16,7 +16,9 @@
  * API surface is unchanged for every existing caller.
  */
 import { supabase as typedClient } from '@/integrations/supabase/client';
-import type { SupabaseClient } from '@supabase/supabase-js';
 
+// Re-export the singleton as `any` so legacy callers in this module's
+// consumers (which were written against an untyped client and use loose
+// row shapes) keep type-checking unchanged. Runtime identity is preserved.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const supabase = typedClient as unknown as SupabaseClient<any, 'public', any>;
+export const supabase: any = typedClient;

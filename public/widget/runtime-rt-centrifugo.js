@@ -222,9 +222,27 @@
       setState('reconnecting');
       reconnectTimer = setTimeout(function () {
         reconnectTimer = null;
-        // Refresh token if it's near/past expiry.
-        if (!connectToken || Date.now() > connectTokenExpiresAt - 5000) {
-          refreshConnectToken().then(openSocket);
+        // Decide whether we MUST re-negotiate before opening a new socket.
+        // We don't trust the local `connectTokenExpiresAt` alone — server
+        // clock skew or a previous server-side rejection of our token can
+        // leave us with a "locally fresh" but server-rejected token, which
+        // would loop forever. Force a refresh when:
+        //   1) we have no token, OR
+        //   2) the token is at/near expiry by our clock (60s lead), OR
+        //   3) we've already failed to (re)open the socket at least once
+        //      (reconnectAttempt > 1) — the previous failure was almost
+        //      certainly a token issue at the server.
+        var localExpired = !connectToken || Date.now() > (connectTokenExpiresAt - 60000);
+        var mustRefreshDueToFailure = reconnectAttempt > 1;
+        if (localExpired || mustRefreshDueToFailure) {
+          refreshConnectToken().then(function (ok) {
+            if (!ok) {
+              log('[rt:centrifugo] token refresh failed; will retry');
+              scheduleReconnect();
+              return;
+            }
+            openSocket();
+          });
         } else {
           openSocket();
         }

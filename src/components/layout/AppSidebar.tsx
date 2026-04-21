@@ -346,14 +346,27 @@ export function AppSidebar() {
               <Bell className="h-4 w-4 text-muted-foreground" />
               <span>{t('nav.viewAlerts') || 'View alerts'}</span>
             </button>
-            <button className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-foreground hover:bg-accent transition-colors">
-              <EyeOff className="h-4 w-4 text-muted-foreground" />
-              <span>{t('nav.invisibleMode') || 'Enable invisible mode'}</span>
+            <button
+              onClick={() => toggleInvisible.mutate()}
+              disabled={toggleInvisible.isPending || !availability}
+              className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-foreground hover:bg-accent transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              <EyeOff className={cn('h-4 w-4', invisible ? 'text-primary' : 'text-muted-foreground')} />
+              <span className="flex-1 text-start">
+                {invisible
+                  ? (t('nav.disableInvisibleMode') || 'Disable invisible mode')
+                  : (t('nav.invisibleMode') || 'Enable invisible mode')}
+              </span>
+              {invisible && <Check className="h-4 w-4 text-primary shrink-0" />}
             </button>
-            <button className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-foreground hover:bg-accent transition-colors">
+            <RouterLink
+              to={wsPath('/settings/availability')}
+              onClick={() => setUserMenuOpen(false)}
+              className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-foreground hover:bg-accent transition-colors"
+            >
               <Clock className="h-4 w-4 text-muted-foreground" />
               <span>{t('nav.availability') || 'Availability settings'}</span>
-            </button>
+            </RouterLink>
 
             <div className="border-t border-border my-1" />
 

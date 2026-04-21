@@ -407,7 +407,7 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
         .eq('workspace_id', workspaceId).maybeSingle(),
       // Single source of truth for widget URLs — never read platform_domains/branding for these.
       supabase.from('widget_platform_settings')
-        .select('widget_loader_base_url, widget_asset_base_url, widget_public_base_url, widget_api_base_url')
+        .select('widget_loader_base_url, widget_asset_base_url, widget_public_base_url, widget_api_base_url, default_welcome_message')
         .limit(1).maybeSingle(),
       getWorkspaceOriginRules(config, workspaceId),
       loadPlatformPreChatPolicy(supabase),
@@ -477,7 +477,15 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       secondaryColor: ws.secondary_color || '#6366f1',
       logoUrl: ws.logo_url || branding?.logo_url || null,
       launcherText: ws.launcher_text || 'Chat with us',
-      welcomeMessage: ws.welcome_message || 'Hello! How can we help you?',
+      // Three-tier resolution: workspace override → platform default → hardcoded fallback.
+      // Stored in `widget_settings.welcome_message` (per-workspace) or
+      // `widget_platform_settings.default_welcome_message` (platform-wide).
+      welcomeMessage:
+        (typeof ws.welcome_message === 'string' && ws.welcome_message.trim().length > 0
+          ? ws.welcome_message
+          : null)
+        || platformWidget?.default_welcome_message
+        || 'Hello! How can we help you?',
       greetingMessage: ws.greeting_message || '',
       placeholderText: ws.placeholder_text || '',
       offlineMessage: ws.offline_message || '',

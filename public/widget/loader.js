@@ -408,6 +408,17 @@
 
   function attachLauncherClick(opts) {
     if (!launcherEl) return;
+    // Reveal even in launcher-only / error mode so the user sees SOMETHING
+    // instead of a permanently hidden widget. Use a neutral gray so we
+    // don't flash a wrong brand color.
+    if (launcherEl.classList.contains("pending")) {
+      var shellDiv = shadowRoot && shadowRoot.querySelector(".shell");
+      if (shellDiv && !shellDiv.style.getPropertyValue("--gs-primary")) {
+        shellDiv.style.setProperty("--gs-primary", "#6B7280"); // neutral
+      }
+      launcherEl.classList.remove("pending");
+      launcherEl.classList.add("revealed");
+    }
     launcherEl.addEventListener("click", function () {
       if (opts.errorMessage) { showShellError(opts.errorMessage); return; }
       if (opts.launcherOnly) { showShellError("Chat is not configured."); return; }

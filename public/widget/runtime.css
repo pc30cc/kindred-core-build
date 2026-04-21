@@ -108,7 +108,7 @@ textarea:focus-visible {
 
 /* ─── Header ─── */
 .header {
-  padding: 18px 20px 14px;
+  padding: 16px 18px 14px;
   color: #fff;
   position: relative;
   overflow: hidden;
@@ -124,63 +124,83 @@ textarea:focus-visible {
   );
 }
 .header > * { position: relative; z-index: 1; }
-.header-title { font-size: 18px; font-weight: 700; line-height: 1.3; }
-.header-subtitle { font-size: 13px; opacity: 0.88; margin-top: 4px; line-height: 1.45; }
+.header-title { font-size: 17px; font-weight: 700; line-height: 1.25; letter-spacing: -0.01em; }
+.header-subtitle { font-size: 13px; opacity: 0.85; margin-top: 3px; line-height: 1.4; }
 
 /* Brand row: workspace logo + title/subtitle column. Mirrors Intercom /
    Drift / Zendesk Messenger top-of-panel branding. */
 .header-brand {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
 }
 .header-brand-text { min-width: 0; flex: 1; }
-.header-brand-badge {
-  width: 40px;
-  height: 40px;
+
+/* Operator avatar stack — overlapping circles, Intercom/Crisp style. */
+.header-op-stack {
+  display: inline-flex;
+  flex-shrink: 0;
+  padding-right: 4px;
+}
+.header-op-avatar {
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.18);
+  background: color-mix(in srgb, var(--gs-primary, #3B82F6), #fff 30%);
   color: #fff;
-  font-weight: 700;
-  font-size: 16px;
+  font-weight: 600;
+  font-size: 14px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0;
   overflow: hidden;
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.22), 0 2px 6px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 0 0 2px var(--gs-primary, #3B82F6), 0 2px 6px rgba(0, 0, 0, 0.18);
+  margin-left: -10px;
+  position: relative;
+  transition: transform 0.15s ease;
 }
-.header-brand-badge.has-logo { background: #fff; }
-.header-brand-badge img {
+.header-op-stack .header-op-avatar:first-child { margin-left: 0; }
+.header-op-avatar:hover { transform: translateY(-1px); z-index: 2; }
+.header-op-avatar.has-img { background: #fff; }
+.header-op-avatar img {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
 }
 
+/* Visually hidden helper — keeps presence label available to assistive
+   tech without showing the text. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* ─── Presence indicator (Phase 5) ─── */
 .presence {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 8px;
+  gap: 0;
+  margin-top: 6px;
   font-size: 12px;
   line-height: 1;
   color: rgba(255, 255, 255, 0.92);
-  background: rgba(0, 0, 0, 0.18);
-  padding: 4px 10px;
-  border-radius: 999px;
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
-  max-width: 100%;
+  padding: 0;
 }
 .presence-dot {
-  width: 8px;
-  height: 8px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
   background: #9CA3AF;
   flex-shrink: 0;
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.18);
+  box-shadow: 0 0 0 2px var(--gs-primary, #3B82F6);
 }
 .presence-label {
   white-space: nowrap;

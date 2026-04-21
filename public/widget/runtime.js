@@ -2561,10 +2561,16 @@
     var posClass = uiPrefsStore.get().position;
     var brandName = config.brandName || '';
     var welcomeMessage = config.welcomeMessage || 'Hi there 👋\nHow can we help you today?';
-    // Workspace logo (set by admin under Branding) — surfaced in the panel
-    // header. Falls back to the first letter of the brand name when missing.
-    var brandLogoUrl = config.logoUrl || '';
-    var brandInitial = (brandName || 'S').trim().charAt(0).toUpperCase();
+    // Header title — show the workspace's "Launcher Text" (configurable per
+    // workspace under Widget settings). Falls back to brand name only if the
+    // workspace hasn't customized it.
+    var headerTitle = (config.launcherText && String(config.launcherText).trim())
+      || brandName
+      || 'Support';
+    // Operator team — surfaced in the header as a stacked avatar row, the
+    // way Intercom / Crisp / Drift do. Replaces the single workspace-logo
+    // badge that used to sit there.
+    var teamMembers = Array.isArray(config.teamMembers) ? config.teamMembers.slice(0, 4) : [];
 
     var existingPanel = shadowRoot.querySelector ? shadowRoot.querySelector('.panel') : null;
     if (existingPanel && existingPanel.parentNode) existingPanel.parentNode.removeChild(existingPanel);
@@ -2572,22 +2578,39 @@
     var panel = document.createElement('div');
     panel.className = 'panel ' + posClass;
 
-    var brandBadgeHtml = brandLogoUrl
-      ? '<span class="header-brand-badge has-logo">' +
-          '<img src="' + Util.escapeHtml(brandLogoUrl) + '" alt="' + Util.escapeHtml(brandName || 'Support') + '" loading="lazy" decoding="async" />' +
-        '</span>'
-      : '<span class="header-brand-badge">' + Util.escapeHtml(brandInitial) + '</span>';
+    // Operator avatar stack (max 4). Each operator becomes a small circular
+    // avatar overlapping the next one, falling back to their initial when no
+    // avatar_url is set. The whole stack is hidden when there are no team
+    // members configured.
+    var teamStackHtml = '';
+    if (teamMembers.length) {
+      var stackInner = teamMembers.map(function (op) {
+        var name = (op && op.name) ? String(op.name) : 'Operator';
+        var avatar = op && op.avatar ? String(op.avatar) : '';
+        if (avatar) {
+          return '<span class="header-op-avatar has-img" title="' + Util.escapeHtml(name) + '">' +
+            '<img src="' + Util.escapeHtml(avatar) + '" alt="' + Util.escapeHtml(name) + '" loading="lazy" decoding="async" />' +
+          '</span>';
+        }
+        var initial = (name.trim().charAt(0) || 'O').toUpperCase();
+        return '<span class="header-op-avatar" title="' + Util.escapeHtml(name) + '" aria-hidden="true">' +
+          Util.escapeHtml(initial) +
+        '</span>';
+      }).join('');
+      teamStackHtml = '<div class="header-op-stack" aria-label="Support team">' + stackInner + '</div>';
+    }
+
     var headerHtml = '<div class="header">' +
       '<div class="header-brand">' +
-        brandBadgeHtml +
+        teamStackHtml +
         '<div class="header-brand-text">' +
-          '<div class="header-title">' + Util.escapeHtml(brandName || 'Support') + '</div>' +
+          '<div class="header-title">' + Util.escapeHtml(headerTitle) + '</div>' +
           '<div class="header-subtitle">' + Util.escapeHtml(welcomeMessage).replace(/\n/g, '<br>') + '</div>' +
         '</div>' +
       '</div>' +
       '<div class="presence" data-presence aria-live="polite">' +
         '<span class="presence-dot" data-presence-dot></span>' +
-        '<span class="presence-label" data-presence-label></span>' +
+        '<span class="presence-label sr-only" data-presence-label></span>' +
       '</div>' +
       '</div>';
     var tabsHtml = '';

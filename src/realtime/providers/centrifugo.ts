@@ -522,6 +522,12 @@ async function resubscribeAll(conn: SharedConnection): Promise<void> {
       entry.token = '';
 
       const retryFresh = await entry.refresh();
+      if (isStale()) {
+        rtDebug('centrifugo', 'resubscribe loop aborted before token-retry — connection stale', {
+          channel,
+        });
+        return;
+      }
       if (!retryFresh?.token || !retryFresh.channel) {
         rtWarn('centrifugo', 'sub token forced refresh failed', { channel });
         continue;
@@ -535,6 +541,14 @@ async function resubscribeAll(conn: SharedConnection): Promise<void> {
         rtDebug('centrifugo', 're-subscribe succeeded after token refresh', { channel });
       } catch (retryErr) {
         const re: any = retryErr;
+        const reMsgEarly = String(re?.message || '');
+        if (/socket_closed|socket_not_open/i.test(reMsgEarly)) {
+          rtDebug('centrifugo', 'resubscribe retry aborted — socket died', {
+            channel,
+            message: reMsgEarly,
+          });
+          return;
+        }
         // Same idempotency rule on retry — server may have accepted the
         // first subscribe between the rejection and our retry.
         const reCode = Number(re?.code) || 0;

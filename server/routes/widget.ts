@@ -435,7 +435,7 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
     let teamMembers: Array<{ name: string; avatar: string | null; online: boolean }> = [];
     if (members?.length) {
       const { data: profiles } = await supabase
-        .from('profiles').select('full_name, avatar_url')
+        .from('profiles').select('id, full_name, avatar_url')
         .in('id', members.map((m: any) => m.user_id));
       // Resolve who's online right now using the operator presence service
       // so the widget can render a green status dot on each avatar.

@@ -13,6 +13,7 @@ import { aiRouter } from './routes/ai.js';
 import { storageRouter } from './routes/storage.js';
 import { cdnRouter } from './routes/cdn.js';
 import { accountRouter } from './routes/account.js';
+import { notificationsRouter } from './routes/notifications.js';
 import { billingRouter } from './routes/billing.js';
 import { plansRouter } from './routes/plans.js';
 import { adminRouter } from './routes/admin.js';

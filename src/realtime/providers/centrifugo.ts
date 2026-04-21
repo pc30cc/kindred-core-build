@@ -160,6 +160,15 @@ interface SharedConnection {
   refreshTimer: ReturnType<typeof setTimeout> | null;
   /** Set true when caller asked to permanently tear down. */
   disposed: boolean;
+  /**
+   * Monotonic generation counter — incremented every time a NEW socket is
+   * opened. Async tasks (notably `resubscribeAll`) capture the generation
+   * they started with and bail out the moment they detect the live
+   * generation has moved on. This prevents stale resubscribe loops from
+   * spamming `socket_closed` warnings against a connection that has
+   * already been replaced.
+   */
+  generation: number;
 }
 
 const sharedConns = new Map<string, SharedConnection>();
@@ -181,6 +190,7 @@ function buildConnection(workspaceId: string, negotiation: RealtimeNegotiation):
     refreshTimer: null,
     disposed: false,
     ready: Promise.resolve(),
+    generation: 0,
   };
   conn.ready = openSocket(conn);
   return conn;
@@ -194,6 +204,12 @@ function buildConnection(workspaceId: string, negotiation: RealtimeNegotiation):
  */
 function openSocket(conn: SharedConnection): Promise<void> {
   conn.closed = false;
+  // Bump the connection generation. Any in-flight async task bound to the
+  // PREVIOUS generation (e.g. a resubscribeAll loop that started against
+  // the old socket and was still running when onclose fired) will compare
+  // its captured generation against this new value and bail out instead
+  // of spamming `socket_closed` errors against the dead socket.
+  conn.generation += 1;
   conn.ws = new WebSocket(conn.wsUrl);
   attachSocketHandlers(conn);
   return new Promise<void>((resolve, reject) => {
@@ -407,13 +423,47 @@ function scheduleTokenRefresh(conn: SharedConnection): void {
  * dead token.
  */
 async function resubscribeAll(conn: SharedConnection): Promise<void> {
+  // Capture the generation we started with. If the socket dies and is
+  // replaced mid-loop, every subsequent iteration becomes a no-op and we
+  // exit quickly. The NEW socket's openSocket will run resubscribeAll
+  // again from scratch — that path is the single source of truth for
+  // recovery on a fresh connection.
+  const startGeneration = conn.generation;
+  const isStale = (): boolean => {
+    if (conn.disposed) return true;
+    if (conn.generation !== startGeneration) return true;
+    if (conn.closed) return true;
+    if (!conn.ws || conn.ws.readyState !== 1) return true;
+    return false;
+  };
+
   const channels = Array.from(conn.subTokens.keys());
   for (const channel of channels) {
+    // Hard guard before each network round-trip: if the socket died or
+    // got replaced, abandon the loop instead of marching through every
+    // remaining channel and emitting `socket_closed` per channel.
+    if (isStale()) {
+      rtDebug('centrifugo', 'resubscribe loop aborted — connection stale', {
+        startGeneration,
+        currentGeneration: conn.generation,
+        disposed: conn.disposed,
+        closed: conn.closed,
+        readyState: conn.ws?.readyState,
+        remaining: channels.length - channels.indexOf(channel),
+      });
+      return;
+    }
     const entry = conn.subTokens.get(channel);
     if (!entry) continue;
     let token = entry.token;
     if (!token || Date.now() >= entry.expiresAt - 30_000) {
       const fresh = await entry.refresh();
+      if (isStale()) {
+        rtDebug('centrifugo', 'resubscribe loop aborted post-refresh — connection stale', {
+          channel,
+        });
+        return;
+      }
       if (!fresh?.token || !fresh.channel) {
         rtWarn('centrifugo', 'sub token refresh failed', { channel });
         continue;
@@ -428,6 +478,18 @@ async function resubscribeAll(conn: SharedConnection): Promise<void> {
       const e: any = err;
       const code = Number(e?.code) || 0;
       const msg = String(e?.message || '');
+      // socket_closed / socket_not_open here means the underlying socket
+      // died DURING the resubscribe pass. Don't log per-channel — bail
+      // out of the loop. The reconnect path (onclose → scheduleReconnect)
+      // already owns recovery and will run resubscribeAll again on the
+      // next successful open.
+      if (/socket_closed|socket_not_open/i.test(msg)) {
+        rtDebug('centrifugo', 'resubscribe loop aborted — socket died mid-pass', {
+          channel,
+          message: msg,
+        });
+        return;
+      }
       // Already-subscribed is BENIGN. Centrifugo emits this when the same
       // channel is in our local subTokens map AND the server still has the
       // subscription from a previous open that didn't reach onclose on our
@@ -460,6 +522,12 @@ async function resubscribeAll(conn: SharedConnection): Promise<void> {
       entry.token = '';
 
       const retryFresh = await entry.refresh();
+      if (isStale()) {
+        rtDebug('centrifugo', 'resubscribe loop aborted before token-retry — connection stale', {
+          channel,
+        });
+        return;
+      }
       if (!retryFresh?.token || !retryFresh.channel) {
         rtWarn('centrifugo', 'sub token forced refresh failed', { channel });
         continue;
@@ -473,6 +541,14 @@ async function resubscribeAll(conn: SharedConnection): Promise<void> {
         rtDebug('centrifugo', 're-subscribe succeeded after token refresh', { channel });
       } catch (retryErr) {
         const re: any = retryErr;
+        const reMsgEarly = String(re?.message || '');
+        if (/socket_closed|socket_not_open/i.test(reMsgEarly)) {
+          rtDebug('centrifugo', 'resubscribe retry aborted — socket died', {
+            channel,
+            message: reMsgEarly,
+          });
+          return;
+        }
         // Same idempotency rule on retry — server may have accepted the
         // first subscribe between the rejection and our retry.
         const reCode = Number(re?.code) || 0;

@@ -364,16 +364,16 @@ export default function TeamPage() {
           </div>
 
           {/* Members List */}
-          <Card>
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 border-b border-border">
-              <h3 className="text-sm font-semibold">{t('team.membersList')}</h3>
+          <section className="rounded-xl border border-border/60 bg-card/40 overflow-hidden">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 px-5 py-4 border-b border-border/60">
+              <h3 className="text-sm font-semibold text-foreground">{t('team.membersList')}</h3>
               <div className="relative w-full sm:w-64">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <Input
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
                   placeholder={t('team.searchMember')}
-                  className="pl-9 text-xs"
+                  className="pl-9 h-9 text-xs"
                 />
               </div>
             </div>
@@ -383,7 +383,7 @@ export default function TeamPage() {
                 <Loader2 className="h-5 w-5 animate-spin text-primary" />
               </div>
             ) : (
-              <div className="divide-y divide-border">
+              <div className="divide-y divide-border/60">
                 {filteredMembers.map((m: any) => {
                   const isOwner = m.role === 'owner';
                   const isCurrentUser = m.user_id === user?.id;
@@ -434,11 +434,11 @@ export default function TeamPage() {
                   );
                 })}
                 {filteredMembers.length === 0 && (
-                  <p className="text-center text-muted-foreground py-8">{t('team.noMembers')}</p>
+                  <p className="text-center text-sm text-muted-foreground py-10">{t('team.noMembers')}</p>
                 )}
               </div>
             )}
-          </Card>
+          </section>
         </>
       )}
 

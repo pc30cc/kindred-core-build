@@ -3103,7 +3103,10 @@
 
     // ─── Boot sequence ───
     renderLoading();
-    if (inputBar && shellStore.get().activeTab !== 'chat') inputBar.style.display = 'none';
+    // Always hide the composer until identity resolves. Otherwise the
+    // visitor sees an empty chat with a usable composer for one frame
+    // before the pre-chat form takes over (flash of wrong UI).
+    if (inputBar) inputBar.style.display = 'none';
     applyComposerState();
 
     // 1) Identity → 2) Transport connect → 3) History (if supported)

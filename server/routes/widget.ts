@@ -1394,7 +1394,7 @@ widgetRouter.put('/action', widgetRateLimit('default'), async (req: Request, res
     }
 
     if (action === 'reopen_conversation' && conversation_id && workspaceId) {
-      const ownership = await verifyConversationOwnership(config, conversation_id, workspaceId, visitor_id, session_id);
+      const ownership = await verifyConversationOwnership(config, conversation_id, workspaceId, visitor_id, session_id, req);
       if (!ownership.valid) return res.json({ ok: false, not_found: true });
       const conv = ownership.conversation;
       if (['closed', 'resolved', 'pending'].includes(conv.status)) {

@@ -2334,6 +2334,10 @@ export type Database = {
           prechat_name_policy: string
           prechat_phone_policy: string
           rate_limit_messages_per_minute: number
+          realtime_stale_resubscribe_guard_enabled: boolean
+          typing_rate_limit_enabled: boolean
+          typing_rate_limit_max_events: number
+          typing_rate_limit_window_ms: number
           updated_at: string
           updated_by: string | null
           widget_api_base_url: string | null
@@ -2360,6 +2364,10 @@ export type Database = {
           prechat_name_policy?: string
           prechat_phone_policy?: string
           rate_limit_messages_per_minute?: number
+          realtime_stale_resubscribe_guard_enabled?: boolean
+          typing_rate_limit_enabled?: boolean
+          typing_rate_limit_max_events?: number
+          typing_rate_limit_window_ms?: number
           updated_at?: string
           updated_by?: string | null
           widget_api_base_url?: string | null
@@ -2386,6 +2394,10 @@ export type Database = {
           prechat_name_policy?: string
           prechat_phone_policy?: string
           rate_limit_messages_per_minute?: number
+          realtime_stale_resubscribe_guard_enabled?: boolean
+          typing_rate_limit_enabled?: boolean
+          typing_rate_limit_max_events?: number
+          typing_rate_limit_window_ms?: number
           updated_at?: string
           updated_by?: string | null
           widget_api_base_url?: string | null

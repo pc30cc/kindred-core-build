@@ -60,6 +60,8 @@ import { recordConversationEvent } from '../services/conversationEvents.js';
 import { resolveAvailability, snapshotToWirePayload } from '../services/widget/availability.js';
 import { sendEmail } from '../services/email/index.js';
 import { enrichVisitorSessionGeo } from '../services/geo/index.js';
+import { checkTypingAllowed } from '../services/widget/typingRateLimit.js';
+import { loadWidgetPlatformRuntimeSettings } from '../services/widget/platformSettings.js';
 
 export const widgetRouter = Router();
 
@@ -1377,6 +1379,14 @@ widgetRouter.put('/action', widgetRateLimit('default'), async (req: Request, res
             `visitor=${visitor_id || 'none'} session=${session_id || 'none'}`,
         );
         return res.status(403).json({ error: 'Access denied', code: 'CONVERSATION_ACCESS_DENIED' });
+      }
+      // Phase 1.1 — server-side typing rate limit.
+      // Per-conversation sliding-window cap (default: 2 publishes / 2000ms).
+      // Overflow is silently dropped — we still return 200 ok so the widget
+      // never sees an error and never retries. Typing is best-effort.
+      const platform = await loadWidgetPlatformRuntimeSettings(config);
+      if (!checkTypingAllowed(conversation_id, platform.typing)) {
+        return res.json({ ok: true, published: false, reason: 'rate_limited' });
       }
       // Publish ephemeral typing event on the canonical conversation channel
       // (ws:<workspace_id>:conv:<cid>) using the active realtime publisher

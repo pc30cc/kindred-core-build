@@ -98,7 +98,26 @@ export function buildInboxChannelName(workspaceId: string): string {
 
 /** Validate that a channel name belongs to the given workspace. */
 export function channelBelongsToWorkspace(channel: string, workspaceId: string): boolean {
-  return channel.startsWith(`ws:${workspaceId}:`);
+  // Phase 1.2 — strict pattern match. Loose prefix matching is rejected:
+  // only the three sanctioned channel shapes are valid for a workspace.
+  //   ws:{workspaceId}:inbox
+  //   ws:{workspaceId}:visitors
+  //   ws:{workspaceId}:conv:{conversationId}        (conversationId is opaque
+  //     but constrained to safe URL chars — letters/digits/_-)
+  if (!channel || typeof channel !== 'string') return false;
+  if (!workspaceId || typeof workspaceId !== 'string') return false;
+  if (channel === `ws:${workspaceId}:inbox`) return true;
+  if (channel === `ws:${workspaceId}:visitors`) return true;
+  // Conversation channel — the conversation id segment must be non-empty
+  // and contain only safe characters (UUIDs and short opaque ids).
+  const convPrefix = `ws:${workspaceId}:conv:`;
+  if (channel.startsWith(convPrefix)) {
+    const convId = channel.slice(convPrefix.length);
+    if (!convId) return false;
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(convId)) return false;
+    return true;
+  }
+  return false;
 }
 
 /**

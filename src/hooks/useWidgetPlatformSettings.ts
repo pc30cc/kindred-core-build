@@ -30,6 +30,13 @@ export interface WidgetPlatformSettings {
   // Default operator welcome bubble shown when a visitor opens chat with
   // no prior messages. Workspaces can override via `widget_settings.welcome_message`.
   default_welcome_message: string;
+  // ── Phase 1 hardening ──────────────────────────────────────────────
+  // Flood / Abuse Protection — per-conversation server-side typing limiter.
+  typing_rate_limit_enabled: boolean;
+  typing_rate_limit_window_ms: number;
+  typing_rate_limit_max_events: number;
+  // Realtime / Transport — diagnostic flag for the resubscribe-loop guard.
+  realtime_stale_resubscribe_guard_enabled: boolean;
   created_at: string;
   updated_at: string;
   updated_by: string | null;

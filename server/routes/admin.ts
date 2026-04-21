@@ -9,6 +9,7 @@ import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { z } from 'zod';
 import { adminWidgetRouter } from './adminWidget.js';
+import { adminWidgetTemplatesRouter } from './adminWidgetTemplates.js';
 
 export const adminRouter = Router();
 
@@ -46,6 +47,9 @@ adminRouter.use(requireAdmin);
 
 // Widget diagnostics (server-side URL test for super admin)
 adminRouter.use('/widget', adminWidgetRouter);
+
+// Widget templates registry (super admin only)
+adminRouter.use('/widget/templates', adminWidgetTemplatesRouter);
 
 // ─── Send Password Reset Link ────────────────────────────────────
 const resetLinkSchema = z.object({

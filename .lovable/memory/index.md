@@ -13,3 +13,4 @@ Dashboard removed — do not re-add.
 - [Plan & Feature Gating](mem://features/plan-system) — Dynamic plans, backend enforcement, workspace subscriptions, admin CRUD
 - [Widget Platform Settings](mem://features/widget-platform-settings) — Super-admin global widget controls, three-tier policy (platform locks → workspace overrides → defaults)
 - [Visitor Identity](mem://features/visitor-identity) — HttpOnly signed cookie (dvsid), server-side merge, contact verification, continuity tokens — NO localStorage
+- [Realtime frozen baseline](mem://features/realtime-frozen) — Widget runtime + realtime providers are frozen; do not refactor without a reproducible bug. See docs/REALTIME_REGRESSION_CHECKLIST.md

@@ -2693,7 +2693,14 @@
   // Core — orchestrates everything inside the shadow root
   // ════════════════════════════════════════════════════════════════════
   __gs_runtime.init = function (config, shell) {
-    Util.debug = !!config.debugMode;
+    // Debug flag resolution (any one enables verbose `[Widget Runtime]` logs):
+    //   1) server-driven `config.debugMode` (admin → widget settings)
+    //   2) per-tab override: `localStorage.setItem('gs:debug','1')`
+    //   3) global override: `window.__gs_debug = true`
+    // All three are read-only signals — no token/PII is ever logged.
+    var lsDebug = false;
+    try { lsDebug = (typeof localStorage !== 'undefined') && localStorage.getItem('gs:debug') === '1'; } catch (_) {}
+    Util.debug = !!(config.debugMode || lsDebug || (typeof window !== 'undefined' && window.__gs_debug));
     Util.log('Runtime init (Shadow DOM, Phase 2)');
 
     var shadowRoot = (shell && shell.shadowRoot) || (shell && shell.shellEl && shell.shellEl.shadowRoot) || null;

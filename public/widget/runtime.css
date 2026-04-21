@@ -290,6 +290,18 @@ textarea:focus-visible {
 }
 .empty p { font-size: 13px; line-height: 1.5; }
 
+/* Welcome bubble — first operator message shown when chat history is empty.
+   Renders as a normal operator bubble but with a subtle entrance animation
+   so the visitor immediately notices the greeting. */
+.welcome-only { padding-top: 16px; }
+.welcome-bubble {
+  animation: welcomeFadeIn 320ms ease-out both;
+}
+@keyframes welcomeFadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 /* ─── Input bar ─── */
 .input-bar {
   display: flex;

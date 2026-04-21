@@ -151,11 +151,11 @@ export function AppSidebar() {
           onClick={() => setWsMenuOpen(!wsMenuOpen)}
           className="flex items-center gap-2.5 w-full rounded-lg px-2 py-2 hover:bg-sidebar-accent/50 transition-colors"
         >
-          <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center shrink-0 overflow-hidden">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center shrink-0 overflow-hidden ring-1 ring-primary/20 shadow-sm">
             {workspaceIconUrl ? (
               <img src={workspaceIconUrl} alt="" className="h-full w-full object-cover" />
             ) : (
-              <span className="text-sm font-bold text-primary-foreground">{companyLetter}</span>
+              <Building2 className="h-[18px] w-[18px] text-primary-foreground" strokeWidth={2.25} />
             )}
           </div>
           <div className="min-w-0 text-start flex-1">
@@ -180,8 +180,8 @@ export function AppSidebar() {
                     isCurrentWs ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-accent'
                   )}
                 >
-                  <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center shrink-0">
-                    <span className="text-xs font-bold text-primary-foreground">{ws.name.charAt(0).toUpperCase()}</span>
+                  <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center shrink-0 ring-1 ring-primary/20">
+                    <Building2 className="h-4 w-4 text-primary-foreground" strokeWidth={2.25} />
                   </div>
                   <div className="min-w-0 flex-1 text-start">
                     <p className="text-[13px] font-medium truncate">{ws.name}</p>

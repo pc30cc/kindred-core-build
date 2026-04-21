@@ -12,6 +12,7 @@ import { authEmailRouter } from './routes/auth-email.js';
 import { aiRouter } from './routes/ai.js';
 import { storageRouter } from './routes/storage.js';
 import { cdnRouter } from './routes/cdn.js';
+import { accountRouter } from './routes/account.js';
 import { billingRouter } from './routes/billing.js';
 import { plansRouter } from './routes/plans.js';
 import { adminRouter } from './routes/admin.js';
@@ -131,6 +132,9 @@ app.use('/api/storage', storageRouter);
 
 // CDN — auth required, purge and config
 app.use('/api/cdn', cdnRouter);
+
+// Account — self-service for the authenticated user (profile, avatar, password)
+app.use('/api/account', accountRouter);
 
 // Billing — checkout, webhooks, subscription management
 app.use('/api/billing', billingRouter);

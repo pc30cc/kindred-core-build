@@ -4,7 +4,8 @@
 # definition lives in Dockerfile.frontend — keep them in sync.
 
 # ── Frontend Build ──────────────────────────────────────────
-FROM node:20-alpine AS build
+# Pin Node — see Dockerfile.frontend for the rationale.
+FROM node:20.18-alpine AS build
 WORKDIR /app
 
 COPY package.json bun.lockb* package-lock.json* ./

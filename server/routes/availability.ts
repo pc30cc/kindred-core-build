@@ -18,6 +18,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
+import { listWorkspacePresence } from '../services/widget/operatorPresence.js';
 
 export const availabilityRouter = Router();
 
@@ -243,5 +244,33 @@ availabilityRouter.patch('/', async (req, res) => {
     return res.json({ prefs, status });
   } catch (err: any) {
     return res.status(500).json({ error: err?.message || 'Failed to update availability' });
+  }
+});
+
+// ── GET /api/availability/team/:workspaceId ───────────────────────
+// Live presence for every member of a workspace. Used by the inbox
+// assignee dropdown and Team page so operators can see who's around.
+// Auth: must be a member of the workspace (RLS enforced via membership
+// check below; we use service client for the actual computation).
+availabilityRouter.get('/team/:workspaceId', async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const user = (req as any).authUser;
+    const workspaceId = req.params.workspaceId;
+    if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
+
+    const sb = getServiceClient(config);
+    const { data: membership } = await sb
+      .from('workspace_members')
+      .select('user_id')
+      .eq('workspace_id', workspaceId)
+      .eq('user_id', user.id)
+      .maybeSingle();
+    if (!membership) return res.status(403).json({ error: 'Not a workspace member' });
+
+    const presence = await listWorkspacePresence(config, workspaceId);
+    return res.json({ presence, fetched_at: new Date().toISOString() });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || 'Failed to load team presence' });
   }
 });

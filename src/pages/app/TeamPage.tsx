@@ -13,6 +13,7 @@ import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useTranslation } from '@/i18n';
 import { supabase } from '@/lib/supabase';
+import { useTeamPresence, presenceMap } from '@/hooks/useTeamPresence';
 import { toast } from 'sonner';
 import {
   Users, UserPlus, Shield, Loader2, Copy, Trash2,
@@ -93,6 +94,10 @@ export default function TeamPage() {
   const [searchQuery, setSearchQuery] = useState('');
 
   const wsId = workspace?.id;
+
+  // Live operator presence (online/offline dot + label).
+  const { data: presenceData } = useTeamPresence(wsId);
+  const presenceByUser = presenceMap(presenceData?.presence);
 
   const getRoleLabel = (role: string) => {
     return (t as any)(`team.${role}`) || role;
@@ -381,12 +386,23 @@ export default function TeamPage() {
                 {filteredMembers.map((m: any) => {
                   const isOwner = m.role === 'owner';
                   const isCurrentUser = m.user_id === user?.id;
+                  const presence = presenceByUser.get(m.user_id);
+                  const isOnline = presence?.state === 'online';
                   return (
                     <div key={m.id} className="flex items-center gap-4 px-5 py-3.5 hover:bg-muted/50 transition-colors">
-                      <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                        <span className="text-sm font-semibold text-primary">
-                          {(m.profile?.full_name || m.profile?.email || '?').charAt(0).toUpperCase()}
-                        </span>
+                      <div className="relative shrink-0">
+                        <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                          <span className="text-sm font-semibold text-primary">
+                            {(m.profile?.full_name || m.profile?.email || '?').charAt(0).toUpperCase()}
+                          </span>
+                        </div>
+                        <span
+                          aria-hidden
+                          title={isOnline ? 'Online' : 'Offline'}
+                          className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full ring-2 ring-background ${
+                            isOnline ? 'bg-emerald-500' : 'bg-muted-foreground/40'
+                          }`}
+                        />
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
@@ -394,7 +410,12 @@ export default function TeamPage() {
                           {isCurrentUser && <Badge variant="outline" className="text-[9px] px-1.5 py-0">{t('team.you')}</Badge>}
                           {isOwner && <Crown className="w-3.5 h-3.5 text-amber-400" />}
                         </div>
-                        <p className="text-xs text-muted-foreground truncate">{m.profile?.email}</p>
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-xs text-muted-foreground truncate">{m.profile?.email}</p>
+                          <span className={`text-[10px] font-medium ${isOnline ? 'text-emerald-500' : 'text-muted-foreground'}`}>
+                            • {isOnline ? 'Online' : 'Offline'}
+                          </span>
+                        </div>
                       </div>
                       <Badge className={`text-[10px] px-2 py-0.5 border ${roleColors[m.role] || roleColors.viewer}`}>
                         {getRoleLabel(m.role)}

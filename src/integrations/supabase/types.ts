@@ -2368,6 +2368,7 @@ export type Database = {
           show_logo: boolean | null
           store_raw_ip: boolean
           support_mode: string | null
+          template_slug: string
           theme: string | null
           updated_at: string | null
           visitor_tracking_enabled: boolean | null
@@ -2418,6 +2419,7 @@ export type Database = {
           show_logo?: boolean | null
           store_raw_ip?: boolean
           support_mode?: string | null
+          template_slug?: string
           theme?: string | null
           updated_at?: string | null
           visitor_tracking_enabled?: boolean | null
@@ -2468,6 +2470,7 @@ export type Database = {
           show_logo?: boolean | null
           store_raw_ip?: boolean
           support_mode?: string | null
+          template_slug?: string
           theme?: string | null
           updated_at?: string | null
           visitor_tracking_enabled?: boolean | null

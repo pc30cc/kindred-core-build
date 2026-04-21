@@ -611,6 +611,10 @@
           apiBase: ctx.apiBase,
           workspaceId: ctx.workspaceId,
           sessionToken: ctx.sessionToken,
+          // Token-aware fetch: proactive refresh + single 401/403 retry.
+          // Modules call fetchWith() so an expired token mid-poll never
+          // surfaces as a permanent failure to the user.
+          fetchWith: ctx.fetchWith,
           onResult: function (result) {
             historyLoaded = true;
             markPollSuccess();
@@ -631,6 +635,7 @@
           apiBase: ctx.apiBase,
           workspaceId: ctx.workspaceId,
           sessionToken: ctx.sessionToken,
+          fetchWith: ctx.fetchWith,
           conversationId: payload.conversationId,
           // Phase 6b — attachment id flows through to the message endpoint.
           attachmentId: payload.attachmentId || null,
@@ -698,6 +703,7 @@
           apiBase: ctx.apiBase,
           workspaceId: ctx.workspaceId,
           sessionToken: ctx.sessionToken,
+          fetchWith: ctx.fetchWith,
           interval: 4000,
           getConversationId: function () { return subscribedConversation; },
           onConversation: function (cid) {
@@ -708,6 +714,15 @@
             if (msgs && msgs.length) emit('message', { messages: msgs });
           },
           onTick: function (ok) { if (ok) markPollSuccess(); else markPollFailure(); },
+          // 403 from /poll on an unknown / foreign / closed conversation id
+          // — drop the local cid so the next tick re-resolves via cookie
+          // identity. Stops infinite 403 loops on a stale id.
+          onConversationDenied: function (deniedCid) {
+            if (subscribedConversation === deniedCid) {
+              subscribedConversation = null;
+              chatStore.set({ conversationId: null });
+            }
+          },
         });
       });
     }
@@ -740,10 +755,12 @@
     // ('polling_builtin', 'disabled') are handled inline.
     function resolveRealtimeAndStart() {
       var url = ctx.apiBase + '/api/realtime/connect';
-      fetch(url, {
+      // Use the token-aware wrapper — realtime resolve is one of the most
+      // expensive widget bootstraps and a stale token here would otherwise
+      // poison every downstream subscribe attempt.
+      ctx.fetchWith(url, {
         method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json', 'X-Widget-Token': ctx.sessionToken || '' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ workspace_id: ctx.workspaceId }),
       })
         .then(function (r) { return r.json(); })
@@ -897,12 +914,9 @@
         if (cb) cb(false);
         return;
       }
-      fetch(
+      ctx.fetchWith(
         ctx.apiBase + '/api/widget/identity/me?workspace_id=' + encodeURIComponent(ctx.workspaceId),
-        {
-          credentials: 'include',
-          headers: { 'X-Widget-Token': ctx.sessionToken || '' },
-        }
+        {}
       )
         .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
         .then(function (res) {
@@ -936,13 +950,9 @@
     }
 
     function submitPrechat(payload, cb) {
-      fetch(ctx.apiBase + '/api/widget/identity/prechat', {
+      ctx.fetchWith(ctx.apiBase + '/api/widget/identity/prechat', {
         method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Widget-Token': ctx.sessionToken || '',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           workspace_id: ctx.workspaceId,
           name: payload.name || null,

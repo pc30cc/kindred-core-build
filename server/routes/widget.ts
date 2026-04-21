@@ -572,6 +572,46 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
 // ═══════════════════════════════════════════════
 // GET /poll — Poll for new messages
 // ═══════════════════════════════════════════════
+/**
+ * Resolve operator profile (full_name + avatar_url) for any agent/ai message.
+ * Single batched lookup keeps /poll and /history fast even on long threads.
+ * Visitor + system messages are passed through unchanged.
+ */
+async function enrichMessagesWithSender(supabase: any, messages: any[]): Promise<any[]> {
+  if (!messages || !messages.length) return messages || [];
+  const ids = Array.from(new Set(
+    messages
+      .filter((m) => m._sender_id && (m.role === 'agent' || m.sender_type === 'agent' || m.sender_type === 'ai'))
+      .map((m) => m._sender_id as string)
+  ));
+  let profileMap = new Map<string, { name: string | null; avatar: string | null }>();
+  if (ids.length) {
+    try {
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('id, full_name, avatar_url')
+        .in('id', ids);
+      (profiles || []).forEach((p: any) => {
+        profileMap.set(p.id, { name: p.full_name || null, avatar: p.avatar_url || null });
+      });
+    } catch (e: any) {
+      console.warn('[widget-sender-enrich] profile lookup failed:', e?.message || e);
+    }
+  }
+  return messages.map((m) => {
+    const { _sender_id, ...rest } = m;
+    if (m.role === 'agent' || m.sender_type === 'agent' || m.sender_type === 'ai') {
+      const profile = _sender_id ? profileMap.get(_sender_id) : null;
+      return {
+        ...rest,
+        sender_name: profile?.name || null,
+        sender_avatar: profile?.avatar || null,
+      };
+    }
+    return rest;
+  });
+}
+
 widgetRouter.get('/poll', widgetRateLimit('poll'), async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
   const workspaceId = resolveWorkspaceId(req, res, req.query.workspace_id as string);
@@ -637,7 +677,7 @@ widgetRouter.get('/poll', widgetRateLimit('poll'), async (req: Request, res: Res
 
     const { data: msgs } = await supabase
       .from('conversation_messages')
-      .select('id, body, sender_type, created_at, metadata, seen_at')
+      .select('id, body, sender_type, sender_id, created_at, metadata, seen_at')
       .eq('conversation_id', activeConversationId)
       .order('created_at', { ascending: false })
       .limit(200);
@@ -650,6 +690,8 @@ widgetRouter.get('/poll', widgetRateLimit('poll'), async (req: Request, res: Res
       // Forward the raw enum so newer widget versions / analytics can
       // distinguish 'ai' from 'agent' without re-parsing metadata.
       sender_type: m.sender_type,
+      // Raw sender id is needed below to look up profile (avatar/name).
+      _sender_id: m.sender_id || null,
       text: m.body,
       time: m.created_at,
       metadata: m.metadata,
@@ -658,7 +700,8 @@ widgetRouter.get('/poll', widgetRateLimit('poll'), async (req: Request, res: Res
       seen_at: m.seen_at || null,
     }));
     // Phase 6b — attach public-safe attachment metadata (no provider URLs)
-    const messages = await enrichMessagesWithAttachments(config, workspaceId, baseMessages);
+    const enriched = await enrichMessagesWithAttachments(config, workspaceId, baseMessages);
+    const messages = await enrichMessagesWithSender(supabase, enriched);
 
     let operatorInfo = null;
     if (conv.assigned_to) {
@@ -705,7 +748,7 @@ widgetRouter.get('/history', widgetRateLimit('poll'), async (req: Request, res: 
   const supabase = getServiceClient(config);
   const { data: msgs } = await supabase
     .from('conversation_messages')
-    .select('id, body, sender_type, created_at, metadata, seen_at')
+    .select('id, body, sender_type, sender_id, created_at, metadata, seen_at')
     .eq('conversation_id', conversationId)
     .order('created_at', { ascending: false })
     .limit(200);
@@ -714,6 +757,7 @@ widgetRouter.get('/history', widgetRateLimit('poll'), async (req: Request, res: 
     id: m.id,
     role: m.sender_type === 'contact' ? 'visitor' : m.sender_type === 'system' ? 'system' : 'agent',
     sender_type: m.sender_type,
+    _sender_id: m.sender_id || null,
     text: m.body,
     time: m.created_at,
     metadata: m.metadata,
@@ -721,7 +765,8 @@ widgetRouter.get('/history', widgetRateLimit('poll'), async (req: Request, res: 
     seen_at: m.seen_at || null,
   }));
   // Phase 6b — attach public-safe attachment metadata (no provider URLs)
-  const messages = await enrichMessagesWithAttachments(config, workspaceId, baseMessages);
+  const enriched = await enrichMessagesWithAttachments(config, workspaceId, baseMessages);
+  const messages = await enrichMessagesWithSender(supabase, enriched);
 
   return res.json({ messages });
 });

@@ -1468,6 +1468,12 @@
           time: m.time ? new Date(m.time) : new Date(),
           __id: id,
           attachment: m.attachment || null,
+          // Operator identity surfaced by /poll and /history. Used by the
+          // chat renderer to draw a small avatar next to each agent bubble
+          // (Intercom-style). Null on visitor / system / AI messages with no
+          // resolvable profile.
+          senderName: m.sender_name || null,
+          senderAvatar: m.sender_avatar || null,
           // Phase 7 — lifecycle (visitor messages only have a meaningful status).
           status: sender === 'visitor' ? (seenAt ? 'seen' : 'sent') : null,
           seenAt: sender === 'visitor' ? seenAt : null,
@@ -1493,6 +1499,14 @@
       body.innerHTML =
         '<div class="messages welcome-only">' +
           '<div class="msg-row operator">' +
+            (function () {
+              var logo = ctx.config && ctx.config.logoUrl;
+              if (logo) {
+                return '<span class="msg-avatar has-img"><img src="' + Util.escapeHtml(logo) + '" alt="" loading="lazy" decoding="async" /></span>';
+              }
+              var initial = ((ctx.config && ctx.config.brandName ? ctx.config.brandName : 'S').trim().charAt(0) || 'S').toUpperCase();
+              return '<span class="msg-avatar" aria-hidden="true">' + Util.escapeHtml(initial) + '</span>';
+            })() +
             '<div class="msg operator welcome-bubble">' + lines + '</div>' +
           '</div>' +
         '</div>';
@@ -1553,6 +1567,12 @@
         if (s.messages[lv].sender === 'visitor') { lastVisitorIdx = lv; break; }
       }
       var html = '<div class="messages">';
+      // Group consecutive operator messages so we only show the avatar on the
+      // last bubble of a streak (Intercom/Zendesk convention). Otherwise a
+      // long agent reply produces a wall of repeated avatars.
+      var groupKeys = s.messages.map(function (m) {
+        return m.sender === 'visitor' ? 'v' : ('op:' + (m.senderName || '') + '|' + (m.senderAvatar || ''));
+      });
       s.messages.forEach(function (m, idx) {
         var bg = m.sender === 'visitor' ? 'style="background:' + ctx.primaryColor + '"' : '';
         var cls = m.sender === 'visitor' ? 'visitor' : 'operator';
@@ -1576,7 +1596,29 @@
           statusHtml = '<div class="msg-status status-' + m.status + '">' + icon +
             '<span class="msg-status-label">' + Util.escapeHtml(label) + '</span></div>';
         }
+
+        // Avatar slot: only shown on the LAST bubble of an operator streak,
+        // so the visitor sees one face per message group. Visitor messages
+        // have no avatar slot (their bubbles are right-aligned).
+        var avatarHtml = '';
+        if (cls === 'operator') {
+          var isLastInStreak = idx === s.messages.length - 1 || groupKeys[idx + 1] !== groupKeys[idx];
+          if (isLastInStreak) {
+            if (m.senderAvatar) {
+              avatarHtml = '<span class="msg-avatar has-img">' +
+                '<img src="' + Util.escapeHtml(m.senderAvatar) + '" alt="' + Util.escapeHtml(m.senderName || 'Operator') + '" loading="lazy" decoding="async" />' +
+              '</span>';
+            } else {
+              var initial = ((m.senderName || ctx.config.brandName || 'S').trim().charAt(0) || 'S').toUpperCase();
+              avatarHtml = '<span class="msg-avatar" aria-hidden="true">' + Util.escapeHtml(initial) + '</span>';
+            }
+          } else {
+            avatarHtml = '<span class="msg-avatar msg-avatar-spacer" aria-hidden="true"></span>';
+          }
+        }
+
         html += '<div class="msg-row ' + cls + '">' +
+          avatarHtml +
           '<div class="msg ' + cls + extraCls + '" ' + bg + '>' +
             (hasText ? Util.escapeHtml(m.body) : '') + attHtml +
           '</div>' +
@@ -2519,6 +2561,10 @@
     var posClass = uiPrefsStore.get().position;
     var brandName = config.brandName || '';
     var welcomeMessage = config.welcomeMessage || 'Hi there 👋\nHow can we help you today?';
+    // Workspace logo (set by admin under Branding) — surfaced in the panel
+    // header. Falls back to the first letter of the brand name when missing.
+    var brandLogoUrl = config.logoUrl || '';
+    var brandInitial = (brandName || 'S').trim().charAt(0).toUpperCase();
 
     var existingPanel = shadowRoot.querySelector ? shadowRoot.querySelector('.panel') : null;
     if (existingPanel && existingPanel.parentNode) existingPanel.parentNode.removeChild(existingPanel);
@@ -2526,9 +2572,19 @@
     var panel = document.createElement('div');
     panel.className = 'panel ' + posClass;
 
+    var brandBadgeHtml = brandLogoUrl
+      ? '<span class="header-brand-badge has-logo">' +
+          '<img src="' + Util.escapeHtml(brandLogoUrl) + '" alt="' + Util.escapeHtml(brandName || 'Support') + '" loading="lazy" decoding="async" />' +
+        '</span>'
+      : '<span class="header-brand-badge">' + Util.escapeHtml(brandInitial) + '</span>';
     var headerHtml = '<div class="header">' +
-      '<div class="header-title">' + Util.escapeHtml(brandName || 'Support') + '</div>' +
-      '<div class="header-subtitle">' + Util.escapeHtml(welcomeMessage).replace(/\n/g, '<br>') + '</div>' +
+      '<div class="header-brand">' +
+        brandBadgeHtml +
+        '<div class="header-brand-text">' +
+          '<div class="header-title">' + Util.escapeHtml(brandName || 'Support') + '</div>' +
+          '<div class="header-subtitle">' + Util.escapeHtml(welcomeMessage).replace(/\n/g, '<br>') + '</div>' +
+        '</div>' +
+      '</div>' +
       '<div class="presence" data-presence aria-live="polite">' +
         '<span class="presence-dot" data-presence-dot></span>' +
         '<span class="presence-label" data-presence-label></span>' +

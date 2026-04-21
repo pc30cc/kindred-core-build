@@ -58,6 +58,174 @@
   };
 
   // ════════════════════════════════════════════════════════════════════
+  // TokenManager — long-lived widget session resilience
+  //
+  // Strategy: proactive refresh ~60s before expiry + reactive single-retry
+  // when a request fails with 401/403/TOKEN_EXPIRED. Bounded retries; no
+  // infinite loops. Refresh failures degrade gracefully and pause the
+  // refresh timer until the next page load or successful manual recovery.
+  //
+  // Security model is unchanged:
+  //   - we only call the existing /api/widget/session/refresh endpoint
+  //   - refresh requires the (possibly recently-expired) current token
+  //   - origin enforcement on the server side is untouched
+  // ════════════════════════════════════════════════════════════════════
+  function createTokenManager(initialToken, apiBase, opts) {
+    opts = opts || {};
+    var token = initialToken || '';
+    var refreshTimer = null;
+    var inflight = null;
+    var consecutiveFailures = 0;
+    var maxFailures = 3;
+    var disabled = false;
+    var listeners = [];
+
+    function get() { return token; }
+
+    function onChange(fn) { listeners.push(fn); return function () {
+      var i = listeners.indexOf(fn); if (i !== -1) listeners.splice(i, 1);
+    }; }
+
+    function notify() {
+      for (var i = 0; i < listeners.length; i++) {
+        try { listeners[i](token); } catch (e) { Util.warn('token listener err', e); }
+      }
+    }
+
+    /**
+     * Decode the exp claim from an HMAC session token. We only read the
+     * payload — the server is the only authority on validity.
+     * Token format: wss_<base64url(payload)>.<base64url(sig)>
+     */
+    function readExpiry(t) {
+      try {
+        if (!t || typeof t !== 'string' || t.indexOf('wss_') !== 0) return 0;
+        var raw = t.slice(4);
+        var dot = raw.lastIndexOf('.');
+        if (dot < 1) return 0;
+        var b64 = raw.slice(0, dot).replace(/-/g, '+').replace(/_/g, '/');
+        // pad
+        while (b64.length % 4) b64 += '=';
+        var json = JSON.parse(atob(b64));
+        return (json && typeof json.exp === 'number') ? json.exp * 1000 : 0;
+      } catch (_) { return 0; }
+    }
+
+    function scheduleProactiveRefresh() {
+      if (refreshTimer) { clearTimeout(refreshTimer); refreshTimer = null; }
+      if (disabled || !token || !apiBase) return;
+      var expMs = readExpiry(token);
+      if (!expMs) return; // unknown TTL — rely on reactive refresh only
+      // Refresh 60s before expiry; never less than 5s away.
+      var now = Date.now();
+      var refreshAt = expMs - 60_000;
+      var delay = Math.max(5_000, refreshAt - now);
+      refreshTimer = setTimeout(function () { refresh().catch(function () {}); }, delay);
+    }
+
+    /**
+     * Refresh the session token. Single-flight: concurrent calls await the
+     * same in-flight promise. Returns the new token (or rejects).
+     */
+    function refresh() {
+      if (disabled) return Promise.reject(new Error('token_refresh_disabled'));
+      if (inflight) return inflight;
+      if (!token || !apiBase) return Promise.reject(new Error('no_token_or_api'));
+      inflight = fetch(apiBase + '/api/widget/session/refresh', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', 'X-Widget-Token': token },
+      })
+        .then(function (r) {
+          if (r.status === 401 || r.status === 403) {
+            // Hard fail — token cannot be refreshed. Disable manager.
+            disabled = true;
+            throw new Error('refresh_unauthorized_' + r.status);
+          }
+          if (!r.ok) throw new Error('refresh_http_' + r.status);
+          return r.json();
+        })
+        .then(function (data) {
+          if (!data || !data.session_token) throw new Error('refresh_no_token');
+          token = data.session_token;
+          consecutiveFailures = 0;
+          Util.log('[token] refreshed');
+          notify();
+          scheduleProactiveRefresh();
+          return token;
+        })
+        .catch(function (err) {
+          consecutiveFailures += 1;
+          if (consecutiveFailures >= maxFailures) {
+            disabled = true;
+            Util.warn('[token] refresh disabled after', consecutiveFailures, 'failures');
+          } else {
+            // Back off and retry later for transient failures.
+            if (refreshTimer) clearTimeout(refreshTimer);
+            refreshTimer = setTimeout(function () { refresh().catch(function () {}); },
+              Math.min(60_000, 5_000 * Math.pow(2, consecutiveFailures - 1)));
+          }
+          throw err;
+        })
+        .then(function (t) { inflight = null; return t; }, function (e) { inflight = null; throw e; });
+      return inflight;
+    }
+
+    /**
+     * Fetch wrapper that injects the current token and retries ONCE on
+     * 401/403/TOKEN_EXPIRED with a freshly refreshed token. Caps loops.
+     */
+    function fetchWith(url, init) {
+      init = init || {};
+      function doFetch(t) {
+        var headers = {};
+        var src = init.headers || {};
+        // Copy headers without mutating caller-owned object.
+        if (src.forEach) src.forEach(function (v, k) { headers[k] = v; });
+        else for (var k in src) if (Object.prototype.hasOwnProperty.call(src, k)) headers[k] = src[k];
+        if (t) headers['X-Widget-Token'] = t;
+        var next = {};
+        for (var k2 in init) if (Object.prototype.hasOwnProperty.call(init, k2)) next[k2] = init[k2];
+        next.headers = headers;
+        if (next.credentials == null) next.credentials = 'include';
+        return fetch(url, next);
+      }
+      return doFetch(token).then(function (r) {
+        if ((r.status !== 401 && r.status !== 403) || disabled) return r;
+        // Try to detect token-related failure codes before refreshing.
+        // Some 403s (origin/workspace mismatch) cannot be recovered by refresh.
+        return r.clone().json().then(function (body) {
+          var code = body && body.code;
+          var refreshable = code === 'TOKEN_EXPIRED' || code === 'INVALID_TOKEN' || code === 'MISSING_TOKEN' || !code;
+          if (!refreshable) return r;
+          return refresh().then(function (newT) { return doFetch(newT); }, function () { return r; });
+        }, function () {
+          // Body wasn't JSON — best-effort retry once.
+          return refresh().then(function (newT) { return doFetch(newT); }, function () { return r; });
+        });
+      });
+    }
+
+    function destroy() {
+      if (refreshTimer) { clearTimeout(refreshTimer); refreshTimer = null; }
+      listeners.length = 0;
+      disabled = true;
+    }
+
+    // Kick off proactive timer immediately.
+    scheduleProactiveRefresh();
+
+    return {
+      get: get,
+      onChange: onChange,
+      refresh: refresh,
+      fetchWith: fetchWith,
+      destroy: destroy,
+      isDisabled: function () { return disabled; },
+    };
+  }
+
+  // ════════════════════════════════════════════════════════════════════
   // createStore — tiny domain store with pub/sub
   //   store.get()              → current state
   //   store.set(partial|fn)    → merge update + notify

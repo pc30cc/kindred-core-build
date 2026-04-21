@@ -566,10 +566,3 @@ function buildUnsubscribe(
   };
 }
 
-// Stub class declaration removed below (unused after rewrite).
-class _UnusedSentinel {}
-void _UnusedSentinel;
-
-// Re-add only the legacy unsubscribe block remnant elimination — none needed.
-// Original unsubscribe block was inlined above via buildUnsubscribe().
-

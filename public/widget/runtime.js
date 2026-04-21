@@ -312,7 +312,7 @@
       connected:         ['subscribing', 'reconnecting', 'degraded', 'offline', 'waking', 'auth_expired', 'idle'],
       degraded:          ['connecting', 'reconnecting', 'connected', 'offline', 'waking', 'auth_expired', 'idle'],
       reconnecting:      ['connecting', 'subscribing', 'connected', 'degraded', 'offline', 'waking', 'auth_expired', 'failed', 'idle'],
-      waking:            ['restoring_session', 'connecting', 'subscribing', 'connected', 'degraded', 'offline', 'auth_expired', 'failed', 'idle'],
+      waking:            ['restoring_session', 'connecting', 'reconnecting', 'subscribing', 'connected', 'degraded', 'offline', 'auth_expired', 'failed', 'idle'],
       offline:           ['waking', 'reconnecting', 'connecting', 'idle'],
       unavailable:       ['waking', 'connecting', 'reconnecting', 'connected', 'idle'],
       auth_expired:      ['waking', 'restoring_session', 'idle'],

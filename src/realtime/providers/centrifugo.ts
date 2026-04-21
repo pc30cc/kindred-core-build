@@ -160,6 +160,15 @@ interface SharedConnection {
   refreshTimer: ReturnType<typeof setTimeout> | null;
   /** Set true when caller asked to permanently tear down. */
   disposed: boolean;
+  /**
+   * Monotonic generation counter — incremented every time a NEW socket is
+   * opened. Async tasks (notably `resubscribeAll`) capture the generation
+   * they started with and bail out the moment they detect the live
+   * generation has moved on. This prevents stale resubscribe loops from
+   * spamming `socket_closed` warnings against a connection that has
+   * already been replaced.
+   */
+  generation: number;
 }
 
 const sharedConns = new Map<string, SharedConnection>();

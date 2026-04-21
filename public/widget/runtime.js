@@ -2569,10 +2569,16 @@
             t2.classList.toggle('active', t2.getAttribute('data-tab') === 'chat');
           });
         } catch (_) {}
+        // renderBody() is the single source of truth for composer visibility:
+        // it hides the input bar when pre-chat is required (unidentified
+        // visitor) or when the offline contact-fallback form owns the input.
+        // Do NOT force inputBar to flex here — that would let an unidentified
+        // visitor type before completing pre-chat.
         renderBody();
-        if (inputBar) inputBar.style.display = 'flex';
-        restoreDraftToInput();
-        if (msgInput) { try { msgInput.focus(); } catch (_) {} }
+        if (identityStore.get().loaded && !identity.needsPrechat()) {
+          restoreDraftToInput();
+          if (msgInput) { try { msgInput.focus(); } catch (_) {} }
+        }
       },
     });
     var notify = createNotify(ctx, transportStore, notifyStore, uiPrefsStore, shellStore, t);

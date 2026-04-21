@@ -1,0 +1,247 @@
+/**
+ * USER AVAILABILITY — per-operator presence schedule.
+ *
+ * Auth: Supabase access token (Bearer).
+ * Storage: row-per-(user, workspace) — workspace_id NULL = global default.
+ * Computes a live snapshot (online/offline/away) on every GET so the UI
+ * can show "You are currently seen as: …" without reimplementing logic.
+ *
+ * Design notes:
+ *   - This is the OPERATOR's own availability, not the workspace-wide
+ *     widget business hours (those live in `widget_settings.business_hours`
+ *     and are resolved by `server/services/widget/availability.ts`).
+ *   - We never block: missing row returns sensible defaults so the page
+ *     always renders.
+ */
+
+import { Router } from 'express';
+import { z } from 'zod';
+import type { ServerConfig } from '../config.js';
+import { getServiceClient } from '../supabase.js';
+
+export const availabilityRouter = Router();
+
+async function requireUser(req: any, res: any, next: any) {
+  const config: ServerConfig = req.serverConfig;
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Missing authorization' });
+  }
+  const token = authHeader.slice(7);
+  const sb = getServiceClient(config);
+  const { data, error } = await sb.auth.getUser(token);
+  if (error || !data?.user) return res.status(401).json({ error: 'Invalid token' });
+  req.authUser = data.user;
+  next();
+}
+
+availabilityRouter.use(requireUser);
+
+const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
+type DayKey = (typeof DAY_KEYS)[number];
+
+const DEFAULT_WEEKLY = {
+  mon: { enabled: true, intervals: [{ from: '09:00', to: '18:00' }] },
+  tue: { enabled: true, intervals: [{ from: '09:00', to: '18:00' }] },
+  wed: { enabled: true, intervals: [{ from: '09:00', to: '18:00' }] },
+  thu: { enabled: true, intervals: [{ from: '09:00', to: '18:00' }] },
+  fri: { enabled: true, intervals: [{ from: '09:00', to: '18:00' }] },
+  sat: { enabled: true, intervals: [] as Array<{ from: string; to: string }> },
+  sun: { enabled: false, intervals: [] as Array<{ from: string; to: string }> },
+};
+
+const DEFAULTS = {
+  force_offline: false,
+  available_when_using_app: true,
+  schedule_enabled: false,
+  timezone: 'UTC',
+  weekly_schedule: DEFAULT_WEEKLY,
+};
+
+function partsInTz(date: Date, tz: string) {
+  let parts: Intl.DateTimeFormatPart[];
+  try {
+    parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      weekday: 'short',
+    }).formatToParts(date);
+  } catch {
+    parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'UTC',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      weekday: 'short',
+    }).formatToParts(date);
+  }
+  const get = (t: string) => parts.find((p) => p.type === t)?.value || '';
+  const dowMap: Record<string, DayKey> = {
+    Sun: 'sun', Mon: 'mon', Tue: 'tue', Wed: 'wed', Thu: 'thu', Fri: 'fri', Sat: 'sat',
+  };
+  return {
+    h: Number(get('hour') === '24' ? '0' : get('hour')),
+    m: Number(get('minute')),
+    dow: dowMap[get('weekday') as string] ?? 'mon',
+  };
+}
+
+function isWithinIntervals(intervals: Array<{ from: string; to: string }>, h: number, m: number) {
+  const cur = h * 60 + m;
+  for (const it of intervals || []) {
+    const f = /^(\d{1,2}):(\d{2})$/.exec(it.from || '');
+    const t = /^(\d{1,2}):(\d{2})$/.exec(it.to || '');
+    if (!f || !t) continue;
+    const fm = Number(f[1]) * 60 + Number(f[2]);
+    const tm = Number(t[1]) * 60 + Number(t[2]);
+    if (fm <= cur && cur < tm) return true;
+  }
+  return false;
+}
+
+/**
+ * Live status from prefs. Returned as part of GET so the UI shows the
+ * "You are currently seen as: …" banner without duplicating logic.
+ *   - force_offline    => 'offline'
+ *   - schedule disabled, available_when_using_app => 'online'
+ *   - schedule enabled => check today's intervals
+ */
+function computeLiveStatus(prefs: typeof DEFAULTS): { state: 'online' | 'offline'; reason: string } {
+  if (prefs.force_offline) return { state: 'offline', reason: 'force_offline' };
+
+  if (!prefs.schedule_enabled) {
+    return prefs.available_when_using_app
+      ? { state: 'online', reason: 'available_when_using_app' }
+      : { state: 'offline', reason: 'unavailable_when_using_app' };
+  }
+
+  const tz = prefs.timezone || 'UTC';
+  const { h, m, dow } = partsInTz(new Date(), tz);
+  const day = (prefs.weekly_schedule as any)?.[dow];
+  if (!day || day.enabled === false) {
+    return { state: 'offline', reason: 'day_disabled' };
+  }
+  return isWithinIntervals(day.intervals || [], h, m)
+    ? { state: 'online', reason: 'within_schedule' }
+    : { state: 'offline', reason: 'outside_schedule' };
+}
+
+function mergeWithDefaults(row: any) {
+  const weekly = (row?.weekly_schedule && typeof row.weekly_schedule === 'object')
+    ? { ...DEFAULT_WEEKLY, ...row.weekly_schedule }
+    : DEFAULT_WEEKLY;
+  return {
+    force_offline: !!row?.force_offline,
+    available_when_using_app: row?.available_when_using_app ?? true,
+    schedule_enabled: !!row?.schedule_enabled,
+    timezone: typeof row?.timezone === 'string' && row.timezone ? row.timezone : 'UTC',
+    weekly_schedule: weekly,
+  };
+}
+
+// ── GET /api/availability ─────────────────────────────────────────
+availabilityRouter.get('/', async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const user = (req as any).authUser;
+    const sb = getServiceClient(config);
+
+    const { data, error } = await sb
+      .from('user_availability_prefs')
+      .select('*')
+      .eq('user_id', user.id)
+      .is('workspace_id', null)
+      .maybeSingle();
+
+    if (error) return res.status(500).json({ error: error.message });
+    const prefs = mergeWithDefaults(data);
+    const status = computeLiveStatus(prefs);
+    return res.json({ prefs, status });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || 'Failed to load availability' });
+  }
+});
+
+// ── PATCH /api/availability ───────────────────────────────────────
+const TIME_RE = /^([01]?\d|2[0-3]):[0-5]\d$/;
+
+const intervalSchema = z.object({
+  from: z.string().regex(TIME_RE),
+  to: z.string().regex(TIME_RE),
+});
+
+const daySchema = z.object({
+  enabled: z.boolean(),
+  intervals: z.array(intervalSchema).max(8),
+});
+
+const weeklySchema = z.object({
+  mon: daySchema, tue: daySchema, wed: daySchema, thu: daySchema,
+  fri: daySchema, sat: daySchema, sun: daySchema,
+}).partial();
+
+const updateSchema = z.object({
+  force_offline: z.boolean().optional(),
+  available_when_using_app: z.boolean().optional(),
+  schedule_enabled: z.boolean().optional(),
+  timezone: z.string().min(1).max(60).optional(),
+  weekly_schedule: weeklySchema.optional(),
+});
+
+availabilityRouter.patch('/', async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const user = (req as any).authUser;
+    const parsed = updateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: 'Invalid input',
+        details: parsed.error.flatten().fieldErrors,
+      });
+    }
+    const sb = getServiceClient(config);
+
+    const { data: existing } = await sb
+      .from('user_availability_prefs')
+      .select('*')
+      .eq('user_id', user.id)
+      .is('workspace_id', null)
+      .maybeSingle();
+
+    // Merge weekly_schedule patches with the current row so a partial
+    // PATCH (e.g. just toggling Tuesday) doesn't wipe other days.
+    const patch: Record<string, unknown> = { ...parsed.data };
+    if (parsed.data.weekly_schedule) {
+      const current = mergeWithDefaults(existing).weekly_schedule;
+      patch.weekly_schedule = { ...current, ...parsed.data.weekly_schedule };
+    }
+
+    let row;
+    if (existing?.id) {
+      const { data, error } = await sb
+        .from('user_availability_prefs')
+        .update(patch)
+        .eq('id', existing.id)
+        .select('*')
+        .maybeSingle();
+      if (error) return res.status(500).json({ error: error.message });
+      row = data;
+    } else {
+      const { data, error } = await sb
+        .from('user_availability_prefs')
+        .insert({ user_id: user.id, workspace_id: null, ...patch })
+        .select('*')
+        .maybeSingle();
+      if (error) return res.status(500).json({ error: error.message });
+      row = data;
+    }
+
+    const prefs = mergeWithDefaults(row);
+    const status = computeLiveStatus(prefs);
+    return res.json({ prefs, status });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || 'Failed to update availability' });
+  }
+});

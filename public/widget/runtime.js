@@ -791,8 +791,9 @@
       var s = identityStore.get();
       if (s.identityState === 'identified') return false;
       if (!s.prechat) return false;
-      if (!s.prechat.ask_name && !s.prechat.ask_email && !s.prechat.ask_phone) return false;
-      return !!(s.prechat.require_name || s.prechat.require_email || s.prechat.require_phone);
+      // Show pre-chat whenever any field is asked. Required fields gate
+      // submission inside the form; optional fields can be skipped.
+      return !!(s.prechat.ask_name || s.prechat.ask_email || s.prechat.ask_phone);
     }
 
     return {

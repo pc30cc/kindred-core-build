@@ -449,12 +449,13 @@ export default function TeamPage() {
       {activeSection === 'invitations' && (
         <>
           {/* Create Invitation */}
-          <section className="rounded-xl border border-border/60 bg-card/40 p-6 space-y-4">
-              <div className="flex items-center gap-2">
-                <UserPlus className="w-5 h-5 text-primary" />
-                <h3 className="text-sm font-semibold text-foreground">{t('team.inviteNew')}</h3>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <Card className="overflow-hidden border-border/60 shadow-sm">
+            <div className="border-b border-border/60 px-6 py-4 flex items-center gap-2">
+              <UserPlus className="w-4 h-4 text-primary" />
+              <h2 className="text-base font-semibold text-foreground">{t('team.inviteNew')}</h2>
+            </div>
+            <div className="p-6 space-y-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                 <div className="space-y-2">
                   <Label className="text-xs">{t('team.inviteEmail')}</Label>
                   <Input
@@ -517,15 +518,16 @@ export default function TeamPage() {
                   </Button>
                 </div>
               )}
-          </section>
+            </div>
+          </Card>
 
           {/* Active Invitations */}
-          <section className="rounded-xl border border-border/60 bg-card/40 overflow-hidden">
-            <div className="px-5 py-4 border-b border-border/60">
-              <h3 className="text-sm font-semibold text-foreground">{t('team.activeInvitations')}</h3>
+          <Card className="overflow-hidden border-border/60 shadow-sm">
+            <div className="border-b border-border/60 px-6 py-4">
+              <h2 className="text-base font-semibold text-foreground">{t('team.activeInvitations')}</h2>
             </div>
             {activeInvites.length === 0 ? (
-              <p className="text-center text-sm text-muted-foreground py-10">{t('team.noInvitations')}</p>
+              <p className="text-center text-sm text-muted-foreground py-12">{t('team.noInvitations')}</p>
             ) : (
               <div className="divide-y divide-border/60">
                 {activeInvites.map((inv: any) => (
@@ -543,13 +545,13 @@ export default function TeamPage() {
                 ))}
               </div>
             )}
-          </section>
+          </Card>
 
           {/* Expired / Revoked Invitations */}
           {inactiveInvites.length > 0 && (
-            <section className="rounded-xl border border-border/60 bg-card/40 overflow-hidden">
-              <div className="px-5 py-4 border-b border-border/60">
-                <h3 className="text-sm font-semibold text-foreground">{t('team.expiredInvitations')}</h3>
+            <Card className="overflow-hidden border-border/60 shadow-sm">
+              <div className="border-b border-border/60 px-6 py-4">
+                <h2 className="text-base font-semibold text-foreground">{t('team.expiredInvitations')}</h2>
               </div>
               <div className="divide-y divide-border/60">
                 {inactiveInvites.map((inv: any) => (
@@ -565,18 +567,21 @@ export default function TeamPage() {
                   />
                 ))}
               </div>
-            </section>
+            </Card>
           )}
         </>
       )}
 
       {/* ═══════════ Roles Tab ═══════════ */}
       {activeSection === 'roles' && (
-        <div className="space-y-5">
-          <p className="text-sm text-muted-foreground -mt-4">{t('team.rolesDesc')}</p>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card className="overflow-hidden border-border/60 shadow-sm">
+          <div className="border-b border-border/60 px-6 py-4">
+            <h2 className="text-base font-semibold text-foreground">{t('team.tabRoles')}</h2>
+            <p className="mt-1 text-sm text-muted-foreground">{t('team.rolesDesc')}</p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-6">
             {allRolesWithOwner.map(role => (
-              <div key={role} className="rounded-xl border border-border/60 bg-card/40 p-5 transition-colors hover:border-border">
+              <div key={role} className="rounded-lg border border-border/60 bg-background p-5 transition-colors hover:border-border">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
                       <Badge className={`text-xs px-2.5 py-1 border ${roleColors[role] || roleColors.viewer}`}>
@@ -598,7 +603,7 @@ export default function TeamPage() {
               </div>
             ))}
           </div>
-        </div>
+        </Card>
       )}
     </div>
   );

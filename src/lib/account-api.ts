@@ -157,3 +157,31 @@ export function fetchSecurityLoginHistory(limit = 25) {
     `/api/account/security/login-history?limit=${limit}`
   );
 }
+
+// ── Workspace icon ─────────────────────────────────────────────
+
+export async function uploadWorkspaceIcon(workspaceId: string, file: File) {
+  if (file.size > 5 * 1024 * 1024) {
+    throw new Error('Icon must be smaller than 5 MB');
+  }
+  const data = await fileToBase64(file);
+  return request<{ success: boolean; url: string; fileKey: string }>(
+    '/api/account/workspace-icon',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        workspaceId,
+        data,
+        contentType: file.type || 'image/png',
+        fileName: file.name,
+      }),
+    },
+  );
+}
+
+export function removeWorkspaceIcon(workspaceId: string) {
+  return request<{ success: boolean }>(
+    `/api/account/workspace-icon?workspaceId=${encodeURIComponent(workspaceId)}`,
+    { method: 'DELETE' },
+  );
+}

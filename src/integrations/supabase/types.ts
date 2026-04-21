@@ -2659,6 +2659,7 @@ export type Database = {
           accent_color: string | null
           asset_base_url: string | null
           canonical_base_url: string | null
+          contact_info: Json
           created_at: string | null
           favicon_url: string | null
           footer_text: string | null
@@ -2685,6 +2686,7 @@ export type Database = {
           accent_color?: string | null
           asset_base_url?: string | null
           canonical_base_url?: string | null
+          contact_info?: Json
           created_at?: string | null
           favicon_url?: string | null
           footer_text?: string | null
@@ -2711,6 +2713,7 @@ export type Database = {
           accent_color?: string | null
           asset_base_url?: string | null
           canonical_base_url?: string | null
+          contact_info?: Json
           created_at?: string | null
           favicon_url?: string | null
           footer_text?: string | null

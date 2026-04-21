@@ -2587,14 +2587,19 @@
       var stackInner = teamMembers.map(function (op) {
         var name = (op && op.name) ? String(op.name) : 'Operator';
         var avatar = op && op.avatar ? String(op.avatar) : '';
+        var online = !!(op && op.online);
+        var onlineCls = online ? ' is-online' : '';
+        var dotHtml = online ? '<span class="header-op-dot" aria-label="online"></span>' : '';
         if (avatar) {
-          return '<span class="header-op-avatar has-img" title="' + Util.escapeHtml(name) + '">' +
+          return '<span class="header-op-avatar has-img' + onlineCls + '" title="' + Util.escapeHtml(name) + '">' +
             '<img src="' + Util.escapeHtml(avatar) + '" alt="' + Util.escapeHtml(name) + '" loading="lazy" decoding="async" />' +
+            dotHtml +
           '</span>';
         }
         var initial = (name.trim().charAt(0) || 'O').toUpperCase();
-        return '<span class="header-op-avatar" title="' + Util.escapeHtml(name) + '" aria-hidden="true">' +
-          Util.escapeHtml(initial) +
+        return '<span class="header-op-avatar' + onlineCls + '" title="' + Util.escapeHtml(name) + '">' +
+          '<span aria-hidden="true">' + Util.escapeHtml(initial) + '</span>' +
+          dotHtml +
         '</span>';
       }).join('');
       teamStackHtml = '<div class="header-op-stack" aria-label="Support team">' + stackInner + '</div>';
@@ -2608,9 +2613,9 @@
           '<div class="header-subtitle">' + Util.escapeHtml(welcomeMessage).replace(/\n/g, '<br>') + '</div>' +
         '</div>' +
       '</div>' +
-      '<div class="presence" data-presence aria-live="polite">' +
+      '<div class="presence sr-only" data-presence aria-live="polite">' +
         '<span class="presence-dot" data-presence-dot></span>' +
-        '<span class="presence-label sr-only" data-presence-label></span>' +
+        '<span class="presence-label" data-presence-label></span>' +
       '</div>' +
       '</div>';
     var tabsHtml = '';

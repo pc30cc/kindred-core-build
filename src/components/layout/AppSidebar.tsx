@@ -25,6 +25,8 @@ import { CreateWorkspaceDialog } from '@/features/workspace/CreateWorkspaceDialo
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchAvailability, updateAvailability } from '@/lib/availability-api';
 import { toast } from '@/hooks/use-toast';
+import { supabase } from '@/lib/supabase';
+import { useBranding } from '@/hooks/useBranding';
 
 export function AppSidebar() {
   const { t, dir } = useTranslation();
@@ -37,6 +39,24 @@ export function AppSidebar() {
   const { workspace, workspaces } = useActiveWorkspace();
   const { data: profile } = useProfile();
   const wsPath = useWorkspacePath();
+  const { data: branding } = useBranding(workspace?.id);
+
+  // Primary domain for the active workspace (display under the workspace name).
+  const { data: wsPrimaryDomain } = useQuery({
+    queryKey: ['workspace-primary-domain', workspace?.id],
+    enabled: !!workspace,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('workspace_domains')
+        .select('domain, is_primary')
+        .eq('workspace_id', workspace!.id)
+        .order('is_primary', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      return data?.domain ?? null;
+    },
+    staleTime: 60_000,
+  });
   const [wsMenuOpen, setWsMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [createWsOpen, setCreateWsOpen] = useState(false);
@@ -114,8 +134,12 @@ export function AppSidebar() {
   const userName = (user?.metadata?.full_name as string) || user?.email?.split('@')[0] || '';
   const userEmail = user?.email || '';
   const userAvatarUrl = (profile?.avatar_url as string | null | undefined) || '';
-  const companyName = profile?.company_name || workspace?.name || platformName || 'Workspace';
-  const workspaceDomain = profile?.website_domain || '';
+  const companyName = workspace?.name || profile?.company_name || platformName || 'Workspace';
+  // Show the actual workspace domain (from workspace_domains), with sane fallbacks
+  // so newly-created workspaces still display something meaningful.
+  const workspaceDomain =
+    wsPrimaryDomain || profile?.website_domain || workspace?.slug || '';
+  const workspaceIconUrl = (branding?.logo_url as string | null | undefined) || '';
   const companyLetter = companyName.charAt(0).toUpperCase();
 
   return (
@@ -127,8 +151,12 @@ export function AppSidebar() {
           onClick={() => setWsMenuOpen(!wsMenuOpen)}
           className="flex items-center gap-2.5 w-full rounded-lg px-2 py-2 hover:bg-sidebar-accent/50 transition-colors"
         >
-          <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center shrink-0">
-            <span className="text-sm font-bold text-primary-foreground">{companyLetter}</span>
+          <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center shrink-0 overflow-hidden">
+            {workspaceIconUrl ? (
+              <img src={workspaceIconUrl} alt="" className="h-full w-full object-cover" />
+            ) : (
+              <span className="text-sm font-bold text-primary-foreground">{companyLetter}</span>
+            )}
           </div>
           <div className="min-w-0 text-start flex-1">
             <p className="text-sm font-semibold text-sidebar-foreground truncate">{companyName}</p>

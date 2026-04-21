@@ -169,7 +169,6 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <Route path="widget" element={<WidgetPage />} />
                 <Route path="ai" element={<AIPage />} />
                 <Route path="email" element={<EmailPage />} />
-                <Route path="team" element={<TeamPage />} />
                 <Route path="billing" element={<BillingPage />} />
                 <Route path="settings" element={<SettingsLayout />}>
                   <Route index element={<Navigate to="general" replace />} />
@@ -186,8 +185,12 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                   <Route path="canned-responses" element={<SettingsCannedResponsesPage />} />
                   <Route path="privacy" element={<SettingsPrivacyPage />} />
                   <Route path="interface" element={<SettingsInterfacePage />} />
+                  <Route path="team" element={<TeamPage />} />
+                  <Route path="privacy-requests" element={<PrivacyRequestsPage />} />
                 </Route>
-                <Route path="privacy-requests" element={<PrivacyRequestsPage />} />
+                {/* Backwards-compat redirects: legacy URLs → settings */}
+                <Route path="team" element={<Navigate to="../settings/team" replace />} />
+                <Route path="privacy-requests" element={<Navigate to="../settings/privacy-requests" replace />} />
               </Route>
 
               <Route path="*" element={<NotFound />} />

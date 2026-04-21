@@ -37,6 +37,16 @@ const SUPPORTED_VENDORS: RealtimeVendor[] = ['centrifugo', 'supabase'];
 
 const cache = new Map<string, Promise<ClientRealtimeProvider>>();
 
+/**
+ * Drop the cached provider for a workspace so the next resolve call
+ * re-negotiates (fresh ws_url + connection token). Used by adapters
+ * when the underlying socket dies and a new negotiation is needed.
+ */
+export function invalidateClientRealtimeCache(workspaceId?: string): void {
+  if (workspaceId) cache.delete(workspaceId);
+  else cache.clear();
+}
+
 async function authHeaders(): Promise<Record<string, string>> {
   const {
     data: { session },

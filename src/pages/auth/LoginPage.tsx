@@ -126,22 +126,38 @@ export default function LoginPage() {
 
             <form onSubmit={handleLogin} className="space-y-5">
               <div className="space-y-2">
-                <Label htmlFor="email" className="text-foreground">{t('auth.email')}</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="you@company.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  dir="ltr"
-                  className="h-12 text-left bg-background border-border"
-                />
+                <Label htmlFor="email" className="text-xs font-medium text-muted-foreground tracking-wide uppercase">
+                  {t('auth.email')}
+                </Label>
+                {fieldShell({
+                  id: 'email',
+                  icon: <Mail className="w-4 h-4" />,
+                  state: emailValid ? 'success' : 'default',
+                  suffix: emailValid ? <Check className="w-4 h-4 text-success" /> : null,
+                  children: (
+                    <input
+                      id="email"
+                      type="email"
+                      placeholder="you@company.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      onFocus={() => setFocused('email')}
+                      onBlur={() => setFocused(null)}
+                      required
+                      dir="ltr"
+                      className={cn(inputBase, 'text-left')}
+                      autoComplete="email"
+                      inputMode="email"
+                    />
+                  ),
+                })}
               </div>
 
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <Label htmlFor="password" className="text-foreground">{t('auth.password')}</Label>
+                  <Label htmlFor="password" className="text-xs font-medium text-muted-foreground tracking-wide uppercase">
+                    {t('auth.password')}
+                  </Label>
                   <Link
                     to="/auth/forgot-password"
                     className="text-xs text-primary hover:underline font-medium"
@@ -149,34 +165,49 @@ export default function LoginPage() {
                     {t('auth.forgotPassword')}
                   </Link>
                 </div>
-                <div className="relative">
-                  <Input
-                    id="password"
-                    type={showPassword ? 'text' : 'password'}
-                    placeholder="••••••••"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    dir="ltr"
-                    className="h-12 text-left bg-background border-border pr-11"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className={`absolute ${isRtl ? 'left-3' : 'right-3'} top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors`}
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
+                {fieldShell({
+                  id: 'password',
+                  icon: <Lock className="w-4 h-4" />,
+                  suffix: (
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="text-muted-foreground hover:text-foreground transition-colors p-1 -mr-1"
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                      tabIndex={-1}
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  ),
+                  children: (
+                    <input
+                      id="password"
+                      type={showPassword ? 'text' : 'password'}
+                      placeholder="••••••••"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      onFocus={() => setFocused('password')}
+                      onBlur={() => setFocused(null)}
+                      required
+                      dir="ltr"
+                      className={cn(inputBase, 'text-left')}
+                      autoComplete="current-password"
+                    />
+                  ),
+                })}
               </div>
 
-              <Button type="submit" className="w-full h-12 text-base font-semibold gap-2" disabled={loading}>
+              <Button
+                type="submit"
+                className="w-full h-12 text-base font-semibold gap-2 rounded-xl shadow-sm hover:shadow-md transition-shadow"
+                disabled={loading}
+              >
                 {loading ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
                   <>
                     {t('auth.login')}
-                    <ArrowRight className="w-4 h-4" />
+                    <ArrowRight className={cn('w-4 h-4', isRtl && 'rotate-180')} />
                   </>
                 )}
               </Button>

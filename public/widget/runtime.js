@@ -1050,6 +1050,7 @@
     }
 
     function connect() {
+      manuallyClosed = false;
       consecutiveFailures = 0;
       lastSuccessAt = 0;
       if (typeof window !== 'undefined' && window.addEventListener) {
@@ -1057,13 +1058,19 @@
         window.addEventListener('offline', handleBrowserOffline);
       }
       if (!browserOnline) {
-        setConnectionState('offline');
+        if (fsm) fsm.transition('offline', 'connect:no-network');
+        else setConnectionState('offline');
+      } else if (fsm) {
+        if (fsm.get() !== 'connecting' && fsm.get() !== 'reconnecting' && fsm.get() !== 'subscribing') {
+          fsm.transition('connecting', 'connect');
+        }
       } else {
         setConnectionState('connecting');
       }
       resolveRealtimeAndStart();
     }
     function disconnect() {
+      manuallyClosed = true;
       stopPolling();
       if (rtDriver && rtDriver.disconnect) {
         try { rtDriver.disconnect(); } catch (_) {}
@@ -1073,7 +1080,8 @@
         window.removeEventListener('online', handleBrowserOnline);
         window.removeEventListener('offline', handleBrowserOffline);
       }
-      setConnectionState('idle');
+      if (fsm) fsm.transition('idle', 'disconnect');
+      else setConnectionState('idle');
     }
 
     /**
@@ -1085,6 +1093,7 @@
      */
     function reconnect() {
       Util.log('[transport] forced reconnect');
+      manuallyClosed = false;
       try {
         if (rtDriver && rtDriver.disconnect) rtDriver.disconnect();
       } catch (_) {}
@@ -1093,8 +1102,22 @@
       consecutiveFailures = 0;
       lastSuccessAt = 0;
       browserOnline = (typeof navigator === 'undefined') ? true : navigator.onLine !== false;
-      if (!browserOnline) { setConnectionState('offline'); return; }
-      setConnectionState('connecting');
+      if (!browserOnline) {
+        if (fsm) fsm.transition('offline', 'reconnect:no-network');
+        else setConnectionState('offline');
+        return;
+      }
+      if (fsm) {
+        // Honor an externally-set 'waking' state — the lifecycle controller
+        // sets it before calling reconnect() so diagnostics + UI can
+        // distinguish wake-from-sleep from initial connect / outage.
+        var cur = fsm.get();
+        if (cur !== 'waking' && cur !== 'connecting' && cur !== 'reconnecting' && cur !== 'subscribing') {
+          fsm.transition('connecting', 'reconnect');
+        }
+      } else {
+        setConnectionState('connecting');
+      }
       resolveRealtimeAndStart();
     }
 

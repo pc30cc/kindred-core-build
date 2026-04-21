@@ -1302,10 +1302,23 @@
     }
 
     function renderEmpty(body) {
+      // Server-authoritative welcome message (workspace override → platform default).
+      // Rendered as a real operator bubble — same look & feel as a live operator
+      // reply — so the visitor immediately sees the conversation has "started".
+      // Falls back to the i18n `intro` string only if backend sent nothing.
+      var welcome = (ctx.config && typeof ctx.config.welcomeMessage === 'string' && ctx.config.welcomeMessage.trim().length > 0)
+        ? ctx.config.welcomeMessage
+        : t('intro');
+      var lines = String(welcome).split(/\n+/).map(function (l) {
+        return Util.escapeHtml(l);
+      }).join('<br>');
       body.innerHTML =
-        '<div class="empty">' +
-        '<svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>' +
-        '<p>' + Util.escapeHtml(t('intro')) + '</p></div>';
+        '<div class="messages welcome-only">' +
+          '<div class="msg-row operator">' +
+            '<div class="msg operator welcome-bubble">' + lines + '</div>' +
+          '</div>' +
+        '</div>';
+      body.scrollTop = body.scrollHeight;
     }
 
     // ─── Phase 6b — attachment renderer (provider-safe) ───

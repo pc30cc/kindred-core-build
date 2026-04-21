@@ -881,7 +881,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
 
     // Verify conversation ownership if provided
     if (convId) {
-      const ownership = await verifyConversationOwnership(config, convId, workspaceId, body.visitor_id, body.session_id);
+      const ownership = await verifyConversationOwnership(config, convId, workspaceId, body.visitor_id, body.session_id, req);
       if (!ownership.valid) {
         convId = null; // Will create new conversation
       } else {

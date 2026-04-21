@@ -60,6 +60,18 @@
     var connectTokenExpiresAt = resolved.expires_at || 0;
     var wsUrl = resolved.ws_url;
     var clientId = null;
+    /**
+     * `firstConnectDone` flips to true the FIRST time the Centrifugo
+     * `connect` reply lands. Without it, the very first successful
+     * connect would fire `hooks.onReconnect()` — which the runtime
+     * transport treats as a real reconnect and re-runs `bootstrapHistory`,
+     * producing the duplicate "transport reconnect — refreshing history"
+     * log on a healthy first load AND racing with the initial subscribe.
+     *
+     * Semantics: `onReconnect` MUST mean "we were connected, dropped, and
+     * came back". It must NOT fire on initial connect.
+     */
+    var firstConnectDone = false;
 
     var capabilities = Object.assign({
       driver: 'centrifugo',

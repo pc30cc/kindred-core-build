@@ -373,7 +373,9 @@ export async function resolveStorageConfig(serverConfig: ServerConfig, workspace
 
   if (globalConfig?.value) {
     const c = globalConfig.value as any;
-    return mapDBConfigToStorage(c.provider || 'local', c);
+    const providerName = c.provider_name || c.provider || 'local';
+    const providerConfig = c.config && typeof c.config === 'object' ? c.config : c;
+    return mapDBConfigToStorage(providerName, providerConfig);
   }
 
   // 3. Fallback to local
@@ -399,6 +401,8 @@ function mapDBConfigToStorage(provider: string, c: any): StorageConfig {
     bucket: c.bucket || c.container,
     s3Region: c.region,
     endpoint: bunnyEndpoint,
+    localPath: c.local_path || c.path,
+    publicUrl: c.public_url || c.publicUrl,
     maxFileSizeMB: c.max_file_size ? parseInt(c.max_file_size) : undefined,
   };
 }

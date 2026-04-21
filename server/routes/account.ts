@@ -159,6 +159,45 @@ function extFromContentType(ct: string): string {
   return 'jpg';
 }
 
+async function ensureProfileRow(config: ServerConfig, user: any) {
+  const sb = getServiceClient(config);
+  const { data: profile, error } = await sb
+    .from('profiles')
+    .select('*')
+    .eq('id', user.id)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Failed to load profile row: ${error.message}`);
+  }
+
+  if (profile) return profile;
+
+  const seed = {
+    id: user.id,
+    email: user.email ?? '',
+    full_name: (user.user_metadata?.full_name as string | undefined)?.trim() || null,
+    avatar_url: null,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { data: inserted, error: insertError } = await sb
+    .from('profiles')
+    .upsert(seed, { onConflict: 'id' })
+    .select('*')
+    .maybeSingle();
+
+  if (insertError) {
+    throw new Error(`Failed to create profile row: ${insertError.message}`);
+  }
+
+  if (!inserted) {
+    throw new Error('Profile row could not be created');
+  }
+
+  return inserted;
+}
+
 accountRouter.post('/avatar', async (req, res) => {
   try {
     const config: ServerConfig = (req as any).serverConfig;
@@ -181,6 +220,8 @@ accountRouter.post('/avatar', async (req, res) => {
       return res.status(400).json({ error: 'No workspace available for storage routing' });
     }
 
+    const existingProfile = await ensureProfileRow(config, user);
+
     const ext = extFromContentType(parsed.data.contentType);
     const fileKey = `avatars/${user.id}/${Date.now()}-${crypto.randomBytes(4).toString('hex')}.${ext}`;
 
@@ -197,13 +238,7 @@ accountRouter.post('/avatar', async (req, res) => {
 
     const sb = getServiceClient(config);
 
-    // Best-effort cleanup of previous avatar (only if it lives under the same key prefix)
-    const { data: prevProfile } = await sb
-      .from('profiles')
-      .select('avatar_url')
-      .eq('id', user.id)
-      .maybeSingle();
-    const prev = prevProfile?.avatar_url;
+    const prev = existingProfile?.avatar_url;
     if (prev && typeof prev === 'string') {
       const marker = `/avatars/${user.id}/`;
       const idx = prev.indexOf(marker);
@@ -215,14 +250,26 @@ accountRouter.post('/avatar', async (req, res) => {
       }
     }
 
-    await sb
+    const { data: savedProfile, error: saveError } = await sb
       .from('profiles')
       .update({ avatar_url: result.url, updated_at: new Date().toISOString() })
-      .eq('id', user.id);
+      .eq('id', user.id)
+      .select('id, avatar_url')
+      .maybeSingle();
+
+    if (saveError) {
+      console.error('[account] avatar persistence error:', saveError.message, { userId: user.id, fileKey, url: result.url });
+      return res.status(500).json({ error: 'Avatar uploaded but profile update failed' });
+    }
+
+    if (!savedProfile?.id || !savedProfile.avatar_url) {
+      console.error('[account] avatar persistence missing row:', { userId: user.id, fileKey, url: result.url });
+      return res.status(500).json({ error: 'Avatar uploaded but profile row was not updated' });
+    }
 
     return res.json({
       success: true,
-      url: result.url,
+      url: savedProfile.avatar_url,
       fileKey: result.fileKey,
       provider: 'resolved',
     });

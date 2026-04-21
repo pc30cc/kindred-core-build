@@ -22,7 +22,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { CheckCircle2, Loader2, Languages, Palette, Monitor, Sun, Moon } from 'lucide-react';
-import { updateAccountProfile } from '@/lib/account-api';
+import { updateAccount } from '@/lib/account-api';
 import { toast } from '@/hooks/use-toast';
 
 const LOCALE_FLAGS: Record<Locale, string> = {
@@ -78,7 +78,7 @@ export default function InterfacePage() {
     setLocale(next); // optimistic local switch (also updates <html lang/dir>)
     setSavingLocale(true);
     try {
-      await updateAccountProfile({ preferred_locale: next });
+      await updateAccount({ preferred_locale: next });
       setSavedAt(Date.now());
     } catch (err: any) {
       toast({

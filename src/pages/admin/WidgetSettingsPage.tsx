@@ -9,10 +9,15 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { MessageSquare, Mail, Phone, Globe, Shield, Settings, Lock, Info, Bug, Rocket, Layers } from 'lucide-react';
+import { MessageSquare, Mail, Phone, Globe, Shield, Settings, Lock, Info, Bug, Rocket, Layers, Activity, Zap } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { DeploymentUrlsSection } from '@/components/admin/widget/DeploymentUrlsSection';
 import { WidgetTemplatesSection } from '@/components/admin/widget/WidgetTemplatesSection';
+import {
+  RealtimeTransportSection,
+  SecurityIsolationSection,
+  FloodProtectionSection,
+} from '@/components/admin/widget/HardeningSection';
 
 const PRECHAT_OPTIONS: { value: PreChatPolicy; label: string; desc: string }[] = [
   { value: 'force_on', label: 'Force ON', desc: 'Workspaces cannot disable — field is always required' },
@@ -79,6 +84,9 @@ export default function AdminWidgetSettingsPage() {
           <TabsTrigger value="features" className="gap-1.5 text-xs"><Settings className="h-3.5 w-3.5" />Feature locks</TabsTrigger>
           <TabsTrigger value="deployment" className="gap-1.5 text-xs"><Globe className="h-3.5 w-3.5" />Deployment defaults</TabsTrigger>
           <TabsTrigger value="limits" className="gap-1.5 text-xs"><Shield className="h-3.5 w-3.5" />Limits</TabsTrigger>
+          <TabsTrigger value="realtime" className="gap-1.5 text-xs"><Activity className="h-3.5 w-3.5" />Realtime / Transport</TabsTrigger>
+          <TabsTrigger value="security" className="gap-1.5 text-xs"><Lock className="h-3.5 w-3.5" />Security / Isolation</TabsTrigger>
+          <TabsTrigger value="flood" className="gap-1.5 text-xs"><Zap className="h-3.5 w-3.5" />Flood Protection</TabsTrigger>
         </TabsList>
 
         {/* Deployment URLs (single source of truth) */}
@@ -317,6 +325,21 @@ export default function AdminWidgetSettingsPage() {
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* Phase 1 hardening — Realtime / Transport */}
+        <TabsContent value="realtime">
+          <RealtimeTransportSection settings={settings} onSave={update} />
+        </TabsContent>
+
+        {/* Phase 1 hardening — Security / Isolation (read-only diagnostics) */}
+        <TabsContent value="security">
+          <SecurityIsolationSection />
+        </TabsContent>
+
+        {/* Phase 1 hardening — Flood / Abuse Protection */}
+        <TabsContent value="flood">
+          <FloodProtectionSection settings={settings} onSave={update} />
         </TabsContent>
       </Tabs>
     </div>

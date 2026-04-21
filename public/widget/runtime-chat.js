@@ -29,7 +29,15 @@
     sendMessage: function (opts) {
       var apiBase = opts.apiBase;
       var workspaceId = opts.workspaceId;
-      var sessionToken = opts.sessionToken;
+      // `opts.fetchWith`, when provided by the runtime, transparently injects
+      // the current session token AND retries once with a fresh one on 401/403.
+      // Falling back to a plain fetch keeps backward compatibility with any
+      // caller that hasn't been upgraded yet.
+      var fetchWith = opts.fetchWith || function (url, init) {
+        init = init || {}; init.credentials = init.credentials || 'include';
+        var h = init.headers || {}; h['X-Widget-Token'] = opts.sessionToken || '';
+        init.headers = h; return fetch(url, init);
+      };
       var conversationId = opts.conversationId || null;
       var attachmentId = opts.attachmentId || null;
       var text = opts.text;
@@ -46,13 +54,9 @@
         return;
       }
 
-      fetch(apiBase + '/api/widget/message', {
+      fetchWith(apiBase + '/api/widget/message', {
         method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Widget-Token': sessionToken || '',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           workspace_id: workspaceId,
           conversation_id: conversationId || undefined,
@@ -90,18 +94,16 @@
     loadHistory: function (opts) {
       var apiBase = opts.apiBase;
       var workspaceId = opts.workspaceId;
-      var sessionToken = opts.sessionToken;
+      var fetchWith = opts.fetchWith || function (url, init) {
+        init = init || {}; init.credentials = init.credentials || 'include';
+        var h = init.headers || {}; h['X-Widget-Token'] = opts.sessionToken || '';
+        init.headers = h; return fetch(url, init);
+      };
       var onResult = opts.onResult; // ({ conversationId, messages })
 
       if (!apiBase || !workspaceId) return;
 
-      fetch(
-        buildUrl(apiBase, '/api/widget/identity/history', { workspace_id: workspaceId }),
-        {
-          credentials: 'include',
-          headers: { 'X-Widget-Token': sessionToken || '' },
-        }
-      )
+      fetchWith(buildUrl(apiBase, '/api/widget/identity/history', { workspace_id: workspaceId }), {})
         .then(function (r) { return r.json(); })
         .then(function (data) {
           if (onResult) {
@@ -119,7 +121,14 @@
     startPolling: function (opts) {
       var apiBase = opts.apiBase;
       var workspaceId = opts.workspaceId;
-      var sessionToken = opts.sessionToken;
+      // Polling lives long enough that the token WILL expire mid-loop. We
+      // route every tick through fetchWith() so refresh + retry happen
+      // transparently, and we never freeze with a stale token.
+      var fetchWith = opts.fetchWith || function (url, init) {
+        init = init || {}; init.credentials = init.credentials || 'include';
+        var h = init.headers || {}; h['X-Widget-Token'] = opts.sessionToken || '';
+        init.headers = h; return fetch(url, init);
+      };
       var getConversationId = opts.getConversationId; // function returning current cid
       var onMessages = opts.onMessages;
       var onConversation = opts.onConversation;
@@ -133,12 +142,17 @@
           conversation_id: cid || undefined,
         });
 
-        fetch(url, {
-          credentials: 'include',
-          headers: { 'X-Widget-Token': sessionToken || '' },
-        })
+        fetchWith(url, {})
           .then(function (r) {
-            if (!r.ok) throw new Error('poll_http_' + r.status);
+            if (!r.ok) {
+              // Stale conversation id (closed/deleted/foreign) → drop it so
+              // the next tick re-resolves via cookie identity. Prevents
+              // infinite 403 loops on a recycled cid.
+              if (r.status === 403 && cid && opts.onConversationDenied) {
+                try { opts.onConversationDenied(cid); } catch (_) {}
+              }
+              throw new Error('poll_http_' + r.status);
+            }
             return r.json();
           })
           .then(function (data) {

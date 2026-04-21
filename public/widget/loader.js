@@ -20,14 +20,22 @@
   "use strict";
 
   // ─── Singleton guard ───
-  if (window.__gs_loaded) {
-    // Loader was already injected on this page. Re-queue commands but do not
-    // create a second shell or run bootstrap again.
+  // Multi-layer protection against double inject:
+  //   1. window.__gs_loaded — set by THIS execution; second copy of the
+  //      loader script will see it and return immediately.
+  //   2. existing <gs-widget> element in the DOM — protects against a
+  //      previous execution that was unloaded by an SPA but the shell node
+  //      survived (shouldn't happen, but defense in depth).
+  if (window.__gs_loaded) return;
+  if (typeof document !== "undefined" && document.querySelector("gs-widget")) {
+    // A shell already exists from a prior execution — adopt the singleton
+    // flag and exit. The pre-existing instance owns the widget.
+    window.__gs_loaded = true;
     return;
   }
   window.__gs_loaded = true;
 
-  var LOADER_VERSION = "2026-04-21-conn-banner-soft";
+  var LOADER_VERSION = "2026-04-21-hardening-v1";
   var ELEMENT_TAG = "gs-widget";
 
   // DEBUG defaults to OFF in production. Opt in via:
@@ -127,8 +135,14 @@
     ".launcher{position:fixed;z-index:2147483646;display:flex;align-items:center;justify-content:center;",
     "width:56px;height:56px;border-radius:50%;border:none;cursor:pointer;",
     "box-shadow:0 4px 20px -4px rgba(0,0,0,.25),0 0 0 1px rgba(0,0,0,.05);",
-    "transition:transform .25s cubic-bezier(.34,1.56,.64,1),box-shadow .2s ease;",
-    "background:var(--gs-primary,#3B82F6);color:#fff;font-family:inherit;}",
+    "transition:transform .25s cubic-bezier(.34,1.56,.64,1),box-shadow .2s ease,opacity .2s ease;",
+    "background:var(--gs-primary,transparent);color:#fff;font-family:inherit;",
+    "opacity:1;}",
+    /* Hidden state — keeps the launcher invisible and non-interactive until
+       /config resolves and we know the brand color. Eliminates blue flash. */
+    ".launcher.pending{opacity:0;pointer-events:none;visibility:hidden;}",
+    /* Reveal animation once config arrives. */
+    ".launcher.revealed{opacity:1;pointer-events:auto;visibility:visible;}",
     ".launcher:hover{transform:scale(1.08);box-shadow:0 6px 28px -4px rgba(0,0,0,.3);}",
     ".launcher:active{transform:scale(.96);}",
     ".launcher.bottom-right{bottom:24px;right:24px;}",
@@ -174,6 +188,20 @@
 
   function mountShell() {
     if (shellEl) return; // singleton
+    // Defense in depth: if a previous loader run left a shell node in the
+    // DOM (e.g. inside an SPA route that didn't fully unmount us), adopt
+    // it instead of creating a duplicate.
+    var existing = document.querySelector(ELEMENT_TAG);
+    if (existing && existing.shadowRoot) {
+      shellEl = existing;
+      shadowRoot = existing.shadowRoot;
+      var existingLauncher = shadowRoot.querySelector(".launcher");
+      if (existingLauncher) launcherEl = existingLauncher;
+      var existingToast = shadowRoot.querySelector(".error-toast");
+      if (existingToast) errorToastEl = existingToast;
+      log("Adopted existing shell from prior load");
+      return;
+    }
     shellEl = document.createElement(ELEMENT_TAG);
     shellEl.setAttribute("data-version", LOADER_VERSION);
     document.body.appendChild(shellEl);
@@ -185,12 +213,17 @@
 
     var shellDiv = document.createElement("div");
     shellDiv.className = "shell";
-    shellDiv.style.setProperty("--gs-primary", "#3B82F6");
+    // Do NOT set a brand color here — that would cause a blue-flash before
+    // the workspace's real color arrives via /config. The launcher itself
+    // stays hidden until applyConfigToShell() runs (or, in launcher-only
+    // failure mode, attachLauncherClick reveals a neutral launcher).
     shadowRoot.appendChild(shellDiv);
 
     launcherEl = document.createElement("button");
     launcherEl.type = "button";
-    launcherEl.className = "launcher bottom-right";
+    // `pending` keeps the launcher invisible (opacity:0, no pointer events)
+    // until config arrives. This eliminates the visible blue→brand flash.
+    launcherEl.className = "launcher bottom-right pending";
     launcherEl.setAttribute("aria-label", "Open chat");
     launcherEl.innerHTML =
       '<svg class="chat-icon" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>' +
@@ -216,7 +249,16 @@
     var shellDiv = shadowRoot.querySelector(".shell");
     if (shellDiv) shellDiv.style.setProperty("--gs-primary", config.primaryColor || "#3B82F6");
     var posClass = config.position === "bottom-left" ? "bottom-left" : "bottom-right";
-    if (launcherEl) launcherEl.className = "launcher " + posClass;
+    if (launcherEl) {
+      // Set position + reveal in one paint so the user never sees a wrong
+      // color first. The CSS transitions opacity so it fades in cleanly.
+      launcherEl.className = "launcher " + posClass + " revealed";
+      // Expose template slug for CSS scoping (Task 4).
+      if (config.templateSlug) {
+        launcherEl.setAttribute("data-template", config.templateSlug);
+        if (shellEl) shellEl.setAttribute("data-template", config.templateSlug);
+      }
+    }
   }
 
   // ─── HTTP helper with capped retries & jitter ───
@@ -366,6 +408,21 @@
 
   function attachLauncherClick(opts) {
     if (!launcherEl) return;
+    // Idempotent — never bind the click handler more than once even if
+    // bootstrap() is somehow re-entered.
+    if (launcherEl.__gsClickBound) return;
+    launcherEl.__gsClickBound = true;
+    // Reveal even in launcher-only / error mode so the user sees SOMETHING
+    // instead of a permanently hidden widget. Use a neutral gray so we
+    // don't flash a wrong brand color.
+    if (launcherEl.classList.contains("pending")) {
+      var shellDiv = shadowRoot && shadowRoot.querySelector(".shell");
+      if (shellDiv && !shellDiv.style.getPropertyValue("--gs-primary")) {
+        shellDiv.style.setProperty("--gs-primary", "#6B7280"); // neutral
+      }
+      launcherEl.classList.remove("pending");
+      launcherEl.classList.add("revealed");
+    }
     launcherEl.addEventListener("click", function () {
       if (opts.errorMessage) { showShellError(opts.errorMessage); return; }
       if (opts.launcherOnly) { showShellError("Chat is not configured."); return; }

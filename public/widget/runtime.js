@@ -1097,6 +1097,18 @@
      * times.
      */
     function reconnect() {
+      // ── Guard: do not yank an in-flight bootstrap/connect/subscribe.
+      //    The wake handler already enforces this, but second-line
+      //    defense here protects against any other caller (debug
+      //    tooling, future code paths) from dropping a live handshake.
+      if (fsm) {
+        var preState = fsm.get();
+        if (preState === 'bootstrapping' || preState === 'restoring_session' ||
+            preState === 'connecting'    || preState === 'subscribing') {
+          Util.log('[transport] reconnect skipped — handshake in flight (' + preState + ')');
+          return;
+        }
+      }
       Util.log('[transport] forced reconnect');
       manuallyClosed = false;
       try {
@@ -2720,14 +2732,59 @@
     //      a fresh token.
     if (typeof document !== 'undefined' && document.addEventListener) {
       var __wakeInflight = false;
+      // States during which a wake-triggered reconnect MUST NOT run.
+      // The widget is already mid-handshake — forcing a reconnect at
+      // this moment yanks the in-flight subscribe and produces the
+      // observed "subscribing → reconnecting (driver:dropped)" loop.
+      var WAKE_BLOCK = {
+        bootstrapping: 1,
+        restoring_session: 1,
+        connecting: 1,
+        subscribing: 1,
+      };
+      // States from which a wake recovery is actually meaningful.
+      // Anything outside this set means the transport is either healthy
+      // (no need to recover) or already mid-flight (do not interrupt).
+      var WAKE_RECOVERABLE = {
+        offline: 1,
+        reconnecting: 1,
+        unavailable: 1,
+        failed: 1,
+        auth_expired: 1,
+        degraded: 1,
+        connected: 1,   // socket may be silently dead after long sleep
+        idle: 1,        // never connected yet, allow first kick
+      };
       var triggerWake = function (reason) {
         if (__wakeInflight) return;
+        // ── Hard guard: never interrupt an in-flight bootstrap/connect/subscribe.
+        var lcState = (ctx.lifecycle && ctx.lifecycle.get) ? ctx.lifecycle.get() : null;
+        if (lcState && WAKE_BLOCK[lcState]) {
+          Util.log('[wake] skipped — lifecycle busy (' + lcState + ', reason=' + reason + ')');
+          return;
+        }
+        // ── Only recover from states we know are recoverable. Unknown
+        //    states fall through to "no-op" rather than forcing a reset.
+        if (lcState && !WAKE_RECOVERABLE[lcState]) {
+          Util.log('[wake] skipped — lifecycle not recoverable (' + lcState + ', reason=' + reason + ')');
+          return;
+        }
         __wakeInflight = true;
         try {
           // FSM: enter 'waking' so banner/composer can distinguish wake
           // recovery from initial connect or transient outage.
+          // If the transition is rejected (illegal), abort — do not
+          // continue into reconnect, since that is exactly the bug we
+          // are guarding against.
+          var wakeOk = true;
           if (ctx.lifecycle && ctx.lifecycle.get() !== 'idle' && ctx.lifecycle.get() !== 'bootstrapping') {
-            try { ctx.lifecycle.transition('waking', 'wake:' + reason); } catch (_) {}
+            try {
+              wakeOk = ctx.lifecycle.transition('waking', 'wake:' + reason) !== false;
+            } catch (_) { wakeOk = false; }
+          }
+          if (!wakeOk) {
+            Util.log('[wake] aborted — illegal transition from ' + lcState + ' (reason=' + reason + ')');
+            return;
           }
           if (tokenMgr && tokenMgr.isDisabled && tokenMgr.isDisabled()) {
             try { tokenMgr.revive(); } catch (_) {}
@@ -2752,8 +2809,10 @@
       if (typeof window !== 'undefined' && window.addEventListener) {
         window.addEventListener('pageshow', function (e) {
           // pageshow with persisted=true means restored from BFCache —
-          // a definitive signal that all sockets are dead.
-          triggerWake(e && e.persisted ? 'bfcache' : 'pageshow');
+          // a definitive signal that all sockets are dead. Plain pageshow
+          // (persisted=false) fires on EVERY navigation including the
+          // initial load; suppress it to avoid racing the bootstrap path.
+          if (e && e.persisted) triggerWake('bfcache');
         });
         window.addEventListener('focus', function () {
           // focus is a weaker signal; only act if we know we're offline.

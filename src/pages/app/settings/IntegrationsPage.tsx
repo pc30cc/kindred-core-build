@@ -192,6 +192,9 @@ export default function SettingsIntegrationsPage() {
       title: t('integrationsPage.groups.email'),
       description: t('integrationsPage.groups.emailDesc'),
       channels: [
+        { id: 'gmail',   name: 'Gmail',        status: 'soon', soonReason: t('integrationsPage.soon.email') },
+        { id: 'outlook', name: 'Outlook',      status: 'soon', soonReason: t('integrationsPage.soon.email') },
+        { id: 'email',   name: 'Email (IMAP)', status: 'soon', soonReason: t('integrationsPage.soon.email') },
       ],
     },
     {
@@ -199,6 +202,12 @@ export default function SettingsIntegrationsPage() {
       title: t('integrationsPage.groups.messaging'),
       description: t('integrationsPage.groups.messagingDesc'),
       channels: [
+        { id: 'instagram', name: 'Instagram',   status: 'soon', soonReason: t('integrationsPage.soon.oauth') },
+        { id: 'messenger', name: 'Messenger',   status: 'soon', soonReason: t('integrationsPage.soon.oauth') },
+        { id: 'slack',     name: 'Slack',       status: 'soon', soonReason: t('integrationsPage.soon.oauth') },
+        { id: 'telegram',  name: 'Telegram',    status: 'soon', soonReason: t('integrationsPage.soon.oauth') },
+        { id: 'twitter',   name: 'X (Twitter)', status: 'soon', soonReason: t('integrationsPage.soon.oauth') },
+        { id: 'whatsapp',  name: 'WhatsApp',    status: 'soon', soonReason: t('integrationsPage.soon.oauth') },
       ],
     },
     {
@@ -206,6 +215,9 @@ export default function SettingsIntegrationsPage() {
       title: t('integrationsPage.groups.sdk'),
       description: t('integrationsPage.groups.sdkDesc'),
       channels: [
+        { id: 'ios',         name: 'iOS SDK',          status: 'soon', soonReason: t('integrationsPage.soon.sdk') },
+        { id: 'android',     name: 'Android SDK',      status: 'soon', soonReason: t('integrationsPage.soon.sdk') },
+        { id: 'reactnative', name: 'React Native SDK', status: 'soon', soonReason: t('integrationsPage.soon.sdk') },
       ],
     },
   ];

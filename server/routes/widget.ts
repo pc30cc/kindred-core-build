@@ -708,7 +708,7 @@ widgetRouter.get('/history', widgetRateLimit('poll'), async (req: Request, res: 
   const supabase = getServiceClient(config);
   const { data: msgs } = await supabase
     .from('conversation_messages')
-    .select('id, body, sender_type, created_at, metadata, seen_at')
+    .select('id, body, sender_type, sender_id, created_at, metadata, seen_at')
     .eq('conversation_id', conversationId)
     .order('created_at', { ascending: false })
     .limit(200);
@@ -717,6 +717,7 @@ widgetRouter.get('/history', widgetRateLimit('poll'), async (req: Request, res: 
     id: m.id,
     role: m.sender_type === 'contact' ? 'visitor' : m.sender_type === 'system' ? 'system' : 'agent',
     sender_type: m.sender_type,
+    _sender_id: m.sender_id || null,
     text: m.body,
     time: m.created_at,
     metadata: m.metadata,
@@ -724,7 +725,8 @@ widgetRouter.get('/history', widgetRateLimit('poll'), async (req: Request, res: 
     seen_at: m.seen_at || null,
   }));
   // Phase 6b — attach public-safe attachment metadata (no provider URLs)
-  const messages = await enrichMessagesWithAttachments(config, workspaceId, baseMessages);
+  const enriched = await enrichMessagesWithAttachments(config, workspaceId, baseMessages);
+  const messages = await enrichMessagesWithSender(supabase, enriched);
 
   return res.json({ messages });
 });

@@ -1549,7 +1549,11 @@ widgetRouter.get('/manifest', widgetRateLimit('bootstrap'), async (req: Request,
       created_at: new Date().toISOString(),
     };
 
-    res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
+    // Manifest carries hashed asset names — must NOT be cached by edge
+    // CDNs across deploys. Browser may keep its own short cache.
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.set('CDN-Cache-Control', 'no-store');
+    res.set('Cloudflare-CDN-Cache-Control', 'no-store');
     return res.json(manifest);
   } catch (err: any) {
     console.error('[widget-manifest] Error:', err.message);

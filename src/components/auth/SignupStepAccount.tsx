@@ -195,7 +195,7 @@ export default function SignupStepAccount({
         {showEmailError && (
           <p className="text-xs text-destructive flex items-center gap-1.5 animate-fade-in">
             <AlertCircle className="w-3 h-3 shrink-0" />
-            {t('auth.invalidEmail') || 'Please enter a valid email address'}
+            Please enter a valid email address
           </p>
         )}
       </div>

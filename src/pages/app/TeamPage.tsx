@@ -17,8 +17,10 @@ import { toast } from 'sonner';
 import {
   Users, UserPlus, Shield, Loader2, Copy, Trash2,
   Crown, MoreHorizontal, Mail, Clock, Search, UserCog,
-  Ban, RotateCcw, HelpCircle,
+  Ban, RotateCcw, CheckCircle2,
 } from 'lucide-react';
+import { Card } from '@/components/ui/card';
+import { cn } from '@/lib/utils';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL;
 

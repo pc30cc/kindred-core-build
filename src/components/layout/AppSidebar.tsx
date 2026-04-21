@@ -21,6 +21,9 @@ import { useProfile } from '@/hooks/useProfile';
 import { useMemo, useState, useRef, useEffect } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { CreateWorkspaceDialog } from '@/features/workspace/CreateWorkspaceDialog';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { fetchAvailability, updateAvailability } from '@/lib/availability-api';
+import { toast } from '@/hooks/use-toast';
 
 export function AppSidebar() {
   const { t, dir } = useTranslation();

@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
+import { ThemeProvider } from "next-themes";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -88,7 +89,14 @@ interface AppProps {
 const App = ({ initialLocale, initialTranslations }: AppProps) => (
   <QueryClientProvider client={queryClient}>
     <I18nProvider initialLocale={initialLocale} initialTranslations={initialTranslations}>
-      <ProviderContextProvider>
+      <ThemeProvider
+        attribute="class"
+        defaultTheme="system"
+        enableSystem
+        storageKey="app-theme"
+        disableTransitionOnChange
+      >
+        <ProviderContextProvider>
         <AuthContextProvider>
           <PlatformBrandingGate>
           <TooltipProvider>
@@ -186,7 +194,8 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
           </TooltipProvider>
           </PlatformBrandingGate>
         </AuthContextProvider>
-      </ProviderContextProvider>
+        </ProviderContextProvider>
+      </ThemeProvider>
     </I18nProvider>
   </QueryClientProvider>
 );

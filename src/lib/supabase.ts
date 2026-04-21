@@ -1,6 +1,17 @@
-import { createClient } from '@supabase/supabase-js';
-
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://bdycuenbjztkgnaqonfm.supabase.co';
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJkeWN1ZW5ianp0a2duYXFvbmZtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYwOTczODksImV4cCI6MjA5MTY3MzM4OX0.YDa2Gt-ZjADDmN5jpJZGaUiEsB152x4IsQG7yE0qiEk';
-
-export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+/**
+ * Browser Supabase client — strict singleton.
+ *
+ * Re-exports the canonical client from `@/integrations/supabase/client` so
+ * the entire app shares ONE GoTrueClient instance under the same auth
+ * storage key. Creating a second `createClient(...)` here would log:
+ *
+ *   "Multiple GoTrueClient instances detected in the same browser context"
+ *
+ * and cause concurrent token refresh races + session-state ping-pong that
+ * surfaces as random 401s on long-lived widget / realtime connections.
+ *
+ * Both `import { supabase } from '@/lib/supabase'` and
+ * `import { supabase } from '@/integrations/supabase/client'` now resolve
+ * to the same object.
+ */
+export { supabase } from '@/integrations/supabase/client';

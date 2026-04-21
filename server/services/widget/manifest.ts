@@ -46,11 +46,12 @@ type WidgetAssetKey =
 let cachedManifest: WidgetManifest | null = null;
 let lastReadTime = 0;
 let lastSource: string = 'unresolved';
-// Task 5 — short TTL keeps stale assets from outliving deployments while
-// still cushioning bursty traffic. 15 s is a balance: a deploy is fully
-// rolled out across all replicas within the TTL, but we don't hammer the
-// frontend host on every widget request.
-const CACHE_TTL_MS = 15_000;
+// Task 5 — very short TTL so a fresh deploy converges within a couple of
+// seconds even if the deploy hook (manifest-invalidate) didn't fire. The
+// remote fetch is conditional (If-None-Match) so a 304 response is cheap
+// — we trade a few extra HEAD-equivalent round trips for near-zero
+// staleness after Cloudflare cache purges.
+const CACHE_TTL_MS = 2_000;
 
 // ETag bookkeeping for remote manifest revalidation. Persists across
 // fetches so we can short-circuit with `If-None-Match`.

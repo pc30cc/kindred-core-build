@@ -253,6 +253,10 @@ widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), async (req: Reques
     // No-cache
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
     res.set('Pragma', 'no-cache');
+    // Cloudflare/CDN-aware bypass — `Cache-Control: no-store` alone is not
+    // always honored by edge caches that have their own override rules.
+    res.set('CDN-Cache-Control', 'no-store');
+    res.set('Cloudflare-CDN-Cache-Control', 'no-store');
 
     // Get branding for platform display name
     const { data: branding } = await supabase
@@ -392,6 +396,14 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
 
   const supabase = getServiceClient(config);
+
+  // /config drives runtime URLs (with hashed asset names). MUST never be
+  // cached at the edge — a stale config returns dead asset URLs after
+  // a deploy and the launcher silently fails.
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('CDN-Cache-Control', 'no-store');
+  res.set('Cloudflare-CDN-Cache-Control', 'no-store');
 
   try {
     const [
@@ -1537,7 +1549,11 @@ widgetRouter.get('/manifest', widgetRateLimit('bootstrap'), async (req: Request,
       created_at: new Date().toISOString(),
     };
 
-    res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
+    // Manifest carries hashed asset names — must NOT be cached by edge
+    // CDNs across deploys. Browser may keep its own short cache.
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.set('CDN-Cache-Control', 'no-store');
+    res.set('Cloudflare-CDN-Cache-Control', 'no-store');
     return res.json(manifest);
   } catch (err: any) {
     console.error('[widget-manifest] Error:', err.message);

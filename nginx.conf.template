@@ -78,6 +78,11 @@ server {
         add_header Pragma "no-cache" always;
         add_header X-Widget-Asset "loader" always;
         add_header Access-Control-Allow-Origin "*" always;
+        # Force Cloudflare (and any CDN that honors these headers) to bypass
+        # cache. Without this, even with `no-store` in Cache-Control, CF can
+        # still cache based on its own Cache Rules / default policy.
+        add_header CDN-Cache-Control "no-store" always;
+        add_header Cloudflare-CDN-Cache-Control "no-store" always;
         try_files /widget/loader.js =404;
     }
 
@@ -89,6 +94,9 @@ server {
         add_header Cache-Control "no-cache, no-store, must-revalidate" always;
         add_header X-Widget-Asset "manifest" always;
         add_header Access-Control-Allow-Origin "*" always;
+        # See note above — Cloudflare-aware cache bypass.
+        add_header CDN-Cache-Control "no-store" always;
+        add_header Cloudflare-CDN-Cache-Control "no-store" always;
         try_files /widget/widget-manifest.json =404;
     }
 

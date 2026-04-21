@@ -250,7 +250,14 @@ export class CentrifugoClientProvider implements ClientRealtimeProvider {
       throw err;
     }
 
-    const sub = await operatorSubscribe(parsed.workspaceId, parsed.conversationId);
+    let sub: SubscribeResponse | null = null;
+    if (parsed.kind === 'conversation') {
+      sub = await operatorSubscribe(parsed.workspaceId, parsed.conversationId);
+    } else if (parsed.kind === 'inbox') {
+      sub = await operatorInboxSubscribe(parsed.workspaceId);
+    } else if (parsed.kind === 'visitors') {
+      sub = await operatorVisitorsSubscribe(parsed.workspaceId);
+    }
     if (!sub || sub.vendor !== 'centrifugo' || !sub.channel || !sub.token) {
       throw new Error('subscribe_token_unavailable');
     }

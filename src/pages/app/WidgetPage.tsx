@@ -17,6 +17,7 @@ import { Badge } from '@/components/ui/badge';
 import { Copy, Check, Code, ExternalLink, Globe, Info, Palette, Settings, Shield, Eye, MessageSquare, Link2, Clock } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { AvailabilitySection } from '@/components/app/widget/AvailabilitySection';
+import { TemplateGallery } from '@/components/app/widget/TemplateGallery';
 
 function normalizeDomainInput(input: string): string {
   let raw = input.trim();
@@ -138,6 +139,26 @@ export default function WidgetPage() {
 
             {/* ─── Appearance ─── */}
             <TabsContent value="appearance">
+              <div className="space-y-4">
+              {/* Template gallery — wired to the platform-registered templates registry. */}
+              <Card className="card-elevated">
+                <CardContent className="p-6">
+                  <TemplateGallery
+                    selectedSlug={(widget as any)?.template_slug || 'default'}
+                    primaryColor={primaryColor}
+                    brandLabel={widget?.launcher_text || platformName || 'Support'}
+                    saving={updateWidget.isPending}
+                    onSelect={(slug) => {
+                      updateWidget.mutate({ template_slug: slug } as any, {
+                        onSuccess: () => toast({ title: 'Template updated', description: `Now using "${slug}"` }),
+                        onError: (e: any) => toast({ title: 'Failed to switch template', description: e.message, variant: 'destructive' }),
+                      });
+                    }}
+                  />
+                </CardContent>
+              </Card>
+
+              {/* Per-template customization — settings here apply to whichever template is active. */}
               <Card className="card-elevated">
                 <CardContent className="p-6 space-y-5">
                   <div className="grid grid-cols-2 gap-4">
@@ -207,6 +228,7 @@ export default function WidgetPage() {
                   </div>
                 </CardContent>
               </Card>
+              </div>
             </TabsContent>
 
             {/* ─── Behavior ─── */}
@@ -398,9 +420,14 @@ export default function WidgetPage() {
         {/* Live Preview */}
         <div className="hidden lg:block">
           <div className="sticky top-6">
-            <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1.5">
-              <Eye className="h-3.5 w-3.5" /> Live Preview
-            </p>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                <Eye className="h-3.5 w-3.5" /> Live Preview
+              </p>
+              <Badge variant="outline" className="text-[10px] capitalize">
+                {(widget as any)?.template_slug || 'default'}
+              </Badge>
+            </div>
             <div className="relative bg-muted/30 border border-border rounded-xl overflow-hidden" style={{ height: 520 }}>
               {/* Mini website preview */}
               <div className="p-4 space-y-3">

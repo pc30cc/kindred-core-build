@@ -14,6 +14,23 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
+    # ─────────────────────────────────────────────────────────────────
+    # DNS resolver — REQUIRED so nginx does not crash at startup when
+    # the backend hostname (BACKEND_URL) is not yet resolvable. Without
+    # this, nginx tries to resolve the upstream once at config-load time
+    # and exits with: `host not found in upstream`.
+    #
+    # 127.0.0.11 = embedded Docker DNS (works in Coolify/Compose/Swarm).
+    # We also fall back to public resolvers so external hostnames
+    # (e.g. api.yourdomain.com pointing at a separate service) resolve
+    # even if the embedded DNS doesn't know them.
+    #
+    # `valid=` controls how long answers are cached; `ipv6=off` avoids
+    # AAAA lookups when the host has no IPv6 (faster + fewer warnings).
+    # ─────────────────────────────────────────────────────────────────
+    resolver 127.0.0.11 1.1.1.1 8.8.8.8 valid=30s ipv6=off;
+    resolver_timeout 5s;
+
     # Gzip compression
     gzip on;
     gzip_vary on;
@@ -25,16 +42,24 @@ server {
     # The frontend normally calls the backend directly via VITE_API_BASE_URL,
     # but exposing /api/ here lets same-origin deploys work too.
     # BACKEND_URL is substituted at container start by envsubst.
+    #
+    # IMPORTANT: we assign BACKEND_URL to a `set` variable and use it in
+    # `proxy_pass`. This forces nginx to resolve the hostname at REQUEST
+    # time (via the `resolver` above) instead of at startup, so the
+    # container boots even if the backend DNS isn't ready yet.
     # ─────────────────────────────────────────────────────────────────
     location /api/ {
-        proxy_pass ${BACKEND_URL}/api/;
+        set $backend_url "${BACKEND_URL}";
+        proxy_pass $backend_url/api/;
         proxy_http_version 1.1;
-        proxy_set_header Host              $host;
+        proxy_set_header Host              $proxy_host;
         proxy_set_header X-Real-IP         $remote_addr;
         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Host  $host;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header Upgrade           $http_upgrade;
         proxy_set_header Connection        "upgrade";
+        proxy_ssl_server_name on;
         proxy_read_timeout 300s;
         proxy_connect_timeout 60s;
     }

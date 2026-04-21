@@ -35,7 +35,7 @@
   }
   window.__gs_loaded = true;
 
-  var LOADER_VERSION = "2026-04-21-hardening-v1";
+  var LOADER_VERSION = "2026-04-21-heartbeat-token-refresh-v2";
   var ELEMENT_TAG = "gs-widget";
 
   // DEBUG defaults to OFF in production. Opt in via:
@@ -582,10 +582,44 @@
         return t ? t.slice(0, 300) : null;
       } catch (_) { return null; }
     }
+    // ─── Token state (mutable: refreshed when server returns 401/403) ───
+    // The widget session token has a short TTL (15 min). Without periodic
+    // refresh the heartbeat loop would emit 403/TOKEN_EXPIRED forever, which
+    // upstream proxies (nginx/Coolify) eventually return as 504 *without*
+    // CORS headers — surfacing as a confusing CORS error in the browser.
+    var currentToken = token;
+    var heartbeatTimer = null;
+    var refreshing = null; // Promise<string|null> while a refresh is in flight
+    var consecutiveFailures = 0;
+    var STOPPED = false;
+
+    function refreshToken() {
+      if (refreshing) return refreshing;
+      refreshing = fetch(apiBase + "/api/widget/session/refresh", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", "X-Widget-Token": currentToken },
+      })
+        .then(function (r) {
+          if (!r.ok) return null;
+          return r.json();
+        })
+        .then(function (data) {
+          if (data && data.session_token) {
+            currentToken = data.session_token;
+            return currentToken;
+          }
+          return null;
+        })
+        .catch(function () { return null; })
+        .then(function (tok) { refreshing = null; return tok; });
+      return refreshing;
+    }
+
     fetch(apiBase + "/api/widget/track", {
       method: "POST",
       credentials: "include",
-      headers: { "Content-Type": "application/json", "X-Widget-Token": token },
+      headers: { "Content-Type": "application/json", "X-Widget-Token": currentToken },
       body: JSON.stringify({
         workspace_id: workspaceId,
         event: "page_view",
@@ -602,11 +636,15 @@
         var sessionId = data && data.session_id ? data.session_id : null;
         if (!sessionId) return;
         var lastPage = currentPage();
-        function ping() {
+        function doPing(tokenToUse, isRetry) {
+          if (STOPPED) return;
+          // Skip when the page is hidden — saves battery and avoids
+          // burning rate-limit budget on backgrounded tabs.
+          if (typeof document !== 'undefined' && document.hidden) return;
           fetch(apiBase + "/api/widget/action", {
             method: "PUT",
             credentials: "include",
-            headers: { "Content-Type": "application/json", "X-Widget-Token": token },
+            headers: { "Content-Type": "application/json", "X-Widget-Token": tokenToUse },
             body: JSON.stringify({
               workspace_id: workspaceId,
               action: "heartbeat",
@@ -614,11 +652,41 @@
               current_page: currentPage(),
               page_title: currentTitle(),
             }),
-          }).catch(function () {});
+          })
+            .then(function (r) {
+              if (r.ok) { consecutiveFailures = 0; return; }
+              // Token expired/invalid → refresh once and retry.
+              if ((r.status === 401 || r.status === 403) && !isRetry) {
+                return refreshToken().then(function (newTok) {
+                  if (newTok) return doPing(newTok, true);
+                  // Refresh failed — count as a hard failure.
+                  consecutiveFailures++;
+                });
+              }
+              consecutiveFailures++;
+            })
+            .catch(function () { consecutiveFailures++; })
+            .then(function () {
+              // Stop the loop after 5 consecutive failures so we don't
+              // hammer a degraded backend (and don't trigger upstream 504s).
+              if (consecutiveFailures >= 5 && heartbeatTimer) {
+                STOPPED = true;
+                clearInterval(heartbeatTimer);
+                heartbeatTimer = null;
+                warn('heartbeat stopped after repeated failures');
+              }
+            });
         }
+        function ping() { doPing(currentToken, false); }
         // Background heartbeat — keeps presence "online" and refreshes
         // last_seen_at so the operator UI stays accurate.
-        setInterval(ping, 30000);
+        heartbeatTimer = setInterval(ping, 30000);
+        // Resume immediately when the tab becomes visible again.
+        try {
+          document.addEventListener('visibilitychange', function () {
+            if (!document.hidden && !STOPPED) ping();
+          });
+        } catch (_) {}
 
         // SPA navigation: many host sites (React/Vue/Next) don't reload the
         // page when the URL changes. Without this, page_history would only

@@ -655,7 +655,7 @@ widgetRouter.get('/poll', widgetRateLimit('poll'), async (req: Request, res: Res
 
     // Try direct conversation lookup with ownership verification
     if (conversationId) {
-      const ownership = await verifyConversationOwnership(config, conversationId, workspaceId, visitorId, sessionId);
+      const ownership = await verifyConversationOwnership(config, conversationId, workspaceId, visitorId, sessionId, req);
       if (ownership.valid && ownership.conversation) {
         conv = ownership.conversation;
         activeConversationId = conv.id;
@@ -766,7 +766,7 @@ widgetRouter.get('/history', widgetRateLimit('poll'), async (req: Request, res: 
     return res.status(400).json({ error: 'conversation_id and workspace_id required' });
   }
 
-  const ownership = await verifyConversationOwnership(config, conversationId, workspaceId, visitorId, sessionId);
+  const ownership = await verifyConversationOwnership(config, conversationId, workspaceId, visitorId, sessionId, req);
   if (!ownership.valid) {
     return res.status(403).json({ error: 'Access denied to this conversation', code: 'CONVERSATION_ACCESS_DENIED' });
   }
@@ -881,7 +881,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
 
     // Verify conversation ownership if provided
     if (convId) {
-      const ownership = await verifyConversationOwnership(config, convId, workspaceId, body.visitor_id, body.session_id);
+      const ownership = await verifyConversationOwnership(config, convId, workspaceId, body.visitor_id, body.session_id, req);
       if (!ownership.valid) {
         convId = null; // Will create new conversation
       } else {
@@ -1310,7 +1310,7 @@ widgetRouter.put('/action', widgetRateLimit('default'), async (req: Request, res
       const now = new Date().toISOString();
 
       if (conversation_id) {
-        const ownership = await verifyConversationOwnership(config, conversation_id, workspaceId, visitor_id, session_id);
+        const ownership = await verifyConversationOwnership(config, conversation_id, workspaceId, visitor_id, session_id, req);
         if (!ownership.valid) {
           // Task 6 — surface the precise rejection reason in logs (never to
           // the client) so 403 spikes can be diagnosed without weakening
@@ -1370,7 +1370,7 @@ widgetRouter.put('/action', widgetRateLimit('default'), async (req: Request, res
     }
 
     if (action === 'typing' && conversation_id) {
-      const ownership = await verifyConversationOwnership(config, conversation_id, workspaceId!, visitor_id, session_id);
+      const ownership = await verifyConversationOwnership(config, conversation_id, workspaceId!, visitor_id, session_id, req);
       if (!ownership.valid) {
         console.warn(
           `[widget-action] typing denied: workspace=${workspaceId} conv=${conversation_id} ` +
@@ -1394,7 +1394,7 @@ widgetRouter.put('/action', widgetRateLimit('default'), async (req: Request, res
     }
 
     if (action === 'reopen_conversation' && conversation_id && workspaceId) {
-      const ownership = await verifyConversationOwnership(config, conversation_id, workspaceId, visitor_id, session_id);
+      const ownership = await verifyConversationOwnership(config, conversation_id, workspaceId, visitor_id, session_id, req);
       if (!ownership.valid) return res.json({ ok: false, not_found: true });
       const conv = ownership.conversation;
       if (['closed', 'resolved', 'pending'].includes(conv.status)) {

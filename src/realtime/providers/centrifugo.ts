@@ -624,6 +624,58 @@ export class CentrifugoClientProvider implements ClientRealtimeProvider {
     if (!conn || conn.disposed) {
       conn = buildConnection(parsed.workspaceId, this.negotiation);
       sharedConns.set(wsUrl, conn);
+    } else {
+      // The cached `conn.ready` Promise is set ONCE in buildConnection() and is
+      // NEVER re-assigned by scheduleReconnect → openSocket(conn). If the very
+      // first openSocket attempt rejected (e.g. transient `ws_error` during a
+      // network blip), every subsequent subscribe() call would `await` that
+      // already-rejected Promise and surface `ws_error` forever, even after
+      // the auto-reconnect loop has successfully re-opened the socket.
+      //
+      // Detect this case and refresh `conn.ready` to a Promise tied to the
+      // CURRENT socket state:
+      //   • socket already open → resolve immediately
+      //   • socket closed/never opened → reuse the in-flight reconnect by
+      //     awaiting the next 'open' status push (or trigger one)
+      if (conn.ws && conn.ws.readyState === 1) {
+        conn.ready = Promise.resolve();
+      } else if (conn.closed || !conn.ws || conn.ws.readyState === 3) {
+        // Either the initial open failed or the socket closed. Force a fresh
+        // open cycle and bind `conn.ready` to it so this and future
+        // subscribers don't keep awaiting a stale rejected Promise.
+        conn.ready = new Promise<void>((resolve, reject) => {
+          let settled = false;
+          const onResolved = () => { if (!settled) { settled = true; resolve(); } };
+          const onRejected = (e: any) => { if (!settled) { settled = true; reject(e); } };
+          // Kick the reconnect loop immediately (it self-debounces via
+          // reconnectTimer) and resolve once any subscriber sees 'open'.
+          // We piggy-back on the existing handler fan-out by injecting a
+          // synthetic listener registered against a sentinel channel slot.
+          const sentinel: Set<RealtimeHandlers> = new Set();
+          const handler: RealtimeHandlers = {
+            onStatus: (s) => {
+              if (s === 'open') {
+                conn!.subs.get('__ready_sentinel')?.delete(handler);
+                if (conn!.subs.get('__ready_sentinel')?.size === 0) {
+                  conn!.subs.delete('__ready_sentinel');
+                }
+                onResolved();
+              } else if (s === 'error' || s === 'closed') {
+                // Don't reject — the reconnect loop will keep trying. The
+                // outer caller's own onStatus will surface progress.
+              }
+            },
+          };
+          if (!conn!.subs.has('__ready_sentinel')) conn!.subs.set('__ready_sentinel', sentinel);
+          conn!.subs.get('__ready_sentinel')!.add(handler);
+          // Safety timeout so we never hang a subscribe() promise indefinitely.
+          setTimeout(() => { onRejected(new Error('ws_open_timeout')); }, 15_000);
+          scheduleReconnect(conn!);
+        });
+      }
+      // readyState === 0 (CONNECTING) → leave existing conn.ready alone; it's
+      // either the original Promise still pending its first 'open' event, or
+      // a recovery Promise from this same branch on a prior call.
     }
 
     // Build a refresh closure so the reconnect loop can re-issue subscribe

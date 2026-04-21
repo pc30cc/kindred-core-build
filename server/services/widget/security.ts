@@ -13,6 +13,7 @@ import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { getServiceClient } from '../../supabase.js';
 import type { ServerConfig } from '../../config.js';
+import { readVisitorCookie } from './visitorIdentity.js';
 
 // ─── Session Token Config ───
 const SESSION_TOKEN_TTL_SECONDS = 900; // 15 minutes
@@ -289,12 +290,25 @@ export function resolveWorkspaceId(req: Request, res: Response, candidateWorkspa
 }
 
 // ─── Strict conversation ownership ───
+//
+// Identity sources (most → least authoritative):
+//   1. HttpOnly `dvsid` visitor cookie (cannot be forged by client JS) — pass
+//      `req` so the cookie is read here. Survives page refresh, cross-tab.
+//   2. Caller-supplied `visitorId` (from request body) — best-effort fallback
+//      for legacy callers that don't have access to the request object.
+//   3. Caller-supplied `visitorSessionId` (from request body) — used to
+//      match conv.visitor_session_id directly.
+//
+// A match on ANY of these is sufficient. This is critical for visitor
+// heartbeat/typing after a page refresh, where the runtime's in-memory
+// `visitorId` may not yet be re-hydrated but the HttpOnly cookie is.
 export async function verifyConversationOwnership(
   config: ServerConfig,
   conversationId: string,
   workspaceId: string,
   visitorId?: string | null,
   visitorSessionId?: string | null,
+  req?: Request,
 ): Promise<{ valid: boolean; conversation: any | null }> {
   if (!conversationId) return { valid: false, conversation: null };
 
@@ -309,13 +323,27 @@ export async function verifyConversationOwnership(
   if (!conv) return { valid: false, conversation: null };
   if (conv.workspace_id !== workspaceId) return { valid: false, conversation: null };
 
+  // Promote the HttpOnly visitor cookie to be tried alongside the body-supplied
+  // visitorId. The cookie is set by the server on bootstrap and cannot be
+  // forged by client JS, so it's the authoritative identity proof.
+  let cookieVisitorId: string | null = null;
+  if (req) {
+    try {
+      const v = readVisitorCookie(req, workspaceId);
+      if (v?.v) cookieVisitorId = v.v;
+    } catch { /* cookie parsing must never throw the request */ }
+  }
+  const candidateVisitorIds = new Set<string>();
+  if (visitorId) candidateVisitorIds.add(visitorId);
+  if (cookieVisitorId) candidateVisitorIds.add(cookieVisitorId);
+
   // Match by visitor_session_id
   if (visitorSessionId && conv.visitor_session_id === visitorSessionId) {
     return { valid: true, conversation: conv };
   }
 
   // Match by contact metadata.visitor_id
-  if (visitorId && conv.contact_id) {
+  if (candidateVisitorIds.size > 0 && conv.contact_id) {
     const { data: contact } = await supabase
       .from('contacts')
       .select('id, metadata')
@@ -324,21 +352,21 @@ export async function verifyConversationOwnership(
 
     if (contact) {
       const meta = (contact.metadata as any) || {};
-      if (meta.visitor_id === visitorId) {
+      if (meta.visitor_id && candidateVisitorIds.has(meta.visitor_id)) {
         return { valid: true, conversation: conv };
       }
     }
   }
 
   // Fallback: if conversation has a visitor_session_id, look up the visitor_id from sessions
-  if (visitorId && conv.visitor_session_id) {
+  if (candidateVisitorIds.size > 0 && conv.visitor_session_id) {
     const { data: session } = await supabase
       .from('visitor_sessions')
       .select('visitor_id')
       .eq('id', conv.visitor_session_id)
       .maybeSingle();
 
-    if (session?.visitor_id === visitorId) {
+    if (session?.visitor_id && candidateVisitorIds.has(session.visitor_id)) {
       return { valid: true, conversation: conv };
     }
   }

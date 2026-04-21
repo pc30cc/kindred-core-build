@@ -2759,6 +2759,14 @@
       // States from which a wake recovery is actually meaningful.
       // Anything outside this set means the transport is either healthy
       // (no need to recover) or already mid-flight (do not interrupt).
+      //
+      // IMPORTANT: 'connected' is NOT in this set. A healthy active
+      // connection must NEVER be yanked just because the tab regained
+      // visibility — that produced the destructive
+      //   connected → waking → reconnecting (driver:dropped)
+      // loop in production. If the socket is actually dead the driver's
+      // own ping/onclose path will detect it and trigger reconnect via
+      // the proper channel; we don't need to second-guess it here.
       var WAKE_RECOVERABLE = {
         offline: 1,
         reconnecting: 1,
@@ -2766,7 +2774,6 @@
         failed: 1,
         auth_expired: 1,
         degraded: 1,
-        connected: 1,   // socket may be silently dead after long sleep
         idle: 1,        // never connected yet, allow first kick
       };
       var triggerWake = function (reason) {

@@ -46,7 +46,18 @@ type WidgetAssetKey =
 let cachedManifest: WidgetManifest | null = null;
 let lastReadTime = 0;
 let lastSource: string = 'unresolved';
-const CACHE_TTL_MS = 60_000;
+// Task 5 — short TTL keeps stale assets from outliving deployments while
+// still cushioning bursty traffic. 15 s is a balance: a deploy is fully
+// rolled out across all replicas within the TTL, but we don't hammer the
+// frontend host on every widget request.
+const CACHE_TTL_MS = 15_000;
+
+// ETag bookkeeping for remote manifest revalidation. Persists across
+// fetches so we can short-circuit with `If-None-Match`.
+let lastRemoteEtag: string | null = null;
+let lastRemoteUrl: string | null = null;
+let lastRemoteFetchAt = 0;
+let lastRemoteStatus: 'ok' | 'not_modified' | 'failed' | 'unset' = 'unset';
 
 const MANIFEST_PATHS = [
   resolve(process.cwd(), 'dist', 'widget', 'widget-manifest.json'),
@@ -128,18 +139,49 @@ async function fetchRemoteManifest(): Promise<WidgetManifest | null> {
     try {
       const ctrl = new AbortController();
       const timeout = setTimeout(() => ctrl.abort(), 4000);
-      const res = await fetch(url, { signal: ctrl.signal, cache: 'no-store' });
+      // Conditional GET when we already have an ETag — saves bandwidth and
+      // proves freshness without re-parsing JSON. URL changes invalidate
+      // the prior etag (different deployments may live behind different
+      // hosts).
+      const headers: Record<string, string> = {};
+      if (lastRemoteEtag && lastRemoteUrl === url) {
+        headers['If-None-Match'] = lastRemoteEtag;
+      }
+      const res = await fetch(url, {
+        signal: ctrl.signal,
+        cache: 'no-store',
+        headers,
+      });
       clearTimeout(timeout);
+      lastRemoteUrl = url;
+      lastRemoteFetchAt = Date.now();
+
+      // 304 — manifest unchanged. Keep the existing cachedManifest as-is.
+      if (res.status === 304 && cachedManifest) {
+        lastRemoteStatus = 'not_modified';
+        return cachedManifest;
+      }
       if (!res.ok) {
+        lastRemoteStatus = 'failed';
         console.warn(`[widget-manifest] Remote fetch ${url} returned ${res.status}`);
         return null;
       }
+      const etag = res.headers.get('etag');
+      if (etag) lastRemoteEtag = etag;
       const body = (await res.json()) as WidgetManifest;
-      if (!body || typeof body !== 'object') return null;
+      if (!body || typeof body !== 'object') {
+        lastRemoteStatus = 'failed';
+        return null;
+      }
       body.loaderVersion ||= FALLBACK_VERSION;
-      console.log(`[widget-manifest] Loaded from remote ${url} (loaderVersion=${body.loaderVersion})`);
+      lastRemoteStatus = 'ok';
+      console.log(
+        `[widget-manifest] Loaded from remote ${url}` +
+          ` (loaderVersion=${body.loaderVersion}, etag=${etag || 'none'})`,
+      );
       return body;
     } catch (err: any) {
+      lastRemoteStatus = 'failed';
       console.warn(`[widget-manifest] Remote fetch failed: ${err?.message || err}`);
       return null;
     } finally {
@@ -228,6 +270,8 @@ export function invalidateManifestCache(): void {
   cachedManifest = null;
   lastReadTime = 0;
   lastSource = 'unresolved';
+  lastRemoteEtag = null;
+  lastRemoteStatus = 'unset';
 }
 
 export function getManifestDiagnostics() {
@@ -241,5 +285,10 @@ export function getManifestDiagnostics() {
     runtimeKbJs: manifest['runtime-kb.js'],
     cachedAt: lastReadTime ? new Date(lastReadTime).toISOString() : null,
     remoteUrl: getRemoteManifestUrl(),
+    remoteStatus: lastRemoteStatus,
+    remoteEtag: lastRemoteEtag,
+    remoteLastFetchAt: lastRemoteFetchAt ? new Date(lastRemoteFetchAt).toISOString() : null,
+    cacheTtlMs: CACHE_TTL_MS,
+    isFallback: lastSource === 'fallback',
   };
 }

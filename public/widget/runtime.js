@@ -2646,12 +2646,19 @@
       if (tab === 'chat') {
         if (!identityStore.get().loaded) { renderLoading(); return; }
         if (identity.needsPrechat()) {
+          // Composer must be invisible while pre-chat is showing — visitor
+          // cannot send a message until they've identified themselves.
+          if (inputBar) inputBar.style.display = 'none';
           chatUI.renderPreChat(body, identity, ctx.locale, function () {
+            // Pre-chat just submitted → reveal composer for the now-identified visitor.
+            if (inputBar) inputBar.style.display = 'flex';
             renderBody();
             if (msgInput) setTimeout(function () { msgInput.focus(); }, 100);
           });
           return;
         }
+        // Identified visitor on chat tab → composer visible.
+        if (inputBar) inputBar.style.display = 'flex';
         // Phase 5 — when offline + contact_fallback mode and there's no
         // active thread yet, render the fallback form instead of the chat.
         var pStatus = presenceStore.get().status;
@@ -2661,6 +2668,8 @@
           && (pMode === 'contact_fallback' || pMode === 'capture_message')
           && !hasMessages;
         if (shouldFallback) {
+          // Contact-fallback form owns the input area — hide the chat composer.
+          if (inputBar) inputBar.style.display = 'none';
           chatUI.renderContactFallback(body, identity, ctx.locale, presenceStore.get(), function () {
             renderBody();
           });
@@ -2668,6 +2677,7 @@
         }
         chatUI.renderChat(body);
       } else if (tab === 'help') {
+        if (inputBar) inputBar.style.display = 'none';
         kbUI.ensure(function () { kbUI.render(body); });
       }
     }

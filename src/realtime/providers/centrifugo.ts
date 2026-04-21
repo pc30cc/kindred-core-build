@@ -428,6 +428,17 @@ async function resubscribeAll(conn: SharedConnection): Promise<void> {
       const e: any = err;
       const code = Number(e?.code) || 0;
       const msg = String(e?.message || '');
+      // Already-subscribed is BENIGN. Centrifugo emits this when the same
+      // channel is in our local subTokens map AND the server still has the
+      // subscription from a previous open that didn't reach onclose on our
+      // side. Treat it as success and move on — do NOT fail the channel,
+      // do NOT close the socket, do NOT mark inbox as error.
+      const isAlreadySubscribed =
+        code === 105 || /already\s*subscribed/i.test(msg);
+      if (isAlreadySubscribed) {
+        rtDebug('centrifugo', 're-subscribe: already subscribed (idempotent)', { channel });
+        continue;
+      }
       const isTokenError =
         code === 109 || /token|expired|unauthorized|401/i.test(msg);
 
@@ -462,6 +473,14 @@ async function resubscribeAll(conn: SharedConnection): Promise<void> {
         rtDebug('centrifugo', 're-subscribe succeeded after token refresh', { channel });
       } catch (retryErr) {
         const re: any = retryErr;
+        // Same idempotency rule on retry — server may have accepted the
+        // first subscribe between the rejection and our retry.
+        const reCode = Number(re?.code) || 0;
+        const reMsg = String(re?.message || '');
+        if (reCode === 105 || /already\s*subscribed/i.test(reMsg)) {
+          rtDebug('centrifugo', 're-subscribe retry: already subscribed (idempotent)', { channel });
+          continue;
+        }
         rtWarn('centrifugo', 're-subscribe failed after forced refresh', {
           channel,
           error: re?.message,
@@ -552,6 +571,30 @@ export class CentrifugoClientProvider implements ClientRealtimeProvider {
 
     handlers.onStatus?.('connecting');
 
+    // ── Idempotency guard: if we already have a live subscription token
+    //    for this channel from a prior subscribe() call (e.g. React hook
+    //    re-mount, duplicate effect), DO NOT re-send the Centrifugo
+    //    `subscribe` frame — the server would reject it with
+    //    "already subscribed" and our error handler used to close the
+    //    socket, taking down every other channel with it.
+    //
+    //    We still register the new handler so it receives push events,
+    //    and we surface 'open' immediately if the socket is already up.
+    const existingTokens = conn.subTokens.get(expectedChannel);
+    const alreadySubscribed = !!(existingTokens && existingTokens.token);
+    if (alreadySubscribed) {
+      if (!conn.subs.has(expectedChannel)) conn.subs.set(expectedChannel, new Set());
+      conn.subs.get(expectedChannel)!.add(handlers);
+      if (conn.ws && conn.ws.readyState === 1) {
+        handlers.onStatus?.('open');
+      } else {
+        // Socket is reconnecting — resubscribeAll will surface 'open' once it lands.
+        handlers.onStatus?.('connecting');
+      }
+      rtDebug('centrifugo', 'subscribe: reusing existing channel subscription', { channel: expectedChannel });
+      return buildUnsubscribe(conn, expectedChannel, handlers, this.negotiation.ws_url!);
+    }
+
     // Register the handler + a placeholder sub-token entry IMMEDIATELY.
     // This guarantees that if the socket dies before we finish subscribing,
     // the reconnect loop's `resubscribeAll` will refresh + re-issue this
@@ -587,7 +630,33 @@ export class CentrifugoClientProvider implements ClientRealtimeProvider {
     try {
       const sub = await refresh();
       if (sub && sub.vendor === 'centrifugo' && sub.channel && sub.token) {
-        await sendOnConn(conn, 'subscribe', { channel: sub.channel, token: sub.token });
+        // Defer-on-not-ready: if the socket isn't open at this exact
+        // moment (race between conn.ready resolving and a fresh onclose),
+        // do NOT throw. Cache the token; resubscribeAll will pick it up
+        // on the next successful open.
+        if (conn.closed || !conn.ws || conn.ws.readyState !== 1) {
+          conn.subTokens.set(sub.channel, {
+            channel: sub.channel,
+            token: sub.token,
+            expiresAt: (sub.expires_at || 0) * 1000 || Date.now() + 9 * 60_000,
+            refresh,
+          });
+          rtDebug('centrifugo', 'subscribe deferred — socket not ready', { channel: sub.channel });
+          handlers.onStatus?.('connecting');
+          return buildUnsubscribe(conn, sub.channel, handlers, this.negotiation.ws_url!);
+        }
+        try {
+          await sendOnConn(conn, 'subscribe', { channel: sub.channel, token: sub.token });
+        } catch (subErr: any) {
+          // Already-subscribed is benign (race with another caller / a
+          // resubscribeAll that just ran). Treat as success.
+          const subCode = Number(subErr?.code) || 0;
+          const subMsg = String(subErr?.message || '');
+          if (subCode !== 105 && !/already\s*subscribed/i.test(subMsg)) {
+            throw subErr;
+          }
+          rtDebug('centrifugo', 'subscribe: server says already subscribed (idempotent)', { channel: sub.channel });
+        }
         conn.subTokens.set(sub.channel, {
           channel: sub.channel,
           token: sub.token,
@@ -614,11 +683,22 @@ export class CentrifugoClientProvider implements ClientRealtimeProvider {
       rtWarn('centrifugo', 'subscribe deferred — no token yet', { channel: expectedChannel });
       handlers.onStatus?.('error', { reason: 'subscribe_token_unavailable' });
     } catch (err: any) {
+      const errMsg = String(err?.message || err);
+      // socket_not_open is a transient race during reconnect — do NOT
+      // surface as a hard error or kill the socket. The reconnect loop
+      // owns recovery; resubscribeAll will retry our pre-registered entry.
+      if (/socket_not_open/i.test(errMsg)) {
+        rtDebug('centrifugo', 'subscribe deferred — socket_not_open (will retry on reconnect)', {
+          channel: expectedChannel,
+        });
+        handlers.onStatus?.('connecting');
+        return buildUnsubscribe(conn, expectedChannel, handlers, this.negotiation.ws_url!);
+      }
       rtWarn('centrifugo', 'subscribe failed — will retry on reconnect', {
         channel: expectedChannel,
-        error: String(err?.message || err),
+        error: errMsg,
       });
-      handlers.onStatus?.('error', { reason: String(err?.message || err) });
+      handlers.onStatus?.('error', { reason: errMsg });
       // Drop the socket so the reconnect loop runs through fresh negotiation.
       conn.tokenExpiresAt = 0;
       try { conn.ws.close(); } catch { /* noop */ }

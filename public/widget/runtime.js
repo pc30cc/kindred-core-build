@@ -312,7 +312,7 @@
       connected:         ['subscribing', 'reconnecting', 'degraded', 'offline', 'waking', 'auth_expired', 'idle'],
       degraded:          ['connecting', 'reconnecting', 'connected', 'offline', 'waking', 'auth_expired', 'idle'],
       reconnecting:      ['connecting', 'subscribing', 'connected', 'degraded', 'offline', 'waking', 'auth_expired', 'failed', 'idle'],
-      waking:            ['restoring_session', 'connecting', 'subscribing', 'connected', 'degraded', 'offline', 'auth_expired', 'failed', 'idle'],
+      waking:            ['restoring_session', 'connecting', 'reconnecting', 'subscribing', 'connected', 'degraded', 'offline', 'auth_expired', 'failed', 'idle'],
       offline:           ['waking', 'reconnecting', 'connecting', 'idle'],
       unavailable:       ['waking', 'connecting', 'reconnecting', 'connected', 'idle'],
       auth_expired:      ['waking', 'restoring_session', 'idle'],
@@ -662,14 +662,28 @@
     // subscribe to transportStore.connectionState. We compute the legacy
     // value from the FSM in ONE place and only emit when it actually
     // changes — the FSM remains the source of truth.
+    // `everOnline` flips to true the FIRST time we reach 'online'. Without
+    // it, the very first connecting → online transition would emit a
+    // 'reconnect' event (because prev was 'connecting'), causing the chat
+    // UI to call bootstrapHistory() again right after the initial load —
+    // the source of the duplicate "transport reconnect — refreshing
+    // history" log on a healthy first connect.
+    var everOnline = false;
     function syncLegacyState(reason) {
       var legacy = fsm ? fsm.legacyConnectionState() : 'idle';
       var prev = transportStore.get().connectionState;
       if (prev === legacy) return;
       transportStore.set({ connectionState: legacy, lastConnectionChange: Date.now() });
       emit('connectionstate', { state: legacy, previous: prev, reason: reason || null });
-      if (legacy === 'online' && (prev === 'reconnecting' || prev === 'offline' || prev === 'connecting')) {
-        emit('reconnect', { reason: reason || null });
+      if (legacy === 'online') {
+        // Only emit 'reconnect' on a TRUE reconnect — i.e. we were online
+        // at least once before and just came back from a degraded state.
+        // Initial connect MUST NOT fire 'reconnect' (it would double-load
+        // history and is semantically wrong).
+        if (everOnline && (prev === 'reconnecting' || prev === 'offline')) {
+          emit('reconnect', { reason: reason || null });
+        }
+        everOnline = true;
       }
     }
     if (fsm) fsm.onChange(function () { syncLegacyState('fsm'); });
@@ -2745,6 +2759,14 @@
       // States from which a wake recovery is actually meaningful.
       // Anything outside this set means the transport is either healthy
       // (no need to recover) or already mid-flight (do not interrupt).
+      //
+      // IMPORTANT: 'connected' is NOT in this set. A healthy active
+      // connection must NEVER be yanked just because the tab regained
+      // visibility — that produced the destructive
+      //   connected → waking → reconnecting (driver:dropped)
+      // loop in production. If the socket is actually dead the driver's
+      // own ping/onclose path will detect it and trigger reconnect via
+      // the proper channel; we don't need to second-guess it here.
       var WAKE_RECOVERABLE = {
         offline: 1,
         reconnecting: 1,
@@ -2752,7 +2774,6 @@
         failed: 1,
         auth_expired: 1,
         degraded: 1,
-        connected: 1,   // socket may be silently dead after long sleep
         idle: 1,        // never connected yet, allow first kick
       };
       var triggerWake = function (reason) {

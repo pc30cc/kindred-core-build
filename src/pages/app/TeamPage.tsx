@@ -17,8 +17,10 @@ import { toast } from 'sonner';
 import {
   Users, UserPlus, Shield, Loader2, Copy, Trash2,
   Crown, MoreHorizontal, Mail, Clock, Search, UserCog,
-  Ban, RotateCcw, HelpCircle,
+  Ban, RotateCcw, CheckCircle2,
 } from 'lucide-react';
+import { Card } from '@/components/ui/card';
+import { cn } from '@/lib/utils';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL;
 
@@ -305,20 +307,23 @@ export default function TeamPage() {
   }
 
   return (
-    <div className="space-y-10 animate-fade-in pb-12">
-      {/* Header — matches Settings pages */}
-      <header className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-2">
-          <h1 className="text-2xl font-semibold text-foreground">{t('team.title')}</h1>
-          <HelpCircle className="h-4 w-4 text-muted-foreground" />
+    <div className="space-y-8 animate-fade-in">
+      {/* Header — mirrors Account Information */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+            {t('team.title')}
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">{t('team.subtitle')}</p>
         </div>
-        <span className="text-xs text-muted-foreground">
+        <div className="flex shrink-0 items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs text-foreground">
+          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
           {members.length} {t('team.totalMembers').toLowerCase()}
-        </span>
-      </header>
+        </div>
+      </div>
 
-      {/* Section Tabs — quiet pill nav */}
-      <nav className="flex items-center gap-1 border-b border-border/60 -mt-4">
+      {/* Section Tabs */}
+      <nav className="flex items-center gap-1 border-b border-border/60">
         {[
           { key: 'members',     icon: Users,  label: t('team.tabMembers'),     badge: 0 },
           { key: 'invitations', icon: Mail,   label: t('team.tabInvitations'), badge: activeInvites.length },
@@ -330,11 +335,10 @@ export default function TeamPage() {
             <button
               key={tab.key}
               onClick={() => setActiveSection(tab.key as any)}
-              className={`relative flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors ${
-                active
-                  ? 'text-foreground'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
+              className={cn(
+                'relative flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors',
+                active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
+              )}
             >
               <Icon className="w-4 h-4" />
               {tab.label}
@@ -363,9 +367,9 @@ export default function TeamPage() {
           </div>
 
           {/* Members List */}
-          <section className="rounded-xl border border-border/60 bg-card/40 overflow-hidden">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 px-5 py-4 border-b border-border/60">
-              <h3 className="text-sm font-semibold text-foreground">{t('team.membersList')}</h3>
+          <Card className="overflow-hidden border-border/60 shadow-sm">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-border/60 px-6 py-4">
+              <h2 className="text-base font-semibold text-foreground">{t('team.membersList')}</h2>
               <div className="relative w-full sm:w-64">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <Input
@@ -389,7 +393,7 @@ export default function TeamPage() {
                   const presence = presenceByUser.get(m.user_id);
                   const isOnline = presence?.state === 'online';
                   return (
-                    <div key={m.id} className="flex items-center gap-4 px-5 py-3.5 hover:bg-muted/50 transition-colors">
+                    <div key={m.id} className="flex items-center gap-4 px-6 py-4 hover:bg-muted/40 transition-colors">
                       <div className="relative shrink-0">
                         <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
                           <span className="text-sm font-semibold text-primary">
@@ -433,11 +437,11 @@ export default function TeamPage() {
                   );
                 })}
                 {filteredMembers.length === 0 && (
-                  <p className="text-center text-sm text-muted-foreground py-10">{t('team.noMembers')}</p>
+                  <p className="text-center text-sm text-muted-foreground py-12">{t('team.noMembers')}</p>
                 )}
               </div>
             )}
-          </section>
+          </Card>
         </>
       )}
 
@@ -445,12 +449,13 @@ export default function TeamPage() {
       {activeSection === 'invitations' && (
         <>
           {/* Create Invitation */}
-          <section className="rounded-xl border border-border/60 bg-card/40 p-6 space-y-4">
-              <div className="flex items-center gap-2">
-                <UserPlus className="w-5 h-5 text-primary" />
-                <h3 className="text-sm font-semibold text-foreground">{t('team.inviteNew')}</h3>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <Card className="overflow-hidden border-border/60 shadow-sm">
+            <div className="border-b border-border/60 px-6 py-4 flex items-center gap-2">
+              <UserPlus className="w-4 h-4 text-primary" />
+              <h2 className="text-base font-semibold text-foreground">{t('team.inviteNew')}</h2>
+            </div>
+            <div className="p-6 space-y-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                 <div className="space-y-2">
                   <Label className="text-xs">{t('team.inviteEmail')}</Label>
                   <Input
@@ -513,15 +518,16 @@ export default function TeamPage() {
                   </Button>
                 </div>
               )}
-          </section>
+            </div>
+          </Card>
 
           {/* Active Invitations */}
-          <section className="rounded-xl border border-border/60 bg-card/40 overflow-hidden">
-            <div className="px-5 py-4 border-b border-border/60">
-              <h3 className="text-sm font-semibold text-foreground">{t('team.activeInvitations')}</h3>
+          <Card className="overflow-hidden border-border/60 shadow-sm">
+            <div className="border-b border-border/60 px-6 py-4">
+              <h2 className="text-base font-semibold text-foreground">{t('team.activeInvitations')}</h2>
             </div>
             {activeInvites.length === 0 ? (
-              <p className="text-center text-sm text-muted-foreground py-10">{t('team.noInvitations')}</p>
+              <p className="text-center text-sm text-muted-foreground py-12">{t('team.noInvitations')}</p>
             ) : (
               <div className="divide-y divide-border/60">
                 {activeInvites.map((inv: any) => (
@@ -539,13 +545,13 @@ export default function TeamPage() {
                 ))}
               </div>
             )}
-          </section>
+          </Card>
 
           {/* Expired / Revoked Invitations */}
           {inactiveInvites.length > 0 && (
-            <section className="rounded-xl border border-border/60 bg-card/40 overflow-hidden">
-              <div className="px-5 py-4 border-b border-border/60">
-                <h3 className="text-sm font-semibold text-foreground">{t('team.expiredInvitations')}</h3>
+            <Card className="overflow-hidden border-border/60 shadow-sm">
+              <div className="border-b border-border/60 px-6 py-4">
+                <h2 className="text-base font-semibold text-foreground">{t('team.expiredInvitations')}</h2>
               </div>
               <div className="divide-y divide-border/60">
                 {inactiveInvites.map((inv: any) => (
@@ -561,18 +567,21 @@ export default function TeamPage() {
                   />
                 ))}
               </div>
-            </section>
+            </Card>
           )}
         </>
       )}
 
       {/* ═══════════ Roles Tab ═══════════ */}
       {activeSection === 'roles' && (
-        <div className="space-y-5">
-          <p className="text-sm text-muted-foreground -mt-4">{t('team.rolesDesc')}</p>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card className="overflow-hidden border-border/60 shadow-sm">
+          <div className="border-b border-border/60 px-6 py-4">
+            <h2 className="text-base font-semibold text-foreground">{t('team.tabRoles')}</h2>
+            <p className="mt-1 text-sm text-muted-foreground">{t('team.rolesDesc')}</p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-6">
             {allRolesWithOwner.map(role => (
-              <div key={role} className="rounded-xl border border-border/60 bg-card/40 p-5 transition-colors hover:border-border">
+              <div key={role} className="rounded-lg border border-border/60 bg-background p-5 transition-colors hover:border-border">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
                       <Badge className={`text-xs px-2.5 py-1 border ${roleColors[role] || roleColors.viewer}`}>
@@ -594,7 +603,7 @@ export default function TeamPage() {
               </div>
             ))}
           </div>
-        </div>
+        </Card>
       )}
     </div>
   );

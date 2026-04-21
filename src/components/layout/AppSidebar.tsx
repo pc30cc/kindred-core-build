@@ -21,6 +21,9 @@ import { useProfile } from '@/hooks/useProfile';
 import { useMemo, useState, useRef, useEffect } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { CreateWorkspaceDialog } from '@/features/workspace/CreateWorkspaceDialog';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { fetchAvailability, updateAvailability } from '@/lib/availability-api';
+import { toast } from '@/hooks/use-toast';
 
 export function AppSidebar() {
   const { t, dir } = useTranslation();
@@ -40,6 +43,36 @@ export function AppSidebar() {
   const userMenuRef = useRef<HTMLDivElement>(null);
 
   const brandLetter = useMemo(() => (platformName || 'A').charAt(0), [platformName]);
+
+  // Availability — used for the "invisible mode" quick toggle in the user menu
+  const queryClient = useQueryClient();
+  const { data: availability } = useQuery({
+    queryKey: ['availability', 'me'],
+    queryFn: fetchAvailability,
+    enabled: !!user,
+    staleTime: 30_000,
+  });
+  const invisible = !!availability?.prefs?.force_offline;
+  const toggleInvisible = useMutation({
+    mutationFn: () => updateAvailability({ force_offline: !invisible }),
+    onSuccess: (res) => {
+      queryClient.setQueryData(['availability', 'me'], res);
+      queryClient.invalidateQueries({ queryKey: ['team-presence'] });
+      toast({
+        title: res.prefs.force_offline ? 'Invisible mode enabled' : 'Invisible mode disabled',
+        description: res.prefs.force_offline
+          ? 'You now appear offline to visitors.'
+          : 'You are visible based on your availability schedule.',
+      });
+    },
+    onError: (err: any) => {
+      toast({
+        title: 'Failed to update status',
+        description: err?.message || 'Please try again.',
+        variant: 'destructive',
+      });
+    },
+  });
 
   // Close menus on outside click
   useEffect(() => {
@@ -313,14 +346,27 @@ export function AppSidebar() {
               <Bell className="h-4 w-4 text-muted-foreground" />
               <span>{t('nav.viewAlerts') || 'View alerts'}</span>
             </button>
-            <button className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-foreground hover:bg-accent transition-colors">
-              <EyeOff className="h-4 w-4 text-muted-foreground" />
-              <span>{t('nav.invisibleMode') || 'Enable invisible mode'}</span>
+            <button
+              onClick={() => toggleInvisible.mutate()}
+              disabled={toggleInvisible.isPending || !availability}
+              className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-foreground hover:bg-accent transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              <EyeOff className={cn('h-4 w-4', invisible ? 'text-primary' : 'text-muted-foreground')} />
+              <span className="flex-1 text-start">
+                {invisible
+                  ? 'Disable invisible mode'
+                  : (t('nav.invisibleMode') || 'Enable invisible mode')}
+              </span>
+              {invisible && <Check className="h-4 w-4 text-primary shrink-0" />}
             </button>
-            <button className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-foreground hover:bg-accent transition-colors">
+            <RouterLink
+              to={wsPath('/settings/availability')}
+              onClick={() => setUserMenuOpen(false)}
+              className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-foreground hover:bg-accent transition-colors"
+            >
               <Clock className="h-4 w-4 text-muted-foreground" />
               <span>{t('nav.availability') || 'Availability settings'}</span>
-            </button>
+            </RouterLink>
 
             <div className="border-t border-border my-1" />
 

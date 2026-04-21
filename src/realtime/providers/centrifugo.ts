@@ -428,6 +428,17 @@ async function resubscribeAll(conn: SharedConnection): Promise<void> {
       const e: any = err;
       const code = Number(e?.code) || 0;
       const msg = String(e?.message || '');
+      // Already-subscribed is BENIGN. Centrifugo emits this when the same
+      // channel is in our local subTokens map AND the server still has the
+      // subscription from a previous open that didn't reach onclose on our
+      // side. Treat it as success and move on — do NOT fail the channel,
+      // do NOT close the socket, do NOT mark inbox as error.
+      const isAlreadySubscribed =
+        code === 105 || /already\s*subscribed/i.test(msg);
+      if (isAlreadySubscribed) {
+        rtDebug('centrifugo', 're-subscribe: already subscribed (idempotent)', { channel });
+        continue;
+      }
       const isTokenError =
         code === 109 || /token|expired|unauthorized|401/i.test(msg);
 
@@ -462,6 +473,14 @@ async function resubscribeAll(conn: SharedConnection): Promise<void> {
         rtDebug('centrifugo', 're-subscribe succeeded after token refresh', { channel });
       } catch (retryErr) {
         const re: any = retryErr;
+        // Same idempotency rule on retry — server may have accepted the
+        // first subscribe between the rejection and our retry.
+        const reCode = Number(re?.code) || 0;
+        const reMsg = String(re?.message || '');
+        if (reCode === 105 || /already\s*subscribed/i.test(reMsg)) {
+          rtDebug('centrifugo', 're-subscribe retry: already subscribed (idempotent)', { channel });
+          continue;
+        }
         rtWarn('centrifugo', 're-subscribe failed after forced refresh', {
           channel,
           error: re?.message,

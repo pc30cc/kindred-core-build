@@ -1,5 +1,9 @@
 # ── Frontend Build ──────────────────────────────────────────
-FROM node:20-alpine AS build
+# Pin to ≥ 20.11 because scripts/widget-hash.js historically relied on
+# `import.meta.dirname` (added in 20.11). We've since switched the
+# script to `fileURLToPath(import.meta.url)` which works on any Node 20,
+# but pinning the floor avoids any other 20.x quirks Coolify might cache.
+FROM node:20.18-alpine AS build
 WORKDIR /app
 
 COPY package.json bun.lockb* package-lock.json* ./

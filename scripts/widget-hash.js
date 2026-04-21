@@ -10,11 +10,34 @@
  */
 import { createHash } from 'crypto';
 import { readFileSync, writeFileSync, mkdirSync, copyFileSync, existsSync, readdirSync, unlinkSync } from 'fs';
-import { resolve, join } from 'path';
+import { resolve, join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 
-const ROOT = resolve(import.meta.dirname, '..');
+// NOTE: Do NOT use `import.meta.dirname` — it was only added in Node 20.11.
+// Some `node:20-alpine` images shipped with older 20.x patch versions
+// where `import.meta.dirname` is `undefined`. With `undefined`,
+// `resolve(undefined, '..')` silently returns `/`, which makes this
+// script "succeed" while writing the manifest to the WRONG path
+// (e.g. `/dist/widget/...` instead of `/app/dist/widget/...`). The
+// Dockerfile assertion then fails with "widget-manifest.json missing
+// from build output" even though the script printed no errors.
+//
+// `fileURLToPath(import.meta.url)` works on every Node ≥ 12 and is the
+// canonical ESM equivalent of CommonJS `__dirname`.
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const ROOT = resolve(__dirname, '..');
 const SRC_DIR = join(ROOT, 'public', 'widget');
 const OUT_DIR = join(ROOT, 'dist', 'widget');
+
+// Fail loudly if the source dir is missing — otherwise the script would
+// happily write an empty manifest and the bad image would only blow up
+// at runtime when the loader tries to fetch a non-existent runtime hash.
+if (!existsSync(SRC_DIR)) {
+  console.error(`[widget-hash] FATAL: source directory not found: ${SRC_DIR}`);
+  console.error(`[widget-hash] CWD=${process.cwd()}  __dirname=${__dirname}  ROOT=${ROOT}`);
+  process.exit(1);
+}
 
 // Files that get content-hashed filenames
 const HASHED_FILES = ['runtime.js', 'runtime.css', 'runtime-chat.js', 'runtime-kb.js', 'runtime-rt-centrifugo.js', 'runtime-rt-supabase.js', 'runtime-rt-resolver.js'];
@@ -78,3 +101,11 @@ const manifestPath = join(OUT_DIR, 'widget-manifest.json');
 writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
 console.log(`[widget-hash] Manifest written to ${manifestPath}`);
 console.log(JSON.stringify(manifest, null, 2));
+
+// Final sanity check — refuse to "succeed" if the manifest didn't land
+// where the Dockerfile expects it. This catches any future path/CWD
+// regression at build time instead of at runtime in production.
+if (!existsSync(manifestPath)) {
+  console.error(`[widget-hash] FATAL: manifest write reported success but file is missing: ${manifestPath}`);
+  process.exit(1);
+}

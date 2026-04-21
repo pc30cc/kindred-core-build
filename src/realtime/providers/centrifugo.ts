@@ -430,7 +430,14 @@ function sendOnConn(conn: SharedConnection, key: string, body: Record<string, un
     }, 8000);
     conn.pending[id] = (reply) => {
       clearTimeout(timeout);
-      if (reply?.error) reject(reply.error);
+      if (reply?.error) {
+        // Build a real Error so callers (and our reconnect heuristics) get
+        // a stable `.message`. Centrifugo error shape: { code, message }.
+        const e = reply.error;
+        const err = new Error(e?.message || `centrifugo_error_${e?.code || 'unknown'}`);
+        (err as any).code = e?.code;
+        reject(err);
+      }
       else resolve(reply?.[key] ?? {});
     };
     try {

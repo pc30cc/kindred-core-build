@@ -14,6 +14,7 @@ import { storageRouter } from './routes/storage.js';
 import { cdnRouter } from './routes/cdn.js';
 import { accountRouter } from './routes/account.js';
 import { notificationsRouter } from './routes/notifications.js';
+import { availabilityRouter } from './routes/availability.js';
 import { billingRouter } from './routes/billing.js';
 import { plansRouter } from './routes/plans.js';
 import { adminRouter } from './routes/admin.js';
@@ -139,6 +140,9 @@ app.use('/api/account', accountRouter);
 
 // Self-service notification preferences
 app.use('/api/notifications', notificationsRouter);
+
+// Self-service per-user availability schedule
+app.use('/api/availability', availabilityRouter);
 
 // Billing — checkout, webhooks, subscription management
 app.use('/api/billing', billingRouter);

@@ -662,14 +662,28 @@
     // subscribe to transportStore.connectionState. We compute the legacy
     // value from the FSM in ONE place and only emit when it actually
     // changes — the FSM remains the source of truth.
+    // `everOnline` flips to true the FIRST time we reach 'online'. Without
+    // it, the very first connecting → online transition would emit a
+    // 'reconnect' event (because prev was 'connecting'), causing the chat
+    // UI to call bootstrapHistory() again right after the initial load —
+    // the source of the duplicate "transport reconnect — refreshing
+    // history" log on a healthy first connect.
+    var everOnline = false;
     function syncLegacyState(reason) {
       var legacy = fsm ? fsm.legacyConnectionState() : 'idle';
       var prev = transportStore.get().connectionState;
       if (prev === legacy) return;
       transportStore.set({ connectionState: legacy, lastConnectionChange: Date.now() });
       emit('connectionstate', { state: legacy, previous: prev, reason: reason || null });
-      if (legacy === 'online' && (prev === 'reconnecting' || prev === 'offline' || prev === 'connecting')) {
-        emit('reconnect', { reason: reason || null });
+      if (legacy === 'online') {
+        // Only emit 'reconnect' on a TRUE reconnect — i.e. we were online
+        // at least once before and just came back from a degraded state.
+        // Initial connect MUST NOT fire 'reconnect' (it would double-load
+        // history and is semantically wrong).
+        if (everOnline && (prev === 'reconnecting' || prev === 'offline')) {
+          emit('reconnect', { reason: reason || null });
+        }
+        everOnline = true;
       }
     }
     if (fsm) fsm.onChange(function () { syncLegacyState('fsm'); });

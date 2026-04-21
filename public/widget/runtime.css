@@ -168,6 +168,24 @@ textarea:focus-visible {
   object-fit: cover;
   display: block;
 }
+/* Per-operator green dot — placed bottom-right of the avatar to mark
+   live online status (Intercom/Crisp parity). Replaces the standalone
+   presence-row dot that used to sit under the title. */
+.header-op-dot {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #10B981;
+  box-shadow: 0 0 0 2px var(--gs-primary, #3B82F6);
+  pointer-events: none;
+}
+.header-op-avatar.is-online {
+  /* subtle outer glow so online operators read at a glance */
+  box-shadow: 0 0 0 2px var(--gs-primary, #3B82F6), 0 0 0 4px rgba(16, 185, 129, 0.35), 0 2px 6px rgba(0, 0, 0, 0.18);
+}
 
 /* Visually hidden helper — keeps presence label available to assistive
    tech without showing the text. */

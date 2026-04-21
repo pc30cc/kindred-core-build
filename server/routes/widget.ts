@@ -650,6 +650,8 @@ widgetRouter.get('/poll', widgetRateLimit('poll'), async (req: Request, res: Res
       // Forward the raw enum so newer widget versions / analytics can
       // distinguish 'ai' from 'agent' without re-parsing metadata.
       sender_type: m.sender_type,
+      // Raw sender id is needed below to look up profile (avatar/name).
+      _sender_id: m.metadata?.sender_id || null,
       text: m.body,
       time: m.created_at,
       metadata: m.metadata,
@@ -658,7 +660,8 @@ widgetRouter.get('/poll', widgetRateLimit('poll'), async (req: Request, res: Res
       seen_at: m.seen_at || null,
     }));
     // Phase 6b — attach public-safe attachment metadata (no provider URLs)
-    const messages = await enrichMessagesWithAttachments(config, workspaceId, baseMessages);
+    const enriched = await enrichMessagesWithAttachments(config, workspaceId, baseMessages);
+    const messages = await enrichMessagesWithSender(supabase, enriched);
 
     let operatorInfo = null;
     if (conv.assigned_to) {

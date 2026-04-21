@@ -8,7 +8,7 @@
  */
 
 import { useState } from 'react';
-import { useTranslation } from '@/i18n';
+import { useTranslation, useI18n } from '@/i18n';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   fetchSecuritySessions,
@@ -105,7 +105,7 @@ function LocationCell({
 
 export default function SettingsSecurityPage() {
   const { t, i18n } = useTranslation();
-  const locale = (i18n as any)?.language || 'en';
+  const { locale } = useI18n();
   const qc = useQueryClient();
 
   const sessionsQ = useQuery({

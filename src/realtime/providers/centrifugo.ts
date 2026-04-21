@@ -190,6 +190,7 @@ function buildConnection(workspaceId: string, negotiation: RealtimeNegotiation):
     refreshTimer: null,
     disposed: false,
     ready: Promise.resolve(),
+    generation: 0,
   };
   conn.ready = openSocket(conn);
   return conn;

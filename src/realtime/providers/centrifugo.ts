@@ -57,11 +57,53 @@ async function operatorSubscribe(
   }
 }
 
-/** Parse `ws:<workspaceId>:conv:<conversationId>` → ids. */
-function parseChannel(channel: string): { workspaceId: string; conversationId: string } | null {
-  const m = /^ws:([^:]+):conv:(.+)$/.exec(channel);
-  if (!m) return null;
-  return { workspaceId: m[1], conversationId: m[2] };
+async function operatorInboxSubscribe(workspaceId: string): Promise<SubscribeResponse | null> {
+  try {
+    const res = await fetch(`${API_BASE}/api/realtime/operator-inbox-subscribe`, {
+      method: 'POST',
+      headers: await authHeaders(),
+      body: JSON.stringify({ workspace_id: workspaceId }),
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as SubscribeResponse;
+  } catch {
+    return null;
+  }
+}
+
+async function operatorVisitorsSubscribe(workspaceId: string): Promise<SubscribeResponse | null> {
+  try {
+    const res = await fetch(`${API_BASE}/api/realtime/operator-visitors-subscribe`, {
+      method: 'POST',
+      headers: await authHeaders(),
+      body: JSON.stringify({ workspace_id: workspaceId }),
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as SubscribeResponse;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Parse a workspace channel and decide which subscription endpoint to use.
+ *  - ws:<wsId>:conv:<convId> → per-conversation token endpoint
+ *  - ws:<wsId>:inbox         → operator inbox token endpoint
+ *  - ws:<wsId>:visitors      → operator visitors token endpoint
+ */
+type ParsedChannel =
+  | { kind: 'conversation'; workspaceId: string; conversationId: string }
+  | { kind: 'inbox'; workspaceId: string }
+  | { kind: 'visitors'; workspaceId: string };
+
+function parseChannel(channel: string): ParsedChannel | null {
+  let m = /^ws:([^:]+):conv:(.+)$/.exec(channel);
+  if (m) return { kind: 'conversation', workspaceId: m[1], conversationId: m[2] };
+  m = /^ws:([^:]+):inbox$/.exec(channel);
+  if (m) return { kind: 'inbox', workspaceId: m[1] };
+  m = /^ws:([^:]+):visitors$/.exec(channel);
+  if (m) return { kind: 'visitors', workspaceId: m[1] };
+  return null;
 }
 
 /** Per-tab connection cache keyed by ws_url so we share one socket. */
@@ -208,7 +250,14 @@ export class CentrifugoClientProvider implements ClientRealtimeProvider {
       throw err;
     }
 
-    const sub = await operatorSubscribe(parsed.workspaceId, parsed.conversationId);
+    let sub: SubscribeResponse | null = null;
+    if (parsed.kind === 'conversation') {
+      sub = await operatorSubscribe(parsed.workspaceId, parsed.conversationId);
+    } else if (parsed.kind === 'inbox') {
+      sub = await operatorInboxSubscribe(parsed.workspaceId);
+    } else if (parsed.kind === 'visitors') {
+      sub = await operatorVisitorsSubscribe(parsed.workspaceId);
+    }
     if (!sub || sub.vendor !== 'centrifugo' || !sub.channel || !sub.token) {
       throw new Error('subscribe_token_unavailable');
     }

@@ -487,16 +487,25 @@ export default function InboxPage() {
     const hasAttachment = att.status === 'ready' && !!att.attachmentId;
     if (!hasText && !hasAttachment) return;
     if (att.status === 'uploading') return; // wait for upload to finish
-    await sendMessage.mutateAsync({
-      body: message,
-      attachmentId: hasAttachment ? att.attachmentId : null,
-    });
-    // Phase 6 — track-use only on actual send. We tracked candidate ids when
-    // they were inserted into the draft; only fire if the inserted text is
-    // still present at send time.
-    flushPendingTrackUse(message);
+    // Snapshot draft, then clear UI immediately so the operator can keep
+    // typing without waiting on the network round-trip. The realtime
+    // publish + React-Query invalidate (in useSendMessage.onSuccess) will
+    // reconcile the message into the thread within milliseconds.
+    const draftBody = message;
+    const draftAttachmentId = hasAttachment ? att.attachmentId : null;
     setMessage('');
     resetAttachment();
+    flushPendingTrackUse(draftBody);
+    sendMessage.mutate(
+      { body: draftBody, attachmentId: draftAttachmentId },
+      {
+        onError: () => {
+          // Restore draft on failure so the operator can retry without
+          // losing what they typed.
+          setMessage(draftBody);
+        },
+      },
+    );
   };
 
   // Reset visitor typing indicator + pending attachment when switching conversations.

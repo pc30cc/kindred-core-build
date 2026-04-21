@@ -137,6 +137,9 @@ app.use('/api/cdn', cdnRouter);
 // Account — self-service for the authenticated user (profile, avatar, password)
 app.use('/api/account', accountRouter);
 
+// Self-service notification preferences
+app.use('/api/notifications', notificationsRouter);
+
 // Billing — checkout, webhooks, subscription management
 app.use('/api/billing', billingRouter);
 

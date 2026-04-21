@@ -139,6 +139,26 @@ export default function WidgetPage() {
 
             {/* ─── Appearance ─── */}
             <TabsContent value="appearance">
+              <div className="space-y-4">
+              {/* Template gallery — wired to the platform-registered templates registry. */}
+              <Card className="card-elevated">
+                <CardContent className="p-6">
+                  <TemplateGallery
+                    selectedSlug={(widget as any)?.template_slug || 'default'}
+                    primaryColor={primaryColor}
+                    brandLabel={widget?.launcher_text || platformName || 'Support'}
+                    saving={updateWidget.isPending}
+                    onSelect={(slug) => {
+                      updateWidget.mutate({ template_slug: slug } as any, {
+                        onSuccess: () => toast({ title: 'Template updated', description: `Now using "${slug}"` }),
+                        onError: (e: any) => toast({ title: 'Failed to switch template', description: e.message, variant: 'destructive' }),
+                      });
+                    }}
+                  />
+                </CardContent>
+              </Card>
+
+              {/* Per-template customization — settings here apply to whichever template is active. */}
               <Card className="card-elevated">
                 <CardContent className="p-6 space-y-5">
                   <div className="grid grid-cols-2 gap-4">

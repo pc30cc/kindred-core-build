@@ -149,8 +149,7 @@ async function fetchRemoteManifest(): Promise<WidgetManifest | null> {
       }
       const res = await fetch(url, {
         signal: ctrl.signal,
-        cache: 'no-store',
-        headers,
+        headers: { ...headers, 'Cache-Control': 'no-cache' },
       });
       clearTimeout(timeout);
       lastRemoteUrl = url;

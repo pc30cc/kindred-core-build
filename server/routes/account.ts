@@ -17,6 +17,8 @@ import crypto from 'crypto';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { uploadFile, deleteFile } from '../services/storage/index.js';
+import { resolveVisitorGeo } from '../services/geo/index.js';
+import { hashIp, maskIp } from '../utils/clientIp.js';
 
 export const accountRouter = Router();
 

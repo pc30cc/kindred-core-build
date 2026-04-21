@@ -66,3 +66,22 @@ export function updateAvailability(updates: Partial<AvailabilityPrefs>) {
     body: JSON.stringify(updates),
   });
 }
+
+// ── Team presence ───────────────────────────────────────────────
+
+export type OperatorState = 'online' | 'offline';
+
+export interface OperatorPresence {
+  user_id: string;
+  state: OperatorState;
+  reason: string;
+}
+
+export interface TeamPresenceResponse {
+  presence: OperatorPresence[];
+  fetched_at: string;
+}
+
+export function fetchTeamPresence(workspaceId: string) {
+  return request<TeamPresenceResponse>(`/api/availability/team/${workspaceId}`);
+}

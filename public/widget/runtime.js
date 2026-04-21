@@ -1928,13 +1928,9 @@
         if (payload.email) body.email = payload.email;
         if (payload.phone) body.phone = payload.phone;
 
-        fetch(ctx.apiBase + '/api/widget/offline-messages', {
+        ctx.fetchWith(ctx.apiBase + '/api/widget/offline-messages', {
           method: 'POST',
-          credentials: 'include',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Widget-Token': ctx.sessionToken || '',
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         })
           .then(function (r) {
@@ -2602,10 +2598,13 @@
         return;
       }
       attachmentStore.set({ file: file, fileName: file.name, mimeType: file.type, sizeBytes: file.size, status: 'uploading', progress: 10, error: '', attachmentId: null });
-      var apiBase = ctx.config.apiBase;
-      var headers = { 'Content-Type': 'application/json', 'X-Widget-Token': ctx.sessionToken || '' };
-      fetch(apiBase + '/api/widget/attachments/init', {
-        method: 'POST', credentials: 'include', headers: headers,
+      // Use ctx.apiBase (canonical) — ctx.config.apiBase can be undefined
+      // when bootstrap stamped only _apiBase. Token-aware wrapper handles
+      // 401/403 refresh transparently for both /init and /upload.
+      var apiBase = ctx.apiBase || ctx.config.apiBase;
+      var jsonHeaders = { 'Content-Type': 'application/json' };
+      ctx.fetchWith(apiBase + '/api/widget/attachments/init', {
+        method: 'POST', headers: jsonHeaders,
         body: JSON.stringify({ file_name: file.name, mime_type: file.type, size_bytes: file.size, conversation_id: chatStore.get().conversationId || null }),
       }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, data: j }; }); })
         .then(function (resp) {
@@ -2615,8 +2614,8 @@
             var reader = new FileReader();
             reader.onload = function () {
               var b64 = String(reader.result || '').split(',')[1] || '';
-              fetch(apiBase + '/api/widget/attachments/' + resp.data.attachment_id + '/upload', {
-                method: 'POST', credentials: 'include', headers: headers, body: JSON.stringify({ data: b64 }),
+              ctx.fetchWith(apiBase + '/api/widget/attachments/' + resp.data.attachment_id + '/upload', {
+                method: 'POST', headers: jsonHeaders, body: JSON.stringify({ data: b64 }),
               }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, data: j }; }); }).then(resolve).catch(reject);
             };
             reader.onerror = function () { reject(new Error('read_failed')); };
@@ -2763,10 +2762,12 @@
       // Backend route: PUT /api/widget/action with action='typing' publishes
       // an ephemeral envelope on ws:<workspace>:conv:<cid>. Best-effort.
       try {
-        fetch(ctx.apiBase + '/api/widget/action', {
+        // Typing is best-effort and very high-frequency. Wrap with the
+        // token manager so an expired token does not silently swallow
+        // typing for the rest of the session, but still swallow errors.
+        ctx.fetchWith(ctx.apiBase + '/api/widget/action', {
           method: 'PUT',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json', 'X-Widget-Token': ctx.sessionToken || '' },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             action: 'typing',
             workspace_id: ctx.workspaceId,

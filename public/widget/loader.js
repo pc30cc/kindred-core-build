@@ -20,14 +20,22 @@
   "use strict";
 
   // ─── Singleton guard ───
-  if (window.__gs_loaded) {
-    // Loader was already injected on this page. Re-queue commands but do not
-    // create a second shell or run bootstrap again.
+  // Multi-layer protection against double inject:
+  //   1. window.__gs_loaded — set by THIS execution; second copy of the
+  //      loader script will see it and return immediately.
+  //   2. existing <gs-widget> element in the DOM — protects against a
+  //      previous execution that was unloaded by an SPA but the shell node
+  //      survived (shouldn't happen, but defense in depth).
+  if (window.__gs_loaded) return;
+  if (typeof document !== "undefined" && document.querySelector("gs-widget")) {
+    // A shell already exists from a prior execution — adopt the singleton
+    // flag and exit. The pre-existing instance owns the widget.
+    window.__gs_loaded = true;
     return;
   }
   window.__gs_loaded = true;
 
-  var LOADER_VERSION = "2026-04-21-conn-banner-soft";
+  var LOADER_VERSION = "2026-04-21-hardening-v1";
   var ELEMENT_TAG = "gs-widget";
 
   // DEBUG defaults to OFF in production. Opt in via:
@@ -174,6 +182,20 @@
 
   function mountShell() {
     if (shellEl) return; // singleton
+    // Defense in depth: if a previous loader run left a shell node in the
+    // DOM (e.g. inside an SPA route that didn't fully unmount us), adopt
+    // it instead of creating a duplicate.
+    var existing = document.querySelector(ELEMENT_TAG);
+    if (existing && existing.shadowRoot) {
+      shellEl = existing;
+      shadowRoot = existing.shadowRoot;
+      var existingLauncher = shadowRoot.querySelector(".launcher");
+      if (existingLauncher) launcherEl = existingLauncher;
+      var existingToast = shadowRoot.querySelector(".error-toast");
+      if (existingToast) errorToastEl = existingToast;
+      log("Adopted existing shell from prior load");
+      return;
+    }
     shellEl = document.createElement(ELEMENT_TAG);
     shellEl.setAttribute("data-version", LOADER_VERSION);
     document.body.appendChild(shellEl);
@@ -185,12 +207,17 @@
 
     var shellDiv = document.createElement("div");
     shellDiv.className = "shell";
-    shellDiv.style.setProperty("--gs-primary", "#3B82F6");
+    // Do NOT set a brand color here — that would cause a blue-flash before
+    // the workspace's real color arrives via /config. The launcher itself
+    // stays hidden until applyConfigToShell() runs (or, in launcher-only
+    // failure mode, attachLauncherClick reveals a neutral launcher).
     shadowRoot.appendChild(shellDiv);
 
     launcherEl = document.createElement("button");
     launcherEl.type = "button";
-    launcherEl.className = "launcher bottom-right";
+    // `pending` keeps the launcher invisible (opacity:0, no pointer events)
+    // until config arrives. This eliminates the visible blue→brand flash.
+    launcherEl.className = "launcher bottom-right pending";
     launcherEl.setAttribute("aria-label", "Open chat");
     launcherEl.innerHTML =
       '<svg class="chat-icon" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>' +

@@ -163,20 +163,28 @@ export function buildWidgetEmbedSnippet(
   let core: string;
   if (opts.variant === 'window') {
     core = `<script type="text/javascript">
-  window.__gs = [];
-  window.__gs_id = "${ws}";
-  window.__gs_api_base = "${urls.apiBase}";
-  (function(){
-    var d = document;
-    var s = d.createElement("script");
-    s.src = "${urls.loaderUrl}";
-    s.setAttribute("data-asset-base", "${urls.assetBase}");
-    s.async = 1;
-    d.getElementsByTagName("head")[0].appendChild(s);
-  })();
+  /* Idempotent: safe even if this snippet is included multiple times or the
+     host page is a SPA that re-renders. */
+  if (!window.__gs_loaded && !window.__gs_loader_injected) {
+    window.__gs_loader_injected = true;
+    window.__gs = window.__gs || [];
+    window.__gs_id = "${ws}";
+    window.__gs_api_base = "${urls.apiBase}";
+    (function(){
+      var d = document;
+      if (d.getElementById("gs-widget-loader")) return;
+      var s = d.createElement("script");
+      s.id = "gs-widget-loader";
+      s.src = "${urls.loaderUrl}";
+      s.setAttribute("data-asset-base", "${urls.assetBase}");
+      s.async = 1;
+      d.getElementsByTagName("head")[0].appendChild(s);
+    })();
+  }
 </script>`;
   } else {
     core = `<script
+  id="gs-widget-loader"
   src="${urls.loaderUrl}"
   data-workspace-id="${ws}"
   data-api-base="${urls.apiBase}"

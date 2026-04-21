@@ -12,7 +12,7 @@ function statusBadge(status: string) {
     case 'active':
       return <Badge variant="secondary" className="gap-1 text-xs"><CheckCircle2 className="h-3 w-3" />Active</Badge>;
     case 'beta':
-      return <Badge className="gap-1 text-xs bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30"><Sparkles className="h-3 w-3" />Beta</Badge>;
+      return <Badge variant="outline" className="gap-1 text-xs border-primary/40 text-primary"><Sparkles className="h-3 w-3" />Beta</Badge>;
     case 'deprecated':
       return <Badge variant="outline" className="text-xs">Deprecated</Badge>;
     case 'hidden':

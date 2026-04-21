@@ -2632,7 +2632,10 @@
       teamStackHtml = '<div class="header-op-stack" aria-label="Support team">' + stackInner + '</div>';
     }
 
-    var headerHtml = '<div class="header">' +
+    var headerRtl = (ctx.locale || 'en').toLowerCase().split('-')[0] === 'fa';
+    var headerDirAttr = headerRtl ? ' dir="rtl"' : '';
+    var headerCls = 'header' + (headerRtl ? ' header-rtl' : '');
+    var headerHtml = '<div class="' + headerCls + '"' + headerDirAttr + '>' +
       '<div class="header-brand">' +
         teamStackHtml +
         '<div class="header-brand-text">' +

@@ -616,6 +616,17 @@ textarea:focus-visible {
   background: #F1F5F9;
 }
 
+/* Inline required-field marker — single red asterisk next to the label.
+   Replaces the verbose "required" / "optional" pill badges. */
+.prechat-req-mark {
+  color: #DC2626;
+  font-weight: 700;
+  margin-inline-start: 4px;
+  font-size: 13px;
+  line-height: 1;
+  vertical-align: baseline;
+}
+
 .prechat-control {
   position: relative;
   display: flex;

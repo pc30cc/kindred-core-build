@@ -1097,6 +1097,18 @@
      * times.
      */
     function reconnect() {
+      // ── Guard: do not yank an in-flight bootstrap/connect/subscribe.
+      //    The wake handler already enforces this, but second-line
+      //    defense here protects against any other caller (debug
+      //    tooling, future code paths) from dropping a live handshake.
+      if (fsm) {
+        var preState = fsm.get();
+        if (preState === 'bootstrapping' || preState === 'restoring_session' ||
+            preState === 'connecting'    || preState === 'subscribing') {
+          Util.log('[transport] reconnect skipped — handshake in flight (' + preState + ')');
+          return;
+        }
+      }
       Util.log('[transport] forced reconnect');
       manuallyClosed = false;
       try {

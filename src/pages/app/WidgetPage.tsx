@@ -228,6 +228,7 @@ export default function WidgetPage() {
                   </div>
                 </CardContent>
               </Card>
+              </div>
             </TabsContent>
 
             {/* ─── Behavior ─── */}
@@ -419,9 +420,14 @@ export default function WidgetPage() {
         {/* Live Preview */}
         <div className="hidden lg:block">
           <div className="sticky top-6">
-            <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1.5">
-              <Eye className="h-3.5 w-3.5" /> Live Preview
-            </p>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                <Eye className="h-3.5 w-3.5" /> Live Preview
+              </p>
+              <Badge variant="outline" className="text-[10px] capitalize">
+                {(widget as any)?.template_slug || 'default'}
+              </Badge>
+            </div>
             <div className="relative bg-muted/30 border border-border rounded-xl overflow-hidden" style={{ height: 520 }}>
               {/* Mini website preview */}
               <div className="p-4 space-y-3">

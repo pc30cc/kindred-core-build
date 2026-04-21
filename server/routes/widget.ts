@@ -1310,7 +1310,7 @@ widgetRouter.put('/action', widgetRateLimit('default'), async (req: Request, res
       const now = new Date().toISOString();
 
       if (conversation_id) {
-        const ownership = await verifyConversationOwnership(config, conversation_id, workspaceId, visitor_id, session_id);
+        const ownership = await verifyConversationOwnership(config, conversation_id, workspaceId, visitor_id, session_id, req);
         if (!ownership.valid) {
           // Task 6 — surface the precise rejection reason in logs (never to
           // the client) so 403 spikes can be diagnosed without weakening

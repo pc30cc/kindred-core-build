@@ -354,7 +354,7 @@ export function AppSidebar() {
               <EyeOff className={cn('h-4 w-4', invisible ? 'text-primary' : 'text-muted-foreground')} />
               <span className="flex-1 text-start">
                 {invisible
-                  ? (t('nav.disableInvisibleMode') || 'Disable invisible mode')
+                  ? 'Disable invisible mode'
                   : (t('nav.invisibleMode') || 'Enable invisible mode')}
               </span>
               {invisible && <Check className="h-4 w-4 text-primary shrink-0" />}

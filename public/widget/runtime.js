@@ -2261,6 +2261,61 @@
   }
 
   // ════════════════════════════════════════════════════════════════════
+  // Template Registry (Task 4)
+  //
+  // Lightweight template-aware foundation. Today only `default` is registered
+  // — additional templates can plug in later WITHOUT a new runtime bundle.
+  //
+  // Each template is just a small descriptor. Future templates can override
+  // `prepareShell` / `prepareCtx` to influence rendering (CSS variables,
+  // skin classes, behavioral hooks) while the core pipeline is unchanged.
+  //
+  // Resolution order in init():
+  //   1. config.templateSlug (server-resolved against widget_templates)
+  //   2. fallback to 'default' if slug unknown to the runtime registry
+  //
+  // The selected slug is exposed as:
+  //   - ctx.templateSlug                (string)
+  //   - data-template="<slug>" on <gs-widget> AND on .shell
+  //   - body class `gs-template-<slug>` is NOT used (Shadow DOM scoping only)
+  // ════════════════════════════════════════════════════════════════════
+  var TemplateRegistry = (function () {
+    var entries = {};
+    function register(descriptor) {
+      if (!descriptor || !descriptor.slug) return;
+      entries[descriptor.slug] = descriptor;
+    }
+    function get(slug) { return entries[slug] || null; }
+    function resolve(requestedSlug) {
+      var slug = requestedSlug || 'default';
+      var entry = entries[slug] || entries['default'] || null;
+      return {
+        slug: entry ? entry.slug : 'default',
+        descriptor: entry,
+        // True when caller asked for X but we fell back to default. Useful
+        // for diagnostics — the server still owns the canonical decision,
+        // this is purely a runtime safety net.
+        fellBack: !!requestedSlug && (!entry || entry.slug !== requestedSlug),
+      };
+    }
+    return { register: register, get: get, resolve: resolve, all: function () { return entries; } };
+  })();
+
+  // Register the only real template that ships today. Future templates are
+  // additive — they just call TemplateRegistry.register(...).
+  TemplateRegistry.register({
+    slug: 'default',
+    name: 'Default',
+    /** Hook: optionally tweak the ctx object before any UI is built. */
+    prepareCtx: function (_ctx) { /* no-op for default */ },
+    /** Hook: called once shellDiv exists, before panel mounts. */
+    prepareShell: function (_shellDiv, _ctx) { /* no-op for default */ },
+  });
+
+  // Expose for debugging / future runtime template registration from outside.
+  __gs_runtime.templates = TemplateRegistry;
+
+  // ════════════════════════════════════════════════════════════════════
   // Core — orchestrates everything inside the shadow root
   // ════════════════════════════════════════════════════════════════════
   __gs_runtime.init = function (config, shell) {
@@ -2295,11 +2350,22 @@
     ctx.tokenManager = tokenMgr;
     // Expose template slug in the runtime context for CSS scoping + future
     // template-aware behavior. Today only 'default' is registered server-side.
-    ctx.templateSlug = config.templateSlug || 'default';
+    var __tplResolve = TemplateRegistry.resolve(config.templateSlug);
+    ctx.templateSlug = __tplResolve.slug;
+    ctx.template = __tplResolve.descriptor;
+    if (__tplResolve.fellBack) {
+      Util.warn('[template] requested "' + config.templateSlug + '" not registered — using "default"');
+    }
     try {
       var rootEl = (shell && shell.shellEl) || null;
       if (rootEl) rootEl.setAttribute('data-template', ctx.templateSlug);
     } catch (_) {}
+    // Run the template's prepareCtx hook (no-op for default today) so future
+    // templates can adjust ctx values (icons, colors, copy keys) before any
+    // rendering happens.
+    if (ctx.template && typeof ctx.template.prepareCtx === 'function') {
+      try { ctx.template.prepareCtx(ctx); } catch (e) { Util.warn('template.prepareCtx err', e); }
+    }
 
     // Tear down the token manager when the panel is unloaded by the host
     // page (SPA route swap). Prevents orphaned refresh timers.
@@ -2322,6 +2388,12 @@
     if (!shellDiv || typeof shellDiv.appendChild !== 'function') {
       Util.warn('FATAL: no mount target available inside shadow root');
       return { open: function(){}, close: function(){}, toggle: function(){}, setUnread: function(){} };
+    }
+    // Mirror data-template onto .shell so Shadow-DOM-scoped CSS can target
+    // the entire UI subtree (e.g. `.shell[data-template="default"] .panel`).
+    try { shellDiv.setAttribute('data-template', ctx.templateSlug); } catch (_) {}
+    if (ctx.template && typeof ctx.template.prepareShell === 'function') {
+      try { ctx.template.prepareShell(shellDiv, ctx); } catch (e) { Util.warn('template.prepareShell err', e); }
     }
     var launcher = shell.launcher;
 

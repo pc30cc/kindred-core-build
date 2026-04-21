@@ -27,9 +27,11 @@ const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) || ''
 
 /**
  * How long before a token's `expires_at` we proactively refresh it.
- * Centrifugo TTLs are typically 600s; 60s is a comfortable lead time.
+ * Server now issues 30min TTLs by default; refreshing 2min ahead gives
+ * us plenty of margin even on a tab the browser has throttled to 1Hz
+ * setTimeout while it was backgrounded.
  */
-const TOKEN_REFRESH_LEAD_MS = 60_000;
+const TOKEN_REFRESH_LEAD_MS = 120_000;
 
 /** Backoff schedule (ms) for socket reconnect attempts. Capped at 30s. */
 const RECONNECT_DELAYS_MS = [500, 1_000, 2_000, 4_000, 8_000, 15_000, 30_000];

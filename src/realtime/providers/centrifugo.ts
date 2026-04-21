@@ -209,7 +209,11 @@ function openSocket(conn: SharedConnection): Promise<void> {
         conn.subs.forEach((set) => set.forEach((h) => h.onStatus?.('open')));
         if (!settled) { settled = true; resolve(); }
       } catch (err) {
-        if (!settled) { settled = true; reject(err); }
+        // Surface the real Centrifugo error message so scheduleReconnect
+        // can detect token-related failures and force a re-negotiation.
+        const e: any = err;
+        const msg = e?.message || e?.reason || (typeof e === 'string' ? e : 'connect_failed');
+        if (!settled) { settled = true; reject(new Error(msg)); }
       }
     };
     const onErr = () => {

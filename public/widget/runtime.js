@@ -2818,7 +2818,9 @@
     function renderPresence(s) {
       if (!presenceDot || !presenceLabel || !presenceWrap) return;
       var status = s.status || 'offline';
-      presenceWrap.className = 'presence status-' + status;
+      // sr-only kept so the row stays accessible-only — visual presence
+      // is now communicated by the green dot on operator avatars.
+      presenceWrap.className = 'presence sr-only status-' + status;
       presenceLabel.textContent = s.label || '';
     }
     presenceStore.subscribe(renderPresence);

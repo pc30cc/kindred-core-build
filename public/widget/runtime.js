@@ -278,6 +278,114 @@
   }
 
   // ════════════════════════════════════════════════════════════════════
+  // LifecycleFSM — Phase 2 deterministic widget lifecycle
+  //
+  // Single source of truth for the widget's connection/session lifecycle.
+  // The transport/identity/UI layers ASK the FSM what to render and TELL
+  // the FSM about events — they never fabricate transitions on their own.
+  //
+  // States (intentionally distinct, do NOT collapse):
+  //   bootstrapping       — initial load, identity not yet resolved
+  //   restoring_session   — identity resolved, history fetch in flight
+  //   connecting          — first transport connect attempt
+  //   subscribing         — connected, awaiting per-conversation subscribe
+  //   connected           — realtime healthy + (no cid) or (cid subscribed)
+  //   degraded            — primary realtime failed, polling fallback active
+  //   reconnecting        — transient transport drop, retry in flight
+  //   waking              — wake from page-visibility/BFCache, full recovery
+  //   offline             — browser navigator.onLine === false
+  //   unavailable         — server says widget disabled / business hours
+  //   auth_expired        — session token cannot be refreshed (cookie dead)
+  //   failed              — terminal: bootstrap permanently failed
+  //   idle                — manually disconnected (panel destroyed)
+  //
+  // Allowed transitions are EXPLICIT in TRANSITIONS below. Any disallowed
+  // transition is logged (debug only) and ignored — the FSM never silently
+  // drifts into an inconsistent state.
+  // ════════════════════════════════════════════════════════════════════
+  function createLifecycleFSM() {
+    var TRANSITIONS = {
+      bootstrapping:     ['restoring_session', 'unavailable', 'auth_expired', 'failed', 'idle'],
+      restoring_session: ['connecting', 'unavailable', 'failed', 'idle'],
+      connecting:        ['subscribing', 'connected', 'degraded', 'reconnecting', 'offline', 'unavailable', 'auth_expired', 'failed', 'idle'],
+      subscribing:       ['connected', 'degraded', 'reconnecting', 'offline', 'auth_expired', 'idle'],
+      connected:         ['subscribing', 'reconnecting', 'degraded', 'offline', 'waking', 'auth_expired', 'idle'],
+      degraded:          ['connecting', 'reconnecting', 'connected', 'offline', 'waking', 'auth_expired', 'idle'],
+      reconnecting:      ['connecting', 'subscribing', 'connected', 'degraded', 'offline', 'waking', 'auth_expired', 'failed', 'idle'],
+      waking:            ['restoring_session', 'connecting', 'subscribing', 'connected', 'degraded', 'offline', 'auth_expired', 'failed', 'idle'],
+      offline:           ['waking', 'reconnecting', 'connecting', 'idle'],
+      unavailable:       ['waking', 'connecting', 'reconnecting', 'connected', 'idle'],
+      auth_expired:      ['waking', 'restoring_session', 'idle'],
+      failed:            ['waking', 'idle'],
+      idle:              ['bootstrapping', 'waking'],
+    };
+
+    // States that map to "transport actively connected" — used by the
+    // composer/banner to decide if sending is allowed.
+    var SENDABLE = { connected: 1, degraded: 1 };
+    // States considered "in-flight" — banner shows reconnecting/connecting.
+    var BUSY = { bootstrapping: 1, restoring_session: 1, connecting: 1, subscribing: 1, reconnecting: 1, waking: 1 };
+
+    var current = 'idle';
+    var listeners = [];
+    var history = [];   // last 20 transitions, debug only
+    var activeConversationId = null;
+    // Stable contract for UI: a single "connection_state" mapping for the
+    // existing transportStore consumers (banner, composer). One mapping,
+    // computed in one place.
+    function toLegacy(state) {
+      if (state === 'idle') return 'idle';
+      if (state === 'offline') return 'offline';
+      if (state === 'unavailable' || state === 'failed' || state === 'auth_expired') return 'offline';
+      if (SENDABLE[state]) return 'online';
+      return state === 'bootstrapping' || state === 'restoring_session' || state === 'connecting' || state === 'subscribing' || state === 'waking'
+        ? 'connecting'
+        : 'reconnecting';
+    }
+
+    function get() { return current; }
+
+    function transition(next, meta) {
+      if (next === current) return false;
+      var allowed = TRANSITIONS[current] || [];
+      if (allowed.indexOf(next) === -1) {
+        Util.warn('[fsm] illegal transition', current, '→', next, meta || '');
+        return false;
+      }
+      var prev = current;
+      current = next;
+      var entry = { at: Date.now(), from: prev, to: next, meta: meta || null };
+      history.push(entry);
+      if (history.length > 20) history.shift();
+      Util.log('[fsm]', prev, '→', next, meta || '');
+      for (var i = 0; i < listeners.length; i++) {
+        try { listeners[i]({ state: next, previous: prev, meta: meta }); }
+        catch (e) { Util.warn('fsm listener err', e); }
+      }
+      return true;
+    }
+
+    return {
+      get: get,
+      transition: transition,
+      legacyConnectionState: function () { return toLegacy(current); },
+      isSendable: function () { return !!SENDABLE[current]; },
+      isBusy: function () { return !!BUSY[current]; },
+      isOffline: function () { return current === 'offline' || current === 'unavailable' || current === 'failed' || current === 'auth_expired'; },
+      isDegraded: function () { return current === 'degraded'; },
+      onChange: function (fn) {
+        listeners.push(fn);
+        return function () {
+          var i = listeners.indexOf(fn); if (i !== -1) listeners.splice(i, 1);
+        };
+      },
+      setConversation: function (cid) { activeConversationId = cid || null; },
+      getConversation: function () { return activeConversationId; },
+      history: function () { return history.slice(); },
+    };
+  }
+
+  // ════════════════════════════════════════════════════════════════════
   // Lazy module loader (chat / kb)
   // ════════════════════════════════════════════════════════════════════
   var ModuleLoader = (function () {
@@ -533,7 +641,7 @@
   // The polling driver implements message/connectionstate/reconnect for real,
   // and exposes typing/presence as no-op hooks that future drivers can fulfill.
   // ════════════════════════════════════════════════════════════════════
-  function createTransport(ctx, transportStore) {
+  function createTransport(ctx, transportStore, fsm) {
     var subs = { message: [], typing: [], presence: [], reconnect: [], connectionstate: [] };
     function on(event, fn) {
       if (!subs[event]) return function () {};
@@ -550,13 +658,76 @@
       }
     }
 
-    function setConnectionState(next) {
+    // Legacy bridge: external callers (chat UI, banner, composer) still
+    // subscribe to transportStore.connectionState. We compute the legacy
+    // value from the FSM in ONE place and only emit when it actually
+    // changes — the FSM remains the source of truth.
+    function syncLegacyState(reason) {
+      var legacy = fsm ? fsm.legacyConnectionState() : 'idle';
       var prev = transportStore.get().connectionState;
-      if (prev === next) return;
-      transportStore.set({ connectionState: next, lastConnectionChange: Date.now() });
-      emit('connectionstate', { state: next, previous: prev });
-      if (next === 'online' && (prev === 'reconnecting' || prev === 'offline')) {
-        emit('reconnect', {});
+      if (prev === legacy) return;
+      transportStore.set({ connectionState: legacy, lastConnectionChange: Date.now() });
+      emit('connectionstate', { state: legacy, previous: prev, reason: reason || null });
+      if (legacy === 'online' && (prev === 'reconnecting' || prev === 'offline' || prev === 'connecting')) {
+        emit('reconnect', { reason: reason || null });
+      }
+    }
+    if (fsm) fsm.onChange(function () { syncLegacyState('fsm'); });
+    // Driver-level state callback. Drivers report low-level transport state
+    // ('idle' | 'connecting' | 'online' | 'reconnecting'); we translate to FSM.
+    function onDriverState(driverState, reason) {
+      if (!fsm) return;
+      var cur = fsm.get();
+      if (driverState === 'connecting') {
+        if (cur === 'connected' || cur === 'subscribing' || cur === 'degraded') {
+          fsm.transition('reconnecting', reason || 'driver:connecting');
+        } else if (cur !== 'reconnecting' && cur !== 'connecting') {
+          fsm.transition('connecting', reason || 'driver:connecting');
+        }
+      } else if (driverState === 'online') {
+        // If we have an active conversation but no subscribe-completion
+        // signal yet, stay in 'subscribing' — a connected socket without a
+        // subscribed channel is NOT sendable for that conversation. The
+        // driver flips to 'connected' indirectly via onReconnect once the
+        // subscribe ack lands (Centrifugo) or when channel SUBSCRIBED
+        // event fires (Supabase).
+        var cid = fsm.getConversation();
+        var hasDriverWithSubscribe = !!(rtDriver && rtDriver.subscribeConversation);
+        if (cid && hasDriverWithSubscribe) {
+          fsm.transition('subscribing', reason || 'driver:online-pending-sub');
+        } else {
+          fsm.transition('connected', reason || 'driver:online');
+        }
+      } else if (driverState === 'reconnecting') {
+        fsm.transition('reconnecting', reason || 'driver:reconnecting');
+      } else if (driverState === 'idle') {
+        // Driver intentionally idle (manual disconnect) — only transition
+        // to idle if we initiated it. Otherwise this is a transient drop.
+        if (manuallyClosed) fsm.transition('idle', 'driver:idle');
+        else fsm.transition('reconnecting', 'driver:dropped');
+      }
+    }
+    // Legacy alias kept for old call sites inside this file.
+    function setConnectionState(legacy) {
+      // Map legacy strings used inside the polling/online handling code
+      // back into FSM transitions. This keeps the rest of createTransport
+      // unchanged at the call sites while routing everything through FSM.
+      if (!fsm) return;
+      if (legacy === 'online') {
+        var cid = fsm.getConversation();
+        var hasRT = !!(rtDriver && rtDriver.subscribeConversation);
+        if (cid && hasRT) fsm.transition('subscribing', 'legacy:online');
+        else fsm.transition('connected', 'legacy:online');
+      } else if (legacy === 'offline') {
+        fsm.transition('offline', 'legacy:offline');
+      } else if (legacy === 'connecting') {
+        if (fsm.get() !== 'connecting' && fsm.get() !== 'reconnecting') {
+          fsm.transition('connecting', 'legacy:connecting');
+        }
+      } else if (legacy === 'reconnecting') {
+        fsm.transition('reconnecting', 'legacy:reconnecting');
+      } else if (legacy === 'idle') {
+        fsm.transition('idle', 'legacy:idle');
       }
     }
 
@@ -567,6 +738,7 @@
     var browserOnline = (typeof navigator !== 'undefined' && 'onLine' in navigator) ? navigator.onLine : true;
     var subscribedConversation = null;
     var historyLoaded = false;
+    var manuallyClosed = false;
 
     // ─── Realtime driver (Phase 3) — drop-in for polling ───
     // When the server resolves vendor=centrifugo, we add a real WS driver alongside.
@@ -705,10 +877,15 @@
     function subscribeConversation(cid) {
       if (!cid) return;
       if (subscribedConversation !== cid) subscribedConversation = cid;
+      // Canonical cid lives in the FSM — survives driver swaps, BFCache
+      // restores, and rt→polling fallbacks. Any future driver reload
+      // re-subscribes from this value, eliminating the lost-subscription race.
+      if (fsm) fsm.setConversation(cid);
       if (rtDriver && rtDriver.subscribeConversation) rtDriver.subscribeConversation(cid);
     }
     function unsubscribeConversation(cid) {
       if (subscribedConversation === cid) subscribedConversation = null;
+      if (fsm && fsm.getConversation() === cid) fsm.setConversation(null);
       if (rtDriver && rtDriver.unsubscribeConversation) rtDriver.unsubscribeConversation(cid);
     }
 
@@ -795,13 +972,27 @@
 
           function fallback(reason) {
             Util.warn('[transport] realtime fallback:', reason);
-            rtDriver = null;
+            // Tear down the realtime driver — it lost; polling owns state now.
+            if (rtDriver) {
+              try { rtDriver.disconnect && rtDriver.disconnect(); } catch (_) {}
+              rtDriver = null;
+            }
             capabilities.driver = 'polling';
             capabilities.supportsRealtime = false;
             capabilities.supportsTyping = false;
             capabilities.supportsPresence = false;
-            if (fallbackPolicy === 'lenient') startPolling();
-            else setConnectionState('offline');
+            if (fallbackPolicy === 'lenient') {
+              startPolling();
+              // FSM: 'degraded' makes the fallback explicit. Composer stays
+              // sendable (polling can deliver), but diagnostics + future
+              // recovery hooks know we are NOT on the primary path.
+              if (fsm && fsm.get() !== 'degraded') {
+                fsm.transition('degraded', 'fallback:' + (reason || 'rt_failed'));
+              }
+            } else {
+              if (fsm) fsm.transition('offline', 'strict_fallback:' + (reason || 'rt_failed'));
+              else setConnectionState('offline');
+            }
           }
 
           // Vendor needs a real driver module — load via resolver.
@@ -825,7 +1016,7 @@
                   return;
                 }
                 rtDriver = mod.create(ctx, resolved, {
-                  onConnectionState: function (s) { setConnectionState(s); },
+                  onConnectionState: function (s) { onDriverState(s, resolvedVendor); },
                   onMessage: function (e) { emit('message', e); },
                   onTyping: function (e) { emit('typing', e); },
                   onPresence: function (e) { emit('presence', e); },
@@ -833,7 +1024,15 @@
                   fallbackToPolling: fallback,
                 });
                 rtDriver.connect();
-                if (subscribedConversation) rtDriver.subscribeConversation(subscribedConversation);
+                // Resubscribe canonical conversation. FSM is the source of
+                // truth for the active cid — it survives driver swaps and
+                // BFCache restores, so a freshly loaded driver always
+                // re-binds the right channel.
+                var cidNow = (fsm && fsm.getConversation()) || subscribedConversation;
+                if (cidNow) {
+                  subscribedConversation = cidNow;
+                  rtDriver.subscribeConversation(cidNow);
+                }
               });
               return;
             }
@@ -856,6 +1055,7 @@
     }
 
     function connect() {
+      manuallyClosed = false;
       consecutiveFailures = 0;
       lastSuccessAt = 0;
       if (typeof window !== 'undefined' && window.addEventListener) {
@@ -863,13 +1063,19 @@
         window.addEventListener('offline', handleBrowserOffline);
       }
       if (!browserOnline) {
-        setConnectionState('offline');
+        if (fsm) fsm.transition('offline', 'connect:no-network');
+        else setConnectionState('offline');
+      } else if (fsm) {
+        if (fsm.get() !== 'connecting' && fsm.get() !== 'reconnecting' && fsm.get() !== 'subscribing') {
+          fsm.transition('connecting', 'connect');
+        }
       } else {
         setConnectionState('connecting');
       }
       resolveRealtimeAndStart();
     }
     function disconnect() {
+      manuallyClosed = true;
       stopPolling();
       if (rtDriver && rtDriver.disconnect) {
         try { rtDriver.disconnect(); } catch (_) {}
@@ -879,7 +1085,8 @@
         window.removeEventListener('online', handleBrowserOnline);
         window.removeEventListener('offline', handleBrowserOffline);
       }
-      setConnectionState('idle');
+      if (fsm) fsm.transition('idle', 'disconnect');
+      else setConnectionState('idle');
     }
 
     /**
@@ -891,6 +1098,7 @@
      */
     function reconnect() {
       Util.log('[transport] forced reconnect');
+      manuallyClosed = false;
       try {
         if (rtDriver && rtDriver.disconnect) rtDriver.disconnect();
       } catch (_) {}
@@ -899,8 +1107,22 @@
       consecutiveFailures = 0;
       lastSuccessAt = 0;
       browserOnline = (typeof navigator === 'undefined') ? true : navigator.onLine !== false;
-      if (!browserOnline) { setConnectionState('offline'); return; }
-      setConnectionState('connecting');
+      if (!browserOnline) {
+        if (fsm) fsm.transition('offline', 'reconnect:no-network');
+        else setConnectionState('offline');
+        return;
+      }
+      if (fsm) {
+        // Honor an externally-set 'waking' state — the lifecycle controller
+        // sets it before calling reconnect() so diagnostics + UI can
+        // distinguish wake-from-sleep from initial connect / outage.
+        var cur = fsm.get();
+        if (cur !== 'waking' && cur !== 'connecting' && cur !== 'reconnecting' && cur !== 'subscribing') {
+          fsm.transition('connecting', 'reconnect');
+        }
+      } else {
+        setConnectionState('connecting');
+      }
       resolveRealtimeAndStart();
     }
 
@@ -2502,6 +2724,11 @@
         if (__wakeInflight) return;
         __wakeInflight = true;
         try {
+          // FSM: enter 'waking' so banner/composer can distinguish wake
+          // recovery from initial connect or transient outage.
+          if (ctx.lifecycle && ctx.lifecycle.get() !== 'idle' && ctx.lifecycle.get() !== 'bootstrapping') {
+            try { ctx.lifecycle.transition('waking', 'wake:' + reason); } catch (_) {}
+          }
           if (tokenMgr && tokenMgr.isDisabled && tokenMgr.isDisabled()) {
             try { tokenMgr.revive(); } catch (_) {}
           } else if (tokenMgr && tokenMgr.refresh) {
@@ -2644,7 +2871,16 @@
     });
 
     // ─── Layers ───
-    var transport = createTransport(ctx, transportStore);
+    // Phase 2 — lifecycle FSM is the single source of truth for connection
+    // state. Transport drives it via onDriverState(); identity/history/wake
+    // call into ctx.lifecycle for the higher-level transitions. Existing
+    // store consumers keep working unchanged via the legacy bridge inside
+    // createTransport (which mirrors fsm.legacyConnectionState() into
+    // transportStore.connectionState).
+    var fsm = createLifecycleFSM();
+    ctx.lifecycle = fsm;
+    fsm.transition('bootstrapping', 'init');
+    var transport = createTransport(ctx, transportStore, fsm);
     // Expose transport on ctx so the wake-up recovery hook (registered
     // earlier) can call transport.reconnect() when the tab returns from
     // background. ctx is captured by closure inside the wake handler.
@@ -3342,6 +3578,8 @@
 
     // 1) Identity → 2) Transport connect → 3) History (if supported)
     identity.fetchMe(function () {
+      // FSM: identity resolved → restoring_session
+      if (fsm.get() === 'bootstrapping') fsm.transition('restoring_session', 'identity:resolved');
       renderBody();
       transport.connect();
       if (!identity.needsPrechat()) {

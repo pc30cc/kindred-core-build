@@ -84,7 +84,7 @@ export default function SignupStepAccount({
       >
         <span
           className={cn(
-            'flex items-center justify-center w-11 h-full text-muted-foreground transition-colors',
+            'flex items-center justify-center w-12 h-full shrink-0 text-muted-foreground transition-colors',
             isFocused && 'text-primary',
             args.state === 'success' && !isFocused && 'text-success',
             args.state === 'error' && !isFocused && 'text-destructive',
@@ -95,14 +95,14 @@ export default function SignupStepAccount({
         </span>
         {args.children}
         {args.suffix && (
-          <span className={cn('flex items-center pr-3', isRtl && 'pl-3 pr-0')}>{args.suffix}</span>
+          <span className="flex items-center justify-center w-11 h-full shrink-0">{args.suffix}</span>
         )}
       </div>
     );
   };
 
   const inputBase =
-    'flex-1 h-full bg-transparent border-0 outline-none text-sm text-foreground placeholder:text-muted-foreground/70 disabled:opacity-50';
+    'flex-1 min-w-0 h-full bg-transparent border-0 outline-none text-sm text-foreground placeholder:text-muted-foreground/70 disabled:opacity-50 px-1';
 
   return (
     <form onSubmit={onSubmit} className="space-y-5">

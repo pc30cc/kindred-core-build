@@ -143,32 +143,83 @@ interface SharedConnection {
   nextId: number;
   pending: Record<number, (reply: any) => void>;
   subs: Map<string, Set<RealtimeHandlers>>; // channel → handlers
+  /** Per-channel sub token cache so we can re-subscribe after reconnect. */
+  subTokens: Map<string, { channel: string; token: string; expiresAt: number; refresh: () => Promise<SubscribeResponse | null> }>;
   closed: boolean;
+  /** Workspace this connection belongs to (for token refresh). */
+  workspaceId: string;
+  /** Currently negotiated connection token + expiry (ms epoch). */
+  token: string;
+  tokenExpiresAt: number;
+  wsUrl: string;
+  /** Reconnect bookkeeping. */
+  reconnectAttempt: number;
+  reconnectTimer: ReturnType<typeof setTimeout> | null;
+  refreshTimer: ReturnType<typeof setTimeout> | null;
+  /** Set true when caller asked to permanently tear down. */
+  disposed: boolean;
 }
 
 const sharedConns = new Map<string, SharedConnection>();
 
-function buildConnection(negotiation: RealtimeNegotiation): SharedConnection {
-  const ws = new WebSocket(negotiation.ws_url!);
+function buildConnection(workspaceId: string, negotiation: RealtimeNegotiation): SharedConnection {
   const conn: SharedConnection = {
-    ws,
+    ws: null as unknown as WebSocket, // assigned by openSocket()
     nextId: 1,
     pending: {},
     subs: new Map(),
+    subTokens: new Map(),
     closed: false,
-    ready: new Promise<void>((resolve, reject) => {
-      ws.addEventListener('open', async () => {
-        try {
-          await sendOnConn(conn, 'connect', { token: negotiation.token!, name: 'inbox' });
-          resolve();
-        } catch (err) {
-          reject(err);
-        }
-      });
-      ws.addEventListener('error', () => reject(new Error('ws_error')));
-    }),
+    workspaceId,
+    token: negotiation.token!,
+    tokenExpiresAt: (negotiation.expires_at || 0) * 1000 || Date.now() + 9 * 60_000,
+    wsUrl: negotiation.ws_url!,
+    reconnectAttempt: 0,
+    reconnectTimer: null,
+    refreshTimer: null,
+    disposed: false,
+    ready: Promise.resolve(),
   };
+  conn.ready = openSocket(conn);
+  return conn;
+}
 
+/**
+ * Open (or re-open) the underlying WebSocket and perform the Centrifugo
+ * `connect` handshake. On success: clears reconnect counters, resubscribes
+ * to every channel that was active before the disconnect, and schedules a
+ * proactive token refresh.
+ */
+function openSocket(conn: SharedConnection): Promise<void> {
+  conn.closed = false;
+  conn.ws = new WebSocket(conn.wsUrl);
+  attachSocketHandlers(conn);
+  return new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const onOpen = async () => {
+      try {
+        await sendOnConn(conn, 'connect', { token: conn.token, name: 'inbox' });
+        conn.reconnectAttempt = 0;
+        scheduleTokenRefresh(conn);
+        // Re-subscribe to every channel that survived the disconnect.
+        await resubscribeAll(conn);
+        // Notify any waiting handlers that we're back online.
+        conn.subs.forEach((set) => set.forEach((h) => h.onStatus?.('open')));
+        if (!settled) { settled = true; resolve(); }
+      } catch (err) {
+        if (!settled) { settled = true; reject(err); }
+      }
+    };
+    const onErr = () => {
+      if (!settled) { settled = true; reject(new Error('ws_error')); }
+    };
+    conn.ws.addEventListener('open', onOpen, { once: true });
+    conn.ws.addEventListener('error', onErr, { once: true });
+  });
+}
+
+function attachSocketHandlers(conn: SharedConnection): void {
+  const ws = conn.ws;
   ws.onmessage = (ev) => {
     const lines = String(ev.data || '').split('\n');
     for (const line of lines) {
@@ -212,17 +263,126 @@ function buildConnection(negotiation: RealtimeNegotiation): SharedConnection {
         }
         // Unknown envelope types are silently dropped (forward-safe).
       }
+      // Centrifugo server may push a disconnect frame (e.g. on token expiry).
+      // Treat it as a soft signal to refresh the token and reconnect.
+      if (frame.push?.disconnect) {
+        rtWarn('centrifugo', 'server disconnect push', {
+          code: frame.push.disconnect.code,
+          reason: frame.push.disconnect.reason,
+        });
+        // Force a fresh negotiation on the next open.
+        conn.tokenExpiresAt = 0;
+      }
     }
   };
-  ws.onclose = () => {
+  ws.onclose = (ev) => {
     conn.closed = true;
+    if (conn.refreshTimer) { clearTimeout(conn.refreshTimer); conn.refreshTimer = null; }
+    // Reject any in-flight commands so callers don't hang forever.
+    const pendingIds = Object.keys(conn.pending);
+    for (const idStr of pendingIds) {
+      const id = Number(idStr);
+      try { conn.pending[id]({ error: { message: 'socket_closed' } }); } catch { /* noop */ }
+      delete conn.pending[id];
+    }
+    rtDebug('centrifugo', 'socket closed', { code: ev?.code, reason: ev?.reason });
     conn.subs.forEach((set) => set.forEach((h) => h.onStatus?.('closed')));
+    if (!conn.disposed) scheduleReconnect(conn);
   };
   ws.onerror = () => {
+    rtWarn('centrifugo', 'socket error');
     conn.subs.forEach((set) => set.forEach((h) => h.onStatus?.('error')));
+    // onclose will follow → reconnect logic runs there.
   };
+}
 
-  return conn;
+function scheduleReconnect(conn: SharedConnection): void {
+  if (conn.disposed) return;
+  if (conn.reconnectTimer) return;
+  // If no subscribers remain, there's nothing to reconnect for.
+  if (conn.subs.size === 0) return;
+  const delay = RECONNECT_DELAYS_MS[Math.min(conn.reconnectAttempt, RECONNECT_DELAYS_MS.length - 1)];
+  conn.reconnectAttempt += 1;
+  rtDebug('centrifugo', 'scheduling reconnect', { attempt: conn.reconnectAttempt, delayMs: delay });
+  conn.subs.forEach((set) => set.forEach((h) => h.onStatus?.('connecting')));
+  conn.reconnectTimer = setTimeout(async () => {
+    conn.reconnectTimer = null;
+    if (conn.disposed) return;
+    // Refresh the connection token if it's expired or near expiry.
+    if (Date.now() >= conn.tokenExpiresAt - TOKEN_REFRESH_LEAD_MS) {
+      const fresh = await negotiateConnect(conn.workspaceId);
+      if (fresh?.token && fresh.ws_url) {
+        conn.token = fresh.token;
+        conn.tokenExpiresAt = (fresh.expires_at || 0) * 1000 || Date.now() + 9 * 60_000;
+        conn.wsUrl = fresh.ws_url;
+      } else {
+        rtWarn('centrifugo', 'token refresh failed; will retry');
+        scheduleReconnect(conn);
+        return;
+      }
+    }
+    try {
+      await openSocket(conn);
+    } catch (err) {
+      rtWarn('centrifugo', 'reconnect open failed', { error: (err as any)?.message });
+      // Loop will continue via onclose → scheduleReconnect.
+    }
+  }, delay);
+}
+
+function scheduleTokenRefresh(conn: SharedConnection): void {
+  if (conn.refreshTimer) { clearTimeout(conn.refreshTimer); conn.refreshTimer = null; }
+  const msUntil = conn.tokenExpiresAt - Date.now() - TOKEN_REFRESH_LEAD_MS;
+  if (msUntil <= 0) return; // No useful expiry — let server pushes drive reconnect.
+  conn.refreshTimer = setTimeout(async () => {
+    conn.refreshTimer = null;
+    if (conn.disposed || conn.closed) return;
+    const fresh = await negotiateConnect(conn.workspaceId);
+    if (!fresh?.token) {
+      rtWarn('centrifugo', 'proactive token refresh failed');
+      // Re-arm so we try again before the existing token actually expires.
+      conn.refreshTimer = setTimeout(() => scheduleTokenRefresh(conn), 30_000);
+      return;
+    }
+    conn.token = fresh.token;
+    conn.tokenExpiresAt = (fresh.expires_at || 0) * 1000 || Date.now() + 9 * 60_000;
+    if (fresh.ws_url) conn.wsUrl = fresh.ws_url;
+    // Centrifugo v5 supports in-place connection token refresh via the
+    // `refresh` command — but our backend re-issues full negotiations and
+    // the server-side TTL is generous. Simpler & safer: just rotate the
+    // socket. The reconnect path resubscribes everything atomically.
+    rtDebug('centrifugo', 'rotating socket for token refresh');
+    try { conn.ws.close(); } catch { /* noop */ }
+    // onclose → scheduleReconnect picks up with the fresh token.
+  }, msUntil);
+}
+
+/**
+ * Re-issue subscribe commands for every cached subscription. Called on
+ * (re)connect. Refreshes per-channel sub tokens if they're expired.
+ */
+async function resubscribeAll(conn: SharedConnection): Promise<void> {
+  const channels = Array.from(conn.subTokens.keys());
+  for (const channel of channels) {
+    const entry = conn.subTokens.get(channel);
+    if (!entry) continue;
+    let token = entry.token;
+    if (!token || Date.now() >= entry.expiresAt - 30_000) {
+      const fresh = await entry.refresh();
+      if (!fresh?.token || !fresh.channel) {
+        rtWarn('centrifugo', 'sub token refresh failed', { channel });
+        continue;
+      }
+      token = fresh.token;
+      entry.token = fresh.token;
+      entry.expiresAt = (fresh.expires_at || 0) * 1000 || Date.now() + 9 * 60_000;
+    }
+    try {
+      await sendOnConn(conn, 'subscribe', { channel, token });
+    } catch (err) {
+      rtWarn('centrifugo', 're-subscribe failed', { channel, error: (err as any)?.message });
+    }
+  }
 }
 
 function sendOnConn(conn: SharedConnection, key: string, body: Record<string, unknown>): Promise<any> {

@@ -408,6 +408,10 @@
 
   function attachLauncherClick(opts) {
     if (!launcherEl) return;
+    // Idempotent — never bind the click handler more than once even if
+    // bootstrap() is somehow re-entered.
+    if (launcherEl.__gsClickBound) return;
+    launcherEl.__gsClickBound = true;
     // Reveal even in launcher-only / error mode so the user sees SOMETHING
     // instead of a permanently hidden widget. Use a neutral gray so we
     // don't flash a wrong brand color.

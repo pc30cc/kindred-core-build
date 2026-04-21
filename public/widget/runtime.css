@@ -10,6 +10,23 @@
   contain: layout style;
 }
 
+/* ════════════════════════════════════════════════════════════════════
+   Template scoping (Task 4)
+   ────────────────────────────────────────────────────────────────────
+   The runtime sets data-template="<slug>" on <gs-widget> AND on .shell.
+   Use these selectors when adding template-specific overrides:
+
+     .shell[data-template="default"]  .panel { ... }
+     .shell[data-template="<slug>"]   .panel { ... }
+
+   No global rules belong here. Future templates can ship as additional
+   stylesheet blocks scoped via these attributes — no rebundling needed.
+   ════════════════════════════════════════════════════════════════════ */
+.shell[data-template="default"] {
+  /* default visual tokens — kept identical to the legacy un-scoped values
+     so existing widgets render byte-identically. */
+}
+
 /* Internal reset — scoped to the shadow root only */
 *,
 *::before,

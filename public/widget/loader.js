@@ -185,6 +185,10 @@
   var launcherEl = null;
   var errorToastEl = null;
   var isOpen = false;
+  // Singletons for background loops the loader owns. Guard against double
+  // start in case bootstrap() is somehow re-entered (defense in depth — the
+  // singleton flag at the top of the IIFE already prevents this in practice).
+  var trackingStarted = false;
 
   function mountShell() {
     if (shellEl) return; // singleton
@@ -382,7 +386,11 @@
         attachLauncherClick({ launcherOnly: false });
 
         if (config.features && config.features.visitorTracking) {
-          scheduleDeferred(function () { startTracking(apiBase, WORKSPACE_ID, sessionToken); });
+          scheduleDeferred(function () {
+            if (trackingStarted) return;
+            trackingStarted = true;
+            startTracking(apiBase, WORKSPACE_ID, sessionToken);
+          });
         }
 
         // Public API placeholder until runtime mounts

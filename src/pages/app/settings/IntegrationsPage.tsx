@@ -38,6 +38,7 @@ import {
   Copy, Check, ExternalLink, HelpCircle, Code2, ArrowRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { BrandIcon } from '@/components/integrations/BrandIcon';
 
 /* ---------- Channel catalog ----------------------------------------- */
 
@@ -53,8 +54,6 @@ interface CmsGuide {
 interface Channel {
   id: string;
   name: string;
-  /** Inline SVG markup or single emoji used as a fallback brand mark. */
-  brandMark: React.ReactNode;
   status: ChannelStatus;
   /** When 'available' + cms is set, opens an install dialog with that guide. */
   cms?: CmsGuide;
@@ -69,19 +68,6 @@ interface ChannelGroup {
   channels: Channel[];
   /** Two- or three-column grid. Defaults to three. */
   columns?: 2 | 3;
-}
-
-/** Tiny helper so we don't pull a 200+ KB icon library for brand colors. */
-function BrandSquare({ bg, label }: { bg: string; label: string }) {
-  return (
-    <span
-      className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-sm font-bold text-white shadow-sm"
-      style={{ backgroundColor: bg }}
-      aria-hidden
-    >
-      {label}
-    </span>
-  );
 }
 
 /* ---------- Page ---------------------------------------------------- */

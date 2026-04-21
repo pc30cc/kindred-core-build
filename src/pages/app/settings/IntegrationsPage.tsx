@@ -299,7 +299,7 @@ export default function SettingsIntegrationsPage() {
             <>
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-3">
-                  {openChannel.brandMark}
+                  <BrandIcon id={openChannel.id} size={40} />
                   <span>
                     {t('integrationsPage.installOn')} {openChannel.name}
                   </span>
@@ -393,7 +393,7 @@ function ChannelCard({
           : 'hover:border-primary/40 hover:bg-accent/40 hover:shadow-sm',
       )}
     >
-      {channel.brandMark}
+      <BrandIcon id={channel.id} />
       <span className="flex-1 text-sm font-medium text-foreground">
         {channel.name}
       </span>

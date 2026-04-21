@@ -101,3 +101,11 @@ const manifestPath = join(OUT_DIR, 'widget-manifest.json');
 writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
 console.log(`[widget-hash] Manifest written to ${manifestPath}`);
 console.log(JSON.stringify(manifest, null, 2));
+
+// Final sanity check — refuse to "succeed" if the manifest didn't land
+// where the Dockerfile expects it. This catches any future path/CWD
+// regression at build time instead of at runtime in production.
+if (!existsSync(manifestPath)) {
+  console.error(`[widget-hash] FATAL: manifest write reported success but file is missing: ${manifestPath}`);
+  process.exit(1);
+}

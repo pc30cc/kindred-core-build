@@ -307,20 +307,23 @@ export default function TeamPage() {
   }
 
   return (
-    <div className="space-y-10 animate-fade-in pb-12">
-      {/* Header — matches Settings pages */}
-      <header className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-2">
-          <h1 className="text-2xl font-semibold text-foreground">{t('team.title')}</h1>
-          <HelpCircle className="h-4 w-4 text-muted-foreground" />
+    <div className="space-y-8 animate-fade-in">
+      {/* Header — mirrors Account Information */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+            {t('team.title')}
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">{t('team.subtitle')}</p>
         </div>
-        <span className="text-xs text-muted-foreground">
+        <div className="flex shrink-0 items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs text-foreground">
+          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
           {members.length} {t('team.totalMembers').toLowerCase()}
-        </span>
-      </header>
+        </div>
+      </div>
 
-      {/* Section Tabs — quiet pill nav */}
-      <nav className="flex items-center gap-1 border-b border-border/60 -mt-4">
+      {/* Section Tabs */}
+      <nav className="flex items-center gap-1 border-b border-border/60">
         {[
           { key: 'members',     icon: Users,  label: t('team.tabMembers'),     badge: 0 },
           { key: 'invitations', icon: Mail,   label: t('team.tabInvitations'), badge: activeInvites.length },
@@ -332,11 +335,10 @@ export default function TeamPage() {
             <button
               key={tab.key}
               onClick={() => setActiveSection(tab.key as any)}
-              className={`relative flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors ${
-                active
-                  ? 'text-foreground'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
+              className={cn(
+                'relative flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors',
+                active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
+              )}
             >
               <Icon className="w-4 h-4" />
               {tab.label}

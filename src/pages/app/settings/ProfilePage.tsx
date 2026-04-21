@@ -213,8 +213,8 @@ export default function SettingsProfilePage() {
           className={cn(
             'flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition-colors',
             saving
-              ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300'
-              : 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-300'
+              ? 'border-border bg-muted text-muted-foreground'
+              : 'border-border bg-card text-foreground'
           )}
         >
           {saving ? (
@@ -233,15 +233,15 @@ export default function SettingsProfilePage() {
 
       {/* Verification banner */}
       {!isVerified && me?.email && (
-        <div className="flex items-start gap-3 rounded-xl border border-amber-200/70 bg-amber-50/80 p-4 text-sm text-amber-900 shadow-sm dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
-          <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
+        <div className="flex items-start gap-3 rounded-xl border border-border bg-muted/50 p-4 text-sm text-foreground shadow-sm">
+          <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
           <div className="flex-1">
             <span>{t('account.unverifiedBanner')} </span>
             <button
               type="button"
               onClick={onResendVerification}
               disabled={verifySending}
-              className="font-semibold underline underline-offset-2 hover:text-amber-700 disabled:opacity-60 dark:hover:text-amber-100"
+              className="font-semibold text-primary underline underline-offset-2 hover:opacity-80 disabled:opacity-60"
             >
               {verifySending ? t('account.saving') : t('account.sendEmailNow')}
             </button>

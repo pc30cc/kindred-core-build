@@ -432,13 +432,27 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
     const { data: members } = await supabase
       .from('workspace_members').select('user_id').eq('workspace_id', workspaceId).limit(4);
 
-    let teamMembers: Array<{ name: string; avatar: string | null }> = [];
+    let teamMembers: Array<{ name: string; avatar: string | null; online: boolean }> = [];
     if (members?.length) {
       const { data: profiles } = await supabase
         .from('profiles').select('full_name, avatar_url')
         .in('id', members.map((m: any) => m.user_id));
+      // Resolve who's online right now using the operator presence service
+      // so the widget can render a green status dot on each avatar.
+      let presenceByUser = new Map<string, 'online' | 'offline'>();
+      try {
+        const { listWorkspacePresence } = await import('../services/widget/operatorPresence.js');
+        const presence = await listWorkspacePresence(req.serverConfig, workspaceId);
+        for (const p of presence) presenceByUser.set(p.user_id, p.state);
+      } catch (_) {}
       if (profiles) {
-        teamMembers = profiles.map((p: any) => ({ name: p.full_name || 'Operator', avatar: p.avatar_url }));
+        teamMembers = profiles.map((p: any) => ({
+          name: p.full_name || 'Operator',
+          avatar: p.avatar_url,
+          online: presenceByUser.get(p.id) === 'online',
+        }));
+        // Online operators first so the stack leads with available staff.
+        teamMembers.sort((a, b) => (b.online ? 1 : 0) - (a.online ? 1 : 0));
       }
     }
 

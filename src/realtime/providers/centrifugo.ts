@@ -393,6 +393,18 @@ function scheduleTokenRefresh(conn: SharedConnection): void {
 /**
  * Re-issue subscribe commands for every cached subscription. Called on
  * (re)connect. Refreshes per-channel sub tokens if they're expired.
+ *
+ * Token-expiry handling: if Centrifugo rejects a subscribe with a token-
+ * related error (code 109, or any message matching token / expired /
+ * unauthorized), we cannot trust the cached subscription token even if
+ * our local clock says it's still valid — the server may have rotated
+ * keys, the operator's session may have rolled, or the previous refresh
+ * call returned a stale cached value. In that case we forcibly invalidate
+ * the entry (`expiresAt = 0`), call `entry.refresh()` once to obtain a
+ * brand-new token, and retry the subscribe exactly once. If the retry
+ * still fails we surface the error and stop — the outer reconnect loop
+ * will take over rather than spinning a tight per-channel loop with a
+ * dead token.
  */
 async function resubscribeAll(conn: SharedConnection): Promise<void> {
   const channels = Array.from(conn.subTokens.keys());
@@ -413,7 +425,54 @@ async function resubscribeAll(conn: SharedConnection): Promise<void> {
     try {
       await sendOnConn(conn, 'subscribe', { channel, token });
     } catch (err) {
-      rtWarn('centrifugo', 're-subscribe failed', { channel, error: (err as any)?.message });
+      const e: any = err;
+      const code = Number(e?.code) || 0;
+      const msg = String(e?.message || '');
+      const isTokenError =
+        code === 109 || /token|expired|unauthorized|401/i.test(msg);
+
+      if (!isTokenError) {
+        rtWarn('centrifugo', 're-subscribe failed', { channel, error: msg, code });
+        continue;
+      }
+
+      // Token-expired path: invalidate the cached entry hard, refresh
+      // once, retry the subscribe exactly once. This breaks the tight
+      // loop where the cached (but server-rejected) token kept being
+      // re-sent on every reconnect cycle.
+      rtDebug('centrifugo', 're-subscribe token expired; forcing refresh', {
+        channel,
+        code,
+        message: msg,
+      });
+      entry.expiresAt = 0;
+      entry.token = '';
+
+      const retryFresh = await entry.refresh();
+      if (!retryFresh?.token || !retryFresh.channel) {
+        rtWarn('centrifugo', 'sub token forced refresh failed', { channel });
+        continue;
+      }
+      entry.token = retryFresh.token;
+      entry.expiresAt =
+        (retryFresh.expires_at || 0) * 1000 || Date.now() + 9 * 60_000;
+
+      try {
+        await sendOnConn(conn, 'subscribe', { channel, token: retryFresh.token });
+        rtDebug('centrifugo', 're-subscribe succeeded after token refresh', { channel });
+      } catch (retryErr) {
+        const re: any = retryErr;
+        rtWarn('centrifugo', 're-subscribe failed after forced refresh', {
+          channel,
+          error: re?.message,
+          code: re?.code,
+        });
+        // Surface to the outer reconnect path: clear the entry so the
+        // next openSocket cycle re-negotiates from scratch instead of
+        // hammering with the same dead state.
+        entry.expiresAt = 0;
+        entry.token = '';
+      }
     }
   }
 }

@@ -140,6 +140,13 @@
         required: 'required',
         invalidEmail: 'Please enter a valid email address.',
         invalidPhone: 'Please enter a valid phone number.',
+        prechatTitle: 'Welcome 👋',
+        prechatSubtitle: "Tell us a bit about you so we can help faster.",
+        prechatOptional: 'optional',
+        prechatNamePh: 'Your full name',
+        prechatEmailPh: 'name@example.com',
+        prechatPhonePh: '+1 555 123 4567',
+        prechatPrivacy: 'We only use your details to reply to this conversation.',
         searchKb: 'Search articles...',
         noArticles: 'No articles yet',
         loading: 'Loading…',
@@ -197,6 +204,13 @@
         required: 'الزامی',
         invalidEmail: 'لطفاً یک ایمیل معتبر وارد کنید.',
         invalidPhone: 'لطفاً یک شماره تلفن معتبر وارد کنید.',
+        prechatTitle: 'خوش آمدید 👋',
+        prechatSubtitle: 'برای پاسخ‌گویی سریع‌تر، چند نکته کوتاه دربارهٔ خودتان بگویید.',
+        prechatOptional: 'اختیاری',
+        prechatNamePh: 'نام و نام خانوادگی',
+        prechatEmailPh: 'name@example.com',
+        prechatPhonePh: '۰۹۱۲ ۳۴۵ ۶۷۸۹',
+        prechatPrivacy: 'اطلاعات شما فقط برای پاسخ به همین گفتگو استفاده می‌شود.',
         searchKb: 'جستجو در مقالات...',
         noArticles: 'مقاله‌ای یافت نشد',
         loading: 'در حال بارگذاری…',
@@ -253,6 +267,13 @@
         required: 'zorunlu',
         invalidEmail: 'Lütfen geçerli bir e-posta girin.',
         invalidPhone: 'Lütfen geçerli bir telefon numarası girin.',
+        prechatTitle: 'Hoş geldiniz 👋',
+        prechatSubtitle: 'Size daha hızlı yardımcı olabilmemiz için kendinizden kısaca bahsedin.',
+        prechatOptional: 'isteğe bağlı',
+        prechatNamePh: 'Ad ve soyad',
+        prechatEmailPh: 'ad@ornek.com',
+        prechatPhonePh: '+90 555 123 45 67',
+        prechatPrivacy: 'Bilgileriniz yalnızca bu sohbete yanıt vermek için kullanılır.',
         searchKb: 'Makalelerde ara...',
         noArticles: 'Henüz makale yok',
         loading: 'Yükleniyor…',
@@ -791,8 +812,9 @@
       var s = identityStore.get();
       if (s.identityState === 'identified') return false;
       if (!s.prechat) return false;
-      if (!s.prechat.ask_name && !s.prechat.ask_email && !s.prechat.ask_phone) return false;
-      return !!(s.prechat.require_name || s.prechat.require_email || s.prechat.require_phone);
+      // Show pre-chat whenever any field is asked. Required fields gate
+      // submission inside the form; optional fields can be skipped.
+      return !!(s.prechat.ask_name || s.prechat.ask_email || s.prechat.ask_phone);
     }
 
     return {
@@ -1393,17 +1415,40 @@
 
     function renderPreChat(body, identity, locale, onSubmitted) {
       var contact = (identityStore.get().contact) || {};
+      var ICONS = {
+        name: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+        email: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>',
+        phone: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92Z"/></svg>',
+        check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+        alert: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>',
+        lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>',
+      };
+
       function fieldRow(key, type, value) {
         var label = t(key);
+        var ph = t('prechat' + key.charAt(0).toUpperCase() + key.slice(1) + 'Ph') || label;
         var req = identity.isRequired(key);
-        var labelHtml = '<label class="prechat-label">' + Util.escapeHtml(label) +
-          (req ? ' <span class="prechat-required">*</span>' : '') + '</label>';
-        return '<div>' + labelHtml +
-          '<input class="input" data-prechat="' + key + '" type="' + type + '" autocomplete="' +
-          (key === 'name' ? 'name' : key === 'email' ? 'email' : 'tel') +
-          '" placeholder="' + Util.escapeHtml(label) + '" value="' + Util.escapeHtml(value || '') + '" />' +
-          '<div class="prechat-error" data-err="' + key + '"></div>' +
-        '</div>';
+        var badge = req
+          ? '<span class="prechat-badge req">' + Util.escapeHtml(t('required')) + '</span>'
+          : '<span class="prechat-badge opt">' + Util.escapeHtml(t('prechatOptional')) + '</span>';
+        var ac = key === 'name' ? 'name' : key === 'email' ? 'email' : 'tel';
+        var inputDir = key === 'email' || key === 'phone' ? 'ltr' : '';
+        return '<div class="prechat-field" data-field="' + key + '">' +
+            '<div class="prechat-row">' +
+              '<label class="prechat-label" for="prechat-' + key + '">' + Util.escapeHtml(label) + '</label>' +
+              badge +
+            '</div>' +
+            '<div class="prechat-control">' +
+              '<span class="prechat-icon" aria-hidden="true">' + ICONS[key] + '</span>' +
+              '<input id="prechat-' + key + '" class="prechat-input" data-prechat="' + key + '" type="' + type +
+                '" autocomplete="' + ac + '"' +
+                (inputDir ? ' dir="' + inputDir + '"' : '') +
+                ' placeholder="' + Util.escapeHtml(ph) + '"' +
+                ' value="' + Util.escapeHtml(value || '') + '" />' +
+              '<span class="prechat-status" aria-hidden="true"></span>' +
+            '</div>' +
+            '<div class="prechat-error" data-err="' + key + '"></div>' +
+          '</div>';
       }
 
       var fieldsHtml = '';
@@ -1413,25 +1458,74 @@
 
       var dir = locale === 'fa' ? 'rtl' : 'ltr';
       body.innerHTML =
-        '<div class="prechat" dir="' + dir + '">' +
-        '<p class="prechat-intro">' + Util.escapeHtml(t('prechatIntro')) + '</p>' +
-        '<div class="prechat-fields">' + fieldsHtml + '</div>' +
-        '<button type="button" class="prechat-submit" data-prechat-submit>' + Util.escapeHtml(t('continue')) + '</button>' +
+        '<div class="prechat prechat-pro" dir="' + dir + '">' +
+          '<div class="prechat-hero">' +
+            '<div class="prechat-hero-avatar">' +
+              '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>' +
+            '</div>' +
+            '<h3 class="prechat-title">' + Util.escapeHtml(t('prechatTitle')) + '</h3>' +
+            '<p class="prechat-subtitle">' + Util.escapeHtml(t('prechatSubtitle')) + '</p>' +
+          '</div>' +
+          '<div class="prechat-fields">' + fieldsHtml + '</div>' +
+          '<button type="button" class="prechat-submit" data-prechat-submit>' +
+            '<span class="prechat-submit-label">' + Util.escapeHtml(t('continue')) + '</span>' +
+            '<span class="prechat-submit-arrow" aria-hidden="true">' +
+              (dir === 'rtl'
+                ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>'
+                : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>') +
+            '</span>' +
+          '</button>' +
+          '<p class="prechat-privacy">' +
+            '<span class="prechat-privacy-icon" aria-hidden="true">' + ICONS.lock + '</span>' +
+            Util.escapeHtml(t('prechatPrivacy')) +
+          '</p>' +
         '</div>';
 
       function getInput(key) { return body.querySelector('[data-prechat="' + key + '"]'); }
       function clearError(key) {
         var el = body.querySelector('[data-err="' + key + '"]');
         if (el) { el.classList.remove('visible'); el.textContent = ''; }
+        var f = body.querySelector('[data-field="' + key + '"]');
+        if (f) f.classList.remove('has-error');
       }
       function showError(key, msg) {
         var el = body.querySelector('[data-err="' + key + '"]');
         if (el) { el.textContent = msg; el.classList.add('visible'); }
+        var f = body.querySelector('[data-field="' + key + '"]');
+        if (f) f.classList.add('has-error');
+        var input = getInput(key);
+        if (input) try { input.focus(); } catch (_) {}
+      }
+      function markValid(key, valid) {
+        var f = body.querySelector('[data-field="' + key + '"]');
+        if (!f) return;
+        if (valid) f.classList.add('is-valid'); else f.classList.remove('is-valid');
+      }
+      function liveValidate(k, val) {
+        var v = (val || '').trim();
+        if (!v) { markValid(k, false); return; }
+        if (k === 'email') markValid(k, Util.isValidEmail(v));
+        else if (k === 'phone') markValid(k, Util.isValidPhone(v));
+        else markValid(k, v.length >= 2);
       }
       ['name', 'email', 'phone'].forEach(function (k) {
         var input = getInput(k);
-        if (input) input.addEventListener('input', function () { clearError(k); });
+        if (!input) return;
+        liveValidate(k, input.value);
+        input.addEventListener('input', function () {
+          clearError(k);
+          liveValidate(k, input.value);
+        });
+        input.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            var btn = body.querySelector('[data-prechat-submit]');
+            if (btn) btn.click();
+          }
+        });
       });
+      var firstInput = body.querySelector('.prechat-input');
+      if (firstInput) try { firstInput.focus({ preventScroll: true }); } catch (_) {}
 
       var submitBtn = body.querySelector('[data-prechat-submit]');
       if (submitBtn) {

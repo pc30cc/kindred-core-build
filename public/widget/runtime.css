@@ -335,8 +335,8 @@ textarea:focus-visible {
 .prechat {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 4px 0;
+  gap: 14px;
+  padding: 4px 0 8px;
 }
 .prechat-intro {
   margin: 0 0 4px;
@@ -344,7 +344,7 @@ textarea:focus-visible {
   font-size: 14px;
   line-height: 1.5;
 }
-.prechat-fields { display: flex; flex-direction: column; gap: 10px; }
+.prechat-fields { display: flex; flex-direction: column; gap: 12px; }
 .prechat-label {
   font-size: 12px;
   color: #64748b;
@@ -355,22 +355,222 @@ textarea:focus-visible {
 .prechat-error {
   font-size: 12px;
   color: #EF4444;
-  margin-top: 4px;
+  margin-top: 6px;
   display: none;
 }
-.prechat-error.visible { display: block; }
+.prechat-error.visible {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  animation: prechat-shake 0.32s cubic-bezier(.36,.07,.19,.97);
+}
 .prechat-submit {
   width: 100%;
-  height: 40px;
-  border-radius: 8px;
+  height: 44px;
+  border-radius: 12px;
   color: #fff;
   font-weight: 600;
   background: var(--gs-primary, #3B82F6);
-  transition: opacity 0.15s ease, transform 0.1s ease;
+  transition: opacity 0.15s ease, transform 0.1s ease, box-shadow 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--gs-primary, #3B82F6) 24%, transparent);
 }
-.prechat-submit:hover:not(:disabled) { opacity: 0.92; }
-.prechat-submit:active:not(:disabled) { transform: scale(0.98); }
+.prechat-submit:hover:not(:disabled) { opacity: 0.94; box-shadow: 0 4px 14px color-mix(in srgb, var(--gs-primary, #3B82F6) 32%, transparent); }
+.prechat-submit:active:not(:disabled) { transform: scale(0.985); }
 .prechat-submit:disabled { opacity: 0.6; }
+.prechat-submit-arrow { display: inline-flex; }
+.prechat-submit-arrow svg { width: 16px; height: 16px; }
+.prechat-submit-label { line-height: 1; }
+
+/* ─── Pre-chat: PRO redesign ─── */
+.prechat-pro .prechat-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+  padding: 4px 0 6px;
+}
+.prechat-hero-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--gs-primary, #3B82F6) 18%, #fff),
+    color-mix(in srgb, var(--gs-primary, #3B82F6) 36%, #fff));
+  color: var(--gs-primary, #3B82F6);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gs-primary, #3B82F6) 22%, transparent);
+  margin-bottom: 2px;
+  animation: prechat-pop 0.5s cubic-bezier(.34,1.56,.64,1);
+}
+.prechat-hero-avatar svg { width: 26px; height: 26px; }
+.prechat-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+.prechat-subtitle {
+  font-size: 13px;
+  color: #64748b;
+  line-height: 1.5;
+  margin: 0;
+  max-width: 280px;
+}
+
+.prechat-field { display: flex; flex-direction: column; animation: prechat-fade-up 0.32s ease both; }
+.prechat-field:nth-child(1) { animation-delay: 0.04s; }
+.prechat-field:nth-child(2) { animation-delay: 0.10s; }
+.prechat-field:nth-child(3) { animation-delay: 0.16s; }
+.prechat-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  gap: 8px;
+}
+.prechat-pro .prechat-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  margin: 0;
+}
+.prechat-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 999px;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+}
+.prechat-badge.req {
+  color: #B91C1C;
+  background: #FEE2E2;
+}
+.prechat-badge.opt {
+  color: #475569;
+  background: #F1F5F9;
+}
+
+.prechat-control {
+  position: relative;
+  display: flex;
+  align-items: center;
+  background: #fff;
+  border: 1px solid #E2E8F0;
+  border-radius: 12px;
+  height: 44px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+.prechat-control:hover { border-color: #CBD5E1; }
+.prechat-control:focus-within {
+  border-color: var(--gs-primary, #3B82F6);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--gs-primary, #3B82F6) 14%, transparent);
+  background: #fff;
+}
+.prechat-icon {
+  width: 40px;
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
+  flex-shrink: 0;
+  transition: color 0.15s ease;
+}
+.prechat-icon svg { width: 16px; height: 16px; }
+.prechat-control:focus-within .prechat-icon { color: var(--gs-primary, #3B82F6); }
+.prechat-input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-size: 14px;
+  color: #0f172a;
+  padding: 0 4px;
+}
+.prechat-input::placeholder { color: #94a3b8; }
+
+/* RTL: keep icon visually before the input on the start side */
+[dir="rtl"] .prechat-input { text-align: right; }
+[dir="rtl"] .prechat-input[dir="ltr"] { text-align: left; }
+[dir="ltr"] .prechat-input { text-align: left; }
+
+.prechat-status {
+  width: 28px;
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #10B981;
+  opacity: 0;
+  transform: scale(0.6);
+  transition: opacity 0.18s ease, transform 0.18s cubic-bezier(.34,1.56,.64,1);
+  flex-shrink: 0;
+}
+.prechat-field.is-valid .prechat-status {
+  opacity: 1;
+  transform: scale(1);
+}
+.prechat-status::before {
+  content: '';
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #10B981;
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='20 6 9 17 4 12'/></svg>") center/10px no-repeat;
+          mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='20 6 9 17 4 12'/></svg>") center/10px no-repeat;
+}
+
+.prechat-field.has-error .prechat-control {
+  border-color: #F87171;
+  background: #FEF2F2;
+}
+.prechat-field.has-error .prechat-icon { color: #DC2626; }
+.prechat-field.has-error .prechat-control:focus-within {
+  box-shadow: 0 0 0 4px rgba(248, 113, 113, 0.18);
+}
+
+.prechat-privacy {
+  margin: 4px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #94a3b8;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  text-align: center;
+}
+.prechat-privacy-icon { display: inline-flex; }
+.prechat-privacy-icon svg { width: 12px; height: 12px; }
+
+@keyframes prechat-fade-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes prechat-pop {
+  0%   { opacity: 0; transform: scale(0.7); }
+  70%  { opacity: 1; transform: scale(1.06); }
+  100% { transform: scale(1); }
+}
+@keyframes prechat-shake {
+  10%, 90% { transform: translateX(-1px); }
+  20%, 80% { transform: translateX(2px); }
+  30%, 50%, 70% { transform: translateX(-3px); }
+  40%, 60% { transform: translateX(3px); }
+}
 
 /* ─── Contact fallback (Phase 5) — offline lead form ─── */
 .prechat.fallback .prechat-intro {

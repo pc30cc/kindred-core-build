@@ -297,7 +297,17 @@
             setState('online');
             // Re-subscribe to the active conversation if any.
             if (subscribedConversation) doSubscribe(subscribedConversation);
-            if (hooks.onReconnect) hooks.onReconnect();
+            // ONLY fire onReconnect on a real reconnect, never on the
+            // first successful connect. The transport layer interprets
+            // onReconnect → re-run bootstrapHistory; if we fire it on
+            // initial connect we get a redundant history fetch racing
+            // with the boot-sequence one (and the visible duplicate
+            // "transport reconnect — refreshing history" log).
+            if (firstConnectDone) {
+              if (hooks.onReconnect) hooks.onReconnect();
+            } else {
+              firstConnectDone = true;
+            }
           })
           .catch(function (err) {
             log('[rt:centrifugo] connect rejected', err);

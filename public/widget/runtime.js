@@ -877,10 +877,15 @@
     function subscribeConversation(cid) {
       if (!cid) return;
       if (subscribedConversation !== cid) subscribedConversation = cid;
+      // Canonical cid lives in the FSM — survives driver swaps, BFCache
+      // restores, and rt→polling fallbacks. Any future driver reload
+      // re-subscribes from this value, eliminating the lost-subscription race.
+      if (fsm) fsm.setConversation(cid);
       if (rtDriver && rtDriver.subscribeConversation) rtDriver.subscribeConversation(cid);
     }
     function unsubscribeConversation(cid) {
       if (subscribedConversation === cid) subscribedConversation = null;
+      if (fsm && fsm.getConversation() === cid) fsm.setConversation(null);
       if (rtDriver && rtDriver.unsubscribeConversation) rtDriver.unsubscribeConversation(cid);
     }
 
@@ -2861,7 +2866,16 @@
     });
 
     // ─── Layers ───
-    var transport = createTransport(ctx, transportStore);
+    // Phase 2 — lifecycle FSM is the single source of truth for connection
+    // state. Transport drives it via onDriverState(); identity/history/wake
+    // call into ctx.lifecycle for the higher-level transitions. Existing
+    // store consumers keep working unchanged via the legacy bridge inside
+    // createTransport (which mirrors fsm.legacyConnectionState() into
+    // transportStore.connectionState).
+    var fsm = createLifecycleFSM();
+    ctx.lifecycle = fsm;
+    fsm.transition('bootstrapping', 'init');
+    var transport = createTransport(ctx, transportStore, fsm);
     // Expose transport on ctx so the wake-up recovery hook (registered
     // earlier) can call transport.reconnect() when the tab returns from
     // background. ctx is captured by closure inside the wake handler.

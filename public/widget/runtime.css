@@ -160,6 +160,16 @@ textarea:focus-visible {
   transition: transform 0.15s ease;
 }
 .header-op-stack .header-op-avatar:first-child { margin-left: 0; }
+
+/* RTL header (Persian) — mirror brand row so avatar stack sits on the right
+   and title/subtitle align to the right. Scoped to .header-rtl so other
+   widget surfaces stay LTR by default. */
+.header.header-rtl { text-align: right; }
+.header.header-rtl .header-brand { flex-direction: row-reverse; }
+.header.header-rtl .header-op-stack { padding-right: 0; padding-left: 4px; }
+.header.header-rtl .header-op-stack .header-op-avatar { margin-left: 0; margin-right: -10px; }
+.header.header-rtl .header-op-stack .header-op-avatar:first-child { margin-right: 0; }
+
 .header-op-avatar:hover { transform: translateY(-1px); z-index: 2; }
 .header-op-avatar.has-img { background: #fff; }
 .header-op-avatar img {

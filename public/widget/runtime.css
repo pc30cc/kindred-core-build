@@ -127,6 +127,37 @@ textarea:focus-visible {
 .header-title { font-size: 18px; font-weight: 700; line-height: 1.3; }
 .header-subtitle { font-size: 13px; opacity: 0.88; margin-top: 4px; line-height: 1.45; }
 
+/* Brand row: workspace logo + title/subtitle column. Mirrors Intercom /
+   Drift / Zendesk Messenger top-of-panel branding. */
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.header-brand-text { min-width: 0; flex: 1; }
+.header-brand-badge {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  font-weight: 700;
+  font-size: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  overflow: hidden;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.22), 0 2px 6px rgba(0, 0, 0, 0.18);
+}
+.header-brand-badge.has-logo { background: #fff; }
+.header-brand-badge img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
 /* ─── Presence indicator (Phase 5) ─── */
 .presence {
   display: inline-flex;

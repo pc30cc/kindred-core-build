@@ -1884,6 +1884,53 @@ export type Database = {
           },
         ]
       }
+      user_availability_prefs: {
+        Row: {
+          available_when_using_app: boolean
+          created_at: string
+          force_offline: boolean
+          id: string
+          schedule_enabled: boolean
+          timezone: string
+          updated_at: string
+          user_id: string
+          weekly_schedule: Json
+          workspace_id: string | null
+        }
+        Insert: {
+          available_when_using_app?: boolean
+          created_at?: string
+          force_offline?: boolean
+          id?: string
+          schedule_enabled?: boolean
+          timezone?: string
+          updated_at?: string
+          user_id: string
+          weekly_schedule?: Json
+          workspace_id?: string | null
+        }
+        Update: {
+          available_when_using_app?: boolean
+          created_at?: string
+          force_offline?: boolean
+          id?: string
+          schedule_enabled?: boolean
+          timezone?: string
+          updated_at?: string
+          user_id?: string
+          weekly_schedule?: Json
+          workspace_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_availability_prefs_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_continuity_tokens: {
         Row: {
           contact_id: string | null

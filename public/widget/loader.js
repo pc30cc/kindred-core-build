@@ -135,8 +135,14 @@
     ".launcher{position:fixed;z-index:2147483646;display:flex;align-items:center;justify-content:center;",
     "width:56px;height:56px;border-radius:50%;border:none;cursor:pointer;",
     "box-shadow:0 4px 20px -4px rgba(0,0,0,.25),0 0 0 1px rgba(0,0,0,.05);",
-    "transition:transform .25s cubic-bezier(.34,1.56,.64,1),box-shadow .2s ease;",
-    "background:var(--gs-primary,#3B82F6);color:#fff;font-family:inherit;}",
+    "transition:transform .25s cubic-bezier(.34,1.56,.64,1),box-shadow .2s ease,opacity .2s ease;",
+    "background:var(--gs-primary,transparent);color:#fff;font-family:inherit;",
+    "opacity:1;}",
+    /* Hidden state — keeps the launcher invisible and non-interactive until
+       /config resolves and we know the brand color. Eliminates blue flash. */
+    ".launcher.pending{opacity:0;pointer-events:none;visibility:hidden;}",
+    /* Reveal animation once config arrives. */
+    ".launcher.revealed{opacity:1;pointer-events:auto;visibility:visible;}",
     ".launcher:hover{transform:scale(1.08);box-shadow:0 6px 28px -4px rgba(0,0,0,.3);}",
     ".launcher:active{transform:scale(.96);}",
     ".launcher.bottom-right{bottom:24px;right:24px;}",
@@ -243,7 +249,16 @@
     var shellDiv = shadowRoot.querySelector(".shell");
     if (shellDiv) shellDiv.style.setProperty("--gs-primary", config.primaryColor || "#3B82F6");
     var posClass = config.position === "bottom-left" ? "bottom-left" : "bottom-right";
-    if (launcherEl) launcherEl.className = "launcher " + posClass;
+    if (launcherEl) {
+      // Set position + reveal in one paint so the user never sees a wrong
+      // color first. The CSS transitions opacity so it fades in cleanly.
+      launcherEl.className = "launcher " + posClass + " revealed";
+      // Expose template slug for CSS scoping (Task 4).
+      if (config.templateSlug) {
+        launcherEl.setAttribute("data-template", config.templateSlug);
+        if (shellEl) shellEl.setAttribute("data-template", config.templateSlug);
+      }
+    }
   }
 
   // ─── HTTP helper with capped retries & jitter ───

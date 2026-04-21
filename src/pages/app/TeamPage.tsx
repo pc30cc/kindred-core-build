@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -18,7 +17,7 @@ import { toast } from 'sonner';
 import {
   Users, UserPlus, Shield, Loader2, Copy, Trash2,
   Crown, MoreHorizontal, Mail, Clock, Search, UserCog,
-  Ban, RotateCcw, Calendar,
+  Ban, RotateCcw, HelpCircle,
 } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL;
@@ -306,50 +305,51 @@ export default function TeamPage() {
   }
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">{t('team.title')}</h1>
-          <p className="text-sm text-muted-foreground">{t('team.subtitle')}</p>
+    <div className="space-y-10 animate-fade-in pb-12">
+      {/* Header — matches Settings pages */}
+      <header className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-semibold text-foreground">{t('team.title')}</h1>
+          <HelpCircle className="h-4 w-4 text-muted-foreground" />
         </div>
-        <span className="text-sm text-muted-foreground">
+        <span className="text-xs text-muted-foreground">
           {members.length} {t('team.totalMembers').toLowerCase()}
         </span>
-      </div>
+      </header>
 
-      {/* Section Tabs */}
-      <div className="flex items-center gap-2 p-1 rounded-xl bg-secondary/50 border border-border w-fit">
-        <button
-          onClick={() => setActiveSection('members')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-            activeSection === 'members' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
-          }`}
-        >
-          <Users className="w-4 h-4" />{t('team.tabMembers')}
-        </button>
-        <button
-          onClick={() => setActiveSection('invitations')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-            activeSection === 'invitations' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
-          }`}
-        >
-          <Mail className="w-4 h-4" />{t('team.tabInvitations')}
-          {activeInvites.length > 0 && (
-            <span className="ml-1 px-1.5 py-0.5 text-[10px] rounded-full bg-primary-foreground/20">
-              {activeInvites.length}
-            </span>
-          )}
-        </button>
-        <button
-          onClick={() => setActiveSection('roles')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-            activeSection === 'roles' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
-          }`}
-        >
-          <Shield className="w-4 h-4" />{t('team.tabRoles')}
-        </button>
-      </div>
+      {/* Section Tabs — quiet pill nav */}
+      <nav className="flex items-center gap-1 border-b border-border/60 -mt-4">
+        {[
+          { key: 'members',     icon: Users,  label: t('team.tabMembers'),     badge: 0 },
+          { key: 'invitations', icon: Mail,   label: t('team.tabInvitations'), badge: activeInvites.length },
+          { key: 'roles',       icon: Shield, label: t('team.tabRoles'),       badge: 0 },
+        ].map(tab => {
+          const active = activeSection === tab.key;
+          const Icon = tab.icon;
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setActiveSection(tab.key as any)}
+              className={`relative flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors ${
+                active
+                  ? 'text-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <Icon className="w-4 h-4" />
+              {tab.label}
+              {tab.badge > 0 && (
+                <span className="ml-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary/15 px-1 text-[10px] font-semibold text-primary">
+                  {tab.badge}
+                </span>
+              )}
+              {active && (
+                <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-primary" />
+              )}
+            </button>
+          );
+        })}
+      </nav>
 
       {/* ═══════════ Members Tab ═══════════ */}
       {activeSection === 'members' && (
@@ -363,16 +363,16 @@ export default function TeamPage() {
           </div>
 
           {/* Members List */}
-          <Card>
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 border-b border-border">
-              <h3 className="text-sm font-semibold">{t('team.membersList')}</h3>
+          <section className="rounded-xl border border-border/60 bg-card/40 overflow-hidden">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 px-5 py-4 border-b border-border/60">
+              <h3 className="text-sm font-semibold text-foreground">{t('team.membersList')}</h3>
               <div className="relative w-full sm:w-64">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <Input
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
                   placeholder={t('team.searchMember')}
-                  className="pl-9 text-xs"
+                  className="pl-9 h-9 text-xs"
                 />
               </div>
             </div>
@@ -382,7 +382,7 @@ export default function TeamPage() {
                 <Loader2 className="h-5 w-5 animate-spin text-primary" />
               </div>
             ) : (
-              <div className="divide-y divide-border">
+              <div className="divide-y divide-border/60">
                 {filteredMembers.map((m: any) => {
                   const isOwner = m.role === 'owner';
                   const isCurrentUser = m.user_id === user?.id;
@@ -433,11 +433,11 @@ export default function TeamPage() {
                   );
                 })}
                 {filteredMembers.length === 0 && (
-                  <p className="text-center text-muted-foreground py-8">{t('team.noMembers')}</p>
+                  <p className="text-center text-sm text-muted-foreground py-10">{t('team.noMembers')}</p>
                 )}
               </div>
             )}
-          </Card>
+          </section>
         </>
       )}
 
@@ -445,11 +445,10 @@ export default function TeamPage() {
       {activeSection === 'invitations' && (
         <>
           {/* Create Invitation */}
-          <Card>
-            <CardContent className="p-6 space-y-4">
+          <section className="rounded-xl border border-border/60 bg-card/40 p-6 space-y-4">
               <div className="flex items-center gap-2">
                 <UserPlus className="w-5 h-5 text-primary" />
-                <h3 className="text-sm font-semibold">{t('team.inviteNew')}</h3>
+                <h3 className="text-sm font-semibold text-foreground">{t('team.inviteNew')}</h3>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="space-y-2">
@@ -514,18 +513,17 @@ export default function TeamPage() {
                   </Button>
                 </div>
               )}
-            </CardContent>
-          </Card>
+          </section>
 
           {/* Active Invitations */}
-          <Card>
-            <div className="p-4 border-b border-border">
-              <h3 className="text-sm font-semibold">{t('team.activeInvitations')}</h3>
+          <section className="rounded-xl border border-border/60 bg-card/40 overflow-hidden">
+            <div className="px-5 py-4 border-b border-border/60">
+              <h3 className="text-sm font-semibold text-foreground">{t('team.activeInvitations')}</h3>
             </div>
             {activeInvites.length === 0 ? (
-              <p className="text-center text-muted-foreground py-8">{t('team.noInvitations')}</p>
+              <p className="text-center text-sm text-muted-foreground py-10">{t('team.noInvitations')}</p>
             ) : (
-              <div className="divide-y divide-border">
+              <div className="divide-y divide-border/60">
                 {activeInvites.map((inv: any) => (
                   <InvitationRow
                     key={inv.id}
@@ -541,15 +539,15 @@ export default function TeamPage() {
                 ))}
               </div>
             )}
-          </Card>
+          </section>
 
           {/* Expired / Revoked Invitations */}
           {inactiveInvites.length > 0 && (
-            <Card>
-              <div className="p-4 border-b border-border">
-                <h3 className="text-sm font-semibold">{t('team.expiredInvitations')}</h3>
+            <section className="rounded-xl border border-border/60 bg-card/40 overflow-hidden">
+              <div className="px-5 py-4 border-b border-border/60">
+                <h3 className="text-sm font-semibold text-foreground">{t('team.expiredInvitations')}</h3>
               </div>
-              <div className="divide-y divide-border">
+              <div className="divide-y divide-border/60">
                 {inactiveInvites.map((inv: any) => (
                   <InvitationRow
                     key={inv.id}
@@ -563,19 +561,18 @@ export default function TeamPage() {
                   />
                 ))}
               </div>
-            </Card>
+            </section>
           )}
         </>
       )}
 
       {/* ═══════════ Roles Tab ═══════════ */}
       {activeSection === 'roles' && (
-        <div className="space-y-4">
-          <p className="text-sm text-muted-foreground">{t('team.rolesDesc')}</p>
+        <div className="space-y-5">
+          <p className="text-sm text-muted-foreground -mt-4">{t('team.rolesDesc')}</p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {allRolesWithOwner.map(role => (
-              <Card key={role}>
-                <CardContent className="p-5">
+              <div key={role} className="rounded-xl border border-border/60 bg-card/40 p-5 transition-colors hover:border-border">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
                       <Badge className={`text-xs px-2.5 py-1 border ${roleColors[role] || roleColors.viewer}`}>
@@ -585,17 +582,16 @@ export default function TeamPage() {
                         ({roleStats[role] || 0} {t('team.membersCount')})
                       </span>
                     </div>
-                    {role === 'owner' && <Crown className="w-4 h-4 text-amber-400" />}
+                    {role === 'owner' && <Crown className="w-4 h-4 text-amber-500" />}
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     {(rolePermissionKeys[role] || []).map(permKey => (
-                      <span key={permKey} className="text-[10px] px-2 py-0.5 rounded-full bg-secondary/50 text-muted-foreground border border-border/50">
+                      <span key={permKey} className="text-[10px] px-2 py-0.5 rounded-full bg-muted/50 text-muted-foreground border border-border/50">
                         {(t as any)(`team.${permKey}`)}
                       </span>
                     ))}
                   </div>
-                </CardContent>
-              </Card>
+              </div>
             ))}
           </div>
         </div>
@@ -608,12 +604,12 @@ export default function TeamPage() {
 
 function StatCard({ icon: Icon, label, value }: { icon: any; label: string; value: number }) {
   return (
-    <div className="rounded-lg border bg-card p-4">
-      <div className="flex items-center gap-2 text-muted-foreground mb-1">
-        <Icon className="w-4 h-4" />
-        <span className="text-xs">{label}</span>
+    <div className="rounded-xl border border-border/60 bg-card/40 p-4 transition-colors hover:border-border">
+      <div className="flex items-center gap-2 text-muted-foreground mb-1.5">
+        <Icon className="w-3.5 h-3.5" />
+        <span className="text-[11px] font-medium uppercase tracking-wide">{label}</span>
       </div>
-      <div className="text-2xl font-bold">{value}</div>
+      <div className="text-2xl font-semibold text-foreground">{value}</div>
     </div>
   );
 }

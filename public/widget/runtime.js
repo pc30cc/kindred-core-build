@@ -2724,6 +2724,11 @@
         if (__wakeInflight) return;
         __wakeInflight = true;
         try {
+          // FSM: enter 'waking' so banner/composer can distinguish wake
+          // recovery from initial connect or transient outage.
+          if (ctx.lifecycle && ctx.lifecycle.get() !== 'idle' && ctx.lifecycle.get() !== 'bootstrapping') {
+            try { ctx.lifecycle.transition('waking', 'wake:' + reason); } catch (_) {}
+          }
           if (tokenMgr && tokenMgr.isDisabled && tokenMgr.isDisabled()) {
             try { tokenMgr.revive(); } catch (_) {}
           } else if (tokenMgr && tokenMgr.refresh) {
@@ -3573,6 +3578,8 @@
 
     // 1) Identity → 2) Transport connect → 3) History (if supported)
     identity.fetchMe(function () {
+      // FSM: identity resolved → restoring_session
+      if (fsm.get() === 'bootstrapping') fsm.transition('restoring_session', 'identity:resolved');
       renderBody();
       transport.connect();
       if (!identity.needsPrechat()) {

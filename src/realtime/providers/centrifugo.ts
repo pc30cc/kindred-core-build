@@ -423,13 +423,47 @@ function scheduleTokenRefresh(conn: SharedConnection): void {
  * dead token.
  */
 async function resubscribeAll(conn: SharedConnection): Promise<void> {
+  // Capture the generation we started with. If the socket dies and is
+  // replaced mid-loop, every subsequent iteration becomes a no-op and we
+  // exit quickly. The NEW socket's openSocket will run resubscribeAll
+  // again from scratch — that path is the single source of truth for
+  // recovery on a fresh connection.
+  const startGeneration = conn.generation;
+  const isStale = (): boolean => {
+    if (conn.disposed) return true;
+    if (conn.generation !== startGeneration) return true;
+    if (conn.closed) return true;
+    if (!conn.ws || conn.ws.readyState !== 1) return true;
+    return false;
+  };
+
   const channels = Array.from(conn.subTokens.keys());
   for (const channel of channels) {
+    // Hard guard before each network round-trip: if the socket died or
+    // got replaced, abandon the loop instead of marching through every
+    // remaining channel and emitting `socket_closed` per channel.
+    if (isStale()) {
+      rtDebug('centrifugo', 'resubscribe loop aborted — connection stale', {
+        startGeneration,
+        currentGeneration: conn.generation,
+        disposed: conn.disposed,
+        closed: conn.closed,
+        readyState: conn.ws?.readyState,
+        remaining: channels.length - channels.indexOf(channel),
+      });
+      return;
+    }
     const entry = conn.subTokens.get(channel);
     if (!entry) continue;
     let token = entry.token;
     if (!token || Date.now() >= entry.expiresAt - 30_000) {
       const fresh = await entry.refresh();
+      if (isStale()) {
+        rtDebug('centrifugo', 'resubscribe loop aborted post-refresh — connection stale', {
+          channel,
+        });
+        return;
+      }
       if (!fresh?.token || !fresh.channel) {
         rtWarn('centrifugo', 'sub token refresh failed', { channel });
         continue;
@@ -444,6 +478,18 @@ async function resubscribeAll(conn: SharedConnection): Promise<void> {
       const e: any = err;
       const code = Number(e?.code) || 0;
       const msg = String(e?.message || '');
+      // socket_closed / socket_not_open here means the underlying socket
+      // died DURING the resubscribe pass. Don't log per-channel — bail
+      // out of the loop. The reconnect path (onclose → scheduleReconnect)
+      // already owns recovery and will run resubscribeAll again on the
+      // next successful open.
+      if (/socket_closed|socket_not_open/i.test(msg)) {
+        rtDebug('centrifugo', 'resubscribe loop aborted — socket died mid-pass', {
+          channel,
+          message: msg,
+        });
+        return;
+      }
       // Already-subscribed is BENIGN. Centrifugo emits this when the same
       // channel is in our local subTokens map AND the server still has the
       // subscription from a previous open that didn't reach onclose on our

@@ -1938,6 +1938,83 @@ export type Database = {
           },
         ]
       }
+      user_notification_prefs: {
+        Row: {
+          created_at: string
+          disable_all: boolean
+          email_paid_invoices: boolean
+          email_product_updates: boolean
+          email_transcripts: boolean
+          email_unread_messages: boolean
+          email_user_ratings: boolean
+          email_weekly_summary: boolean
+          id: string
+          play_sound: boolean
+          push_visitor_browsing: boolean
+          push_when_offline: boolean
+          push_when_online: boolean
+          quiet_hours_enabled: boolean
+          quiet_hours_end: string | null
+          quiet_hours_start: string | null
+          quiet_hours_timezone: string | null
+          updated_at: string
+          user_id: string
+          workspace_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          disable_all?: boolean
+          email_paid_invoices?: boolean
+          email_product_updates?: boolean
+          email_transcripts?: boolean
+          email_unread_messages?: boolean
+          email_user_ratings?: boolean
+          email_weekly_summary?: boolean
+          id?: string
+          play_sound?: boolean
+          push_visitor_browsing?: boolean
+          push_when_offline?: boolean
+          push_when_online?: boolean
+          quiet_hours_enabled?: boolean
+          quiet_hours_end?: string | null
+          quiet_hours_start?: string | null
+          quiet_hours_timezone?: string | null
+          updated_at?: string
+          user_id: string
+          workspace_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          disable_all?: boolean
+          email_paid_invoices?: boolean
+          email_product_updates?: boolean
+          email_transcripts?: boolean
+          email_unread_messages?: boolean
+          email_user_ratings?: boolean
+          email_weekly_summary?: boolean
+          id?: string
+          play_sound?: boolean
+          push_visitor_browsing?: boolean
+          push_when_offline?: boolean
+          push_when_online?: boolean
+          quiet_hours_enabled?: boolean
+          quiet_hours_end?: string | null
+          quiet_hours_start?: string | null
+          quiet_hours_timezone?: string | null
+          updated_at?: string
+          user_id?: string
+          workspace_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_notification_prefs_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_roles: {
         Row: {
           id: string

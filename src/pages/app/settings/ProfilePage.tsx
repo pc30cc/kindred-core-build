@@ -121,7 +121,25 @@ export default function SettingsProfilePage() {
   // Avatar upload
   const uploadAvatar = useMutation({
     mutationFn: uploadAccountAvatar,
-    onSuccess: () => {
+    onSuccess: (res) => {
+      // Optimistic, immediate UI update — patch the cached account so the new
+      // avatar shows in this page AND in the sidebar instantly, before the
+      // background refetch settles. Append a cache-busting query so the
+      // browser does not serve the stale CDN response.
+      const bustedUrl = res?.url ? `${res.url}${res.url.includes('?') ? '&' : '?'}v=${Date.now()}` : null;
+      qc.setQueryData<typeof me>(['account', 'me'], (prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          profile: prev.profile
+            ? { ...prev.profile, avatar_url: bustedUrl ?? prev.profile.avatar_url }
+            : prev.profile,
+        };
+      });
+      qc.setQueriesData<any>({ queryKey: ['profile'] }, (prev: any) => {
+        if (!prev) return prev;
+        return { ...prev, avatar_url: bustedUrl ?? prev.avatar_url };
+      });
       qc.invalidateQueries({ queryKey: ['account', 'me'] });
       qc.invalidateQueries({ queryKey: ['profile'] });
       toast({ title: t('account.avatarUpdated') });
@@ -134,6 +152,17 @@ export default function SettingsProfilePage() {
   const removeAvatar = useMutation({
     mutationFn: removeAccountAvatar,
     onSuccess: () => {
+      qc.setQueryData<typeof me>(['account', 'me'], (prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          profile: prev.profile ? { ...prev.profile, avatar_url: null } : prev.profile,
+        };
+      });
+      qc.setQueriesData<any>({ queryKey: ['profile'] }, (prev: any) => {
+        if (!prev) return prev;
+        return { ...prev, avatar_url: null };
+      });
       qc.invalidateQueries({ queryKey: ['account', 'me'] });
       qc.invalidateQueries({ queryKey: ['profile'] });
       toast({ title: t('account.avatarRemoved') });
@@ -259,7 +288,7 @@ export default function SettingsProfilePage() {
             <Avatar className="h-24 w-24 ring-1 ring-border/60">
               {avatarUrl ? <AvatarImage src={avatarUrl} alt={fullName || me?.email || ''} /> : null}
               <AvatarFallback className="bg-gradient-to-br from-primary/15 to-primary/5 text-lg font-semibold text-primary">
-                {avatarUrl ? <UserRound className="h-9 w-9 opacity-60" /> : getInitials(fullName, me?.email)}
+                {getInitials(fullName, me?.email)}
               </AvatarFallback>
             </Avatar>
             <button

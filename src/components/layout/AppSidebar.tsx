@@ -13,6 +13,7 @@ import {
   AlertCircle, Check,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useIsGlobalAdmin } from '@/hooks/useAdmin';
 import { useBrandingContext } from '@/features/branding/BrandingContext';
@@ -112,6 +113,7 @@ export function AppSidebar() {
 
   const userName = (user?.metadata?.full_name as string) || user?.email?.split('@')[0] || '';
   const userEmail = user?.email || '';
+  const userAvatarUrl = (profile?.avatar_url as string | null | undefined) || '';
   const companyName = profile?.company_name || workspace?.name || platformName || 'Workspace';
   const workspaceDomain = profile?.website_domain || '';
   const companyLetter = companyName.charAt(0).toUpperCase();
@@ -324,9 +326,12 @@ export function AppSidebar() {
           <div className="absolute start-2 end-2 bottom-full mb-2 z-50 bg-popover border border-border rounded-xl shadow-2xl py-1 animate-fade-in max-h-[70vh] overflow-y-auto">
             {/* User info header */}
             <div className="px-4 py-3 border-b border-border flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center shrink-0">
-                <span className="text-sm font-bold text-primary-foreground">{userName.charAt(0).toUpperCase()}</span>
-              </div>
+              <Avatar className="w-10 h-10 shrink-0">
+                {userAvatarUrl ? <AvatarImage src={userAvatarUrl} alt={userName} /> : null}
+                <AvatarFallback className="bg-primary text-sm font-bold text-primary-foreground">
+                  {userName.charAt(0).toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-foreground truncate">{userName}</p>
                 <p className="text-xs text-muted-foreground truncate">{userEmail}</p>
@@ -424,9 +429,12 @@ export function AppSidebar() {
           className="flex items-center gap-2.5 w-full rounded-lg px-1 py-1 hover:bg-sidebar-accent/50 transition-colors"
         >
           <div className="relative">
-            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-              <span className="text-xs font-semibold text-primary">{userName.charAt(0).toUpperCase()}</span>
-            </div>
+            <Avatar className="w-8 h-8 shrink-0">
+              {userAvatarUrl ? <AvatarImage src={userAvatarUrl} alt={userName} /> : null}
+              <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">
+                {userName.charAt(0).toUpperCase()}
+              </AvatarFallback>
+            </Avatar>
             <div className="absolute -bottom-0.5 -end-0.5 w-2.5 h-2.5 rounded-full bg-success border-2 border-sidebar" />
           </div>
           <div className="min-w-0 flex-1 text-start">

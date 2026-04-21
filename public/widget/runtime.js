@@ -212,6 +212,22 @@
       disabled = true;
     }
 
+    /**
+     * Revive a disabled TokenManager. Called when the page becomes visible
+     * again after a long sleep — the token may have failed all refresh
+     * attempts in the background, but the HttpOnly `dvsid` cookie is still
+     * valid, so we should give it another shot before staying stuck on
+     * "Connecting…" forever.
+     */
+    function revive(newToken) {
+      disabled = false;
+      consecutiveFailures = 0;
+      if (newToken) token = newToken;
+      scheduleProactiveRefresh();
+      // Best-effort: try a refresh now to confirm we're back online.
+      refresh().catch(function () { /* swallowed — caller decides next steps */ });
+    }
+
     // Kick off proactive timer immediately.
     scheduleProactiveRefresh();
 
@@ -221,6 +237,7 @@
       refresh: refresh,
       fetchWith: fetchWith,
       destroy: destroy,
+      revive: revive,
       isDisabled: function () { return disabled; },
     };
   }

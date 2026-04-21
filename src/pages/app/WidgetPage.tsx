@@ -18,6 +18,7 @@ import { Copy, Check, Code, ExternalLink, Globe, Info, Palette, Settings, Shield
 import { toast } from '@/hooks/use-toast';
 import { AvailabilitySection } from '@/components/app/widget/AvailabilitySection';
 import { TemplateGallery } from '@/components/app/widget/TemplateGallery';
+import { PrechatSection } from '@/components/app/widget/PrechatSection';
 
 function normalizeDomainInput(input: string): string {
   let raw = input.trim();
@@ -132,6 +133,7 @@ export default function WidgetPage() {
             <TabsList className="bg-secondary/50 border border-border">
               <TabsTrigger value="appearance" className="gap-1.5 text-xs"><Palette className="h-3.5 w-3.5" />Appearance</TabsTrigger>
               <TabsTrigger value="behavior" className="gap-1.5 text-xs"><Settings className="h-3.5 w-3.5" />Behavior</TabsTrigger>
+              <TabsTrigger value="prechat" className="gap-1.5 text-xs"><MessageSquare className="h-3.5 w-3.5" />Pre-chat</TabsTrigger>
               <TabsTrigger value="availability" className="gap-1.5 text-xs"><Clock className="h-3.5 w-3.5" />Availability</TabsTrigger>
               <TabsTrigger value="domains" className="gap-1.5 text-xs"><Shield className="h-3.5 w-3.5" />Domains</TabsTrigger>
               <TabsTrigger value="install" className="gap-1.5 text-xs"><Code className="h-3.5 w-3.5" />Install</TabsTrigger>
@@ -294,6 +296,11 @@ export default function WidgetPage() {
                   saving={updateWidget.isPending}
                 />
               )}
+            </TabsContent>
+
+            {/* ─── Pre-chat ─── */}
+            <TabsContent value="prechat">
+              <PrechatSection workspaceId={workspace?.id} />
             </TabsContent>
 
             {/* ─── Domains ─── */}

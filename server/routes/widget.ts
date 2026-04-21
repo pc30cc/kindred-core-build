@@ -60,6 +60,7 @@ import { recordConversationEvent } from '../services/conversationEvents.js';
 import { resolveAvailability, snapshotToWirePayload } from '../services/widget/availability.js';
 import { sendEmail } from '../services/email/index.js';
 import { enrichVisitorSessionGeo } from '../services/geo/index.js';
+import { checkTypingAllowed, DEFAULT_TYPING_RATE_LIMIT, type TypingRateLimitConfig } from '../services/widget/typingRateLimit.js';
 
 export const widgetRouter = Router();
 

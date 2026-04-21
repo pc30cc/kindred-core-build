@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
+import { ThemeProvider } from "next-themes";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -50,6 +51,7 @@ import SettingsAvailabilityPage from "@/pages/app/settings/AvailabilityPage";
 import SettingsSecurityPage from "@/pages/app/settings/SecurityPage";
 import SettingsCannedResponsesPage from "@/pages/app/settings/CannedResponsesPage";
 import SettingsPrivacyPage from "@/pages/app/settings/PrivacyPage";
+import SettingsInterfacePage from "@/pages/app/settings/InterfacePage";
 import PrivacyRequestsPage from "@/pages/app/PrivacyRequestsPage";
 
 import AdminDashboardPage from "@/pages/admin/DashboardPage";
@@ -87,7 +89,14 @@ interface AppProps {
 const App = ({ initialLocale, initialTranslations }: AppProps) => (
   <QueryClientProvider client={queryClient}>
     <I18nProvider initialLocale={initialLocale} initialTranslations={initialTranslations}>
-      <ProviderContextProvider>
+      <ThemeProvider
+        attribute="class"
+        defaultTheme="system"
+        enableSystem
+        storageKey="app-theme"
+        disableTransitionOnChange
+      >
+        <ProviderContextProvider>
         <AuthContextProvider>
           <PlatformBrandingGate>
           <TooltipProvider>
@@ -174,6 +183,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                   <Route path="security" element={<SettingsSecurityPage />} />
                   <Route path="canned-responses" element={<SettingsCannedResponsesPage />} />
                   <Route path="privacy" element={<SettingsPrivacyPage />} />
+                  <Route path="interface" element={<SettingsInterfacePage />} />
                 </Route>
                 <Route path="privacy-requests" element={<PrivacyRequestsPage />} />
               </Route>
@@ -184,7 +194,8 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
           </TooltipProvider>
           </PlatformBrandingGate>
         </AuthContextProvider>
-      </ProviderContextProvider>
+        </ProviderContextProvider>
+      </ThemeProvider>
     </I18nProvider>
   </QueryClientProvider>
 );

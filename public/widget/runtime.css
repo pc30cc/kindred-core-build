@@ -66,6 +66,19 @@ textarea:focus-visible {
   border-radius: 6px;
 }
 
+/* Inputs/textareas that live inside a styled wrapper (prechat-control,
+   composer, kb-search…) already show focus via the wrapper's border +
+   box-shadow. The extra outline above creates a doubled ring around the
+   field, so we suppress it for those cases. */
+.prechat-control input:focus-visible,
+.prechat-control textarea:focus-visible,
+.prechat .input:focus-visible,
+.composer .input:focus-visible,
+.kb-search:focus-visible {
+  outline: none;
+  border-radius: inherit;
+}
+
 /* ─── Panel ─── */
 .panel {
   position: fixed;

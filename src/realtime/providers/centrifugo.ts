@@ -427,21 +427,9 @@ export class CentrifugoClientProvider implements ClientRealtimeProvider {
 
     const wsUrl = this.negotiation.ws_url!;
     let conn = sharedConns.get(wsUrl);
-    if (!conn || conn.closed) {
+    if (!conn || conn.disposed) {
       conn = buildConnection(parsed.workspaceId, this.negotiation);
       sharedConns.set(wsUrl, conn);
-    }
-
-    handlers.onStatus?.('connecting');
-    try {
-      await conn.ready;
-    } catch (err: any) {
-      handlers.onStatus?.('error', { reason: String(err?.message || err) });
-      // Don't throw — let the auto-reconnect loop bring the socket back up
-      // and re-subscribe. Inform the caller via status; React Query polling
-      // continues to drive the UI in the meantime.
-      // Falling through would require returning a no-op subscription handle.
-      return { unsubscribe: () => { /* noop — never opened */ } };
     }
 
     // Build a refresh closure so the reconnect loop can re-issue subscribe
@@ -451,50 +439,130 @@ export class CentrifugoClientProvider implements ClientRealtimeProvider {
       if (parsed.kind === 'inbox') return operatorInboxSubscribe(parsed.workspaceId);
       return operatorVisitorsSubscribe(parsed.workspaceId);
     };
-    const sub = await refresh();
-    if (!sub || sub.vendor !== 'centrifugo' || !sub.channel || !sub.token) {
-      throw new Error('subscribe_token_unavailable');
+
+    // Compute the channel name up front. `refresh()` will return the same
+    // channel string the server validates against, but we need a stable key
+    // for the subs map BEFORE the network round-trip so resubscribeAll can
+    // pick it up if the socket closes mid-flight.
+    const expectedChannel =
+      parsed.kind === 'conversation'
+        ? `ws:${parsed.workspaceId}:conv:${parsed.conversationId}`
+        : parsed.kind === 'inbox'
+          ? `ws:${parsed.workspaceId}:inbox`
+          : `ws:${parsed.workspaceId}:visitors`;
+
+    handlers.onStatus?.('connecting');
+
+    // Register the handler + a placeholder sub-token entry IMMEDIATELY.
+    // This guarantees that if the socket dies before we finish subscribing,
+    // the reconnect loop's `resubscribeAll` will refresh + re-issue this
+    // subscription on its own. No more "stuck on error after token expiry".
+    if (!conn.subs.has(expectedChannel)) conn.subs.set(expectedChannel, new Set());
+    conn.subs.get(expectedChannel)!.add(handlers);
+    if (!conn.subTokens.has(expectedChannel)) {
+      conn.subTokens.set(expectedChannel, {
+        channel: expectedChannel,
+        token: '',
+        expiresAt: 0,
+        refresh,
+      });
     }
-    await sendOnConn(conn, 'subscribe', { channel: sub.channel, token: sub.token });
-    conn.subTokens.set(sub.channel, {
-      channel: sub.channel,
-      token: sub.token,
-      expiresAt: (sub.expires_at || 0) * 1000 || Date.now() + 9 * 60_000,
-      refresh,
-    });
 
-    if (!conn.subs.has(sub.channel)) conn.subs.set(sub.channel, new Set());
-    conn.subs.get(sub.channel)!.add(handlers);
-    handlers.onStatus?.('open');
+    // Wait for the socket. If the initial open fails, the auto-reconnect
+    // loop is already armed (via onclose → scheduleReconnect) and will
+    // pick up our pre-registered subscription on next success.
+    try {
+      await conn.ready;
+    } catch (err: any) {
+      handlers.onStatus?.('error', { reason: String(err?.message || err) });
+      // Force a reconnect cycle so we don't sit indefinitely on a dead
+      // negotiation. scheduleReconnect re-negotiates the token if needed.
+      conn.tokenExpiresAt = 0;
+      scheduleReconnect(conn);
+      return buildUnsubscribe(conn, expectedChannel, handlers, this.negotiation.ws_url!);
+    }
 
-    const channelKey = sub.channel;
-    const localConn = conn;
-
-    return {
-      unsubscribe: () => {
-        const set = localConn.subs.get(channelKey);
-        if (set) {
-          set.delete(handlers);
-          if (set.size === 0) {
-            localConn.subs.delete(channelKey);
-            localConn.subTokens.delete(channelKey);
-            // Best-effort unsubscribe; ignore errors (socket may already be closed).
-            sendOnConn(localConn, 'unsubscribe', { channel: channelKey }).catch(() => {});
+    // Fresh subscribe path. If it fails (e.g. server-side token expiry,
+    // transient 401 from operator-subscribe) we keep the pre-registered
+    // entry so the reconnect / refresh loop handles it. We never throw.
+    try {
+      const sub = await refresh();
+      if (sub && sub.vendor === 'centrifugo' && sub.channel && sub.token) {
+        await sendOnConn(conn, 'subscribe', { channel: sub.channel, token: sub.token });
+        conn.subTokens.set(sub.channel, {
+          channel: sub.channel,
+          token: sub.token,
+          expiresAt: (sub.expires_at || 0) * 1000 || Date.now() + 9 * 60_000,
+          refresh,
+        });
+        // If the server returned a different channel string than we
+        // pre-registered, migrate the handlers across.
+        if (sub.channel !== expectedChannel) {
+          const existing = conn.subs.get(expectedChannel);
+          if (existing) {
+            const dest = conn.subs.get(sub.channel) || new Set();
+            existing.forEach((h) => dest.add(h));
+            conn.subs.set(sub.channel, dest);
+            conn.subs.delete(expectedChannel);
+            conn.subTokens.delete(expectedChannel);
           }
         }
-        // If no channels remain, close the shared socket to free resources.
-        if (localConn.subs.size === 0 && !localConn.closed) {
-          localConn.disposed = true;
-          if (localConn.reconnectTimer) { clearTimeout(localConn.reconnectTimer); localConn.reconnectTimer = null; }
-          if (localConn.refreshTimer) { clearTimeout(localConn.refreshTimer); localConn.refreshTimer = null; }
-          try {
-            localConn.ws.close();
-          } catch {
-            /* noop */
-          }
-          sharedConns.delete(this.negotiation.ws_url!);
-        }
-      },
-    };
+        handlers.onStatus?.('open');
+        return buildUnsubscribe(conn, sub.channel, handlers, this.negotiation.ws_url!);
+      }
+      // Token negotiation failed — keep the placeholder, surface degraded
+      // status, and let resubscribeAll retry on the next reconnect cycle.
+      rtWarn('centrifugo', 'subscribe deferred — no token yet', { channel: expectedChannel });
+      handlers.onStatus?.('error', { reason: 'subscribe_token_unavailable' });
+    } catch (err: any) {
+      rtWarn('centrifugo', 'subscribe failed — will retry on reconnect', {
+        channel: expectedChannel,
+        error: String(err?.message || err),
+      });
+      handlers.onStatus?.('error', { reason: String(err?.message || err) });
+      // Drop the socket so the reconnect loop runs through fresh negotiation.
+      conn.tokenExpiresAt = 0;
+      try { conn.ws.close(); } catch { /* noop */ }
+    }
+
+    return buildUnsubscribe(conn, expectedChannel, handlers, this.negotiation.ws_url!);
   }
 }
+
+/** Shared unsubscribe builder so all early-return paths use the same logic. */
+function buildUnsubscribe(
+  conn: SharedConnection,
+  channelKey: string,
+  handlers: RealtimeHandlers,
+  wsUrlForCleanup: string,
+): RealtimeSubscription {
+  return {
+    unsubscribe: () => {
+      const set = conn.subs.get(channelKey);
+      if (set) {
+        set.delete(handlers);
+        if (set.size === 0) {
+          conn.subs.delete(channelKey);
+          conn.subTokens.delete(channelKey);
+          // Best-effort unsubscribe; ignore errors (socket may already be closed).
+          if (conn.ws && conn.ws.readyState === 1) {
+            sendOnConn(conn, 'unsubscribe', { channel: channelKey }).catch(() => {});
+          }
+        }
+      }
+      // If no channels remain, close the shared socket to free resources.
+      if (conn.subs.size === 0 && !conn.disposed) {
+        conn.disposed = true;
+        if (conn.reconnectTimer) { clearTimeout(conn.reconnectTimer); conn.reconnectTimer = null; }
+        if (conn.refreshTimer) { clearTimeout(conn.refreshTimer); conn.refreshTimer = null; }
+        try {
+          conn.ws?.close();
+        } catch {
+          /* noop */
+        }
+        sharedConns.delete(wsUrlForCleanup);
+      }
+    },
+  };
+}
+

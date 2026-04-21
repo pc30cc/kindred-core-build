@@ -3,13 +3,15 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
 import { useAuth } from '@/features/auth/AuthContext';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { Eye, EyeOff, Loader2, ArrowRight } from 'lucide-react';
+import { Eye, EyeOff, Loader2, ArrowRight, Mail, Lock, Check } from 'lucide-react';
 import { usePlatformBrandingForLocale } from '@/hooks/usePublicBranding';
 import { LanguageSelector } from '@/components/auth/LanguageSelector';
+import { cn } from '@/lib/utils';
 import loginIllustration from '@/assets/login-illustration.jpg';
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function LoginPage() {
   const [params] = useSearchParams();
@@ -29,6 +31,8 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [focused, setFocused] = useState<string | null>(null);
+  const emailValid = useMemo(() => EMAIL_RE.test(email.trim()), [email]);
 
   const brandName = useMemo(() => brand?.platform_name || '', [brand]);
   const brandLetter = useMemo(() => brandName.charAt(0) || '', [brandName]);
@@ -50,6 +54,51 @@ export default function LoginPage() {
       setLoading(false);
     }
   };
+
+  const fieldShell = (args: {
+    id: string;
+    icon: React.ReactNode;
+    children: React.ReactNode;
+    suffix?: React.ReactNode;
+    state?: 'default' | 'success' | 'error';
+  }) => {
+    const isFocused = focused === args.id;
+    const ringClass =
+      args.state === 'error'
+        ? 'border-destructive/60 ring-destructive/20'
+        : args.state === 'success'
+        ? 'border-success/60 ring-success/15'
+        : 'border-border ring-primary/15';
+    return (
+      <div
+        className={cn(
+          'group relative flex items-center h-12 rounded-xl border bg-background transition-all duration-200',
+          'shadow-sm hover:border-foreground/20',
+          isFocused && 'ring-4 border-primary',
+          ringClass,
+        )}
+      >
+        <span
+          className={cn(
+            'flex items-center justify-center w-11 h-full text-muted-foreground transition-colors',
+            isFocused && 'text-primary',
+            args.state === 'success' && !isFocused && 'text-success',
+            args.state === 'error' && !isFocused && 'text-destructive',
+          )}
+          aria-hidden="true"
+        >
+          {args.icon}
+        </span>
+        {args.children}
+        {args.suffix && (
+          <span className={cn('flex items-center pr-3', isRtl && 'pl-3 pr-0')}>{args.suffix}</span>
+        )}
+      </div>
+    );
+  };
+
+  const inputBase =
+    'flex-1 h-full bg-transparent border-0 outline-none text-sm text-foreground placeholder:text-muted-foreground/70 disabled:opacity-50';
 
   return (
     <div className="fixed inset-0 flex" dir={dir}>

@@ -655,7 +655,7 @@ widgetRouter.get('/poll', widgetRateLimit('poll'), async (req: Request, res: Res
 
     // Try direct conversation lookup with ownership verification
     if (conversationId) {
-      const ownership = await verifyConversationOwnership(config, conversationId, workspaceId, visitorId, sessionId);
+      const ownership = await verifyConversationOwnership(config, conversationId, workspaceId, visitorId, sessionId, req);
       if (ownership.valid && ownership.conversation) {
         conv = ownership.conversation;
         activeConversationId = conv.id;

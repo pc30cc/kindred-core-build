@@ -103,3 +103,57 @@ export function changeAccountPassword(currentPassword: string, newPassword: stri
     body: JSON.stringify({ currentPassword, newPassword }),
   });
 }
+
+// ── Security ───────────────────────────────────────────────────
+
+export interface AccountSecuritySession {
+  id: string;
+  is_current: boolean;
+  created_at: string | null;
+  last_active_at: string | null;
+  not_after: string | null;
+  user_agent_raw: string | null;
+  browser: string;
+  os: string;
+  device: string;
+  ip: string;
+  country: string | null;
+  country_code: string | null;
+  city: string | null;
+  region: string | null;
+}
+
+export interface AccountLoginHistoryEntry {
+  id: string;
+  created_at: string;
+  success: boolean;
+  ip: string;
+  country: string | null;
+  country_code: string | null;
+  city: string | null;
+  region: string | null;
+}
+
+export function fetchSecuritySessions() {
+  return request<{ sessions: AccountSecuritySession[]; current_session_id: string | null }>(
+    '/api/account/security/sessions'
+  );
+}
+
+export function revokeSecuritySession(id: string) {
+  return request<{ success: boolean }>(`/api/account/security/sessions/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
+
+export function revokeAllOtherSessions() {
+  return request<{ success: boolean }>(`/api/account/security/sessions/all?all=1`, {
+    method: 'DELETE',
+  });
+}
+
+export function fetchSecurityLoginHistory(limit = 25) {
+  return request<{ entries: AccountLoginHistoryEntry[] }>(
+    `/api/account/security/login-history?limit=${limit}`
+  );
+}

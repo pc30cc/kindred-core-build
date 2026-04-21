@@ -24,6 +24,7 @@ const settingsGroupsDef: SettingsGroup[] = [
       { key: 'profile', label: 'Account Information', subPath: '/settings/profile' },
       { key: 'notifications', label: 'Notifications', subPath: '/settings/notifications' },
       { key: 'availability', label: 'Availability', subPath: '/settings/availability' },
+      { key: 'security', label: 'Security', subPath: '/settings/security' },
       { key: 'privacy', label: 'Privacy', subPath: '/settings/privacy' },
     ],
   },

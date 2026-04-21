@@ -611,6 +611,10 @@
           apiBase: ctx.apiBase,
           workspaceId: ctx.workspaceId,
           sessionToken: ctx.sessionToken,
+          // Token-aware fetch: proactive refresh + single 401/403 retry.
+          // Modules call fetchWith() so an expired token mid-poll never
+          // surfaces as a permanent failure to the user.
+          fetchWith: ctx.fetchWith,
           onResult: function (result) {
             historyLoaded = true;
             markPollSuccess();
@@ -631,6 +635,7 @@
           apiBase: ctx.apiBase,
           workspaceId: ctx.workspaceId,
           sessionToken: ctx.sessionToken,
+          fetchWith: ctx.fetchWith,
           conversationId: payload.conversationId,
           // Phase 6b — attachment id flows through to the message endpoint.
           attachmentId: payload.attachmentId || null,
@@ -698,6 +703,7 @@
           apiBase: ctx.apiBase,
           workspaceId: ctx.workspaceId,
           sessionToken: ctx.sessionToken,
+          fetchWith: ctx.fetchWith,
           interval: 4000,
           getConversationId: function () { return subscribedConversation; },
           onConversation: function (cid) {
@@ -708,6 +714,15 @@
             if (msgs && msgs.length) emit('message', { messages: msgs });
           },
           onTick: function (ok) { if (ok) markPollSuccess(); else markPollFailure(); },
+          // 403 from /poll on an unknown / foreign / closed conversation id
+          // — drop the local cid so the next tick re-resolves via cookie
+          // identity. Stops infinite 403 loops on a stale id.
+          onConversationDenied: function (deniedCid) {
+            if (subscribedConversation === deniedCid) {
+              subscribedConversation = null;
+              chatStore.set({ conversationId: null });
+            }
+          },
         });
       });
     }
@@ -740,10 +755,12 @@
     // ('polling_builtin', 'disabled') are handled inline.
     function resolveRealtimeAndStart() {
       var url = ctx.apiBase + '/api/realtime/connect';
-      fetch(url, {
+      // Use the token-aware wrapper — realtime resolve is one of the most
+      // expensive widget bootstraps and a stale token here would otherwise
+      // poison every downstream subscribe attempt.
+      ctx.fetchWith(url, {
         method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json', 'X-Widget-Token': ctx.sessionToken || '' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ workspace_id: ctx.workspaceId }),
       })
         .then(function (r) { return r.json(); })
@@ -897,12 +914,9 @@
         if (cb) cb(false);
         return;
       }
-      fetch(
+      ctx.fetchWith(
         ctx.apiBase + '/api/widget/identity/me?workspace_id=' + encodeURIComponent(ctx.workspaceId),
-        {
-          credentials: 'include',
-          headers: { 'X-Widget-Token': ctx.sessionToken || '' },
-        }
+        {}
       )
         .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
         .then(function (res) {
@@ -936,13 +950,9 @@
     }
 
     function submitPrechat(payload, cb) {
-      fetch(ctx.apiBase + '/api/widget/identity/prechat', {
+      ctx.fetchWith(ctx.apiBase + '/api/widget/identity/prechat', {
         method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Widget-Token': ctx.sessionToken || '',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           workspace_id: ctx.workspaceId,
           name: payload.name || null,
@@ -1918,13 +1928,9 @@
         if (payload.email) body.email = payload.email;
         if (payload.phone) body.phone = payload.phone;
 
-        fetch(ctx.apiBase + '/api/widget/offline-messages', {
+        ctx.fetchWith(ctx.apiBase + '/api/widget/offline-messages', {
           method: 'POST',
-          credentials: 'include',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Widget-Token': ctx.sessionToken || '',
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         })
           .then(function (r) {
@@ -2255,6 +2261,61 @@
   }
 
   // ════════════════════════════════════════════════════════════════════
+  // Template Registry (Task 4)
+  //
+  // Lightweight template-aware foundation. Today only `default` is registered
+  // — additional templates can plug in later WITHOUT a new runtime bundle.
+  //
+  // Each template is just a small descriptor. Future templates can override
+  // `prepareShell` / `prepareCtx` to influence rendering (CSS variables,
+  // skin classes, behavioral hooks) while the core pipeline is unchanged.
+  //
+  // Resolution order in init():
+  //   1. config.templateSlug (server-resolved against widget_templates)
+  //   2. fallback to 'default' if slug unknown to the runtime registry
+  //
+  // The selected slug is exposed as:
+  //   - ctx.templateSlug                (string)
+  //   - data-template="<slug>" on <gs-widget> AND on .shell
+  //   - body class `gs-template-<slug>` is NOT used (Shadow DOM scoping only)
+  // ════════════════════════════════════════════════════════════════════
+  var TemplateRegistry = (function () {
+    var entries = {};
+    function register(descriptor) {
+      if (!descriptor || !descriptor.slug) return;
+      entries[descriptor.slug] = descriptor;
+    }
+    function get(slug) { return entries[slug] || null; }
+    function resolve(requestedSlug) {
+      var slug = requestedSlug || 'default';
+      var entry = entries[slug] || entries['default'] || null;
+      return {
+        slug: entry ? entry.slug : 'default',
+        descriptor: entry,
+        // True when caller asked for X but we fell back to default. Useful
+        // for diagnostics — the server still owns the canonical decision,
+        // this is purely a runtime safety net.
+        fellBack: !!requestedSlug && (!entry || entry.slug !== requestedSlug),
+      };
+    }
+    return { register: register, get: get, resolve: resolve, all: function () { return entries; } };
+  })();
+
+  // Register the only real template that ships today. Future templates are
+  // additive — they just call TemplateRegistry.register(...).
+  TemplateRegistry.register({
+    slug: 'default',
+    name: 'Default',
+    /** Hook: optionally tweak the ctx object before any UI is built. */
+    prepareCtx: function (_ctx) { /* no-op for default */ },
+    /** Hook: called once shellDiv exists, before panel mounts. */
+    prepareShell: function (_shellDiv, _ctx) { /* no-op for default */ },
+  });
+
+  // Expose for debugging / future runtime template registration from outside.
+  __gs_runtime.templates = TemplateRegistry;
+
+  // ════════════════════════════════════════════════════════════════════
   // Core — orchestrates everything inside the shadow root
   // ════════════════════════════════════════════════════════════════════
   __gs_runtime.init = function (config, shell) {
@@ -2289,11 +2350,22 @@
     ctx.tokenManager = tokenMgr;
     // Expose template slug in the runtime context for CSS scoping + future
     // template-aware behavior. Today only 'default' is registered server-side.
-    ctx.templateSlug = config.templateSlug || 'default';
+    var __tplResolve = TemplateRegistry.resolve(config.templateSlug);
+    ctx.templateSlug = __tplResolve.slug;
+    ctx.template = __tplResolve.descriptor;
+    if (__tplResolve.fellBack) {
+      Util.warn('[template] requested "' + config.templateSlug + '" not registered — using "default"');
+    }
     try {
       var rootEl = (shell && shell.shellEl) || null;
       if (rootEl) rootEl.setAttribute('data-template', ctx.templateSlug);
     } catch (_) {}
+    // Run the template's prepareCtx hook (no-op for default today) so future
+    // templates can adjust ctx values (icons, colors, copy keys) before any
+    // rendering happens.
+    if (ctx.template && typeof ctx.template.prepareCtx === 'function') {
+      try { ctx.template.prepareCtx(ctx); } catch (e) { Util.warn('template.prepareCtx err', e); }
+    }
 
     // Tear down the token manager when the panel is unloaded by the host
     // page (SPA route swap). Prevents orphaned refresh timers.
@@ -2316,6 +2388,12 @@
     if (!shellDiv || typeof shellDiv.appendChild !== 'function') {
       Util.warn('FATAL: no mount target available inside shadow root');
       return { open: function(){}, close: function(){}, toggle: function(){}, setUnread: function(){} };
+    }
+    // Mirror data-template onto .shell so Shadow-DOM-scoped CSS can target
+    // the entire UI subtree (e.g. `.shell[data-template="default"] .panel`).
+    try { shellDiv.setAttribute('data-template', ctx.templateSlug); } catch (_) {}
+    if (ctx.template && typeof ctx.template.prepareShell === 'function') {
+      try { ctx.template.prepareShell(shellDiv, ctx); } catch (e) { Util.warn('template.prepareShell err', e); }
     }
     var launcher = shell.launcher;
 
@@ -2592,10 +2670,13 @@
         return;
       }
       attachmentStore.set({ file: file, fileName: file.name, mimeType: file.type, sizeBytes: file.size, status: 'uploading', progress: 10, error: '', attachmentId: null });
-      var apiBase = ctx.config.apiBase;
-      var headers = { 'Content-Type': 'application/json', 'X-Widget-Token': ctx.sessionToken || '' };
-      fetch(apiBase + '/api/widget/attachments/init', {
-        method: 'POST', credentials: 'include', headers: headers,
+      // Use ctx.apiBase (canonical) — ctx.config.apiBase can be undefined
+      // when bootstrap stamped only _apiBase. Token-aware wrapper handles
+      // 401/403 refresh transparently for both /init and /upload.
+      var apiBase = ctx.apiBase || ctx.config.apiBase;
+      var jsonHeaders = { 'Content-Type': 'application/json' };
+      ctx.fetchWith(apiBase + '/api/widget/attachments/init', {
+        method: 'POST', headers: jsonHeaders,
         body: JSON.stringify({ file_name: file.name, mime_type: file.type, size_bytes: file.size, conversation_id: chatStore.get().conversationId || null }),
       }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, data: j }; }); })
         .then(function (resp) {
@@ -2605,8 +2686,8 @@
             var reader = new FileReader();
             reader.onload = function () {
               var b64 = String(reader.result || '').split(',')[1] || '';
-              fetch(apiBase + '/api/widget/attachments/' + resp.data.attachment_id + '/upload', {
-                method: 'POST', credentials: 'include', headers: headers, body: JSON.stringify({ data: b64 }),
+              ctx.fetchWith(apiBase + '/api/widget/attachments/' + resp.data.attachment_id + '/upload', {
+                method: 'POST', headers: jsonHeaders, body: JSON.stringify({ data: b64 }),
               }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, data: j }; }); }).then(resolve).catch(reject);
             };
             reader.onerror = function () { reject(new Error('read_failed')); };
@@ -2753,10 +2834,12 @@
       // Backend route: PUT /api/widget/action with action='typing' publishes
       // an ephemeral envelope on ws:<workspace>:conv:<cid>. Best-effort.
       try {
-        fetch(ctx.apiBase + '/api/widget/action', {
+        // Typing is best-effort and very high-frequency. Wrap with the
+        // token manager so an expired token does not silently swallow
+        // typing for the rest of the session, but still swallow errors.
+        ctx.fetchWith(ctx.apiBase + '/api/widget/action', {
           method: 'PUT',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json', 'X-Widget-Token': ctx.sessionToken || '' },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             action: 'typing',
             workspace_id: ctx.workspaceId,

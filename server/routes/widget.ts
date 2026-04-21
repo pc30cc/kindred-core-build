@@ -38,7 +38,7 @@ import {
   resolveWidgetAssetBase,
   resolveWorkspaceIdFromOrigin,
 } from '../services/widget/public.js';
-import { getWidgetAssetName, getLoaderVersion } from '../services/widget/manifest.js';
+import { getWidgetAssetName, getLoaderVersion, getManifestDiagnostics, invalidateManifestCache } from '../services/widget/manifest.js';
 import {
   createSessionToken,
   verifySessionToken,
@@ -1240,7 +1240,16 @@ widgetRouter.put('/action', widgetRateLimit('default'), async (req: Request, res
 
       if (conversation_id) {
         const ownership = await verifyConversationOwnership(config, conversation_id, workspaceId, visitor_id, session_id);
-        if (!ownership.valid) return res.status(403).json({ error: 'Access denied', code: 'CONVERSATION_ACCESS_DENIED' });
+        if (!ownership.valid) {
+          // Task 6 — surface the precise rejection reason in logs (never to
+          // the client) so 403 spikes can be diagnosed without weakening
+          // auth. The client receives only the safe code.
+          console.warn(
+            `[widget-action] heartbeat denied: workspace=${workspaceId} conv=${conversation_id} ` +
+              `visitor=${visitor_id || 'none'} session=${session_id || 'none'}`,
+          );
+          return res.status(403).json({ error: 'Access denied', code: 'CONVERSATION_ACCESS_DENIED' });
+        }
         await supabase.from('conversations').update({ updated_at: now }).eq('id', conversation_id);
         return res.json({ ok: true });
       }
@@ -1291,7 +1300,13 @@ widgetRouter.put('/action', widgetRateLimit('default'), async (req: Request, res
 
     if (action === 'typing' && conversation_id) {
       const ownership = await verifyConversationOwnership(config, conversation_id, workspaceId!, visitor_id, session_id);
-      if (!ownership.valid) return res.status(403).json({ error: 'Access denied', code: 'CONVERSATION_ACCESS_DENIED' });
+      if (!ownership.valid) {
+        console.warn(
+          `[widget-action] typing denied: workspace=${workspaceId} conv=${conversation_id} ` +
+            `visitor=${visitor_id || 'none'} session=${session_id || 'none'}`,
+        );
+        return res.status(403).json({ error: 'Access denied', code: 'CONVERSATION_ACCESS_DENIED' });
+      }
       // Publish ephemeral typing event on the canonical conversation channel
       // (ws:<workspace_id>:conv:<cid>) using the active realtime publisher
       // (Centrifugo or Supabase). Polling clients silently miss it — typing
@@ -1469,6 +1484,35 @@ widgetRouter.get('/manifest', widgetRateLimit('bootstrap'), async (req: Request,
     console.error('[widget-manifest] Error:', err.message);
     return res.status(500).json({ error: 'Manifest generation failed' });
   }
+});
+
+// ═══════════════════════════════════════════════
+// GET /manifest-debug — Diagnostics for asset resolution (Task 5)
+// ───────────────────────────────────────────────
+// Returns the in-memory state of the widget asset manifest resolver:
+// which source was used (local FS / remote / fallback), which hashed
+// asset names are currently being served, and ETag/cache state. Useful
+// for verifying that a deploy has propagated.
+//
+// Security: token-secured (sits below enforceWidgetToken). No secrets
+// are exposed — only public asset names + cache metadata.
+// ═══════════════════════════════════════════════
+widgetRouter.get('/manifest-debug', widgetRateLimit('default'), (_req: Request, res: Response) => {
+  try {
+    const diag = getManifestDiagnostics();
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    return res.json({ ok: true, diagnostics: diag });
+  } catch (err: any) {
+    return res.status(500).json({ ok: false, error: err?.message || 'manifest_debug_failed' });
+  }
+});
+
+// POST /manifest-invalidate — force a refresh on the next request. Useful
+// after a deploy if you cannot wait for the 15s TTL. No-ops if called more
+// than once per second. Token-secured.
+widgetRouter.post('/manifest-invalidate', widgetRateLimit('default'), (_req: Request, res: Response) => {
+  invalidateManifestCache();
+  return res.json({ ok: true });
 });
 
 // ═══════════════════════════════════════════════

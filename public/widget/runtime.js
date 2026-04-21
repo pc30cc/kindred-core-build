@@ -641,7 +641,7 @@
   // The polling driver implements message/connectionstate/reconnect for real,
   // and exposes typing/presence as no-op hooks that future drivers can fulfill.
   // ════════════════════════════════════════════════════════════════════
-  function createTransport(ctx, transportStore) {
+  function createTransport(ctx, transportStore, fsm) {
     var subs = { message: [], typing: [], presence: [], reconnect: [], connectionstate: [] };
     function on(event, fn) {
       if (!subs[event]) return function () {};
@@ -658,13 +658,76 @@
       }
     }
 
-    function setConnectionState(next) {
+    // Legacy bridge: external callers (chat UI, banner, composer) still
+    // subscribe to transportStore.connectionState. We compute the legacy
+    // value from the FSM in ONE place and only emit when it actually
+    // changes — the FSM remains the source of truth.
+    function syncLegacyState(reason) {
+      var legacy = fsm ? fsm.legacyConnectionState() : 'idle';
       var prev = transportStore.get().connectionState;
-      if (prev === next) return;
-      transportStore.set({ connectionState: next, lastConnectionChange: Date.now() });
-      emit('connectionstate', { state: next, previous: prev });
-      if (next === 'online' && (prev === 'reconnecting' || prev === 'offline')) {
-        emit('reconnect', {});
+      if (prev === legacy) return;
+      transportStore.set({ connectionState: legacy, lastConnectionChange: Date.now() });
+      emit('connectionstate', { state: legacy, previous: prev, reason: reason || null });
+      if (legacy === 'online' && (prev === 'reconnecting' || prev === 'offline' || prev === 'connecting')) {
+        emit('reconnect', { reason: reason || null });
+      }
+    }
+    if (fsm) fsm.onChange(function () { syncLegacyState('fsm'); });
+    // Driver-level state callback. Drivers report low-level transport state
+    // ('idle' | 'connecting' | 'online' | 'reconnecting'); we translate to FSM.
+    function onDriverState(driverState, reason) {
+      if (!fsm) return;
+      var cur = fsm.get();
+      if (driverState === 'connecting') {
+        if (cur === 'connected' || cur === 'subscribing' || cur === 'degraded') {
+          fsm.transition('reconnecting', reason || 'driver:connecting');
+        } else if (cur !== 'reconnecting' && cur !== 'connecting') {
+          fsm.transition('connecting', reason || 'driver:connecting');
+        }
+      } else if (driverState === 'online') {
+        // If we have an active conversation but no subscribe-completion
+        // signal yet, stay in 'subscribing' — a connected socket without a
+        // subscribed channel is NOT sendable for that conversation. The
+        // driver flips to 'connected' indirectly via onReconnect once the
+        // subscribe ack lands (Centrifugo) or when channel SUBSCRIBED
+        // event fires (Supabase).
+        var cid = fsm.getConversation();
+        var hasDriverWithSubscribe = !!(rtDriver && rtDriver.subscribeConversation);
+        if (cid && hasDriverWithSubscribe) {
+          fsm.transition('subscribing', reason || 'driver:online-pending-sub');
+        } else {
+          fsm.transition('connected', reason || 'driver:online');
+        }
+      } else if (driverState === 'reconnecting') {
+        fsm.transition('reconnecting', reason || 'driver:reconnecting');
+      } else if (driverState === 'idle') {
+        // Driver intentionally idle (manual disconnect) — only transition
+        // to idle if we initiated it. Otherwise this is a transient drop.
+        if (manuallyClosed) fsm.transition('idle', 'driver:idle');
+        else fsm.transition('reconnecting', 'driver:dropped');
+      }
+    }
+    // Legacy alias kept for old call sites inside this file.
+    function setConnectionState(legacy) {
+      // Map legacy strings used inside the polling/online handling code
+      // back into FSM transitions. This keeps the rest of createTransport
+      // unchanged at the call sites while routing everything through FSM.
+      if (!fsm) return;
+      if (legacy === 'online') {
+        var cid = fsm.getConversation();
+        var hasRT = !!(rtDriver && rtDriver.subscribeConversation);
+        if (cid && hasRT) fsm.transition('subscribing', 'legacy:online');
+        else fsm.transition('connected', 'legacy:online');
+      } else if (legacy === 'offline') {
+        fsm.transition('offline', 'legacy:offline');
+      } else if (legacy === 'connecting') {
+        if (fsm.get() !== 'connecting' && fsm.get() !== 'reconnecting') {
+          fsm.transition('connecting', 'legacy:connecting');
+        }
+      } else if (legacy === 'reconnecting') {
+        fsm.transition('reconnecting', 'legacy:reconnecting');
+      } else if (legacy === 'idle') {
+        fsm.transition('idle', 'legacy:idle');
       }
     }
 
@@ -675,6 +738,7 @@
     var browserOnline = (typeof navigator !== 'undefined' && 'onLine' in navigator) ? navigator.onLine : true;
     var subscribedConversation = null;
     var historyLoaded = false;
+    var manuallyClosed = false;
 
     // ─── Realtime driver (Phase 3) — drop-in for polling ───
     // When the server resolves vendor=centrifugo, we add a real WS driver alongside.

@@ -766,7 +766,7 @@ widgetRouter.get('/history', widgetRateLimit('poll'), async (req: Request, res: 
     return res.status(400).json({ error: 'conversation_id and workspace_id required' });
   }
 
-  const ownership = await verifyConversationOwnership(config, conversationId, workspaceId, visitorId, sessionId);
+  const ownership = await verifyConversationOwnership(config, conversationId, workspaceId, visitorId, sessionId, req);
   if (!ownership.valid) {
     return res.status(403).json({ error: 'Access denied to this conversation', code: 'CONVERSATION_ACCESS_DENIED' });
   }

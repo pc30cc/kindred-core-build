@@ -2645,6 +2645,10 @@
 
     // ─── Layers ───
     var transport = createTransport(ctx, transportStore);
+    // Expose transport on ctx so the wake-up recovery hook (registered
+    // earlier) can call transport.reconnect() when the tab returns from
+    // background. ctx is captured by closure inside the wake handler.
+    ctx.transport = transport;
     var identity = createIdentity(ctx, identityStore);
     // Phase 6b — lightbox lives in the panel's Shadow DOM. We expose a
     // function to chatUI so renderChat can open it without reaching into shell.

@@ -13,6 +13,7 @@ import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { getServiceClient } from '../../supabase.js';
 import type { ServerConfig } from '../../config.js';
+import { readVisitorCookie } from './visitorIdentity.js';
 
 // ─── Session Token Config ───
 const SESSION_TOKEN_TTL_SECONDS = 900; // 15 minutes

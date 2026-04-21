@@ -1439,12 +1439,18 @@
         seenIds[id] = true;
 
         if (sender === 'visitor') {
-          // Reconcile with optimistic bubble (text match, no canonical id yet).
+          // Reconcile with optimistic bubble. Two cases:
+          //   (a) onAccepted already bound the canonical id → match by __id.
+          //   (b) realtime/poll arrived before onAccepted → match by text on
+          //       the most recent visitor bubble that is still in 'sending'
+          //       and has no __id yet.
+          // Without (a), the optimistic bubble would never be found again
+          // (its __id is set) and the message would be pushed a second time.
           var dupIdx = -1;
-          for (var d = 0; d < messages.length; d++) {
-            if (messages[d].sender === 'visitor' && messages[d].body === text && !messages[d].__id) {
-              dupIdx = d; break;
-            }
+          for (var d = messages.length - 1; d >= 0; d--) {
+            if (messages[d].sender !== 'visitor') continue;
+            if (messages[d].__id === id) { dupIdx = d; break; }
+            if (!messages[d].__id && messages[d].body === text) { dupIdx = d; break; }
           }
           if (dupIdx >= 0) {
             messages[dupIdx].__id = id;

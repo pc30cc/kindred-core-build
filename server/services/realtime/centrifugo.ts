@@ -28,6 +28,17 @@ export interface CentrifugoConnectionTokenResult {
   channels: string[];
 }
 
+/**
+ * Phase 2 — fixed JWT identity claims. Centrifugo accepts any HS256 token
+ * signed with its shared secret, so the only real defense against a
+ * stolen-secret replay across services is to bind every token we mint to
+ * a stable issuer/audience pair. Mismatched values on a token presented
+ * to anything but our own Centrifugo instance immediately fail the
+ * standard `jwt.verify({ issuer, audience })` check on the consumer.
+ */
+const CENTRIFUGO_JWT_ISSUER = 'lovable-realtime';
+const CENTRIFUGO_JWT_AUDIENCE = 'centrifugo';
+
 export class CentrifugoDriver {
   constructor(private readonly cfg: CentrifugoConfig) {}
 
@@ -55,7 +66,14 @@ export class CentrifugoDriver {
         info: { workspace_id: subject.workspace_id },
       },
       this.cfg.token_hmac_secret,
-      { algorithm: 'HS256', expiresIn: ttl }
+      {
+        algorithm: 'HS256',
+        expiresIn: ttl,
+        // Phase 2 hardening — issuer/audience binding + nbf clock-skew floor.
+        issuer: CENTRIFUGO_JWT_ISSUER,
+        audience: CENTRIFUGO_JWT_AUDIENCE,
+        notBefore: 0,
+      }
     );
 
     return {
@@ -87,7 +105,13 @@ export class CentrifugoDriver {
         info: { workspace_id: params.workspaceId },
       },
       this.cfg.token_hmac_secret,
-      { algorithm: 'HS256', expiresIn: ttl }
+      {
+        algorithm: 'HS256',
+        expiresIn: ttl,
+        issuer: CENTRIFUGO_JWT_ISSUER,
+        audience: CENTRIFUGO_JWT_AUDIENCE,
+        notBefore: 0,
+      }
     );
     return { token, expires_at: exp * 1000 };
   }

@@ -20,6 +20,13 @@ export interface EffectivePolicySnapshot {
   slow_mode_messages?: boolean;
   operator_load_shedding?: boolean;
   priority_only_mode?: boolean;
+  // Phase 8A — Voice/Video call policy
+  effective_call_provider?: 'livekit' | 'jitsi' | 'janus' | 'disabled';
+  call_degraded_mode?: boolean;
+  audio_only_mode?: boolean;
+  video_disabled?: boolean;
+  recording_forced?: boolean;
+  call_failover_epoch?: string;
   failover_epoch: string;
   policy_version: string;
   expires_at: number;
@@ -36,6 +43,12 @@ export const SAFE_DEFAULT_POLICY: EffectivePolicySnapshot = {
   slow_mode_messages: false,
   operator_load_shedding: false,
   priority_only_mode: false,
+  effective_call_provider: 'disabled',
+  call_degraded_mode: false,
+  audio_only_mode: false,
+  video_disabled: false,
+  recording_forced: false,
+  call_failover_epoch: 'safe-default',
   failover_epoch: 'safe-default',
   policy_version: 'safe-default',
   expires_at: 0,

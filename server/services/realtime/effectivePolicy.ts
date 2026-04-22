@@ -26,6 +26,7 @@ import type { ServerConfig } from '../../config.js';
 import { loadControlPlane, type RealtimeProviderId } from './controlPlane.js';
 import { loadFailoverState } from './failoverState.js';
 import { isActionActive } from '../observability/autoActionsCache.js';
+import { loadCallControlPlane } from '../calls/controlPlane.js';
 
 export type EffectiveProviderWire =
   | 'centrifugo'
@@ -96,6 +97,12 @@ const SAFE_DEFAULT: EffectivePolicySnapshot = {
   slow_mode_messages: false,
   operator_load_shedding: false,
   priority_only_mode: false,
+  effective_call_provider: 'disabled',
+  call_degraded_mode: false,
+  audio_only_mode: false,
+  video_disabled: false,
+  recording_forced: false,
+  call_failover_epoch: 'safe-default',
   failover_epoch: 'safe-default',
   policy_version: 'safe-default',
   expires_at: Date.now() + POLICY_SNAPSHOT_TTL_MS,
@@ -162,6 +169,18 @@ function computePolicyVersion(snap: Omit<EffectivePolicySnapshot, 'policy_versio
   h.update('|');
   h.update(snap.priority_only_mode ? '1' : '0');
   h.update('|');
+  h.update(snap.effective_call_provider);
+  h.update('|');
+  h.update(snap.call_degraded_mode ? '1' : '0');
+  h.update('|');
+  h.update(snap.audio_only_mode ? '1' : '0');
+  h.update('|');
+  h.update(snap.video_disabled ? '1' : '0');
+  h.update('|');
+  h.update(snap.recording_forced ? '1' : '0');
+  h.update('|');
+  h.update(snap.call_failover_epoch);
+  h.update('|');
   h.update(snap.failover_epoch);
   return h.digest('hex').slice(0, 12);
 }
@@ -174,9 +193,10 @@ export async function resolveEffectivePolicy(
   config: ServerConfig,
 ): Promise<EffectivePolicySnapshot> {
   try {
-    const [policy, state] = await Promise.all([
+    const [policy, state, callCp] = await Promise.all([
       loadControlPlane(config, false),
       loadFailoverState(config, false),
+      loadCallControlPlane(config, false).catch(() => null),
     ]);
 
     // 1. Effective provider — manual lock overrides engine state.
@@ -227,6 +247,20 @@ export async function resolveEffectivePolicy(
       last_failover_at: state.last_failover_at,
     });
 
+    // Phase 8A — call policy overlay. We only surface intent flags here;
+    // actual call routing is done in /api/calls via the call provider
+    // resolver. Clients use these to decide whether to render call UI.
+    const callDegraded = isActionActive('mark_system_degraded') && (callCp?.enabled ?? false);
+    const audio_only_mode = isActionActive('audio_only_mode');
+    const video_disabled = isActionActive('video_disabled') || audio_only_mode;
+    const recording_forced = isActionActive('recording_forced');
+    const effective_call_provider = (callCp?.enabled ? callCp.primary_provider : 'disabled');
+    const call_failover_epoch = crypto
+      .createHash('sha1')
+      .update(`${effective_call_provider}|${callDegraded ? 1 : 0}|${audio_only_mode ? 1 : 0}|${video_disabled ? 1 : 0}|${recording_forced ? 1 : 0}`)
+      .digest('hex')
+      .slice(0, 12);
+
     const baseSnap: Omit<EffectivePolicySnapshot, 'policy_version' | 'expires_at'> = {
       effective_provider: effective,
       provider_locked,
@@ -238,6 +272,12 @@ export async function resolveEffectivePolicy(
       slow_mode_messages,
       operator_load_shedding,
       priority_only_mode,
+      effective_call_provider,
+      call_degraded_mode: callDegraded,
+      audio_only_mode,
+      video_disabled,
+      recording_forced,
+      call_failover_epoch,
       failover_epoch,
     };
 

@@ -675,6 +675,75 @@ export type Database = {
         }
         Relationships: []
       }
+      business_metrics_hourly: {
+        Row: {
+          active_conversations: number
+          active_operators: number
+          avg_conversation_duration_seconds: number | null
+          avg_messages_per_conversation: number | null
+          avg_resolution_time_seconds: number | null
+          bucket_hour: string
+          conversation_to_resolution_rate: number | null
+          first_response_time_p50: number | null
+          first_response_time_p95: number | null
+          messages_sent: number
+          new_conversations: number
+          next_response_time_p50: number | null
+          next_response_time_p95: number | null
+          reopened_conversations: number
+          resolved_conversations: number
+          stale_open_conversations: number
+          support_load_score: number | null
+          unanswered_conversations: number
+          visitor_to_conversation_rate: number | null
+          workspace_id: string
+        }
+        Insert: {
+          active_conversations?: number
+          active_operators?: number
+          avg_conversation_duration_seconds?: number | null
+          avg_messages_per_conversation?: number | null
+          avg_resolution_time_seconds?: number | null
+          bucket_hour: string
+          conversation_to_resolution_rate?: number | null
+          first_response_time_p50?: number | null
+          first_response_time_p95?: number | null
+          messages_sent?: number
+          new_conversations?: number
+          next_response_time_p50?: number | null
+          next_response_time_p95?: number | null
+          reopened_conversations?: number
+          resolved_conversations?: number
+          stale_open_conversations?: number
+          support_load_score?: number | null
+          unanswered_conversations?: number
+          visitor_to_conversation_rate?: number | null
+          workspace_id: string
+        }
+        Update: {
+          active_conversations?: number
+          active_operators?: number
+          avg_conversation_duration_seconds?: number | null
+          avg_messages_per_conversation?: number | null
+          avg_resolution_time_seconds?: number | null
+          bucket_hour?: string
+          conversation_to_resolution_rate?: number | null
+          first_response_time_p50?: number | null
+          first_response_time_p95?: number | null
+          messages_sent?: number
+          new_conversations?: number
+          next_response_time_p50?: number | null
+          next_response_time_p95?: number | null
+          reopened_conversations?: number
+          resolved_conversations?: number
+          stale_open_conversations?: number
+          support_load_score?: number | null
+          unanswered_conversations?: number
+          visitor_to_conversation_rate?: number | null
+          workspace_id?: string
+        }
+        Relationships: []
+      }
       canned_responses: {
         Row: {
           body: string
@@ -2237,6 +2306,105 @@ export type Database = {
         }
         Relationships: []
       }
+      sla_reliability_hourly: {
+        Row: {
+          bucket_hour: string
+          critical_alert_count: number
+          degraded_minutes: number
+          details: Json
+          failover_count: number
+          forced_polling_minutes: number
+          mean_failover_recovery_seconds: number | null
+          realtime_availability_pct: number
+          recovery_count: number
+          scope_key: string
+          scope_type: string
+          unhealthy_minutes: number
+          uptime_pct: number
+          warn_alert_count: number
+        }
+        Insert: {
+          bucket_hour: string
+          critical_alert_count?: number
+          degraded_minutes?: number
+          details?: Json
+          failover_count?: number
+          forced_polling_minutes?: number
+          mean_failover_recovery_seconds?: number | null
+          realtime_availability_pct?: number
+          recovery_count?: number
+          scope_key: string
+          scope_type: string
+          unhealthy_minutes?: number
+          uptime_pct?: number
+          warn_alert_count?: number
+        }
+        Update: {
+          bucket_hour?: string
+          critical_alert_count?: number
+          degraded_minutes?: number
+          details?: Json
+          failover_count?: number
+          forced_polling_minutes?: number
+          mean_failover_recovery_seconds?: number | null
+          realtime_availability_pct?: number
+          recovery_count?: number
+          scope_key?: string
+          scope_type?: string
+          unhealthy_minutes?: number
+          uptime_pct?: number
+          warn_alert_count?: number
+        }
+        Relationships: []
+      }
+      slo_definitions: {
+        Row: {
+          created_at: string
+          description: string | null
+          enabled: boolean
+          id: string
+          is_builtin: boolean
+          metric_key: string
+          scope_type: string
+          slug: string
+          target_type: string
+          target_value: number
+          title: string
+          updated_at: string
+          window_seconds: number
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          enabled?: boolean
+          id?: string
+          is_builtin?: boolean
+          metric_key: string
+          scope_type: string
+          slug: string
+          target_type: string
+          target_value: number
+          title: string
+          updated_at?: string
+          window_seconds?: number
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          enabled?: boolean
+          id?: string
+          is_builtin?: boolean
+          metric_key?: string
+          scope_type?: string
+          slug?: string
+          target_type?: string
+          target_value?: number
+          title?: string
+          updated_at?: string
+          window_seconds?: number
+        }
+        Relationships: []
+      }
       storage_usage_logs: {
         Row: {
           content_type: string | null
@@ -3424,6 +3592,36 @@ export type Database = {
           },
         ]
       }
+      workspace_health_snapshots: {
+        Row: {
+          captured_at: string
+          components: Json
+          health_score: number
+          id: string
+          inputs: Json
+          state: string
+          workspace_id: string
+        }
+        Insert: {
+          captured_at?: string
+          components?: Json
+          health_score: number
+          id?: string
+          inputs?: Json
+          state: string
+          workspace_id: string
+        }
+        Update: {
+          captured_at?: string
+          components?: Json
+          health_score?: number
+          id?: string
+          inputs?: Json
+          state?: string
+          workspace_id?: string
+        }
+        Relationships: []
+      }
       workspace_invitations: {
         Row: {
           created_at: string
@@ -3909,6 +4107,7 @@ export type Database = {
           }
       admin_security_stats: { Args: never; Returns: Json }
       bootstrap_admin: { Args: { _user_id: string }; Returns: boolean }
+      business_metrics_rollup_and_prune: { Args: never; Returns: Json }
       check_channel_access: {
         Args: { _channel_key: string; _workspace_id: string }
         Returns: Json
@@ -4029,6 +4228,8 @@ export type Database = {
       }
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
+      sla_reliability_rollup_and_prune: { Args: never; Returns: Json }
+      workspace_health_snapshot_compute: { Args: never; Returns: Json }
     }
     Enums: {
       app_role: "admin" | "moderator" | "user"

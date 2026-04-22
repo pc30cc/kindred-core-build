@@ -16,12 +16,20 @@ import {
 import { livekitProvider } from './providers/livekitProvider.js';
 import { jitsiProvider } from './providers/jitsiProvider.js';
 import { janusProvider } from './providers/janusProvider.js';
-import { CallProviderNotReadyError, type CallProvider } from './providers/types.js';
+import { agoraProvider } from './providers/agoraProvider.js';
+import {
+  CallProviderNotReadyError,
+  CALL_PROVIDER_CLASSIFICATION,
+  type CallProvider,
+} from './providers/types.js';
 
 const REGISTRY: Record<Exclude<CallProviderId, 'disabled'>, CallProvider> = {
   livekit: livekitProvider,
   jitsi: jitsiProvider,
   janus: janusProvider,
+  // External / cloud-backed adapter — opt-in only. NEVER auto-included
+  // in the default order; admin must explicitly select agora_cloud.
+  agora_cloud: agoraProvider,
 };
 
 export function getCallProvider(id: CallProviderId): CallProvider | null {
@@ -42,6 +50,11 @@ export async function resolveCallProviderOrder(
   if (cp.fallback_policy === 'lenient' && !order.includes(cp.secondary_provider)) {
     order.push(cp.secondary_provider);
   }
+  // STRICT: external providers (e.g. Agora) MUST NOT appear in the order
+  // unless the admin has explicitly chosen them as workspace_override,
+  // primary_provider, or secondary_provider above. We also never silently
+  // auto-promote them via fallback expansion. The filter below preserves
+  // explicit choices and only drops 'disabled'.
   return order.filter((p) => p !== 'disabled');
 }
 

@@ -59,6 +59,13 @@ export interface EffectivePolicySnapshot {
   operator_load_shedding: boolean;
   /** Phase 7.5 — only high-priority conversations use realtime, others poll. */
   priority_only_mode: boolean;
+  /** Phase 8A — Voice/Video call policy (read-only for clients). */
+  effective_call_provider: 'livekit' | 'jitsi' | 'janus' | 'disabled';
+  call_degraded_mode: boolean;
+  audio_only_mode: boolean;
+  video_disabled: boolean;
+  recording_forced: boolean;
+  call_failover_epoch: string;
   /**
    * Bumped whenever the *transport target* changes (vendor switch,
    * lock change, or force_polling toggle). Clients MUST reset transport

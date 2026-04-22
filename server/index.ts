@@ -26,6 +26,7 @@ import { conversationNotesRouter } from './routes/conversationNotes.js';
 import { cannedResponsesRouter } from './routes/cannedResponses.js';
 import { widgetKbRouter, publicKbRouter } from './routes/kb.js';
 import { privacyRouter } from './routes/privacy.js';
+import { callsRouter } from './routes/calls.js';
 import { startAttachmentJanitor } from './services/attachmentJanitor.js';
 import { startPrivacyWorker } from './services/privacy/worker.js';
 import { startPrivacyExpirySweep } from './services/privacy/expirySweep.js';
@@ -194,6 +195,9 @@ app.use('/api/canned-responses', cannedResponsesRouter);
 // GDPR — privacy export/delete jobs. Auth + admin role enforced per-route.
 // Worker loop runs in-process (see startPrivacyWorker below).
 app.use('/api/privacy', privacyRouter);
+
+// Phase 8A — Voice/Video calls signaling. Auth + workspace membership enforced per-route.
+app.use('/api/calls', callsRouter);
 
 // 404
 app.use((_req, res) => {

@@ -179,6 +179,9 @@ export default function AdminObservabilityPage() {
         <TabsContent value="realtime-control">
           <RealtimeControlPanel />
         </TabsContent>
+        <TabsContent value="reliability">
+          <ReliabilityPanel />
+        </TabsContent>
       </Tabs>
     </div>
   );

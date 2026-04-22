@@ -1,0 +1,72 @@
+/**
+ * Phase 5A — Admin performance API client.
+ * All endpoints require global admin (server-enforced).
+ */
+import { supabase } from '@/integrations/supabase/client';
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL;
+
+async function authHeader(): Promise<Record<string, string>> {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+export type PerfRange = '1h' | '24h';
+
+export interface PerfRouteRow {
+  route_group: string;
+  method: string;
+  count: number;
+  error_count: number;
+  sum_ms: number;
+  max_ms: number;
+  p50: number;
+  p95: number;
+  p99: number;
+  error_rate: number;
+  status_groups: Record<string, number>;
+}
+
+export interface PerfSummary {
+  range: PerfRange;
+  since: string;
+  rows: PerfRouteRow[];
+}
+
+export interface PerfProcessSample {
+  occurred_at: string;
+  event_loop_lag_ms: number;
+  rss_bytes: number;
+  heap_used_bytes: number;
+  heap_total_bytes: number;
+  uptime_seconds: number;
+}
+
+export interface PerfProcessResponse {
+  range: PerfRange;
+  since: string;
+  samples: PerfProcessSample[];
+  latest: PerfProcessSample | null;
+}
+
+export async function fetchPerfSummary(range: PerfRange = '1h'): Promise<PerfSummary> {
+  const headers = await authHeader();
+  const res = await fetch(`${API_BASE}/api/admin/perf/summary?range=${range}`, { headers });
+  if (!res.ok) throw new Error(`Failed to load perf summary: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchPerfProcess(range: PerfRange = '1h'): Promise<PerfProcessResponse> {
+  const headers = await authHeader();
+  const res = await fetch(`${API_BASE}/api/admin/perf/process?range=${range}`, { headers });
+  if (!res.ok) throw new Error(`Failed to load process samples: ${res.status}`);
+  return res.json();
+}
+
+export async function triggerPerfRollup(): Promise<{ ok: boolean }> {
+  const headers = { ...(await authHeader()), 'Content-Type': 'application/json' };
+  const res = await fetch(`${API_BASE}/api/admin/perf/rollup`, { method: 'POST', headers });
+  if (!res.ok) throw new Error(`Failed to trigger rollup: ${res.status}`);
+  return res.json();
+}

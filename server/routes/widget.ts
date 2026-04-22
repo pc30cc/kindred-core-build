@@ -38,6 +38,7 @@ import {
   resolveWidgetAssetBase,
   resolveWorkspaceIdFromOrigin,
 } from '../services/widget/public.js';
+import { perfHttpMiddleware } from '../services/observability/perf.js';
 import { getWidgetAssetName, getLoaderVersion, getManifestDiagnostics, invalidateManifestCache } from '../services/widget/manifest.js';
 import {
   createSessionToken,
@@ -184,7 +185,7 @@ function buildPreChatConfig(policyValue: any, workspaceFlags: Array<{ key: strin
 // ═══════════════════════════════════════════════
 // POST /bootstrap — Public. Issues session token
 // ═══════════════════════════════════════════════
-widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), async (req: Request, res: Response) => {
+widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), perfHttpMiddleware('widget.bootstrap'), async (req: Request, res: Response) => {
   try {
     const config = (req as any).serverConfig as ServerConfig;
     const supabase = getServiceClient(config);
@@ -304,7 +305,7 @@ widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), async (req: Reques
 // ═══════════════════════════════════════════════
 // POST /session/refresh — Secure token renewal
 // ═══════════════════════════════════════════════
-widgetRouter.post('/session/refresh', widgetRateLimit('refresh'), async (req: Request, res: Response) => {
+widgetRouter.post('/session/refresh', widgetRateLimit('refresh'), perfHttpMiddleware('widget.session_refresh'), async (req: Request, res: Response) => {
   try {
     const currentToken = req.headers['x-widget-token'] as string;
     if (!currentToken) {
@@ -1300,7 +1301,7 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
 // ═══════════════════════════════════════════════
 // PUT /action — Heartbeat, Typing, Reopen, CSAT
 // ═══════════════════════════════════════════════
-widgetRouter.put('/action', widgetRateLimit('default'), async (req: Request, res: Response) => {
+widgetRouter.put('/action', widgetRateLimit('default'), perfHttpMiddleware('widget.action'), async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
   const workspaceId = resolveWorkspaceId(req, res, req.body?.workspace_id);
   if (res.headersSent) return;

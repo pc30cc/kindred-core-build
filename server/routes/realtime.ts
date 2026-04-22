@@ -26,6 +26,7 @@ import {
 } from '../services/realtime/index.js';
 import { verifySessionToken } from '../services/widget/security.js';
 import { readVisitorCookie } from '../services/widget/visitorIdentity.js';
+import { perfHttpMiddleware } from '../services/observability/perf.js';
 import {
   getRequestOrigin,
   getWorkspaceOriginRules,
@@ -219,7 +220,7 @@ const subscribeSchema = z.object({
   conversation_id: z.string().uuid(),
 });
 
-realtimeRouter.post('/subscribe', async (req, res) => {
+realtimeRouter.post('/subscribe', perfHttpMiddleware('realtime.subscribe'), async (req, res) => {
   const config: ServerConfig = (req as any).serverConfig;
   try {
     const parsed = subscribeSchema.safeParse(req.body);
@@ -341,7 +342,7 @@ async function authorizeOperator(req: any, res: any, config: ServerConfig, works
   return user;
 }
 
-realtimeRouter.post('/operator-connect', async (req, res) => {
+realtimeRouter.post('/operator-connect', perfHttpMiddleware('realtime.operator_connect'), async (req, res) => {
   const config: ServerConfig = (req as any).serverConfig;
   try {
     const parsed = operatorConnectSchema.safeParse(req.body);

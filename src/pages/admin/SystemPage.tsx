@@ -1,11 +1,12 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useAdminRuntimeConfig } from '@/hooks/useAdmin';
-import { CheckCircle, Activity, AlertTriangle, AlertOctagon } from 'lucide-react';
+import { CheckCircle, Activity, AlertTriangle, AlertOctagon, Gauge } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { fetchMetricsSummary } from '@/lib/admin-metrics-api';
 import { fetchActiveAlerts, type ActiveAlert } from '@/lib/admin-alerts-api';
+import { fetchPerfSummary, fetchPerfProcess } from '@/lib/admin-perf-api';
 
 export default function AdminSystemPage() {
   const { data: config } = useAdminRuntimeConfig();
@@ -19,6 +20,16 @@ export default function AdminSystemPage() {
     queryFn: () => fetchActiveAlerts(),
     refetchInterval: 30_000,
   });
+  const perfSummaryQ = useQuery({
+    queryKey: ['admin-perf-summary', '1h'],
+    queryFn: () => fetchPerfSummary('1h'),
+    refetchInterval: 60_000,
+  });
+  const perfProcessQ = useQuery({
+    queryKey: ['admin-perf-process', '1h'],
+    queryFn: () => fetchPerfProcess('1h'),
+    refetchInterval: 60_000,
+  });
   const counts = summary.data?.counts || {};
   const summaryRows = [
     { metric: 'realtime.token_minted', label: 'Tokens minted' },
@@ -29,6 +40,20 @@ export default function AdminSystemPage() {
 
   const activeAlerts = (activeAlertsQ.data?.active || []).slice(0, 3);
   const hasCritical = activeAlerts.some((a) => a.severity === 'critical');
+
+  const perfRows = (perfSummaryQ.data?.rows || []).slice(0, 4);
+  const perfLatest = perfProcessQ.data?.latest;
+  const fmtBytes = (n: number) => {
+    if (!n) return '0';
+    const u = ['B', 'KB', 'MB', 'GB'];
+    let i = 0;
+    let v = n;
+    while (v >= 1024 && i < u.length - 1) {
+      v /= 1024;
+      i += 1;
+    }
+    return `${v.toFixed(1)} ${u[i]}`;
+  };
 
   return (
     <div className="space-y-6">
@@ -132,6 +157,46 @@ export default function AdminSystemPage() {
                 <Badge variant="outline">{counts[r.metric]?.total ?? 0}</Badge>
               </div>
             ))}
+          </CardContent>
+        </Card>
+
+        <Card className="bg-card border-border">
+          <CardHeader className="flex-row items-center justify-between">
+            <CardTitle className="text-foreground text-sm flex items-center gap-2">
+              <Gauge className="h-4 w-4" /> Performance (last hour)
+            </CardTitle>
+            <Link
+              to="/admin/observability"
+              className="text-xs text-primary hover:underline"
+            >
+              Drill down →
+            </Link>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {perfRows.length === 0 && (
+              <p className="text-muted-foreground text-sm">No instrumented requests yet.</p>
+            )}
+            {perfRows.map((r) => (
+              <div
+                key={`${r.route_group}|${r.method}`}
+                className="flex items-center justify-between"
+              >
+                <span className="text-muted-foreground font-mono text-xs truncate max-w-[55%]">
+                  {r.route_group}
+                </span>
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="text-xs">{r.count}</Badge>
+                  <Badge variant="outline" className="text-xs">p95 {r.p95}ms</Badge>
+                </div>
+              </div>
+            ))}
+            {perfLatest && (
+              <div className="pt-2 mt-2 border-t border-border flex items-center justify-between text-xs text-muted-foreground">
+                <span>EL lag {perfLatest.event_loop_lag_ms.toFixed(2)}ms</span>
+                <span>RSS {fmtBytes(perfLatest.rss_bytes)}</span>
+                <span>Heap {fmtBytes(perfLatest.heap_used_bytes)}</span>
+              </div>
+            )}
           </CardContent>
         </Card>
 

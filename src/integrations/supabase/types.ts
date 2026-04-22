@@ -1423,6 +1423,105 @@ export type Database = {
         }
         Relationships: []
       }
+      perf_process_samples: {
+        Row: {
+          event_loop_lag_ms: number
+          heap_total_bytes: number
+          heap_used_bytes: number
+          id: string
+          occurred_at: string
+          rss_bytes: number
+          uptime_seconds: number
+        }
+        Insert: {
+          event_loop_lag_ms: number
+          heap_total_bytes: number
+          heap_used_bytes: number
+          id?: string
+          occurred_at?: string
+          rss_bytes: number
+          uptime_seconds: number
+        }
+        Update: {
+          event_loop_lag_ms?: number
+          heap_total_bytes?: number
+          heap_used_bytes?: number
+          id?: string
+          occurred_at?: string
+          rss_bytes?: number
+          uptime_seconds?: number
+        }
+        Relationships: []
+      }
+      perf_request_hourly: {
+        Row: {
+          bucket_hour: string
+          count: number
+          error_count: number
+          histogram: Json
+          max_ms: number
+          method: string
+          route_group: string
+          status_group: string
+          sum_ms: number
+        }
+        Insert: {
+          bucket_hour: string
+          count?: number
+          error_count?: number
+          histogram?: Json
+          max_ms?: number
+          method: string
+          route_group: string
+          status_group: string
+          sum_ms?: number
+        }
+        Update: {
+          bucket_hour?: string
+          count?: number
+          error_count?: number
+          histogram?: Json
+          max_ms?: number
+          method?: string
+          route_group?: string
+          status_group?: string
+          sum_ms?: number
+        }
+        Relationships: []
+      }
+      perf_request_samples: {
+        Row: {
+          duration_ms: number
+          id: string
+          is_error: boolean
+          method: string
+          occurred_at: string
+          route_group: string
+          status_code: number
+          status_group: string
+        }
+        Insert: {
+          duration_ms: number
+          id?: string
+          is_error?: boolean
+          method: string
+          occurred_at?: string
+          route_group: string
+          status_code: number
+          status_group: string
+        }
+        Update: {
+          duration_ms?: number
+          id?: string
+          is_error?: boolean
+          method?: string
+          occurred_at?: string
+          route_group?: string
+          status_code?: number
+          status_group?: string
+        }
+        Relationships: []
+      }
       plan_change_log: {
         Row: {
           change_type: string
@@ -3747,6 +3846,7 @@ export type Database = {
         Returns: Json
       }
       normalize_domain: { Args: { _input: string }; Returns: string }
+      perf_metrics_rollup_and_prune: { Args: never; Returns: Json }
       provision_account_on_signup: {
         Args: { _user_id: string }
         Returns: undefined

@@ -338,6 +338,10 @@ function buildConnection(workspaceId: string, negotiation: RealtimeNegotiation):
     ready: Promise.resolve(),
     generation: 0,
   };
+  // Phase 2 — kick off the hardening-settings prefetch (non-blocking).
+  // First connection on this tab will use defaults; subsequent reconnects
+  // pick up the platform-configured values.
+  loadHardening();
   conn.ready = openSocket(conn);
   return conn;
 }

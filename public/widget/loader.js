@@ -35,7 +35,7 @@
   }
   window.__gs_loaded = true;
 
-  var LOADER_VERSION = "2026-04-21-heartbeat-token-refresh-v2";
+  var LOADER_VERSION = "2026-04-22-token-bus-v1";
   var ELEMENT_TAG = "gs-widget";
 
   // DEBUG defaults to OFF in production. Opt in via:
@@ -68,6 +68,40 @@
   if (Array.isArray(GS)) {
     for (var i = 0; i < GS.length; i++) queue.push(GS[i]);
   }
+
+  // ─── Shared token bus ──────────────────────────────────────────────
+  // Single authoritative source for the widget session token across:
+  //   - loader heartbeat / track / session-refresh
+  //   - runtime tokenManager (proactive + reactive refresh)
+  //   - runtime-rt-centrifugo /api/realtime/connect & /subscribe
+  //
+  // Without this each layer kept its own snapshot. After wake the runtime
+  // could refresh the token while the loader's heartbeat was still using
+  // the old one — producing the 403 loop on /api/widget/action and
+  // /api/widget/session/refresh and dragging the realtime layer back into
+  // reconnecting because /api/realtime/connect was hit with a stale token.
+  if (!window.__gs_token) {
+    var __tokenListeners = [];
+    window.__gs_token = {
+      _value: '',
+      get: function () { return this._value; },
+      set: function (t) {
+        if (!t || t === this._value) return;
+        this._value = t;
+        for (var i = 0; i < __tokenListeners.length; i++) {
+          try { __tokenListeners[i](t); } catch (_) {}
+        }
+      },
+      onChange: function (fn) {
+        __tokenListeners.push(fn);
+        return function () {
+          var i = __tokenListeners.indexOf(fn);
+          if (i !== -1) __tokenListeners.splice(i, 1);
+        };
+      },
+    };
+  }
+
   function processQueue() {
     while (queue.length) {
       var cmd = queue.shift();

@@ -245,8 +245,8 @@ export default function AdminWidgetSettingsPage() {
             ) : (
               <div className="space-y-3">
                 {!callPlane.enabled && (
-                  <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-muted-foreground">
-                    <Info className="h-4 w-4 mt-0.5 shrink-0 text-amber-600" />
+                  <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-muted-foreground">
+                    <Info className="h-4 w-4 mt-0.5 shrink-0 text-destructive" />
                     <p>
                       The call control plane is currently <strong>disabled</strong>. Enable it from <em>Providers → Call Control Plane</em> for these gates to take effect.
                     </p>

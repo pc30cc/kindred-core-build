@@ -153,6 +153,10 @@
   // ───── Single active call state ─────
   var current = null; // { invite, room, micEnabled, camEnabled }
   var lastDispatchedCallId = null; // dedupe poll-mode dispatch
+  // Phase 8D+ — Callback request guard (in-memory).
+  var isSubmittingCallback = false;
+  var lastCallbackSubmitTs = 0;
+  var callbackRequestedFlag = false;
 
   // Resolve widget context (workspace, apiBase, identity) from globals the
   // loader/runtime expose. Polling fallback uses these to fetch a visitor

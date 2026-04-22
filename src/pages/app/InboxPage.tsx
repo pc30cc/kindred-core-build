@@ -35,6 +35,7 @@ import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { ConversationActionPanel } from '@/components/inbox/ConversationActionPanel';
 import { ConversationActivityPanel } from '@/components/inbox/ConversationActivityPanel';
+import { OperatorCallPanel } from '@/components/inbox/OperatorCallPanel';
 import { CannedResponsePicker, type CannedPickerHandle } from '@/components/canned-responses/CannedResponsePicker';
 import { interpolate } from '@/components/canned-responses/interpolation';
 import { useTrackCannedResponseUse } from '@/hooks/useCannedResponses';
@@ -880,6 +881,13 @@ export default function InboxPage() {
                 </div>
               </div>
               <div className="flex items-center gap-1.5">
+                {workspace?.id && (
+                  <OperatorCallPanel
+                    workspaceId={workspace.id}
+                    conversationId={selectedId}
+                    contactName={selected.contacts?.name ?? null}
+                  />
+                )}
                 <Badge className={cn('text-[10px] border', statusColors[selected.status ?? 'open'])}>
                   {statusLabels[selected.status ?? 'open']}
                 </Badge>

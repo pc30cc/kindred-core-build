@@ -1,10 +1,11 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useAdminRuntimeConfig } from '@/hooks/useAdmin';
-import { CheckCircle, Activity } from 'lucide-react';
+import { CheckCircle, Activity, AlertTriangle, AlertOctagon } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { fetchMetricsSummary } from '@/lib/admin-metrics-api';
+import { fetchActiveAlerts, type ActiveAlert } from '@/lib/admin-alerts-api';
 
 export default function AdminSystemPage() {
   const { data: config } = useAdminRuntimeConfig();
@@ -12,6 +13,11 @@ export default function AdminSystemPage() {
     queryKey: ['admin-metrics-summary', '1h'],
     queryFn: () => fetchMetricsSummary('1h'),
     refetchInterval: 60_000,
+  });
+  const activeAlertsQ = useQuery({
+    queryKey: ['admin-alerts-active'],
+    queryFn: () => fetchActiveAlerts(),
+    refetchInterval: 30_000,
   });
   const counts = summary.data?.counts || {};
   const summaryRows = [
@@ -21,9 +27,74 @@ export default function AdminSystemPage() {
     { metric: 'realtime.fallback_engaged', label: 'Polling fallback' },
   ];
 
+  const activeAlerts = (activeAlertsQ.data?.active || []).slice(0, 3);
+  const hasCritical = activeAlerts.some((a) => a.severity === 'critical');
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-foreground">System Overview</h1>
+
+      {activeAlerts.length > 0 && (
+        <Card
+          className={
+            hasCritical
+              ? 'bg-destructive/10 border-destructive/40'
+              : 'bg-warning/10 border-warning/40'
+          }
+        >
+          <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle
+              className={`text-sm flex items-center gap-2 ${
+                hasCritical ? 'text-destructive' : 'text-warning'
+              }`}
+            >
+              {hasCritical ? (
+                <AlertOctagon className="h-4 w-4" />
+              ) : (
+                <AlertTriangle className="h-4 w-4" />
+              )}
+              Active Alerts ({activeAlertsQ.data?.active.length ?? 0})
+            </CardTitle>
+            <Link
+              to="/admin/observability"
+              className="text-xs text-primary hover:underline"
+            >
+              View all →
+            </Link>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {activeAlerts.map((a: ActiveAlert) => (
+              <div
+                key={a.id}
+                className="flex items-center justify-between rounded-md border border-border bg-background/50 px-3 py-2"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <Badge
+                    className={
+                      a.severity === 'critical'
+                        ? 'bg-destructive/20 text-destructive'
+                        : 'bg-warning/20 text-warning'
+                    }
+                  >
+                    {a.severity}
+                  </Badge>
+                  <span className="font-mono text-xs text-foreground truncate">
+                    {a.rule_slug}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3 text-xs text-muted-foreground whitespace-nowrap">
+                  {a.metric_value != null && a.threshold_value != null && (
+                    <span>
+                      {a.metric_value} / {a.threshold_value}
+                    </span>
+                  )}
+                  <span>{new Date(a.fired_at).toLocaleTimeString()}</span>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-4 md:grid-cols-2">
         <Card className="bg-card border-border">

@@ -82,6 +82,16 @@
 
     function get() { return token; }
 
+    function adopt(newToken) {
+      if (!newToken || newToken === token) return token;
+      token = newToken;
+      disabled = false;
+      consecutiveFailures = 0;
+      scheduleProactiveRefresh();
+      notify();
+      return token;
+    }
+
     function onChange(fn) { listeners.push(fn); return function () {
       var i = listeners.indexOf(fn); if (i !== -1) listeners.splice(i, 1);
     }; }
@@ -232,6 +242,7 @@
     scheduleProactiveRefresh();
 
     return {
+      adopt: adopt,
       get: get,
       onChange: onChange,
       refresh: refresh,
@@ -2752,7 +2763,9 @@
         // driver (which reads ctx.sessionToken at call time) always sees
         // the latest value, even if the loader-side refresh fired first.
         window.__gs_token.onChange(function (t) {
-          if (t && t !== ctx.sessionToken) ctx.sessionToken = t;
+          if (!t) return;
+          if (tokenMgr && tokenMgr.adopt) tokenMgr.adopt(t);
+          if (t !== ctx.sessionToken) ctx.sessionToken = t;
         });
       }
     } catch (_) { /* bus optional */ }

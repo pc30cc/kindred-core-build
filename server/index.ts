@@ -29,6 +29,7 @@ import { privacyRouter } from './routes/privacy.js';
 import { callsRouter } from './routes/calls.js';
 import { livekitWebhookRouter } from './routes/livekitWebhook.js';
 import { callQueueRouter } from './routes/callQueue.js';
+import { workspaceCallsRouter } from './routes/workspaceCalls.js';
 import { startCallQueueTicker } from './services/calls/queueTicker.js';
 import { startAttachmentJanitor } from './services/attachmentJanitor.js';
 import { startPrivacyWorker } from './services/privacy/worker.js';
@@ -215,6 +216,10 @@ app.use('/api/calls', callsRouter);
 
 // Phase 8C — Call queue (operator surfaces). Auth + workspace membership per-route.
 app.use('/api/call-queue', callQueueRouter);
+
+// Phase 8C — Workspace-scoped call settings + role permission overrides.
+// Workspace owner/admin only (enforced inside the router).
+app.use('/api/workspace-calls', workspaceCallsRouter);
 
 // 404
 app.use((_req, res) => {

@@ -38,6 +38,13 @@ export interface CallControlPlane {
   recording_default_type: 'composite' | 'individual' | 'audio_only';
   retention_default_days: number;
   verification_required_for_visitor_calls: boolean;
+  // Phase 8C — global channel gates (hard upper bounds).
+  voice_calls_enabled_global: boolean;
+  video_calls_enabled_global: boolean;
+  call_recording_enabled_global: boolean;
+  call_queue_enabled_global: boolean;
+  visitor_initiated_audio_enabled_global: boolean;
+  visitor_initiated_video_enabled_global: boolean;
 }
 
 export interface CallTurnConfig {
@@ -142,6 +149,49 @@ export async function updateAgoraConfig(
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
     body: JSON.stringify(patch),
+  });
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  return res.json();
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Phase 8C — Platform-default role permissions for call channels.
+// ────────────────────────────────────────────────────────────────────────
+export type CallPermissionKey =
+  | 'can_start_audio_call'
+  | 'can_start_video_call'
+  | 'can_receive_audio_call'
+  | 'can_receive_video_call'
+  | 'can_record_calls'
+  | 'can_transfer_calls'
+  | 'can_join_queue_calls'
+  | 'can_manage_call_queue';
+
+export type RoleSlug = 'owner' | 'admin' | 'agent' | 'viewer';
+
+export interface RolePermissionMatrixResponse {
+  matrix: Record<RoleSlug, Record<CallPermissionKey, boolean>>;
+  roles: RoleSlug[];
+  permissions: CallPermissionKey[];
+}
+
+export async function fetchPlatformRolePermissions(): Promise<RolePermissionMatrixResponse> {
+  const res = await fetch(`${API_BASE}/api/admin/calls/role-permissions`, {
+    headers: await authHeader(),
+  });
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  return res.json();
+}
+
+export async function updatePlatformRolePermission(input: {
+  role_slug: RoleSlug;
+  permission_key: CallPermissionKey;
+  granted: boolean;
+}): Promise<{ ok: true }> {
+  const res = await fetch(`${API_BASE}/api/admin/calls/role-permissions`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+    body: JSON.stringify(input),
   });
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   return res.json();

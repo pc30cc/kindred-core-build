@@ -10,6 +10,8 @@ import {
   saveCallControlPlane,
   type CallProviderId,
 } from '../services/calls/controlPlane.js';
+import { ALL_CALL_PERMISSIONS, invalidatePermissionCache } from '../services/calls/permissions.js';
+import { getServiceClient } from '../supabase.js';
 import {
   getCallNetworkBundle,
   saveRtcEndpoints,
@@ -64,6 +66,13 @@ const cpUpdateSchema = z.object({
   recording_default_type: z.enum(['composite', 'individual', 'audio_only']).optional(),
   retention_default_days: z.number().int().min(0).max(3650).optional(),
   verification_required_for_visitor_calls: z.boolean().optional(),
+  // Phase 8C — global channel gates
+  voice_calls_enabled_global: z.boolean().optional(),
+  video_calls_enabled_global: z.boolean().optional(),
+  call_recording_enabled_global: z.boolean().optional(),
+  call_queue_enabled_global: z.boolean().optional(),
+  visitor_initiated_audio_enabled_global: z.boolean().optional(),
+  visitor_initiated_video_enabled_global: z.boolean().optional(),
 });
 
 adminCallsRouter.put('/control-plane', async (req, res) => {
@@ -205,6 +214,70 @@ adminCallsRouter.put('/livekit', async (req, res) => {
     }
     const merged = await saveLiveKitConfig(config, patch as any);
     res.json({ livekit: toLiveKitPublicView(merged) });
+  } catch (err: any) {
+    res.status(400).json({ error: err?.message || 'update_failed' });
+  }
+});
+
+// ────────────────────────────────────────────────────────────────────────
+// Phase 8C — Platform-default role permissions (workspace_id IS NULL).
+// Reads return the full default matrix (4 roles × 8 perms). Writes upsert
+// a single (role_slug, permission_key) row.
+// ────────────────────────────────────────────────────────────────────────
+const ROLES = ['owner', 'admin', 'agent', 'viewer'] as const;
+
+adminCallsRouter.get('/role-permissions', async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
+  const sb = getServiceClient(config);
+  const { data, error } = await sb
+    .from('role_permissions')
+    .select('role_slug, permission_key, granted')
+    .is('workspace_id', null);
+  if (error) return res.status(500).json({ error: error.message });
+  // Build a dense matrix so the UI never has to invent missing rows.
+  const matrix: Record<string, Record<string, boolean>> = {};
+  for (const r of ROLES) {
+    matrix[r] = {};
+    for (const p of ALL_CALL_PERMISSIONS) matrix[r][p] = false;
+  }
+  for (const row of data ?? []) {
+    if (matrix[row.role_slug] && (ALL_CALL_PERMISSIONS as string[]).includes(row.permission_key)) {
+      matrix[row.role_slug][row.permission_key] = !!row.granted;
+    }
+  }
+  res.json({ matrix, roles: ROLES, permissions: ALL_CALL_PERMISSIONS });
+});
+
+const rolePermPatchSchema = z.object({
+  role_slug: z.enum(ROLES),
+  permission_key: z.enum(ALL_CALL_PERMISSIONS as unknown as [string, ...string[]]),
+  granted: z.boolean(),
+});
+
+adminCallsRouter.put('/role-permissions', async (req, res) => {
+  try {
+    const body = rolePermPatchSchema.parse(req.body);
+    const config: ServerConfig = (req as any).serverConfig;
+    const sb = getServiceClient(config);
+    // Upsert by (workspace_id IS NULL, role_slug, permission_key). Because
+    // the unique index uses COALESCE on workspace_id, we match the same
+    // logic by deleting+inserting in one pass.
+    const { error: delErr } = await sb
+      .from('role_permissions')
+      .delete()
+      .is('workspace_id', null)
+      .eq('role_slug', body.role_slug)
+      .eq('permission_key', body.permission_key);
+    if (delErr) return res.status(500).json({ error: delErr.message });
+    const { error: insErr } = await sb.from('role_permissions').insert({
+      workspace_id: null,
+      role_slug: body.role_slug,
+      permission_key: body.permission_key,
+      granted: body.granted,
+    });
+    if (insErr) return res.status(500).json({ error: insErr.message });
+    invalidatePermissionCache();
+    res.json({ ok: true });
   } catch (err: any) {
     res.status(400).json({ error: err?.message || 'update_failed' });
   }

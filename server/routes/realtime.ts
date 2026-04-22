@@ -39,8 +39,13 @@ import {
 } from '../services/realtime/types.js';
 import { loadWidgetPlatformRuntimeSettings } from '../services/widget/platformSettings.js';
 import { emitMetric } from '../services/observability/metrics.js';
+import { realtimeControlRouter } from './realtimeControl.js';
 
 export const realtimeRouter = Router();
+
+// Phase 6A — Realtime Control Plane (admin-only). Mounted before the
+// dynamic /admin/* handlers below so it gets first match on /admin/control*.
+realtimeRouter.use('/admin/control', realtimeControlRouter);
 
 /**
  * Enforce that the requesting browser origin is in the workspace's

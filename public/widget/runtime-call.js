@@ -85,6 +85,7 @@
       '.btn.ghost{background:#f1f5f9;color:#0f172a}',
       '.btn.ghost:hover{background:#e2e8f0}',
       '.btn.ghost.off{background:#fee2e2;color:#991b1b}',
+      '.btn:disabled{opacity:.6;cursor:not-allowed}',
       '@media (prefers-color-scheme: dark){.btn.ghost{background:#1e293b;color:#f1f5f9}.btn.ghost:hover{background:#334155}}',
       '.dot{width:8px;height:8px;border-radius:50%;background:#16a34a;display:inline-block;margin-right:6px;animation:pulse 1.4s infinite}',
       '@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}',
@@ -93,6 +94,15 @@
       '.status{font-size:11px;color:#64748b;margin-top:6px}',
       '.degraded{font-size:11px;color:#b45309;background:#fef3c7;border-radius:6px;padding:6px 8px;margin-top:6px;display:none}',
       '.degraded.show{display:block}',
+      '.cbfield{display:flex;flex-direction:column;gap:3px;margin-top:8px}',
+      '.cblabel{font-size:11px;color:#64748b;font-weight:500}',
+      '.cbinput{width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:7px 9px;font:inherit;color:inherit;background:transparent;outline:none}',
+      '.cbinput:focus{border-color:#16a34a}',
+      '.cbinput.invalid{border-color:#dc2626}',
+      '@media (prefers-color-scheme: dark){.cbinput{border-color:#1e293b}}',
+      '.cbnote{resize:vertical;min-height:48px;max-height:120px;font-family:inherit}',
+      '.cberr{font-size:11px;color:#dc2626;margin-top:4px;display:none}',
+      '.cberr.show{display:block}',
     ].join('');
     shadow.appendChild(style);
 
@@ -117,6 +127,13 @@
       '</div>',
       '<div class="row" data-el="callback-row" style="display:none">',
       '  <button class="btn ghost" data-el="callback" type="button">Request callback</button>',
+      '</div>',
+      '<div data-el="callback-modal" style="display:none">',
+      '  <div class="cbfield"><label class="cblabel" data-el="cb-phone-label">Phone (optional)</label><input class="cbinput" data-el="cb-phone" type="tel" autocomplete="tel" placeholder="+1 555 123 4567" /></div>',
+      '  <div class="cbfield"><label class="cblabel" data-el="cb-email-label">Email (optional)</label><input class="cbinput" data-el="cb-email" type="email" autocomplete="email" placeholder="you@example.com" /></div>',
+      '  <div class="cbfield"><label class="cblabel">Note (optional)</label><textarea class="cbinput cbnote" data-el="cb-notes" rows="2" placeholder="Anything we should know?"></textarea></div>',
+      '  <div class="cberr" data-el="cb-error"></div>',
+      '  <div class="row" style="margin-top:10px"><button class="btn primary" data-el="cb-submit" type="button">Request callback</button><button class="btn ghost" data-el="cb-cancel" type="button">Cancel</button></div>',
       '</div>',
       '<p class="status" data-el="status"></p>',
     ].join('');

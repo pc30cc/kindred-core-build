@@ -10,15 +10,16 @@ import AlertsPanel from '@/components/admin/observability/AlertsPanel';
 import PerformancePanel from '@/components/admin/observability/PerformancePanel';
 import AutoActionsPanel from '@/components/admin/observability/AutoActionsPanel';
 import SystemDegradedBanner from '@/components/admin/observability/SystemDegradedBanner';
+import RealtimeControlPanel from '@/components/admin/observability/RealtimeControlPanel';
 
 type Range = '1h' | '24h' | '7d';
 
 export default function AdminObservabilityPage() {
   const [range, setRange] = useState<Range>('1h');
   const [filter, setFilter] = useState<string>('');
-  const [tab, setTab] = useState<'metrics' | 'performance' | 'alerts' | 'auto-actions'>(
-    'metrics',
-  );
+  const [tab, setTab] = useState<
+    'metrics' | 'performance' | 'alerts' | 'auto-actions' | 'realtime-control'
+  >('metrics');
 
   const summaryQ = useQuery({
     queryKey: ['admin-metrics-summary', range],
@@ -42,7 +43,14 @@ export default function AdminObservabilityPage() {
       <Tabs
         value={tab}
         onValueChange={(v) =>
-          setTab(v as 'metrics' | 'performance' | 'alerts' | 'auto-actions')
+          setTab(
+            v as
+              | 'metrics'
+              | 'performance'
+              | 'alerts'
+              | 'auto-actions'
+              | 'realtime-control',
+          )
         }
       >
         <TabsList>
@@ -50,6 +58,7 @@ export default function AdminObservabilityPage() {
           <TabsTrigger value="performance">Performance</TabsTrigger>
           <TabsTrigger value="alerts">Alerts</TabsTrigger>
           <TabsTrigger value="auto-actions">Auto-actions</TabsTrigger>
+          <TabsTrigger value="realtime-control">Realtime control</TabsTrigger>
         </TabsList>
         <TabsContent value="metrics" className="space-y-6">
           <div className="flex items-center justify-end">
@@ -161,6 +170,9 @@ export default function AdminObservabilityPage() {
         </TabsContent>
         <TabsContent value="auto-actions">
           <AutoActionsPanel />
+        </TabsContent>
+        <TabsContent value="realtime-control">
+          <RealtimeControlPanel />
         </TabsContent>
       </Tabs>
     </div>

@@ -349,7 +349,7 @@ async function evaluateRule(
 }
 
 /**
- * Apply a rule's actions. For each action:
+ * Apply ONE normalized candidate (single action_type owned by a rule).
  *   • locate the matching auto_action_definition (by action_type, builtin)
  *   • if dry-run, just record an enforcement_actions audit row
  *   • else insert a new auto_action_events row (state=active, expires_at=now+ttl)
@@ -358,17 +358,20 @@ async function evaluateRule(
  * Skips silently if an active event of the same action_type already exists
  * — we never stack effects of the same kind.
  */
-async function applyRule(
+async function applyCandidate(
   config: ServerConfig,
   rule: EnforcementRule,
-  match: RuleMatch,
+  cand: NormalizedEnforcementCandidate,
   dryRun: boolean,
 ): Promise<boolean> {
   const sb = getServiceClient(config);
-  let appliedAny = false;
-
-  for (const actionType of rule.actions_json || []) {
-    try {
+  const actionType = cand.action_type;
+  const match: RuleMatch = {
+    scope_type: cand.scope_type,
+    scope_key: cand.scope_key,
+    trigger_payload: cand.trigger_payload,
+  };
+  try {
       // Lookup definition (prefer enabled built-in for that action type).
       const { data: defs } = await sb
         .from('auto_action_definitions')
@@ -382,7 +385,7 @@ async function applyRule(
           rule: rule.slug,
           action_type: actionType,
         });
-        continue;
+        return false;
       }
 
       // Skip if a same-type action is already active.
@@ -404,7 +407,7 @@ async function applyRule(
           scope_key: match.scope_key,
           dry_run: dryRun,
         });
-        continue;
+        return false;
       }
 
       if (dryRun) {
@@ -412,7 +415,14 @@ async function applyRule(
           rule_id: rule.id,
           rule_slug: rule.slug,
           trigger_type: rule.trigger_type,
-          trigger_payload: { ...match.trigger_payload, dry_run: true, action_type: actionType },
+          trigger_payload: {
+            ...match.trigger_payload,
+            dry_run: true,
+            action_type: actionType,
+            merged_with: cand.merged_with,
+            suppressed: cand.suppressed,
+            annotations: cand.annotations,
+          },
           scope_type: match.scope_type,
           scope_key: match.scope_key,
           dry_run: true,
@@ -421,8 +431,7 @@ async function applyRule(
           rule: rule.slug,
           action_type: actionType,
         });
-        appliedAny = true;
-        continue;
+        return true;
       }
 
       // TTL — clamped to the definition's max_duration_seconds.
@@ -451,6 +460,10 @@ async function applyRule(
             scope_type: match.scope_type,
             scope_key: match.scope_key,
             trigger_payload: match.trigger_payload,
+            rule_priority: cand.rule_priority,
+            merged_with: cand.merged_with,
+            suppressed: cand.suppressed,
+            annotations: cand.annotations,
           },
         })
         .select('id')
@@ -462,14 +475,22 @@ async function applyRule(
           action_type: actionType,
           error: insertErr?.message,
         });
-        continue;
+        return false;
       }
 
       await sb.from('enforcement_actions').insert({
         rule_id: rule.id,
         rule_slug: rule.slug,
         trigger_type: rule.trigger_type,
-        trigger_payload: { ...match.trigger_payload, action_type: actionType, ttl_seconds: ttlSec },
+        trigger_payload: {
+          ...match.trigger_payload,
+          action_type: actionType,
+          ttl_seconds: ttlSec,
+          rule_priority: cand.rule_priority,
+          merged_with: cand.merged_with,
+          suppressed: cand.suppressed,
+          annotations: cand.annotations,
+        },
         auto_action_event_id: inserted.id,
         scope_type: match.scope_type,
         scope_key: match.scope_key,
@@ -482,16 +503,15 @@ async function applyRule(
         scope_type: match.scope_type,
         scope_key: match.scope_key,
         ttl_seconds: ttlSec,
+        rule_priority: cand.rule_priority,
       });
-      appliedAny = true;
-    } catch (err: any) {
-      emitLog(config, 'warn', 'enforcement_action_threw', {
-        rule: rule.slug,
-        action_type: actionType,
-        error: err?.message,
-      });
-    }
+      return true;
+  } catch (err: any) {
+    emitLog(config, 'warn', 'enforcement_action_threw', {
+      rule: rule.slug,
+      action_type: actionType,
+      error: err?.message,
+    });
+    return false;
   }
-
-  return appliedAny;
 }

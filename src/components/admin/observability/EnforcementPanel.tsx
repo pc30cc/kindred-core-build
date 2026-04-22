@@ -24,9 +24,10 @@ import {
   fetchActiveEnforcementActions,
   evaluateEnforcementNow,
   overrideEnforcementAction,
+  fetchEnforcementNormalizations,
   type EnforcementFlags,
 } from '@/lib/admin-enforcement-api';
-import { AlertTriangle, ShieldAlert, ShieldOff, ShieldCheck, Play, Power } from 'lucide-react';
+import { AlertTriangle, ShieldAlert, ShieldOff, ShieldCheck, Play, Power, GitMerge } from 'lucide-react';
 
 function fmtTime(iso: string): string {
   return new Date(iso).toLocaleString();
@@ -35,7 +36,9 @@ function fmtTime(iso: string): string {
 export default function EnforcementPanel() {
   const qc = useQueryClient();
   const { toast } = useToast();
-  const [tab, setTab] = useState<'overview' | 'rules' | 'breaches' | 'history'>('overview');
+  const [tab, setTab] = useState<
+    'overview' | 'rules' | 'breaches' | 'history' | 'normalizations'
+  >('overview');
 
   const flagsQ = useQuery({
     queryKey: ['enforcement-flags'],
@@ -60,6 +63,11 @@ export default function EnforcementPanel() {
   const actionsQ = useQuery({
     queryKey: ['enforcement-actions'],
     queryFn: () => fetchEnforcementActions(50),
+    refetchInterval: 30_000,
+  });
+  const normsQ = useQuery({
+    queryKey: ['enforcement-normalizations'],
+    queryFn: () => fetchEnforcementNormalizations(50),
     refetchInterval: 30_000,
   });
 
@@ -109,6 +117,7 @@ export default function EnforcementPanel() {
   const rules = rulesQ.data?.rules || [];
   const breaches = breachesQ.data?.breaches || [];
   const actions = actionsQ.data?.actions || [];
+  const norms = normsQ.data?.normalizations || [];
 
   const openBreaches = breaches.filter((b) => b.state === 'open');
 
@@ -207,6 +216,7 @@ export default function EnforcementPanel() {
           <TabsTrigger value="rules">Rules ({rules.length})</TabsTrigger>
           <TabsTrigger value="breaches">Open breaches ({openBreaches.length})</TabsTrigger>
           <TabsTrigger value="history">History</TabsTrigger>
+          <TabsTrigger value="normalizations">Normalizations ({norms.length})</TabsTrigger>
         </TabsList>
 
         {/* Active enforcement actions */}
@@ -280,6 +290,9 @@ export default function EnforcementPanel() {
                         {r.is_builtin && (
                           <Badge variant="outline" className="text-[10px]">builtin</Badge>
                         )}
+                        <Badge variant="outline" className="text-[10px] font-mono">
+                          prio {r.priority}
+                        </Badge>
                       </p>
                       <p className="text-muted-foreground text-xs">{r.description}</p>
                       <p className="text-muted-foreground mt-1 text-xs">
@@ -300,7 +313,7 @@ export default function EnforcementPanel() {
                       }
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-3 gap-3">
                     <div>
                       <Label className="text-muted-foreground text-xs">Cooldown (s)</Label>
                       <Input
@@ -327,6 +340,21 @@ export default function EnforcementPanel() {
                           const v = parseInt(e.target.value, 10);
                           if (Number.isFinite(v) && v !== r.ttl_seconds) {
                             ruleMut.mutate({ id: r.id, patch: { ttl_seconds: v } });
+                          }
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-muted-foreground text-xs">Priority (0–1000)</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={1000}
+                        defaultValue={r.priority}
+                        onBlur={(e) => {
+                          const v = parseInt(e.target.value, 10);
+                          if (Number.isFinite(v) && v !== r.priority) {
+                            ruleMut.mutate({ id: r.id, patch: { priority: v } });
                           }
                         }}
                       />
@@ -443,6 +471,74 @@ export default function EnforcementPanel() {
                   )}
                 </TableBody>
               </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Normalizations */}
+        <TabsContent value="normalizations">
+          <Card className="bg-card border-border">
+            <CardHeader>
+              <CardTitle className="text-foreground text-sm flex items-center gap-2">
+                <GitMerge className="h-4 w-4" /> Conflict normalizations
+              </CardTitle>
+              <CardDescription>
+                Audit of cycles where the conflict resolver merged or
+                suppressed conflicting actions.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {norms.length === 0 && (
+                <p className="text-muted-foreground text-sm">
+                  No normalization events yet — every cycle so far produced
+                  a clean action set.
+                </p>
+              )}
+              {norms.map((n) => (
+                <div key={n.id} className="rounded-md border border-border p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-foreground text-sm font-medium">
+                      {fmtTime(n.created_at)}
+                    </p>
+                    <Badge variant="outline" className="text-[10px]">
+                      {n.reasons.length} change{n.reasons.length === 1 ? '' : 's'}
+                    </Badge>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div>
+                      <p className="text-muted-foreground text-[11px] uppercase">Raw</p>
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {n.raw_actions.map((r, i) => (
+                          <Badge key={i} variant="outline" className="text-[10px] font-mono">
+                            {r.action_type} · {r.rule_slug} · p{r.rule_priority}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground text-[11px] uppercase">Normalized</p>
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {n.normalized_actions.map((r, i) => (
+                          <Badge
+                            key={i}
+                            className="bg-primary/15 text-primary text-[10px] font-mono"
+                          >
+                            {r.action_type} · {r.rule_slug} · p{r.rule_priority}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <ul className="text-muted-foreground space-y-1 text-xs">
+                    {n.reasons.map((r, i) => (
+                      <li key={i}>
+                        <span className="font-mono text-foreground/70">[{r.kind}]</span>{' '}
+                        <span className="font-mono">{r.action_type}</span> ({r.rule_slug}) — {r.detail}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
             </CardContent>
           </Card>
         </TabsContent>

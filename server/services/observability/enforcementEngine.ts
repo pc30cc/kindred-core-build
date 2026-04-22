@@ -22,6 +22,11 @@ import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { emitLog } from './metrics.js';
 import { forceRefreshAutoActionsCache } from './autoActionsCache.js';
+import {
+  resolveEnforcementConflicts,
+  type RawEnforcementCandidate,
+  type NormalizedEnforcementCandidate,
+} from './enforcementConflictResolver.js';
 
 type TriggerType = 'slo_breach' | 'health_score' | 'alert_rate';
 
@@ -44,6 +49,7 @@ interface EnforcementRule {
   cooldown_seconds: number;
   ttl_seconds: number;
   enabled: boolean;
+  priority: number;
 }
 
 export interface EnforcementCycleResult {
@@ -53,6 +59,7 @@ export interface EnforcementCycleResult {
   skipped_kill_switch: boolean;
   skipped_max_concurrent: boolean;
   dry_run: boolean;
+  normalized: boolean;
   ran_at: string;
 }
 
@@ -66,6 +73,7 @@ export async function runEnforcementCycle(
     skipped_kill_switch: false,
     skipped_max_concurrent: false,
     dry_run: false,
+    normalized: false,
     ran_at: new Date().toISOString(),
   };
 
@@ -105,7 +113,25 @@ export async function runEnforcementCycle(
       return out;
     }
 
-    for (const rule of (rules || []) as EnforcementRule[]) {
+    // Phase 7.6 — two-pass evaluation:
+    //   1. Collect every (rule, action_type) candidate that matches AND
+    //      is past cooldown.
+    //   2. Run the conflict resolver to deduplicate and normalize.
+    //   3. Apply only the normalized candidates.
+    //
+    // Sorting rules by priority DESC (then slug) here makes the cooldown
+    // pass deterministic and gives the resolver a stable input order.
+    const ruleList = ((rules || []) as EnforcementRule[]).sort((a, b) => {
+      const pa = Number(a.priority ?? 100);
+      const pb = Number(b.priority ?? 100);
+      if (pa !== pb) return pb - pa;
+      return a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0;
+    });
+
+    const ruleById = new Map<string, EnforcementRule>();
+    const candidates: RawEnforcementCandidate[] = [];
+
+    for (const rule of ruleList) {
       try {
         out.evaluated += 1;
         const matched = await evaluateRule(config, rule);
@@ -127,13 +153,75 @@ export async function runEnforcementCycle(
           }
         }
 
-        const triggered = await applyRule(config, rule, matched, dryRun);
-        if (triggered) out.triggered += 1;
+        ruleById.set(rule.id, rule);
+        for (const at of rule.actions_json || []) {
+          candidates.push({
+            rule_id: rule.id,
+            rule_slug: rule.slug,
+            rule_priority: Number(rule.priority ?? 100),
+            action_type: at,
+            scope_type: matched.scope_type,
+            scope_key: matched.scope_key,
+            trigger_payload: matched.trigger_payload,
+          });
+        }
       } catch (err: any) {
         emitLog(config, 'warn', 'enforcement_rule_threw', {
           slug: rule.slug,
           error: err?.message || 'unknown',
         });
+      }
+    }
+
+    if (candidates.length === 0) {
+      // Nothing to do.
+      return out;
+    }
+
+    const resolution = resolveEnforcementConflicts(candidates);
+    out.normalized = resolution.changed;
+
+    // Audit any normalization that actually changed the set.
+    if (resolution.changed) {
+      try {
+        await sb.from('enforcement_normalizations').insert({
+          cycle_ran_at: out.ran_at,
+          raw_actions: resolution.raw.map((c) => ({
+            rule_slug: c.rule_slug,
+            rule_priority: c.rule_priority,
+            action_type: c.action_type,
+          })),
+          normalized_actions: resolution.normalized.map((n) => ({
+            rule_slug: n.rule_slug,
+            rule_priority: n.rule_priority,
+            action_type: n.action_type,
+            merged_with: n.merged_with,
+            suppressed: n.suppressed,
+            annotations: n.annotations,
+          })),
+          reasons: resolution.reasons,
+          context: { cycle: 'enforcement' },
+        });
+      } catch (err: any) {
+        emitLog(config, 'warn', 'enforcement_normalization_audit_failed', {
+          error: err?.message,
+        });
+      }
+    }
+
+    // Apply normalized candidates honoring the live max_concurrent cap.
+    let active = activeCount || 0;
+    for (const cand of resolution.normalized) {
+      if (active >= maxConcurrent) {
+        out.skipped_max_concurrent = true;
+        break;
+      }
+      const rule = ruleById.get(cand.rule_id);
+      if (!rule) continue;
+      const ok = await applyCandidate(config, rule, cand, dryRun);
+      if (ok) {
+        out.triggered += 1;
+        if (!dryRun) active += 1;
       }
     }
   } catch (err: any) {
@@ -261,7 +349,7 @@ async function evaluateRule(
 }
 
 /**
- * Apply a rule's actions. For each action:
+ * Apply ONE normalized candidate (single action_type owned by a rule).
  *   • locate the matching auto_action_definition (by action_type, builtin)
  *   • if dry-run, just record an enforcement_actions audit row
  *   • else insert a new auto_action_events row (state=active, expires_at=now+ttl)
@@ -270,17 +358,20 @@ async function evaluateRule(
  * Skips silently if an active event of the same action_type already exists
  * — we never stack effects of the same kind.
  */
-async function applyRule(
+async function applyCandidate(
   config: ServerConfig,
   rule: EnforcementRule,
-  match: RuleMatch,
+  cand: NormalizedEnforcementCandidate,
   dryRun: boolean,
 ): Promise<boolean> {
   const sb = getServiceClient(config);
-  let appliedAny = false;
-
-  for (const actionType of rule.actions_json || []) {
-    try {
+  const actionType = cand.action_type;
+  const match: RuleMatch = {
+    scope_type: cand.scope_type,
+    scope_key: cand.scope_key,
+    trigger_payload: cand.trigger_payload,
+  };
+  try {
       // Lookup definition (prefer enabled built-in for that action type).
       const { data: defs } = await sb
         .from('auto_action_definitions')
@@ -294,7 +385,7 @@ async function applyRule(
           rule: rule.slug,
           action_type: actionType,
         });
-        continue;
+        return false;
       }
 
       // Skip if a same-type action is already active.
@@ -316,7 +407,7 @@ async function applyRule(
           scope_key: match.scope_key,
           dry_run: dryRun,
         });
-        continue;
+        return false;
       }
 
       if (dryRun) {
@@ -324,7 +415,14 @@ async function applyRule(
           rule_id: rule.id,
           rule_slug: rule.slug,
           trigger_type: rule.trigger_type,
-          trigger_payload: { ...match.trigger_payload, dry_run: true, action_type: actionType },
+          trigger_payload: {
+            ...match.trigger_payload,
+            dry_run: true,
+            action_type: actionType,
+            merged_with: cand.merged_with,
+            suppressed: cand.suppressed,
+            annotations: cand.annotations,
+          },
           scope_type: match.scope_type,
           scope_key: match.scope_key,
           dry_run: true,
@@ -333,8 +431,7 @@ async function applyRule(
           rule: rule.slug,
           action_type: actionType,
         });
-        appliedAny = true;
-        continue;
+        return true;
       }
 
       // TTL — clamped to the definition's max_duration_seconds.
@@ -363,6 +460,10 @@ async function applyRule(
             scope_type: match.scope_type,
             scope_key: match.scope_key,
             trigger_payload: match.trigger_payload,
+            rule_priority: cand.rule_priority,
+            merged_with: cand.merged_with,
+            suppressed: cand.suppressed,
+            annotations: cand.annotations,
           },
         })
         .select('id')
@@ -374,14 +475,22 @@ async function applyRule(
           action_type: actionType,
           error: insertErr?.message,
         });
-        continue;
+        return false;
       }
 
       await sb.from('enforcement_actions').insert({
         rule_id: rule.id,
         rule_slug: rule.slug,
         trigger_type: rule.trigger_type,
-        trigger_payload: { ...match.trigger_payload, action_type: actionType, ttl_seconds: ttlSec },
+        trigger_payload: {
+          ...match.trigger_payload,
+          action_type: actionType,
+          ttl_seconds: ttlSec,
+          rule_priority: cand.rule_priority,
+          merged_with: cand.merged_with,
+          suppressed: cand.suppressed,
+          annotations: cand.annotations,
+        },
         auto_action_event_id: inserted.id,
         scope_type: match.scope_type,
         scope_key: match.scope_key,
@@ -394,16 +503,15 @@ async function applyRule(
         scope_type: match.scope_type,
         scope_key: match.scope_key,
         ttl_seconds: ttlSec,
+        rule_priority: cand.rule_priority,
       });
-      appliedAny = true;
-    } catch (err: any) {
-      emitLog(config, 'warn', 'enforcement_action_threw', {
-        rule: rule.slug,
-        action_type: actionType,
-        error: err?.message,
-      });
-    }
+      return true;
+  } catch (err: any) {
+    emitLog(config, 'warn', 'enforcement_action_threw', {
+      rule: rule.slug,
+      action_type: actionType,
+      error: err?.message,
+    });
+    return false;
   }
-
-  return appliedAny;
 }

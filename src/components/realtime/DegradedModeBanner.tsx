@@ -1,7 +1,8 @@
 /**
- * Phase 6C — Lightweight, non-blocking banner shown to operators when
- * the platform is in degraded / force-polling mode. Pure presentation —
- * never blocks any feature, never opens a modal.
+ * Phase 6C / 7.6 — Lightweight, non-blocking banner shown to operators
+ * when the platform is in degraded / force-polling mode OR when an
+ * enforcement action is currently active. Pure presentation — never
+ * blocks any feature, never opens a modal.
  */
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { useEffectivePolicy } from '@/hooks/useEffectivePolicy';
@@ -11,12 +12,25 @@ export default function DegradedModeBanner() {
   const { workspace } = useActiveWorkspace();
   const policy = useEffectivePolicy(workspace?.id);
 
-  const show = policy.degraded_mode || policy.force_polling;
-  if (!show) return null;
+  // Highest-priority message wins so we never show two banners at once.
+  // Order matches enforcement priority (force_polling > degraded > load
+  // shedding > priority-only > intake throttle).
+  let label: string | null = null;
+  if (policy.force_polling) {
+    label = 'Realtime is temporarily limited — using polling. Messaging still works.';
+  } else if (policy.degraded_mode) {
+    label = 'System is running in degraded mode. Messaging still works.';
+  } else if (policy.operator_load_shedding) {
+    label = 'High load — non-critical updates are paused to keep replies fast.';
+  } else if (policy.priority_only_mode) {
+    label = 'Priority-only mode — high-priority conversations are routed first.';
+  } else if (policy.throttle_new_conversations) {
+    label = 'New conversation intake is throttled — open conversations are unaffected.';
+  } else if (policy.slow_mode_messages) {
+    label = 'Slow-mode active — outbound messages have a small delay.';
+  }
 
-  const label = policy.force_polling
-    ? 'Realtime is temporarily limited — using polling. Messaging still works.'
-    : 'System is running in degraded mode. Messaging still works.';
+  if (!label) return null;
 
   return (
     <div

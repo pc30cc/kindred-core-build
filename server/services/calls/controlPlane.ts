@@ -118,6 +118,14 @@ export interface WorkspaceCallOverrides {
   allow_recording: boolean;
   provider_override: CallProviderId | null;
   verification_policy: 'inherit' | 'always' | 'never';
+  // Phase 8C — workspace-level channel toggles. Each is bounded by the
+  // corresponding global gate above (effective = global AND workspace).
+  voice_calls_enabled: boolean;
+  video_calls_enabled: boolean;
+  call_recording_enabled: boolean;
+  call_queue_enabled: boolean;
+  visitor_initiated_audio_enabled: boolean;
+  visitor_initiated_video_enabled: boolean;
 }
 
 const DEFAULT_WORKSPACE_OVERRIDES: WorkspaceCallOverrides = {
@@ -126,6 +134,12 @@ const DEFAULT_WORKSPACE_OVERRIDES: WorkspaceCallOverrides = {
   allow_recording: false,
   provider_override: null,
   verification_policy: 'inherit',
+  voice_calls_enabled: true,
+  video_calls_enabled: true,
+  call_recording_enabled: false,
+  call_queue_enabled: true,
+  visitor_initiated_audio_enabled: true,
+  visitor_initiated_video_enabled: true,
 };
 
 export async function loadWorkspaceCallOverrides(
@@ -143,4 +157,86 @@ export async function loadWorkspaceCallOverrides(
   if (!data) return { ...DEFAULT_WORKSPACE_OVERRIDES };
   const cfg = (data.config as Partial<WorkspaceCallOverrides>) || {};
   return { ...DEFAULT_WORKSPACE_OVERRIDES, ...cfg };
+}
+
+/**
+ * Phase 8C — write workspace call overrides. Stored as the `config` JSON
+ * column on `workspace_provider_settings` row keyed by (workspace, 'call').
+ * Creates the row if it does not yet exist. Returns the merged value.
+ */
+export async function saveWorkspaceCallOverrides(
+  config: ServerConfig,
+  workspaceId: string,
+  patch: Partial<WorkspaceCallOverrides>,
+): Promise<WorkspaceCallOverrides> {
+  const sb = getServiceClient(config);
+  const current = await loadWorkspaceCallOverrides(config, workspaceId);
+  const merged: WorkspaceCallOverrides = { ...current, ...patch };
+  const { error } = await sb
+    .from('workspace_provider_settings')
+    .upsert(
+      {
+        workspace_id: workspaceId,
+        provider_type: 'call',
+        provider_name: 'call_channel',
+        enabled: true,
+        config: merged as any,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'workspace_id,provider_type' },
+    );
+  if (error) throw new Error(error.message);
+  return merged;
+}
+
+/**
+ * Effective channel state = (platform global AND workspace setting).
+ * This is the single source clients should consult for "is this channel
+ * actually usable right now". UI gates and queue admission both read
+ * from here so there is no chance of drift.
+ */
+export interface EffectiveCallChannels {
+  voice_enabled: boolean;
+  video_enabled: boolean;
+  recording_enabled: boolean;
+  queue_enabled: boolean;
+  visitor_initiated_audio: boolean;
+  visitor_initiated_video: boolean;
+}
+
+export async function loadEffectiveCallChannels(
+  config: ServerConfig,
+  workspaceId: string,
+): Promise<EffectiveCallChannels> {
+  const [cp, ws] = await Promise.all([
+    loadCallControlPlane(config),
+    loadWorkspaceCallOverrides(config, workspaceId),
+  ]);
+  if (!cp.enabled) {
+    return {
+      voice_enabled: false,
+      video_enabled: false,
+      recording_enabled: false,
+      queue_enabled: false,
+      visitor_initiated_audio: false,
+      visitor_initiated_video: false,
+    };
+  }
+  return {
+    voice_enabled: cp.voice_calls_enabled_global && ws.voice_calls_enabled,
+    video_enabled: cp.video_calls_enabled_global && ws.video_calls_enabled,
+    recording_enabled:
+      cp.call_recording_enabled_global && ws.call_recording_enabled,
+    queue_enabled: cp.call_queue_enabled_global && ws.call_queue_enabled,
+    visitor_initiated_audio:
+      cp.voice_calls_enabled_global &&
+      ws.voice_calls_enabled &&
+      cp.visitor_initiated_audio_enabled_global &&
+      ws.visitor_initiated_audio_enabled,
+    visitor_initiated_video:
+      cp.video_calls_enabled_global &&
+      ws.video_calls_enabled &&
+      cp.visitor_initiated_video_enabled_global &&
+      ws.visitor_initiated_video_enabled,
+  };
 }

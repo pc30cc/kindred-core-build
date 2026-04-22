@@ -57,6 +57,7 @@ import { resolveAIConfig, executeAICompletion } from '../services/ai/index.js';
 import { resolveVisitorIdentity, readVisitorCookie } from '../services/widget/visitorIdentity.js';
 import { widgetIdentityRouter } from './widgetIdentity.js';
 import { widgetAttachmentsRouter, attachUploadedFileToMessage, enrichMessagesWithAttachments } from './widgetAttachments.js';
+import { widgetCallbacksRouter } from './widgetCallbacks.js';
 import { recordConversationEvent } from '../services/conversationEvents.js';
 import { resolveAvailability, snapshotToWirePayload } from '../services/widget/availability.js';
 import { sendEmail } from '../services/email/index.js';
@@ -74,6 +75,10 @@ widgetRouter.use('/identity', widgetIdentityRouter);
 
 // Phase 6a — Mount attachments sub-router (token + origin enforced inside)
 widgetRouter.use('/attachments', widgetAttachmentsRouter);
+
+// Phase 8D — Visitor-side callback request endpoint.
+// Mounted under widget so it inherits CORS + token + origin gate.
+widgetRouter.use('/callback', widgetCallbacksRouter);
 
 // ─── CORS preflight for all widget routes ───
 widgetRouter.use(widgetSecurityCors);

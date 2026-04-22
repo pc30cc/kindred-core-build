@@ -20,6 +20,7 @@
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { emitLog } from './metrics.js';
+import { forceRefreshAutoActionsCache } from './autoActionsCache.js';
 
 export interface AutoActionCycleResult {
   expired: number;
@@ -74,6 +75,8 @@ export async function runAutoActionCycle(
 
   if (result.activated > 0 || result.expired > 0 || result.resolved > 0) {
     emitLog(config, 'info', 'auto_action_cycle', result as unknown as Record<string, unknown>);
+    // Keep the hot-path cache aligned with the latest activations/expiries.
+    void forceRefreshAutoActionsCache(config);
   }
 
   return result;
@@ -180,5 +183,7 @@ export async function overrideActiveAction(
     .maybeSingle();
   if (error || !data) return false;
   emitLog(config, 'info', 'auto_action_overridden', { event_id: eventId, reason });
+  // Refresh fast-path cache so suppression effects clear immediately.
+  void forceRefreshAutoActionsCache(config);
   return true;
 }

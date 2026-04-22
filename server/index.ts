@@ -33,6 +33,7 @@ import { startMetricsRollup } from './services/observability/rollupTicker.js';
 import { startAlertingTicker } from './services/observability/alertingTicker.js';
 import { startPerfCollectors } from './services/observability/perf.js';
 import { startAutoActionsTicker } from './services/observability/autoActionsTicker.js';
+import { startAutoActionsCache } from './services/observability/autoActionsCache.js';
 import { invalidateManifestCache, getManifestDiagnostics } from './services/widget/manifest.js';
 import { widgetCorsMiddleware } from './middleware/widgetCors.js';
 import {
@@ -222,6 +223,10 @@ app.listen(config.port, () => {
 
   // Phase 5C — start in-process auto-actions ticker (every 60s). Best-effort.
   startAutoActionsTicker(config);
+
+  // Phase 5C.1 — start fast in-memory cache for active auto-actions
+  // (refresh ~7s). Required by hot-path checks like typing suppression.
+  startAutoActionsCache(config);
 
   // ─── Post-deploy widget manifest invalidation ────────────────────
   // The in-memory widget manifest cache is per-process, so a fresh deploy

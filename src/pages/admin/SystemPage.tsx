@@ -11,6 +11,7 @@ import {
   fetchActiveAutoActions,
   type ActiveAutoAction,
 } from '@/lib/admin-auto-actions-api';
+import SystemDegradedBanner from '@/components/admin/observability/SystemDegradedBanner';
 
 export default function AdminSystemPage() {
   const { data: config } = useAdminRuntimeConfig();
@@ -68,6 +69,7 @@ export default function AdminSystemPage() {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-foreground">System Overview</h1>
+      <SystemDegradedBanner />
 
       {activeAlerts.length > 0 && (
         <Card

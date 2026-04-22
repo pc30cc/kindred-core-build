@@ -326,9 +326,35 @@
 
   function showIncoming(invite) {
     if (!invite || !invite.token || !invite.ws_url) {
-      try { console.warn('[gs-call] incoming invite missing token/ws_url'); } catch (_) {}
+      // Polling-mode invites arrive without token/ws_url. If we have a
+      // call_id, try to mint the visitor token before showing the popup.
+      if (invite && invite.call_id) {
+        if (lastDispatchedCallId === invite.call_id) return; // dedupe
+        lastDispatchedCallId = invite.call_id;
+        var ctx = getWidgetCtx();
+        fetchVisitorToken(invite.call_id, ctx).then(function (bundle) {
+          showIncoming({
+            call_id: invite.call_id,
+            call_type: bundle.call_type || invite.call_type || 'audio',
+            operator_name: invite.operator_name || null,
+            ws_url: bundle.ws_url,
+            token: bundle.token,
+            turn: bundle.turn || { urls: [] },
+            ice_policy: bundle.ice_policy || 'all',
+            recording: !!bundle.recording,
+            degraded: true,
+          });
+        }).catch(function (err) {
+          try { console.warn('[gs-call] visitor token fetch failed:', err && err.message); } catch (_) {}
+          // Allow retry on next poll tick.
+          lastDispatchedCallId = null;
+        });
+      } else {
+        try { console.warn('[gs-call] incoming invite missing token/ws_url and call_id'); } catch (_) {}
+      }
       return;
     }
+    if (invite.call_id) lastDispatchedCallId = invite.call_id;
     ensureShell();
     bindHandlersOnce();
     // Replace any in-flight call.

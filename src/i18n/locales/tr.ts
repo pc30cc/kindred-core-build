@@ -847,6 +847,7 @@ const tr: TranslationKeys = {
       providers: 'Sağlayıcılar',
       mapGeo: 'Harita ve Konum',
       widgetSettings: 'Widget Ayarları',
+      voiceVideo: 'Ses ve Video',
       system: 'Sistem',
       observability: 'Gözlemlenebilirlik',
       featureFlags: 'Özellik Bayrakları',

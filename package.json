@@ -60,6 +60,7 @@
     "jsonwebtoken": "^9.0.2",
     "leaflet": "1.9.4",
     "leaflet.markercluster": "^1.5.3",
+    "livekit-client": "^2.5.0",
     "lucide-react": "^0.462.0",
     "maxmind": "^4.3.21",
     "next-themes": "^0.3.0",

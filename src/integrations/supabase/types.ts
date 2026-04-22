@@ -844,6 +844,7 @@ export type Database = {
           legal_hold: boolean
           metadata: Json
           provider: string
+          provider_recording_id: string | null
           recording_type: string
           retention_expires_at: string | null
           retention_policy: string
@@ -859,6 +860,7 @@ export type Database = {
           legal_hold?: boolean
           metadata?: Json
           provider: string
+          provider_recording_id?: string | null
           recording_type?: string
           retention_expires_at?: string | null
           retention_policy?: string
@@ -874,6 +876,7 @@ export type Database = {
           legal_hold?: boolean
           metadata?: Json
           provider?: string
+          provider_recording_id?: string | null
           recording_type?: string
           retention_expires_at?: string | null
           retention_policy?: string
@@ -1933,6 +1936,48 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      livekit_webhook_events: {
+        Row: {
+          egress_id: string | null
+          event_id: string
+          event_type: string
+          id: string
+          participant_identity: string | null
+          process_error: string | null
+          processed_at: string | null
+          raw: Json
+          received_at: string
+          room_name: string | null
+          signature_valid: boolean
+        }
+        Insert: {
+          egress_id?: string | null
+          event_id: string
+          event_type: string
+          id?: string
+          participant_identity?: string | null
+          process_error?: string | null
+          processed_at?: string | null
+          raw?: Json
+          received_at?: string
+          room_name?: string | null
+          signature_valid?: boolean
+        }
+        Update: {
+          egress_id?: string | null
+          event_id?: string
+          event_type?: string
+          id?: string
+          participant_identity?: string | null
+          process_error?: string | null
+          processed_at?: string | null
+          raw?: Json
+          received_at?: string
+          room_name?: string | null
+          signature_valid?: boolean
+        }
+        Relationships: []
       }
       login_attempts: {
         Row: {

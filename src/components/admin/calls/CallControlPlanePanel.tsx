@@ -262,10 +262,13 @@ export function CallControlPlanePanel() {
             <Label>TURN URLs (one per line)</Label>
             <textarea
               className="w-full min-h-[80px] rounded-md border bg-background p-2 text-sm"
-              value={network.turn.urls.join('\n')}
+              value={(network.turn?.urls ?? []).join('\n')}
               onChange={(e) => setNetwork({
                 ...network,
-                turn: { ...network.turn, urls: e.target.value.split('\n').map(s => s.trim()).filter(Boolean) },
+                turn: {
+                  ...(network.turn ?? { urls: [], username: null, credential: null, credential_type: 'password', static_secret_present: false }),
+                  urls: e.target.value.split('\n').map(s => s.trim()).filter(Boolean),
+                },
               })}
               placeholder={'turn:turn.example:3478\nturns:turn.example:5349?transport=tcp'}
             />
@@ -273,16 +276,28 @@ export function CallControlPlanePanel() {
               <div>
                 <Label>TURN username</Label>
                 <Input
-                  value={network.turn.username ?? ''}
-                  onChange={(e) => setNetwork({ ...network, turn: { ...network.turn, username: e.target.value } })}
+                  value={network.turn?.username ?? ''}
+                  onChange={(e) => setNetwork({
+                    ...network,
+                    turn: {
+                      ...(network.turn ?? { urls: [], username: null, credential: null, credential_type: 'password', static_secret_present: false }),
+                      username: e.target.value,
+                    },
+                  })}
                 />
               </div>
               <div>
                 <Label>TURN credential</Label>
                 <Input
                   type="password"
-                  value={network.turn.credential ?? ''}
-                  onChange={(e) => setNetwork({ ...network, turn: { ...network.turn, credential: e.target.value } })}
+                  value={network.turn?.credential ?? ''}
+                  onChange={(e) => setNetwork({
+                    ...network,
+                    turn: {
+                      ...(network.turn ?? { urls: [], username: null, credential: null, credential_type: 'password', static_secret_present: false }),
+                      credential: e.target.value,
+                    },
+                  })}
                 />
               </div>
             </div>

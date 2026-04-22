@@ -42,6 +42,15 @@ export interface CallControlPlaneConfig {
   call_queue_enabled_global: boolean;
   visitor_initiated_audio_enabled_global: boolean;
   visitor_initiated_video_enabled_global: boolean;
+  // ── Phase 8D — SLA + callback defaults (platform level) ──
+  // Keep all defaults bounded and self-explanatory; workspace overrides
+  // are intentionally NOT exposed here yet (kept for a later phase).
+  queue_offer_timeout_seconds: number;       // single offer ring duration
+  queue_max_wait_seconds: number;            // overall queue patience
+  auto_expire_queue_after_seconds: number;   // hard ceiling for any entry
+  callback_offer_after_timeout: boolean;     // surface callback once SLA breaches
+  audio_queue_enabled: boolean;              // channel toggle for the queue itself
+  video_queue_enabled: boolean;
 }
 
 export const DEFAULT_CALL_CONTROL_PLANE: CallControlPlaneConfig = {
@@ -63,6 +72,12 @@ export const DEFAULT_CALL_CONTROL_PLANE: CallControlPlaneConfig = {
   call_queue_enabled_global: true,
   visitor_initiated_audio_enabled_global: true,
   visitor_initiated_video_enabled_global: true,
+  queue_offer_timeout_seconds: 25,
+  queue_max_wait_seconds: 180,
+  auto_expire_queue_after_seconds: 600,
+  callback_offer_after_timeout: true,
+  audio_queue_enabled: true,
+  video_queue_enabled: true,
 };
 
 let cache: { value: CallControlPlaneConfig; loadedAt: number } | null = null;

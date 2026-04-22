@@ -63,9 +63,8 @@ import { sendEmail } from '../services/email/index.js';
 import { enrichVisitorSessionGeo } from '../services/geo/index.js';
 import { checkTypingAllowed } from '../services/widget/typingRateLimit.js';
 import { loadWidgetPlatformRuntimeSettings } from '../services/widget/platformSettings.js';
-import { emitMetric } from '../services/observability/metrics.js';
 import { isActionActive } from '../services/observability/autoActionsCache.js';
-import { emitLog } from '../services/observability/metrics.js';
+import { emitMetric, emitLog } from '../services/observability/metrics.js';
 
 export const widgetRouter = Router();
 

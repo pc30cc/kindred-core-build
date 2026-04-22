@@ -10,6 +10,8 @@ import {
   saveCallControlPlane,
   type CallProviderId,
 } from '../services/calls/controlPlane.js';
+import { ALL_CALL_PERMISSIONS, invalidatePermissionCache } from '../services/calls/permissions.js';
+import { getServiceClient } from '../supabase.js';
 import {
   getCallNetworkBundle,
   saveRtcEndpoints,
@@ -64,6 +66,13 @@ const cpUpdateSchema = z.object({
   recording_default_type: z.enum(['composite', 'individual', 'audio_only']).optional(),
   retention_default_days: z.number().int().min(0).max(3650).optional(),
   verification_required_for_visitor_calls: z.boolean().optional(),
+  // Phase 8C — global channel gates
+  voice_calls_enabled_global: z.boolean().optional(),
+  video_calls_enabled_global: z.boolean().optional(),
+  call_recording_enabled_global: z.boolean().optional(),
+  call_queue_enabled_global: z.boolean().optional(),
+  visitor_initiated_audio_enabled_global: z.boolean().optional(),
+  visitor_initiated_video_enabled_global: z.boolean().optional(),
 });
 
 adminCallsRouter.put('/control-plane', async (req, res) => {

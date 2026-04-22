@@ -744,6 +744,224 @@ export type Database = {
         }
         Relationships: []
       }
+      call_events: {
+        Row: {
+          actor_id: string | null
+          actor_type:
+            | Database["public"]["Enums"]["call_participant_type"]
+            | null
+          call_session_id: string
+          created_at: string
+          event_type: string
+          id: string
+          payload: Json
+        }
+        Insert: {
+          actor_id?: string | null
+          actor_type?:
+            | Database["public"]["Enums"]["call_participant_type"]
+            | null
+          call_session_id: string
+          created_at?: string
+          event_type: string
+          id?: string
+          payload?: Json
+        }
+        Update: {
+          actor_id?: string | null
+          actor_type?:
+            | Database["public"]["Enums"]["call_participant_type"]
+            | null
+          call_session_id?: string
+          created_at?: string
+          event_type?: string
+          id?: string
+          payload?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "call_events_call_session_id_fkey"
+            columns: ["call_session_id"]
+            isOneToOne: false
+            referencedRelation: "call_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      call_participants: {
+        Row: {
+          call_session_id: string
+          created_at: string
+          device_info: Json
+          id: string
+          joined_at: string | null
+          left_at: string | null
+          media_state: Json
+          participant_id: string | null
+          participant_type: Database["public"]["Enums"]["call_participant_type"]
+          provider_participant_id: string | null
+        }
+        Insert: {
+          call_session_id: string
+          created_at?: string
+          device_info?: Json
+          id?: string
+          joined_at?: string | null
+          left_at?: string | null
+          media_state?: Json
+          participant_id?: string | null
+          participant_type: Database["public"]["Enums"]["call_participant_type"]
+          provider_participant_id?: string | null
+        }
+        Update: {
+          call_session_id?: string
+          created_at?: string
+          device_info?: Json
+          id?: string
+          joined_at?: string | null
+          left_at?: string | null
+          media_state?: Json
+          participant_id?: string | null
+          participant_type?: Database["public"]["Enums"]["call_participant_type"]
+          provider_participant_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "call_participants_call_session_id_fkey"
+            columns: ["call_session_id"]
+            isOneToOne: false
+            referencedRelation: "call_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      call_recordings: {
+        Row: {
+          call_session_id: string
+          created_at: string
+          duration_seconds: number | null
+          id: string
+          legal_hold: boolean
+          metadata: Json
+          provider: string
+          recording_type: string
+          retention_expires_at: string | null
+          retention_policy: string
+          size_bytes: number | null
+          storage_path: string
+          storage_provider: string
+        }
+        Insert: {
+          call_session_id: string
+          created_at?: string
+          duration_seconds?: number | null
+          id?: string
+          legal_hold?: boolean
+          metadata?: Json
+          provider: string
+          recording_type?: string
+          retention_expires_at?: string | null
+          retention_policy?: string
+          size_bytes?: number | null
+          storage_path: string
+          storage_provider: string
+        }
+        Update: {
+          call_session_id?: string
+          created_at?: string
+          duration_seconds?: number | null
+          id?: string
+          legal_hold?: boolean
+          metadata?: Json
+          provider?: string
+          recording_type?: string
+          retention_expires_at?: string | null
+          retention_policy?: string
+          size_bytes?: number | null
+          storage_path?: string
+          storage_provider?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "call_recordings_call_session_id_fkey"
+            columns: ["call_session_id"]
+            isOneToOne: false
+            referencedRelation: "call_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      call_sessions: {
+        Row: {
+          call_type: Database["public"]["Enums"]["call_type"]
+          context_id: string | null
+          context_type: Database["public"]["Enums"]["call_context_type"]
+          created_at: string
+          duration_seconds: number | null
+          ended_at: string | null
+          id: string
+          initiated_by: string | null
+          initiated_by_type: Database["public"]["Enums"]["call_participant_type"]
+          metadata: Json
+          provider: string
+          provider_room_id: string | null
+          recording_enabled: boolean
+          recording_state: Database["public"]["Enums"]["call_recording_state"]
+          started_at: string | null
+          state: Database["public"]["Enums"]["call_state"]
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          call_type: Database["public"]["Enums"]["call_type"]
+          context_id?: string | null
+          context_type: Database["public"]["Enums"]["call_context_type"]
+          created_at?: string
+          duration_seconds?: number | null
+          ended_at?: string | null
+          id?: string
+          initiated_by?: string | null
+          initiated_by_type?: Database["public"]["Enums"]["call_participant_type"]
+          metadata?: Json
+          provider: string
+          provider_room_id?: string | null
+          recording_enabled?: boolean
+          recording_state?: Database["public"]["Enums"]["call_recording_state"]
+          started_at?: string | null
+          state?: Database["public"]["Enums"]["call_state"]
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          call_type?: Database["public"]["Enums"]["call_type"]
+          context_id?: string | null
+          context_type?: Database["public"]["Enums"]["call_context_type"]
+          created_at?: string
+          duration_seconds?: number | null
+          ended_at?: string | null
+          id?: string
+          initiated_by?: string | null
+          initiated_by_type?: Database["public"]["Enums"]["call_participant_type"]
+          metadata?: Json
+          provider?: string
+          provider_room_id?: string | null
+          recording_enabled?: boolean
+          recording_state?: Database["public"]["Enums"]["call_recording_state"]
+          started_at?: string | null
+          state?: Database["public"]["Enums"]["call_state"]
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "call_sessions_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       canned_responses: {
         Row: {
           body: string
@@ -4428,6 +4646,25 @@ export type Database = {
     Enums: {
       app_role: "admin" | "moderator" | "user"
       article_status: "draft" | "published" | "archived"
+      call_context_type: "conversation" | "internal" | "verification"
+      call_participant_type: "visitor" | "operator" | "admin" | "internal"
+      call_recording_state:
+        | "disabled"
+        | "pending"
+        | "recording"
+        | "finalizing"
+        | "available"
+        | "failed"
+      call_state:
+        | "pending"
+        | "ringing"
+        | "connecting"
+        | "active"
+        | "ended"
+        | "failed"
+        | "cancelled"
+        | "missed"
+      call_type: "audio" | "video" | "screenshare" | "meeting"
       conversation_priority: "low" | "normal" | "high" | "urgent"
       conversation_status: "open" | "pending" | "resolved" | "closed"
       presence_status: "online" | "idle" | "offline"
@@ -4574,6 +4811,27 @@ export const Constants = {
     Enums: {
       app_role: ["admin", "moderator", "user"],
       article_status: ["draft", "published", "archived"],
+      call_context_type: ["conversation", "internal", "verification"],
+      call_participant_type: ["visitor", "operator", "admin", "internal"],
+      call_recording_state: [
+        "disabled",
+        "pending",
+        "recording",
+        "finalizing",
+        "available",
+        "failed",
+      ],
+      call_state: [
+        "pending",
+        "ringing",
+        "connecting",
+        "active",
+        "ended",
+        "failed",
+        "cancelled",
+        "missed",
+      ],
+      call_type: ["audio", "video", "screenshare", "meeting"],
       conversation_priority: ["low", "normal", "high", "urgent"],
       conversation_status: ["open", "pending", "resolved", "closed"],
       presence_status: ["online", "idle", "offline"],

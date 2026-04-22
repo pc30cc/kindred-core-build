@@ -182,3 +182,23 @@ export async function getCallbackCounts(
   }
   return out;
 }
+
+/**
+ * Phase 8D+ — Platform-wide counts across ALL workspaces (last 30 days).
+ * Used by the admin Voice & Video Center analytics cards.
+ */
+export async function getPlatformCallbackCounts(
+  config: ServerConfig,
+): Promise<{ requested: number; scheduled: number; in_progress: number; completed: number; cancelled: number }> {
+  const sb = getServiceClient(config);
+  const { data } = await sb
+    .from('callback_requests')
+    .select('status')
+    .gte('requested_at', new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString());
+  const out = { requested: 0, scheduled: 0, in_progress: 0, completed: 0, cancelled: 0 };
+  for (const r of data ?? []) {
+    const s = (r as any).status as CallbackStatus;
+    if (s in out) (out as any)[s]++;
+  }
+  return out;
+}

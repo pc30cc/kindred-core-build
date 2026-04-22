@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { Activity, CheckCircle, AlertTriangle, XCircle, RefreshCw, Search, BarChart3, Video } from 'lucide-react';
+import { Activity, CheckCircle, AlertTriangle, XCircle, RefreshCw, Search, BarChart3, Video, ArrowRight } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -11,7 +11,7 @@ import { AdminProviderCard } from '@/features/providers/AdminProviderCard';
 import { AdminRealtimeCard } from '@/features/providers/AdminRealtimeCard';
 import { PrivacyExportStorageCard } from '@/features/providers/PrivacyExportStorageCard';
 import { VisitorIntelligenceSection } from '@/features/providers/VisitorIntelligenceSection';
-import { CallControlPlanePanel } from '@/components/admin/calls/CallControlPlanePanel';
+import { Link } from 'react-router-dom';
 
 // Phase 3: realtime is configured globally via the dedicated card.
 function RenderProviderCard({ type }: { type: ProviderTypeKey }) {
@@ -250,7 +250,24 @@ export default function AdminProvidersPage() {
 
         {/* Voice / Video control plane */}
         <TabsContent value="calls">
-          <CallControlPlanePanel />
+          <Card className="bg-card border-border">
+            <CardHeader>
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Video className="h-4 w-4 text-primary" /> Voice &amp; Video moved
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-xs text-muted-foreground">
+                All call settings — channel gates, providers, network / TURN, recording, queue and permissions —
+                are now centralized in the dedicated <strong>Voice &amp; Video Center</strong>.
+              </p>
+              <Button asChild size="sm">
+                <Link to="/admin/voice-video" className="gap-1.5">
+                  Open Voice &amp; Video Center <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+              </Button>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* Fallback log */}

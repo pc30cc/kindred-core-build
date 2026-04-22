@@ -1,0 +1,98 @@
+/**
+ * Phase 6A — Realtime control-plane admin client.
+ * Talks to the self-hosted Express backend (NEVER edge functions).
+ */
+import { supabase } from '@/integrations/supabase/client';
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+
+async function authHeaders(): Promise<Record<string, string>> {
+  const { data: { session } } = await supabase.auth.getSession();
+  return session?.access_token
+    ? {
+        Authorization: `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json',
+      }
+    : { 'Content-Type': 'application/json' };
+}
+
+export type RealtimeProviderId =
+  | 'centrifugo'
+  | 'supabase_realtime'
+  | 'polling_builtin';
+
+export interface RealtimeControlSettings {
+  // Degradation
+  realtime_degraded_mode_enabled: boolean;
+  realtime_disable_typing_on_overload: boolean;
+  realtime_force_polling_on_critical_degradation: boolean;
+  realtime_reconnect_backoff_multiplier_on_overload: number;
+  realtime_degraded_mode_ttl_seconds: number;
+  realtime_degraded_mode_auto_recover: boolean;
+  realtime_fail_open_if_control_plane_stale: boolean;
+  // Failover
+  realtime_failover_enabled: boolean;
+  realtime_failback_enabled: boolean;
+  realtime_failover_cooldown_seconds: number;
+  realtime_failback_stable_window_seconds: number;
+  realtime_failover_error_threshold: number;
+  realtime_failover_latency_threshold_ms: number;
+  realtime_failover_health_window_seconds: number;
+  realtime_provider_order: RealtimeProviderId[];
+  realtime_provider_lock: RealtimeProviderId | null;
+}
+
+export interface RealtimeControlActiveSnapshot {
+  configured_vendor: string;
+  effective_vendor: string;
+  source: string;
+  health: { status: string; checked_at?: number; message?: string };
+  fallback_policy: string;
+}
+
+export interface RealtimeControlBundle {
+  settings: RealtimeControlSettings;
+  defaults: RealtimeControlSettings;
+  active: RealtimeControlActiveSnapshot;
+}
+
+export interface RealtimeControlAuditEntry {
+  id: string;
+  changed_by: string | null;
+  action: string;
+  config_diff: Record<string, { from: unknown; to: unknown }> | null;
+  result: string | null;
+  error_message: string | null;
+  ip_address: string | null;
+  created_at: string;
+}
+
+export const realtimeControlApi = {
+  async get(): Promise<RealtimeControlBundle> {
+    const res = await fetch(`${API_BASE}/api/realtime/admin/control`, {
+      headers: await authHeaders(),
+    });
+    if (!res.ok) throw new Error(`Load failed: ${res.status}`);
+    return res.json();
+  },
+  async update(
+    patch: Partial<RealtimeControlSettings>,
+  ): Promise<{ ok: boolean; settings: RealtimeControlSettings }> {
+    const res = await fetch(`${API_BASE}/api/realtime/admin/control`, {
+      method: 'PUT',
+      headers: await authHeaders(),
+      body: JSON.stringify(patch),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || 'Save failed');
+    return json;
+  },
+  async audit(): Promise<RealtimeControlAuditEntry[]> {
+    const res = await fetch(`${API_BASE}/api/realtime/admin/control/audit`, {
+      headers: await authHeaders(),
+    });
+    if (!res.ok) return [];
+    const json = await res.json();
+    return (json.entries ?? []) as RealtimeControlAuditEntry[];
+  },
+};

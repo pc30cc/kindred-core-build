@@ -235,10 +235,12 @@ realtimeRouter.post('/subscribe', async (req, res) => {
       // explicitly.
       return res.status(403).json({ error: 'Channel not allowed' });
     }
+    const platform = await loadWidgetPlatformRuntimeSettings(config);
     const tk = driver.issueSubscriptionToken({
       sub: subjectId,
       channel,
       workspaceId: parsed.data.workspace_id,
+      expiresInSeconds: platform.realtime.tokenTtlSeconds,
     });
     return res.json({ vendor: 'centrifugo', channel, token: tk.token, expires_at: tk.expires_at });
   } catch (err: any) {

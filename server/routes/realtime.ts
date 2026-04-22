@@ -125,7 +125,30 @@ realtimeRouter.post('/connect', async (req, res) => {
     const visitor = readVisitorCookie(req as any, parsed.data.workspace_id);
     const subjectId = visitor?.v || `vt_${tokRes.nonce || 'anon'}`;
 
-    const resolved = await resolveRealtimeProvider(config);
+    const [resolved, effective_policy] = await Promise.all([
+      resolveRealtimeProvider(config),
+      resolveEffectivePolicy(config),
+    ]);
+
+    // Phase 6C — force_polling overrides any vendor selection so the
+    // widget runtime's existing polling_builtin branch takes over without
+    // any FSM / runtime change. Existing widgets ignore unknown payload
+    // fields, so embedding `effective_policy` is additive.
+    if (effective_policy.force_polling) {
+      emitMetric(config, {
+        metric: 'realtime.fallback_engaged',
+        workspaceId: parsed.data.workspace_id,
+        driver: 'polling_builtin',
+        tags: { source: 'effective_policy:force_polling' },
+      });
+      return res.json({
+        vendor: 'polling_builtin',
+        capabilities: { supportsRealtime: false, supportsTyping: false, supportsPresence: false, supportsHistoryLoad: true, supportsReconnectSignals: true },
+        fallback_policy: resolved.fallback_policy,
+        source: 'fallback',
+        effective_policy,
+      });
+    }
 
     // Disabled / strict-failed → tell client realtime is not available.
     if (resolved.effective_vendor === 'disabled') {
@@ -134,6 +157,7 @@ realtimeRouter.post('/connect', async (req, res) => {
         capabilities: resolved.capabilities,
         fallback_policy: resolved.fallback_policy,
         source: resolved.source,
+        effective_policy,
       });
     }
 
@@ -150,6 +174,7 @@ realtimeRouter.post('/connect', async (req, res) => {
         capabilities: resolved.capabilities,
         fallback_policy: resolved.fallback_policy,
         source: resolved.source,
+        effective_policy,
       });
     }
 
@@ -165,6 +190,7 @@ realtimeRouter.post('/connect', async (req, res) => {
         capabilities: resolved.capabilities,
         fallback_policy: resolved.fallback_policy,
         source: resolved.source,
+        effective_policy,
       });
     }
 
@@ -179,6 +205,7 @@ realtimeRouter.post('/connect', async (req, res) => {
         capabilities: { supportsRealtime: false, supportsTyping: false, supportsPresence: false, supportsHistoryLoad: true, supportsReconnectSignals: true },
         fallback_policy: resolved.fallback_policy,
         source: 'fallback',
+        effective_policy,
       });
     }
 

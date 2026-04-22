@@ -86,12 +86,22 @@ const connectSchema = z.object({
 });
 
 realtimeRouter.post('/connect', async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
   try {
-    const config: ServerConfig = (req as any).serverConfig;
     const parsed = connectSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid request' });
     }
+    // Phase 3 — every /connect is a (re)connect attempt from the server's POV.
+    // We can't distinguish the very first connect from a reconnect without
+    // adding state, so we tag the kind and let the dashboard split if needed.
+    emitMetric(config, {
+      metric: 'realtime.reconnect_attempt',
+      workspaceId: parsed.data.workspace_id,
+      driver: 'centrifugo',
+      source: 'widget',
+      tags: { endpoint: 'connect' },
+    });
 
     // Authorize the visitor — same security model as the rest of the widget API.
     const widgetToken = req.headers['x-widget-token'] as string | undefined;
@@ -193,6 +203,12 @@ realtimeRouter.post('/connect', async (req, res) => {
     });
   } catch (err: any) {
     console.error('[realtime/connect] error:', err);
+    emitMetric(config, {
+      metric: 'realtime.token_refresh_failed',
+      driver: 'centrifugo',
+      source: 'widget',
+      tags: { endpoint: 'connect', reason: 'internal_error' },
+    });
     return res.status(500).json({ error: 'Internal error' });
   }
 });
@@ -204,10 +220,18 @@ const subscribeSchema = z.object({
 });
 
 realtimeRouter.post('/subscribe', async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
   try {
-    const config: ServerConfig = (req as any).serverConfig;
     const parsed = subscribeSchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: 'Invalid request' });
+    if (!parsed.success) {
+      emitMetric(config, {
+        metric: 'realtime.subscribe_failed',
+        driver: 'centrifugo',
+        source: 'widget',
+        tags: { endpoint: 'subscribe', reason: 'invalid_request' },
+      });
+      return res.status(400).json({ error: 'Invalid request' });
+    }
 
     const widgetToken = req.headers['x-widget-token'] as string | undefined;
     if (!widgetToken) return res.status(401).json({ error: 'Missing widget token' });
@@ -279,6 +303,12 @@ realtimeRouter.post('/subscribe', async (req, res) => {
     return res.json({ vendor: 'centrifugo', channel, token: tk.token, expires_at: tk.expires_at });
   } catch (err: any) {
     console.error('[realtime/subscribe] error:', err);
+    emitMetric(config, {
+      metric: 'realtime.subscribe_failed',
+      driver: 'centrifugo',
+      source: 'widget',
+      tags: { endpoint: 'subscribe', reason: 'internal_error' },
+    });
     return res.status(500).json({ error: 'Internal error' });
   }
 });
@@ -312,12 +342,22 @@ async function authorizeOperator(req: any, res: any, config: ServerConfig, works
 }
 
 realtimeRouter.post('/operator-connect', async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
   try {
-    const config: ServerConfig = (req as any).serverConfig;
     const parsed = operatorConnectSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Invalid request' });
     const user = await authorizeOperator(req, res, config, parsed.data.workspace_id);
     if (!user) return;
+
+    // Phase 3 — every operator-connect is a (re)connect attempt. Used to
+    // chart reconnect rates per workspace in the observability panel.
+    emitMetric(config, {
+      metric: 'realtime.reconnect_attempt',
+      workspaceId: parsed.data.workspace_id,
+      driver: 'centrifugo',
+      source: 'operator',
+      tags: { endpoint: 'operator-connect' },
+    });
 
     const resolved = await resolveRealtimeProvider(config);
     if (resolved.effective_vendor !== 'centrifugo') {
@@ -340,15 +380,29 @@ realtimeRouter.post('/operator-connect', async (req, res) => {
     });
   } catch (err: any) {
     console.error('[realtime/operator-connect]', err);
+    emitMetric(config, {
+      metric: 'realtime.token_refresh_failed',
+      driver: 'centrifugo',
+      source: 'operator',
+      tags: { endpoint: 'operator-connect', reason: 'internal_error' },
+    });
     res.status(500).json({ error: 'Internal error' });
   }
 });
 
 realtimeRouter.post('/operator-subscribe', async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
   try {
-    const config: ServerConfig = (req as any).serverConfig;
     const parsed = operatorSubscribeSchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: 'Invalid request' });
+    if (!parsed.success) {
+      emitMetric(config, {
+        metric: 'realtime.subscribe_failed',
+        driver: 'centrifugo',
+        source: 'operator',
+        tags: { endpoint: 'operator-subscribe', reason: 'invalid_request' },
+      });
+      return res.status(400).json({ error: 'Invalid request' });
+    }
     const user = await authorizeOperator(req, res, config, parsed.data.workspace_id);
     if (!user) return;
 
@@ -396,6 +450,12 @@ realtimeRouter.post('/operator-subscribe', async (req, res) => {
     return res.json({ vendor: 'centrifugo', channel, token: tk.token, expires_at: tk.expires_at });
   } catch (err: any) {
     console.error('[realtime/operator-subscribe]', err);
+    emitMetric(config, {
+      metric: 'realtime.subscribe_failed',
+      driver: 'centrifugo',
+      source: 'operator',
+      tags: { endpoint: 'operator-subscribe', reason: 'internal_error' },
+    });
     res.status(500).json({ error: 'Internal error' });
   }
 });
@@ -413,10 +473,18 @@ realtimeRouter.post('/operator-subscribe', async (req, res) => {
 const operatorInboxSubscribeSchema = z.object({ workspace_id: z.string().uuid() });
 
 realtimeRouter.post('/operator-inbox-subscribe', async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
   try {
-    const config: ServerConfig = (req as any).serverConfig;
     const parsed = operatorInboxSubscribeSchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: 'Invalid request' });
+    if (!parsed.success) {
+      emitMetric(config, {
+        metric: 'realtime.subscribe_failed',
+        driver: 'centrifugo',
+        source: 'operator',
+        tags: { endpoint: 'operator-inbox-subscribe', reason: 'invalid_request' },
+      });
+      return res.status(400).json({ error: 'Invalid request' });
+    }
     const user = await authorizeOperator(req, res, config, parsed.data.workspace_id);
     if (!user) return;
 
@@ -431,6 +499,12 @@ realtimeRouter.post('/operator-inbox-subscribe', async (req, res) => {
     return res.json({ vendor: 'centrifugo', channel, token: tk.token, expires_at: tk.expires_at });
   } catch (err: any) {
     console.error('[realtime/operator-inbox-subscribe]', err);
+    emitMetric(config, {
+      metric: 'realtime.subscribe_failed',
+      driver: 'centrifugo',
+      source: 'operator',
+      tags: { endpoint: 'operator-inbox-subscribe', reason: 'internal_error' },
+    });
     res.status(500).json({ error: 'Internal error' });
   }
 });
@@ -445,10 +519,18 @@ realtimeRouter.post('/operator-inbox-subscribe', async (req, res) => {
 const operatorVisitorsSubscribeSchema = z.object({ workspace_id: z.string().uuid() });
 
 realtimeRouter.post('/operator-visitors-subscribe', async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
   try {
-    const config: ServerConfig = (req as any).serverConfig;
     const parsed = operatorVisitorsSubscribeSchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: 'Invalid request' });
+    if (!parsed.success) {
+      emitMetric(config, {
+        metric: 'realtime.subscribe_failed',
+        driver: 'centrifugo',
+        source: 'operator',
+        tags: { endpoint: 'operator-visitors-subscribe', reason: 'invalid_request' },
+      });
+      return res.status(400).json({ error: 'Invalid request' });
+    }
     const user = await authorizeOperator(req, res, config, parsed.data.workspace_id);
     if (!user) return;
 
@@ -463,6 +545,12 @@ realtimeRouter.post('/operator-visitors-subscribe', async (req, res) => {
     return res.json({ vendor: 'centrifugo', channel, token: tk.token, expires_at: tk.expires_at });
   } catch (err: any) {
     console.error('[realtime/operator-visitors-subscribe]', err);
+    emitMetric(config, {
+      metric: 'realtime.subscribe_failed',
+      driver: 'centrifugo',
+      source: 'operator',
+      tags: { endpoint: 'operator-visitors-subscribe', reason: 'internal_error' },
+    });
     res.status(500).json({ error: 'Internal error' });
   }
 });
@@ -552,8 +640,8 @@ realtimeRouter.put('/admin/config', requireAdmin, async (req, res) => {
 });
 
 realtimeRouter.post('/admin/test', requireAdmin, async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
   try {
-    const config: ServerConfig = (req as any).serverConfig;
     const adminUser = (req as any).adminUser;
     const cfg = await loadRealtimeConfig(config, true);
 
@@ -566,6 +654,18 @@ realtimeRouter.post('/admin/test', requireAdmin, async (req, res) => {
     }
     const driver = new CentrifugoDriver(c as any);
     const h = await driver.health();
+    if (h.status !== 'healthy') {
+      // Phase 3 — surface upstream Centrifugo socket failure as a
+      // server-observable ws_error / socket_closed signal. The admin
+      // observability panel uses this to alert on backend outages without
+      // needing a widget beacon.
+      emitMetric(config, {
+        metric: h.status === 'down' ? 'realtime.socket_closed' : 'realtime.ws_error',
+        driver: 'centrifugo',
+        source: 'server',
+        tags: { endpoint: 'admin-test', status: h.status, reason: (h.message || 'unknown').slice(0, 64) },
+      });
+    }
     await getServiceClient(config).from('realtime_provider_audit').insert({
       changed_by: adminUser.id,
       action: 'test',
@@ -575,6 +675,12 @@ realtimeRouter.post('/admin/test', requireAdmin, async (req, res) => {
     });
     res.json({ status: h.status, message: h.message, checked_at: Date.now() });
   } catch (err: any) {
+    emitMetric(config, {
+      metric: 'realtime.ws_error',
+      driver: 'centrifugo',
+      source: 'server',
+      tags: { endpoint: 'admin-test', reason: 'exception' },
+    });
     res.status(500).json({ status: 'down', message: err.message });
   }
 });

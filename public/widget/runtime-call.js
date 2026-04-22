@@ -149,6 +149,48 @@
 
   // ───── Single active call state ─────
   var current = null; // { invite, room, micEnabled, camEnabled }
+  var lastDispatchedCallId = null; // dedupe poll-mode dispatch
+
+  // Resolve widget context (workspace, apiBase, identity) from globals the
+  // loader/runtime expose. Polling fallback uses these to fetch a visitor
+  // token. Never throws — callers must tolerate nulls.
+  function getWidgetCtx() {
+    try {
+      var gs = window.__gs || {};
+      var workspaceId = gs._id || null;
+      var apiBase = gs._api || (window.__gs_config && window.__gs_config._apiBase) || '';
+      var token = (window.__gs_token && window.__gs_token.get && window.__gs_token.get()) || '';
+      var ident = (window.__gs_identity || {});
+      return {
+        workspaceId: workspaceId,
+        apiBase: apiBase,
+        token: token,
+        visitorId: ident.visitorId || null,
+        sessionId: ident.sessionId || null,
+      };
+    } catch (_) { return { workspaceId: null, apiBase: '', token: '', visitorId: null, sessionId: null }; }
+  }
+
+  function fetchVisitorToken(callId, ctx) {
+    if (!ctx.apiBase || !ctx.workspaceId || !ctx.token) {
+      return Promise.reject(new Error('widget context not ready'));
+    }
+    return fetch(ctx.apiBase + '/api/widget/calls/' + encodeURIComponent(callId) + '/visitor-token', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', 'X-Widget-Token': ctx.token },
+      body: JSON.stringify({
+        workspace_id: ctx.workspaceId,
+        visitor_id: ctx.visitorId || undefined,
+        session_id: ctx.sessionId || undefined,
+      }),
+    }).then(function (r) {
+      if (!r.ok) return r.json().catch(function () { return {}; }).then(function (b) {
+        throw new Error(b.error || 'visitor_token_http_' + r.status);
+      });
+      return r.json();
+    });
+  }
 
   function attachRemote(room, LK) {
     function refresh() {

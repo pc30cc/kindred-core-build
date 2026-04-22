@@ -22,6 +22,9 @@ import {
   type WsProviderType,
 } from '@/hooks/useWorkspaceProviders';
 import { WorkspacePrivacyStorageCard } from '@/features/providers/WorkspacePrivacyStorageCard';
+import { WorkspaceCallSettingsCard } from '@/features/providers/WorkspaceCallSettingsCard';
+import { WorkspaceRolePermissionsCard } from '@/features/providers/WorkspaceRolePermissionsCard';
+import { useWorkspaceRole } from '@/hooks/useWorkspaceRole';
 
 // ─── Status Badge ────────────────────────────────────────────────
 
@@ -500,6 +503,8 @@ function WebhookCard({ workspaceId, settings }: { workspaceId: string; settings:
 export default function SettingsProvidersPage() {
   const workspace = useCurrentWorkspace();
   const { data: settings, isLoading } = useWorkspaceProviders(workspace?.id);
+  const { data: role } = useWorkspaceRole(workspace?.id);
+  const isWorkspaceAdmin = role === 'owner' || role === 'admin';
 
   if (!workspace) return null;
 
@@ -522,6 +527,19 @@ export default function SettingsProvidersPage() {
           <AIProviderCard workspaceId={workspace.id} settings={settings} />
           <WebhookCard workspaceId={workspace.id} settings={settings} />
           <WorkspacePrivacyStorageCard workspaceId={workspace.id} />
+          {isWorkspaceAdmin && (
+            <>
+              <Separator className="my-2" />
+              <div>
+                <h2 className="text-lg font-semibold text-foreground">Voice & Video Channels</h2>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Workspace-level call channel toggles and per-role call permissions. Subject to platform-wide gates.
+                </p>
+              </div>
+              <WorkspaceCallSettingsCard workspaceId={workspace.id} />
+              <WorkspaceRolePermissionsCard workspaceId={workspace.id} />
+            </>
+          )}
         </div>
       )}
     </div>

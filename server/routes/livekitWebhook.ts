@@ -164,6 +164,18 @@ async function applyEvent(
         })
         .eq('id', session.id);
       await recordEvent('room_finished', { sid: ev.room?.sid });
+      // Phase 8D — release any operator availability locks tied to this session.
+      try {
+        const { data: parts } = await sb
+          .from('call_participants')
+          .select('participant_id, participant_type')
+          .eq('call_session_id', session.id);
+        for (const p of parts ?? []) {
+          if ((p as any).participant_type === 'operator' && (p as any).participant_id) {
+            void clearInCall(config, session.workspace_id, (p as any).participant_id).catch(() => {});
+          }
+        }
+      } catch {/* best effort */}
       return { applied: true };
     }
     case 'participant_joined': {

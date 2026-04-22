@@ -839,6 +839,7 @@ export type Database = {
         Row: {
           accepted_at: string | null
           call_session_id: string | null
+          callback_request_id: string | null
           channel: Database["public"]["Enums"]["call_queue_channel"]
           contact_id: string | null
           conversation_id: string | null
@@ -847,12 +848,16 @@ export type Database = {
           ended_reason: string | null
           expires_at: string
           id: string
+          last_offer_expires_at: string | null
           metadata: Json
+          missed_offer_count: number
+          offer_timeout_seconds: number
           offered_at: string | null
           offered_to_user_id: string | null
           position_hint: number | null
           priority: number
           requested_by: string
+          sla_breached: boolean
           state: Database["public"]["Enums"]["call_queue_state"]
           updated_at: string
           visitor_session_id: string | null
@@ -861,6 +866,7 @@ export type Database = {
         Insert: {
           accepted_at?: string | null
           call_session_id?: string | null
+          callback_request_id?: string | null
           channel: Database["public"]["Enums"]["call_queue_channel"]
           contact_id?: string | null
           conversation_id?: string | null
@@ -869,12 +875,16 @@ export type Database = {
           ended_reason?: string | null
           expires_at?: string
           id?: string
+          last_offer_expires_at?: string | null
           metadata?: Json
+          missed_offer_count?: number
+          offer_timeout_seconds?: number
           offered_at?: string | null
           offered_to_user_id?: string | null
           position_hint?: number | null
           priority?: number
           requested_by?: string
+          sla_breached?: boolean
           state?: Database["public"]["Enums"]["call_queue_state"]
           updated_at?: string
           visitor_session_id?: string | null
@@ -883,6 +893,7 @@ export type Database = {
         Update: {
           accepted_at?: string | null
           call_session_id?: string | null
+          callback_request_id?: string | null
           channel?: Database["public"]["Enums"]["call_queue_channel"]
           contact_id?: string | null
           conversation_id?: string | null
@@ -891,12 +902,16 @@ export type Database = {
           ended_reason?: string | null
           expires_at?: string
           id?: string
+          last_offer_expires_at?: string | null
           metadata?: Json
+          missed_offer_count?: number
+          offer_timeout_seconds?: number
           offered_at?: string | null
           offered_to_user_id?: string | null
           position_hint?: number | null
           priority?: number
           requested_by?: string
+          sla_breached?: boolean
           state?: Database["public"]["Enums"]["call_queue_state"]
           updated_at?: string
           visitor_session_id?: string | null
@@ -908,6 +923,13 @@ export type Database = {
             columns: ["call_session_id"]
             isOneToOne: false
             referencedRelation: "call_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "call_queue_entries_callback_request_fk"
+            columns: ["callback_request_id"]
+            isOneToOne: false
+            referencedRelation: "callback_requests"
             referencedColumns: ["id"]
           },
           {
@@ -1056,6 +1078,91 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "call_sessions_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      callback_requests: {
+        Row: {
+          cancelled_at: string | null
+          channel: string
+          completed_at: string | null
+          contact_email: string | null
+          contact_id: string | null
+          contact_phone: string | null
+          conversation_id: string | null
+          created_at: string
+          handled_by: string | null
+          id: string
+          metadata: Json
+          notes: string | null
+          requested_at: string
+          scheduled_at: string | null
+          status: string
+          updated_at: string
+          visitor_session_id: string | null
+          workspace_id: string
+        }
+        Insert: {
+          cancelled_at?: string | null
+          channel?: string
+          completed_at?: string | null
+          contact_email?: string | null
+          contact_id?: string | null
+          contact_phone?: string | null
+          conversation_id?: string | null
+          created_at?: string
+          handled_by?: string | null
+          id?: string
+          metadata?: Json
+          notes?: string | null
+          requested_at?: string
+          scheduled_at?: string | null
+          status?: string
+          updated_at?: string
+          visitor_session_id?: string | null
+          workspace_id: string
+        }
+        Update: {
+          cancelled_at?: string | null
+          channel?: string
+          completed_at?: string | null
+          contact_email?: string | null
+          contact_id?: string | null
+          contact_phone?: string | null
+          conversation_id?: string | null
+          created_at?: string
+          handled_by?: string | null
+          id?: string
+          metadata?: Json
+          notes?: string | null
+          requested_at?: string
+          scheduled_at?: string | null
+          status?: string
+          updated_at?: string
+          visitor_session_id?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "callback_requests_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "callback_requests_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "callback_requests_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
@@ -2100,6 +2207,50 @@ export type Database = {
           success?: boolean
         }
         Relationships: []
+      }
+      operator_call_availability: {
+        Row: {
+          active_call_session_id: string | null
+          id: string
+          in_call: boolean
+          in_call_since: string | null
+          last_heartbeat_at: string
+          status: string
+          updated_at: string
+          user_id: string
+          workspace_id: string
+        }
+        Insert: {
+          active_call_session_id?: string | null
+          id?: string
+          in_call?: boolean
+          in_call_since?: string | null
+          last_heartbeat_at?: string
+          status?: string
+          updated_at?: string
+          user_id: string
+          workspace_id: string
+        }
+        Update: {
+          active_call_session_id?: string | null
+          id?: string
+          in_call?: boolean
+          in_call_since?: string | null
+          last_heartbeat_at?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "operator_call_availability_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       perf_process_samples: {
         Row: {
@@ -4836,6 +4987,8 @@ export type Database = {
         | "accepted"
         | "cancelled"
         | "expired"
+        | "missed"
+        | "callback_requested"
       call_recording_state:
         | "disabled"
         | "pending"
@@ -5008,6 +5161,8 @@ export const Constants = {
         "accepted",
         "cancelled",
         "expired",
+        "missed",
+        "callback_requested",
       ],
       call_recording_state: [
         "disabled",

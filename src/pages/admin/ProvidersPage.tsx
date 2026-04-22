@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { Activity, CheckCircle, AlertTriangle, XCircle, RefreshCw, Search, BarChart3 } from 'lucide-react';
+import { Activity, CheckCircle, AlertTriangle, XCircle, RefreshCw, Search, BarChart3, Video } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -11,6 +11,7 @@ import { AdminProviderCard } from '@/features/providers/AdminProviderCard';
 import { AdminRealtimeCard } from '@/features/providers/AdminRealtimeCard';
 import { PrivacyExportStorageCard } from '@/features/providers/PrivacyExportStorageCard';
 import { VisitorIntelligenceSection } from '@/features/providers/VisitorIntelligenceSection';
+import { CallControlPlanePanel } from '@/components/admin/calls/CallControlPlanePanel';
 
 // Phase 3: realtime is configured globally via the dedicated card.
 function RenderProviderCard({ type }: { type: ProviderTypeKey }) {
@@ -196,6 +197,9 @@ export default function AdminProvidersPage() {
           <TabsList className="bg-muted">
             <TabsTrigger value="grouped" className="data-[state=active]:bg-sidebar-accent data-[state=active]:text-foreground text-muted-foreground">By Category</TabsTrigger>
             <TabsTrigger value="all" className="data-[state=active]:bg-sidebar-accent data-[state=active]:text-foreground text-muted-foreground">All Providers</TabsTrigger>
+            <TabsTrigger value="calls" className="data-[state=active]:bg-sidebar-accent data-[state=active]:text-foreground text-muted-foreground">
+              <Video className="h-3.5 w-3.5 me-1" /> Voice / Video
+            </TabsTrigger>
             {fallbackLog.length > 0 && (
               <TabsTrigger value="fallback" className="data-[state=active]:bg-sidebar-accent data-[state=active]:text-foreground text-muted-foreground">Fallback Log ({fallbackLog.length})</TabsTrigger>
             )}
@@ -242,6 +246,11 @@ export default function AdminProvidersPage() {
               <RenderProviderCard key={type} type={type} />
             ))}
           </div>
+        </TabsContent>
+
+        {/* Voice / Video control plane */}
+        <TabsContent value="calls">
+          <CallControlPlanePanel />
         </TabsContent>
 
         {/* Fallback log */}

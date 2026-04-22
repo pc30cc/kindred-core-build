@@ -16,6 +16,7 @@ import { adminPerfRouter } from './adminPerf.js';
 import { adminAutoActionsRouter } from './adminAutoActions.js';
 import { adminReliabilityRouter } from './adminReliability.js';
 import { adminEnforcementRouter } from './adminEnforcement.js';
+import { adminCallsRouter } from './adminCalls.js';
 
 export const adminRouter = Router();
 
@@ -106,6 +107,9 @@ adminRouter.use('/reliability', adminReliabilityRouter);
 
 // Phase 7.5 — SLA enforcement (SLO breaches, rules, actions, kill switch)
 adminRouter.use('/enforcement', adminEnforcementRouter);
+
+// Phase 8A — Voice/Video control plane (super admin only).
+adminRouter.use('/calls', adminCallsRouter);
 
 // ─── Send Password Reset Link ────────────────────────────────────
 const resetLinkSchema = z.object({

@@ -17,10 +17,21 @@ export interface AlertRule {
   slug: string;
   title: string;
   description: string | null;
-  kind: 'count' | 'ratio';
+  kind:
+    | 'count'
+    | 'ratio'
+    | 'perf_p95'
+    | 'perf_p99'
+    | 'perf_error_rate'
+    | 'process_avg'
+    | 'process_ratio'
+    | 'combined';
   metric: string | null;
   numerator: string | null;
   denominator: string | null;
+  route_group: string | null;
+  aggregation: string | null;
+  subrules: string[] | null;
   window_seconds: number;
   warn_threshold: number;
   critical_threshold: number;

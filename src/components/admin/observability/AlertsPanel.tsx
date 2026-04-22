@@ -56,9 +56,14 @@ function RuleRow({ rule }: { rule: AlertRule }) {
             <p className="text-xs text-muted-foreground mt-0.5">{rule.description}</p>
           )}
           <p className="text-[11px] font-mono text-muted-foreground mt-0.5 truncate">
-            {rule.kind === 'count'
-              ? rule.metric
-              : `${rule.numerator} / ${rule.denominator}`}
+            {rule.kind === 'count' && rule.metric}
+            {rule.kind === 'ratio' && `${rule.numerator} / ${rule.denominator}`}
+            {(rule.kind === 'perf_p95' || rule.kind === 'perf_p99' || rule.kind === 'perf_error_rate') &&
+              `${rule.route_group} · ${rule.aggregation || rule.kind}`}
+            {(rule.kind === 'process_avg' || rule.kind === 'process_ratio') &&
+              `${rule.metric} · ${rule.aggregation || rule.kind}`}
+            {rule.kind === 'combined' &&
+              `combined: ${(rule.subrules || []).length} sub-rules`}
           </p>
         </div>
         <Switch

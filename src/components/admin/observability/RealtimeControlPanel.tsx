@@ -35,6 +35,7 @@ import {
   type RealtimeControlSettings,
   type RealtimeProviderId,
 } from '@/lib/realtime-control-api';
+import FailoverStatePanel from './FailoverStatePanel';
 
 const PROVIDER_LABEL: Record<RealtimeProviderId, string> = {
   centrifugo: 'Centrifugo',
@@ -189,8 +190,9 @@ export default function RealtimeControlPanel() {
         <CardHeader>
           <CardTitle className="text-foreground text-sm">Active realtime provider</CardTitle>
           <CardDescription>
-            Source of truth: <span className="font-mono">resolveRealtimeProvider()</span>. The
-            failover engine that will honor the settings below ships in Phase 6B.
+            Source of truth (Phase 6B): the failover engine state +
+            <span className="font-mono"> realtime_provider_lock</span>. Legacy resolver is the
+            fallback only when engine state is unavailable.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -217,6 +219,9 @@ export default function RealtimeControlPanel() {
           )}
         </CardContent>
       </Card>
+
+      {/* Phase 6B — Failover engine state */}
+      <FailoverStatePanel />
 
       {/* Degradation policy */}
       <Card className="bg-card border-border">

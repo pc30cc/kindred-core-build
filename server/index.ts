@@ -35,6 +35,7 @@ import { startPerfCollectors } from './services/observability/perf.js';
 import { startAutoActionsTicker } from './services/observability/autoActionsTicker.js';
 import { startAutoActionsCache } from './services/observability/autoActionsCache.js';
 import { startFailoverTicker } from './services/realtime/failoverTicker.js';
+import { startReliabilityRollup } from './services/observability/reliabilityRollupTicker.js';
 import { invalidateManifestCache, getManifestDiagnostics } from './services/widget/manifest.js';
 import { widgetCorsMiddleware } from './middleware/widgetCors.js';
 import {
@@ -231,6 +232,9 @@ app.listen(config.port, () => {
 
   // Phase 6B — start realtime failover engine ticker (every 30s). Best-effort.
   startFailoverTicker(config);
+
+  // Phase 7 — start reliability/business/health rollup (every 10 min). Best-effort.
+  startReliabilityRollup(config);
 
   // ─── Post-deploy widget manifest invalidation ────────────────────
   // The in-memory widget manifest cache is per-process, so a fresh deploy

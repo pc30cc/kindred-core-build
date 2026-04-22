@@ -2334,7 +2334,13 @@ export type Database = {
           prechat_name_policy: string
           prechat_phone_policy: string
           rate_limit_messages_per_minute: number
+          realtime_idle_disposal_ms: number
+          realtime_message_dedupe_enabled: boolean
+          realtime_message_dedupe_window: number
+          realtime_pending_max: number
+          realtime_reconnect_jitter_pct: number
           realtime_stale_resubscribe_guard_enabled: boolean
+          realtime_token_ttl_seconds: number
           typing_rate_limit_enabled: boolean
           typing_rate_limit_max_events: number
           typing_rate_limit_window_ms: number
@@ -2364,7 +2370,13 @@ export type Database = {
           prechat_name_policy?: string
           prechat_phone_policy?: string
           rate_limit_messages_per_minute?: number
+          realtime_idle_disposal_ms?: number
+          realtime_message_dedupe_enabled?: boolean
+          realtime_message_dedupe_window?: number
+          realtime_pending_max?: number
+          realtime_reconnect_jitter_pct?: number
           realtime_stale_resubscribe_guard_enabled?: boolean
+          realtime_token_ttl_seconds?: number
           typing_rate_limit_enabled?: boolean
           typing_rate_limit_max_events?: number
           typing_rate_limit_window_ms?: number
@@ -2394,7 +2406,13 @@ export type Database = {
           prechat_name_policy?: string
           prechat_phone_policy?: string
           rate_limit_messages_per_minute?: number
+          realtime_idle_disposal_ms?: number
+          realtime_message_dedupe_enabled?: boolean
+          realtime_message_dedupe_window?: number
+          realtime_pending_max?: number
+          realtime_reconnect_jitter_pct?: number
           realtime_stale_resubscribe_guard_enabled?: boolean
+          realtime_token_ttl_seconds?: number
           typing_rate_limit_enabled?: boolean
           typing_rate_limit_max_events?: number
           typing_rate_limit_window_ms?: number

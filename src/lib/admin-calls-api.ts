@@ -80,6 +80,27 @@ export async function fetchCallControlPlane(): Promise<CallControlPlaneResponse>
   return res.json();
 }
 
+export interface PlatformCallbackSummary {
+  counts: {
+    requested: number;
+    scheduled: number;
+    in_progress: number;
+    completed: number;
+    cancelled: number;
+  };
+  open: number;
+  total: number;
+  completion_rate: number;
+}
+
+export async function fetchPlatformCallbackSummary(): Promise<PlatformCallbackSummary> {
+  const res = await fetch(`${API_BASE}/api/admin/calls/callbacks/summary`, {
+    headers: await authHeader(),
+  });
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  return res.json();
+}
+
 export async function updateCallControlPlane(
   patch: Partial<CallControlPlane>,
 ): Promise<CallControlPlaneResponse> {

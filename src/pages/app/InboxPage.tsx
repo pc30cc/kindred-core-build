@@ -881,6 +881,13 @@ export default function InboxPage() {
                 </div>
               </div>
               <div className="flex items-center gap-1.5">
+                {workspace?.id && (
+                  <OperatorCallPanel
+                    workspaceId={workspace.id}
+                    conversationId={selectedId}
+                    contactName={selected.contacts?.name ?? null}
+                  />
+                )}
                 <Badge className={cn('text-[10px] border', statusColors[selected.status ?? 'open'])}>
                   {statusLabels[selected.status ?? 'open']}
                 </Badge>

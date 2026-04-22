@@ -1,0 +1,297 @@
+/**
+ * Phase 8A — RTC / Call Domain & Network Resolver
+ * ------------------------------------------------------------------
+ * Single source of truth for every URL the call layer needs.
+ *
+ * STRICT RULES (non-negotiable):
+ *   - NO hardcoded hostnames, schemes, ports, or origins.
+ *   - All values resolve dynamically from:
+ *       1. app_runtime_config.call_rtc_endpoints (admin-managed)
+ *       2. platform_domains (canonical multi-tenant URLs)
+ *       3. APP_BASE_URL / RTC_BASE_URL env (self-host fallback)
+ *       4. The incoming request (last-resort fallback for app/api only)
+ *
+ * Returning `null` from any helper is preferred over guessing — callers
+ * MUST surface a "RTC endpoint not configured" error in that case so an
+ * operator can fix the admin config rather than silently degrading.
+ */
+import type { ServerConfig } from '../../config.js';
+import { getServiceClient } from '../../supabase.js';
+
+const RUNTIME_KEY = 'call_rtc_endpoints';
+const CACHE_TTL_MS = 15_000;
+
+export interface CallTurnConfig {
+  /** Array of stun:/turn:/turns: URLs. Never empty when used. */
+  urls: string[];
+  username: string | null;
+  credential: string | null;
+  credential_type: 'password' | 'oauth';
+  /** True if admin configured a static shared secret (handled server-side). */
+  static_secret_present: boolean;
+}
+
+export interface CallRtcConfig {
+  /** WebRTC SFU base (e.g. LiveKit `wss://...`). Null when unconfigured. */
+  rtc_url: string | null;
+  /** Signaling WebSocket. Defaults to rtc_url for LiveKit. */
+  ws_url: string | null;
+  /** Optional separate egress / recording endpoint. */
+  recording_url: string | null;
+  turn: CallTurnConfig;
+  ice_policy: 'all' | 'relay';
+  region: string | null;
+  /** Provider id selected by the resolver (informational; not a lock). */
+  provider: string | null;
+}
+
+const SAFE_DEFAULT: CallRtcConfig = {
+  rtc_url: null,
+  ws_url: null,
+  recording_url: null,
+  turn: { urls: [], username: null, credential: null, credential_type: 'password', static_secret_present: false },
+  ice_policy: 'all',
+  region: null,
+  provider: null,
+};
+
+let cache: { value: CallRtcConfig; loadedAt: number } | null = null;
+
+export function invalidateRtcCache(): void {
+  cache = null;
+}
+
+function stripTrailingSlash(s: string | null | undefined): string | null {
+  if (!s) return null;
+  const t = String(s).trim();
+  if (!t) return null;
+  return t.replace(/\/+$/, '');
+}
+
+/**
+ * Read the raw RTC endpoint config from app_runtime_config. Never throws.
+ */
+async function loadRawRtcConfig(config: ServerConfig): Promise<CallRtcConfig> {
+  if (cache && Date.now() - cache.loadedAt < CACHE_TTL_MS) return cache.value;
+
+  const sb = getServiceClient(config);
+  const { data, error } = await sb
+    .from('app_runtime_config')
+    .select('value')
+    .eq('key', RUNTIME_KEY)
+    .maybeSingle();
+
+  if (error || !data?.value) {
+    cache = { value: { ...SAFE_DEFAULT }, loadedAt: Date.now() };
+    return cache.value;
+  }
+
+  const raw = data.value as Record<string, unknown>;
+  const turnRaw = (raw.turn ?? {}) as Record<string, unknown>;
+  const turnUrlsRaw = Array.isArray(turnRaw.urls) ? (turnRaw.urls as unknown[]) : [];
+  const turn: CallTurnConfig = {
+    urls: turnUrlsRaw.filter((u): u is string => typeof u === 'string' && u.trim().length > 0),
+    username: typeof turnRaw.username === 'string' ? turnRaw.username : null,
+    credential: typeof turnRaw.credential === 'string' ? turnRaw.credential : null,
+    credential_type:
+      turnRaw.credential_type === 'oauth' ? 'oauth' : 'password',
+    static_secret_present: !!turnRaw.static_secret_present,
+  };
+
+  const value: CallRtcConfig = {
+    rtc_url: stripTrailingSlash(raw.rtc_url as string | null),
+    ws_url: stripTrailingSlash(raw.ws_url as string | null),
+    recording_url: stripTrailingSlash(raw.recording_url as string | null),
+    turn,
+    ice_policy: raw.ice_policy === 'relay' ? 'relay' : 'all',
+    region: typeof raw.region === 'string' ? raw.region : null,
+    provider: typeof raw.provider === 'string' ? raw.provider : null,
+  };
+
+  cache = { value, loadedAt: Date.now() };
+  return value;
+}
+
+/**
+ * Resolve the canonical app base URL. Mirrors the helper in routes/admin.ts
+ * but lives in the calls layer so it never falls back to localhost — calls
+ * MUST refuse to start without an explicitly configured base.
+ */
+export async function resolveAppBaseUrl(
+  config: ServerConfig,
+  req?: { headers?: Record<string, unknown>; protocol?: string },
+): Promise<string | null> {
+  const sb = getServiceClient(config);
+  const { data } = await sb
+    .from('platform_domains')
+    .select('app_base_url, api_base_url, public_base_url')
+    .limit(1)
+    .maybeSingle();
+
+  const fromDb = stripTrailingSlash(data?.app_base_url ?? null);
+  if (fromDb) return fromDb;
+
+  const fromEnv = stripTrailingSlash(process.env.APP_BASE_URL ?? null);
+  if (fromEnv) return fromEnv;
+
+  const explicit = (config.corsOrigins || []).find((o) => o && o !== '*');
+  const fromCors = stripTrailingSlash(explicit ?? null);
+  if (fromCors) return fromCors;
+
+  if (req?.headers) {
+    const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol || 'https';
+    const host = (req.headers['x-forwarded-host'] as string) || (req.headers.host as string);
+    if (proto && host) return `${proto}://${host}`;
+  }
+  return null;
+}
+
+/**
+ * Resolve the canonical API base URL.
+ * Order: platform_domains.api_base_url → API_BASE_URL env → app base.
+ */
+export async function resolveApiBaseUrl(
+  config: ServerConfig,
+  req?: { headers?: Record<string, unknown>; protocol?: string },
+): Promise<string | null> {
+  const sb = getServiceClient(config);
+  const { data } = await sb
+    .from('platform_domains')
+    .select('api_base_url')
+    .limit(1)
+    .maybeSingle();
+
+  const fromDb = stripTrailingSlash(data?.api_base_url ?? null);
+  if (fromDb) return fromDb;
+
+  const fromEnv = stripTrailingSlash(process.env.API_BASE_URL ?? null);
+  if (fromEnv) return fromEnv;
+
+  return resolveAppBaseUrl(config, req);
+}
+
+/**
+ * Resolve the public widget/marketing base URL.
+ * Order: platform_domains.public_base_url → PUBLIC_BASE_URL env → app base.
+ */
+export async function resolvePublicBaseUrl(
+  config: ServerConfig,
+  req?: { headers?: Record<string, unknown>; protocol?: string },
+): Promise<string | null> {
+  const sb = getServiceClient(config);
+  const { data } = await sb
+    .from('platform_domains')
+    .select('public_base_url')
+    .limit(1)
+    .maybeSingle();
+
+  const fromDb = stripTrailingSlash(data?.public_base_url ?? null);
+  if (fromDb) return fromDb;
+
+  const fromEnv = stripTrailingSlash(process.env.PUBLIC_BASE_URL ?? null);
+  if (fromEnv) return fromEnv;
+
+  return resolveAppBaseUrl(config, req);
+}
+
+/**
+ * Resolve the realtime base URL (Centrifugo / Supabase realtime).
+ * Reuses existing resolver patterns; falls back to env var. Never invents
+ * a hostname.
+ */
+export async function resolveRealtimeBaseUrl(
+  config: ServerConfig,
+): Promise<string | null> {
+  const fromEnv = stripTrailingSlash(process.env.REALTIME_BASE_URL ?? null);
+  if (fromEnv) return fromEnv;
+
+  // app_runtime_config.realtime_endpoint (optional) — admin override.
+  const sb = getServiceClient(config);
+  const { data } = await sb
+    .from('app_runtime_config')
+    .select('value')
+    .eq('key', 'realtime_endpoint')
+    .maybeSingle();
+
+  const url =
+    typeof (data?.value as any)?.url === 'string'
+      ? stripTrailingSlash((data!.value as any).url)
+      : null;
+  return url;
+}
+
+/**
+ * Resolve the RTC SFU base URL (WebRTC media server).
+ * Order: app_runtime_config.call_rtc_endpoints.rtc_url → RTC_BASE_URL env.
+ * Returns null when unconfigured — callers MUST refuse to issue tokens.
+ */
+export async function getRtcBaseUrl(config: ServerConfig): Promise<string | null> {
+  const raw = await loadRawRtcConfig(config);
+  if (raw.rtc_url) return raw.rtc_url;
+  return stripTrailingSlash(process.env.RTC_BASE_URL ?? null);
+}
+
+/**
+ * Resolve the RTC signaling WebSocket URL. Falls back to rtc_url for
+ * providers (LiveKit) where signaling and media share the same wss.
+ */
+export async function getRtcWsUrl(config: ServerConfig): Promise<string | null> {
+  const raw = await loadRawRtcConfig(config);
+  if (raw.ws_url) return raw.ws_url;
+  if (raw.rtc_url) return raw.rtc_url;
+  return stripTrailingSlash(process.env.RTC_WS_URL ?? null);
+}
+
+/**
+ * Resolve the recording / egress base URL. Optional — providers that
+ * embed recording in their main RTC node will return null here, which
+ * is fine.
+ */
+export async function getRecordingBaseUrl(config: ServerConfig): Promise<string | null> {
+  const raw = await loadRawRtcConfig(config);
+  if (raw.recording_url) return raw.recording_url;
+  return stripTrailingSlash(process.env.RTC_RECORDING_URL ?? null);
+}
+
+/**
+ * Resolve TURN/STUN config the client should use for WebRTC.
+ * The credential is intentionally short-lived in production setups —
+ * for now we return whatever the admin configured. Phase 8B will add
+ * dynamic per-call TURN credential minting.
+ */
+export async function getTurnConfig(config: ServerConfig): Promise<CallTurnConfig> {
+  const raw = await loadRawRtcConfig(config);
+  return raw.turn;
+}
+
+/**
+ * Bundle every endpoint a client needs to bootstrap a call.
+ * Used by /api/calls/:id/token responses.
+ */
+export async function getCallNetworkBundle(config: ServerConfig): Promise<CallRtcConfig> {
+  const raw = await loadRawRtcConfig(config);
+  return {
+    ...raw,
+    rtc_url: raw.rtc_url ?? stripTrailingSlash(process.env.RTC_BASE_URL ?? null),
+    ws_url: raw.ws_url ?? raw.rtc_url ?? stripTrailingSlash(process.env.RTC_WS_URL ?? null),
+    recording_url:
+      raw.recording_url ?? stripTrailingSlash(process.env.RTC_RECORDING_URL ?? null),
+  };
+}
+
+export async function saveRtcEndpoints(
+  config: ServerConfig,
+  next: Partial<CallRtcConfig>,
+): Promise<void> {
+  const sb = getServiceClient(config);
+  const current = await loadRawRtcConfig(config);
+  const merged: CallRtcConfig = { ...current, ...next, turn: { ...current.turn, ...(next.turn || {}) } };
+  const { error } = await sb
+    .from('app_runtime_config')
+    .upsert(
+      { key: RUNTIME_KEY, value: merged as any, updated_at: new Date().toISOString() },
+      { onConflict: 'key' },
+    );
+  if (error) throw new Error(error.message);
+  invalidateRtcCache();
+}

@@ -668,6 +668,9 @@
         .then(function (data) {
           if (data && data.session_token) {
             try { window.__gs_token.set(data.session_token); } catch (_) {}
+            try {
+              if (data.effective_policy) window.__gs_policy = data.effective_policy;
+            } catch (_) {}
             return data.session_token;
           }
           return null;
@@ -690,6 +693,9 @@
         .then(function (data) {
           if (data && data.session_token) {
             try { window.__gs_token.set(data.session_token); } catch (_) {}
+            try {
+              if (data.effective_policy) window.__gs_policy = data.effective_policy;
+            } catch (_) {}
             return data.session_token;
           }
           return null;

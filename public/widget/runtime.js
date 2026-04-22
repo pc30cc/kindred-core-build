@@ -475,6 +475,20 @@
     var dict = {
       en: {
         chat: 'Chat', help: 'Help',
+        voiceCall: 'Voice', videoCall: 'Video',
+        callStart: 'Start call',
+        callStartAudio: 'Start a voice call',
+        callStartVideo: 'Start a video call',
+        callRequiresPrechat: 'Please share your details to start a call.',
+        callUnavailable: 'Calls are unavailable right now.',
+        callQueueIntro: 'No operator is free right now. We can hold your place in the call queue.',
+        callJoinQueue: 'Join the queue',
+        callQueued: 'You\u2019re in the queue. We\u2019ll connect you as soon as an operator is free.',
+        callQueueCancel: 'Cancel request',
+        callQueueLeftFallback: 'Request cancelled. You can also start a chat instead.',
+        callConnecting: 'Connecting\u2026',
+        callRecording: 'Recording may apply',
+        callSwitchToChat: 'Start a chat instead',
         typeMsg: 'Type a message...',
         intro: "Send us a message and we'll get back to you shortly.",
         name: 'Name', email: 'Email', phone: 'Phone number',
@@ -3003,6 +3017,32 @@
 
     var chatEnabled = config.features && config.features.chat !== false;
     var kbEnabled = config.features && config.features.knowledgeBase;
+
+    // ─── Phase 8C — Call channel state (read from effective policy) ───
+    // Single source of truth: window.__gs_policy injected by handshakes.
+    // No hardcoded defaults — when the policy is missing or call channels
+    // are off the buttons are hidden so visitors see no broken UI.
+    function callPolicy() {
+      try {
+        var p = (typeof window !== 'undefined' && window.__gs_policy) || {};
+        return {
+          voice: !!p.voice_enabled && !!p.visitor_initiated_audio,
+          video: !!p.video_enabled && !!p.visitor_initiated_video,
+          queue: !!p.queue_enabled,
+          recording: !!p.recording_enabled,
+          preChat: !!p.pre_chat_required,
+        };
+      } catch (_) {
+        return { voice: false, video: false, queue: false, recording: false, preChat: false };
+      }
+    }
+    // Local store: queue entry for the current visitor (in-memory only).
+    var callStore = createStore({
+      activeChannel: null,    // 'audio' | 'video' | null
+      phase: 'idle',          // idle | enqueueing | queued | unavailable | error
+      entryId: null,
+      error: '',
+    });
 
     // ─── Mount target ───
     var shellDiv = shadowRoot.querySelector ? shadowRoot.querySelector('.shell') : null;

@@ -29,6 +29,7 @@ import {
   toPublicView as toLiveKitPublicView,
 } from '../services/calls/livekitConfig.js';
 import { CALL_PROVIDER_CLASSIFICATION } from '../services/calls/providers/types.js';
+import { getPlatformCallbackCounts } from '../services/calls/callbacks.js';
 
 export const adminCallsRouter = Router();
 
@@ -51,6 +52,23 @@ adminCallsRouter.get('/control-plane', async (req, res) => {
     readiness,
     classification: CALL_PROVIDER_CLASSIFICATION,
   });
+});
+
+/**
+ * Phase 8D+ — Platform-wide callback analytics summary (last 30 days, all
+ * workspaces). Used by Voice & Video Center → Callbacks tab summary cards.
+ */
+adminCallsRouter.get('/callbacks/summary', async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
+  try {
+    const counts = await getPlatformCallbackCounts(config);
+    const open = counts.requested + counts.scheduled + counts.in_progress;
+    const total = open + counts.completed + counts.cancelled;
+    const completion_rate = total > 0 ? counts.completed / total : 0;
+    res.json({ counts, open, total, completion_rate });
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message || 'failed' });
+  }
 });
 
 const cpUpdateSchema = z.object({

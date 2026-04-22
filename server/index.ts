@@ -28,6 +28,8 @@ import { widgetKbRouter, publicKbRouter } from './routes/kb.js';
 import { privacyRouter } from './routes/privacy.js';
 import { callsRouter } from './routes/calls.js';
 import { livekitWebhookRouter } from './routes/livekitWebhook.js';
+import { callQueueRouter } from './routes/callQueue.js';
+import { startCallQueueTicker } from './services/calls/queueTicker.js';
 import { startAttachmentJanitor } from './services/attachmentJanitor.js';
 import { startPrivacyWorker } from './services/privacy/worker.js';
 import { startPrivacyExpirySweep } from './services/privacy/expirySweep.js';
@@ -211,6 +213,9 @@ app.use('/api/privacy', privacyRouter);
 // Phase 8A — Voice/Video calls signaling. Auth + workspace membership enforced per-route.
 app.use('/api/calls', callsRouter);
 
+// Phase 8C — Call queue (operator surfaces). Auth + workspace membership per-route.
+app.use('/api/call-queue', callQueueRouter);
+
 // 404
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });
@@ -255,6 +260,9 @@ app.listen(config.port, () => {
 
   // Phase 7.5 — SLA enforcement engine (SLO eval + rule-driven actions, every 60s).
   startEnforcementTicker(config);
+
+  // Phase 8C — Call queue expiry sweeper (every 30s). Best-effort.
+  startCallQueueTicker(config);
 
   // ─── Post-deploy widget manifest invalidation ────────────────────
   // The in-memory widget manifest cache is per-process, so a fresh deploy

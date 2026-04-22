@@ -1316,6 +1316,108 @@ export type Database = {
           },
         ]
       }
+      enforcement_actions: {
+        Row: {
+          auto_action_event_id: string | null
+          created_at: string
+          dry_run: boolean
+          id: string
+          rule_id: string
+          rule_slug: string
+          scope_key: string
+          scope_type: string
+          trigger_payload: Json
+          trigger_type: string
+        }
+        Insert: {
+          auto_action_event_id?: string | null
+          created_at?: string
+          dry_run?: boolean
+          id?: string
+          rule_id: string
+          rule_slug: string
+          scope_key: string
+          scope_type: string
+          trigger_payload?: Json
+          trigger_type: string
+        }
+        Update: {
+          auto_action_event_id?: string | null
+          created_at?: string
+          dry_run?: boolean
+          id?: string
+          rule_id?: string
+          rule_slug?: string
+          scope_key?: string
+          scope_type?: string
+          trigger_payload?: Json
+          trigger_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "enforcement_actions_auto_action_event_id_fkey"
+            columns: ["auto_action_event_id"]
+            isOneToOne: false
+            referencedRelation: "auto_action_events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "enforcement_actions_rule_id_fkey"
+            columns: ["rule_id"]
+            isOneToOne: false
+            referencedRelation: "enforcement_rules"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      enforcement_rules: {
+        Row: {
+          actions_json: Json
+          condition_json: Json
+          cooldown_seconds: number
+          created_at: string
+          description: string | null
+          enabled: boolean
+          id: string
+          is_builtin: boolean
+          slug: string
+          title: string
+          trigger_type: string
+          ttl_seconds: number
+          updated_at: string
+        }
+        Insert: {
+          actions_json?: Json
+          condition_json?: Json
+          cooldown_seconds?: number
+          created_at?: string
+          description?: string | null
+          enabled?: boolean
+          id?: string
+          is_builtin?: boolean
+          slug: string
+          title: string
+          trigger_type: string
+          ttl_seconds?: number
+          updated_at?: string
+        }
+        Update: {
+          actions_json?: Json
+          condition_json?: Json
+          cooldown_seconds?: number
+          created_at?: string
+          description?: string | null
+          enabled?: boolean
+          id?: string
+          is_builtin?: boolean
+          slug?: string
+          title?: string
+          trigger_type?: string
+          ttl_seconds?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       feature_flags: {
         Row: {
           description: string | null
@@ -2356,6 +2458,65 @@ export type Database = {
           warn_alert_count?: number
         }
         Relationships: []
+      }
+      slo_breach_events: {
+        Row: {
+          consecutive_breaches: number
+          details: Json
+          first_breach_at: string
+          id: string
+          last_breach_at: string
+          observed_value: number | null
+          resolved_at: string | null
+          scope_key: string
+          scope_type: string
+          slo_id: string
+          slo_slug: string
+          state: string
+          target_type: string
+          target_value: number
+        }
+        Insert: {
+          consecutive_breaches?: number
+          details?: Json
+          first_breach_at?: string
+          id?: string
+          last_breach_at?: string
+          observed_value?: number | null
+          resolved_at?: string | null
+          scope_key: string
+          scope_type: string
+          slo_id: string
+          slo_slug: string
+          state: string
+          target_type: string
+          target_value: number
+        }
+        Update: {
+          consecutive_breaches?: number
+          details?: Json
+          first_breach_at?: string
+          id?: string
+          last_breach_at?: string
+          observed_value?: number | null
+          resolved_at?: string | null
+          scope_key?: string
+          scope_type?: string
+          slo_id?: string
+          slo_slug?: string
+          state?: string
+          target_type?: string
+          target_value?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "slo_breach_events_slo_id_fkey"
+            columns: ["slo_id"]
+            isOneToOne: false
+            referencedRelation: "slo_definitions"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       slo_definitions: {
         Row: {

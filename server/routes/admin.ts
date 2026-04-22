@@ -88,6 +88,9 @@ adminRouter.use('/widget/templates', adminWidgetTemplatesRouter);
 // Phase 3 — observability (super admin only)
 adminRouter.use('/metrics', adminMetricsRouter);
 
+// Phase 4 — alerting & anomaly detection (super admin only)
+adminRouter.use('/alerts', adminAlertsRouter);
+
 // ─── Send Password Reset Link ────────────────────────────────────
 const resetLinkSchema = z.object({
   email: z.string().email(),

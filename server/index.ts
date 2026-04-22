@@ -30,6 +30,7 @@ import { startAttachmentJanitor } from './services/attachmentJanitor.js';
 import { startPrivacyWorker } from './services/privacy/worker.js';
 import { startPrivacyExpirySweep } from './services/privacy/expirySweep.js';
 import { startMetricsRollup } from './services/observability/rollupTicker.js';
+import { startAlertingTicker } from './services/observability/alertingTicker.js';
 import { invalidateManifestCache, getManifestDiagnostics } from './services/widget/manifest.js';
 import { widgetCorsMiddleware } from './middleware/widgetCors.js';
 import {
@@ -210,6 +211,9 @@ app.listen(config.port, () => {
 
   // Phase 3 — start in-process metrics rollup (every 10 min). Best-effort.
   startMetricsRollup(config);
+
+  // Phase 4 — start in-process alerting ticker (every 60s). Best-effort.
+  startAlertingTicker(config);
 
   // ─── Post-deploy widget manifest invalidation ────────────────────
   // The in-memory widget manifest cache is per-process, so a fresh deploy

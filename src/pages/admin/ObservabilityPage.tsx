@@ -13,6 +13,7 @@ import SystemDegradedBanner from '@/components/admin/observability/SystemDegrade
 import RealtimeControlPanel from '@/components/admin/observability/RealtimeControlPanel';
 import EffectivePolicyPanel from '@/components/admin/observability/EffectivePolicyPanel';
 import ReliabilityPanel from '@/components/admin/observability/ReliabilityPanel';
+import EnforcementPanel from '@/components/admin/observability/EnforcementPanel';
 
 type Range = '1h' | '24h' | '7d';
 
@@ -20,7 +21,7 @@ export default function AdminObservabilityPage() {
   const [range, setRange] = useState<Range>('1h');
   const [filter, setFilter] = useState<string>('');
   const [tab, setTab] = useState<
-    'metrics' | 'performance' | 'alerts' | 'auto-actions' | 'realtime-control' | 'reliability'
+    'metrics' | 'performance' | 'alerts' | 'auto-actions' | 'realtime-control' | 'reliability' | 'enforcement'
   >('metrics');
 
   const summaryQ = useQuery({
@@ -53,7 +54,8 @@ export default function AdminObservabilityPage() {
               | 'alerts'
               | 'auto-actions'
               | 'realtime-control'
-              | 'reliability',
+              | 'reliability'
+              | 'enforcement',
           )
         }
       >
@@ -64,6 +66,7 @@ export default function AdminObservabilityPage() {
           <TabsTrigger value="auto-actions">Auto-actions</TabsTrigger>
           <TabsTrigger value="realtime-control">Realtime control</TabsTrigger>
           <TabsTrigger value="reliability">SLA &amp; Health</TabsTrigger>
+          <TabsTrigger value="enforcement">Enforcement</TabsTrigger>
         </TabsList>
         <TabsContent value="metrics" className="space-y-6">
           <div className="flex items-center justify-end">
@@ -181,6 +184,9 @@ export default function AdminObservabilityPage() {
         </TabsContent>
         <TabsContent value="reliability">
           <ReliabilityPanel />
+        </TabsContent>
+        <TabsContent value="enforcement">
+          <EnforcementPanel />
         </TabsContent>
       </Tabs>
     </div>

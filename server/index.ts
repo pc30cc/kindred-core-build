@@ -36,6 +36,7 @@ import { startAutoActionsTicker } from './services/observability/autoActionsTick
 import { startAutoActionsCache } from './services/observability/autoActionsCache.js';
 import { startFailoverTicker } from './services/realtime/failoverTicker.js';
 import { startReliabilityRollup } from './services/observability/reliabilityRollupTicker.js';
+import { startEnforcementTicker } from './services/observability/enforcementTicker.js';
 import { invalidateManifestCache, getManifestDiagnostics } from './services/widget/manifest.js';
 import { widgetCorsMiddleware } from './middleware/widgetCors.js';
 import {
@@ -235,6 +236,9 @@ app.listen(config.port, () => {
 
   // Phase 7 — start reliability/business/health rollup (every 10 min). Best-effort.
   startReliabilityRollup(config);
+
+  // Phase 7.5 — SLA enforcement engine (SLO eval + rule-driven actions, every 60s).
+  startEnforcementTicker(config);
 
   // ─── Post-deploy widget manifest invalidation ────────────────────
   // The in-memory widget manifest cache is per-process, so a fresh deploy

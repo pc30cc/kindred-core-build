@@ -22,7 +22,11 @@ export type AutoActionType =
   | 'disable_typing_temporarily'
   | 'force_polling_mode'
   | 'increase_reconnect_backoff'
-  | 'mark_system_degraded';
+  | 'mark_system_degraded'
+  | 'throttle_new_conversations'
+  | 'slow_mode_messages'
+  | 'operator_load_shedding'
+  | 'priority_only_mode';
 
 interface CachedAction {
   action_type: AutoActionType;

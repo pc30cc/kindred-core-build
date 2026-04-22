@@ -15,6 +15,7 @@ import { adminAlertsRouter } from './adminAlerts.js';
 import { adminPerfRouter } from './adminPerf.js';
 import { adminAutoActionsRouter } from './adminAutoActions.js';
 import { adminReliabilityRouter } from './adminReliability.js';
+import { adminEnforcementRouter } from './adminEnforcement.js';
 
 export const adminRouter = Router();
 
@@ -102,6 +103,9 @@ adminRouter.use('/auto-actions', adminAutoActionsRouter);
 
 // Phase 7 — SLA / reliability / business / workspace health (super admin only)
 adminRouter.use('/reliability', adminReliabilityRouter);
+
+// Phase 7.5 — SLA enforcement (SLO breaches, rules, actions, kill switch)
+adminRouter.use('/enforcement', adminEnforcementRouter);
 
 // ─── Send Password Reset Link ────────────────────────────────────
 const resetLinkSchema = z.object({

@@ -858,6 +858,7 @@ const en = {
       mapGeo: 'Map & Geo',
       widgetSettings: 'Widget Settings',
       system: 'System',
+      observability: 'Observability',
       featureFlags: 'Feature Flags',
       branding: 'Branding',
       domains: 'Domains',

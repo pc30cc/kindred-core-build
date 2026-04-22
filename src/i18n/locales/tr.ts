@@ -848,6 +848,7 @@ const tr: TranslationKeys = {
       mapGeo: 'Harita ve Konum',
       widgetSettings: 'Widget Ayarları',
       system: 'Sistem',
+      observability: 'Gözlemlenebilirlik',
       featureFlags: 'Özellik Bayrakları',
       branding: 'Marka',
       domains: 'Alan Adları',

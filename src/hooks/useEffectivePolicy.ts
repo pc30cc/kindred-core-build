@@ -12,6 +12,7 @@ import {
   type EffectivePolicySnapshot,
 } from '@/lib/effective-policy-api';
 import { invalidateClientRealtimeCache } from '@/realtime/resolveClientRealtimeProvider';
+import { setEffectivePolicySnapshot } from '@/realtime/policySnapshot';
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) || '';
 const POLL_MS = 30_000;
@@ -52,6 +53,10 @@ export function useEffectivePolicy(workspaceId: string | undefined): EffectivePo
       const p = await fetchPolicy(workspaceId);
       if (cancelled || !p) return;
       setPolicy(p);
+      // Mirror into the process-wide singleton so non-React adapters
+      // (Centrifugo reconnect scheduler, typing emit guard) can read
+      // the latest policy without a hook.
+      setEffectivePolicySnapshot(p);
       if (p.failover_epoch !== lastEpoch) {
         // Transport-affecting change — drop cached provider so the next
         // subscribe re-negotiates and binds to the new vendor.

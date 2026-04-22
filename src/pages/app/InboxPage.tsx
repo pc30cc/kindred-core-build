@@ -9,6 +9,7 @@ import { useVisitorPresenceForConversation } from '@/hooks/useVisitorPresence';
 import { conversationsApi } from '@/lib/conversations-api';
 import { useQueryClient } from '@tanstack/react-query';
 import { useIsGlobalAdmin } from '@/hooks/useAdmin';
+import { isTypingSuppressed } from '@/realtime/policySnapshot';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
@@ -330,6 +331,10 @@ export default function InboxPage() {
   const lastTypingSentRef = useRef(0);
   const emitTyping = useCallback(() => {
     if (!workspace?.id || !selectedId) return;
+    // Phase 6C — drop client-side typing when the effective policy says so.
+    // Server-side suppression remains the backstop; this just avoids
+    // wasting a round-trip when we know it'll be suppressed.
+    if (isTypingSuppressed()) return;
     const now = Date.now();
     if (now - lastTypingSentRef.current < 2000) return;
     lastTypingSentRef.current = now;

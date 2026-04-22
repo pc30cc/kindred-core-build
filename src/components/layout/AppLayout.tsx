@@ -11,6 +11,7 @@ import { AlertTriangle } from 'lucide-react';
 import { resendVerificationEmail } from '@/lib/auth-email-api';
 import { toast } from 'sonner';
 import { useState, useEffect } from 'react';
+import DegradedModeBanner from '@/components/realtime/DegradedModeBanner';
 
 const RESEND_COOLDOWN_MS = 60 * 60 * 1000;
 const RESEND_LS_KEY = 'verification_resend_at';
@@ -91,6 +92,7 @@ export function AppLayout() {
       <AppSidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
         {showVerificationBanner && <EmailVerificationBanner />}
+        <DegradedModeBanner />
         <main className="flex-1 overflow-y-auto">
           <Outlet />
         </main>

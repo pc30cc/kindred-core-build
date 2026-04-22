@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useWidgetPlatformSettings, useUpdateWidgetPlatformSettings, type PreChatPolicy, type FeatureLockMode, type WidgetPlatformSettings } from '@/hooks/useWidgetPlatformSettings';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -9,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { MessageSquare, Mail, Phone, Globe, Shield, Settings, Lock, Info, Bug, Rocket, Layers, Activity, Zap, Mic, Video, Disc, Users } from 'lucide-react';
+import { MessageSquare, Mail, Phone, Globe, Shield, Settings, Lock, Info, Bug, Rocket, Layers, Activity, Zap, Video, ArrowRight } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { DeploymentUrlsSection } from '@/components/admin/widget/DeploymentUrlsSection';
 import { WidgetTemplatesSection } from '@/components/admin/widget/WidgetTemplatesSection';
@@ -18,8 +19,6 @@ import {
   SecurityIsolationSection,
   FloodProtectionSection,
 } from '@/components/admin/widget/HardeningSection';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { fetchCallControlPlane, updateCallControlPlane, type CallControlPlane } from '@/lib/admin-calls-api';
 
 const PRECHAT_OPTIONS: { value: PreChatPolicy; label: string; desc: string }[] = [
   { value: 'force_on', label: 'Force ON', desc: 'Workspaces cannot disable — field is always required' },
@@ -45,23 +44,8 @@ export default function AdminWidgetSettingsPage() {
   const { data: settings, isLoading } = useWidgetPlatformSettings();
   const updateMut = useUpdateWidgetPlatformSettings();
 
-  // Phase 8C — global voice/video gates live in app_runtime_config.call_control_plane.
-  // Surface them here so platform admins manage all widget feature locks in one place.
-  const qc = useQueryClient();
-  const callPlaneQuery = useQuery({
-    queryKey: ['admin', 'call-control-plane'],
-    queryFn: fetchCallControlPlane,
-  });
-  const callPlaneMut = useMutation({
-    mutationFn: (patch: Partial<CallControlPlane>) => updateCallControlPlane(patch),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['admin', 'call-control-plane'] });
-      toast({ title: 'Saved', description: 'Call channel gates updated' });
-    },
-    onError: (e: any) => toast({ title: 'Error', description: e.message, variant: 'destructive' }),
-  });
-  const callPlane = callPlaneQuery.data?.control_plane;
-  const updateCallGate = (patch: Partial<CallControlPlane>) => callPlaneMut.mutate(patch);
+  // Voice / video gates live in the dedicated Voice & Video Center to avoid
+  // duplicated admin surfaces. See /admin/voice-video.
 
   if (isLoading) {
     return <div className="text-sm text-muted-foreground">Loading...</div>;

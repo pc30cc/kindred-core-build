@@ -13,7 +13,14 @@ async function authHeader(): Promise<Record<string, string>> {
 }
 
 export type QueueChannel = 'audio' | 'video';
-export type QueueState = 'queued' | 'offered' | 'accepted' | 'cancelled' | 'expired';
+export type QueueState =
+  | 'queued'
+  | 'offered'
+  | 'accepted'
+  | 'cancelled'
+  | 'expired'
+  | 'missed'
+  | 'callback_requested';
 
 export interface CallQueueEntry {
   id: string;
@@ -36,6 +43,12 @@ export interface CallQueueEntry {
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
+  // Phase 8D — SLA telemetry
+  missed_offer_count?: number;
+  last_offer_expires_at?: string | null;
+  offer_timeout_seconds?: number;
+  sla_breached?: boolean;
+  callback_request_id?: string | null;
 }
 
 export const callQueueApi = {

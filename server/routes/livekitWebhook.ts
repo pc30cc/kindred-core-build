@@ -29,6 +29,7 @@ import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { loadLiveKitConfig } from '../services/calls/livekitConfig.js';
 import { emitCallMetric } from '../services/calls/metrics.js';
+import { markInCall, clearInCall } from '../services/calls/availability.js';
 
 export const livekitWebhookRouter = Router();
 
@@ -163,6 +164,18 @@ async function applyEvent(
         })
         .eq('id', session.id);
       await recordEvent('room_finished', { sid: ev.room?.sid });
+      // Phase 8D — release any operator availability locks tied to this session.
+      try {
+        const { data: parts } = await sb
+          .from('call_participants')
+          .select('participant_id, participant_type')
+          .eq('call_session_id', session.id);
+        for (const p of parts ?? []) {
+          if ((p as any).participant_type === 'operator' && (p as any).participant_id) {
+            void clearInCall(config, session.workspace_id, (p as any).participant_id).catch(() => {});
+          }
+        }
+      } catch {/* best effort */}
       return { applied: true };
     }
     case 'participant_joined': {
@@ -195,6 +208,10 @@ async function applyEvent(
         });
       }
       await recordEvent('participant_joined', { identity });
+      // Phase 8D — when an operator actually joins media, lock them as in-call.
+      if (ptype === 'operator' && pId && /^[0-9a-f-]{36}$/i.test(pId)) {
+        void markInCall(config, session.workspace_id, pId, session.id).catch(() => {});
+      }
       return { applied: true };
     }
     case 'participant_left': {
@@ -205,6 +222,11 @@ async function applyEvent(
         .eq('call_session_id', session.id)
         .eq('provider_participant_id', identity);
       await recordEvent('participant_left', { identity });
+      // Phase 8D — operator left media → release busy lock.
+      const [pType2, pId2] = identity.split(':');
+      if (pType2 === 'operator' && pId2 && /^[0-9a-f-]{36}$/i.test(pId2)) {
+        void clearInCall(config, session.workspace_id, pId2).catch(() => {});
+      }
       return { applied: true };
     }
     case 'egress_started': {

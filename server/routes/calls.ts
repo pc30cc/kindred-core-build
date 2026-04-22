@@ -33,6 +33,7 @@ import { CallProviderNotReadyError } from '../services/calls/providers/types.js'
 import { mintTurnCreds } from '../services/calls/turnAuth.js';
 import { emitCallMetric } from '../services/calls/metrics.js';
 import { publishConversationEvent } from '../services/realtime/publish.js';
+import { markInCall, clearInCall } from '../services/calls/availability.js';
 
 export const callsRouter = Router();
 
@@ -419,6 +420,9 @@ callsRouter.post('/:id/accept', async (req, res) => {
     .update({ state: 'connecting', started_at: new Date().toISOString() })
     .eq('id', ctx.session.id);
   await recordEvent(ctx.sb, ctx.session.id, 'accepted', 'operator', ctx.userId);
+  // Phase 8D — operator becomes busy automatically.
+  void markInCall((req as any).serverConfig, ctx.session.workspace_id, ctx.userId, ctx.session.id)
+    .catch(() => {/* never block accept on availability bookkeeping */});
   res.json({ ok: true });
 });
 
@@ -450,6 +454,9 @@ callsRouter.post('/:id/hangup', async (req, res) => {
       .update({ state: 'ended', ended_at: new Date().toISOString(), duration_seconds: duration })
       .eq('id', ctx.session.id);
     await recordEvent(ctx.sb, ctx.session.id, 'hangup', 'operator', ctx.userId);
+    // Phase 8D — release the operator's busy lock.
+    void clearInCall((req as any).serverConfig, ctx.session.workspace_id, ctx.userId)
+      .catch(() => {/* never block hangup */});
     res.json({ ok: true });
   } catch (err) {
     return handleProviderError(res, err);

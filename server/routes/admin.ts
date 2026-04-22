@@ -13,6 +13,38 @@ import { adminWidgetTemplatesRouter } from './adminWidgetTemplates.js';
 
 export const adminRouter = Router();
 
+/**
+ * Resolve the canonical app base URL without falling back to `localhost`.
+ * Order: platform_domains.app_base_url → APP_BASE_URL env →
+ *        first non-wildcard CORS origin → request origin → null.
+ * Callers MUST handle a null result (multi-domain deploys without a
+ * configured app base must not silently link visitors to localhost).
+ */
+async function resolveAppBaseUrl(config: ServerConfig, req: any): Promise<string | null> {
+  const sb = getServiceClient(config);
+  const { data: domains } = await sb
+    .from('platform_domains')
+    .select('app_base_url')
+    .limit(1)
+    .maybeSingle();
+
+  const fromDb = domains?.app_base_url?.trim();
+  if (fromDb) return fromDb.replace(/\/+$/, '');
+
+  const fromEnv = process.env.APP_BASE_URL?.trim();
+  if (fromEnv) return fromEnv.replace(/\/+$/, '');
+
+  const explicitOrigin = (config.corsOrigins || []).find((o) => o && o !== '*');
+  if (explicitOrigin) return explicitOrigin.replace(/\/+$/, '');
+
+  // Last resort: request-derived origin. Honors X-Forwarded-* set by trust proxy.
+  const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol;
+  const host = (req.headers['x-forwarded-host'] as string) || req.headers.host;
+  if (proto && host) return `${proto}://${host}`;
+
+  return null;
+}
+
 // Middleware: verify caller is a global admin
 async function requireAdmin(req: any, res: any, next: any) {
   const config: ServerConfig = req.serverConfig;

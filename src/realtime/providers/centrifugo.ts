@@ -130,6 +130,33 @@ function jitter(baseMs: number, jitterPct: number): number {
   return Math.max(0, Math.round(baseMs + offset));
 }
 
+/**
+ * Returns true if `id` was already seen on `channel` within the dedupe
+ * window — caller should drop the frame. Otherwise records the id and
+ * returns false. Bounded ring per channel.
+ */
+function rememberAndCheckSeen(
+  conn: SharedConnection,
+  channel: string,
+  id: string,
+  window: number,
+): boolean {
+  let ring = conn.seenByChannel.get(channel);
+  if (!ring) {
+    ring = new Map();
+    conn.seenByChannel.set(channel, ring);
+  }
+  if (ring.has(id)) return true;
+  ring.set(id, true);
+  // Evict oldest entries beyond the window.
+  while (ring.size > window) {
+    const firstKey = ring.keys().next().value as string | undefined;
+    if (firstKey === undefined) break;
+    ring.delete(firstKey);
+  }
+  return false;
+}
+
 interface SubscribeResponse {
   vendor: 'centrifugo' | 'polling_builtin';
   channel?: string;
@@ -309,6 +336,12 @@ interface SharedConnection {
    * already been replaced.
    */
   generation: number;
+  /**
+   * Phase 2 — per-channel message dedupe ring. Bounded by
+   * messageDedupeWindow from platform settings. Plain Map (insertion
+   * order) lets us evict the oldest in O(1) without a separate LRU lib.
+   */
+  seenByChannel: Map<string, Map<string, true>>;
 }
 
 const sharedConns = new Map<string, SharedConnection>();
@@ -337,6 +370,7 @@ function buildConnection(workspaceId: string, negotiation: RealtimeNegotiation):
     disposed: false,
     ready: Promise.resolve(),
     generation: 0,
+    seenByChannel: new Map(),
   };
   // Phase 2 — kick off the hardening-settings prefetch (non-blocking).
   // First connection on this tab will use defaults; subsequent reconnects
@@ -424,6 +458,14 @@ function attachSocketHandlers(conn: SharedConnection): void {
         if (!handlersSet) continue;
         if (data?.type === 'message' && data.payload) {
           const payload = data.payload as NormalizedMessagePayload;
+          // Phase 2 — message dedupe. Centrifugo can replay a recent push
+          // on resubscribe; drop duplicates by payload.id before fan-out.
+          const { messageDedupeEnabled, messageDedupeWindow } = getHardeningSync();
+          if (messageDedupeEnabled && (payload as any)?.id) {
+            if (rememberAndCheckSeen(conn, channel, String((payload as any).id), messageDedupeWindow)) {
+              continue;
+            }
+          }
           handlersSet.forEach((h) => h.onMessage?.(payload));
         } else if (data?.type === 'typing') {
           handlersSet.forEach((h) => h.onTyping?.(data.payload || {}));
@@ -737,6 +779,18 @@ async function resubscribeAll(conn: SharedConnection): Promise<void> {
 function sendOnConn(conn: SharedConnection, key: string, body: Record<string, unknown>): Promise<any> {
   return new Promise((resolve, reject) => {
     if (conn.closed || conn.ws.readyState !== 1) return reject(new Error('socket_not_open'));
+    // Phase 2 — hard cap on in-flight pending callbacks. Prevents the
+    // pending map from growing unboundedly during a long-running server
+    // hang where replies never arrive. Drop the oldest entry (it would
+    // have timed out on its own in 8s anyway).
+    const { pendingMax } = getHardeningSync();
+    const pendingKeys = Object.keys(conn.pending);
+    if (pendingKeys.length >= pendingMax) {
+      const oldestId = Number(pendingKeys[0]);
+      const cb = conn.pending[oldestId];
+      delete conn.pending[oldestId];
+      try { cb({ error: { message: 'pending_cap_exceeded' } }); } catch { /* noop */ }
+    }
     const id = conn.nextId++;
     const frame: Record<string, unknown> = { id };
     frame[key] = body;
@@ -1015,6 +1069,8 @@ function buildUnsubscribe(
         if (set.size === 0) {
           conn.subs.delete(channelKey);
           conn.subTokens.delete(channelKey);
+          // Phase 2 — release per-channel dedupe ring on unsubscribe.
+          conn.seenByChannel.delete(channelKey);
           // Best-effort unsubscribe; ignore errors (socket may already be closed).
           if (conn.ws && conn.ws.readyState === 1) {
             sendOnConn(conn, 'unsubscribe', { channel: channelKey }).catch(() => {});

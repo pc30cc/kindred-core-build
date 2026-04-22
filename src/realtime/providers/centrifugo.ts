@@ -43,7 +43,53 @@ interface SubscribeResponse {
   expires_at?: number;
 }
 
+/**
+ * Single-flight Supabase access-token refresh.
+ *
+ * Wake/network-change race: after a long sleep `supabase.auth.getSession()`
+ * synchronously returns the cached (now-expired) JWT. The Supabase auto-
+ * refresh runs asynchronously in the background, so the very first
+ * `/api/realtime/operator-connect` POST after wake goes out with a stale
+ * bearer and the server responds 401 — which then drives the
+ * `reconnect open failed` loop and the proactive-refresh failures we see
+ * in the overnight logs.
+ *
+ * Fix: before returning auth headers, if the cached access token is at /
+ * past expiry (or within a 30s safety window), await a single refresh.
+ * Concurrent callers share the same in-flight promise so we never fire
+ * N parallel refreshes.
+ */
+const ACCESS_TOKEN_REFRESH_LEAD_MS = 30_000;
+let inflightSupabaseRefresh: Promise<void> | null = null;
+
+async function ensureFreshSupabaseSession(): Promise<void> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session?.access_token) return;
+  const expMs = (session.expires_at || 0) * 1000;
+  if (!expMs) return;
+  if (Date.now() < expMs - ACCESS_TOKEN_REFRESH_LEAD_MS) return;
+  if (inflightSupabaseRefresh) {
+    await inflightSupabaseRefresh;
+    return;
+  }
+  inflightSupabaseRefresh = (async () => {
+    try {
+      await supabase.auth.refreshSession();
+    } catch {
+      /* swallow — caller will see 401 and the reconnect loop will retry */
+    } finally {
+      inflightSupabaseRefresh = null;
+    }
+  })();
+  await inflightSupabaseRefresh;
+}
+
 async function authHeaders(): Promise<Record<string, string>> {
+  // Serialize a Supabase refresh BEFORE reading the session so we never
+  // POST a stale bearer to the realtime endpoints right after wake.
+  await ensureFreshSupabaseSession();
   const {
     data: { session },
   } = await supabase.auth.getSession();

@@ -35,7 +35,7 @@
   }
   window.__gs_loaded = true;
 
-  var LOADER_VERSION = "2026-04-21-heartbeat-token-refresh-v2";
+  var LOADER_VERSION = "2026-04-22-token-bus-v1";
   var ELEMENT_TAG = "gs-widget";
 
   // DEBUG defaults to OFF in production. Opt in via:
@@ -68,6 +68,40 @@
   if (Array.isArray(GS)) {
     for (var i = 0; i < GS.length; i++) queue.push(GS[i]);
   }
+
+  // ─── Shared token bus ──────────────────────────────────────────────
+  // Single authoritative source for the widget session token across:
+  //   - loader heartbeat / track / session-refresh
+  //   - runtime tokenManager (proactive + reactive refresh)
+  //   - runtime-rt-centrifugo /api/realtime/connect & /subscribe
+  //
+  // Without this each layer kept its own snapshot. After wake the runtime
+  // could refresh the token while the loader's heartbeat was still using
+  // the old one — producing the 403 loop on /api/widget/action and
+  // /api/widget/session/refresh and dragging the realtime layer back into
+  // reconnecting because /api/realtime/connect was hit with a stale token.
+  if (!window.__gs_token) {
+    var __tokenListeners = [];
+    window.__gs_token = {
+      _value: '',
+      get: function () { return this._value; },
+      set: function (t) {
+        if (!t || t === this._value) return;
+        this._value = t;
+        for (var i = 0; i < __tokenListeners.length; i++) {
+          try { __tokenListeners[i](t); } catch (_) {}
+        }
+      },
+      onChange: function (fn) {
+        __tokenListeners.push(fn);
+        return function () {
+          var i = __tokenListeners.indexOf(fn);
+          if (i !== -1) __tokenListeners.splice(i, 1);
+        };
+      },
+    };
+  }
+
   function processQueue() {
     while (queue.length) {
       var cmd = queue.shift();
@@ -358,6 +392,8 @@
         sessionToken = data.session_token;
         WORKSPACE_ID = data.workspace_id || WORKSPACE_ID;
         window.__gs._id = WORKSPACE_ID;
+        // Publish to shared bus so runtime + realtime driver use the same token.
+        try { window.__gs_token.set(sessionToken); } catch (_) {}
 
         return fetchWithRetry(
           apiBase + "/api/widget/config?workspace_id=" + encodeURIComponent(WORKSPACE_ID),
@@ -597,7 +633,15 @@
     // refresh the heartbeat loop would emit 403/TOKEN_EXPIRED forever, which
     // upstream proxies (nginx/Coolify) eventually return as 504 *without*
     // CORS headers — surfacing as a confusing CORS error in the browser.
-    var currentToken = token;
+    // Read from the shared bus on every send so a refresh by the runtime
+    // tokenManager (or vice-versa) is picked up immediately. Falls back
+    // to the bootstrap token if the bus is somehow not yet initialized.
+    function tokenNow() {
+      try {
+        var t = window.__gs_token && window.__gs_token.get();
+        return t || token;
+      } catch (_) { return token; }
+    }
     var heartbeatTimer = null;
     var refreshing = null; // Promise<string|null> while a refresh is in flight
     var consecutiveFailures = 0;
@@ -605,10 +649,11 @@
 
     function refreshToken() {
       if (refreshing) return refreshing;
+      var t = tokenNow();
       refreshing = fetch(apiBase + "/api/widget/session/refresh", {
         method: "POST",
         credentials: "include",
-        headers: { "Content-Type": "application/json", "X-Widget-Token": currentToken },
+        headers: { "Content-Type": "application/json", "X-Widget-Token": t },
       })
         .then(function (r) {
           if (!r.ok) return null;
@@ -616,8 +661,8 @@
         })
         .then(function (data) {
           if (data && data.session_token) {
-            currentToken = data.session_token;
-            return currentToken;
+            try { window.__gs_token.set(data.session_token); } catch (_) {}
+            return data.session_token;
           }
           return null;
         })
@@ -629,7 +674,7 @@
     fetch(apiBase + "/api/widget/track", {
       method: "POST",
       credentials: "include",
-      headers: { "Content-Type": "application/json", "X-Widget-Token": currentToken },
+      headers: { "Content-Type": "application/json", "X-Widget-Token": tokenNow() },
       body: JSON.stringify({
         workspace_id: workspaceId,
         event: "page_view",
@@ -687,7 +732,7 @@
               }
             });
         }
-        function ping() { doPing(currentToken, false); }
+        function ping() { doPing(tokenNow(), false); }
         // Background heartbeat — keeps presence "online" and refreshes
         // last_seen_at so the operator UI stays accurate.
         heartbeatTimer = setInterval(ping, 30000);

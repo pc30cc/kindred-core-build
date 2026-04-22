@@ -2729,6 +2729,34 @@
     ctx.fetchWith = tokenMgr.fetchWith;
     ctx.getToken = tokenMgr.get;
     ctx.tokenManager = tokenMgr;
+
+    // ─── Shared token bus integration ─────────────────────────────────
+    // Bridge runtime tokenManager ↔ window.__gs_token (set up by loader).
+    // After this:
+    //   - any refresh by the runtime is published to the bus, so the
+    //     loader's heartbeat picks it up on the very next ping;
+    //   - any refresh done by the loader's heartbeat is mirrored into
+    //     the runtime tokenManager so /api/realtime/connect and
+    //     /api/realtime/subscribe never go out with a stale token.
+    // This eliminates the "stale token snapshot" reconnect-churn loop.
+    try {
+      if (window.__gs_token) {
+        // Publish current token so any subscriber that came up before
+        // the runtime mounted gets the freshest value.
+        if (ctx.sessionToken) window.__gs_token.set(ctx.sessionToken);
+        // Mirror runtime refreshes → bus.
+        tokenMgr.onChange(function (t) {
+          try { window.__gs_token.set(t); } catch (_) {}
+        });
+        // Mirror bus updates → runtime ctx.sessionToken so the realtime
+        // driver (which reads ctx.sessionToken at call time) always sees
+        // the latest value, even if the loader-side refresh fired first.
+        window.__gs_token.onChange(function (t) {
+          if (t && t !== ctx.sessionToken) ctx.sessionToken = t;
+        });
+      }
+    } catch (_) { /* bus optional */ }
+
     // Expose template slug in the runtime context for CSS scoping + future
     // template-aware behavior. Today only 'default' is registered server-side.
     var __tplResolve = TemplateRegistry.resolve(config.templateSlug);

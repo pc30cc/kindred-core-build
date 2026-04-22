@@ -94,8 +94,16 @@ adminRouter.post('/send-reset-link', async (req, res) => {
     const config: ServerConfig = (req as any).serverConfig;
     const sb = getServiceClient(config);
 
+    const appBase = await resolveAppBaseUrl(config, req);
+    if (!appBase) {
+      return res.status(500).json({
+        error: 'app_base_url_unconfigured',
+        message: 'Configure platform_domains.app_base_url or APP_BASE_URL before sending reset links.',
+      });
+    }
+
     const { error } = await sb.auth.resetPasswordForEmail(email, {
-      redirectTo: `${config.corsOrigins[0] !== '*' ? config.corsOrigins[0] : 'http://localhost:5173'}/reset-password`,
+      redirectTo: `${appBase}/reset-password`,
     });
 
     if (error) {
@@ -218,7 +226,13 @@ adminRouter.post('/impersonate', async (req, res) => {
     }
 
     // Build the verification URL using the hashed_token
-    const redirectBase = config.corsOrigins[0] !== '*' ? config.corsOrigins[0] : 'http://localhost:5173';
+    const redirectBase = await resolveAppBaseUrl(config, req);
+    if (!redirectBase) {
+      return res.status(500).json({
+        error: 'app_base_url_unconfigured',
+        message: 'Configure platform_domains.app_base_url or APP_BASE_URL before impersonating.',
+      });
+    }
     const verifyUrl = `${config.supabaseUrl}/auth/v1/verify?token=${data.properties.hashed_token}&type=magiclink&redirect_to=${encodeURIComponent(redirectBase + '/app')}`;
 
     res.json({ url: verifyUrl });

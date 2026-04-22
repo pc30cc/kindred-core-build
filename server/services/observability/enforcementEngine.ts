@@ -73,6 +73,7 @@ export async function runEnforcementCycle(
     skipped_kill_switch: false,
     skipped_max_concurrent: false,
     dry_run: false,
+    normalized: false,
     ran_at: new Date().toISOString(),
   };
 
@@ -112,7 +113,25 @@ export async function runEnforcementCycle(
       return out;
     }
 
-    for (const rule of (rules || []) as EnforcementRule[]) {
+    // Phase 7.6 — two-pass evaluation:
+    //   1. Collect every (rule, action_type) candidate that matches AND
+    //      is past cooldown.
+    //   2. Run the conflict resolver to deduplicate and normalize.
+    //   3. Apply only the normalized candidates.
+    //
+    // Sorting rules by priority DESC (then slug) here makes the cooldown
+    // pass deterministic and gives the resolver a stable input order.
+    const ruleList = ((rules || []) as EnforcementRule[]).sort((a, b) => {
+      const pa = Number(a.priority ?? 100);
+      const pb = Number(b.priority ?? 100);
+      if (pa !== pb) return pb - pa;
+      return a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0;
+    });
+
+    const ruleById = new Map<string, EnforcementRule>();
+    const candidates: RawEnforcementCandidate[] = [];
+
+    for (const rule of ruleList) {
       try {
         out.evaluated += 1;
         const matched = await evaluateRule(config, rule);
@@ -134,13 +153,75 @@ export async function runEnforcementCycle(
           }
         }
 
-        const triggered = await applyRule(config, rule, matched, dryRun);
-        if (triggered) out.triggered += 1;
+        ruleById.set(rule.id, rule);
+        for (const at of rule.actions_json || []) {
+          candidates.push({
+            rule_id: rule.id,
+            rule_slug: rule.slug,
+            rule_priority: Number(rule.priority ?? 100),
+            action_type: at,
+            scope_type: matched.scope_type,
+            scope_key: matched.scope_key,
+            trigger_payload: matched.trigger_payload,
+          });
+        }
       } catch (err: any) {
         emitLog(config, 'warn', 'enforcement_rule_threw', {
           slug: rule.slug,
           error: err?.message || 'unknown',
         });
+      }
+    }
+
+    if (candidates.length === 0) {
+      // Nothing to do.
+      return out;
+    }
+
+    const resolution = resolveEnforcementConflicts(candidates);
+    out.normalized = resolution.changed;
+
+    // Audit any normalization that actually changed the set.
+    if (resolution.changed) {
+      try {
+        await sb.from('enforcement_normalizations').insert({
+          cycle_ran_at: out.ran_at,
+          raw_actions: resolution.raw.map((c) => ({
+            rule_slug: c.rule_slug,
+            rule_priority: c.rule_priority,
+            action_type: c.action_type,
+          })),
+          normalized_actions: resolution.normalized.map((n) => ({
+            rule_slug: n.rule_slug,
+            rule_priority: n.rule_priority,
+            action_type: n.action_type,
+            merged_with: n.merged_with,
+            suppressed: n.suppressed,
+            annotations: n.annotations,
+          })),
+          reasons: resolution.reasons,
+          context: { cycle: 'enforcement' },
+        });
+      } catch (err: any) {
+        emitLog(config, 'warn', 'enforcement_normalization_audit_failed', {
+          error: err?.message,
+        });
+      }
+    }
+
+    // Apply normalized candidates honoring the live max_concurrent cap.
+    let active = activeCount || 0;
+    for (const cand of resolution.normalized) {
+      if (active >= maxConcurrent) {
+        out.skipped_max_concurrent = true;
+        break;
+      }
+      const rule = ruleById.get(cand.rule_id);
+      if (!rule) continue;
+      const ok = await applyCandidate(config, rule, cand, dryRun);
+      if (ok) {
+        out.triggered += 1;
+        if (!dryRun) active += 1;
       }
     }
   } catch (err: any) {

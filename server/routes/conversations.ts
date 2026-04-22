@@ -37,6 +37,8 @@ import {
   recordConversationEvent,
   recordAuditAndEvent,
 } from '../services/conversationEvents.js';
+import { isActionActive } from '../services/observability/autoActionsCache.js';
+import { emitLog } from '../services/observability/metrics.js';
 
 export const conversationsRouter = Router();
 
@@ -142,6 +144,20 @@ conversationsRouter.post('/typing', async (req, res) => {
       .maybeSingle();
     if (!conv || conv.workspace_id !== parsed.data.workspace_id) {
       return res.status(404).json({ error: 'Conversation not found in workspace' });
+    }
+
+    // Phase 5C.1 — server-side typing suppression while the
+    // disable_typing_temporarily auto-action is active. Drop without
+    // touching the realtime publisher. Message send is unaffected.
+    if (isActionActive('disable_typing_temporarily')) {
+      emitLog(config, 'info', 'auto_action_effect_applied', {
+        action_type: 'disable_typing_temporarily',
+        workspace_id: parsed.data.workspace_id,
+        conversation_id: parsed.data.conversation_id,
+        surface: 'operator',
+        ts: Date.now(),
+      });
+      return res.json({ ok: true, published: false, reason: 'auto_action_suppressed' });
     }
 
     const pub = await publishConversationEvent(

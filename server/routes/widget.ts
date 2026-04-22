@@ -291,7 +291,9 @@ widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), perfHttpMiddleware
     // older widget runtimes ignore the field, newer ones honor force_polling /
     // typing_suppressed / reconnect_backoff_multiplier without a separate
     // round-trip. Resolution is fail-open and never blocks bootstrap.
-    const effective_policy = await resolveEffectivePolicy(config);
+    const effective_policy = await resolveEffectivePolicy(config, {
+      workspaceId: resolvedWorkspaceId,
+    });
 
     return res.json({
       session_token: sessionToken,
@@ -357,7 +359,7 @@ widgetRouter.post('/session/refresh', widgetRateLimit('refresh'), perfHttpMiddle
     let effective_policy: Awaited<ReturnType<typeof resolveEffectivePolicy>> | null = null;
     try {
       const config = (req as any).serverConfig as ServerConfig;
-      effective_policy = await resolveEffectivePolicy(config);
+      effective_policy = await resolveEffectivePolicy(config, { workspaceId });
     } catch (_err) {
       effective_policy = null;
     }

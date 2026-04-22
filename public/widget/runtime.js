@@ -1023,6 +1023,21 @@
       })
         .then(function (r) { return r.json(); })
         .then(function (resolved) {
+          // Phase 6C — refresh the policy snapshot from the realtime
+          // negotiation BEFORE we decide which transport to start. The
+          // backend may flip force_polling to true even if the lock /
+          // priority would otherwise yield centrifugo.
+          if (resolved && resolved.effective_policy) {
+            Policy.set(resolved.effective_policy);
+          }
+          // If policy says force polling, do not even attempt a real
+          // realtime driver — drop straight into polling. The backend
+          // already returns vendor: 'polling_builtin' in that case, but
+          // be defensive in case an older server omits the override.
+          if (Policy.forcePolling()) {
+            resolved = resolved || {};
+            resolved.vendor = 'polling_builtin';
+          }
           resolvedVendor = (resolved && resolved.vendor) || 'polling_builtin';
           fallbackPolicy = (resolved && resolved.fallback_policy) || 'lenient';
           if (resolved && resolved.capabilities) {

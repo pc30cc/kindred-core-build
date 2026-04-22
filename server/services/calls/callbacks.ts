@@ -70,6 +70,26 @@ export async function createCallbackRequest(
   input: CreateCallbackInput,
 ): Promise<CallbackRequestRow> {
   const sb = getServiceClient(config);
+  // Phase 8D+ — Idempotency guard. Avoid creating duplicate callbacks for the
+  // same visitor/contact within a 10-minute window if one is still open.
+  const sinceIso = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  const dedupeKey =
+    input.visitorSessionId || input.contactId || input.conversationId || null;
+  if (dedupeKey) {
+    let dq = sb
+      .from('callback_requests')
+      .select('*')
+      .eq('workspace_id', input.workspaceId)
+      .in('status', ['requested', 'scheduled', 'in_progress'])
+      .gte('created_at', sinceIso)
+      .order('created_at', { ascending: false })
+      .limit(1);
+    if (input.visitorSessionId) dq = dq.eq('visitor_session_id', input.visitorSessionId);
+    else if (input.contactId) dq = dq.eq('contact_id', input.contactId);
+    else if (input.conversationId) dq = dq.eq('conversation_id', input.conversationId);
+    const { data: existing } = await dq.maybeSingle();
+    if (existing) return existing as CallbackRequestRow;
+  }
   const { data, error } = await sb
     .from('callback_requests')
     .insert({

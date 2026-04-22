@@ -51,6 +51,14 @@ export interface EffectivePolicySnapshot {
   typing_suppressed: boolean;
   /** Multiplier to apply to client reconnect backoff (≥1). */
   reconnect_backoff_multiplier: number;
+  /** Phase 7.5 — widget should slow new conversation creation. */
+  throttle_new_conversations: boolean;
+  /** Phase 7.5 — widget should add a small delay between messages. */
+  slow_mode_messages: boolean;
+  /** Phase 7.5 — operator UI reduces non-critical polling/subscriptions. */
+  operator_load_shedding: boolean;
+  /** Phase 7.5 — only high-priority conversations use realtime, others poll. */
+  priority_only_mode: boolean;
   /**
    * Bumped whenever the *transport target* changes (vendor switch,
    * lock change, or force_polling toggle). Clients MUST reset transport
@@ -77,6 +85,10 @@ const SAFE_DEFAULT: EffectivePolicySnapshot = {
   force_polling: false,
   typing_suppressed: false,
   reconnect_backoff_multiplier: 1,
+  throttle_new_conversations: false,
+  slow_mode_messages: false,
+  operator_load_shedding: false,
+  priority_only_mode: false,
   failover_epoch: 'safe-default',
   policy_version: 'safe-default',
   expires_at: Date.now() + POLICY_SNAPSHOT_TTL_MS,
@@ -135,6 +147,14 @@ function computePolicyVersion(snap: Omit<EffectivePolicySnapshot, 'policy_versio
   h.update('|');
   h.update(String(snap.reconnect_backoff_multiplier));
   h.update('|');
+  h.update(snap.throttle_new_conversations ? '1' : '0');
+  h.update('|');
+  h.update(snap.slow_mode_messages ? '1' : '0');
+  h.update('|');
+  h.update(snap.operator_load_shedding ? '1' : '0');
+  h.update('|');
+  h.update(snap.priority_only_mode ? '1' : '0');
+  h.update('|');
   h.update(snap.failover_epoch);
   return h.digest('hex').slice(0, 12);
 }
@@ -162,6 +182,11 @@ export async function resolveEffectivePolicy(
     const typingSuppressed = isActionActive('disable_typing_temporarily');
     const degradedMode = isActionActive('mark_system_degraded');
     const backoffActionActive = isActionActive('increase_reconnect_backoff');
+    // Phase 7.5 — enforcement actions overlay.
+    const throttle_new_conversations = isActionActive('throttle_new_conversations');
+    const slow_mode_messages = isActionActive('slow_mode_messages');
+    const operator_load_shedding = isActionActive('operator_load_shedding');
+    const priority_only_mode = isActionActive('priority_only_mode');
 
     // Combine with control-plane degradation toggles. The control-plane
     // booleans are intent flags — they only take effect when the platform
@@ -202,6 +227,10 @@ export async function resolveEffectivePolicy(
       force_polling,
       typing_suppressed,
       reconnect_backoff_multiplier,
+      throttle_new_conversations,
+      slow_mode_messages,
+      operator_load_shedding,
+      priority_only_mode,
       failover_epoch,
     };
 

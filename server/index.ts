@@ -36,6 +36,7 @@ import { startAutoActionsTicker } from './services/observability/autoActionsTick
 import { startAutoActionsCache } from './services/observability/autoActionsCache.js';
 import { startFailoverTicker } from './services/realtime/failoverTicker.js';
 import { startReliabilityRollup } from './services/observability/reliabilityRollupTicker.js';
+import { startEnforcementTicker } from './services/observability/enforcementTicker.js';
 import { invalidateManifestCache, getManifestDiagnostics } from './services/widget/manifest.js';
 import { widgetCorsMiddleware } from './middleware/widgetCors.js';
 import {

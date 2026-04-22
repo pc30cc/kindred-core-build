@@ -121,6 +121,128 @@ export type Database = {
         }
         Relationships: []
       }
+      alert_events: {
+        Row: {
+          details: Json
+          fired_at: string
+          id: string
+          metric_value: number | null
+          resolved_at: string | null
+          rule_id: string
+          rule_slug: string
+          sample_size: number | null
+          severity: string
+          state: string
+          threshold_value: number | null
+          webhook_attempts: number
+          webhook_last_attempt_at: string | null
+          webhook_last_error: string | null
+          webhook_status: string | null
+          window_seconds: number
+        }
+        Insert: {
+          details?: Json
+          fired_at?: string
+          id?: string
+          metric_value?: number | null
+          resolved_at?: string | null
+          rule_id: string
+          rule_slug: string
+          sample_size?: number | null
+          severity: string
+          state: string
+          threshold_value?: number | null
+          webhook_attempts?: number
+          webhook_last_attempt_at?: string | null
+          webhook_last_error?: string | null
+          webhook_status?: string | null
+          window_seconds: number
+        }
+        Update: {
+          details?: Json
+          fired_at?: string
+          id?: string
+          metric_value?: number | null
+          resolved_at?: string | null
+          rule_id?: string
+          rule_slug?: string
+          sample_size?: number | null
+          severity?: string
+          state?: string
+          threshold_value?: number | null
+          webhook_attempts?: number
+          webhook_last_attempt_at?: string | null
+          webhook_last_error?: string | null
+          webhook_status?: string | null
+          window_seconds?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "alert_events_rule_id_fkey"
+            columns: ["rule_id"]
+            isOneToOne: false
+            referencedRelation: "alert_rules"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      alert_rules: {
+        Row: {
+          created_at: string
+          critical_threshold: number
+          denominator: string | null
+          description: string | null
+          enabled: boolean
+          id: string
+          is_builtin: boolean
+          kind: string
+          metric: string | null
+          min_sample: number
+          numerator: string | null
+          slug: string
+          title: string
+          updated_at: string
+          warn_threshold: number
+          window_seconds: number
+        }
+        Insert: {
+          created_at?: string
+          critical_threshold: number
+          denominator?: string | null
+          description?: string | null
+          enabled?: boolean
+          id?: string
+          is_builtin?: boolean
+          kind: string
+          metric?: string | null
+          min_sample?: number
+          numerator?: string | null
+          slug: string
+          title: string
+          updated_at?: string
+          warn_threshold: number
+          window_seconds?: number
+        }
+        Update: {
+          created_at?: string
+          critical_threshold?: number
+          denominator?: string | null
+          description?: string | null
+          enabled?: boolean
+          id?: string
+          is_builtin?: boolean
+          kind?: string
+          metric?: string | null
+          min_sample?: number
+          numerator?: string | null
+          slug?: string
+          title?: string
+          updated_at?: string
+          warn_threshold?: number
+          window_seconds?: number
+        }
+        Relationships: []
+      }
       app_runtime_config: {
         Row: {
           key: string
@@ -2371,6 +2493,9 @@ export type Database = {
       widget_platform_settings: {
         Row: {
           admin_notes: string | null
+          alert_webhook_secret: string | null
+          alert_webhook_url: string | null
+          alerting_enabled: boolean
           created_at: string
           default_allow_subdomains: boolean
           default_debug_mode: boolean
@@ -2410,6 +2535,9 @@ export type Database = {
         }
         Insert: {
           admin_notes?: string | null
+          alert_webhook_secret?: string | null
+          alert_webhook_url?: string | null
+          alerting_enabled?: boolean
           created_at?: string
           default_allow_subdomains?: boolean
           default_debug_mode?: boolean
@@ -2449,6 +2577,9 @@ export type Database = {
         }
         Update: {
           admin_notes?: string | null
+          alert_webhook_secret?: string | null
+          alert_webhook_url?: string | null
+          alerting_enabled?: boolean
           created_at?: string
           default_allow_subdomains?: boolean
           default_debug_mode?: boolean
@@ -3551,6 +3682,7 @@ export type Database = {
         Args: { _credits?: number; _period?: string; _workspace_id: string }
         Returns: Json
       }
+      evaluate_alert_rules: { Args: never; Returns: Json }
       generate_short_id: { Args: { prefix?: string }; Returns: string }
       get_account_role: {
         Args: { _account_id: string; _user_id: string }

@@ -210,8 +210,8 @@ export function diffControlPlane(
     keyof RealtimeControlPlaneConfig
   >;
   keys.forEach((k) => {
-    const p = (prev as Record<string, unknown>)[k];
-    const n = (next as Record<string, unknown>)[k];
+    const p = (prev as unknown as Record<string, unknown>)[k];
+    const n = (next as unknown as Record<string, unknown>)[k];
     if (JSON.stringify(p) !== JSON.stringify(n)) out[k] = { from: p, to: n };
   });
   return out;

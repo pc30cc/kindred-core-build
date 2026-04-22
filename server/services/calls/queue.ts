@@ -159,6 +159,7 @@ export async function enqueueCall(
     entry_id: data.id,
     channel: input.channel,
   });
+  await writeTimelineEvent(config, data as QueueEntry, 'call_queued', { entry_id: data.id });
   return data as QueueEntry;
 }
 
@@ -169,12 +170,17 @@ export async function offerEntry(
   operatorUserId: string,
 ): Promise<QueueEntry> {
   const sb = getServiceClient(config);
+  const cp = await loadCallControlPlane(config);
+  const timeoutSec = Math.max(5, cp.queue_offer_timeout_seconds || 25);
+  const expiresIso = new Date(Date.now() + timeoutSec * 1000).toISOString();
   const { data, error } = await sb
     .from('call_queue_entries')
     .update({
       state: 'offered',
       offered_to_user_id: operatorUserId,
       offered_at: new Date().toISOString(),
+      last_offer_expires_at: expiresIso,
+      offer_timeout_seconds: timeoutSec,
     })
     .eq('id', entryId)
     .eq('state', 'queued')
@@ -183,6 +189,11 @@ export async function offerEntry(
   if (error || !data) throw new Error(error?.message || 'offer_failed');
   await publishQueueEvent(config, data.workspace_id, {
     type: 'offered',
+    entry_id: entryId,
+    operator_id: operatorUserId,
+    expires_at: expiresIso,
+  });
+  await writeTimelineEvent(config, data as QueueEntry, 'call_offered', {
     entry_id: entryId,
     operator_id: operatorUserId,
   });
@@ -210,6 +221,10 @@ export async function acceptEntry(
   if (error || !data) throw new Error(error?.message || 'accept_failed');
   await publishQueueEvent(config, data.workspace_id, {
     type: 'accepted',
+    entry_id: entryId,
+    call_session_id: callSessionId,
+  });
+  await writeTimelineEvent(config, data as QueueEntry, 'call_accepted', {
     entry_id: entryId,
     call_session_id: callSessionId,
   });
@@ -241,6 +256,10 @@ export async function cancelEntry(
     entry_id: entryId,
     reason,
   });
+  await writeTimelineEvent(config, data as QueueEntry, 'call_cancelled', {
+    entry_id: entryId,
+    reason,
+  });
   return data as QueueEntry;
 }
 
@@ -258,15 +277,115 @@ export async function expireStaleEntries(
     })
     .lt('expires_at', new Date().toISOString())
     .in('state', ['queued', 'offered'])
-    .select('id, workspace_id');
+    .select('id, workspace_id, conversation_id, channel');
   if (error || !data) return 0;
   for (const row of data) {
     await publishQueueEvent(config, row.workspace_id, {
       type: 'expired',
       entry_id: row.id,
     });
+    await writeTimelineEvent(
+      config,
+      row as any,
+      'call_expired',
+      { entry_id: row.id },
+    );
   }
   return data.length;
+}
+
+/**
+ * Phase 8D — return an offered entry to queue if its offer timeout passed.
+ * Bumps `missed_offer_count`. If the count reaches the SLA ceiling we mark
+ * the whole entry as `missed` so it stops cycling.
+ */
+export async function reapStaleOffers(config: ServerConfig): Promise<{ requeued: number; missed: number }> {
+  const sb = getServiceClient(config);
+  const cp = await loadCallControlPlane(config);
+  const maxMisses = 3; // small, predictable; not user-facing yet.
+  const { data: stale } = await sb
+    .from('call_queue_entries')
+    .select('*')
+    .eq('state', 'offered')
+    .lt('last_offer_expires_at', new Date().toISOString())
+    .limit(100);
+  let requeued = 0;
+  let missed = 0;
+  for (const e of (stale ?? []) as QueueEntry[]) {
+    const nextMisses = (e.missed_offer_count || 0) + 1;
+    const ageSec = (Date.now() - new Date(e.created_at).getTime()) / 1000;
+    const slaBreach = ageSec >= cp.queue_max_wait_seconds;
+    if (nextMisses >= maxMisses || slaBreach) {
+      // Fully missed — out of the active queue.
+      const { data: u } = await sb
+        .from('call_queue_entries')
+        .update({
+          state: 'missed',
+          ended_at: new Date().toISOString(),
+          ended_reason: slaBreach ? 'sla_breach' : 'no_answer',
+          missed_offer_count: nextMisses,
+          sla_breached: slaBreach,
+        })
+        .eq('id', e.id)
+        .select('*')
+        .maybeSingle();
+      if (u) {
+        missed++;
+        await publishQueueEvent(config, e.workspace_id, { type: 'missed', entry_id: e.id });
+        await writeTimelineEvent(config, u as QueueEntry, 'call_missed', { entry_id: e.id, reason: (u as any).ended_reason });
+      }
+    } else {
+      const { data: u } = await sb
+        .from('call_queue_entries')
+        .update({
+          state: 'queued',
+          offered_to_user_id: null,
+          offered_at: null,
+          last_offer_expires_at: null,
+          missed_offer_count: nextMisses,
+        })
+        .eq('id', e.id)
+        .select('*')
+        .maybeSingle();
+      if (u) {
+        requeued++;
+        await publishQueueEvent(config, e.workspace_id, { type: 'requeued', entry_id: e.id });
+      }
+    }
+  }
+  return { requeued, missed };
+}
+
+/** Convenience for routing after a callback was created. */
+export async function markEntryAsCallback(
+  config: ServerConfig,
+  entryId: string,
+  callbackRequestId: string,
+): Promise<void> {
+  const sb = getServiceClient(config);
+  const { data } = await sb
+    .from('call_queue_entries')
+    .update({
+      state: 'callback_requested',
+      ended_at: new Date().toISOString(),
+      ended_reason: 'callback_requested',
+      callback_request_id: callbackRequestId,
+    })
+    .eq('id', entryId)
+    .in('state', ['queued', 'offered'])
+    .select('*')
+    .maybeSingle();
+  if (data) {
+    await publishQueueEvent(config, (data as any).workspace_id, {
+      type: 'callback_requested',
+      entry_id: entryId,
+      callback_request_id: callbackRequestId,
+    });
+    await writeTimelineEvent(config, data as QueueEntry, 'callback_requested', {
+      entry_id: entryId,
+      callback_request_id: callbackRequestId,
+    });
+  }
 }
 
 /** Read snapshot of active entries for a workspace, FIFO by created_at. */

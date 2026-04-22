@@ -188,6 +188,7 @@ export type Database = {
       }
       alert_rules: {
         Row: {
+          aggregation: string | null
           created_at: string
           critical_threshold: number
           denominator: string | null
@@ -199,13 +200,16 @@ export type Database = {
           metric: string | null
           min_sample: number
           numerator: string | null
+          route_group: string | null
           slug: string
+          subrules: Json
           title: string
           updated_at: string
           warn_threshold: number
           window_seconds: number
         }
         Insert: {
+          aggregation?: string | null
           created_at?: string
           critical_threshold: number
           denominator?: string | null
@@ -217,13 +221,16 @@ export type Database = {
           metric?: string | null
           min_sample?: number
           numerator?: string | null
+          route_group?: string | null
           slug: string
+          subrules?: Json
           title: string
           updated_at?: string
           warn_threshold: number
           window_seconds?: number
         }
         Update: {
+          aggregation?: string | null
           created_at?: string
           critical_threshold?: number
           denominator?: string | null
@@ -235,7 +242,9 @@ export type Database = {
           metric?: string | null
           min_sample?: number
           numerator?: string | null
+          route_group?: string | null
           slug?: string
+          subrules?: Json
           title?: string
           updated_at?: string
           warn_threshold?: number
@@ -2611,6 +2620,7 @@ export type Database = {
           observability_log_level: string
           observability_metrics_enabled: boolean
           observability_structured_logs_enabled: boolean
+          perf_memory_budget_mb: number
           prechat_email_policy: string
           prechat_name_policy: string
           prechat_phone_policy: string
@@ -2653,6 +2663,7 @@ export type Database = {
           observability_log_level?: string
           observability_metrics_enabled?: boolean
           observability_structured_logs_enabled?: boolean
+          perf_memory_budget_mb?: number
           prechat_email_policy?: string
           prechat_name_policy?: string
           prechat_phone_policy?: string
@@ -2695,6 +2706,7 @@ export type Database = {
           observability_log_level?: string
           observability_metrics_enabled?: boolean
           observability_structured_logs_enabled?: boolean
+          perf_memory_budget_mb?: number
           prechat_email_policy?: string
           prechat_name_policy?: string
           prechat_phone_policy?: string

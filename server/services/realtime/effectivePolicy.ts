@@ -61,7 +61,7 @@ export interface EffectivePolicySnapshot {
   /** Phase 7.5 — only high-priority conversations use realtime, others poll. */
   priority_only_mode: boolean;
   /** Phase 8A — Voice/Video call policy (read-only for clients). */
-  effective_call_provider: 'livekit' | 'jitsi' | 'janus' | 'disabled';
+  effective_call_provider: 'livekit' | 'jitsi' | 'janus' | 'agora_cloud' | 'disabled';
   call_degraded_mode: boolean;
   audio_only_mode: boolean;
   video_disabled: boolean;

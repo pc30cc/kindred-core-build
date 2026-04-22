@@ -307,6 +307,107 @@ export default function WidgetPage() {
                       </div>
                     )}
                   </div>
+
+                  {/* ─── Voice & Video channels ─── */}
+                  <div className="pt-4 mt-2 border-t border-border space-y-3">
+                    <div className="flex items-center gap-2">
+                      <div className="p-2 rounded-lg bg-primary/10">
+                        <Mic className="h-4 w-4 text-primary" />
+                      </div>
+                      <div>
+                        <Label className="text-sm">Voice & Video channels</Label>
+                        <p className="text-xs text-muted-foreground">
+                          Enable or disable call features for this workspace's widget.
+                        </p>
+                      </div>
+                    </div>
+
+                    {callSettingsQuery.isLoading ? (
+                      <p className="text-xs text-muted-foreground px-1">Loading…</p>
+                    ) : !callSettingsQuery.data ? (
+                      <p className="text-xs text-destructive px-1">
+                        Could not load call settings.
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {!callSettingsQuery.data.global_gates.enabled && (
+                          <div className="flex items-start gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-[11px] text-muted-foreground">
+                            <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                            <span>
+                              The call platform is currently disabled by the platform admin. These toggles will have no effect until it is enabled.
+                            </span>
+                          </div>
+                        )}
+                        {[
+                          {
+                            key: 'voice_calls_enabled' as const,
+                            globalKey: 'voice_calls_enabled_global' as const,
+                            label: 'Voice calls',
+                            icon: Mic,
+                          },
+                          {
+                            key: 'video_calls_enabled' as const,
+                            globalKey: 'video_calls_enabled_global' as const,
+                            label: 'Video calls',
+                            icon: Video,
+                          },
+                          {
+                            key: 'visitor_initiated_audio_enabled' as const,
+                            globalKey: 'visitor_initiated_audio_enabled_global' as const,
+                            label: 'Visitor-initiated audio',
+                            icon: Mic,
+                          },
+                          {
+                            key: 'visitor_initiated_video_enabled' as const,
+                            globalKey: 'visitor_initiated_video_enabled_global' as const,
+                            label: 'Visitor-initiated video',
+                            icon: Video,
+                          },
+                          {
+                            key: 'call_queue_enabled' as const,
+                            globalKey: 'call_queue_enabled_global' as const,
+                            label: 'Call queue',
+                            icon: Users,
+                          },
+                          {
+                            key: 'call_recording_enabled' as const,
+                            globalKey: 'call_recording_enabled_global' as const,
+                            label: 'Call recording',
+                            icon: Disc,
+                          },
+                        ].map((row) => {
+                          const data = callSettingsQuery.data!;
+                          const globalOn = !!data.global_gates[row.globalKey];
+                          const wsOn = !!data.overrides[row.key];
+                          const locked = !globalOn;
+                          return (
+                            <div
+                              key={row.key}
+                              className="flex items-center justify-between rounded-md border border-border px-3 py-2"
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <row.icon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                                <span className="text-sm truncate">{row.label}</span>
+                                {locked && (
+                                  <Badge variant="outline" className="gap-1 text-[10px] h-5">
+                                    <Lock className="h-2.5 w-2.5" />
+                                    Disabled by platform
+                                  </Badge>
+                                )}
+                              </div>
+                              <Switch
+                                checked={wsOn}
+                                disabled={locked || callSettingsMut.isPending}
+                                onCheckedChange={(v) =>
+                                  callSettingsMut.mutate({ [row.key]: v } as Partial<WorkspaceCallOverrides>)
+                                }
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
             </TabsContent>

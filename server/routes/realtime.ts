@@ -291,9 +291,11 @@ realtimeRouter.post('/operator-connect', async (req, res) => {
     }
     const driver = await getCentrifugoDriver(config);
     if (!driver) return res.json({ vendor: 'polling_builtin' });
+    const platform = await loadWidgetPlatformRuntimeSettings(config);
     const tk = driver.issueConnectionToken({
       sub: `op_${user.id}`,
       workspace_id: parsed.data.workspace_id,
+      expires_in_seconds: platform.realtime.tokenTtlSeconds,
     });
     return res.json({
       vendor: 'centrifugo',

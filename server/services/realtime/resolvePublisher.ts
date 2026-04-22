@@ -26,6 +26,8 @@ import { SupabaseRealtimePublisher } from './publishers/supabase.js';
 import { NoopPublisher } from './publishers/noop.js';
 import type { ServerRealtimePublisher } from './publishers/types.js';
 import { rtDebug, rtWarn } from './debug.js';
+import { loadFailoverState } from './failoverState.js';
+import { loadControlPlane } from './controlPlane.js';
 
 const SUPPORTED_OVERRIDE_VENDORS = new Set(['centrifugo', 'supabase']);
 const CACHE_TTL_MS = 30_000;
@@ -98,19 +100,47 @@ export async function resolvePublisher(
     publisher = await buildPublisher(config, override);
     source = 'workspace_override';
   } else {
-    // 2. Global active vendor.
-    const cfg = await loadRealtimeConfig(config);
-    rtDebug('resolve', 'global config', {
-      workspaceId,
-      vendor: cfg.vendor,
-      enabled: cfg.enabled,
-    });
-    if (!cfg.enabled) {
+    // 2. Phase 6B — failover engine state takes precedence over the static
+    // global vendor. Maps the engine's provider id onto the publisher
+    // vendor namespace ('supabase_realtime' → 'supabase'). Falls back to
+    // the legacy global config if the failover state is unavailable.
+    let effectiveVendor: string | null = null;
+    try {
+      const [policy, state] = await Promise.all([
+        loadControlPlane(config, false),
+        loadFailoverState(config, false),
+      ]);
+      // Manual lock wins.
+      const target = policy.realtime_provider_lock ?? state.effective_provider;
+      if (target === 'supabase_realtime') effectiveVendor = 'supabase';
+      else if (target === 'centrifugo') effectiveVendor = 'centrifugo';
+      else if (target === 'polling_builtin') effectiveVendor = 'polling';
+    } catch {
+      effectiveVendor = null;
+    }
+
+    if (effectiveVendor === 'polling') {
+      // Polling means "no realtime publisher" on the server side.
       publisher = new NoopPublisher();
       source = 'fallback';
-    } else {
-      publisher = await buildPublisher(config, cfg.vendor);
+    } else if (effectiveVendor === 'centrifugo' || effectiveVendor === 'supabase') {
+      publisher = await buildPublisher(config, effectiveVendor);
       source = publisher.vendor === 'noop' ? 'fallback' : 'global_default';
+    } else {
+      // Engine state unavailable — preserve legacy behavior.
+      const cfg = await loadRealtimeConfig(config);
+      rtDebug('resolve', 'global config (legacy fallback)', {
+        workspaceId,
+        vendor: cfg.vendor,
+        enabled: cfg.enabled,
+      });
+      if (!cfg.enabled) {
+        publisher = new NoopPublisher();
+        source = 'fallback';
+      } else {
+        publisher = await buildPublisher(config, cfg.vendor);
+        source = publisher.vendor === 'noop' ? 'fallback' : 'global_default';
+      }
     }
   }
 

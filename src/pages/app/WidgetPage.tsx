@@ -14,11 +14,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { Copy, Check, Code, ExternalLink, Globe, Info, Palette, Settings, Shield, Eye, MessageSquare, Link2, Clock } from 'lucide-react';
+import { Copy, Check, Code, ExternalLink, Globe, Info, Palette, Settings, Shield, Eye, MessageSquare, Link2, Clock, Mic, Video, Disc, Users, Lock } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { AvailabilitySection } from '@/components/app/widget/AvailabilitySection';
 import { TemplateGallery } from '@/components/app/widget/TemplateGallery';
 import { PrechatSection } from '@/components/app/widget/PrechatSection';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  fetchWorkspaceCallSettings,
+  updateWorkspaceCallSettings,
+  type WorkspaceCallOverrides,
+} from '@/lib/workspace-calls-api';
 
 function normalizeDomainInput(input: string): string {
   let raw = input.trim();

@@ -58,7 +58,7 @@ export function CallControlPlanePanel() {
       const r = await fetchCallControlPlane();
       setCp(r.control_plane);
       setNetwork(r.network);
-      setReadiness(r.readiness);
+      setReadiness(r.readiness ?? {});
     } catch (e: any) {
       toast({ title: 'Failed to load call settings', description: e.message, variant: 'destructive' });
     } finally {
@@ -74,7 +74,7 @@ export function CallControlPlanePanel() {
     try {
       const r = await updateCallControlPlane(patch);
       setCp(r.control_plane);
-      setReadiness(r.readiness);
+      setReadiness(r.readiness ?? {});
       toast({ title: 'Settings saved' });
     } catch (e: any) {
       toast({ title: 'Save failed', description: e.message, variant: 'destructive' });

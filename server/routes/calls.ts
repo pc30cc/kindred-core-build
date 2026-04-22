@@ -120,6 +120,46 @@ function handleProviderError(res: any, err: unknown) {
   return res.status(500).json({ error: 'internal_error' });
 }
 
+/**
+ * Build the network bundle for a token response, including dynamically-minted
+ * RFC 7635-style TURN credentials when a static_secret is present. Shared by
+ * the /token endpoint and the /invite envelope so visitors and operators see
+ * an identical TURN/ICE shape. URLs always come from the resolver — no
+ * hardcoded hostnames.
+ */
+async function buildTokenNetworkBundle(
+  config: ServerConfig,
+  callSessionId: string,
+  ttlSeconds: number,
+) {
+  const network = await getCallNetworkBundle(config);
+  const turn = { ...network.turn };
+  if (turn.static_secret_present && turn.urls.length > 0) {
+    try {
+      const sb = getServiceClient(config);
+      const { data: rtcRow } = await sb
+        .from('app_runtime_config')
+        .select('value')
+        .eq('key', 'call_rtc_endpoints')
+        .maybeSingle();
+      const sharedSecret = (rtcRow?.value as any)?.turn?.shared_secret;
+      if (typeof sharedSecret === 'string' && sharedSecret.length > 0) {
+        const minted = mintTurnCreds({
+          sharedSecret,
+          identity: 'call:' + callSessionId,
+          ttlSeconds: Math.min(ttlSeconds, 3600),
+        });
+        turn.username = minted.username;
+        turn.credential = minted.credential;
+        turn.credential_type = 'password';
+      }
+    } catch {
+      /* fall back to static creds */
+    }
+  }
+  return { network, turn };
+}
+
 // ─── POST /api/calls/create ───────────────────────────────────────────────
 const createSchema = z.object({
   workspace_id: z.string().uuid(),

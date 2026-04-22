@@ -309,6 +309,7 @@ const tokenSchema = z.object({
 callsRouter.post('/:id/token', async (req, res) => {
   const ctx = await loadSessionWithMembership(req, res, (req as any).serverConfig, req.params.id);
   if (!ctx) return;
+  const t0 = Date.now();
   try {
     const body = tokenSchema.parse(req.body ?? {});
     if (!ctx.session.provider_room_id) {
@@ -326,14 +327,87 @@ callsRouter.post('/:id/token', async (req, res) => {
       canPublishData: true,
       ttlSeconds: body.ttl_seconds,
     });
-    const network = await getCallNetworkBundle((req as any).serverConfig);
+    const config: ServerConfig = (req as any).serverConfig;
+    const network = await getCallNetworkBundle(config);
+
+    // Mint time-limited TURN credentials when a static_secret is configured
+    // (RFC 7635-style HMAC). Falls back to whatever username/credential the
+    // admin set in the static config. URLs always come from the resolver -
+    // never hardcoded.
+    const turn = { ...network.turn };
+    if (turn.static_secret_present && turn.urls.length > 0) {
+      try {
+        // The shared secret itself lives in app_runtime_config - read it fresh
+        // here (the resolver intentionally only returns presence + the public
+        // username/credential).
+        const sb = getServiceClient(config);
+        const { data: rtcRow } = await sb
+          .from('app_runtime_config')
+          .select('value')
+          .eq('key', 'call_rtc_endpoints')
+          .maybeSingle();
+        const sharedSecret = (rtcRow?.value as any)?.turn?.shared_secret;
+        if (typeof sharedSecret === 'string' && sharedSecret.length > 0) {
+          const minted = mintTurnCreds({
+            sharedSecret,
+            identity: 'call:' + ctx.session.id,
+            ttlSeconds: Math.min(body.ttl_seconds ?? 600, 3600),
+          });
+          turn.username = minted.username;
+          turn.credential = minted.credential;
+          turn.credential_type = 'password';
+        }
+      } catch {
+        // Fall back to static creds; never break token issuance on TURN error.
+      }
+    }
+    if (turn.urls.length === 0) {
+      emitCallMetric(config, {
+        metric: 'call.turn.missing',
+        workspaceId: ctx.session.workspace_id,
+        provider: ctx.session.provider,
+        callId: ctx.session.id,
+      });
+    }
+
+    emitCallMetric(config, {
+      metric: 'call.token.success',
+      workspaceId: ctx.session.workspace_id,
+      provider: ctx.session.provider,
+      callId: ctx.session.id,
+    });
+    emitCallMetric(config, {
+      metric: 'call.setup.latency',
+      workspaceId: ctx.session.workspace_id,
+      provider: ctx.session.provider,
+      callId: ctx.session.id,
+      value: Date.now() - t0,
+    });
+
     res.json({
       token: token.token,
       expires_at: token.expiresAt,
       provider: ctx.session.provider,
+      rtc_url: network.rtc_url,
+      ws_url: network.ws_url,
+      turn: {
+        urls: turn.urls,
+        username: turn.username,
+        credential: turn.credential,
+      },
+      ice_policy: network.ice_policy,
       network,
     });
   } catch (err) {
+    try {
+      emitCallMetric((req as any).serverConfig, {
+        metric: 'call.token.failure',
+        workspaceId: ctx.session.workspace_id,
+        provider: ctx.session.provider,
+        callId: ctx.session.id,
+        reason: String((err as any)?.message || 'unknown').slice(0, 120),
+      });
+    } catch { /* */ }
     return handleProviderError(res, err);
   }
 });

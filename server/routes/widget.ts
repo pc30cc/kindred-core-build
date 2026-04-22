@@ -38,6 +38,7 @@ import {
   resolveWidgetAssetBase,
   resolveWorkspaceIdFromOrigin,
 } from '../services/widget/public.js';
+import { perfHttpMiddleware } from '../services/observability/perf.js';
 import { getWidgetAssetName, getLoaderVersion, getManifestDiagnostics, invalidateManifestCache } from '../services/widget/manifest.js';
 import {
   createSessionToken,

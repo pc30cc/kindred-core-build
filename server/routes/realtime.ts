@@ -342,12 +342,22 @@ async function authorizeOperator(req: any, res: any, config: ServerConfig, works
 }
 
 realtimeRouter.post('/operator-connect', async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
   try {
-    const config: ServerConfig = (req as any).serverConfig;
     const parsed = operatorConnectSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Invalid request' });
     const user = await authorizeOperator(req, res, config, parsed.data.workspace_id);
     if (!user) return;
+
+    // Phase 3 — every operator-connect is a (re)connect attempt. Used to
+    // chart reconnect rates per workspace in the observability panel.
+    emitMetric(config, {
+      metric: 'realtime.reconnect_attempt',
+      workspaceId: parsed.data.workspace_id,
+      driver: 'centrifugo',
+      source: 'operator',
+      tags: { endpoint: 'operator-connect' },
+    });
 
     const resolved = await resolveRealtimeProvider(config);
     if (resolved.effective_vendor !== 'centrifugo') {
@@ -370,15 +380,29 @@ realtimeRouter.post('/operator-connect', async (req, res) => {
     });
   } catch (err: any) {
     console.error('[realtime/operator-connect]', err);
+    emitMetric(config, {
+      metric: 'realtime.token_refresh_failed',
+      driver: 'centrifugo',
+      source: 'operator',
+      tags: { endpoint: 'operator-connect', reason: 'internal_error' },
+    });
     res.status(500).json({ error: 'Internal error' });
   }
 });
 
 realtimeRouter.post('/operator-subscribe', async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
   try {
-    const config: ServerConfig = (req as any).serverConfig;
     const parsed = operatorSubscribeSchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: 'Invalid request' });
+    if (!parsed.success) {
+      emitMetric(config, {
+        metric: 'realtime.subscribe_failed',
+        driver: 'centrifugo',
+        source: 'operator',
+        tags: { endpoint: 'operator-subscribe', reason: 'invalid_request' },
+      });
+      return res.status(400).json({ error: 'Invalid request' });
+    }
     const user = await authorizeOperator(req, res, config, parsed.data.workspace_id);
     if (!user) return;
 
@@ -426,6 +450,12 @@ realtimeRouter.post('/operator-subscribe', async (req, res) => {
     return res.json({ vendor: 'centrifugo', channel, token: tk.token, expires_at: tk.expires_at });
   } catch (err: any) {
     console.error('[realtime/operator-subscribe]', err);
+    emitMetric(config, {
+      metric: 'realtime.subscribe_failed',
+      driver: 'centrifugo',
+      source: 'operator',
+      tags: { endpoint: 'operator-subscribe', reason: 'internal_error' },
+    });
     res.status(500).json({ error: 'Internal error' });
   }
 });

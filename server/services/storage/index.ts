@@ -226,8 +226,17 @@ async function localUpload(config: StorageConfig, req: UploadRequest): Promise<S
   const filePath = path.join(basePath, req.fileKey);
   ensureLocalDir(path.dirname(filePath));
   fs.writeFileSync(filePath, req.data);
-  const publicUrl = `${config.publicUrl || 'http://localhost:3001/storage'}/${req.fileKey}`;
-  return { success: true, url: publicUrl, fileKey: req.fileKey };
+  const base = (config.publicUrl || '').trim().replace(/\/+$/, '');
+  if (!base) {
+    // Fail loud rather than silently link visitors to localhost on a
+    // production deploy. The local provider must be configured with a
+    // public_url that's reachable from the browser.
+    return {
+      success: false,
+      error: 'local_storage_public_url_unconfigured',
+    };
+  }
+  return { success: true, url: `${base}/${req.fileKey}`, fileKey: req.fileKey };
 }
 
 async function localDelete(config: StorageConfig, fileKey: string): Promise<StorageResult> {
@@ -237,7 +246,12 @@ async function localDelete(config: StorageConfig, fileKey: string): Promise<Stor
 }
 
 function localGetUrl(config: StorageConfig, fileKey: string): string {
-  return `${config.publicUrl || 'http://localhost:3001/storage'}/${fileKey}`;
+  const base = (config.publicUrl || '').trim().replace(/\/+$/, '');
+  // Returning an empty path (rather than a localhost URL) ensures callers
+  // that do not handle missing config will surface a broken link in dev
+  // instead of silently pointing visitors at the operator's loopback.
+  if (!base) return `/storage/${fileKey}`;
+  return `${base}/${fileKey}`;
 }
 
 // ─── Download (server-side proxy fetch) ──────────────────────────

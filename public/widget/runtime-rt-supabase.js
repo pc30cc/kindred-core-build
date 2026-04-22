@@ -22,7 +22,32 @@
 (function () {
   'use strict';
 
-  var SUPABASE_JS_URL = 'https://esm.sh/@supabase/supabase-js@2?bundle';
+  // Self-host friendly: never hardcode a third-party CDN. Operators that
+  // want the Supabase realtime driver MUST expose the supabase-js bundle
+  // from one of these sources, in order:
+  //   1. window.__gs_supabase_client_factory          (already loaded)
+  //   2. window.__gs_supabase_js_url                  (runtime override
+  //      injected by the loader/runtime, e.g. the asset CDN configured in
+  //      widget_platform_settings)
+  //   3. <script data-supabase-js-url="…">           (data attribute on
+  //      this asset's <script> tag, set by the loader when it knows the
+  //      asset base URL)
+  // If none of those resolve, the driver fails fast and the runtime falls
+  // back to polling rather than pulling code from an unaudited third-party
+  // origin (esm.sh / unpkg / jsDelivr).
+  function resolveSupabaseJsUrl() {
+    if (typeof window.__gs_supabase_js_url === 'string' && window.__gs_supabase_js_url) {
+      return window.__gs_supabase_js_url;
+    }
+    var scripts = document.getElementsByTagName('script');
+    for (var i = 0; i < scripts.length; i++) {
+      var s = scripts[i];
+      if (!s || !s.getAttribute) continue;
+      var attr = s.getAttribute('data-supabase-js-url');
+      if (attr) return attr;
+    }
+    return null;
+  }
   var loadingClientLib = null;
 
   function loadSupabaseClient() {
@@ -30,12 +55,19 @@
       return Promise.resolve(window.__gs_supabase_client_factory);
     }
     if (loadingClientLib) return loadingClientLib;
+    var supabaseJsUrl = resolveSupabaseJsUrl();
+    if (!supabaseJsUrl) {
+      // No self-hosted bundle URL configured — refuse to load from any
+      // third-party CDN. Caller should fall back to polling.
+      loadingClientLib = Promise.reject(new Error('supabase_js_url_unconfigured'));
+      return loadingClientLib;
+    }
     loadingClientLib = new Promise(function (resolve, reject) {
       // Use dynamic import via a module script — works in all evergreen browsers.
       var s = document.createElement('script');
       s.type = 'module';
       s.textContent =
-        "import { createClient } from '" + SUPABASE_JS_URL + "';" +
+        "import { createClient } from '" + supabaseJsUrl + "';" +
         'window.__gs_supabase_client_factory = createClient;' +
         "window.dispatchEvent(new Event('__gs_supabase_lib_ready'));";
       var done = false;

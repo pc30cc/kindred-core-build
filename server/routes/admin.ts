@@ -13,6 +13,38 @@ import { adminWidgetTemplatesRouter } from './adminWidgetTemplates.js';
 
 export const adminRouter = Router();
 
+/**
+ * Resolve the canonical app base URL without falling back to `localhost`.
+ * Order: platform_domains.app_base_url → APP_BASE_URL env →
+ *        first non-wildcard CORS origin → request origin → null.
+ * Callers MUST handle a null result (multi-domain deploys without a
+ * configured app base must not silently link visitors to localhost).
+ */
+async function resolveAppBaseUrl(config: ServerConfig, req: any): Promise<string | null> {
+  const sb = getServiceClient(config);
+  const { data: domains } = await sb
+    .from('platform_domains')
+    .select('app_base_url')
+    .limit(1)
+    .maybeSingle();
+
+  const fromDb = domains?.app_base_url?.trim();
+  if (fromDb) return fromDb.replace(/\/+$/, '');
+
+  const fromEnv = process.env.APP_BASE_URL?.trim();
+  if (fromEnv) return fromEnv.replace(/\/+$/, '');
+
+  const explicitOrigin = (config.corsOrigins || []).find((o) => o && o !== '*');
+  if (explicitOrigin) return explicitOrigin.replace(/\/+$/, '');
+
+  // Last resort: request-derived origin. Honors X-Forwarded-* set by trust proxy.
+  const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol;
+  const host = (req.headers['x-forwarded-host'] as string) || req.headers.host;
+  if (proto && host) return `${proto}://${host}`;
+
+  return null;
+}
+
 // Middleware: verify caller is a global admin
 async function requireAdmin(req: any, res: any, next: any) {
   const config: ServerConfig = req.serverConfig;
@@ -62,8 +94,16 @@ adminRouter.post('/send-reset-link', async (req, res) => {
     const config: ServerConfig = (req as any).serverConfig;
     const sb = getServiceClient(config);
 
+    const appBase = await resolveAppBaseUrl(config, req);
+    if (!appBase) {
+      return res.status(500).json({
+        error: 'app_base_url_unconfigured',
+        message: 'Configure platform_domains.app_base_url or APP_BASE_URL before sending reset links.',
+      });
+    }
+
     const { error } = await sb.auth.resetPasswordForEmail(email, {
-      redirectTo: `${config.corsOrigins[0] !== '*' ? config.corsOrigins[0] : 'http://localhost:5173'}/reset-password`,
+      redirectTo: `${appBase}/reset-password`,
     });
 
     if (error) {
@@ -186,7 +226,13 @@ adminRouter.post('/impersonate', async (req, res) => {
     }
 
     // Build the verification URL using the hashed_token
-    const redirectBase = config.corsOrigins[0] !== '*' ? config.corsOrigins[0] : 'http://localhost:5173';
+    const redirectBase = await resolveAppBaseUrl(config, req);
+    if (!redirectBase) {
+      return res.status(500).json({
+        error: 'app_base_url_unconfigured',
+        message: 'Configure platform_domains.app_base_url or APP_BASE_URL before impersonating.',
+      });
+    }
     const verifyUrl = `${config.supabaseUrl}/auth/v1/verify?token=${data.properties.hashed_token}&type=magiclink&redirect_to=${encodeURIComponent(redirectBase + '/app')}`;
 
     res.json({ url: verifyUrl });

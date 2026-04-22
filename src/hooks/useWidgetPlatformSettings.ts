@@ -37,6 +37,13 @@ export interface WidgetPlatformSettings {
   typing_rate_limit_max_events: number;
   // Realtime / Transport — diagnostic flag for the resubscribe-loop guard.
   realtime_stale_resubscribe_guard_enabled: boolean;
+  // ── Phase 2 hardening ──────────────────────────────────────────────
+  realtime_reconnect_jitter_pct: number;
+  realtime_token_ttl_seconds: number;
+  realtime_idle_disposal_ms: number;
+  realtime_pending_max: number;
+  realtime_message_dedupe_enabled: boolean;
+  realtime_message_dedupe_window: number;
   created_at: string;
   updated_at: string;
   updated_by: string | null;

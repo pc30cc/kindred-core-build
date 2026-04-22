@@ -49,15 +49,114 @@ export function RealtimeTransportSection({ settings, onSave }: Props) {
               }
             />
           </div>
-          <div className="flex items-start gap-2 bg-muted/40 rounded-md p-2 text-xs text-muted-foreground">
-            <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-            <p>
-              Enforced in the operator-side Centrifugo client. Diagnostic flag — the guard is
-              always present in code; this toggle only controls whether the runtime treats it
-              as advisory or strict. Future transport hardening flags (jitter, etc.) will land
-              here in Phase 2.
-            </p>
+        </div>
+
+        {/* Phase 2 — reconnect jitter */}
+        <div className="rounded-lg border border-border p-4 space-y-2">
+          <Label className="text-sm font-medium">Reconnect jitter (%)</Label>
+          <p className="text-xs text-muted-foreground">
+            Randomizes reconnect backoff by ±N% so simultaneously-disconnected tabs do not
+            stampede the connect endpoint after a regional network blip.
+          </p>
+          <Input
+            type="number" min={0} max={50} step={1}
+            value={settings.realtime_reconnect_jitter_pct}
+            onChange={(e) => onSave({
+              realtime_reconnect_jitter_pct: Math.max(0, Math.min(50, parseInt(e.target.value || '20', 10))),
+            })}
+            className="max-w-32"
+          />
+          <p className="text-[10px] text-muted-foreground">0 – 50 % (default: 20)</p>
+        </div>
+
+        {/* Phase 2 — JWT TTL */}
+        <div className="rounded-lg border border-border p-4 space-y-2">
+          <Label className="text-sm font-medium">Realtime token TTL (seconds)</Label>
+          <p className="text-xs text-muted-foreground">
+            Lifetime of Centrifugo connection &amp; subscription tokens. Tokens carry fixed
+            issuer/audience claims (<code className="bg-muted px-1 rounded">lovable-realtime</code> /{' '}
+            <code className="bg-muted px-1 rounded">centrifugo</code>) and are refreshed
+            proactively ~2 min before expiry.
+          </p>
+          <Input
+            type="number" min={300} max={7200} step={60}
+            value={settings.realtime_token_ttl_seconds}
+            onChange={(e) => onSave({
+              realtime_token_ttl_seconds: Math.max(300, Math.min(7200, parseInt(e.target.value || '1800', 10))),
+            })}
+            className="max-w-32"
+          />
+          <p className="text-[10px] text-muted-foreground">300 – 7200 sec (default: 1800)</p>
+        </div>
+
+        {/* Phase 2 — idle disposal + pending cap */}
+        <div className="rounded-lg border border-border p-4 space-y-3">
+          <Label className="text-sm font-medium">Memory cleanup</Label>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Idle socket disposal (ms)</Label>
+              <Input
+                type="number" min={10000} max={1800000} step={1000}
+                value={settings.realtime_idle_disposal_ms}
+                onChange={(e) => onSave({
+                  realtime_idle_disposal_ms: Math.max(10000, Math.min(1800000, parseInt(e.target.value || '60000', 10))),
+                })}
+              />
+              <p className="text-[10px] text-muted-foreground">10000 – 1800000 ms</p>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Pending callbacks cap</Label>
+              <Input
+                type="number" min={32} max={4096} step={32}
+                value={settings.realtime_pending_max}
+                onChange={(e) => onSave({
+                  realtime_pending_max: Math.max(32, Math.min(4096, parseInt(e.target.value || '256', 10))),
+                })}
+              />
+              <p className="text-[10px] text-muted-foreground">32 – 4096</p>
+            </div>
           </div>
+          <p className="text-[10px] text-muted-foreground">
+            Hard cap on in-flight Centrifugo commands per socket; oldest is dropped if exceeded.
+          </p>
+        </div>
+
+        {/* Phase 2 — message dedupe */}
+        <div className="rounded-lg border border-border p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5 max-w-xl">
+              <Label className="text-sm font-medium">Message dedupe</Label>
+              <p className="text-xs text-muted-foreground">
+                Drop duplicate realtime push frames (same <code className="bg-muted px-1 rounded">payload.id</code>)
+                before fan-out. Defends against Centrifugo replay-on-resubscribe.
+              </p>
+            </div>
+            <Switch
+              checked={settings.realtime_message_dedupe_enabled}
+              onCheckedChange={(v) => onSave({ realtime_message_dedupe_enabled: v })}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Ring window (entries)</Label>
+            <Input
+              type="number" min={16} max={4096} step={16}
+              disabled={!settings.realtime_message_dedupe_enabled}
+              value={settings.realtime_message_dedupe_window}
+              onChange={(e) => onSave({
+                realtime_message_dedupe_window: Math.max(16, Math.min(4096, parseInt(e.target.value || '200', 10))),
+              })}
+              className="max-w-32"
+            />
+            <p className="text-[10px] text-muted-foreground">16 – 4096 (default: 200, per channel)</p>
+          </div>
+        </div>
+
+        <div className="flex items-start gap-2 bg-muted/40 rounded-md p-2 text-xs text-muted-foreground">
+          <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+          <p>
+            All values are clamped server-side by a database trigger; out-of-range values are
+            rejected. Changes apply within ~60 s (cache TTL) without a redeploy.
+          </p>
         </div>
       </CardContent>
     </Card>

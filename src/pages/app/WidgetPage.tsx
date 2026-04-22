@@ -50,6 +50,25 @@ export default function WidgetPage() {
   const [newDomain, setNewDomain] = useState('');
   const [domainError, setDomainError] = useState('');
 
+  // Workspace-level voice/video/queue/recording overrides — surfaced here so
+  // workspace admins can toggle channels alongside other widget behavior.
+  const qc = useQueryClient();
+  const callSettingsQuery = useQuery({
+    queryKey: ['workspace-call-settings', workspace?.id],
+    queryFn: () => fetchWorkspaceCallSettings(workspace!.id),
+    enabled: !!workspace?.id,
+  });
+  const callSettingsMut = useMutation({
+    mutationFn: (patch: Partial<WorkspaceCallOverrides>) =>
+      updateWorkspaceCallSettings(workspace!.id, patch),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['workspace-call-settings', workspace?.id] });
+      toast({ title: 'Saved', description: 'Call channel updated' });
+    },
+    onError: (e: any) =>
+      toast({ title: 'Error', description: e.message, variant: 'destructive' }),
+  });
+
   const urls = useMemo(
     () => resolveWidgetUrls(platformWidget, typeof window !== 'undefined' ? window.location.origin : undefined),
     [platformWidget],

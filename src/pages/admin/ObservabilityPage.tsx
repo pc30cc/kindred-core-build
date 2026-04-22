@@ -139,6 +139,11 @@ export default function AdminObservabilityPage() {
           </Table>
         </CardContent>
       </Card>
+        </TabsContent>
+        <TabsContent value="alerts">
+          <AlertsPanel />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

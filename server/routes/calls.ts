@@ -30,6 +30,8 @@ import {
 } from '../services/calls/controlPlane.js';
 import { getCallNetworkBundle } from '../services/calls/rtcResolver.js';
 import { CallProviderNotReadyError } from '../services/calls/providers/types.js';
+import { mintTurnCreds } from '../services/calls/turnAuth.js';
+import { emitCallMetric } from '../services/calls/metrics.js';
 
 export const callsRouter = Router();
 
@@ -196,6 +198,14 @@ callsRouter.post('/create', async (req, res) => {
       call_type: body.call_type,
     });
 
+    emitCallMetric(config, {
+      metric: 'call.create.success',
+      workspaceId: body.workspace_id,
+      provider: providerId,
+      callId: inserted.id,
+      callType: body.call_type,
+    });
+
     res.json({
       id: inserted.id,
       provider: providerId,
@@ -203,6 +213,15 @@ callsRouter.post('/create', async (req, res) => {
       state: inserted.state,
     });
   } catch (err) {
+    const reason = (err as any)?.message || 'unknown';
+    try {
+      const cfg: ServerConfig = (req as any).serverConfig;
+      emitCallMetric(cfg, {
+        metric: err instanceof CallProviderNotReadyError ? 'call.provider.not_ready' : 'call.create.failure',
+        provider: err instanceof CallProviderNotReadyError ? err.providerId : null,
+        reason: String(reason).slice(0, 120),
+      });
+    } catch { /* never break the response */ }
     return handleProviderError(res, err);
   }
 });
@@ -290,6 +309,7 @@ const tokenSchema = z.object({
 callsRouter.post('/:id/token', async (req, res) => {
   const ctx = await loadSessionWithMembership(req, res, (req as any).serverConfig, req.params.id);
   if (!ctx) return;
+  const t0 = Date.now();
   try {
     const body = tokenSchema.parse(req.body ?? {});
     if (!ctx.session.provider_room_id) {
@@ -307,14 +327,87 @@ callsRouter.post('/:id/token', async (req, res) => {
       canPublishData: true,
       ttlSeconds: body.ttl_seconds,
     });
-    const network = await getCallNetworkBundle((req as any).serverConfig);
+    const config: ServerConfig = (req as any).serverConfig;
+    const network = await getCallNetworkBundle(config);
+
+    // Mint time-limited TURN credentials when a static_secret is configured
+    // (RFC 7635-style HMAC). Falls back to whatever username/credential the
+    // admin set in the static config. URLs always come from the resolver -
+    // never hardcoded.
+    const turn = { ...network.turn };
+    if (turn.static_secret_present && turn.urls.length > 0) {
+      try {
+        // The shared secret itself lives in app_runtime_config - read it fresh
+        // here (the resolver intentionally only returns presence + the public
+        // username/credential).
+        const sb = getServiceClient(config);
+        const { data: rtcRow } = await sb
+          .from('app_runtime_config')
+          .select('value')
+          .eq('key', 'call_rtc_endpoints')
+          .maybeSingle();
+        const sharedSecret = (rtcRow?.value as any)?.turn?.shared_secret;
+        if (typeof sharedSecret === 'string' && sharedSecret.length > 0) {
+          const minted = mintTurnCreds({
+            sharedSecret,
+            identity: 'call:' + ctx.session.id,
+            ttlSeconds: Math.min(body.ttl_seconds ?? 600, 3600),
+          });
+          turn.username = minted.username;
+          turn.credential = minted.credential;
+          turn.credential_type = 'password';
+        }
+      } catch {
+        // Fall back to static creds; never break token issuance on TURN error.
+      }
+    }
+    if (turn.urls.length === 0) {
+      emitCallMetric(config, {
+        metric: 'call.turn.missing',
+        workspaceId: ctx.session.workspace_id,
+        provider: ctx.session.provider,
+        callId: ctx.session.id,
+      });
+    }
+
+    emitCallMetric(config, {
+      metric: 'call.token.success',
+      workspaceId: ctx.session.workspace_id,
+      provider: ctx.session.provider,
+      callId: ctx.session.id,
+    });
+    emitCallMetric(config, {
+      metric: 'call.setup.latency',
+      workspaceId: ctx.session.workspace_id,
+      provider: ctx.session.provider,
+      callId: ctx.session.id,
+      value: Date.now() - t0,
+    });
+
     res.json({
       token: token.token,
       expires_at: token.expiresAt,
       provider: ctx.session.provider,
+      rtc_url: network.rtc_url,
+      ws_url: network.ws_url,
+      turn: {
+        urls: turn.urls,
+        username: turn.username,
+        credential: turn.credential,
+      },
+      ice_policy: network.ice_policy,
       network,
     });
   } catch (err) {
+    try {
+      emitCallMetric((req as any).serverConfig, {
+        metric: 'call.token.failure',
+        workspaceId: ctx.session.workspace_id,
+        provider: ctx.session.provider,
+        callId: ctx.session.id,
+        reason: String((err as any)?.message || 'unknown').slice(0, 120),
+      });
+    } catch { /* */ }
     return handleProviderError(res, err);
   }
 });
@@ -362,8 +455,23 @@ callsRouter.post('/:id/recording/start', async (req, res) => {
     await ctx.sb.from('call_sessions').update({ recording_enabled: true, recording_state: 'recording' })
       .eq('id', ctx.session.id);
     await recordEvent(ctx.sb, ctx.session.id, 'recording_start', 'operator', ctx.userId, { recording_id: handle.recordingId });
+    emitCallMetric((req as any).serverConfig, {
+      metric: 'call.recording.start.success',
+      workspaceId: ctx.session.workspace_id,
+      provider: ctx.session.provider,
+      callId: ctx.session.id,
+    });
     res.json({ recording_id: handle.recordingId, status: handle.status });
   } catch (err) {
+    try {
+      emitCallMetric((req as any).serverConfig, {
+        metric: 'call.recording.start.failure',
+        workspaceId: ctx.session.workspace_id,
+        provider: ctx.session.provider,
+        callId: ctx.session.id,
+        reason: String((err as any)?.message || 'unknown').slice(0, 120),
+      });
+    } catch { /* */ }
     return handleProviderError(res, err);
   }
 });
@@ -380,8 +488,23 @@ callsRouter.post('/:id/recording/stop', async (req, res) => {
     await ctx.sb.from('call_sessions').update({ recording_state: 'finalizing' })
       .eq('id', ctx.session.id);
     await recordEvent(ctx.sb, ctx.session.id, 'recording_stop', 'operator', ctx.userId, { recording_id: body.recording_id });
+    emitCallMetric((req as any).serverConfig, {
+      metric: 'call.recording.stop.success',
+      workspaceId: ctx.session.workspace_id,
+      provider: ctx.session.provider,
+      callId: ctx.session.id,
+    });
     res.json({ recording_id: handle.recordingId, status: handle.status });
   } catch (err) {
+    try {
+      emitCallMetric((req as any).serverConfig, {
+        metric: 'call.recording.stop.failure',
+        workspaceId: ctx.session.workspace_id,
+        provider: ctx.session.provider,
+        callId: ctx.session.id,
+        reason: String((err as any)?.message || 'unknown').slice(0, 120),
+      });
+    } catch { /* */ }
     return handleProviderError(res, err);
   }
 });

@@ -21,6 +21,11 @@ import {
   saveAgoraConfig,
   toPublicView,
 } from '../services/calls/agoraConfig.js';
+import {
+  loadLiveKitConfig,
+  saveLiveKitConfig,
+  toPublicView as toLiveKitPublicView,
+} from '../services/calls/livekitConfig.js';
 import { CALL_PROVIDER_CLASSIFICATION } from '../services/calls/providers/types.js';
 
 export const adminCallsRouter = Router();
@@ -144,6 +149,62 @@ adminCallsRouter.put('/agora', async (req, res) => {
     if (!('token_secret' in body)) delete patch.token_secret;
     const merged = await saveAgoraConfig(config, patch as any);
     res.json({ agora: toPublicView(merged) });
+  } catch (err: any) {
+    res.status(400).json({ error: err?.message || 'update_failed' });
+  }
+});
+
+// ────────────────────────────────────────────────────────────────────────
+// LiveKit (self-hosted) config — read returns secret-presence flags only.
+// Writes use presence-aware semantics: omit to preserve, "" to clear.
+// ────────────────────────────────────────────────────────────────────────
+adminCallsRouter.get('/livekit', async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
+  const cfg = await loadLiveKitConfig(config, true);
+  res.json({ livekit: toLiveKitPublicView(cfg) });
+});
+
+const livekitSchema = z.object({
+  enabled: z.boolean().optional(),
+  api_key: z.string().max(256).nullable().optional(),
+  api_secret: z.string().max(512).nullable().optional(),
+  rtc_url: z.string().url().nullable().optional(),
+  ws_url: z.string().url().nullable().optional(),
+  egress_enabled: z.boolean().optional(),
+  egress_url: z.string().url().nullable().optional(),
+  region: z.string().max(64).nullable().optional(),
+  webhook_secret: z.string().max(512).nullable().optional(),
+  recording_storage: z
+    .object({
+      vendor: z.enum(['s3', 's3_compatible']).nullable().optional(),
+      bucket: z.string().max(256).nullable().optional(),
+      region: z.string().max(64).nullable().optional(),
+      endpoint: z.string().url().nullable().optional(),
+      force_path_style: z.boolean().optional(),
+      access_key: z.string().max(256).nullable().optional(),
+      secret_key: z.string().max(512).nullable().optional(),
+    })
+    .partial()
+    .optional(),
+});
+
+adminCallsRouter.put('/livekit', async (req, res) => {
+  try {
+    const body = livekitSchema.parse(req.body);
+    const config: ServerConfig = (req as any).serverConfig;
+    // Strip absent secret fields so they remain preserved (presence-based).
+    const patch: Record<string, unknown> = { ...body };
+    if (!('api_key' in body)) delete patch.api_key;
+    if (!('api_secret' in body)) delete patch.api_secret;
+    if (!('webhook_secret' in body)) delete patch.webhook_secret;
+    if (body.recording_storage) {
+      const s: Record<string, unknown> = { ...body.recording_storage };
+      if (!('access_key' in body.recording_storage)) delete s.access_key;
+      if (!('secret_key' in body.recording_storage)) delete s.secret_key;
+      patch.recording_storage = s;
+    }
+    const merged = await saveLiveKitConfig(config, patch as any);
+    res.json({ livekit: toLiveKitPublicView(merged) });
   } catch (err: any) {
     res.status(400).json({ error: err?.message || 'update_failed' });
   }

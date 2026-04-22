@@ -36,6 +36,7 @@ import {
   isInboxChannel,
   isVisitorsChannel,
 } from '../services/realtime/types.js';
+import { loadWidgetPlatformRuntimeSettings } from '../services/widget/platformSettings.js';
 
 export const realtimeRouter = Router();
 
@@ -158,10 +159,12 @@ realtimeRouter.post('/connect', async (req, res) => {
     }
 
     // Subject = stable visitor id (multi-tenant safe).
+    const platform = await loadWidgetPlatformRuntimeSettings(config);
     const tokenInfo = driver.issueConnectionToken({
       sub: subjectId,
       workspace_id: parsed.data.workspace_id,
       conversation_ids: parsed.data.conversation_ids,
+      expires_in_seconds: platform.realtime.tokenTtlSeconds,
     });
 
     return res.json({

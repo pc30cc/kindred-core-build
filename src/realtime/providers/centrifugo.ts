@@ -36,6 +36,100 @@ const TOKEN_REFRESH_LEAD_MS = 120_000;
 /** Backoff schedule (ms) for socket reconnect attempts. Capped at 30s. */
 const RECONNECT_DELAYS_MS = [500, 1_000, 2_000, 4_000, 8_000, 15_000, 30_000];
 
+/**
+ * Phase 2 — runtime hardening knobs read once per tab from the public
+ * `widget_platform_settings` row. These are SAFETY caps and pacing
+ * controls; the values fall back to safe defaults if the read fails or
+ * the row is missing. Never throws.
+ *
+ *   • reconnectJitterPct: ±N% jitter applied to RECONNECT_DELAYS_MS so
+ *     N tabs from the same operator (or N visitors after a regional
+ *     network blip) don't all hammer /api/realtime/*-connect at the
+ *     identical millisecond and trigger a thundering herd.
+ *   • pendingMax: hard cap on the per-socket `pending` map so a stuck
+ *     server can't grow that map unboundedly during a long outage.
+ *   • messageDedupeEnabled / Window: drop duplicate `push` frames for
+ *     the same `payload.id` before fan-out. Centrifugo CAN replay a
+ *     push on resubscribe (rare, but documented), and any future
+ *     bridge from a different transport could re-emit the same id.
+ *     The ring is per channel and bounded.
+ */
+interface ClientHardeningSettings {
+  reconnectJitterPct: number;
+  pendingMax: number;
+  messageDedupeEnabled: boolean;
+  messageDedupeWindow: number;
+}
+
+const HARDENING_DEFAULTS: ClientHardeningSettings = {
+  reconnectJitterPct: 20,
+  pendingMax: 256,
+  messageDedupeEnabled: true,
+  messageDedupeWindow: 200,
+};
+
+let hardeningCache: ClientHardeningSettings | null = null;
+let hardeningInflight: Promise<ClientHardeningSettings> | null = null;
+
+function clampInt(raw: unknown, min: number, max: number, fallback: number): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return fallback;
+  const i = Math.trunc(n);
+  if (i < min) return min;
+  if (i > max) return max;
+  return i;
+}
+
+async function loadHardening(): Promise<ClientHardeningSettings> {
+  if (hardeningCache) return hardeningCache;
+  if (hardeningInflight) return hardeningInflight;
+  hardeningInflight = (async () => {
+    try {
+      const { data } = await supabase
+        .from('widget_platform_settings')
+        .select(
+          'realtime_reconnect_jitter_pct, realtime_pending_max, realtime_message_dedupe_enabled, realtime_message_dedupe_window',
+        )
+        .limit(1)
+        .maybeSingle();
+      const value: ClientHardeningSettings = data
+        ? {
+            reconnectJitterPct: clampInt(data.realtime_reconnect_jitter_pct, 0, 50, 20),
+            pendingMax: clampInt(data.realtime_pending_max, 32, 4096, 256),
+            messageDedupeEnabled: data.realtime_message_dedupe_enabled !== false,
+            messageDedupeWindow: clampInt(data.realtime_message_dedupe_window, 16, 4096, 200),
+          }
+        : HARDENING_DEFAULTS;
+      hardeningCache = value;
+      return value;
+    } catch {
+      hardeningCache = HARDENING_DEFAULTS;
+      return HARDENING_DEFAULTS;
+    } finally {
+      hardeningInflight = null;
+    }
+  })();
+  return hardeningInflight;
+}
+
+/**
+ * Synchronous accessor — returns the cached value or the safe default.
+ * Used inside hot paths (onmessage / scheduleReconnect) where we don't
+ * want to await. The async loader is kicked off the first time a
+ * connection is built.
+ */
+function getHardeningSync(): ClientHardeningSettings {
+  return hardeningCache || HARDENING_DEFAULTS;
+}
+
+/** Apply ±jitterPct% jitter to a base delay. Always >= 0. */
+function jitter(baseMs: number, jitterPct: number): number {
+  if (!jitterPct || jitterPct <= 0) return baseMs;
+  const span = baseMs * (jitterPct / 100);
+  const offset = (Math.random() * 2 - 1) * span;
+  return Math.max(0, Math.round(baseMs + offset));
+}
+
 interface SubscribeResponse {
   vendor: 'centrifugo' | 'polling_builtin';
   channel?: string;

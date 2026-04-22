@@ -524,7 +524,8 @@ async function resubscribeAll(conn: SharedConnection): Promise<void> {
       }
       token = fresh.token;
       entry.token = fresh.token;
-      entry.expiresAt = (fresh.expires_at || 0) * 1000 || Date.now() + 9 * 60_000;
+      // Server emits epoch ms — do not scale (see buildConnection note).
+      entry.expiresAt = fresh.expires_at || Date.now() + 9 * 60_000;
     }
     try {
       await sendOnConn(conn, 'subscribe', { channel, token });
@@ -587,8 +588,8 @@ async function resubscribeAll(conn: SharedConnection): Promise<void> {
         continue;
       }
       entry.token = retryFresh.token;
-      entry.expiresAt =
-        (retryFresh.expires_at || 0) * 1000 || Date.now() + 9 * 60_000;
+      // Server emits epoch ms — do not scale.
+      entry.expiresAt = retryFresh.expires_at || Date.now() + 9 * 60_000;
 
       try {
         await sendOnConn(conn, 'subscribe', { channel, token: retryFresh.token });
@@ -820,7 +821,8 @@ export class CentrifugoClientProvider implements ClientRealtimeProvider {
           conn.subTokens.set(sub.channel, {
             channel: sub.channel,
             token: sub.token,
-            expiresAt: (sub.expires_at || 0) * 1000 || Date.now() + 9 * 60_000,
+            // Server emits epoch ms — do not scale.
+            expiresAt: sub.expires_at || Date.now() + 9 * 60_000,
             refresh,
           });
           rtDebug('centrifugo', 'subscribe deferred — socket not ready', { channel: sub.channel });
@@ -842,7 +844,8 @@ export class CentrifugoClientProvider implements ClientRealtimeProvider {
         conn.subTokens.set(sub.channel, {
           channel: sub.channel,
           token: sub.token,
-          expiresAt: (sub.expires_at || 0) * 1000 || Date.now() + 9 * 60_000,
+          // Server emits epoch ms — do not scale.
+          expiresAt: sub.expires_at || Date.now() + 9 * 60_000,
           refresh,
         });
         // If the server returned a different channel string than we

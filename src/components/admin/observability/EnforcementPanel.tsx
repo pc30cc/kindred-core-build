@@ -290,6 +290,9 @@ export default function EnforcementPanel() {
                         {r.is_builtin && (
                           <Badge variant="outline" className="text-[10px]">builtin</Badge>
                         )}
+                        <Badge variant="outline" className="text-[10px] font-mono">
+                          prio {r.priority}
+                        </Badge>
                       </p>
                       <p className="text-muted-foreground text-xs">{r.description}</p>
                       <p className="text-muted-foreground mt-1 text-xs">
@@ -310,7 +313,7 @@ export default function EnforcementPanel() {
                       }
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-3 gap-3">
                     <div>
                       <Label className="text-muted-foreground text-xs">Cooldown (s)</Label>
                       <Input
@@ -337,6 +340,21 @@ export default function EnforcementPanel() {
                           const v = parseInt(e.target.value, 10);
                           if (Number.isFinite(v) && v !== r.ttl_seconds) {
                             ruleMut.mutate({ id: r.id, patch: { ttl_seconds: v } });
+                          }
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-muted-foreground text-xs">Priority (0–1000)</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={1000}
+                        defaultValue={r.priority}
+                        onBlur={(e) => {
+                          const v = parseInt(e.target.value, 10);
+                          if (Number.isFinite(v) && v !== r.priority) {
+                            ruleMut.mutate({ id: r.id, patch: { priority: v } });
                           }
                         }}
                       />

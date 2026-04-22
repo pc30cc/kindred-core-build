@@ -1370,6 +1370,36 @@ export type Database = {
           },
         ]
       }
+      enforcement_normalizations: {
+        Row: {
+          context: Json
+          created_at: string
+          cycle_ran_at: string
+          id: string
+          normalized_actions: Json
+          raw_actions: Json
+          reasons: Json
+        }
+        Insert: {
+          context?: Json
+          created_at?: string
+          cycle_ran_at?: string
+          id?: string
+          normalized_actions?: Json
+          raw_actions?: Json
+          reasons?: Json
+        }
+        Update: {
+          context?: Json
+          created_at?: string
+          cycle_ran_at?: string
+          id?: string
+          normalized_actions?: Json
+          raw_actions?: Json
+          reasons?: Json
+        }
+        Relationships: []
+      }
       enforcement_rules: {
         Row: {
           actions_json: Json
@@ -1380,6 +1410,7 @@ export type Database = {
           enabled: boolean
           id: string
           is_builtin: boolean
+          priority: number
           slug: string
           title: string
           trigger_type: string
@@ -1395,6 +1426,7 @@ export type Database = {
           enabled?: boolean
           id?: string
           is_builtin?: boolean
+          priority?: number
           slug: string
           title: string
           trigger_type: string
@@ -1410,6 +1442,7 @@ export type Database = {
           enabled?: boolean
           id?: string
           is_builtin?: boolean
+          priority?: number
           slug?: string
           title?: string
           trigger_type?: string

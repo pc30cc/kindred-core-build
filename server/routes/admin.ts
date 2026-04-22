@@ -10,6 +10,7 @@ import { getServiceClient } from '../supabase.js';
 import { z } from 'zod';
 import { adminWidgetRouter } from './adminWidget.js';
 import { adminWidgetTemplatesRouter } from './adminWidgetTemplates.js';
+import { adminMetricsRouter } from './adminMetrics.js';
 
 export const adminRouter = Router();
 
@@ -82,6 +83,9 @@ adminRouter.use('/widget', adminWidgetRouter);
 
 // Widget templates registry (super admin only)
 adminRouter.use('/widget/templates', adminWidgetTemplatesRouter);
+
+// Phase 3 — observability (super admin only)
+adminRouter.use('/metrics', adminMetricsRouter);
 
 // ─── Send Password Reset Link ────────────────────────────────────
 const resetLinkSchema = z.object({

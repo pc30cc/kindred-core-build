@@ -237,6 +237,9 @@ app.listen(config.port, () => {
   // Phase 7 — start reliability/business/health rollup (every 10 min). Best-effort.
   startReliabilityRollup(config);
 
+  // Phase 7.5 — SLA enforcement engine (SLO eval + rule-driven actions, every 60s).
+  startEnforcementTicker(config);
+
   // ─── Post-deploy widget manifest invalidation ────────────────────
   // The in-memory widget manifest cache is per-process, so a fresh deploy
   // (which restarts this process) starts with an empty cache anyway. BUT:

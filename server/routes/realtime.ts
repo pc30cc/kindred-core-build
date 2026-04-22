@@ -365,8 +365,10 @@ realtimeRouter.post('/operator-inbox-subscribe', async (req, res) => {
     const driver = await getCentrifugoDriver(config);
     if (!driver) return res.json({ vendor: 'polling_builtin' });
     const channel = `ws:${parsed.data.workspace_id}:inbox`;
+    const platform = await loadWidgetPlatformRuntimeSettings(config);
     const tk = driver.issueSubscriptionToken({
       sub: `op_${user.id}`, channel, workspaceId: parsed.data.workspace_id,
+      expiresInSeconds: platform.realtime.tokenTtlSeconds,
     });
     return res.json({ vendor: 'centrifugo', channel, token: tk.token, expires_at: tk.expires_at });
   } catch (err: any) {
@@ -395,8 +397,10 @@ realtimeRouter.post('/operator-visitors-subscribe', async (req, res) => {
     const driver = await getCentrifugoDriver(config);
     if (!driver) return res.json({ vendor: 'polling_builtin' });
     const channel = `ws:${parsed.data.workspace_id}:visitors`;
+    const platform = await loadWidgetPlatformRuntimeSettings(config);
     const tk = driver.issueSubscriptionToken({
       sub: `op_${user.id}`, channel, workspaceId: parsed.data.workspace_id,
+      expiresInSeconds: platform.realtime.tokenTtlSeconds,
     });
     return res.json({ vendor: 'centrifugo', channel, token: tk.token, expires_at: tk.expires_at });
   } catch (err: any) {

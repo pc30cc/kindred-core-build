@@ -9,6 +9,7 @@ import { fetchMetricsSummary, fetchMetricsEvents } from '@/lib/admin-metrics-api
 import AlertsPanel from '@/components/admin/observability/AlertsPanel';
 import PerformancePanel from '@/components/admin/observability/PerformancePanel';
 import AutoActionsPanel from '@/components/admin/observability/AutoActionsPanel';
+import SystemDegradedBanner from '@/components/admin/observability/SystemDegradedBanner';
 
 type Range = '1h' | '24h' | '7d';
 
@@ -37,6 +38,7 @@ export default function AdminObservabilityPage() {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-foreground">Realtime Observability</h1>
+      <SystemDegradedBanner />
       <Tabs
         value={tab}
         onValueChange={(v) =>

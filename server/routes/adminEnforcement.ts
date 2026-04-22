@@ -43,6 +43,7 @@ const RulePatch = z.object({
   enabled: z.boolean().optional(),
   cooldown_seconds: z.number().int().min(60).max(86_400).optional(),
   ttl_seconds: z.number().int().min(60).max(86_400).optional(),
+  priority: z.number().int().min(0).max(1000).optional(),
 });
 
 adminEnforcementRouter.patch('/rules/:id', async (req, res) => {
@@ -227,5 +228,28 @@ adminEnforcementRouter.post('/actions/:eventId/override', async (req, res) => {
     res.json({ ok: true });
   } catch (err: any) {
     res.status(500).json({ error: err?.message || 'Override failed' });
+  }
+});
+
+// Phase 7.6 — normalization audit feed.
+adminEnforcementRouter.get('/normalizations', async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const sb = getServiceClient(config);
+    const limit = Math.min(
+      Math.max(parseInt(String(req.query.limit || '50'), 10) || 50, 1),
+      200,
+    );
+    const { data, error } = await sb
+      .from('enforcement_normalizations')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ normalizations: data || [] });
+  } catch (err: any) {
+    res
+      .status(500)
+      .json({ error: err?.message || 'Failed to load normalizations' });
   }
 });

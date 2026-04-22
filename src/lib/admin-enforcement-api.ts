@@ -24,6 +24,7 @@ export interface EnforcementRule {
   actions_json: string[];
   cooldown_seconds: number;
   ttl_seconds: number;
+  priority: number;
   enabled: boolean;
   is_builtin: boolean;
   created_at: string;
@@ -77,6 +78,32 @@ export interface EnforcementFlags {
   max_concurrent: number;
 }
 
+export interface EnforcementNormalization {
+  id: string;
+  created_at: string;
+  cycle_ran_at: string;
+  raw_actions: Array<{
+    rule_slug: string;
+    rule_priority: number;
+    action_type: string;
+  }>;
+  normalized_actions: Array<{
+    rule_slug: string;
+    rule_priority: number;
+    action_type: string;
+    merged_with: string[];
+    suppressed: { action_type: string; reason: string }[];
+    annotations: string[];
+  }>;
+  reasons: Array<{
+    kind: 'merged' | 'suppressed' | 'annotated';
+    action_type: string;
+    rule_slug: string;
+    detail: string;
+  }>;
+  context: Record<string, unknown>;
+}
+
 async function get<T>(path: string): Promise<T> {
   const headers = await authHeader();
   const res = await fetch(`${API_BASE}/api/admin/enforcement${path}`, { headers });
@@ -103,7 +130,12 @@ export const fetchEnforcementRules = () =>
 
 export const updateEnforcementRule = (
   id: string,
-  patch: { enabled?: boolean; cooldown_seconds?: number; ttl_seconds?: number },
+  patch: {
+    enabled?: boolean;
+    cooldown_seconds?: number;
+    ttl_seconds?: number;
+    priority?: number;
+  },
 ) => send<{ rule: EnforcementRule }>(`/rules/${id}`, 'PATCH', patch);
 
 export const fetchSloBreaches = (state?: 'open' | 'resolved') =>
@@ -127,3 +159,8 @@ export const evaluateEnforcementNow = () =>
 
 export const overrideEnforcementAction = (eventId: string) =>
   send<{ ok: true }>(`/actions/${eventId}/override`, 'POST');
+
+export const fetchEnforcementNormalizations = (limit = 50) =>
+  get<{ normalizations: EnforcementNormalization[] }>(
+    `/normalizations?limit=${limit}`,
+  );

@@ -857,6 +857,7 @@ const en = {
       providers: 'Providers',
       mapGeo: 'Map & Geo',
       widgetSettings: 'Widget Settings',
+      voiceVideo: 'Voice & Video',
       system: 'System',
       observability: 'Observability',
       featureFlags: 'Feature Flags',

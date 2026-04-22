@@ -32,6 +32,19 @@ async function runOnce(config: ServerConfig): Promise<void> {
   } catch (err: any) {
     emitLog(config, 'warn', 'metrics_rollup_threw', { error: err?.message || 'unknown' });
   }
+
+  // Phase 5A — also roll up performance samples on the same cadence.
+  try {
+    const sb = getServiceClient(config);
+    const { data, error } = await sb.rpc('perf_metrics_rollup_and_prune');
+    if (error) {
+      emitLog(config, 'warn', 'perf_rollup_failed', { error: error.message });
+      return;
+    }
+    emitLog(config, 'debug', 'perf_rollup_ran', (data as Record<string, unknown>) || {});
+  } catch (err: any) {
+    emitLog(config, 'warn', 'perf_rollup_threw', { error: err?.message || 'unknown' });
+  }
 }
 
 export function __stopMetricsRollupForTests(): void {

@@ -210,11 +210,34 @@
           // and these envelopes have no widget-facing meaning. Defensive guard
           // so future operator-only types remain forward-safe.
           if (data && data.type === 'event') {
-            // explicit drop — do nothing
+            // Phase 8B — `call:incoming` is the ONE event-kind the widget cares
+            // about. Every other operator-only kind (conversation_updated,
+            // note_added, …) is silently dropped. The call dispatch is a
+            // sidecar — it does NOT touch the chat FSM or transport store.
+            try {
+              var p = data.payload;
+              if (p && p.kind === 'call:incoming' && window.__gs_call && typeof window.__gs_call.incoming === 'function') {
+                window.__gs_call.incoming(p);
+              } else if (p && p.kind === 'call:incoming' && window.__gs && typeof window.__gs.push === 'function') {
+                // Module not yet loaded — queue via the loader's command bus.
+                window.__gs.push(['call:incoming', p]);
+              }
+            } catch (_) {}
           } else if (data && data.type === 'message' && hooks.onMessage) {
             hooks.onMessage({ channel: ch, messages: [data.payload] });
           } else if (data && data.type === 'typing' && hooks.onTyping) {
             hooks.onTyping({ channel: ch, payload: data.payload });
+          } else if (data && data.type === 'call:incoming') {
+            // Forward-safe: legacy publishers may emit the call envelope at
+            // the top level instead of nested under `event`. Same dispatch.
+            try {
+              var p2 = data.payload || data;
+              if (window.__gs_call && typeof window.__gs_call.incoming === 'function') {
+                window.__gs_call.incoming(p2);
+              } else if (window.__gs && typeof window.__gs.push === 'function') {
+                window.__gs.push(['call:incoming', p2]);
+              }
+            } catch (_) {}
           }
         }
         if ((join || leave) && hooks.onPresence) {

@@ -26,8 +26,23 @@ import {
   type CallProviderId,
 } from '@/lib/admin-calls-api';
 import { Loader2, Phone, Video, Save, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { AgoraExternalProviderPanel } from './AgoraExternalProviderPanel';
 
-const PROVIDERS: CallProviderId[] = ['livekit', 'jitsi', 'janus', 'disabled'];
+/** Self-hosted family — first-class providers, default-eligible. */
+const SELF_HOSTED_PROVIDERS: CallProviderId[] = ['livekit', 'jitsi', 'janus'];
+/** External / cloud-backed adapters — opt-in only. */
+const EXTERNAL_PROVIDERS: CallProviderId[] = ['agora_cloud'];
+/** Full select list — self-hosted first, then external, then disabled. */
+const PROVIDERS: CallProviderId[] = [
+  ...SELF_HOSTED_PROVIDERS,
+  ...EXTERNAL_PROVIDERS,
+  'disabled',
+];
+
+function providerLabel(p: CallProviderId): string {
+  if (p === 'agora_cloud') return 'agora_cloud (external)';
+  return p;
+}
 
 export function CallControlPlanePanel() {
   const { toast } = useToast();

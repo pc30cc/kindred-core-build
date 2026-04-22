@@ -27,6 +27,7 @@ import { cannedResponsesRouter } from './routes/cannedResponses.js';
 import { widgetKbRouter, publicKbRouter } from './routes/kb.js';
 import { privacyRouter } from './routes/privacy.js';
 import { callsRouter } from './routes/calls.js';
+import { livekitWebhookRouter } from './routes/livekitWebhook.js';
 import { startAttachmentJanitor } from './services/attachmentJanitor.js';
 import { startPrivacyWorker } from './services/privacy/worker.js';
 import { startPrivacyExpirySweep } from './services/privacy/expirySweep.js';
@@ -90,14 +91,25 @@ app.use((req, res, next) => {
   return appCors(req, res, next);
 });
 
-app.use(express.json({ limit: '50mb' })); // Larger limit for file uploads
-app.use(cookieParser()); // Parse signed visitor cookies (HttpOnly dvsid)
-
-// Attach config to requests
+// Attach config FIRST so the webhook route (which bypasses json/cookieParser)
+// can still resolve its config off the request object.
 app.use((req, _res, next) => {
   (req as any).serverConfig = config;
   next();
 });
+
+// ─── LiveKit webhook — must run BEFORE express.json so we can hash the
+// raw body for signature verification. The router uses its own raw body
+// parser at the route level. ────────────────────────────────────────────
+app.use('/api/calls/livekit/webhook', livekitWebhookRouter);
+
+// JSON / cookies for everything else. Skip the webhook path explicitly so
+// a future re-order can't accidentally consume the raw body.
+app.use((req, res, next) => {
+  if (req.path === '/api/calls/livekit/webhook') return next();
+  return (express.json({ limit: '50mb' }) as any)(req, res, next);
+});
+app.use(cookieParser()); // Parse signed visitor cookies (HttpOnly dvsid)
 
 // Global: IP blocking check
 app.use('/api/', ipBlockMiddleware());

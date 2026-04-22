@@ -594,7 +594,24 @@
     var script = document.createElement("script");
     script.src = runtimeJs;
     script.async = true;
-    script.onload = function () { jsLoaded = true; done(); };
+    script.onload = function () {
+      jsLoaded = true;
+      // Phase 8B - lazy-load the incoming call module alongside the runtime.
+      // Self-contained (own shadow root, own SDK loader). Failure is
+      // non-fatal: chat keeps working even if call module can't load.
+      try {
+        var callJs = runtimeJs.replace(/runtime\.js(?:\?[^#]*)?(?:#.*)?$/, "runtime-call.js");
+        if (callJs && callJs !== runtimeJs && !document.querySelector('script[data-gs-runtime-call]')) {
+          var cs = document.createElement("script");
+          cs.src = callJs;
+          cs.async = true;
+          cs.setAttribute("data-gs-runtime-call", "true");
+          cs.onerror = function () { warn("call module failed to load"); };
+          document.head.appendChild(cs);
+        }
+      } catch (_) { /* never block chat boot on the call module */ }
+      done();
+    };
     script.onerror = function () { fail("js"); };
     document.head.appendChild(script);
   }

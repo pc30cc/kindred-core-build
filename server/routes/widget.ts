@@ -64,6 +64,8 @@ import { enrichVisitorSessionGeo } from '../services/geo/index.js';
 import { checkTypingAllowed } from '../services/widget/typingRateLimit.js';
 import { loadWidgetPlatformRuntimeSettings } from '../services/widget/platformSettings.js';
 import { emitMetric } from '../services/observability/metrics.js';
+import { isActionActive } from '../services/observability/autoActionsCache.js';
+import { emitLog } from '../services/observability/metrics.js';
 
 export const widgetRouter = Router();
 
@@ -1381,6 +1383,19 @@ widgetRouter.put('/action', widgetRateLimit('default'), perfHttpMiddleware('widg
             `visitor=${visitor_id || 'none'} session=${session_id || 'none'}`,
         );
         return res.status(403).json({ error: 'Access denied', code: 'CONVERSATION_ACCESS_DENIED' });
+      }
+      // Phase 5C.1 — suppress typing entirely while the
+      // disable_typing_temporarily auto-action is active. We still
+      // return 200 ok so the widget never sees an error or retries.
+      if (isActionActive('disable_typing_temporarily')) {
+        emitLog(config, 'info', 'auto_action_effect_applied', {
+          action_type: 'disable_typing_temporarily',
+          workspace_id: workspaceId,
+          conversation_id,
+          surface: 'widget',
+          ts: Date.now(),
+        });
+        return res.json({ ok: true, published: false, reason: 'auto_action_suppressed' });
       }
       // Phase 1.1 — server-side typing rate limit.
       // Per-conversation sliding-window cap (default: 2 publishes / 2000ms).

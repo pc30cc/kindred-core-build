@@ -6,6 +6,7 @@ import {
   MessageSquare, UserPlus, UserMinus, CheckCircle2, RefreshCw,
   AlertCircle, Hash, Paperclip, Bot, FileText, Star, User,
   Trash2, Flag, Phone, PhoneIncoming, PhoneMissed, PhoneOff, PhoneCall, Voicemail,
+  Timer, AlertTriangle,
 } from 'lucide-react';
 import type { TimelineEvent } from '@/hooks/useConversationTimeline';
 
@@ -40,6 +41,9 @@ export function getTimelineMeta(type: string): TimelineMeta {
     case 'call_cancelled':      return { Icon: PhoneOff,       tone: 'neutral' };
     case 'callback_requested':  return { Icon: Voicemail,      tone: 'info' };
     case 'callback_completed':  return { Icon: CheckCircle2,   tone: 'success' };
+    case 'callback_offered':    return { Icon: Voicemail,      tone: 'warning' };
+    case 'sla_breached':        return { Icon: AlertTriangle,  tone: 'danger' };
+    case 'queue_long_wait':     return { Icon: Timer,          tone: 'warning' };
     default:                 return { Icon: AlertCircle,   tone: 'neutral' };
   }
 }
@@ -142,6 +146,27 @@ export function describeEvent(
     }
     case 'callback_completed':
       return { primary: t('inbox.timeline.callbackCompleted') || 'Callback completed' };
+    case 'callback_offered': {
+      const ch = p?.channel ? String(p.channel) : '';
+      return {
+        primary: t('inbox.timeline.callbackOffered') || 'No operator available — callback offered',
+        secondary: ch || undefined,
+      };
+    }
+    case 'sla_breached': {
+      const wait = typeof p?.wait_seconds === 'number' ? `${p.wait_seconds}s` : undefined;
+      return {
+        primary: t('inbox.timeline.slaBreached') || 'SLA exceeded',
+        secondary: wait ? `waited ${wait}` : undefined,
+      };
+    }
+    case 'queue_long_wait': {
+      const wait = typeof p?.wait_seconds === 'number' ? `${p.wait_seconds}s` : undefined;
+      return {
+        primary: t('inbox.timeline.queueLongWait') || 'Visitor waiting longer than usual',
+        secondary: wait ? `${wait} so far` : undefined,
+      };
+    }
     default:
       return { primary: ev.event_type };
   }

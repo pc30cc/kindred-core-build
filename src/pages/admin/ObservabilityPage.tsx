@@ -34,7 +34,7 @@ export default function AdminObservabilityPage() {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-foreground">Realtime Observability</h1>
-      <Tabs value={tab} onValueChange={(v) => setTab(v as 'metrics' | 'alerts')}>
+      <Tabs value={tab} onValueChange={(v) => setTab(v as 'metrics' | 'performance' | 'alerts')}>
         <TabsList>
           <TabsTrigger value="metrics">Metrics</TabsTrigger>
           <TabsTrigger value="performance">Performance</TabsTrigger>

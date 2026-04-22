@@ -58,6 +58,45 @@
   };
 
   // ════════════════════════════════════════════════════════════════════
+  // Phase 6C — Effective realtime policy snapshot.
+  //
+  // The loader stashes the latest snapshot at `window.__gs_policy` from
+  // every handshake response (bootstrap / session refresh). The runtime
+  // additionally updates it from /api/realtime/connect.
+  //
+  // Hot paths (typing emit, reconnect scheduling) read SYNCHRONOUSLY from
+  // here. Safe defaults are returned when the field is missing or stale.
+  // No hard dependency on the field being present — older servers and
+  // older loaders simply yield the safe default.
+  // ════════════════════════════════════════════════════════════════════
+  var Policy = {
+    get: function () {
+      try {
+        var p = (typeof window !== 'undefined') ? window.__gs_policy : null;
+        return (p && typeof p === 'object') ? p : {};
+      } catch (_) { return {}; }
+    },
+    set: function (p) {
+      if (!p || typeof p !== 'object') return;
+      try { if (typeof window !== 'undefined') window.__gs_policy = p; } catch (_) {}
+    },
+    typingSuppressed: function () { return !!Policy.get().typing_suppressed; },
+    forcePolling: function () { return !!Policy.get().force_polling; },
+    degraded: function () {
+      var p = Policy.get();
+      return !!(p.degraded_mode || p.force_polling);
+    },
+    backoffMultiplier: function () {
+      var m = Number(Policy.get().reconnect_backoff_multiplier);
+      if (!isFinite(m) || m < 1) return 1;
+      if (m > 10) return 10; // hard ceiling — no runaway delays
+      return m;
+    },
+  };
+  // Expose for in-file access from nested closures (driver factories etc.).
+  __gs_runtime.Policy = Policy;
+
+  // ════════════════════════════════════════════════════════════════════
   // TokenManager — long-lived widget session resilience
   //
   // Strategy: proactive refresh ~60s before expiry + reactive single-retry

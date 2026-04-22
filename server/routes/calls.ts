@@ -121,6 +121,101 @@ function handleProviderError(res: any, err: unknown) {
 }
 
 /**
+ * Mint a visitor-scoped participant token (NEVER reused for operators) and
+ * publish a `type: 'call:incoming'` envelope on the per-conversation channel
+ * so the widget rings instantly. Fully best-effort — if the publish fails,
+ * the visitor's polling fallback picks up state=ringing within 2s.
+ */
+async function emitVisitorIncomingEnvelope(
+  config: ServerConfig,
+  sb: ReturnType<typeof getServiceClient>,
+  session: any,
+  inviterUserId: string,
+): Promise<void> {
+  if (!session.provider_room_id || !session.context_id) return;
+
+  // Resolve visitor for token identity (so LiveKit identity is stable + auditable).
+  let visitorIdentity = 'visitor:' + session.context_id;
+  try {
+    const { data: conv } = await sb
+      .from('conversations')
+      .select('visitor_session_id, contact_id')
+      .eq('id', session.context_id)
+      .maybeSingle();
+    if (conv?.visitor_session_id) {
+      const { data: vs } = await sb
+        .from('visitor_sessions')
+        .select('visitor_id')
+        .eq('id', conv.visitor_session_id)
+        .maybeSingle();
+      if (vs?.visitor_id) visitorIdentity = 'visitor:' + vs.visitor_id;
+    }
+  } catch { /* fall through with conversation-based identity */ }
+
+  // Operator display name (best-effort; non-blocking).
+  let operatorName: string | null = null;
+  try {
+    const { data: prof } = await sb
+      .from('profiles')
+      .select('full_name')
+      .eq('id', inviterUserId)
+      .maybeSingle();
+    operatorName = (prof as any)?.full_name || null;
+  } catch { /* */ }
+
+  // Mint a fresh visitor participant token.
+  let visitorToken: { token: string; expiresAt: number } | null = null;
+  try {
+    const provider = resolveCallProvider(session.provider);
+    const minted = await provider.createParticipantToken(config, {
+      callSessionId: session.id,
+      providerRoomId: session.provider_room_id,
+      participantId: visitorIdentity,
+      participantType: 'visitor',
+      displayName: 'Visitor',
+      canPublish: true,
+      canSubscribe: true,
+      canPublishData: true,
+      ttlSeconds: 600,
+    });
+    visitorToken = { token: minted.token, expiresAt: minted.expiresAt };
+  } catch (err: any) {
+    // Provider not ready → publish a degraded envelope so the widget can
+    // surface the incoming call but the visitor will get token only via
+    // the explicit accept path (state polling).
+    console.warn('[calls] visitor token mint failed during invite:', err?.message || err);
+  }
+
+  const { network, turn } = await buildTokenNetworkBundle(config, session.id, 600);
+
+  await publishConversationEvent(
+    config,
+    session.workspace_id,
+    session.context_id,
+    {
+      type: 'event',
+      payload: {
+        kind: 'call:incoming',
+        call_id: session.id,
+        call_type: session.call_type,
+        operator_name: operatorName,
+        ws_url: network.ws_url,
+        rtc_url: network.rtc_url,
+        token: visitorToken?.token ?? null,
+        expires_at: visitorToken?.expiresAt ?? null,
+        turn: {
+          urls: turn.urls,
+          username: turn.username,
+          credential: turn.credential,
+        },
+        ice_policy: network.ice_policy,
+        recording: !!session.recording_enabled,
+      },
+    },
+  );
+}
+
+/**
  * Build the network bundle for a token response, including dynamically-minted
  * RFC 7635-style TURN credentials when a static_secret is present. Shared by
  * the /token endpoint and the /invite envelope so visitors and operators see

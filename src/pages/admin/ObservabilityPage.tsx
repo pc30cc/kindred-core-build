@@ -145,6 +145,9 @@ export default function AdminObservabilityPage() {
         <TabsContent value="alerts">
           <AlertsPanel />
         </TabsContent>
+        <TabsContent value="performance">
+          <PerformancePanel />
+        </TabsContent>
       </Tabs>
     </div>
   );

@@ -22,6 +22,11 @@ import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { emitLog } from './metrics.js';
 import { forceRefreshAutoActionsCache } from './autoActionsCache.js';
+import {
+  resolveEnforcementConflicts,
+  type RawEnforcementCandidate,
+  type NormalizedEnforcementCandidate,
+} from './enforcementConflictResolver.js';
 
 type TriggerType = 'slo_breach' | 'health_score' | 'alert_rate';
 
@@ -44,6 +49,7 @@ interface EnforcementRule {
   cooldown_seconds: number;
   ttl_seconds: number;
   enabled: boolean;
+  priority: number;
 }
 
 export interface EnforcementCycleResult {
@@ -53,6 +59,7 @@ export interface EnforcementCycleResult {
   skipped_kill_switch: boolean;
   skipped_max_concurrent: boolean;
   dry_run: boolean;
+  normalized: boolean;
   ran_at: string;
 }
 

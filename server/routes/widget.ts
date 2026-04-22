@@ -763,12 +763,35 @@ widgetRouter.get('/poll', widgetRateLimit('poll'), async (req: Request, res: Res
       if (profile) operatorInfo = { name: profile.full_name, avatar: profile.avatar_url };
     }
 
+    // Phase 8B — surface a `ringing` call session on this conversation as
+    // `active_call` so the widget rings even when realtime is offline. This
+    // is the polling-mode counterpart of the `call:incoming` envelope. The
+    // payload intentionally OMITS token/turn — the widget MUST call the
+    // visitor token endpoint on accept (separate route, served per call).
+    let activeCall: { id: string; call_type: string; state: string } | null = null;
+    try {
+      const { data: ringing } = await supabase
+        .from('call_sessions')
+        .select('id, call_type, state')
+        .eq('workspace_id', workspaceId)
+        .eq('context_type', 'conversation')
+        .eq('context_id', activeConversationId)
+        .in('state', ['ringing', 'connecting'])
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (ringing) {
+        activeCall = { id: ringing.id, call_type: ringing.call_type, state: ringing.state };
+      }
+    } catch { /* never break /poll on calls lookup */ }
+
     return res.json({
       status: conv.status || 'unknown',
       messages,
       operator: operatorInfo,
       operator_typing: false,
       conversation_id: activeConversationId,
+      active_call: activeCall,
     });
   } catch (err: any) {
     console.error('[widget-poll] Error:', err.message);

@@ -27,6 +27,7 @@ import {
 } from '@/lib/admin-calls-api';
 import { Loader2, Phone, Video, Save, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { AgoraExternalProviderPanel } from './AgoraExternalProviderPanel';
+import { RolePermissionsPanel } from './RolePermissionsPanel';
 
 /** Self-hosted family — first-class providers, default-eligible. */
 const SELF_HOSTED_PROVIDERS: CallProviderId[] = ['livekit', 'jitsi', 'janus'];
@@ -378,6 +379,43 @@ export function CallControlPlanePanel() {
         default; never auto-selected by the resolver.
       */}
       <AgoraExternalProviderPanel />
+
+      {/* Phase 8C — Global channel gates (hard upper bounds). */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Phone className="h-5 w-5" /> Channel gates (platform global)
+          </CardTitle>
+          <CardDescription>
+            Hard upper bounds. If a gate is off, no workspace can enable that channel.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-1">
+          {([
+            ['voice_calls_enabled_global', 'Voice calls', 'Allow audio calls platform-wide.'],
+            ['video_calls_enabled_global', 'Video calls', 'Allow video calls platform-wide.'],
+            ['call_queue_enabled_global', 'Call queue', 'Allow visitors to be parked in a queue.'],
+            ['call_recording_enabled_global', 'Recording', 'Allow recording on any workspace.'],
+            ['visitor_initiated_audio_enabled_global', 'Visitor → audio', 'Visitors may start audio calls from the widget.'],
+            ['visitor_initiated_video_enabled_global', 'Visitor → video', 'Visitors may start video calls from the widget.'],
+          ] as Array<[keyof typeof cp, string, string]>).map(([key, label, hint]) => (
+            <div key={key as string} className="flex items-start justify-between gap-3 py-2">
+              <div className="flex-1 min-w-0">
+                <Label className="text-sm">{label}</Label>
+                <p className="text-xs text-muted-foreground">{hint}</p>
+              </div>
+              <Switch
+                checked={!!cp[key]}
+                disabled={saving}
+                onCheckedChange={(v) => saveCp({ [key]: v } as any)}
+              />
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      {/* Phase 8C — Platform-default role permissions. */}
+      <RolePermissionsPanel />
     </div>
   );
 }

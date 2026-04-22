@@ -473,10 +473,18 @@ realtimeRouter.post('/operator-subscribe', async (req, res) => {
 const operatorInboxSubscribeSchema = z.object({ workspace_id: z.string().uuid() });
 
 realtimeRouter.post('/operator-inbox-subscribe', async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
   try {
-    const config: ServerConfig = (req as any).serverConfig;
     const parsed = operatorInboxSubscribeSchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: 'Invalid request' });
+    if (!parsed.success) {
+      emitMetric(config, {
+        metric: 'realtime.subscribe_failed',
+        driver: 'centrifugo',
+        source: 'operator',
+        tags: { endpoint: 'operator-inbox-subscribe', reason: 'invalid_request' },
+      });
+      return res.status(400).json({ error: 'Invalid request' });
+    }
     const user = await authorizeOperator(req, res, config, parsed.data.workspace_id);
     if (!user) return;
 
@@ -491,6 +499,12 @@ realtimeRouter.post('/operator-inbox-subscribe', async (req, res) => {
     return res.json({ vendor: 'centrifugo', channel, token: tk.token, expires_at: tk.expires_at });
   } catch (err: any) {
     console.error('[realtime/operator-inbox-subscribe]', err);
+    emitMetric(config, {
+      metric: 'realtime.subscribe_failed',
+      driver: 'centrifugo',
+      source: 'operator',
+      tags: { endpoint: 'operator-inbox-subscribe', reason: 'internal_error' },
+    });
     res.status(500).json({ error: 'Internal error' });
   }
 });
@@ -505,10 +519,18 @@ realtimeRouter.post('/operator-inbox-subscribe', async (req, res) => {
 const operatorVisitorsSubscribeSchema = z.object({ workspace_id: z.string().uuid() });
 
 realtimeRouter.post('/operator-visitors-subscribe', async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
   try {
-    const config: ServerConfig = (req as any).serverConfig;
     const parsed = operatorVisitorsSubscribeSchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: 'Invalid request' });
+    if (!parsed.success) {
+      emitMetric(config, {
+        metric: 'realtime.subscribe_failed',
+        driver: 'centrifugo',
+        source: 'operator',
+        tags: { endpoint: 'operator-visitors-subscribe', reason: 'invalid_request' },
+      });
+      return res.status(400).json({ error: 'Invalid request' });
+    }
     const user = await authorizeOperator(req, res, config, parsed.data.workspace_id);
     if (!user) return;
 
@@ -523,6 +545,12 @@ realtimeRouter.post('/operator-visitors-subscribe', async (req, res) => {
     return res.json({ vendor: 'centrifugo', channel, token: tk.token, expires_at: tk.expires_at });
   } catch (err: any) {
     console.error('[realtime/operator-visitors-subscribe]', err);
+    emitMetric(config, {
+      metric: 'realtime.subscribe_failed',
+      driver: 'centrifugo',
+      source: 'operator',
+      tags: { endpoint: 'operator-visitors-subscribe', reason: 'internal_error' },
+    });
     res.status(500).json({ error: 'Internal error' });
   }
 });

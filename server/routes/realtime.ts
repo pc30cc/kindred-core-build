@@ -40,6 +40,7 @@ import {
 import { loadWidgetPlatformRuntimeSettings } from '../services/widget/platformSettings.js';
 import { emitMetric } from '../services/observability/metrics.js';
 import { realtimeControlRouter } from './realtimeControl.js';
+import { resolveEffectivePolicy } from '../services/realtime/effectivePolicy.js';
 
 export const realtimeRouter = Router();
 

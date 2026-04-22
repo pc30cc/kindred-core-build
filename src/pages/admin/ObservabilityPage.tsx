@@ -3,15 +3,17 @@ import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { fetchMetricsSummary, fetchMetricsEvents } from '@/lib/admin-metrics-api';
+import AlertsPanel from '@/components/admin/observability/AlertsPanel';
 
 type Range = '1h' | '24h' | '7d';
 
 export default function AdminObservabilityPage() {
   const [range, setRange] = useState<Range>('1h');
   const [filter, setFilter] = useState<string>('');
+  const [tab, setTab] = useState<'metrics' | 'alerts'>('metrics');
 
   const summaryQ = useQuery({
     queryKey: ['admin-metrics-summary', range],
@@ -30,16 +32,22 @@ export default function AdminObservabilityPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-foreground">Realtime Observability</h1>
-        <Tabs value={range} onValueChange={(v) => setRange(v as Range)}>
-          <TabsList>
-            <TabsTrigger value="1h">Last hour</TabsTrigger>
-            <TabsTrigger value="24h">24h</TabsTrigger>
-            <TabsTrigger value="7d">7 days</TabsTrigger>
-          </TabsList>
-        </Tabs>
-      </div>
+      <h1 className="text-2xl font-bold text-foreground">Realtime Observability</h1>
+      <Tabs value={tab} onValueChange={(v) => setTab(v as 'metrics' | 'alerts')}>
+        <TabsList>
+          <TabsTrigger value="metrics">Metrics</TabsTrigger>
+          <TabsTrigger value="alerts">Alerts</TabsTrigger>
+        </TabsList>
+        <TabsContent value="metrics" className="space-y-6">
+          <div className="flex items-center justify-end">
+            <Tabs value={range} onValueChange={(v) => setRange(v as Range)}>
+              <TabsList>
+                <TabsTrigger value="1h">Last hour</TabsTrigger>
+                <TabsTrigger value="24h">24h</TabsTrigger>
+                <TabsTrigger value="7d">7 days</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
 
       <Card className="bg-card border-border">
         <CardHeader>

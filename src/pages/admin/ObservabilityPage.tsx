@@ -7,13 +7,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { fetchMetricsSummary, fetchMetricsEvents } from '@/lib/admin-metrics-api';
 import AlertsPanel from '@/components/admin/observability/AlertsPanel';
+import PerformancePanel from '@/components/admin/observability/PerformancePanel';
 
 type Range = '1h' | '24h' | '7d';
 
 export default function AdminObservabilityPage() {
   const [range, setRange] = useState<Range>('1h');
   const [filter, setFilter] = useState<string>('');
-  const [tab, setTab] = useState<'metrics' | 'alerts'>('metrics');
+  const [tab, setTab] = useState<'metrics' | 'performance' | 'alerts'>('metrics');
 
   const summaryQ = useQuery({
     queryKey: ['admin-metrics-summary', range],
@@ -36,6 +37,7 @@ export default function AdminObservabilityPage() {
       <Tabs value={tab} onValueChange={(v) => setTab(v as 'metrics' | 'alerts')}>
         <TabsList>
           <TabsTrigger value="metrics">Metrics</TabsTrigger>
+          <TabsTrigger value="performance">Performance</TabsTrigger>
           <TabsTrigger value="alerts">Alerts</TabsTrigger>
         </TabsList>
         <TabsContent value="metrics" className="space-y-6">

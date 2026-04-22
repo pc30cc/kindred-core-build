@@ -426,24 +426,75 @@
       ensureShell();
       var opts = options || {};
       var channel = opts.channel === 'video' ? 'video' : 'audio';
-      rootEl.querySelector('[data-el="title"]').textContent = 'No operator available';
-      rootEl.querySelector('[data-el="sub"]').textContent = 'Request a callback and we will get back to you.';
+      var titleEl = rootEl.querySelector('[data-el="title"]');
+      var subEl = rootEl.querySelector('[data-el="sub"]');
+      var ctaBtn = rootEl.querySelector('[data-el="callback"]');
+      var modalEl = rootEl.querySelector('[data-el="callback-modal"]');
+      var phoneInput = rootEl.querySelector('[data-el="cb-phone"]');
+      var emailInput = rootEl.querySelector('[data-el="cb-email"]');
+      var notesInput = rootEl.querySelector('[data-el="cb-notes"]');
+      var errEl = rootEl.querySelector('[data-el="cb-error"]');
+      var submitBtn = rootEl.querySelector('[data-el="cb-submit"]');
+      var cancelBtn = rootEl.querySelector('[data-el="cb-cancel"]');
+
+      // Pre-fill from known visitor identity if available — never force re-entry.
+      var ident = (window.__gs_identity || {});
+      try {
+        if (ident.phone && !phoneInput.value) phoneInput.value = ident.phone;
+        if (ident.email && !emailInput.value) emailInput.value = ident.email;
+        if (opts.notes && !notesInput.value) notesInput.value = opts.notes;
+      } catch (_) {}
+
+      titleEl.textContent = 'No operator available';
+      subEl.textContent = 'Request a callback and we will get back to you.';
       rootEl.querySelector('[data-el="ring-row"]').style.display = 'none';
       rootEl.querySelector('[data-el="call-row"]').style.display = 'none';
       rootEl.querySelector('[data-el="callback-row"]').style.display = 'flex';
-      var btn = rootEl.querySelector('[data-el="callback"]');
-      btn.disabled = false;
-      btn.textContent = 'Request callback';
+      modalEl.style.display = 'none';
+      errEl.classList.remove('show');
+      ctaBtn.disabled = !!callbackRequestedFlag;
+      ctaBtn.textContent = callbackRequestedFlag ? 'Callback requested' : 'Request callback';
       show();
-      btn.onclick = function () {
-        btn.disabled = true;
-        btn.textContent = 'Requesting...';
+
+      function openModal() {
+        if (callbackRequestedFlag) return; // already requested in this session
+        modalEl.style.display = 'block';
+        ctaBtn.style.display = 'none';
+        errEl.classList.remove('show');
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Request callback';
+      }
+      function closeModal() {
+        modalEl.style.display = 'none';
+        ctaBtn.style.display = '';
+      }
+
+      ctaBtn.onclick = openModal;
+      cancelBtn.onclick = closeModal;
+
+      submitBtn.onclick = function () {
+        // Client-side guards: in-flight + 3s debounce + post-success lock.
+        var now = Date.now();
+        if (isSubmittingCallback) return;
+        if (callbackRequestedFlag) return;
+        if (now - lastCallbackSubmitTs < 3000) return;
+        lastCallbackSubmitTs = now;
+
         var ctx = getWidgetCtx();
         if (!ctx.apiBase || !ctx.token) {
-          setStatus('Could not request callback');
-          btn.disabled = false; btn.textContent = 'Try again';
+          errEl.textContent = 'Connection not ready. Please try again.';
+          errEl.classList.add('show');
           return;
         }
+        var phone = (phoneInput.value || '').trim();
+        var email = (emailInput.value || '').trim();
+        var notes = (notesInput.value || '').trim();
+
+        isSubmittingCallback = true;
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Requesting...';
+        errEl.classList.remove('show');
+
         fetch(ctx.apiBase + '/api/widget/callback/request', {
           method: 'POST',
           credentials: 'include',
@@ -451,20 +502,32 @@
           body: JSON.stringify({
             channel: channel,
             conversation_id: opts.conversation_id || undefined,
-            notes: opts.notes || undefined,
+            contact_phone: phone || undefined,
+            contact_email: email || undefined,
+            notes: notes || undefined,
             queue_entry_id: opts.queue_entry_id || undefined,
           }),
         }).then(function (r) {
-          if (!r.ok) throw new Error('http_' + r.status);
+          if (!r.ok) return r.json().catch(function () { return {}; }).then(function (b) {
+            throw new Error(b.error || ('http_' + r.status));
+          });
           return r.json();
         }).then(function () {
-          rootEl.querySelector('[data-el="title"]').textContent = 'Callback requested';
-          rootEl.querySelector('[data-el="sub"]').textContent = 'An operator will reach out shortly.';
-          btn.textContent = 'Done';
-          setTimeout(function () { hide(); }, 2500);
-        }).catch(function () {
-          setStatus('Could not request callback');
-          btn.disabled = false; btn.textContent = 'Try again';
+          callbackRequestedFlag = true;
+          modalEl.style.display = 'none';
+          ctaBtn.style.display = '';
+          ctaBtn.disabled = true;
+          ctaBtn.textContent = 'Callback requested';
+          titleEl.textContent = 'Callback requested';
+          subEl.textContent = "We'll call you back shortly.";
+          setTimeout(function () { hide(); }, 3500);
+        }).catch(function (err) {
+          errEl.textContent = (err && err.message) ? ('Could not request callback: ' + err.message) : 'Could not request callback';
+          errEl.classList.add('show');
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Try again';
+        }).then(function () {
+          isSubmittingCallback = false;
         });
       };
     },

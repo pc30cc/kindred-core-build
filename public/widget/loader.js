@@ -394,6 +394,16 @@
         window.__gs._id = WORKSPACE_ID;
         // Publish to shared bus so runtime + realtime driver use the same token.
         try { window.__gs_token.set(sessionToken); } catch (_) {}
+        // Phase 6C — stash the effective realtime policy snapshot from
+        // bootstrap so the runtime can honor degraded/force_polling/typing
+        // suppression / reconnect backoff multiplier without a separate
+        // round-trip. Forward-compatible: older runtimes ignore unknown
+        // window keys.
+        try {
+          if (data && data.effective_policy) {
+            window.__gs_policy = data.effective_policy;
+          }
+        } catch (_) {}
 
         return fetchWithRetry(
           apiBase + "/api/widget/config?workspace_id=" + encodeURIComponent(WORKSPACE_ID),

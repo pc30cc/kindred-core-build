@@ -33,6 +33,15 @@ export interface CallControlPlaneConfig {
   recording_default_type: 'composite' | 'individual' | 'audio_only';
   retention_default_days: number;
   verification_required_for_visitor_calls: boolean;
+  // ── Phase 8C — global channel gates (hard upper bounds) ──
+  // When false at the platform level, a workspace cannot enable the
+  // corresponding feature regardless of its own override.
+  voice_calls_enabled_global: boolean;
+  video_calls_enabled_global: boolean;
+  call_recording_enabled_global: boolean;
+  call_queue_enabled_global: boolean;
+  visitor_initiated_audio_enabled_global: boolean;
+  visitor_initiated_video_enabled_global: boolean;
 }
 
 export const DEFAULT_CALL_CONTROL_PLANE: CallControlPlaneConfig = {
@@ -48,6 +57,12 @@ export const DEFAULT_CALL_CONTROL_PLANE: CallControlPlaneConfig = {
   recording_default_type: 'composite',
   retention_default_days: 30,
   verification_required_for_visitor_calls: true,
+  voice_calls_enabled_global: true,
+  video_calls_enabled_global: true,
+  call_recording_enabled_global: false,
+  call_queue_enabled_global: true,
+  visitor_initiated_audio_enabled_global: true,
+  visitor_initiated_video_enabled_global: true,
 };
 
 let cache: { value: CallControlPlaneConfig; loadedAt: number } | null = null;

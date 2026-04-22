@@ -473,9 +473,18 @@ function scheduleReconnect(conn: SharedConnection): void {
   if (conn.reconnectTimer) return;
   // If no subscribers remain, there's nothing to reconnect for.
   if (conn.subs.size === 0) return;
-  const delay = RECONNECT_DELAYS_MS[Math.min(conn.reconnectAttempt, RECONNECT_DELAYS_MS.length - 1)];
+  const baseDelay = RECONNECT_DELAYS_MS[Math.min(conn.reconnectAttempt, RECONNECT_DELAYS_MS.length - 1)];
+  // Phase 2 — apply ±jitterPct% randomness so a region-wide outage doesn't
+  // produce N tabs reconnecting at the identical millisecond.
+  const { reconnectJitterPct } = getHardeningSync();
+  const delay = jitter(baseDelay, reconnectJitterPct);
   conn.reconnectAttempt += 1;
-  rtDebug('centrifugo', 'scheduling reconnect', { attempt: conn.reconnectAttempt, delayMs: delay });
+  rtDebug('centrifugo', 'scheduling reconnect', {
+    attempt: conn.reconnectAttempt,
+    baseDelayMs: baseDelay,
+    delayMs: delay,
+    jitterPct: reconnectJitterPct,
+  });
   conn.subs.forEach((set) => set.forEach((h) => h.onStatus?.('connecting')));
   conn.reconnectTimer = setTimeout(async () => {
     conn.reconnectTimer = null;

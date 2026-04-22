@@ -392,6 +392,8 @@
         sessionToken = data.session_token;
         WORKSPACE_ID = data.workspace_id || WORKSPACE_ID;
         window.__gs._id = WORKSPACE_ID;
+        // Publish to shared bus so runtime + realtime driver use the same token.
+        try { window.__gs_token.set(sessionToken); } catch (_) {}
 
         return fetchWithRetry(
           apiBase + "/api/widget/config?workspace_id=" + encodeURIComponent(WORKSPACE_ID),
@@ -631,7 +633,15 @@
     // refresh the heartbeat loop would emit 403/TOKEN_EXPIRED forever, which
     // upstream proxies (nginx/Coolify) eventually return as 504 *without*
     // CORS headers — surfacing as a confusing CORS error in the browser.
-    var currentToken = token;
+    // Read from the shared bus on every send so a refresh by the runtime
+    // tokenManager (or vice-versa) is picked up immediately. Falls back
+    // to the bootstrap token if the bus is somehow not yet initialized.
+    function tokenNow() {
+      try {
+        var t = window.__gs_token && window.__gs_token.get();
+        return t || token;
+      } catch (_) { return token; }
+    }
     var heartbeatTimer = null;
     var refreshing = null; // Promise<string|null> while a refresh is in flight
     var consecutiveFailures = 0;
@@ -639,10 +649,11 @@
 
     function refreshToken() {
       if (refreshing) return refreshing;
+      var t = tokenNow();
       refreshing = fetch(apiBase + "/api/widget/session/refresh", {
         method: "POST",
         credentials: "include",
-        headers: { "Content-Type": "application/json", "X-Widget-Token": currentToken },
+        headers: { "Content-Type": "application/json", "X-Widget-Token": t },
       })
         .then(function (r) {
           if (!r.ok) return null;
@@ -650,8 +661,8 @@
         })
         .then(function (data) {
           if (data && data.session_token) {
-            currentToken = data.session_token;
-            return currentToken;
+            try { window.__gs_token.set(data.session_token); } catch (_) {}
+            return data.session_token;
           }
           return null;
         })
@@ -663,7 +674,7 @@
     fetch(apiBase + "/api/widget/track", {
       method: "POST",
       credentials: "include",
-      headers: { "Content-Type": "application/json", "X-Widget-Token": currentToken },
+      headers: { "Content-Type": "application/json", "X-Widget-Token": tokenNow() },
       body: JSON.stringify({
         workspace_id: workspaceId,
         event: "page_view",
@@ -721,7 +732,7 @@
               }
             });
         }
-        function ping() { doPing(currentToken, false); }
+        function ping() { doPing(tokenNow(), false); }
         // Background heartbeat — keeps presence "online" and refreshes
         // last_seen_at so the operator UI stays accurate.
         heartbeatTimer = setInterval(ping, 30000);

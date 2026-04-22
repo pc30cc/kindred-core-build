@@ -115,6 +115,9 @@
       '  <button class="btn ghost" data-el="cam" type="button" aria-label="Toggle camera">Cam</button>',
       '  <button class="btn danger" data-el="hangup" type="button" aria-label="Hang up">End</button>',
       '</div>',
+      '<div class="row" data-el="callback-row" style="display:none">',
+      '  <button class="btn ghost" data-el="callback" type="button">Request callback</button>',
+      '</div>',
       '<p class="status" data-el="status"></p>',
     ].join('');
     shadow.appendChild(rootEl);
@@ -391,6 +394,59 @@
       if (lastDispatchedCallId === slim.id) return;
       showIncoming({ call_id: slim.id, call_type: slim.call_type || 'audio' });
     },
+    /**
+     * Phase 8D — Show callback-request CTA. Used when queue is unavailable,
+     * SLA exceeded, or no operator can take a live call. Reuses the visitor's
+     * existing identity (token + workspace context). Never asks for a new form.
+     *
+     * options: { channel: 'audio'|'video', conversation_id?, notes?, queue_entry_id? }
+     */
+    offerCallback: function (options) {
+      ensureShell();
+      var opts = options || {};
+      var channel = opts.channel === 'video' ? 'video' : 'audio';
+      rootEl.querySelector('[data-el="title"]').textContent = 'No operator available';
+      rootEl.querySelector('[data-el="sub"]').textContent = 'Request a callback and we will get back to you.';
+      rootEl.querySelector('[data-el="ring-row"]').style.display = 'none';
+      rootEl.querySelector('[data-el="call-row"]').style.display = 'none';
+      rootEl.querySelector('[data-el="callback-row"]').style.display = 'flex';
+      var btn = rootEl.querySelector('[data-el="callback"]');
+      btn.disabled = false;
+      btn.textContent = 'Request callback';
+      show();
+      btn.onclick = function () {
+        btn.disabled = true;
+        btn.textContent = 'Requesting...';
+        var ctx = getWidgetCtx();
+        if (!ctx.apiBase || !ctx.token) {
+          setStatus('Could not request callback');
+          btn.disabled = false; btn.textContent = 'Try again';
+          return;
+        }
+        fetch(ctx.apiBase + '/api/widget/callback/request', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json', 'X-Widget-Token': ctx.token },
+          body: JSON.stringify({
+            channel: channel,
+            conversation_id: opts.conversation_id || undefined,
+            notes: opts.notes || undefined,
+            queue_entry_id: opts.queue_entry_id || undefined,
+          }),
+        }).then(function (r) {
+          if (!r.ok) throw new Error('http_' + r.status);
+          return r.json();
+        }).then(function () {
+          rootEl.querySelector('[data-el="title"]').textContent = 'Callback requested';
+          rootEl.querySelector('[data-el="sub"]').textContent = 'An operator will reach out shortly.';
+          btn.textContent = 'Done';
+          setTimeout(function () { hide(); }, 2500);
+        }).catch(function () {
+          setStatus('Could not request callback');
+          btn.disabled = false; btn.textContent = 'Try again';
+        });
+      };
+    },
   };
   // Adopt any pre-queued items.
   try {
@@ -403,6 +459,9 @@
         }
         if (Array.isArray(item) && item[0] === 'call:ringing-poll' && item[1]) {
           window.__gs_call.ringingFromPoll(item[1]);
+        }
+        if (Array.isArray(item) && item[0] === 'call:callback-offer' && item[1]) {
+          window.__gs_call.offerCallback(item[1]);
         }
       }
     }
@@ -422,6 +481,10 @@
       }
       if (Array.isArray(item) && item[0] === 'call:ringing-poll' && item[1]) {
         window.__gs_call.ringingFromPoll(item[1]);
+        return;
+      }
+      if (Array.isArray(item) && item[0] === 'call:callback-offer' && item[1]) {
+        window.__gs_call.offerCallback(item[1]);
         return;
       }
       if (origPush) return origPush(item);

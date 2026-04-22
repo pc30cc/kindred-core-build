@@ -1538,10 +1538,21 @@
       // Phase 6C — when the platform is in degraded / force-polling mode
       // AND the connection is otherwise healthy, surface a non-blocking
       // "limited" line. Messaging stays usable; this is informational only.
-      var degraded = false;
-      try { degraded = !!(window.__gs_policy && (window.__gs_policy.degraded_mode || window.__gs_policy.force_polling)); } catch (_) {}
+      // Phase 7.6 — also surface enforcement-driven throttling/priority
+      // states with non-scary copy. Highest-severity wins.
+      var degradedLabel = null;
+      try {
+        var pol = window.__gs_policy || null;
+        if (pol) {
+          if (pol.force_polling) degradedLabel = 'Connection limited — messaging still works';
+          else if (pol.degraded_mode) degradedLabel = 'Limited mode — messaging still works';
+          else if (pol.throttle_new_conversations) degradedLabel = 'High volume — new chats may take a moment';
+          else if (pol.priority_only_mode) degradedLabel = 'Priority routing active — replies may be delayed';
+          else if (pol.slow_mode_messages) degradedLabel = 'Slow mode — short delay between messages';
+        }
+      } catch (_) {}
       if (s === 'online' || s === 'idle') {
-        if (degraded && s === 'online') {
+        if (degradedLabel && s === 'online') {
           bannerEl.className = 'connection-banner visible reconnecting';
           bannerEl.innerHTML = '';
           var ddot = document.createElement('span');
@@ -1550,7 +1561,7 @@
           bannerEl.appendChild(ddot);
           var dspan = document.createElement('span');
           dspan.className = 'conn-label';
-          dspan.textContent = 'Connection limited — messaging still works';
+          dspan.textContent = degradedLabel;
           bannerEl.appendChild(dspan);
           if (bannerEl.__gsShowTimer) {
             clearTimeout(bannerEl.__gsShowTimer);

@@ -41,6 +41,20 @@ export default function AdminSystemPage() {
   const activeAlerts = (activeAlertsQ.data?.active || []).slice(0, 3);
   const hasCritical = activeAlerts.some((a) => a.severity === 'critical');
 
+  const perfRows = (perfSummaryQ.data?.rows || []).slice(0, 4);
+  const perfLatest = perfProcessQ.data?.latest;
+  const fmtBytes = (n: number) => {
+    if (!n) return '0';
+    const u = ['B', 'KB', 'MB', 'GB'];
+    let i = 0;
+    let v = n;
+    while (v >= 1024 && i < u.length - 1) {
+      v /= 1024;
+      i += 1;
+    }
+    return `${v.toFixed(1)} ${u[i]}`;
+  };
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-foreground">System Overview</h1>

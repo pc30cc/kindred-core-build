@@ -455,8 +455,23 @@ callsRouter.post('/:id/recording/start', async (req, res) => {
     await ctx.sb.from('call_sessions').update({ recording_enabled: true, recording_state: 'recording' })
       .eq('id', ctx.session.id);
     await recordEvent(ctx.sb, ctx.session.id, 'recording_start', 'operator', ctx.userId, { recording_id: handle.recordingId });
+    emitCallMetric((req as any).serverConfig, {
+      metric: 'call.recording.start.success',
+      workspaceId: ctx.session.workspace_id,
+      provider: ctx.session.provider,
+      callId: ctx.session.id,
+    });
     res.json({ recording_id: handle.recordingId, status: handle.status });
   } catch (err) {
+    try {
+      emitCallMetric((req as any).serverConfig, {
+        metric: 'call.recording.start.failure',
+        workspaceId: ctx.session.workspace_id,
+        provider: ctx.session.provider,
+        callId: ctx.session.id,
+        reason: String((err as any)?.message || 'unknown').slice(0, 120),
+      });
+    } catch { /* */ }
     return handleProviderError(res, err);
   }
 });
@@ -473,8 +488,23 @@ callsRouter.post('/:id/recording/stop', async (req, res) => {
     await ctx.sb.from('call_sessions').update({ recording_state: 'finalizing' })
       .eq('id', ctx.session.id);
     await recordEvent(ctx.sb, ctx.session.id, 'recording_stop', 'operator', ctx.userId, { recording_id: body.recording_id });
+    emitCallMetric((req as any).serverConfig, {
+      metric: 'call.recording.stop.success',
+      workspaceId: ctx.session.workspace_id,
+      provider: ctx.session.provider,
+      callId: ctx.session.id,
+    });
     res.json({ recording_id: handle.recordingId, status: handle.status });
   } catch (err) {
+    try {
+      emitCallMetric((req as any).serverConfig, {
+        metric: 'call.recording.stop.failure',
+        workspaceId: ctx.session.workspace_id,
+        provider: ctx.session.provider,
+        callId: ctx.session.id,
+        reason: String((err as any)?.message || 'unknown').slice(0, 120),
+      });
+    } catch { /* */ }
     return handleProviderError(res, err);
   }
 });

@@ -36,6 +36,127 @@ const TOKEN_REFRESH_LEAD_MS = 120_000;
 /** Backoff schedule (ms) for socket reconnect attempts. Capped at 30s. */
 const RECONNECT_DELAYS_MS = [500, 1_000, 2_000, 4_000, 8_000, 15_000, 30_000];
 
+/**
+ * Phase 2 — runtime hardening knobs read once per tab from the public
+ * `widget_platform_settings` row. These are SAFETY caps and pacing
+ * controls; the values fall back to safe defaults if the read fails or
+ * the row is missing. Never throws.
+ *
+ *   • reconnectJitterPct: ±N% jitter applied to RECONNECT_DELAYS_MS so
+ *     N tabs from the same operator (or N visitors after a regional
+ *     network blip) don't all hammer /api/realtime/*-connect at the
+ *     identical millisecond and trigger a thundering herd.
+ *   • pendingMax: hard cap on the per-socket `pending` map so a stuck
+ *     server can't grow that map unboundedly during a long outage.
+ *   • messageDedupeEnabled / Window: drop duplicate `push` frames for
+ *     the same `payload.id` before fan-out. Centrifugo CAN replay a
+ *     push on resubscribe (rare, but documented), and any future
+ *     bridge from a different transport could re-emit the same id.
+ *     The ring is per channel and bounded.
+ */
+interface ClientHardeningSettings {
+  reconnectJitterPct: number;
+  pendingMax: number;
+  messageDedupeEnabled: boolean;
+  messageDedupeWindow: number;
+}
+
+const HARDENING_DEFAULTS: ClientHardeningSettings = {
+  reconnectJitterPct: 20,
+  pendingMax: 256,
+  messageDedupeEnabled: true,
+  messageDedupeWindow: 200,
+};
+
+let hardeningCache: ClientHardeningSettings | null = null;
+let hardeningInflight: Promise<ClientHardeningSettings> | null = null;
+
+function clampInt(raw: unknown, min: number, max: number, fallback: number): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return fallback;
+  const i = Math.trunc(n);
+  if (i < min) return min;
+  if (i > max) return max;
+  return i;
+}
+
+async function loadHardening(): Promise<ClientHardeningSettings> {
+  if (hardeningCache) return hardeningCache;
+  if (hardeningInflight) return hardeningInflight;
+  hardeningInflight = (async () => {
+    try {
+      const { data } = await supabase
+        .from('widget_platform_settings')
+        .select(
+          'realtime_reconnect_jitter_pct, realtime_pending_max, realtime_message_dedupe_enabled, realtime_message_dedupe_window',
+        )
+        .limit(1)
+        .maybeSingle();
+      const value: ClientHardeningSettings = data
+        ? {
+            reconnectJitterPct: clampInt(data.realtime_reconnect_jitter_pct, 0, 50, 20),
+            pendingMax: clampInt(data.realtime_pending_max, 32, 4096, 256),
+            messageDedupeEnabled: data.realtime_message_dedupe_enabled !== false,
+            messageDedupeWindow: clampInt(data.realtime_message_dedupe_window, 16, 4096, 200),
+          }
+        : HARDENING_DEFAULTS;
+      hardeningCache = value;
+      return value;
+    } catch {
+      hardeningCache = HARDENING_DEFAULTS;
+      return HARDENING_DEFAULTS;
+    } finally {
+      hardeningInflight = null;
+    }
+  })();
+  return hardeningInflight;
+}
+
+/**
+ * Synchronous accessor — returns the cached value or the safe default.
+ * Used inside hot paths (onmessage / scheduleReconnect) where we don't
+ * want to await. The async loader is kicked off the first time a
+ * connection is built.
+ */
+function getHardeningSync(): ClientHardeningSettings {
+  return hardeningCache || HARDENING_DEFAULTS;
+}
+
+/** Apply ±jitterPct% jitter to a base delay. Always >= 0. */
+function jitter(baseMs: number, jitterPct: number): number {
+  if (!jitterPct || jitterPct <= 0) return baseMs;
+  const span = baseMs * (jitterPct / 100);
+  const offset = (Math.random() * 2 - 1) * span;
+  return Math.max(0, Math.round(baseMs + offset));
+}
+
+/**
+ * Returns true if `id` was already seen on `channel` within the dedupe
+ * window — caller should drop the frame. Otherwise records the id and
+ * returns false. Bounded ring per channel.
+ */
+function rememberAndCheckSeen(
+  conn: SharedConnection,
+  channel: string,
+  id: string,
+  window: number,
+): boolean {
+  let ring = conn.seenByChannel.get(channel);
+  if (!ring) {
+    ring = new Map();
+    conn.seenByChannel.set(channel, ring);
+  }
+  if (ring.has(id)) return true;
+  ring.set(id, true);
+  // Evict oldest entries beyond the window.
+  while (ring.size > window) {
+    const firstKey = ring.keys().next().value as string | undefined;
+    if (firstKey === undefined) break;
+    ring.delete(firstKey);
+  }
+  return false;
+}
+
 interface SubscribeResponse {
   vendor: 'centrifugo' | 'polling_builtin';
   channel?: string;
@@ -215,6 +336,12 @@ interface SharedConnection {
    * already been replaced.
    */
   generation: number;
+  /**
+   * Phase 2 — per-channel message dedupe ring. Bounded by
+   * messageDedupeWindow from platform settings. Plain Map (insertion
+   * order) lets us evict the oldest in O(1) without a separate LRU lib.
+   */
+  seenByChannel: Map<string, Map<string, true>>;
 }
 
 const sharedConns = new Map<string, SharedConnection>();
@@ -243,7 +370,12 @@ function buildConnection(workspaceId: string, negotiation: RealtimeNegotiation):
     disposed: false,
     ready: Promise.resolve(),
     generation: 0,
+    seenByChannel: new Map(),
   };
+  // Phase 2 — kick off the hardening-settings prefetch (non-blocking).
+  // First connection on this tab will use defaults; subsequent reconnects
+  // pick up the platform-configured values.
+  loadHardening();
   conn.ready = openSocket(conn);
   return conn;
 }
@@ -326,6 +458,14 @@ function attachSocketHandlers(conn: SharedConnection): void {
         if (!handlersSet) continue;
         if (data?.type === 'message' && data.payload) {
           const payload = data.payload as NormalizedMessagePayload;
+          // Phase 2 — message dedupe. Centrifugo can replay a recent push
+          // on resubscribe; drop duplicates by payload.id before fan-out.
+          const { messageDedupeEnabled, messageDedupeWindow } = getHardeningSync();
+          if (messageDedupeEnabled && (payload as any)?.id) {
+            if (rememberAndCheckSeen(conn, channel, String((payload as any).id), messageDedupeWindow)) {
+              continue;
+            }
+          }
           handlersSet.forEach((h) => h.onMessage?.(payload));
         } else if (data?.type === 'typing') {
           handlersSet.forEach((h) => h.onTyping?.(data.payload || {}));
@@ -375,9 +515,18 @@ function scheduleReconnect(conn: SharedConnection): void {
   if (conn.reconnectTimer) return;
   // If no subscribers remain, there's nothing to reconnect for.
   if (conn.subs.size === 0) return;
-  const delay = RECONNECT_DELAYS_MS[Math.min(conn.reconnectAttempt, RECONNECT_DELAYS_MS.length - 1)];
+  const baseDelay = RECONNECT_DELAYS_MS[Math.min(conn.reconnectAttempt, RECONNECT_DELAYS_MS.length - 1)];
+  // Phase 2 — apply ±jitterPct% randomness so a region-wide outage doesn't
+  // produce N tabs reconnecting at the identical millisecond.
+  const { reconnectJitterPct } = getHardeningSync();
+  const delay = jitter(baseDelay, reconnectJitterPct);
   conn.reconnectAttempt += 1;
-  rtDebug('centrifugo', 'scheduling reconnect', { attempt: conn.reconnectAttempt, delayMs: delay });
+  rtDebug('centrifugo', 'scheduling reconnect', {
+    attempt: conn.reconnectAttempt,
+    baseDelayMs: baseDelay,
+    delayMs: delay,
+    jitterPct: reconnectJitterPct,
+  });
   conn.subs.forEach((set) => set.forEach((h) => h.onStatus?.('connecting')));
   conn.reconnectTimer = setTimeout(async () => {
     conn.reconnectTimer = null;
@@ -630,6 +779,18 @@ async function resubscribeAll(conn: SharedConnection): Promise<void> {
 function sendOnConn(conn: SharedConnection, key: string, body: Record<string, unknown>): Promise<any> {
   return new Promise((resolve, reject) => {
     if (conn.closed || conn.ws.readyState !== 1) return reject(new Error('socket_not_open'));
+    // Phase 2 — hard cap on in-flight pending callbacks. Prevents the
+    // pending map from growing unboundedly during a long-running server
+    // hang where replies never arrive. Drop the oldest entry (it would
+    // have timed out on its own in 8s anyway).
+    const { pendingMax } = getHardeningSync();
+    const pendingKeys = Object.keys(conn.pending);
+    if (pendingKeys.length >= pendingMax) {
+      const oldestId = Number(pendingKeys[0]);
+      const cb = conn.pending[oldestId];
+      delete conn.pending[oldestId];
+      try { cb({ error: { message: 'pending_cap_exceeded' } }); } catch { /* noop */ }
+    }
     const id = conn.nextId++;
     const frame: Record<string, unknown> = { id };
     frame[key] = body;
@@ -908,6 +1069,8 @@ function buildUnsubscribe(
         if (set.size === 0) {
           conn.subs.delete(channelKey);
           conn.subTokens.delete(channelKey);
+          // Phase 2 — release per-channel dedupe ring on unsubscribe.
+          conn.seenByChannel.delete(channelKey);
           // Best-effort unsubscribe; ignore errors (socket may already be closed).
           if (conn.ws && conn.ws.readyState === 1) {
             sendOnConn(conn, 'unsubscribe', { channel: channelKey }).catch(() => {});

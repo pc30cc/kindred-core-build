@@ -36,6 +36,7 @@ import {
   isInboxChannel,
   isVisitorsChannel,
 } from '../services/realtime/types.js';
+import { loadWidgetPlatformRuntimeSettings } from '../services/widget/platformSettings.js';
 
 export const realtimeRouter = Router();
 
@@ -158,10 +159,12 @@ realtimeRouter.post('/connect', async (req, res) => {
     }
 
     // Subject = stable visitor id (multi-tenant safe).
+    const platform = await loadWidgetPlatformRuntimeSettings(config);
     const tokenInfo = driver.issueConnectionToken({
       sub: subjectId,
       workspace_id: parsed.data.workspace_id,
       conversation_ids: parsed.data.conversation_ids,
+      expires_in_seconds: platform.realtime.tokenTtlSeconds,
     });
 
     return res.json({
@@ -232,10 +235,12 @@ realtimeRouter.post('/subscribe', async (req, res) => {
       // explicitly.
       return res.status(403).json({ error: 'Channel not allowed' });
     }
+    const platform = await loadWidgetPlatformRuntimeSettings(config);
     const tk = driver.issueSubscriptionToken({
       sub: subjectId,
       channel,
       workspaceId: parsed.data.workspace_id,
+      expiresInSeconds: platform.realtime.tokenTtlSeconds,
     });
     return res.json({ vendor: 'centrifugo', channel, token: tk.token, expires_at: tk.expires_at });
   } catch (err: any) {
@@ -286,9 +291,11 @@ realtimeRouter.post('/operator-connect', async (req, res) => {
     }
     const driver = await getCentrifugoDriver(config);
     if (!driver) return res.json({ vendor: 'polling_builtin' });
+    const platform = await loadWidgetPlatformRuntimeSettings(config);
     const tk = driver.issueConnectionToken({
       sub: `op_${user.id}`,
       workspace_id: parsed.data.workspace_id,
+      expires_in_seconds: platform.realtime.tokenTtlSeconds,
     });
     return res.json({
       vendor: 'centrifugo',
@@ -323,8 +330,10 @@ realtimeRouter.post('/operator-subscribe', async (req, res) => {
     if (!channelBelongsToWorkspace(channel, parsed.data.workspace_id)) {
       return res.status(403).json({ error: 'Channel not allowed' });
     }
+    const platform = await loadWidgetPlatformRuntimeSettings(config);
     const tk = driver.issueSubscriptionToken({
       sub: `op_${user.id}`, channel, workspaceId: parsed.data.workspace_id,
+      expiresInSeconds: platform.realtime.tokenTtlSeconds,
     });
     return res.json({ vendor: 'centrifugo', channel, token: tk.token, expires_at: tk.expires_at });
   } catch (err: any) {
@@ -356,8 +365,10 @@ realtimeRouter.post('/operator-inbox-subscribe', async (req, res) => {
     const driver = await getCentrifugoDriver(config);
     if (!driver) return res.json({ vendor: 'polling_builtin' });
     const channel = `ws:${parsed.data.workspace_id}:inbox`;
+    const platform = await loadWidgetPlatformRuntimeSettings(config);
     const tk = driver.issueSubscriptionToken({
       sub: `op_${user.id}`, channel, workspaceId: parsed.data.workspace_id,
+      expiresInSeconds: platform.realtime.tokenTtlSeconds,
     });
     return res.json({ vendor: 'centrifugo', channel, token: tk.token, expires_at: tk.expires_at });
   } catch (err: any) {
@@ -386,8 +397,10 @@ realtimeRouter.post('/operator-visitors-subscribe', async (req, res) => {
     const driver = await getCentrifugoDriver(config);
     if (!driver) return res.json({ vendor: 'polling_builtin' });
     const channel = `ws:${parsed.data.workspace_id}:visitors`;
+    const platform = await loadWidgetPlatformRuntimeSettings(config);
     const tk = driver.issueSubscriptionToken({
       sub: `op_${user.id}`, channel, workspaceId: parsed.data.workspace_id,
+      expiresInSeconds: platform.realtime.tokenTtlSeconds,
     });
     return res.json({ vendor: 'centrifugo', channel, token: tk.token, expires_at: tk.expires_at });
   } catch (err: any) {

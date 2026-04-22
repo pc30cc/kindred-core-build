@@ -291,7 +291,9 @@ widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), perfHttpMiddleware
     // older widget runtimes ignore the field, newer ones honor force_polling /
     // typing_suppressed / reconnect_backoff_multiplier without a separate
     // round-trip. Resolution is fail-open and never blocks bootstrap.
-    const effective_policy = await resolveEffectivePolicy(config);
+    const effective_policy = await resolveEffectivePolicy(config, {
+      workspaceId: resolvedWorkspaceId,
+    });
 
     return res.json({
       session_token: sessionToken,
@@ -357,7 +359,7 @@ widgetRouter.post('/session/refresh', widgetRateLimit('refresh'), perfHttpMiddle
     let effective_policy: Awaited<ReturnType<typeof resolveEffectivePolicy>> | null = null;
     try {
       const config = (req as any).serverConfig as ServerConfig;
-      effective_policy = await resolveEffectivePolicy(config);
+      effective_policy = await resolveEffectivePolicy(config, { workspaceId });
     } catch (_err) {
       effective_policy = null;
     }
@@ -2200,4 +2202,91 @@ widgetRouter.post('/admin/test-offline-email', async (req: Request, res: Respons
     console.error('[admin/test-offline-email] failed:', err?.message);
     return res.status(500).json({ error: 'send_failed', message: err?.message || 'unknown' });
   }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Phase 8C — Widget call channels & queue (visitor-facing)
+// ═══════════════════════════════════════════════════════════════════
+import { loadEffectiveCallChannels } from '../services/calls/controlPlane.js';
+import { enqueueCall, cancelEntry, getEntry as getQueueEntry } from '../services/calls/queue.js';
+
+/**
+ * GET /api/widget/call-channels
+ * Returns effective availability for voice/video/queue/recording on this
+ * workspace. Reuses the visitor session for identity and the existing
+ * effective policy snapshot. No new identity flow, no new pre-chat form.
+ */
+widgetRouter.get('/call-channels', widgetRateLimit('bootstrap'), async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = (req as any)._widgetWorkspaceId as string | undefined
+    || (req.query.workspace_id as string | undefined);
+  if (!workspaceId) return res.status(400).json({ error: 'missing_workspace' });
+  try {
+    const channels = await loadEffectiveCallChannels(config, workspaceId);
+    return res.json({
+      voice_enabled: channels.voice_enabled,
+      video_enabled: channels.video_enabled,
+      recording_enabled: channels.recording_enabled,
+      queue_enabled: channels.queue_enabled,
+      visitor_initiated_audio: channels.visitor_initiated_audio,
+      visitor_initiated_video: channels.visitor_initiated_video,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'channel_lookup_failed' });
+  }
+});
+
+/**
+ * POST /api/widget/call-queue/enqueue
+ * Body: { channel: 'audio'|'video', conversation_id?: string }
+ * Reuses the existing visitor identity (cookie + workspace token).
+ * Honors effective channel gates server-side.
+ */
+widgetRouter.post('/call-queue/enqueue', widgetRateLimit('message'), async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = (req as any)._widgetWorkspaceId as string | undefined;
+  const visitorId = (req as any).visitorId as string | undefined;
+  if (!workspaceId) return res.status(400).json({ error: 'missing_workspace' });
+  const parsed = z.object({
+    channel: z.enum(['audio', 'video']),
+    conversation_id: z.string().uuid().optional(),
+  }).safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_body' });
+  try {
+    const entry = await enqueueCall(config, {
+      workspaceId,
+      channel: parsed.data.channel,
+      visitorSessionId: visitorId ?? null,
+      conversationId: parsed.data.conversation_id ?? null,
+      requestedBy: 'visitor',
+    });
+    return res.json({ entry });
+  } catch (err: any) {
+    const code = err?.message || 'enqueue_failed';
+    const status = code === 'queue_disabled' || code === 'voice_disabled' || code === 'video_disabled'
+      ? 409
+      : 500;
+    return res.status(status).json({ error: code });
+  }
+});
+
+/**
+ * POST /api/widget/call-queue/:entryId/cancel
+ * Visitor cancels an active queue entry. Workspace-scoped lookup
+ * prevents cross-workspace cancellation.
+ */
+widgetRouter.post('/call-queue/:entryId/cancel', widgetRateLimit('message'), async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = (req as any)._widgetWorkspaceId as string | undefined;
+  const { entryId } = req.params;
+  if (!workspaceId) return res.status(400).json({ error: 'missing_workspace' });
+  const entry = await getQueueEntry(config, workspaceId, entryId);
+  if (!entry) return res.status(404).json({ error: 'not_found' });
+  // Optional safety: only owner of entry can cancel.
+  const visitorId = (req as any).visitorId as string | undefined;
+  if (entry.visitor_session_id && visitorId && entry.visitor_session_id !== visitorId) {
+    return res.status(403).json({ error: 'forbidden' });
+  }
+  const updated = await cancelEntry(config, entryId, 'visitor_cancelled');
+  return res.json({ entry: updated });
 });

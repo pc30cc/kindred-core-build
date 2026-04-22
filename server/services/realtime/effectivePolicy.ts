@@ -26,7 +26,7 @@ import type { ServerConfig } from '../../config.js';
 import { loadControlPlane, type RealtimeProviderId } from './controlPlane.js';
 import { loadFailoverState } from './failoverState.js';
 import { isActionActive } from '../observability/autoActionsCache.js';
-import { loadCallControlPlane } from '../calls/controlPlane.js';
+import { loadCallControlPlane, loadEffectiveCallChannels } from '../calls/controlPlane.js';
 
 export type EffectiveProviderWire =
   | 'centrifugo'
@@ -67,6 +67,16 @@ export interface EffectivePolicySnapshot {
   video_disabled: boolean;
   recording_forced: boolean;
   call_failover_epoch: string;
+  /** Phase 8C — call channel state (effective = global AND workspace).
+   *  When workspace_id is unknown at handshake time these stay at safe
+   *  defaults (false) and the widget falls back to chat-only. */
+  voice_enabled: boolean;
+  video_enabled: boolean;
+  recording_enabled: boolean;
+  queue_enabled: boolean;
+  visitor_initiated_audio: boolean;
+  visitor_initiated_video: boolean;
+  pre_chat_required: boolean;
   /**
    * Bumped whenever the *transport target* changes (vendor switch,
    * lock change, or force_polling toggle). Clients MUST reset transport
@@ -103,6 +113,13 @@ const SAFE_DEFAULT: EffectivePolicySnapshot = {
   video_disabled: false,
   recording_forced: false,
   call_failover_epoch: 'safe-default',
+  voice_enabled: false,
+  video_enabled: false,
+  recording_enabled: false,
+  queue_enabled: false,
+  visitor_initiated_audio: false,
+  visitor_initiated_video: false,
+  pre_chat_required: false,
   failover_epoch: 'safe-default',
   policy_version: 'safe-default',
   expires_at: Date.now() + POLICY_SNAPSHOT_TTL_MS,
@@ -181,6 +198,20 @@ function computePolicyVersion(snap: Omit<EffectivePolicySnapshot, 'policy_versio
   h.update('|');
   h.update(snap.call_failover_epoch);
   h.update('|');
+  h.update(snap.voice_enabled ? '1' : '0');
+  h.update('|');
+  h.update(snap.video_enabled ? '1' : '0');
+  h.update('|');
+  h.update(snap.recording_enabled ? '1' : '0');
+  h.update('|');
+  h.update(snap.queue_enabled ? '1' : '0');
+  h.update('|');
+  h.update(snap.visitor_initiated_audio ? '1' : '0');
+  h.update('|');
+  h.update(snap.visitor_initiated_video ? '1' : '0');
+  h.update('|');
+  h.update(snap.pre_chat_required ? '1' : '0');
+  h.update('|');
   h.update(snap.failover_epoch);
   return h.digest('hex').slice(0, 12);
 }
@@ -191,6 +222,7 @@ function computePolicyVersion(snap: Omit<EffectivePolicySnapshot, 'policy_versio
  */
 export async function resolveEffectivePolicy(
   config: ServerConfig,
+  opts?: { workspaceId?: string | null; preChatRequired?: boolean },
 ): Promise<EffectivePolicySnapshot> {
   try {
     const [policy, state, callCp] = await Promise.all([
@@ -261,6 +293,31 @@ export async function resolveEffectivePolicy(
       .digest('hex')
       .slice(0, 12);
 
+    // Phase 8C — resolve effective call channels for this workspace
+    // (global AND workspace). When workspace is unknown, all channels
+    // stay at safe-default false so the widget hides call tabs.
+    let voice_enabled = false;
+    let video_enabled = false;
+    let recording_enabled = false;
+    let queue_enabled = false;
+    let visitor_initiated_audio = false;
+    let visitor_initiated_video = false;
+    if (opts?.workspaceId) {
+      try {
+        const ch = await loadEffectiveCallChannels(config, opts.workspaceId);
+        voice_enabled = !!ch.voice_enabled && !audio_only_mode === false ? !!ch.voice_enabled : !!ch.voice_enabled;
+        // audio_only / video_disabled overlays
+        video_enabled = !!ch.video_enabled && !video_disabled;
+        recording_enabled = !!ch.recording_enabled || recording_forced;
+        queue_enabled = !!ch.queue_enabled;
+        visitor_initiated_audio = !!ch.visitor_initiated_audio;
+        visitor_initiated_video = !!ch.visitor_initiated_video && !video_disabled;
+      } catch {
+        // keep defaults (all false) — never block handshake on this.
+      }
+    }
+    const pre_chat_required = !!opts?.preChatRequired;
+
     const baseSnap: Omit<EffectivePolicySnapshot, 'policy_version' | 'expires_at'> = {
       effective_provider: effective,
       provider_locked,
@@ -278,6 +335,13 @@ export async function resolveEffectivePolicy(
       video_disabled,
       recording_forced,
       call_failover_epoch,
+      voice_enabled,
+      video_enabled,
+      recording_enabled,
+      queue_enabled,
+      visitor_initiated_audio,
+      visitor_initiated_video,
+      pre_chat_required,
       failover_epoch,
     };
 

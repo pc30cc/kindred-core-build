@@ -14,7 +14,7 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
-import { publishRealtime } from '../realtime/publish.js';
+import { resolvePublisher } from '../realtime/resolvePublisher.js';
 import { loadEffectiveCallChannels } from './controlPlane.js';
 
 export type QueueChannel = 'audio' | 'video';
@@ -69,11 +69,11 @@ async function publishQueueEvent(
   payload: Record<string, unknown>,
 ): Promise<void> {
   try {
-    await publishRealtime(config, {
-      channel: queueChannel(workspaceId),
-      event: 'call_queue',
-      payload,
-    });
+    const publisher = await resolvePublisher(config, workspaceId);
+    await publisher.publish(queueChannel(workspaceId), {
+      type: 'event',
+      payload: { kind: 'call_queue', ...payload },
+    } as any);
   } catch {
     // Realtime is best-effort; clients also re-poll the queue endpoint.
   }

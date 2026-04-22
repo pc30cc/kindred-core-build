@@ -181,6 +181,22 @@
         if (p && hooks.onMessage) hooks.onMessage({ channel: name, messages: [p] });
       });
 
+      // Phase 8B — operator-only `event` envelopes carry kind:'call:incoming'
+      // for ringing the widget instantly. Every OTHER operator kind
+      // (note_added, conversation_updated, …) is silently dropped — they have
+      // no widget UI surface. Sidecar dispatch only; FSM untouched.
+      ch.on('broadcast', { event: 'event' }, function (msg) {
+        var p = unwrapPayload(msg);
+        if (!p || p.kind !== 'call:incoming') return;
+        try {
+          if (window.__gs_call && typeof window.__gs_call.incoming === 'function') {
+            window.__gs_call.incoming(p);
+          } else if (window.__gs && typeof window.__gs.push === 'function') {
+            window.__gs.push(['call:incoming', p]);
+          }
+        } catch (_) {}
+      });
+
       ch.subscribe(function (status) {
         if (status === 'SUBSCRIBED') {
           channels[name] = ch;

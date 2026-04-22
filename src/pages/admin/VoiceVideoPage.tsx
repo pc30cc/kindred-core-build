@@ -423,6 +423,13 @@ function CallbacksTab() {
   const { data: workspaces } = useAdminWorkspaces(50, 0, '', 'newest');
   const [counts, setCounts] = useState<Record<string, { open: number; total: number }>>({});
   const [loading, setLoading] = useState(true);
+  const summaryQuery = useQuery({
+    queryKey: ['admin', 'callbacks-summary'],
+    queryFn: fetchPlatformCallbackSummary,
+    refetchInterval: 30_000,
+  });
+  const summary = summaryQuery.data;
+  const completionPct = summary ? Math.round((summary.completion_rate || 0) * 100) : 0;
 
   useEffect(() => {
     if (!workspaces) return;
@@ -445,7 +452,52 @@ function CallbacksTab() {
   }, [workspaces]);
 
   return (
-    <Card>
+    <div className="space-y-4">
+      {/* Phase 8D+ — Platform-wide summary cards */}
+      <div className="grid gap-3 grid-cols-2 md:grid-cols-4">
+        <Card>
+          <CardContent className="py-4">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Voicemail className="h-3.5 w-3.5" /> Open callbacks
+            </div>
+            <div className="mt-1 text-2xl font-semibold">{summary?.open ?? '—'}</div>
+            <div className="text-[10px] text-muted-foreground mt-0.5">Active across all workspaces</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="py-4">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <CheckCircle2 className="h-3.5 w-3.5" /> Completed
+            </div>
+            <div className="mt-1 text-2xl font-semibold">{summary?.counts?.completed ?? '—'}</div>
+            <div className="text-[10px] text-muted-foreground mt-0.5">Last 30 days</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="py-4">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <AlertTriangle className="h-3.5 w-3.5" /> Cancelled
+            </div>
+            <div className="mt-1 text-2xl font-semibold">{summary?.counts?.cancelled ?? '—'}</div>
+            <div className="text-[10px] text-muted-foreground mt-0.5">Last 30 days</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="py-4">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Activity className="h-3.5 w-3.5" /> Completion rate
+            </div>
+            <div className="mt-1 text-2xl font-semibold">
+              {summary && summary.total > 0 ? `${completionPct}%` : '—'}
+            </div>
+            <div className="text-[10px] text-muted-foreground mt-0.5">
+              {summary ? `${summary.total} total` : 'Last 30 days'}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
       <CardHeader>
         <CardTitle className="text-sm flex items-center gap-2">
           <Voicemail className="h-4 w-4" /> Callback requests
@@ -489,6 +541,7 @@ function CallbacksTab() {
         )}
       </CardContent>
     </Card>
+    </div>
   );
 }
 

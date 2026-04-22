@@ -474,6 +474,74 @@ export default function EnforcementPanel() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* Normalizations */}
+        <TabsContent value="normalizations">
+          <Card className="bg-card border-border">
+            <CardHeader>
+              <CardTitle className="text-foreground text-sm flex items-center gap-2">
+                <GitMerge className="h-4 w-4" /> Conflict normalizations
+              </CardTitle>
+              <CardDescription>
+                Audit of cycles where the conflict resolver merged or
+                suppressed conflicting actions.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {norms.length === 0 && (
+                <p className="text-muted-foreground text-sm">
+                  No normalization events yet — every cycle so far produced
+                  a clean action set.
+                </p>
+              )}
+              {norms.map((n) => (
+                <div key={n.id} className="rounded-md border border-border p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-foreground text-sm font-medium">
+                      {fmtTime(n.created_at)}
+                    </p>
+                    <Badge variant="outline" className="text-[10px]">
+                      {n.reasons.length} change{n.reasons.length === 1 ? '' : 's'}
+                    </Badge>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div>
+                      <p className="text-muted-foreground text-[11px] uppercase">Raw</p>
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {n.raw_actions.map((r, i) => (
+                          <Badge key={i} variant="outline" className="text-[10px] font-mono">
+                            {r.action_type} · {r.rule_slug} · p{r.rule_priority}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground text-[11px] uppercase">Normalized</p>
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {n.normalized_actions.map((r, i) => (
+                          <Badge
+                            key={i}
+                            className="bg-primary/15 text-primary text-[10px] font-mono"
+                          >
+                            {r.action_type} · {r.rule_slug} · p{r.rule_priority}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <ul className="text-muted-foreground space-y-1 text-xs">
+                    {n.reasons.map((r, i) => (
+                      <li key={i}>
+                        <span className="font-mono text-foreground/70">[{r.kind}]</span>{' '}
+                        <span className="font-mono">{r.action_type}</span> ({r.rule_slug}) — {r.detail}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
     </div>
   );

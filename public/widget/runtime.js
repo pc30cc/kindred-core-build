@@ -1535,7 +1535,29 @@
     function renderBanner(state) {
       if (!bannerEl) return;
       var s = state.connectionState;
+      // Phase 6C — when the platform is in degraded / force-polling mode
+      // AND the connection is otherwise healthy, surface a non-blocking
+      // "limited" line. Messaging stays usable; this is informational only.
+      var degraded = false;
+      try { degraded = !!(window.__gs_policy && (window.__gs_policy.degraded_mode || window.__gs_policy.force_polling)); } catch (_) {}
       if (s === 'online' || s === 'idle') {
+        if (degraded && s === 'online') {
+          bannerEl.className = 'connection-banner visible reconnecting';
+          bannerEl.innerHTML = '';
+          var ddot = document.createElement('span');
+          ddot.className = 'conn-dot';
+          ddot.setAttribute('aria-hidden', 'true');
+          bannerEl.appendChild(ddot);
+          var dspan = document.createElement('span');
+          dspan.className = 'conn-label';
+          dspan.textContent = 'Connection limited — messaging still works';
+          bannerEl.appendChild(dspan);
+          if (bannerEl.__gsShowTimer) {
+            clearTimeout(bannerEl.__gsShowTimer);
+            bannerEl.__gsShowTimer = null;
+          }
+          return;
+        }
         bannerEl.className = 'connection-banner';
         bannerEl.textContent = '';
         if (bannerEl.__gsShowTimer) {
@@ -3494,6 +3516,10 @@
       var cid = chatStore.get().conversationId;
       if (!cid) return;
       if (transportStore.get().connectionState !== 'online') return;
+      // Phase 6C — drop typing client-side when policy suppresses it.
+      // Server-side suppression is the backstop; this just avoids the
+      // round-trip when we know it'll be dropped.
+      if (Policy.typingSuppressed()) return;
       var now = Date.now();
       if (now - lastTypingSent < 2000) return;
       lastTypingSent = now;

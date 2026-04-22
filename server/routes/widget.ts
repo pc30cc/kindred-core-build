@@ -1543,6 +1543,61 @@ const RUNTIME_BUILD_HASH = crypto.createHash('md5')
   .digest('hex')
   .slice(0, 8);
 
+/**
+ * Visitor-side call state poll (Phase 8B fallback).
+ *
+ * The widget runtime keeps an open realtime channel and rings instantly on
+ * `call:incoming` envelopes. When realtime is disabled or briefly down, the
+ * widget falls back to polling THIS endpoint every 2 s to detect a session
+ * that has transitioned into `ringing`.
+ *
+ * Auth: widget token + origin (already enforced by parent middleware) plus
+ * conversation ownership — the call must belong to a conversation owned by
+ * this visitor session. No operator-only fields are returned.
+ */
+widgetRouter.get('/calls/:id/state', widgetRateLimit('poll'), async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = resolveWorkspaceId(req, res, req.query.workspace_id as string);
+  if (res.headersSent) return;
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
+
+  const callId = req.params.id;
+  if (!callId) return res.status(400).json({ error: 'call id required' });
+
+  const supabase = getServiceClient(config);
+  const { data: session, error } = await supabase
+    .from('call_sessions')
+    .select('id, workspace_id, call_type, context_type, context_id, state, recording_enabled')
+    .eq('id', callId)
+    .eq('workspace_id', workspaceId)
+    .maybeSingle();
+  if (error || !session) return res.status(404).json({ error: 'call_not_found' });
+  if (session.context_type !== 'conversation' || !session.context_id) {
+    return res.status(403).json({ error: 'call_context_not_widget' });
+  }
+
+  const visitorId = (req.query.visitor_id as string) || null;
+  const sessionId = (req.query.session_id as string) || null;
+  const ownership = await verifyConversationOwnership(
+    config,
+    session.context_id,
+    workspaceId,
+    visitorId,
+    sessionId,
+    req,
+  );
+  if (!ownership.valid) {
+    return res.status(403).json({ error: 'call_access_denied' });
+  }
+
+  res.json({
+    id: session.id,
+    state: session.state,
+    call_type: session.call_type,
+    recording: !!session.recording_enabled,
+  });
+});
+
 widgetRouter.get('/manifest', widgetRateLimit('bootstrap'), async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
   const workspaceId = resolveWorkspaceId(req, res, req.query.workspace_id as string);

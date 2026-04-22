@@ -835,6 +835,104 @@ export type Database = {
           },
         ]
       }
+      call_queue_entries: {
+        Row: {
+          accepted_at: string | null
+          call_session_id: string | null
+          channel: Database["public"]["Enums"]["call_queue_channel"]
+          contact_id: string | null
+          conversation_id: string | null
+          created_at: string
+          ended_at: string | null
+          ended_reason: string | null
+          expires_at: string
+          id: string
+          metadata: Json
+          offered_at: string | null
+          offered_to_user_id: string | null
+          position_hint: number | null
+          priority: number
+          requested_by: string
+          state: Database["public"]["Enums"]["call_queue_state"]
+          updated_at: string
+          visitor_session_id: string | null
+          workspace_id: string
+        }
+        Insert: {
+          accepted_at?: string | null
+          call_session_id?: string | null
+          channel: Database["public"]["Enums"]["call_queue_channel"]
+          contact_id?: string | null
+          conversation_id?: string | null
+          created_at?: string
+          ended_at?: string | null
+          ended_reason?: string | null
+          expires_at?: string
+          id?: string
+          metadata?: Json
+          offered_at?: string | null
+          offered_to_user_id?: string | null
+          position_hint?: number | null
+          priority?: number
+          requested_by?: string
+          state?: Database["public"]["Enums"]["call_queue_state"]
+          updated_at?: string
+          visitor_session_id?: string | null
+          workspace_id: string
+        }
+        Update: {
+          accepted_at?: string | null
+          call_session_id?: string | null
+          channel?: Database["public"]["Enums"]["call_queue_channel"]
+          contact_id?: string | null
+          conversation_id?: string | null
+          created_at?: string
+          ended_at?: string | null
+          ended_reason?: string | null
+          expires_at?: string
+          id?: string
+          metadata?: Json
+          offered_at?: string | null
+          offered_to_user_id?: string | null
+          position_hint?: number | null
+          priority?: number
+          requested_by?: string
+          state?: Database["public"]["Enums"]["call_queue_state"]
+          updated_at?: string
+          visitor_session_id?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "call_queue_entries_call_session_id_fkey"
+            columns: ["call_session_id"]
+            isOneToOne: false
+            referencedRelation: "call_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "call_queue_entries_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "call_queue_entries_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "call_queue_entries_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       call_recordings: {
         Row: {
           call_session_id: string
@@ -2655,6 +2753,44 @@ export type Database = {
           vendor?: string | null
         }
         Relationships: []
+      }
+      role_permissions: {
+        Row: {
+          created_at: string
+          granted: boolean
+          id: string
+          permission_key: string
+          role_slug: string
+          updated_at: string
+          workspace_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          granted?: boolean
+          id?: string
+          permission_key: string
+          role_slug: string
+          updated_at?: string
+          workspace_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          granted?: boolean
+          id?: string
+          permission_key?: string
+          role_slug?: string
+          updated_at?: string
+          workspace_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "role_permissions_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       security_events: {
         Row: {
@@ -4693,6 +4829,13 @@ export type Database = {
       article_status: "draft" | "published" | "archived"
       call_context_type: "conversation" | "internal" | "verification"
       call_participant_type: "visitor" | "operator" | "admin" | "internal"
+      call_queue_channel: "audio" | "video"
+      call_queue_state:
+        | "queued"
+        | "offered"
+        | "accepted"
+        | "cancelled"
+        | "expired"
       call_recording_state:
         | "disabled"
         | "pending"
@@ -4858,6 +5001,14 @@ export const Constants = {
       article_status: ["draft", "published", "archived"],
       call_context_type: ["conversation", "internal", "verification"],
       call_participant_type: ["visitor", "operator", "admin", "internal"],
+      call_queue_channel: ["audio", "video"],
+      call_queue_state: [
+        "queued",
+        "offered",
+        "accepted",
+        "cancelled",
+        "expired",
+      ],
       call_recording_state: [
         "disabled",
         "pending",

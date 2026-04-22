@@ -30,6 +30,8 @@ import { callsRouter } from './routes/calls.js';
 import { livekitWebhookRouter } from './routes/livekitWebhook.js';
 import { callQueueRouter } from './routes/callQueue.js';
 import { workspaceCallsRouter } from './routes/workspaceCalls.js';
+import { callAvailabilityRouter } from './routes/callAvailability.js';
+import { callbacksRouter } from './routes/callbacks.js';
 import { startCallQueueTicker } from './services/calls/queueTicker.js';
 import { startAttachmentJanitor } from './services/attachmentJanitor.js';
 import { startPrivacyWorker } from './services/privacy/worker.js';
@@ -220,6 +222,12 @@ app.use('/api/call-queue', callQueueRouter);
 // Phase 8C — Workspace-scoped call settings + role permission overrides.
 // Workspace owner/admin only (enforced inside the router).
 app.use('/api/workspace-calls', workspaceCallsRouter);
+
+// Phase 8D — Operator call availability (per-user readiness).
+app.use('/api/call-availability', callAvailabilityRouter);
+
+// Phase 8D — Callback requests (operator-side management).
+app.use('/api/callbacks', callbacksRouter);
 
 // 404
 app.use((_req, res) => {

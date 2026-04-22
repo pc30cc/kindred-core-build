@@ -132,14 +132,22 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
     const room = new Room({
       adaptiveStream: true,
       dynacast: true,
-      rtcConfig: input.iceServers
-        ? { iceServers: input.iceServers, iceTransportPolicy: input.iceTransportPolicy ?? 'all' }
-        : undefined,
     });
+    // Apply ICE config via the connect-time options (LiveKit forwards this
+    // to the underlying RTCPeerConnection). Falls back to defaults when the
+    // backend resolver returned no TURN config.
+    const connectOptions = input.iceServers
+      ? {
+          rtcConfig: {
+            iceServers: input.iceServers,
+            iceTransportPolicy: (input.iceTransportPolicy ?? 'all') as RTCIceTransportPolicy,
+          },
+        }
+      : undefined;
     roomRef.current = room;
     wireRoom(room);
     try {
-      await room.connect(input.wsUrl, input.token);
+      await room.connect(input.wsUrl, input.token, connectOptions);
       if (publishMic) {
         await room.localParticipant.setMicrophoneEnabled(true);
         setMicEnabled(true);

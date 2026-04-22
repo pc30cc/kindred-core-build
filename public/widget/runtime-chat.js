@@ -162,6 +162,18 @@
             if (onMessages && data.messages && data.messages.length > 0) {
               onMessages(data.messages);
             }
+            // Phase 8B — polling-mode call detection. When realtime is down
+            // and an operator initiates a call, the widget learns about it
+            // here. Dispatch is idempotent — runtime-call dedupes by call_id.
+            if (data.active_call && data.active_call.id) {
+              try {
+                if (window.__gs_call && typeof window.__gs_call.ringingFromPoll === 'function') {
+                  window.__gs_call.ringingFromPoll(data.active_call);
+                } else if (window.__gs && typeof window.__gs.push === 'function') {
+                  window.__gs.push(['call:ringing-poll', data.active_call]);
+                }
+              } catch (_) {}
+            }
             if (onTick) onTick(true);
           })
           .catch(function () { if (onTick) onTick(false); });

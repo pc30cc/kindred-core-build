@@ -149,6 +149,48 @@
 
   // ───── Single active call state ─────
   var current = null; // { invite, room, micEnabled, camEnabled }
+  var lastDispatchedCallId = null; // dedupe poll-mode dispatch
+
+  // Resolve widget context (workspace, apiBase, identity) from globals the
+  // loader/runtime expose. Polling fallback uses these to fetch a visitor
+  // token. Never throws — callers must tolerate nulls.
+  function getWidgetCtx() {
+    try {
+      var gs = window.__gs || {};
+      var workspaceId = gs._id || null;
+      var apiBase = gs._api || (window.__gs_config && window.__gs_config._apiBase) || '';
+      var token = (window.__gs_token && window.__gs_token.get && window.__gs_token.get()) || '';
+      var ident = (window.__gs_identity || {});
+      return {
+        workspaceId: workspaceId,
+        apiBase: apiBase,
+        token: token,
+        visitorId: ident.visitorId || null,
+        sessionId: ident.sessionId || null,
+      };
+    } catch (_) { return { workspaceId: null, apiBase: '', token: '', visitorId: null, sessionId: null }; }
+  }
+
+  function fetchVisitorToken(callId, ctx) {
+    if (!ctx.apiBase || !ctx.workspaceId || !ctx.token) {
+      return Promise.reject(new Error('widget context not ready'));
+    }
+    return fetch(ctx.apiBase + '/api/widget/calls/' + encodeURIComponent(callId) + '/visitor-token', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', 'X-Widget-Token': ctx.token },
+      body: JSON.stringify({
+        workspace_id: ctx.workspaceId,
+        visitor_id: ctx.visitorId || undefined,
+        session_id: ctx.sessionId || undefined,
+      }),
+    }).then(function (r) {
+      if (!r.ok) return r.json().catch(function () { return {}; }).then(function (b) {
+        throw new Error(b.error || 'visitor_token_http_' + r.status);
+      });
+      return r.json();
+    });
+  }
 
   function attachRemote(room, LK) {
     function refresh() {
@@ -284,9 +326,35 @@
 
   function showIncoming(invite) {
     if (!invite || !invite.token || !invite.ws_url) {
-      try { console.warn('[gs-call] incoming invite missing token/ws_url'); } catch (_) {}
+      // Polling-mode invites arrive without token/ws_url. If we have a
+      // call_id, try to mint the visitor token before showing the popup.
+      if (invite && invite.call_id) {
+        if (lastDispatchedCallId === invite.call_id) return; // dedupe
+        lastDispatchedCallId = invite.call_id;
+        var ctx = getWidgetCtx();
+        fetchVisitorToken(invite.call_id, ctx).then(function (bundle) {
+          showIncoming({
+            call_id: invite.call_id,
+            call_type: bundle.call_type || invite.call_type || 'audio',
+            operator_name: invite.operator_name || null,
+            ws_url: bundle.ws_url,
+            token: bundle.token,
+            turn: bundle.turn || { urls: [] },
+            ice_policy: bundle.ice_policy || 'all',
+            recording: !!bundle.recording,
+            degraded: true,
+          });
+        }).catch(function (err) {
+          try { console.warn('[gs-call] visitor token fetch failed:', err && err.message); } catch (_) {}
+          // Allow retry on next poll tick.
+          lastDispatchedCallId = null;
+        });
+      } else {
+        try { console.warn('[gs-call] incoming invite missing token/ws_url and call_id'); } catch (_) {}
+      }
       return;
     }
+    if (invite.call_id) lastDispatchedCallId = invite.call_id;
     ensureShell();
     bindHandlersOnce();
     // Replace any in-flight call.
@@ -312,6 +380,17 @@
     incoming: showIncoming,
     hangup: hangup,
     isActive: function () { return !!(current && current.room); },
+    /**
+     * Polling-mode entry: receives a slim {id, call_type, state} from
+     * /api/widget/poll's `active_call` field. If we already have an active
+     * call OR we already dispatched this call_id, this is a no-op.
+     */
+    ringingFromPoll: function (slim) {
+      if (!slim || !slim.id) return;
+      if (current && current.invite && current.invite.call_id === slim.id) return;
+      if (lastDispatchedCallId === slim.id) return;
+      showIncoming({ call_id: slim.id, call_type: slim.call_type || 'audio' });
+    },
   };
   // Adopt any pre-queued items.
   try {
@@ -321,6 +400,9 @@
         var item = q[i];
         if (Array.isArray(item) && item[0] === 'call:incoming' && item[1]) {
           showIncoming(item[1]);
+        }
+        if (Array.isArray(item) && item[0] === 'call:ringing-poll' && item[1]) {
+          window.__gs_call.ringingFromPoll(item[1]);
         }
       }
     }
@@ -336,6 +418,10 @@
     gs.push = function (item) {
       if (Array.isArray(item) && item[0] === 'call:incoming' && item[1]) {
         showIncoming(item[1]);
+        return;
+      }
+      if (Array.isArray(item) && item[0] === 'call:ringing-poll' && item[1]) {
+        window.__gs_call.ringingFromPoll(item[1]);
         return;
       }
       if (origPush) return origPush(item);

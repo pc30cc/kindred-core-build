@@ -330,6 +330,10 @@
     var assetBase = getAssetBase();
     var apiBase = getApiBase();
     window.__gs._id = WORKSPACE_ID;
+    // Phase 8B — expose API base to sidecar modules (e.g. runtime-call.js)
+    // so they can talk to the widget API without re-resolving env. Single
+    // additive global; no FSM/transport touch.
+    window.__gs._api = apiBase || '';
 
     log("workspace:", WORKSPACE_ID || "(none)", "api:", apiBase || "(empty)", "asset:", assetBase || "(empty)");
 

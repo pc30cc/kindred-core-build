@@ -32,6 +32,7 @@ import { getCallNetworkBundle } from '../services/calls/rtcResolver.js';
 import { CallProviderNotReadyError } from '../services/calls/providers/types.js';
 import { mintTurnCreds } from '../services/calls/turnAuth.js';
 import { emitCallMetric } from '../services/calls/metrics.js';
+import { publishConversationEvent } from '../services/realtime/publish.js';
 
 export const callsRouter = Router();
 
@@ -117,6 +118,141 @@ function handleProviderError(res: any, err: unknown) {
   }
   console.error('[calls] provider error:', (err as any)?.message || err);
   return res.status(500).json({ error: 'internal_error' });
+}
+
+/**
+ * Mint a visitor-scoped participant token (NEVER reused for operators) and
+ * publish a `type: 'call:incoming'` envelope on the per-conversation channel
+ * so the widget rings instantly. Fully best-effort — if the publish fails,
+ * the visitor's polling fallback picks up state=ringing within 2s.
+ */
+async function emitVisitorIncomingEnvelope(
+  config: ServerConfig,
+  sb: ReturnType<typeof getServiceClient>,
+  session: any,
+  inviterUserId: string,
+): Promise<void> {
+  if (!session.provider_room_id || !session.context_id) return;
+
+  // Resolve visitor for token identity (so LiveKit identity is stable + auditable).
+  let visitorIdentity = 'visitor:' + session.context_id;
+  try {
+    const { data: conv } = await sb
+      .from('conversations')
+      .select('visitor_session_id, contact_id')
+      .eq('id', session.context_id)
+      .maybeSingle();
+    if (conv?.visitor_session_id) {
+      const { data: vs } = await sb
+        .from('visitor_sessions')
+        .select('visitor_id')
+        .eq('id', conv.visitor_session_id)
+        .maybeSingle();
+      if (vs?.visitor_id) visitorIdentity = 'visitor:' + vs.visitor_id;
+    }
+  } catch { /* fall through with conversation-based identity */ }
+
+  // Operator display name (best-effort; non-blocking).
+  let operatorName: string | null = null;
+  try {
+    const { data: prof } = await sb
+      .from('profiles')
+      .select('full_name')
+      .eq('id', inviterUserId)
+      .maybeSingle();
+    operatorName = (prof as any)?.full_name || null;
+  } catch { /* */ }
+
+  // Mint a fresh visitor participant token.
+  let visitorToken: { token: string; expiresAt: number } | null = null;
+  try {
+    const provider = resolveCallProvider(session.provider);
+    const minted = await provider.createParticipantToken(config, {
+      callSessionId: session.id,
+      providerRoomId: session.provider_room_id,
+      participantId: visitorIdentity,
+      participantType: 'visitor',
+      displayName: 'Visitor',
+      canPublish: true,
+      canSubscribe: true,
+      canPublishData: true,
+      ttlSeconds: 600,
+    });
+    visitorToken = { token: minted.token, expiresAt: minted.expiresAt };
+  } catch (err: any) {
+    // Provider not ready → publish a degraded envelope so the widget can
+    // surface the incoming call but the visitor will get token only via
+    // the explicit accept path (state polling).
+    console.warn('[calls] visitor token mint failed during invite:', err?.message || err);
+  }
+
+  const { network, turn } = await buildTokenNetworkBundle(config, session.id, 600);
+
+  await publishConversationEvent(
+    config,
+    session.workspace_id,
+    session.context_id,
+    {
+      type: 'event',
+      payload: {
+        kind: 'call:incoming',
+        call_id: session.id,
+        call_type: session.call_type,
+        operator_name: operatorName,
+        ws_url: network.ws_url,
+        rtc_url: network.rtc_url,
+        token: visitorToken?.token ?? null,
+        expires_at: visitorToken?.expiresAt ?? null,
+        turn: {
+          urls: turn.urls,
+          username: turn.username,
+          credential: turn.credential,
+        },
+        ice_policy: network.ice_policy,
+        recording: !!session.recording_enabled,
+      },
+    },
+  );
+}
+
+/**
+ * Build the network bundle for a token response, including dynamically-minted
+ * RFC 7635-style TURN credentials when a static_secret is present. Shared by
+ * the /token endpoint and the /invite envelope so visitors and operators see
+ * an identical TURN/ICE shape. URLs always come from the resolver — no
+ * hardcoded hostnames.
+ */
+async function buildTokenNetworkBundle(
+  config: ServerConfig,
+  callSessionId: string,
+  ttlSeconds: number,
+) {
+  const network = await getCallNetworkBundle(config);
+  const turn = { ...network.turn };
+  if (turn.static_secret_present && turn.urls.length > 0) {
+    try {
+      const sb = getServiceClient(config);
+      const { data: rtcRow } = await sb
+        .from('app_runtime_config')
+        .select('value')
+        .eq('key', 'call_rtc_endpoints')
+        .maybeSingle();
+      const sharedSecret = (rtcRow?.value as any)?.turn?.shared_secret;
+      if (typeof sharedSecret === 'string' && sharedSecret.length > 0) {
+        const minted = mintTurnCreds({
+          sharedSecret,
+          identity: 'call:' + callSessionId,
+          ttlSeconds: Math.min(ttlSeconds, 3600),
+        });
+        turn.username = minted.username;
+        turn.credential = minted.credential;
+        turn.credential_type = 'password';
+      }
+    } catch {
+      /* fall back to static creds */
+    }
+  }
+  return { network, turn };
 }
 
 // ─── POST /api/calls/create ───────────────────────────────────────────────
@@ -247,6 +383,27 @@ callsRouter.post('/:id/invite', async (req, res) => {
       participant_type: body.participant_type,
       participant_id: body.participant_id ?? null,
     });
+
+    // ── Visitor invite → push call:incoming envelope to the widget ──────
+    // Fire-and-forget: the route always returns ok:true so the operator UI
+    // never stalls on a transport hiccup. The widget's polling fallback
+    // (GET /api/widget/calls/:id/state) covers cases where realtime is
+    // disabled or briefly down.
+    if (
+      body.participant_type === 'visitor' &&
+      ctx.session.context_type === 'conversation' &&
+      ctx.session.context_id
+    ) {
+      void emitVisitorIncomingEnvelope(
+        (req as any).serverConfig,
+        ctx.sb,
+        ctx.session,
+        ctx.userId,
+      ).catch((err) => {
+        console.warn('[calls] incoming envelope publish failed:', err?.message || err);
+      });
+    }
+
     res.json({ ok: true });
   } catch (err) {
     return handleProviderError(res, err);
@@ -328,39 +485,11 @@ callsRouter.post('/:id/token', async (req, res) => {
       ttlSeconds: body.ttl_seconds,
     });
     const config: ServerConfig = (req as any).serverConfig;
-    const network = await getCallNetworkBundle(config);
-
-    // Mint time-limited TURN credentials when a static_secret is configured
-    // (RFC 7635-style HMAC). Falls back to whatever username/credential the
-    // admin set in the static config. URLs always come from the resolver -
-    // never hardcoded.
-    const turn = { ...network.turn };
-    if (turn.static_secret_present && turn.urls.length > 0) {
-      try {
-        // The shared secret itself lives in app_runtime_config - read it fresh
-        // here (the resolver intentionally only returns presence + the public
-        // username/credential).
-        const sb = getServiceClient(config);
-        const { data: rtcRow } = await sb
-          .from('app_runtime_config')
-          .select('value')
-          .eq('key', 'call_rtc_endpoints')
-          .maybeSingle();
-        const sharedSecret = (rtcRow?.value as any)?.turn?.shared_secret;
-        if (typeof sharedSecret === 'string' && sharedSecret.length > 0) {
-          const minted = mintTurnCreds({
-            sharedSecret,
-            identity: 'call:' + ctx.session.id,
-            ttlSeconds: Math.min(body.ttl_seconds ?? 600, 3600),
-          });
-          turn.username = minted.username;
-          turn.credential = minted.credential;
-          turn.credential_type = 'password';
-        }
-      } catch {
-        // Fall back to static creds; never break token issuance on TURN error.
-      }
-    }
+    const { network, turn } = await buildTokenNetworkBundle(
+      config,
+      ctx.session.id,
+      body.ttl_seconds ?? 600,
+    );
     if (turn.urls.length === 0) {
       emitCallMetric(config, {
         metric: 'call.turn.missing',

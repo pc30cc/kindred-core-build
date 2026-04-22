@@ -45,6 +45,24 @@ export default function AdminWidgetSettingsPage() {
   const { data: settings, isLoading } = useWidgetPlatformSettings();
   const updateMut = useUpdateWidgetPlatformSettings();
 
+  // Phase 8C — global voice/video gates live in app_runtime_config.call_control_plane.
+  // Surface them here so platform admins manage all widget feature locks in one place.
+  const qc = useQueryClient();
+  const callPlaneQuery = useQuery({
+    queryKey: ['admin', 'call-control-plane'],
+    queryFn: fetchCallControlPlane,
+  });
+  const callPlaneMut = useMutation({
+    mutationFn: (patch: Partial<CallControlPlane>) => updateCallControlPlane(patch),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin', 'call-control-plane'] });
+      toast({ title: 'Saved', description: 'Call channel gates updated' });
+    },
+    onError: (e: any) => toast({ title: 'Error', description: e.message, variant: 'destructive' }),
+  });
+  const callPlane = callPlaneQuery.data?.control_plane;
+  const updateCallGate = (patch: Partial<CallControlPlane>) => callPlaneMut.mutate(patch);
+
   if (isLoading) {
     return <div className="text-sm text-muted-foreground">Loading...</div>;
   }

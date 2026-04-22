@@ -640,8 +640,8 @@ realtimeRouter.put('/admin/config', requireAdmin, async (req, res) => {
 });
 
 realtimeRouter.post('/admin/test', requireAdmin, async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
   try {
-    const config: ServerConfig = (req as any).serverConfig;
     const adminUser = (req as any).adminUser;
     const cfg = await loadRealtimeConfig(config, true);
 
@@ -654,6 +654,18 @@ realtimeRouter.post('/admin/test', requireAdmin, async (req, res) => {
     }
     const driver = new CentrifugoDriver(c as any);
     const h = await driver.health();
+    if (h.status !== 'healthy') {
+      // Phase 3 — surface upstream Centrifugo socket failure as a
+      // server-observable ws_error / socket_closed signal. The admin
+      // observability panel uses this to alert on backend outages without
+      // needing a widget beacon.
+      emitMetric(config, {
+        metric: h.status === 'down' ? 'realtime.socket_closed' : 'realtime.ws_error',
+        driver: 'centrifugo',
+        source: 'server',
+        tags: { endpoint: 'admin-test', status: h.status, reason: (h.message || 'unknown').slice(0, 64) },
+      });
+    }
     await getServiceClient(config).from('realtime_provider_audit').insert({
       changed_by: adminUser.id,
       action: 'test',
@@ -663,6 +675,12 @@ realtimeRouter.post('/admin/test', requireAdmin, async (req, res) => {
     });
     res.json({ status: h.status, message: h.message, checked_at: Date.now() });
   } catch (err: any) {
+    emitMetric(config, {
+      metric: 'realtime.ws_error',
+      driver: 'centrifugo',
+      source: 'server',
+      tags: { endpoint: 'admin-test', reason: 'exception' },
+    });
     res.status(500).json({ status: 'down', message: err.message });
   }
 });

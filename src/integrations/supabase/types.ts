@@ -425,6 +425,110 @@ export type Database = {
         }
         Relationships: []
       }
+      auto_action_definitions: {
+        Row: {
+          action_type: string
+          cooldown_seconds: number
+          created_at: string
+          description: string | null
+          enabled: boolean
+          id: string
+          is_builtin: boolean
+          max_duration_seconds: number
+          min_severity: string
+          slug: string
+          title: string
+          trigger_rule_slug: string | null
+          updated_at: string
+        }
+        Insert: {
+          action_type: string
+          cooldown_seconds?: number
+          created_at?: string
+          description?: string | null
+          enabled?: boolean
+          id?: string
+          is_builtin?: boolean
+          max_duration_seconds?: number
+          min_severity?: string
+          slug: string
+          title: string
+          trigger_rule_slug?: string | null
+          updated_at?: string
+        }
+        Update: {
+          action_type?: string
+          cooldown_seconds?: number
+          created_at?: string
+          description?: string | null
+          enabled?: boolean
+          id?: string
+          is_builtin?: boolean
+          max_duration_seconds?: number
+          min_severity?: string
+          slug?: string
+          title?: string
+          trigger_rule_slug?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      auto_action_events: {
+        Row: {
+          action_slug: string
+          action_type: string
+          definition_id: string
+          details: Json
+          ended_at: string | null
+          ended_reason: string | null
+          expires_at: string
+          id: string
+          started_at: string
+          state: string
+          trigger_alert_event_id: string | null
+          trigger_rule_slug: string | null
+          trigger_severity: string | null
+        }
+        Insert: {
+          action_slug: string
+          action_type: string
+          definition_id: string
+          details?: Json
+          ended_at?: string | null
+          ended_reason?: string | null
+          expires_at: string
+          id?: string
+          started_at?: string
+          state: string
+          trigger_alert_event_id?: string | null
+          trigger_rule_slug?: string | null
+          trigger_severity?: string | null
+        }
+        Update: {
+          action_slug?: string
+          action_type?: string
+          definition_id?: string
+          details?: Json
+          ended_at?: string | null
+          ended_reason?: string | null
+          expires_at?: string
+          id?: string
+          started_at?: string
+          state?: string
+          trigger_alert_event_id?: string | null
+          trigger_rule_slug?: string | null
+          trigger_severity?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "auto_action_events_definition_id_fkey"
+            columns: ["definition_id"]
+            isOneToOne: false
+            referencedRelation: "auto_action_definitions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       billing_events: {
         Row: {
           amount: number | null
@@ -3712,6 +3816,7 @@ export type Database = {
     }
     Functions: {
       accept_workspace_invitation: { Args: { _token: string }; Returns: Json }
+      activate_auto_actions: { Args: never; Returns: Json }
       admin_count_profiles: { Args: never; Returns: number }
       admin_count_workspaces: { Args: never; Returns: number }
       admin_delete_workspace: {

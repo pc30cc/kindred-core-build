@@ -67,6 +67,34 @@ export interface RealtimeControlAuditEntry {
   created_at: string;
 }
 
+export interface RealtimeFailoverProviderHealth {
+  provider: RealtimeProviderId;
+  status: 'healthy' | 'degraded' | 'unhealthy' | 'unknown';
+  error_rate: number | null;
+  p95_latency_ms: number | null;
+  sample_size: number;
+  reason: string;
+  checked_at: number;
+}
+
+export interface RealtimeFailoverState {
+  effective_provider: RealtimeProviderId;
+  provider_lock: RealtimeProviderId | null;
+  provider_order: RealtimeProviderId[];
+  failover_enabled: boolean;
+  failback_enabled: boolean;
+  cooldown_until: string | null;
+  cooldown_remaining_ms: number;
+  failback_eligible_at: string | null;
+  failback_remaining_ms: number;
+  candidate_recovery_provider: RealtimeProviderId | null;
+  candidate_recovery_since: string | null;
+  last_failover_at: string | null;
+  last_failover_reason: string | null;
+  last_health: Record<string, RealtimeFailoverProviderHealth>;
+  last_evaluated_at: string | null;
+}
+
 export const realtimeControlApi = {
   async get(): Promise<RealtimeControlBundle> {
     const res = await fetch(`${API_BASE}/api/realtime/admin/control`, {
@@ -94,5 +122,21 @@ export const realtimeControlApi = {
     if (!res.ok) return [];
     const json = await res.json();
     return (json.entries ?? []) as RealtimeControlAuditEntry[];
+  },
+  async failover(): Promise<RealtimeFailoverState> {
+    const res = await fetch(`${API_BASE}/api/realtime/admin/control/failover`, {
+      headers: await authHeaders(),
+    });
+    if (!res.ok) throw new Error(`Load failed: ${res.status}`);
+    return res.json();
+  },
+  async evaluateFailover(): Promise<{ ok: boolean; effective_provider: RealtimeProviderId }> {
+    const res = await fetch(
+      `${API_BASE}/api/realtime/admin/control/failover/evaluate`,
+      { method: 'POST', headers: await authHeaders() },
+    );
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || 'Evaluate failed');
+    return json;
   },
 };

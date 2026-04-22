@@ -2054,6 +2054,48 @@ export type Database = {
           },
         ]
       }
+      realtime_failover_state: {
+        Row: {
+          candidate_recovery_provider: string | null
+          candidate_recovery_since: string | null
+          cooldown_until: string | null
+          effective_provider: string
+          failback_eligible_at: string | null
+          id: string
+          last_evaluated_at: string | null
+          last_failover_at: string | null
+          last_failover_reason: string | null
+          last_health: Json
+          updated_at: string
+        }
+        Insert: {
+          candidate_recovery_provider?: string | null
+          candidate_recovery_since?: string | null
+          cooldown_until?: string | null
+          effective_provider?: string
+          failback_eligible_at?: string | null
+          id?: string
+          last_evaluated_at?: string | null
+          last_failover_at?: string | null
+          last_failover_reason?: string | null
+          last_health?: Json
+          updated_at?: string
+        }
+        Update: {
+          candidate_recovery_provider?: string | null
+          candidate_recovery_since?: string | null
+          cooldown_until?: string | null
+          effective_provider?: string
+          failback_eligible_at?: string | null
+          id?: string
+          last_evaluated_at?: string | null
+          last_failover_at?: string | null
+          last_failover_reason?: string | null
+          last_health?: Json
+          updated_at?: string
+        }
+        Relationships: []
+      }
       realtime_metric_events: {
         Row: {
           conversation_id: string | null

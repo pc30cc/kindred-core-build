@@ -22,6 +22,8 @@ import {
   type RealtimeProviderId,
 } from '../services/realtime/controlPlane.js';
 import { resolveRealtimeProvider, loadRealtimeConfig } from '../services/realtime/index.js';
+import { loadFailoverState } from '../services/realtime/failoverState.js';
+import { runFailoverTickOnce } from '../services/realtime/failoverTicker.js';
 
 export const realtimeControlRouter = Router();
 
@@ -168,6 +170,11 @@ realtimeControlRouter.get('/audit', async (req, res) => {
         'provider_order_update',
         'provider_lock_update',
         'failover_thresholds_update',
+        'failover_engine:failover',
+        'failover_engine:failback',
+        'failover_engine:last_resort',
+        'failover_engine:lock_applied',
+        'failover_engine:lock_cleared',
       ])
       .order('created_at', { ascending: false })
       .limit(50);
@@ -175,5 +182,61 @@ realtimeControlRouter.get('/audit', async (req, res) => {
     res.json({ entries: data ?? [] });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Internal error' });
+  }
+});
+
+/**
+ * GET /api/realtime/admin/control/failover
+ * Phase 6B — current failover engine state + per-provider health snapshot.
+ */
+realtimeControlRouter.get('/failover', async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const [policy, state] = await Promise.all([
+      loadControlPlane(config, true),
+      loadFailoverState(config, true),
+    ]);
+    const nowMs = Date.now();
+    const cooldownMs = state.cooldown_until
+      ? Math.max(0, new Date(state.cooldown_until).getTime() - nowMs)
+      : 0;
+    const failbackMs = state.failback_eligible_at
+      ? Math.max(0, new Date(state.failback_eligible_at).getTime() - nowMs)
+      : 0;
+    res.json({
+      effective_provider: state.effective_provider,
+      provider_lock: policy.realtime_provider_lock,
+      provider_order: policy.realtime_provider_order,
+      failover_enabled: policy.realtime_failover_enabled,
+      failback_enabled: policy.realtime_failback_enabled,
+      cooldown_until: state.cooldown_until,
+      cooldown_remaining_ms: cooldownMs,
+      failback_eligible_at: state.failback_eligible_at,
+      failback_remaining_ms: failbackMs,
+      candidate_recovery_provider: state.candidate_recovery_provider,
+      candidate_recovery_since: state.candidate_recovery_since,
+      last_failover_at: state.last_failover_at,
+      last_failover_reason: state.last_failover_reason,
+      last_health: state.last_health,
+      last_evaluated_at: state.last_evaluated_at,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Internal error' });
+  }
+});
+
+/**
+ * POST /api/realtime/admin/control/failover/evaluate
+ * Trigger an immediate engine evaluation (admin-only). Useful right after
+ * editing thresholds or the provider lock.
+ */
+realtimeControlRouter.post('/failover/evaluate', async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    await runFailoverTickOnce(config);
+    const state = await loadFailoverState(config, true);
+    res.json({ ok: true, effective_provider: state.effective_provider });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Evaluation failed' });
   }
 });

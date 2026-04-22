@@ -24,9 +24,10 @@ import {
   fetchActiveEnforcementActions,
   evaluateEnforcementNow,
   overrideEnforcementAction,
+  fetchEnforcementNormalizations,
   type EnforcementFlags,
 } from '@/lib/admin-enforcement-api';
-import { AlertTriangle, ShieldAlert, ShieldOff, ShieldCheck, Play, Power } from 'lucide-react';
+import { AlertTriangle, ShieldAlert, ShieldOff, ShieldCheck, Play, Power, GitMerge } from 'lucide-react';
 
 function fmtTime(iso: string): string {
   return new Date(iso).toLocaleString();
@@ -35,7 +36,9 @@ function fmtTime(iso: string): string {
 export default function EnforcementPanel() {
   const qc = useQueryClient();
   const { toast } = useToast();
-  const [tab, setTab] = useState<'overview' | 'rules' | 'breaches' | 'history'>('overview');
+  const [tab, setTab] = useState<
+    'overview' | 'rules' | 'breaches' | 'history' | 'normalizations'
+  >('overview');
 
   const flagsQ = useQuery({
     queryKey: ['enforcement-flags'],
@@ -60,6 +63,11 @@ export default function EnforcementPanel() {
   const actionsQ = useQuery({
     queryKey: ['enforcement-actions'],
     queryFn: () => fetchEnforcementActions(50),
+    refetchInterval: 30_000,
+  });
+  const normsQ = useQuery({
+    queryKey: ['enforcement-normalizations'],
+    queryFn: () => fetchEnforcementNormalizations(50),
     refetchInterval: 30_000,
   });
 
@@ -109,6 +117,7 @@ export default function EnforcementPanel() {
   const rules = rulesQ.data?.rules || [];
   const breaches = breachesQ.data?.breaches || [];
   const actions = actionsQ.data?.actions || [];
+  const norms = normsQ.data?.normalizations || [];
 
   const openBreaches = breaches.filter((b) => b.state === 'open');
 
@@ -207,6 +216,7 @@ export default function EnforcementPanel() {
           <TabsTrigger value="rules">Rules ({rules.length})</TabsTrigger>
           <TabsTrigger value="breaches">Open breaches ({openBreaches.length})</TabsTrigger>
           <TabsTrigger value="history">History</TabsTrigger>
+          <TabsTrigger value="normalizations">Normalizations ({norms.length})</TabsTrigger>
         </TabsList>
 
         {/* Active enforcement actions */}

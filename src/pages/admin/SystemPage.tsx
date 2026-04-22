@@ -1,12 +1,16 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useAdminRuntimeConfig } from '@/hooks/useAdmin';
-import { CheckCircle, Activity, AlertTriangle, AlertOctagon, Gauge } from 'lucide-react';
+import { CheckCircle, Activity, AlertTriangle, AlertOctagon, Gauge, Shield } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { fetchMetricsSummary } from '@/lib/admin-metrics-api';
 import { fetchActiveAlerts, type ActiveAlert } from '@/lib/admin-alerts-api';
 import { fetchPerfSummary, fetchPerfProcess } from '@/lib/admin-perf-api';
+import {
+  fetchActiveAutoActions,
+  type ActiveAutoAction,
+} from '@/lib/admin-auto-actions-api';
 
 export default function AdminSystemPage() {
   const { data: config } = useAdminRuntimeConfig();
@@ -18,6 +22,11 @@ export default function AdminSystemPage() {
   const activeAlertsQ = useQuery({
     queryKey: ['admin-alerts-active'],
     queryFn: () => fetchActiveAlerts(),
+    refetchInterval: 30_000,
+  });
+  const activeActionsQ = useQuery({
+    queryKey: ['admin-auto-action-active'],
+    queryFn: () => fetchActiveAutoActions(),
     refetchInterval: 30_000,
   });
   const perfSummaryQ = useQuery({
@@ -40,6 +49,7 @@ export default function AdminSystemPage() {
 
   const activeAlerts = (activeAlertsQ.data?.active || []).slice(0, 3);
   const hasCritical = activeAlerts.some((a) => a.severity === 'critical');
+  const activeActions = (activeActionsQ.data?.active || []).slice(0, 3);
 
   const perfRows = (perfSummaryQ.data?.rows || []).slice(0, 4);
   const perfLatest = perfProcessQ.data?.latest;
@@ -114,6 +124,42 @@ export default function AdminSystemPage() {
                     </span>
                   )}
                   <span>{new Date(a.fired_at).toLocaleTimeString()}</span>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {activeActions.length > 0 && (
+        <Card className="bg-warning/10 border-warning/40">
+          <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm flex items-center gap-2 text-warning">
+              <Shield className="h-4 w-4" />
+              Active Auto-actions ({activeActionsQ.data?.active.length ?? 0})
+            </CardTitle>
+            <Link
+              to="/admin/observability"
+              className="text-xs text-primary hover:underline"
+            >
+              Manage →
+            </Link>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {activeActions.map((a: ActiveAutoAction) => (
+              <div
+                key={a.id}
+                className="flex items-center justify-between rounded-md border border-border bg-background/50 px-3 py-2"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <Badge className="bg-warning/20 text-warning">{a.action_type}</Badge>
+                  <span className="font-mono text-xs text-foreground truncate">
+                    {a.action_slug}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3 text-xs text-muted-foreground whitespace-nowrap">
+                  <span>trigger: {a.trigger_rule_slug || 'any-critical'}</span>
+                  <span>expires {new Date(a.expires_at).toLocaleTimeString()}</span>
                 </div>
               </div>
             ))}

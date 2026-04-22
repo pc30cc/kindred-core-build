@@ -8,13 +8,16 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { fetchMetricsSummary, fetchMetricsEvents } from '@/lib/admin-metrics-api';
 import AlertsPanel from '@/components/admin/observability/AlertsPanel';
 import PerformancePanel from '@/components/admin/observability/PerformancePanel';
+import AutoActionsPanel from '@/components/admin/observability/AutoActionsPanel';
 
 type Range = '1h' | '24h' | '7d';
 
 export default function AdminObservabilityPage() {
   const [range, setRange] = useState<Range>('1h');
   const [filter, setFilter] = useState<string>('');
-  const [tab, setTab] = useState<'metrics' | 'performance' | 'alerts'>('metrics');
+  const [tab, setTab] = useState<'metrics' | 'performance' | 'alerts' | 'auto-actions'>(
+    'metrics',
+  );
 
   const summaryQ = useQuery({
     queryKey: ['admin-metrics-summary', range],
@@ -34,11 +37,17 @@ export default function AdminObservabilityPage() {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-foreground">Realtime Observability</h1>
-      <Tabs value={tab} onValueChange={(v) => setTab(v as 'metrics' | 'performance' | 'alerts')}>
+      <Tabs
+        value={tab}
+        onValueChange={(v) =>
+          setTab(v as 'metrics' | 'performance' | 'alerts' | 'auto-actions')
+        }
+      >
         <TabsList>
           <TabsTrigger value="metrics">Metrics</TabsTrigger>
           <TabsTrigger value="performance">Performance</TabsTrigger>
           <TabsTrigger value="alerts">Alerts</TabsTrigger>
+          <TabsTrigger value="auto-actions">Auto-actions</TabsTrigger>
         </TabsList>
         <TabsContent value="metrics" className="space-y-6">
           <div className="flex items-center justify-end">
@@ -147,6 +156,9 @@ export default function AdminObservabilityPage() {
         </TabsContent>
         <TabsContent value="performance">
           <PerformancePanel />
+        </TabsContent>
+        <TabsContent value="auto-actions">
+          <AutoActionsPanel />
         </TabsContent>
       </Tabs>
     </div>

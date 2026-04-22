@@ -26,7 +26,7 @@ import type { ServerConfig } from '../../config.js';
 import { loadControlPlane, type RealtimeProviderId } from './controlPlane.js';
 import { loadFailoverState } from './failoverState.js';
 import { isActionActive } from '../observability/autoActionsCache.js';
-import { loadCallControlPlane } from '../calls/controlPlane.js';
+import { loadCallControlPlane, loadEffectiveCallChannels } from '../calls/controlPlane.js';
 
 export type EffectiveProviderWire =
   | 'centrifugo'
@@ -67,6 +67,16 @@ export interface EffectivePolicySnapshot {
   video_disabled: boolean;
   recording_forced: boolean;
   call_failover_epoch: string;
+  /** Phase 8C — call channel state (effective = global AND workspace).
+   *  When workspace_id is unknown at handshake time these stay at safe
+   *  defaults (false) and the widget falls back to chat-only. */
+  voice_enabled: boolean;
+  video_enabled: boolean;
+  recording_enabled: boolean;
+  queue_enabled: boolean;
+  visitor_initiated_audio: boolean;
+  visitor_initiated_video: boolean;
+  pre_chat_required: boolean;
   /**
    * Bumped whenever the *transport target* changes (vendor switch,
    * lock change, or force_polling toggle). Clients MUST reset transport
@@ -103,6 +113,13 @@ const SAFE_DEFAULT: EffectivePolicySnapshot = {
   video_disabled: false,
   recording_forced: false,
   call_failover_epoch: 'safe-default',
+  voice_enabled: false,
+  video_enabled: false,
+  recording_enabled: false,
+  queue_enabled: false,
+  visitor_initiated_audio: false,
+  visitor_initiated_video: false,
+  pre_chat_required: false,
   failover_epoch: 'safe-default',
   policy_version: 'safe-default',
   expires_at: Date.now() + POLICY_SNAPSHOT_TTL_MS,

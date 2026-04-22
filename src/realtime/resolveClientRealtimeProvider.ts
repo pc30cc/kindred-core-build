@@ -36,6 +36,31 @@ const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) || ''
 const SUPPORTED_VENDORS: RealtimeVendor[] = ['centrifugo', 'supabase'];
 
 const cache = new Map<string, Promise<ClientRealtimeProvider>>();
+const ACCESS_TOKEN_REFRESH_LEAD_MS = 30_000;
+let inflightSupabaseRefresh: Promise<void> | null = null;
+
+async function ensureFreshSupabaseSession(): Promise<void> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session?.access_token) return;
+  const expMs = (session.expires_at || 0) * 1000;
+  if (!expMs || Date.now() < expMs - ACCESS_TOKEN_REFRESH_LEAD_MS) return;
+  if (inflightSupabaseRefresh) {
+    await inflightSupabaseRefresh;
+    return;
+  }
+  inflightSupabaseRefresh = (async () => {
+    try {
+      await supabase.auth.refreshSession();
+    } catch {
+      /* caller will observe auth failure and retry */
+    } finally {
+      inflightSupabaseRefresh = null;
+    }
+  })();
+  await inflightSupabaseRefresh;
+}
 
 /**
  * Drop the cached provider for a workspace so the next resolve call
@@ -48,6 +73,7 @@ export function invalidateClientRealtimeCache(workspaceId?: string): void {
 }
 
 async function authHeaders(): Promise<Record<string, string>> {
+  await ensureFreshSupabaseSession();
   const {
     data: { session },
   } = await supabase.auth.getSession();

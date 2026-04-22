@@ -12,7 +12,18 @@ async function authHeader(): Promise<Record<string, string>> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-export type CallProviderId = 'livekit' | 'jitsi' | 'janus' | 'disabled';
+export type CallProviderId =
+  | 'livekit'
+  | 'jitsi'
+  | 'janus'
+  | 'agora_cloud'
+  | 'disabled';
+
+export interface CallProviderClassification {
+  self_hosted: boolean;
+  external_provider: boolean;
+  eligible_for_default_order: boolean;
+}
 
 export interface CallControlPlane {
   enabled: boolean;
@@ -51,6 +62,7 @@ export interface CallControlPlaneResponse {
   control_plane: CallControlPlane;
   network: CallNetworkBundle;
   readiness: Record<string, boolean>;
+  classification?: Record<string, CallProviderClassification>;
 }
 
 export async function fetchCallControlPlane(): Promise<CallControlPlaneResponse> {
@@ -77,6 +89,56 @@ export async function updateRtcEndpoints(
   patch: Partial<CallNetworkBundle>,
 ): Promise<{ ok: boolean }> {
   const res = await fetch(`${API_BASE}/api/admin/calls/rtc-endpoints`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  return res.json();
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Agora (external / cloud) provider — optional, opt-in adapter.
+// Secrets are write-only: GET returns presence flags, never values.
+// ────────────────────────────────────────────────────────────────────────
+export interface AgoraConfigPublicView {
+  enabled: boolean;
+  app_id: string | null;
+  app_certificate_present: boolean;
+  token_secret_present: boolean;
+  region: string | null;
+  webhook_url: string | null;
+  recording_config: {
+    enabled: boolean;
+    storage_vendor: string | null;
+    storage_bucket: string | null;
+  };
+}
+
+export interface AgoraConfigPatch {
+  enabled?: boolean;
+  app_id?: string | null;
+  /** Omit to preserve, send "" to clear, send value to set. */
+  app_certificate?: string | null;
+  /** Omit to preserve, send "" to clear, send value to set. */
+  token_secret?: string | null;
+  region?: string | null;
+  webhook_url?: string | null;
+  recording_config?: Partial<AgoraConfigPublicView['recording_config']>;
+}
+
+export async function fetchAgoraConfig(): Promise<{ agora: AgoraConfigPublicView }> {
+  const res = await fetch(`${API_BASE}/api/admin/calls/agora`, {
+    headers: await authHeader(),
+  });
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  return res.json();
+}
+
+export async function updateAgoraConfig(
+  patch: AgoraConfigPatch,
+): Promise<{ agora: AgoraConfigPublicView }> {
+  const res = await fetch(`${API_BASE}/api/admin/calls/agora`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
     body: JSON.stringify(patch),

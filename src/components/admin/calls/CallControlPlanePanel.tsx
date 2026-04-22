@@ -26,8 +26,23 @@ import {
   type CallProviderId,
 } from '@/lib/admin-calls-api';
 import { Loader2, Phone, Video, Save, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { AgoraExternalProviderPanel } from './AgoraExternalProviderPanel';
 
-const PROVIDERS: CallProviderId[] = ['livekit', 'jitsi', 'janus', 'disabled'];
+/** Self-hosted family — first-class providers, default-eligible. */
+const SELF_HOSTED_PROVIDERS: CallProviderId[] = ['livekit', 'jitsi', 'janus'];
+/** External / cloud-backed adapters — opt-in only. */
+const EXTERNAL_PROVIDERS: CallProviderId[] = ['agora_cloud'];
+/** Full select list — self-hosted first, then external, then disabled. */
+const PROVIDERS: CallProviderId[] = [
+  ...SELF_HOSTED_PROVIDERS,
+  ...EXTERNAL_PROVIDERS,
+  'disabled',
+];
+
+function providerLabel(p: CallProviderId): string {
+  if (p === 'agora_cloud') return 'agora_cloud (external)';
+  return p;
+}
 
 export function CallControlPlanePanel() {
   const { toast } = useToast();
@@ -134,7 +149,7 @@ export function CallControlPlanePanel() {
                   {PROVIDERS.map((p) => (
                     <SelectItem key={p} value={p}>
                       <div className="flex items-center gap-2">
-                        {p}
+                        {providerLabel(p)}
                         {p !== 'disabled' && (
                           readiness[p]
                             ? <CheckCircle2 className="h-3 w-3 text-success" />
@@ -152,7 +167,7 @@ export function CallControlPlanePanel() {
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {PROVIDERS.map((p) => (
-                    <SelectItem key={p} value={p}>{p}</SelectItem>
+                    <SelectItem key={p} value={p}>{providerLabel(p)}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -181,9 +196,14 @@ export function CallControlPlanePanel() {
           </div>
 
           <div className="flex flex-wrap gap-2 pt-2">
-            {PROVIDERS.filter(p => p !== 'disabled').map(p => (
+            {SELF_HOSTED_PROVIDERS.map(p => (
               <Badge key={p} variant={readiness[p] ? 'default' : 'secondary'} className="gap-1">
                 {p}: {readiness[p] ? 'ready' : 'not configured'}
+              </Badge>
+            ))}
+            {EXTERNAL_PROVIDERS.map(p => (
+              <Badge key={p} variant="outline" className="gap-1">
+                {p} (external): {readiness[p] ? 'ready' : 'not configured'}
               </Badge>
             ))}
           </div>
@@ -336,6 +356,13 @@ export function CallControlPlanePanel() {
           </div>
         </CardContent>
       </Card>
+
+      {/*
+        External / cloud-backed adapters live in their own section so they
+        are visually separated from the self-hosted family. Disabled by
+        default; never auto-selected by the resolver.
+      */}
+      <AgoraExternalProviderPanel />
     </div>
   );
 }

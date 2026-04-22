@@ -13,7 +13,12 @@ import { getServiceClient } from '../../supabase.js';
 const RUNTIME_KEY = 'call_control_plane';
 const CACHE_TTL_MS = 30_000;
 
-export type CallProviderId = 'livekit' | 'jitsi' | 'janus' | 'disabled';
+export type CallProviderId =
+  | 'livekit'
+  | 'jitsi'
+  | 'janus'
+  | 'agora_cloud'
+  | 'disabled';
 
 export interface CallControlPlaneConfig {
   enabled: boolean;

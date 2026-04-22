@@ -16,10 +16,16 @@ import {
   invalidateRtcCache,
 } from '../services/calls/rtcResolver.js';
 import { resolveCallProviderOrder, getCallProvider } from '../services/calls/providerResolver.js';
+import {
+  loadAgoraConfig,
+  saveAgoraConfig,
+  toPublicView,
+} from '../services/calls/agoraConfig.js';
+import { CALL_PROVIDER_CLASSIFICATION } from '../services/calls/providers/types.js';
 
 export const adminCallsRouter = Router();
 
-const PROVIDERS: CallProviderId[] = ['livekit', 'jitsi', 'janus', 'disabled'];
+const PROVIDERS: CallProviderId[] = ['livekit', 'jitsi', 'janus', 'agora_cloud', 'disabled'];
 
 adminCallsRouter.get('/control-plane', async (req, res) => {
   const config: ServerConfig = (req as any).serverConfig;
@@ -32,13 +38,18 @@ adminCallsRouter.get('/control-plane', async (req, res) => {
     const p = getCallProvider(id);
     readiness[id] = p ? await p.isReady(config).catch(() => false) : false;
   }
-  res.json({ control_plane: cp, network, readiness });
+  res.json({
+    control_plane: cp,
+    network,
+    readiness,
+    classification: CALL_PROVIDER_CLASSIFICATION,
+  });
 });
 
 const cpUpdateSchema = z.object({
   enabled: z.boolean().optional(),
-  primary_provider: z.enum(['livekit', 'jitsi', 'janus', 'disabled']).optional(),
-  secondary_provider: z.enum(['livekit', 'jitsi', 'janus', 'disabled']).optional(),
+  primary_provider: z.enum(['livekit', 'jitsi', 'janus', 'agora_cloud', 'disabled']).optional(),
+  secondary_provider: z.enum(['livekit', 'jitsi', 'janus', 'agora_cloud', 'disabled']).optional(),
   fallback_policy: z.enum(['lenient', 'strict']).optional(),
   max_participants: z.number().int().min(1).max(100).optional(),
   default_audio_bitrate_kbps: z.number().int().min(8).max(256).optional(),
@@ -92,4 +103,48 @@ adminCallsRouter.get('/probe/:workspace_id', async (req, res) => {
   const config: ServerConfig = (req as any).serverConfig;
   const order = await resolveCallProviderOrder(config, req.params.workspace_id);
   res.json({ workspace_id: req.params.workspace_id, provider_order: order });
+});
+
+// ────────────────────────────────────────────────────────────────────────
+// Agora (external / cloud) provider config — read returns secret-presence
+// flags only. Writes accept full secrets; passing null/undefined preserves
+// existing values, passing empty string clears them.
+// ────────────────────────────────────────────────────────────────────────
+adminCallsRouter.get('/agora', async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
+  const cfg = await loadAgoraConfig(config, true);
+  res.json({ agora: toPublicView(cfg) });
+});
+
+const agoraSchema = z.object({
+  enabled: z.boolean().optional(),
+  app_id: z.string().max(128).nullable().optional(),
+  app_certificate: z.string().max(256).nullable().optional(),
+  token_secret: z.string().max(512).nullable().optional(),
+  region: z.string().max(64).nullable().optional(),
+  webhook_url: z.string().url().nullable().optional(),
+  recording_config: z
+    .object({
+      enabled: z.boolean().optional(),
+      storage_vendor: z.string().max(64).nullable().optional(),
+      storage_bucket: z.string().max(256).nullable().optional(),
+    })
+    .partial()
+    .optional(),
+});
+
+adminCallsRouter.put('/agora', async (req, res) => {
+  try {
+    const body = agoraSchema.parse(req.body);
+    const config: ServerConfig = (req as any).serverConfig;
+    // Only persist secret fields when the caller actually included them
+    // (presence-based, not value-based, so an empty string explicitly clears).
+    const patch: Record<string, unknown> = { ...body };
+    if (!('app_certificate' in body)) delete patch.app_certificate;
+    if (!('token_secret' in body)) delete patch.token_secret;
+    const merged = await saveAgoraConfig(config, patch as any);
+    res.json({ agora: toPublicView(merged) });
+  } catch (err: any) {
+    res.status(400).json({ error: err?.message || 'update_failed' });
+  }
 });

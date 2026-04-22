@@ -6,7 +6,52 @@
  */
 import type { ServerConfig } from '../../../config.js';
 
-export type CallProviderId = 'livekit' | 'jitsi' | 'janus' | 'disabled';
+/**
+ * Call provider identifiers.
+ *
+ * Self-hosted family (default, first-class):
+ *   - livekit, jitsi, janus
+ *
+ * External / cloud-backed adapters (optional, opt-in only):
+ *   - agora_cloud
+ *
+ * `disabled` means no provider — calls cannot start.
+ */
+export type CallProviderId =
+  | 'livekit'
+  | 'jitsi'
+  | 'janus'
+  | 'agora_cloud'
+  | 'disabled';
+
+/** Provider classification used by the admin UI + resolver gating. */
+export interface CallProviderClassification {
+  /** True iff the provider runs entirely on self-hosted infrastructure. */
+  self_hosted: boolean;
+  /** True iff the provider relies on an external SaaS / cloud backend. */
+  external_provider: boolean;
+  /**
+   * True iff the provider may be auto-included in the default fallback order
+   * when no explicit override is set. External providers are NEVER included
+   * by default — admin must opt in by selecting them explicitly.
+   */
+  eligible_for_default_order: boolean;
+}
+
+export const CALL_PROVIDER_CLASSIFICATION: Record<
+  Exclude<CallProviderId, 'disabled'>,
+  CallProviderClassification
+> = {
+  livekit: { self_hosted: true, external_provider: false, eligible_for_default_order: true },
+  jitsi: { self_hosted: true, external_provider: false, eligible_for_default_order: true },
+  janus: { self_hosted: true, external_provider: false, eligible_for_default_order: true },
+  agora_cloud: {
+    self_hosted: false,
+    external_provider: true,
+    // STRICT: never auto-included. Only used when admin explicitly picks it.
+    eligible_for_default_order: false,
+  },
+};
 
 export interface CreateRoomInput {
   workspaceId: string;

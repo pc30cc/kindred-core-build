@@ -21,7 +21,7 @@ export interface EffectivePolicySnapshot {
   operator_load_shedding?: boolean;
   priority_only_mode?: boolean;
   // Phase 8A — Voice/Video call policy
-  effective_call_provider?: 'livekit' | 'jitsi' | 'janus' | 'disabled';
+  effective_call_provider?: 'livekit' | 'jitsi' | 'janus' | 'agora_cloud' | 'disabled';
   call_degraded_mode?: boolean;
   audio_only_mode?: boolean;
   video_disabled?: boolean;

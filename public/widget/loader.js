@@ -647,6 +647,24 @@
     var consecutiveFailures = 0;
     var STOPPED = false;
 
+    function bootstrapSession() {
+      return fetch(apiBase + "/api/widget/bootstrap", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workspace_id: workspaceId, origin: window.location.origin }),
+      })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (data) {
+          if (data && data.session_token) {
+            try { window.__gs_token.set(data.session_token); } catch (_) {}
+            return data.session_token;
+          }
+          return null;
+        })
+        .catch(function () { return null; });
+    }
+
     function refreshToken() {
       if (refreshing) return refreshing;
       var t = tokenNow();
@@ -669,6 +687,12 @@
         .catch(function () { return null; })
         .then(function (tok) { refreshing = null; return tok; });
       return refreshing;
+    }
+
+    function recoverToken() {
+      return refreshToken().then(function (tok) {
+        return tok || bootstrapSession();
+      });
     }
 
     fetch(apiBase + "/api/widget/track", {
@@ -712,7 +736,7 @@
               if (r.ok) { consecutiveFailures = 0; return; }
               // Token expired/invalid → refresh once and retry.
               if ((r.status === 401 || r.status === 403) && !isRetry) {
-                return refreshToken().then(function (newTok) {
+                return recoverToken().then(function (newTok) {
                   if (newTok) return doPing(newTok, true);
                   // Refresh failed — count as a hard failure.
                   consecutiveFailures++;
@@ -733,13 +757,29 @@
             });
         }
         function ping() { doPing(tokenNow(), false); }
+        function resumeHeartbeat(reason) {
+          return recoverToken().then(function (newTok) {
+            if (!newTok) return;
+            STOPPED = false;
+            consecutiveFailures = 0;
+            if (!heartbeatTimer) heartbeatTimer = setInterval(ping, 30000);
+            log('heartbeat resumed', reason);
+            return doPing(newTok, false);
+          });
+        }
         // Background heartbeat — keeps presence "online" and refreshes
         // last_seen_at so the operator UI stays accurate.
         heartbeatTimer = setInterval(ping, 30000);
         // Resume immediately when the tab becomes visible again.
         try {
           document.addEventListener('visibilitychange', function () {
-            if (!document.hidden && !STOPPED) ping();
+            if (document.hidden) return;
+            if (STOPPED) return void resumeHeartbeat('visibilitychange');
+            ping();
+          });
+          window.addEventListener('online', function () {
+            if (STOPPED) return void resumeHeartbeat('online');
+            ping();
           });
         } catch (_) {}
 

@@ -62,6 +62,7 @@ import { sendEmail } from '../services/email/index.js';
 import { enrichVisitorSessionGeo } from '../services/geo/index.js';
 import { checkTypingAllowed } from '../services/widget/typingRateLimit.js';
 import { loadWidgetPlatformRuntimeSettings } from '../services/widget/platformSettings.js';
+import { emitMetric } from '../services/observability/metrics.js';
 
 export const widgetRouter = Router();
 
@@ -1386,6 +1387,15 @@ widgetRouter.put('/action', widgetRateLimit('default'), async (req: Request, res
       // never sees an error and never retries. Typing is best-effort.
       const platform = await loadWidgetPlatformRuntimeSettings(config);
       if (!checkTypingAllowed(conversation_id, platform.typing)) {
+        emitMetric(config, {
+          metric: 'widget.typing_rate_limited',
+          workspaceId,
+          conversationId: conversation_id,
+          tags: {
+            window_ms: platform.typing.windowMs,
+            max_events: platform.typing.maxEvents,
+          },
+        });
         return res.json({ ok: true, published: false, reason: 'rate_limited' });
       }
       // Publish ephemeral typing event on the canonical conversation channel

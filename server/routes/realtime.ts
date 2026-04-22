@@ -92,6 +92,16 @@ realtimeRouter.post('/connect', async (req, res) => {
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid request' });
     }
+    // Phase 3 — every /connect is a (re)connect attempt from the server's POV.
+    // We can't distinguish the very first connect from a reconnect without
+    // adding state, so we tag the kind and let the dashboard split if needed.
+    emitMetric(config, {
+      metric: 'realtime.reconnect_attempt',
+      workspaceId: parsed.data.workspace_id,
+      driver: 'centrifugo',
+      source: 'widget',
+      tags: { endpoint: 'connect' },
+    });
 
     // Authorize the visitor — same security model as the rest of the widget API.
     const widgetToken = req.headers['x-widget-token'] as string | undefined;
@@ -193,6 +203,12 @@ realtimeRouter.post('/connect', async (req, res) => {
     });
   } catch (err: any) {
     console.error('[realtime/connect] error:', err);
+    emitMetric(config, {
+      metric: 'realtime.token_refresh_failed',
+      driver: 'centrifugo',
+      source: 'widget',
+      tags: { endpoint: 'connect', reason: 'internal_error' },
+    });
     return res.status(500).json({ error: 'Internal error' });
   }
 });

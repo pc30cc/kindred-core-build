@@ -380,6 +380,17 @@
     incoming: showIncoming,
     hangup: hangup,
     isActive: function () { return !!(current && current.room); },
+    /**
+     * Polling-mode entry: receives a slim {id, call_type, state} from
+     * /api/widget/poll's `active_call` field. If we already have an active
+     * call OR we already dispatched this call_id, this is a no-op.
+     */
+    ringingFromPoll: function (slim) {
+      if (!slim || !slim.id) return;
+      if (current && current.invite && current.invite.call_id === slim.id) return;
+      if (lastDispatchedCallId === slim.id) return;
+      showIncoming({ call_id: slim.id, call_type: slim.call_type || 'audio' });
+    },
   };
   // Adopt any pre-queued items.
   try {
@@ -389,6 +400,9 @@
         var item = q[i];
         if (Array.isArray(item) && item[0] === 'call:incoming' && item[1]) {
           showIncoming(item[1]);
+        }
+        if (Array.isArray(item) && item[0] === 'call:ringing-poll' && item[1]) {
+          window.__gs_call.ringingFromPoll(item[1]);
         }
       }
     }
@@ -404,6 +418,10 @@
     gs.push = function (item) {
       if (Array.isArray(item) && item[0] === 'call:incoming' && item[1]) {
         showIncoming(item[1]);
+        return;
+      }
+      if (Array.isArray(item) && item[0] === 'call:ringing-poll' && item[1]) {
+        window.__gs_call.ringingFromPoll(item[1]);
         return;
       }
       if (origPush) return origPush(item);

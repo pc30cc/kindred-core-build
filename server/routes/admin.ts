@@ -13,6 +13,7 @@ import { adminWidgetTemplatesRouter } from './adminWidgetTemplates.js';
 import { adminMetricsRouter } from './adminMetrics.js';
 import { adminAlertsRouter } from './adminAlerts.js';
 import { adminPerfRouter } from './adminPerf.js';
+import { adminAutoActionsRouter } from './adminAutoActions.js';
 
 export const adminRouter = Router();
 
@@ -94,6 +95,9 @@ adminRouter.use('/alerts', adminAlertsRouter);
 
 // Phase 5A — performance / latency observability (super admin only)
 adminRouter.use('/perf', adminPerfRouter);
+
+// Phase 5C — self-healing / auto-actions (super admin only)
+adminRouter.use('/auto-actions', adminAutoActionsRouter);
 
 // ─── Send Password Reset Link ────────────────────────────────────
 const resetLinkSchema = z.object({

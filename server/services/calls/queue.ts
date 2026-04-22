@@ -15,7 +15,8 @@
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { resolvePublisher } from '../realtime/resolvePublisher.js';
-import { loadEffectiveCallChannels } from './controlPlane.js';
+import { loadEffectiveCallChannels, loadCallControlPlane } from './controlPlane.js';
+import { recordConversationEvent } from '../conversationEvents.js';
 
 export type QueueChannel = 'audio' | 'video';
 export type QueueState =
@@ -23,7 +24,9 @@ export type QueueState =
   | 'offered'
   | 'accepted'
   | 'cancelled'
-  | 'expired';
+  | 'expired'
+  | 'missed'
+  | 'callback_requested';
 
 export interface QueueEntry {
   id: string;
@@ -46,6 +49,12 @@ export interface QueueEntry {
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
+  // Phase 8D additions
+  missed_offer_count: number;
+  last_offer_expires_at: string | null;
+  offer_timeout_seconds: number;
+  sla_breached: boolean;
+  callback_request_id: string | null;
 }
 
 export interface EnqueueInput {
@@ -77,6 +86,25 @@ async function publishQueueEvent(
   } catch {
     // Realtime is best-effort; clients also re-poll the queue endpoint.
   }
+}
+
+/** Best-effort timeline write so call lifecycle shows up in conversation history. */
+async function writeTimelineEvent(
+  config: ServerConfig,
+  entry: Pick<QueueEntry, 'workspace_id' | 'conversation_id' | 'channel'>,
+  eventType: string,
+  payload: Record<string, unknown> = {},
+): Promise<void> {
+  if (!entry.conversation_id) return;
+  try {
+    await recordConversationEvent(config, {
+      workspaceId: entry.workspace_id,
+      conversationId: entry.conversation_id,
+      eventType,
+      actorType: 'system',
+      payload: { channel: entry.channel, ...payload },
+    });
+  } catch {/* never throw from queue path */}
 }
 
 /** Enqueue a visitor call request. Honors the channel gate. */

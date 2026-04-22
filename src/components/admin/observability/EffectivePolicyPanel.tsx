@@ -4,7 +4,7 @@
  */
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { useWorkspace } from '@/hooks/useWorkspace';
+import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { useEffectivePolicy } from '@/hooks/useEffectivePolicy';
 import { Activity, Lock } from 'lucide-react';
 
@@ -17,7 +17,7 @@ function bool(v: boolean, on = 'on', off = 'off') {
 }
 
 export default function EffectivePolicyPanel() {
-  const { workspace } = useWorkspace();
+  const { workspace } = useActiveWorkspace();
   const policy = useEffectivePolicy(workspace?.id);
   return (
     <Card className="bg-card border-border">

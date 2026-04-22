@@ -847,6 +847,7 @@ const fa: TranslationKeys = {
       providers: 'ارائه‌دهندگان',
       mapGeo: 'نقشه و موقعیت',
       widgetSettings: 'تنظیمات ویجت',
+      voiceVideo: 'صدا و تصویر',
       system: 'سیستم',
       observability: 'رصدپذیری',
       featureFlags: 'پرچم‌های ویژگی',

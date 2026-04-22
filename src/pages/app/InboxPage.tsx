@@ -37,6 +37,7 @@ import { ConversationActionPanel } from '@/components/inbox/ConversationActionPa
 import { ConversationActivityPanel } from '@/components/inbox/ConversationActivityPanel';
 import { OperatorCallPanel } from '@/components/inbox/OperatorCallPanel';
 import { CallQueuePanel } from '@/components/inbox/CallQueuePanel';
+import { OperatorCallDock } from '@/components/inbox/OperatorCallDock';
 import { CannedResponsePicker, type CannedPickerHandle } from '@/components/canned-responses/CannedResponsePicker';
 import { interpolate } from '@/components/canned-responses/interpolation';
 import { useTrackCannedResponseUse } from '@/hooks/useCannedResponses';
@@ -1278,6 +1279,10 @@ export default function InboxPage() {
           {/* Phase 8C — Call Queue panel (always visible, collapses itself when empty) */}
           {workspace?.id && (
             <div className="p-2.5 border-b border-border bg-card/40">
+              {/* Compact persistent dock — read-only signals (audio/video readiness + queue count) */}
+              <div className="mb-2">
+                <OperatorCallDock workspaceId={workspace.id} />
+              </div>
               <CallQueuePanel
                 workspaceId={workspace.id}
                 onAccept={(entry) => {

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useWidgetPlatformSettings, useUpdateWidgetPlatformSettings, type PreChatPolicy, type FeatureLockMode, type WidgetPlatformSettings } from '@/hooks/useWidgetPlatformSettings';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -9,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { MessageSquare, Mail, Phone, Globe, Shield, Settings, Lock, Info, Bug, Rocket, Layers, Activity, Zap, Mic, Video, Disc, Users } from 'lucide-react';
+import { MessageSquare, Mail, Phone, Globe, Shield, Settings, Lock, Info, Bug, Rocket, Layers, Activity, Zap, Video, ArrowRight } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { DeploymentUrlsSection } from '@/components/admin/widget/DeploymentUrlsSection';
 import { WidgetTemplatesSection } from '@/components/admin/widget/WidgetTemplatesSection';
@@ -18,8 +19,6 @@ import {
   SecurityIsolationSection,
   FloodProtectionSection,
 } from '@/components/admin/widget/HardeningSection';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { fetchCallControlPlane, updateCallControlPlane, type CallControlPlane } from '@/lib/admin-calls-api';
 
 const PRECHAT_OPTIONS: { value: PreChatPolicy; label: string; desc: string }[] = [
   { value: 'force_on', label: 'Force ON', desc: 'Workspaces cannot disable — field is always required' },
@@ -45,23 +44,8 @@ export default function AdminWidgetSettingsPage() {
   const { data: settings, isLoading } = useWidgetPlatformSettings();
   const updateMut = useUpdateWidgetPlatformSettings();
 
-  // Phase 8C — global voice/video gates live in app_runtime_config.call_control_plane.
-  // Surface them here so platform admins manage all widget feature locks in one place.
-  const qc = useQueryClient();
-  const callPlaneQuery = useQuery({
-    queryKey: ['admin', 'call-control-plane'],
-    queryFn: fetchCallControlPlane,
-  });
-  const callPlaneMut = useMutation({
-    mutationFn: (patch: Partial<CallControlPlane>) => updateCallControlPlane(patch),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['admin', 'call-control-plane'] });
-      toast({ title: 'Saved', description: 'Call channel gates updated' });
-    },
-    onError: (e: any) => toast({ title: 'Error', description: e.message, variant: 'destructive' }),
-  });
-  const callPlane = callPlaneQuery.data?.control_plane;
-  const updateCallGate = (patch: Partial<CallControlPlane>) => callPlaneMut.mutate(patch);
+  // Voice / video gates live in the dedicated Voice & Video Center to avoid
+  // duplicated admin surfaces. See /admin/voice-video.
 
   if (isLoading) {
     return <div className="text-sm text-muted-foreground">Loading...</div>;
@@ -227,60 +211,18 @@ export default function AdminWidgetSettingsPage() {
                 );
               })}
 
-          {/* Phase 8C — Voice / Video / Recording / Queue global gates */}
-          <div className="pt-2">
-            <div className="flex items-center gap-2 mb-2">
-              <Phone className="h-4 w-4 text-primary" />
-              <h3 className="text-sm font-semibold">Voice & Video channels</h3>
-              <Badge variant="outline" className="text-[10px]">Global gates</Badge>
+          {/* Voice / Video gates moved to the Voice & Video Center to avoid duplicated admin surfaces. */}
+          <div className="rounded-lg border border-border bg-muted/30 p-4 flex items-start gap-3">
+            <Video className="h-4 w-4 text-primary mt-0.5 shrink-0" />
+            <div className="flex-1 text-xs">
+              <div className="text-sm font-medium text-foreground">Voice &amp; Video channels</div>
+              <p className="text-muted-foreground mt-1">
+                Audio, video, queue and recording gates are now managed in one place.
+              </p>
+              <Link to="/admin/voice-video" className="inline-flex items-center gap-1 mt-2 text-primary hover:underline">
+                Open Voice &amp; Video Center <ArrowRight className="h-3 w-3" />
+              </Link>
             </div>
-            <p className="text-xs text-muted-foreground mb-3">
-              Master switches for the call channel. When OFF, no workspace can enable the feature regardless of its own override.
-            </p>
-
-            {!callPlane ? (
-              <div className="rounded-lg border border-border p-4 text-xs text-muted-foreground">
-                {callPlaneQuery.isLoading ? 'Loading call control plane…' : 'Call control plane unavailable.'}
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {!callPlane.enabled && (
-                  <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-muted-foreground">
-                    <Info className="h-4 w-4 mt-0.5 shrink-0 text-destructive" />
-                    <p>
-                      The call control plane is currently <strong>disabled</strong>. Enable it from <em>Providers → Call Control Plane</em> for these gates to take effect.
-                    </p>
-                  </div>
-                )}
-                {[
-                  { key: 'voice_calls_enabled_global', label: 'Voice calls', desc: 'Allow audio calls between visitors and operators.', icon: Mic },
-                  { key: 'video_calls_enabled_global', label: 'Video calls', desc: 'Allow video calls between visitors and operators.', icon: Video },
-                  { key: 'call_recording_enabled_global', label: 'Call recording', desc: 'Allow workspaces to record calls (subject to provider support).', icon: Disc },
-                  { key: 'call_queue_enabled_global', label: 'Call queue', desc: 'Allow visitors to wait in a queue when no operator is available.', icon: Users },
-                  { key: 'visitor_initiated_audio_enabled_global', label: 'Visitor-initiated audio', desc: 'Let visitors start audio calls from the widget.', icon: Mic },
-                  { key: 'visitor_initiated_video_enabled_global', label: 'Visitor-initiated video', desc: 'Let visitors start video calls from the widget.', icon: Video },
-                ].map((row) => {
-                  const k = row.key as keyof CallControlPlane;
-                  const checked = !!callPlane[k];
-                  return (
-                    <div key={row.key} className="flex items-center justify-between rounded-lg border border-border p-4">
-                      <div className="space-y-0.5">
-                        <Label className="text-sm font-medium flex items-center gap-2">
-                          <row.icon className="h-3.5 w-3.5 text-primary" />
-                          {row.label}
-                        </Label>
-                        <p className="text-xs text-muted-foreground">{row.desc}</p>
-                      </div>
-                      <Switch
-                        checked={checked}
-                        disabled={callPlaneMut.isPending}
-                        onCheckedChange={(v) => updateCallGate({ [row.key]: v } as Partial<CallControlPlane>)}
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-            )}
           </div>
             </CardContent>
           </Card>

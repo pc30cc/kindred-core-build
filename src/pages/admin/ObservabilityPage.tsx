@@ -11,6 +11,7 @@ import PerformancePanel from '@/components/admin/observability/PerformancePanel'
 import AutoActionsPanel from '@/components/admin/observability/AutoActionsPanel';
 import SystemDegradedBanner from '@/components/admin/observability/SystemDegradedBanner';
 import RealtimeControlPanel from '@/components/admin/observability/RealtimeControlPanel';
+import EffectivePolicyPanel from '@/components/admin/observability/EffectivePolicyPanel';
 
 type Range = '1h' | '24h' | '7d';
 
@@ -40,6 +41,7 @@ export default function AdminObservabilityPage() {
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-foreground">Realtime Observability</h1>
       <SystemDegradedBanner />
+      <EffectivePolicyPanel />
       <Tabs
         value={tab}
         onValueChange={(v) =>

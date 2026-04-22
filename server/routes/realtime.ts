@@ -40,6 +40,7 @@ import {
 import { loadWidgetPlatformRuntimeSettings } from '../services/widget/platformSettings.js';
 import { emitMetric } from '../services/observability/metrics.js';
 import { realtimeControlRouter } from './realtimeControl.js';
+import { resolveEffectivePolicy } from '../services/realtime/effectivePolicy.js';
 
 export const realtimeRouter = Router();
 
@@ -124,7 +125,30 @@ realtimeRouter.post('/connect', async (req, res) => {
     const visitor = readVisitorCookie(req as any, parsed.data.workspace_id);
     const subjectId = visitor?.v || `vt_${tokRes.nonce || 'anon'}`;
 
-    const resolved = await resolveRealtimeProvider(config);
+    const [resolved, effective_policy] = await Promise.all([
+      resolveRealtimeProvider(config),
+      resolveEffectivePolicy(config),
+    ]);
+
+    // Phase 6C — force_polling overrides any vendor selection so the
+    // widget runtime's existing polling_builtin branch takes over without
+    // any FSM / runtime change. Existing widgets ignore unknown payload
+    // fields, so embedding `effective_policy` is additive.
+    if (effective_policy.force_polling) {
+      emitMetric(config, {
+        metric: 'realtime.fallback_engaged',
+        workspaceId: parsed.data.workspace_id,
+        driver: 'polling_builtin',
+        tags: { source: 'effective_policy:force_polling' },
+      });
+      return res.json({
+        vendor: 'polling_builtin',
+        capabilities: { supportsRealtime: false, supportsTyping: false, supportsPresence: false, supportsHistoryLoad: true, supportsReconnectSignals: true },
+        fallback_policy: resolved.fallback_policy,
+        source: 'fallback',
+        effective_policy,
+      });
+    }
 
     // Disabled / strict-failed → tell client realtime is not available.
     if (resolved.effective_vendor === 'disabled') {
@@ -133,6 +157,7 @@ realtimeRouter.post('/connect', async (req, res) => {
         capabilities: resolved.capabilities,
         fallback_policy: resolved.fallback_policy,
         source: resolved.source,
+        effective_policy,
       });
     }
 
@@ -149,6 +174,7 @@ realtimeRouter.post('/connect', async (req, res) => {
         capabilities: resolved.capabilities,
         fallback_policy: resolved.fallback_policy,
         source: resolved.source,
+        effective_policy,
       });
     }
 
@@ -164,6 +190,7 @@ realtimeRouter.post('/connect', async (req, res) => {
         capabilities: resolved.capabilities,
         fallback_policy: resolved.fallback_policy,
         source: resolved.source,
+        effective_policy,
       });
     }
 
@@ -178,6 +205,7 @@ realtimeRouter.post('/connect', async (req, res) => {
         capabilities: { supportsRealtime: false, supportsTyping: false, supportsPresence: false, supportsHistoryLoad: true, supportsReconnectSignals: true },
         fallback_policy: resolved.fallback_policy,
         source: 'fallback',
+        effective_policy,
       });
     }
 
@@ -206,6 +234,7 @@ realtimeRouter.post('/connect', async (req, res) => {
       fallback_policy: resolved.fallback_policy,
       public_config: resolved.public_config,
       source: resolved.source,
+      effective_policy,
     });
   } catch (err: any) {
     console.error('[realtime/connect] error:', err);
@@ -365,12 +394,35 @@ realtimeRouter.post('/operator-connect', perfHttpMiddleware('realtime.operator_c
       tags: { endpoint: 'operator-connect' },
     });
 
-    const resolved = await resolveRealtimeProvider(config);
+    // Phase 6C — derive the public effective policy snapshot so the
+    // operator client can honor failover/degradation decisions on every
+    // (re)connect without a separate round-trip.
+    const [resolved, effective_policy] = await Promise.all([
+      resolveRealtimeProvider(config),
+      resolveEffectivePolicy(config),
+    ]);
+
+    // If policy says force polling, short-circuit BEFORE we mint a
+    // Centrifugo connection token — the client must not open WS.
+    if (effective_policy.force_polling) {
+      return res.json({
+        vendor: 'polling_builtin',
+        capabilities: { supportsRealtime: false, supportsTyping: false, supportsPresence: false, supportsHistoryLoad: true, supportsReconnectSignals: true },
+        effective_policy,
+      });
+    }
+
     if (resolved.effective_vendor !== 'centrifugo') {
-      return res.json({ vendor: resolved.effective_vendor, capabilities: resolved.capabilities });
+      // For supabase / polling / disabled the operator client uses the
+      // matching provider and never receives a centrifugo token.
+      return res.json({
+        vendor: resolved.effective_vendor,
+        capabilities: resolved.capabilities,
+        effective_policy,
+      });
     }
     const driver = await getCentrifugoDriver(config);
-    if (!driver) return res.json({ vendor: 'polling_builtin' });
+    if (!driver) return res.json({ vendor: 'polling_builtin', effective_policy });
     const platform = await loadWidgetPlatformRuntimeSettings(config);
     const tk = driver.issueConnectionToken({
       sub: `op_${user.id}`,
@@ -383,6 +435,7 @@ realtimeRouter.post('/operator-connect', perfHttpMiddleware('realtime.operator_c
       token: tk.token,
       expires_at: tk.expires_at,
       capabilities: resolved.capabilities,
+      effective_policy,
     });
   } catch (err: any) {
     console.error('[realtime/operator-connect]', err);

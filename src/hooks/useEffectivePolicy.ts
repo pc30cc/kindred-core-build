@@ -1,0 +1,72 @@
+/**
+ * Phase 6C — Operator-side hook that polls the operator handshake to
+ * surface the latest effective realtime policy snapshot. On
+ * `failover_epoch` change it invalidates the per-workspace client
+ * realtime cache so the next subscribe re-negotiates with the new
+ * vendor / token. Never throws.
+ */
+import { useEffect, useState } from 'react';
+import { supabase } from '@/lib/supabase';
+import {
+  SAFE_DEFAULT_POLICY,
+  type EffectivePolicySnapshot,
+} from '@/lib/effective-policy-api';
+import { invalidateClientRealtimeCache } from '@/realtime/resolveClientRealtimeProvider';
+
+const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) || '';
+const POLL_MS = 30_000;
+
+async function fetchPolicy(workspaceId: string): Promise<EffectivePolicySnapshot | null> {
+  try {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session?.access_token) return null;
+    const res = await fetch(`${API_BASE}/api/realtime/operator-connect`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ workspace_id: workspaceId }),
+    });
+    if (!res.ok) return null;
+    const json = await res.json();
+    const p = json?.effective_policy as EffectivePolicySnapshot | undefined;
+    return p ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function useEffectivePolicy(workspaceId: string | undefined): EffectivePolicySnapshot {
+  const [policy, setPolicy] = useState<EffectivePolicySnapshot>(SAFE_DEFAULT_POLICY);
+  const [lastEpoch, setLastEpoch] = useState<string>('');
+
+  useEffect(() => {
+    if (!workspaceId) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+
+    const tick = async () => {
+      const p = await fetchPolicy(workspaceId);
+      if (cancelled || !p) return;
+      setPolicy(p);
+      if (p.failover_epoch !== lastEpoch) {
+        // Transport-affecting change — drop cached provider so the next
+        // subscribe re-negotiates and binds to the new vendor.
+        invalidateClientRealtimeCache(workspaceId);
+        setLastEpoch(p.failover_epoch);
+      }
+    };
+
+    void tick();
+    timer = setInterval(() => void tick(), POLL_MS);
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+    };
+  }, [workspaceId, lastEpoch]);
+
+  return policy;
+}

@@ -65,6 +65,7 @@ import { checkTypingAllowed } from '../services/widget/typingRateLimit.js';
 import { loadWidgetPlatformRuntimeSettings } from '../services/widget/platformSettings.js';
 import { isActionActive } from '../services/observability/autoActionsCache.js';
 import { emitMetric, emitLog } from '../services/observability/metrics.js';
+import { resolveEffectivePolicy } from '../services/realtime/effectivePolicy.js';
 
 export const widgetRouter = Router();
 
@@ -286,6 +287,12 @@ widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), perfHttpMiddleware
       console.warn('[widget-bootstrap] availability resolve failed:', err?.message);
     }
 
+    // Phase 6C — effective realtime policy snapshot. Additive payload;
+    // older widget runtimes ignore the field, newer ones honor force_polling /
+    // typing_suppressed / reconnect_backoff_multiplier without a separate
+    // round-trip. Resolution is fail-open and never blocks bootstrap.
+    const effective_policy = await resolveEffectivePolicy(config);
+
     return res.json({
       session_token: sessionToken,
       workspace_id: resolvedWorkspaceId,
@@ -295,6 +302,7 @@ widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), perfHttpMiddleware
       visitor_id: visitor.visitorId,
       is_new_visitor: visitor.isNew,
       availability: availabilityPayload,
+      effective_policy,
       version: '3.0.0',
     });
   } catch (err: any) {
@@ -342,10 +350,23 @@ widgetRouter.post('/session/refresh', widgetRateLimit('refresh'), perfHttpMiddle
 
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
 
+    // Phase 6C — refresh handshake also returns the latest effective policy
+    // snapshot so a long-lived widget tab picks up failover/lock/degraded
+    // changes without needing a full re-bootstrap. Fail-open if resolution
+    // hiccups — token refresh must never block.
+    let effective_policy: Awaited<ReturnType<typeof resolveEffectivePolicy>> | null = null;
+    try {
+      const config = (req as any).serverConfig as ServerConfig;
+      effective_policy = await resolveEffectivePolicy(config);
+    } catch (_err) {
+      effective_policy = null;
+    }
+
     return res.json({
       session_token: newToken,
       workspace_id: workspaceId,
       expires_at: newResult.expiresAt ? new Date(newResult.expiresAt * 1000).toISOString() : null,
+      effective_policy,
     });
   } catch (err: any) {
     console.error('[session-refresh] Error:', err.message);

@@ -288,6 +288,27 @@ callsRouter.post('/:id/invite', async (req, res) => {
       participant_type: body.participant_type,
       participant_id: body.participant_id ?? null,
     });
+
+    // ── Visitor invite → push call:incoming envelope to the widget ──────
+    // Fire-and-forget: the route always returns ok:true so the operator UI
+    // never stalls on a transport hiccup. The widget's polling fallback
+    // (GET /api/widget/calls/:id/state) covers cases where realtime is
+    // disabled or briefly down.
+    if (
+      body.participant_type === 'visitor' &&
+      ctx.session.context_type === 'conversation' &&
+      ctx.session.context_id
+    ) {
+      void emitVisitorIncomingEnvelope(
+        (req as any).serverConfig,
+        ctx.sb,
+        ctx.session,
+        ctx.userId,
+      ).catch((err) => {
+        console.warn('[calls] incoming envelope publish failed:', err?.message || err);
+      });
+    }
+
     res.json({ ok: true });
   } catch (err) {
     return handleProviderError(res, err);

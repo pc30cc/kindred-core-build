@@ -1413,3 +1413,72 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
   0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
   40% { transform: translateY(-3px); opacity: 1; }
 }
+
+/* ─── Phase 8C — Call channel panel (visitor-facing) ─── */
+.call-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 24px 20px;
+  gap: 14px;
+  min-height: 240px;
+}
+.call-panel .call-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(59, 130, 246, 0.10);
+  color: var(--gs-primary, #3B82F6);
+}
+.call-panel .call-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1F2937;
+  line-height: 1.4;
+}
+.call-panel .call-msg {
+  font-size: 13px;
+  color: #4B5563;
+  line-height: 1.5;
+  max-width: 280px;
+}
+.call-panel .call-msg-sub { color: #6B7280; font-size: 12px; }
+.call-panel .call-recording-note {
+  font-size: 11px;
+  color: #9CA3AF;
+  margin-top: -4px;
+}
+.call-panel .call-btn {
+  appearance: none;
+  border: none;
+  cursor: pointer;
+  padding: 11px 22px;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  background: var(--gs-primary, #3B82F6);
+  box-shadow: 0 4px 14px rgba(59, 130, 246, 0.25);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.call-panel .call-btn:hover { transform: translateY(-1px); }
+.call-panel .call-btn-secondary {
+  background: #F3F4F6;
+  color: #1F2937;
+  box-shadow: none;
+}
+.call-panel .call-link {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--gs-primary, #3B82F6);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: underline;
+}

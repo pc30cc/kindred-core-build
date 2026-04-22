@@ -356,6 +356,13 @@ export function CallControlPlanePanel() {
           </div>
         </CardContent>
       </Card>
+
+      {/*
+        External / cloud-backed adapters live in their own section so they
+        are visually separated from the self-hosted family. Disabled by
+        default; never auto-selected by the resolver.
+      */}
+      <AgoraExternalProviderPanel />
     </div>
   );
 }

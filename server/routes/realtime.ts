@@ -37,6 +37,7 @@ import {
   isVisitorsChannel,
 } from '../services/realtime/types.js';
 import { loadWidgetPlatformRuntimeSettings } from '../services/widget/platformSettings.js';
+import { emitMetric } from '../services/observability/metrics.js';
 
 export const realtimeRouter = Router();
 

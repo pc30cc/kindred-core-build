@@ -86,8 +86,8 @@ const connectSchema = z.object({
 });
 
 realtimeRouter.post('/connect', async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
   try {
-    const config: ServerConfig = (req as any).serverConfig;
     const parsed = connectSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid request' });
@@ -220,10 +220,18 @@ const subscribeSchema = z.object({
 });
 
 realtimeRouter.post('/subscribe', async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
   try {
-    const config: ServerConfig = (req as any).serverConfig;
     const parsed = subscribeSchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: 'Invalid request' });
+    if (!parsed.success) {
+      emitMetric(config, {
+        metric: 'realtime.subscribe_failed',
+        driver: 'centrifugo',
+        source: 'widget',
+        tags: { endpoint: 'subscribe', reason: 'invalid_request' },
+      });
+      return res.status(400).json({ error: 'Invalid request' });
+    }
 
     const widgetToken = req.headers['x-widget-token'] as string | undefined;
     if (!widgetToken) return res.status(401).json({ error: 'Missing widget token' });
@@ -295,6 +303,12 @@ realtimeRouter.post('/subscribe', async (req, res) => {
     return res.json({ vendor: 'centrifugo', channel, token: tk.token, expires_at: tk.expires_at });
   } catch (err: any) {
     console.error('[realtime/subscribe] error:', err);
+    emitMetric(config, {
+      metric: 'realtime.subscribe_failed',
+      driver: 'centrifugo',
+      source: 'widget',
+      tags: { endpoint: 'subscribe', reason: 'internal_error' },
+    });
     return res.status(500).json({ error: 'Internal error' });
   }
 });

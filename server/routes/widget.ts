@@ -1621,6 +1621,120 @@ widgetRouter.get('/calls/:id/state', widgetRateLimit('poll'), async (req: Reques
   });
 });
 
+/**
+ * Visitor token endpoint (Phase 8B).
+ *
+ * Mints a visitor-scoped LiveKit participant token + RTC/TURN bundle for an
+ * existing call session. Used by the widget when accepting a call delivered
+ * over the polling fallback (where the realtime envelope's pre-minted token
+ * was unavailable).
+ *
+ * Auth: widget token + origin + conversation ownership. Operator tokens are
+ * NEVER returned here — participantType is forced to 'visitor'.
+ */
+widgetRouter.post('/calls/:id/visitor-token', widgetRateLimit('default'), async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = resolveWorkspaceId(req, res, req.body?.workspace_id);
+  if (res.headersSent) return;
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
+
+  const callId = req.params.id;
+  const supabase = getServiceClient(config);
+  const { data: session, error } = await supabase
+    .from('call_sessions')
+    .select('id, workspace_id, provider, provider_room_id, call_type, context_type, context_id, state, recording_enabled')
+    .eq('id', callId)
+    .eq('workspace_id', workspaceId)
+    .maybeSingle();
+  if (error || !session) return res.status(404).json({ error: 'call_not_found' });
+  if (session.context_type !== 'conversation' || !session.context_id) {
+    return res.status(403).json({ error: 'call_context_not_widget' });
+  }
+  if (!session.provider_room_id) return res.status(409).json({ error: 'room_not_ready' });
+
+  const visitorId = (req.body?.visitor_id as string) || null;
+  const sessionId = (req.body?.session_id as string) || null;
+  const ownership = await verifyConversationOwnership(
+    config,
+    session.context_id,
+    workspaceId,
+    visitorId,
+    sessionId,
+    req,
+  );
+  if (!ownership.valid) return res.status(403).json({ error: 'call_access_denied' });
+
+  try {
+    // Lazy import to avoid pulling provider modules into the widget request
+    // path on cold start when calls are disabled.
+    const { resolveCallProvider } = await import('../services/calls/providerResolver.js');
+    const { getCallNetworkBundle } = await import('../services/calls/rtcResolver.js');
+    const { mintTurnCreds } = await import('../services/calls/turnAuth.js');
+
+    const provider = resolveCallProvider(session.provider);
+    let visitorIdentity = 'visitor:' + session.context_id;
+    try {
+      const { data: vs } = await supabase
+        .from('visitor_sessions')
+        .select('visitor_id')
+        .eq('id', sessionId || '')
+        .maybeSingle();
+      if (vs?.visitor_id) visitorIdentity = 'visitor:' + vs.visitor_id;
+    } catch { /* */ }
+
+    const minted = await provider.createParticipantToken(config, {
+      callSessionId: session.id,
+      providerRoomId: session.provider_room_id,
+      participantId: visitorIdentity,
+      participantType: 'visitor',
+      displayName: 'Visitor',
+      canPublish: true,
+      canSubscribe: true,
+      canPublishData: true,
+      ttlSeconds: 600,
+    });
+
+    const network = await getCallNetworkBundle(config);
+    const turn = { ...network.turn };
+    if (turn.static_secret_present && turn.urls.length > 0) {
+      try {
+        const { data: rtcRow } = await supabase
+          .from('app_runtime_config')
+          .select('value')
+          .eq('key', 'call_rtc_endpoints')
+          .maybeSingle();
+        const sharedSecret = (rtcRow?.value as any)?.turn?.shared_secret;
+        if (typeof sharedSecret === 'string' && sharedSecret.length > 0) {
+          const m = mintTurnCreds({ sharedSecret, identity: 'call:' + session.id, ttlSeconds: 600 });
+          turn.username = m.username;
+          turn.credential = m.credential;
+        }
+      } catch { /* fallback to static */ }
+    }
+
+    res.json({
+      token: minted.token,
+      expires_at: minted.expiresAt,
+      ws_url: network.ws_url,
+      rtc_url: network.rtc_url,
+      turn: { urls: turn.urls, username: turn.username, credential: turn.credential },
+      ice_policy: network.ice_policy,
+      call_type: session.call_type,
+      recording: !!session.recording_enabled,
+    });
+  } catch (err: any) {
+    if (err?.providerId) {
+      return res.status(503).json({
+        error: 'call_provider_not_ready',
+        provider: err.providerId,
+        message: err.message,
+      });
+    }
+    console.error('[widget-calls/visitor-token] error:', err?.message || err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
 widgetRouter.get('/manifest', widgetRateLimit('bootstrap'), async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
   const workspaceId = resolveWorkspaceId(req, res, req.query.workspace_id as string);

@@ -11,6 +11,7 @@ import { z } from 'zod';
 import { adminWidgetRouter } from './adminWidget.js';
 import { adminWidgetTemplatesRouter } from './adminWidgetTemplates.js';
 import { adminMetricsRouter } from './adminMetrics.js';
+import { adminAlertsRouter } from './adminAlerts.js';
 
 export const adminRouter = Router();
 
@@ -86,6 +87,9 @@ adminRouter.use('/widget/templates', adminWidgetTemplatesRouter);
 
 // Phase 3 — observability (super admin only)
 adminRouter.use('/metrics', adminMetricsRouter);
+
+// Phase 4 — alerting & anomaly detection (super admin only)
+adminRouter.use('/alerts', adminAlertsRouter);
 
 // ─── Send Password Reset Link ────────────────────────────────────
 const resetLinkSchema = z.object({

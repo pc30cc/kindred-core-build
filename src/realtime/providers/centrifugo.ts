@@ -229,7 +229,13 @@ function buildConnection(workspaceId: string, negotiation: RealtimeNegotiation):
     closed: false,
     workspaceId,
     token: negotiation.token!,
-    tokenExpiresAt: (negotiation.expires_at || 0) * 1000 || Date.now() + 9 * 60_000,
+    // Server emits `expires_at` already in epoch milliseconds
+    // (see server/services/realtime/centrifugo.ts: `expires_at: exp * 1000`).
+    // Do NOT multiply again — doing so produced a value ~1.78e21 which,
+    // when passed to setTimeout in `scheduleTokenRefresh`, exceeded the
+    // 32-bit timer max and was clamped to ~1ms by the browser, causing
+    // a steady-state 2s connect/refresh storm against /api/realtime/operator-connect.
+    tokenExpiresAt: negotiation.expires_at || Date.now() + 9 * 60_000,
     wsUrl: negotiation.ws_url!,
     reconnectAttempt: 0,
     reconnectTimer: null,
@@ -398,7 +404,8 @@ function scheduleReconnect(conn: SharedConnection): void {
       const fresh = await negotiateConnect(conn.workspaceId);
       if (fresh?.token && fresh.ws_url) {
         conn.token = fresh.token;
-        conn.tokenExpiresAt = (fresh.expires_at || 0) * 1000 || Date.now() + 9 * 60_000;
+        // expires_at is already epoch ms from the server — do not scale.
+        conn.tokenExpiresAt = fresh.expires_at || Date.now() + 9 * 60_000;
         conn.wsUrl = fresh.ws_url;
         rtDebug('centrifugo', 'reconnect: fresh token negotiated', {
           expiresInMs: conn.tokenExpiresAt - Date.now(),
@@ -440,7 +447,8 @@ function scheduleTokenRefresh(conn: SharedConnection): void {
       return;
     }
     conn.token = fresh.token;
-    conn.tokenExpiresAt = (fresh.expires_at || 0) * 1000 || Date.now() + 9 * 60_000;
+    // expires_at is already epoch ms from the server — do not scale.
+    conn.tokenExpiresAt = fresh.expires_at || Date.now() + 9 * 60_000;
     if (fresh.ws_url) conn.wsUrl = fresh.ws_url;
     // Centrifugo v5 supports in-place connection token refresh via the
     // `refresh` command — but our backend re-issues full negotiations and

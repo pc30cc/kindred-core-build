@@ -149,7 +149,7 @@ export function CallControlPlanePanel() {
                   {PROVIDERS.map((p) => (
                     <SelectItem key={p} value={p}>
                       <div className="flex items-center gap-2">
-                        {p}
+                        {providerLabel(p)}
                         {p !== 'disabled' && (
                           readiness[p]
                             ? <CheckCircle2 className="h-3 w-3 text-success" />
@@ -167,7 +167,7 @@ export function CallControlPlanePanel() {
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {PROVIDERS.map((p) => (
-                    <SelectItem key={p} value={p}>{p}</SelectItem>
+                    <SelectItem key={p} value={p}>{providerLabel(p)}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -196,9 +196,14 @@ export function CallControlPlanePanel() {
           </div>
 
           <div className="flex flex-wrap gap-2 pt-2">
-            {PROVIDERS.filter(p => p !== 'disabled').map(p => (
+            {SELF_HOSTED_PROVIDERS.map(p => (
               <Badge key={p} variant={readiness[p] ? 'default' : 'secondary'} className="gap-1">
                 {p}: {readiness[p] ? 'ready' : 'not configured'}
+              </Badge>
+            ))}
+            {EXTERNAL_PROVIDERS.map(p => (
+              <Badge key={p} variant="outline" className="gap-1">
+                {p} (external): {readiness[p] ? 'ready' : 'not configured'}
               </Badge>
             ))}
           </div>

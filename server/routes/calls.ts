@@ -198,6 +198,14 @@ callsRouter.post('/create', async (req, res) => {
       call_type: body.call_type,
     });
 
+    emitCallMetric(config, {
+      metric: 'call.create.success',
+      workspaceId: body.workspace_id,
+      provider: providerId,
+      callId: inserted.id,
+      callType: body.call_type,
+    });
+
     res.json({
       id: inserted.id,
       provider: providerId,
@@ -205,6 +213,15 @@ callsRouter.post('/create', async (req, res) => {
       state: inserted.state,
     });
   } catch (err) {
+    const reason = (err as any)?.message || 'unknown';
+    try {
+      const cfg: ServerConfig = (req as any).serverConfig;
+      emitCallMetric(cfg, {
+        metric: err instanceof CallProviderNotReadyError ? 'call.provider.not_ready' : 'call.create.failure',
+        provider: err instanceof CallProviderNotReadyError ? err.providerId : null,
+        reason: String(reason).slice(0, 120),
+      });
+    } catch { /* never break the response */ }
     return handleProviderError(res, err);
   }
 });

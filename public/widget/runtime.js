@@ -58,6 +58,45 @@
   };
 
   // ════════════════════════════════════════════════════════════════════
+  // Phase 6C — Effective realtime policy snapshot.
+  //
+  // The loader stashes the latest snapshot at `window.__gs_policy` from
+  // every handshake response (bootstrap / session refresh). The runtime
+  // additionally updates it from /api/realtime/connect.
+  //
+  // Hot paths (typing emit, reconnect scheduling) read SYNCHRONOUSLY from
+  // here. Safe defaults are returned when the field is missing or stale.
+  // No hard dependency on the field being present — older servers and
+  // older loaders simply yield the safe default.
+  // ════════════════════════════════════════════════════════════════════
+  var Policy = {
+    get: function () {
+      try {
+        var p = (typeof window !== 'undefined') ? window.__gs_policy : null;
+        return (p && typeof p === 'object') ? p : {};
+      } catch (_) { return {}; }
+    },
+    set: function (p) {
+      if (!p || typeof p !== 'object') return;
+      try { if (typeof window !== 'undefined') window.__gs_policy = p; } catch (_) {}
+    },
+    typingSuppressed: function () { return !!Policy.get().typing_suppressed; },
+    forcePolling: function () { return !!Policy.get().force_polling; },
+    degraded: function () {
+      var p = Policy.get();
+      return !!(p.degraded_mode || p.force_polling);
+    },
+    backoffMultiplier: function () {
+      var m = Number(Policy.get().reconnect_backoff_multiplier);
+      if (!isFinite(m) || m < 1) return 1;
+      if (m > 10) return 10; // hard ceiling — no runaway delays
+      return m;
+    },
+  };
+  // Expose for in-file access from nested closures (driver factories etc.).
+  __gs_runtime.Policy = Policy;
+
+  // ════════════════════════════════════════════════════════════════════
   // TokenManager — long-lived widget session resilience
   //
   // Strategy: proactive refresh ~60s before expiry + reactive single-retry
@@ -984,6 +1023,21 @@
       })
         .then(function (r) { return r.json(); })
         .then(function (resolved) {
+          // Phase 6C — refresh the policy snapshot from the realtime
+          // negotiation BEFORE we decide which transport to start. The
+          // backend may flip force_polling to true even if the lock /
+          // priority would otherwise yield centrifugo.
+          if (resolved && resolved.effective_policy) {
+            Policy.set(resolved.effective_policy);
+          }
+          // If policy says force polling, do not even attempt a real
+          // realtime driver — drop straight into polling. The backend
+          // already returns vendor: 'polling_builtin' in that case, but
+          // be defensive in case an older server omits the override.
+          if (Policy.forcePolling()) {
+            resolved = resolved || {};
+            resolved.vendor = 'polling_builtin';
+          }
           resolvedVendor = (resolved && resolved.vendor) || 'polling_builtin';
           fallbackPolicy = (resolved && resolved.fallback_policy) || 'lenient';
           if (resolved && resolved.capabilities) {
@@ -1481,7 +1535,29 @@
     function renderBanner(state) {
       if (!bannerEl) return;
       var s = state.connectionState;
+      // Phase 6C — when the platform is in degraded / force-polling mode
+      // AND the connection is otherwise healthy, surface a non-blocking
+      // "limited" line. Messaging stays usable; this is informational only.
+      var degraded = false;
+      try { degraded = !!(window.__gs_policy && (window.__gs_policy.degraded_mode || window.__gs_policy.force_polling)); } catch (_) {}
       if (s === 'online' || s === 'idle') {
+        if (degraded && s === 'online') {
+          bannerEl.className = 'connection-banner visible reconnecting';
+          bannerEl.innerHTML = '';
+          var ddot = document.createElement('span');
+          ddot.className = 'conn-dot';
+          ddot.setAttribute('aria-hidden', 'true');
+          bannerEl.appendChild(ddot);
+          var dspan = document.createElement('span');
+          dspan.className = 'conn-label';
+          dspan.textContent = 'Connection limited — messaging still works';
+          bannerEl.appendChild(dspan);
+          if (bannerEl.__gsShowTimer) {
+            clearTimeout(bannerEl.__gsShowTimer);
+            bannerEl.__gsShowTimer = null;
+          }
+          return;
+        }
         bannerEl.className = 'connection-banner';
         bannerEl.textContent = '';
         if (bannerEl.__gsShowTimer) {
@@ -3440,6 +3516,10 @@
       var cid = chatStore.get().conversationId;
       if (!cid) return;
       if (transportStore.get().connectionState !== 'online') return;
+      // Phase 6C — drop typing client-side when policy suppresses it.
+      // Server-side suppression is the backstop; this just avoids the
+      // round-trip when we know it'll be dropped.
+      if (Policy.typingSuppressed()) return;
       var now = Date.now();
       if (now - lastTypingSent < 2000) return;
       lastTypingSent = now;

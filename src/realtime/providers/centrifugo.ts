@@ -22,6 +22,7 @@ import type {
   RealtimeSubscription,
 } from '../types';
 import { rtDebug, rtWarn } from '../debug';
+import { getReconnectBackoffMultiplier } from '../policySnapshot';
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) || '';
 
@@ -516,14 +517,21 @@ function scheduleReconnect(conn: SharedConnection): void {
   // If no subscribers remain, there's nothing to reconnect for.
   if (conn.subs.size === 0) return;
   const baseDelay = RECONNECT_DELAYS_MS[Math.min(conn.reconnectAttempt, RECONNECT_DELAYS_MS.length - 1)];
+  // Phase 6C — multiply base delay by the effective policy multiplier
+  // BEFORE jitter, then cap at 60s (2x the existing 30s cap) so a
+  // misconfigured multiplier can never produce minute-scale stalls.
+  const multiplier = getReconnectBackoffMultiplier();
+  const scaled = Math.min(60_000, baseDelay * multiplier);
   // Phase 2 — apply ±jitterPct% randomness so a region-wide outage doesn't
   // produce N tabs reconnecting at the identical millisecond.
   const { reconnectJitterPct } = getHardeningSync();
-  const delay = jitter(baseDelay, reconnectJitterPct);
+  const delay = jitter(scaled, reconnectJitterPct);
   conn.reconnectAttempt += 1;
   rtDebug('centrifugo', 'scheduling reconnect', {
     attempt: conn.reconnectAttempt,
     baseDelayMs: baseDelay,
+    multiplier,
+    scaledMs: scaled,
     delayMs: delay,
     jitterPct: reconnectJitterPct,
   });

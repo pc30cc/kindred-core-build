@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { MessageSquare, Mail, Phone, Globe, Shield, Settings, Lock, Info, Bug, Rocket, Layers, Activity, Zap } from 'lucide-react';
+import { MessageSquare, Mail, Phone, Globe, Shield, Settings, Lock, Info, Bug, Rocket, Layers, Activity, Zap, Mic, Video, Disc, Users } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { DeploymentUrlsSection } from '@/components/admin/widget/DeploymentUrlsSection';
 import { WidgetTemplatesSection } from '@/components/admin/widget/WidgetTemplatesSection';
@@ -18,6 +18,8 @@ import {
   SecurityIsolationSection,
   FloodProtectionSection,
 } from '@/components/admin/widget/HardeningSection';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { fetchCallControlPlane, updateCallControlPlane, type CallControlPlane } from '@/lib/admin-calls-api';
 
 const PRECHAT_OPTIONS: { value: PreChatPolicy; label: string; desc: string }[] = [
   { value: 'force_on', label: 'Force ON', desc: 'Workspaces cannot disable — field is always required' },

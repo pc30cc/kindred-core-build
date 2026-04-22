@@ -234,6 +234,7 @@ realtimeRouter.post('/connect', async (req, res) => {
       fallback_policy: resolved.fallback_policy,
       public_config: resolved.public_config,
       source: resolved.source,
+      effective_policy,
     });
   } catch (err: any) {
     console.error('[realtime/connect] error:', err);

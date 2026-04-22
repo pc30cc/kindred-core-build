@@ -161,6 +161,46 @@ export default function AdminSystemPage() {
         </Card>
 
         <Card className="bg-card border-border">
+          <CardHeader className="flex-row items-center justify-between">
+            <CardTitle className="text-foreground text-sm flex items-center gap-2">
+              <Gauge className="h-4 w-4" /> Performance (last hour)
+            </CardTitle>
+            <Link
+              to="/admin/observability"
+              className="text-xs text-primary hover:underline"
+            >
+              Drill down →
+            </Link>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {perfRows.length === 0 && (
+              <p className="text-muted-foreground text-sm">No instrumented requests yet.</p>
+            )}
+            {perfRows.map((r) => (
+              <div
+                key={`${r.route_group}|${r.method}`}
+                className="flex items-center justify-between"
+              >
+                <span className="text-muted-foreground font-mono text-xs truncate max-w-[55%]">
+                  {r.route_group}
+                </span>
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="text-xs">{r.count}</Badge>
+                  <Badge variant="outline" className="text-xs">p95 {r.p95}ms</Badge>
+                </div>
+              </div>
+            ))}
+            {perfLatest && (
+              <div className="pt-2 mt-2 border-t border-border flex items-center justify-between text-xs text-muted-foreground">
+                <span>EL lag {perfLatest.event_loop_lag_ms.toFixed(2)}ms</span>
+                <span>RSS {fmtBytes(perfLatest.rss_bytes)}</span>
+                <span>Heap {fmtBytes(perfLatest.heap_used_bytes)}</span>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="bg-card border-border">
           <CardHeader>
             <CardTitle className="text-foreground text-sm">Runtime Configuration</CardTitle>
           </CardHeader>

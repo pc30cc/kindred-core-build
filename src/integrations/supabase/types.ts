@@ -1720,6 +1720,60 @@ export type Database = {
           },
         ]
       }
+      realtime_metric_events: {
+        Row: {
+          conversation_id: string | null
+          driver: string | null
+          id: string
+          metric: string
+          occurred_at: string
+          source: string
+          tags: Json
+          workspace_id: string | null
+        }
+        Insert: {
+          conversation_id?: string | null
+          driver?: string | null
+          id?: string
+          metric: string
+          occurred_at?: string
+          source?: string
+          tags?: Json
+          workspace_id?: string | null
+        }
+        Update: {
+          conversation_id?: string | null
+          driver?: string | null
+          id?: string
+          metric?: string
+          occurred_at?: string
+          source?: string
+          tags?: Json
+          workspace_id?: string | null
+        }
+        Relationships: []
+      }
+      realtime_metric_hourly: {
+        Row: {
+          bucket_hour: string
+          count: number
+          driver: string
+          metric: string
+        }
+        Insert: {
+          bucket_hour: string
+          count?: number
+          driver?: string
+          metric: string
+        }
+        Update: {
+          bucket_hour?: string
+          count?: number
+          driver?: string
+          metric?: string
+        }
+        Relationships: []
+      }
       realtime_provider_audit: {
         Row: {
           action: string
@@ -2330,6 +2384,9 @@ export type Database = {
           id: string
           max_allowed_domains_per_workspace: number
           max_message_length: number
+          observability_log_level: string
+          observability_metrics_enabled: boolean
+          observability_structured_logs_enabled: boolean
           prechat_email_policy: string
           prechat_name_policy: string
           prechat_phone_policy: string
@@ -2366,6 +2423,9 @@ export type Database = {
           id?: string
           max_allowed_domains_per_workspace?: number
           max_message_length?: number
+          observability_log_level?: string
+          observability_metrics_enabled?: boolean
+          observability_structured_logs_enabled?: boolean
           prechat_email_policy?: string
           prechat_name_policy?: string
           prechat_phone_policy?: string
@@ -2402,6 +2462,9 @@ export type Database = {
           id?: string
           max_allowed_domains_per_workspace?: number
           max_message_length?: number
+          observability_log_level?: string
+          observability_metrics_enabled?: boolean
+          observability_structured_logs_enabled?: boolean
           prechat_email_policy?: string
           prechat_name_policy?: string
           prechat_phone_policy?: string
@@ -3556,6 +3619,7 @@ export type Database = {
         Args: { _user_id: string }
         Returns: undefined
       }
+      realtime_metrics_rollup_and_prune: { Args: never; Returns: Json }
       register_workspace_domain: {
         Args: {
           _make_primary?: boolean

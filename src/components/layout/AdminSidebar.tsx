@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Users, Building2, Plug, Server,
   Flag, Palette, Globe, FileText, CreditCard, Shield,
   Database, Crown, MessageSquare, MapPin,
-  ChevronLeft, ChevronRight, LogOut, ArrowLeft, ArrowRight,
+  ChevronLeft, ChevronRight, LogOut, ArrowLeft, ArrowRight, Activity,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/features/auth/AuthContext';
@@ -19,6 +19,7 @@ const adminNav = [
   { key: 'mapGeo', path: '/admin/map-geo', icon: MapPin },
   { key: 'widgetSettings', path: '/admin/widget-settings', icon: MessageSquare },
   { key: 'system', path: '/admin/system', icon: Server },
+  { key: 'observability', path: '/admin/observability', icon: Activity },
   { key: 'featureFlags', path: '/admin/feature-flags', icon: Flag },
   { key: 'branding', path: '/admin/branding', icon: Palette },
   { key: 'domains', path: '/admin/domains', icon: Globe },

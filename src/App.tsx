@@ -60,6 +60,7 @@ import AdminUsersPage from "@/pages/admin/UsersPage";
 import AdminWorkspacesPage from "@/pages/admin/WorkspacesPage";
 import AdminProvidersPage from "@/pages/admin/ProvidersPage";
 import AdminSystemPage from "@/pages/admin/SystemPage";
+import AdminObservabilityPage from "@/pages/admin/ObservabilityPage";
 import AdminFeatureFlagsPage from "@/pages/admin/FeatureFlagsPage";
 import AdminBrandingPage from "@/pages/admin/BrandingPage";
 import AdminDomainsPage from "@/pages/admin/DomainsPage";
@@ -143,6 +144,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <Route path="/admin/map-geo" element={<AdminMapGeoPage />} />
                 <Route path="/admin/widget-settings" element={<AdminWidgetSettingsPage />} />
                 <Route path="/admin/system" element={<AdminSystemPage />} />
+                <Route path="/admin/observability" element={<AdminObservabilityPage />} />
                 <Route path="/admin/feature-flags" element={<AdminFeatureFlagsPage />} />
                 <Route path="/admin/branding" element={<AdminBrandingPage />} />
                 <Route path="/admin/domains" element={<AdminDomainsPage />} />

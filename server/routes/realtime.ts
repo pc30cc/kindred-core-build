@@ -122,6 +122,12 @@ realtimeRouter.post('/connect', async (req, res) => {
 
     // Polling fallback / built-in → no token needed; widget keeps polling.
     if (resolved.effective_vendor === 'polling_builtin') {
+      emitMetric(config, {
+        metric: 'realtime.fallback_engaged',
+        workspaceId: parsed.data.workspace_id,
+        driver: 'polling_builtin',
+        tags: { source: resolved.source },
+      });
       return res.json({
         vendor: 'polling_builtin',
         capabilities: resolved.capabilities,
@@ -166,6 +172,12 @@ realtimeRouter.post('/connect', async (req, res) => {
       workspace_id: parsed.data.workspace_id,
       conversation_ids: parsed.data.conversation_ids,
       expires_in_seconds: platform.realtime.tokenTtlSeconds,
+    });
+    emitMetric(config, {
+      metric: 'realtime.token_minted',
+      workspaceId: parsed.data.workspace_id,
+      driver: 'centrifugo',
+      tags: { kind: 'connect', ttl_s: platform.realtime.tokenTtlSeconds },
     });
 
     return res.json({
@@ -218,6 +230,13 @@ realtimeRouter.post('/subscribe', async (req, res) => {
       .eq('id', parsed.data.conversation_id)
       .maybeSingle();
     if (!conv || conv.workspace_id !== parsed.data.workspace_id) {
+      emitMetric(config, {
+        metric: 'realtime.channel_ownership_reject',
+        workspaceId: parsed.data.workspace_id,
+        conversationId: parsed.data.conversation_id,
+        driver: 'centrifugo',
+        tags: { reason: 'conversation_not_in_workspace', endpoint: 'subscribe' },
+      });
       return res.status(403).json({ error: 'Conversation not accessible' });
     }
 
@@ -230,6 +249,13 @@ realtimeRouter.post('/subscribe', async (req, res) => {
     if (!channelBelongsToWorkspace(channel, parsed.data.workspace_id)
         || isInboxChannel(channel, parsed.data.workspace_id)
         || isVisitorsChannel(channel, parsed.data.workspace_id)) {
+      emitMetric(config, {
+        metric: 'realtime.channel_ownership_reject',
+        workspaceId: parsed.data.workspace_id,
+        conversationId: parsed.data.conversation_id,
+        driver: 'centrifugo',
+        tags: { reason: 'channel_pattern_invalid', endpoint: 'subscribe' },
+      });
       // Defense in depth: widget tokens MUST NEVER be issued for the
       // operator-only inbox or visitors channels. Schema already prevents
       // this (the channel name does not match :conv:<uuid>) but we reject
@@ -242,6 +268,13 @@ realtimeRouter.post('/subscribe', async (req, res) => {
       channel,
       workspaceId: parsed.data.workspace_id,
       expiresInSeconds: platform.realtime.tokenTtlSeconds,
+    });
+    emitMetric(config, {
+      metric: 'realtime.token_minted',
+      workspaceId: parsed.data.workspace_id,
+      conversationId: parsed.data.conversation_id,
+      driver: 'centrifugo',
+      tags: { kind: 'subscribe', ttl_s: platform.realtime.tokenTtlSeconds },
     });
     return res.json({ vendor: 'centrifugo', channel, token: tk.token, expires_at: tk.expires_at });
   } catch (err: any) {
@@ -323,18 +356,42 @@ realtimeRouter.post('/operator-subscribe', async (req, res) => {
     const { data: conv } = await sb.from('conversations')
       .select('id, workspace_id').eq('id', parsed.data.conversation_id).maybeSingle();
     if (!conv || conv.workspace_id !== parsed.data.workspace_id) {
+      emitMetric(config, {
+        metric: 'realtime.channel_ownership_reject',
+        workspaceId: parsed.data.workspace_id,
+        conversationId: parsed.data.conversation_id,
+        driver: 'centrifugo',
+        source: 'operator',
+        tags: { reason: 'conversation_not_in_workspace', endpoint: 'operator-subscribe' },
+      });
       return res.status(404).json({ error: 'Conversation not in workspace' });
     }
     const driver = await getCentrifugoDriver(config);
     if (!driver) return res.json({ vendor: 'polling_builtin' });
     const channel = `ws:${parsed.data.workspace_id}:conv:${parsed.data.conversation_id}`;
     if (!channelBelongsToWorkspace(channel, parsed.data.workspace_id)) {
+      emitMetric(config, {
+        metric: 'realtime.channel_ownership_reject',
+        workspaceId: parsed.data.workspace_id,
+        conversationId: parsed.data.conversation_id,
+        driver: 'centrifugo',
+        source: 'operator',
+        tags: { reason: 'channel_pattern_invalid', endpoint: 'operator-subscribe' },
+      });
       return res.status(403).json({ error: 'Channel not allowed' });
     }
     const platform = await loadWidgetPlatformRuntimeSettings(config);
     const tk = driver.issueSubscriptionToken({
       sub: `op_${user.id}`, channel, workspaceId: parsed.data.workspace_id,
       expiresInSeconds: platform.realtime.tokenTtlSeconds,
+    });
+    emitMetric(config, {
+      metric: 'realtime.token_minted',
+      workspaceId: parsed.data.workspace_id,
+      conversationId: parsed.data.conversation_id,
+      driver: 'centrifugo',
+      source: 'operator',
+      tags: { kind: 'operator-subscribe', ttl_s: platform.realtime.tokenTtlSeconds },
     });
     return res.json({ vendor: 'centrifugo', channel, token: tk.token, expires_at: tk.expires_at });
   } catch (err: any) {

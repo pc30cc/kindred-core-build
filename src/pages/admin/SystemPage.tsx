@@ -13,6 +13,7 @@ import {
 } from '@/lib/admin-auto-actions-api';
 import SystemDegradedBanner from '@/components/admin/observability/SystemDegradedBanner';
 import EffectivePolicyPanel from '@/components/admin/observability/EffectivePolicyPanel';
+import { fetchSla, fetchWorkspaceHealth } from '@/lib/admin-reliability-api';
 
 export default function AdminSystemPage() {
   const { data: config } = useAdminRuntimeConfig();
@@ -40,6 +41,16 @@ export default function AdminSystemPage() {
     queryKey: ['admin-perf-process', '1h'],
     queryFn: () => fetchPerfProcess('1h'),
     refetchInterval: 60_000,
+  });
+  const slaQ = useQuery({
+    queryKey: ['admin-sla', '24h'],
+    queryFn: () => fetchSla('24h'),
+    refetchInterval: 120_000,
+  });
+  const healthQ = useQuery({
+    queryKey: ['admin-workspace-health'],
+    queryFn: () => fetchWorkspaceHealth(),
+    refetchInterval: 120_000,
   });
   const counts = summary.data?.counts || {};
   const summaryRows = [

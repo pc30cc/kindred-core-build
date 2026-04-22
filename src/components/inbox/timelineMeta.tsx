@@ -5,7 +5,7 @@
 import {
   MessageSquare, UserPlus, UserMinus, CheckCircle2, RefreshCw,
   AlertCircle, Hash, Paperclip, Bot, FileText, Star, User,
-  Trash2, Flag,
+  Trash2, Flag, Phone, PhoneIncoming, PhoneMissed, PhoneOff, PhoneCall, Voicemail,
 } from 'lucide-react';
 import type { TimelineEvent } from '@/hooks/useConversationTimeline';
 
@@ -32,6 +32,14 @@ export function getTimelineMeta(type: string): TimelineMeta {
     case 'ai_reply':         return { Icon: Bot,           tone: 'ai' };
     case 'note_added':       return { Icon: FileText,      tone: 'info' };
     case 'note_deleted':     return { Icon: Trash2,        tone: 'danger' };
+    case 'call_queued':         return { Icon: Phone,          tone: 'info' };
+    case 'call_offered':        return { Icon: PhoneIncoming,  tone: 'warning' };
+    case 'call_accepted':       return { Icon: PhoneCall,      tone: 'success' };
+    case 'call_missed':         return { Icon: PhoneMissed,    tone: 'danger' };
+    case 'call_expired':        return { Icon: PhoneOff,       tone: 'neutral' };
+    case 'call_cancelled':      return { Icon: PhoneOff,       tone: 'neutral' };
+    case 'callback_requested':  return { Icon: Voicemail,      tone: 'info' };
+    case 'callback_completed':  return { Icon: CheckCircle2,   tone: 'success' };
     default:                 return { Icon: AlertCircle,   tone: 'neutral' };
   }
 }
@@ -112,6 +120,28 @@ export function describeEvent(
       };
     case 'note_deleted':
       return { primary: t('inbox.timeline.noteDeleted') || 'Note deleted' };
+    case 'call_queued': {
+      const ch = p?.channel ? String(p.channel) : '';
+      return { primary: t('inbox.timeline.callQueued') || 'Call queued', secondary: ch || undefined };
+    }
+    case 'call_offered': {
+      const ch = p?.channel ? String(p.channel) : '';
+      return { primary: t('inbox.timeline.callOffered') || 'Call offered to operator', secondary: ch || undefined };
+    }
+    case 'call_accepted':
+      return { primary: t('inbox.timeline.callAccepted') || 'Call accepted' };
+    case 'call_missed':
+      return { primary: t('inbox.timeline.callMissed') || 'Call missed', secondary: p?.reason || undefined };
+    case 'call_expired':
+      return { primary: t('inbox.timeline.callExpired') || 'Call request expired' };
+    case 'call_cancelled':
+      return { primary: t('inbox.timeline.callCancelled') || 'Call cancelled', secondary: p?.reason || undefined };
+    case 'callback_requested': {
+      const ch = p?.channel ? String(p.channel) : '';
+      return { primary: t('inbox.timeline.callbackRequested') || 'Callback requested', secondary: ch || undefined };
+    }
+    case 'callback_completed':
+      return { primary: t('inbox.timeline.callbackCompleted') || 'Callback completed' };
     default:
       return { primary: ev.event_type };
   }

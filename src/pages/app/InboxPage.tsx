@@ -1275,6 +1275,20 @@ export default function InboxPage() {
             // Desktop: inline
             'lg:static lg:z-auto lg:w-[280px]',
           )}>
+          {/* Phase 8C — Call Queue panel (always visible, collapses itself when empty) */}
+          {workspace?.id && (
+            <div className="p-2.5 border-b border-border bg-card/40">
+              <CallQueuePanel
+                workspaceId={workspace.id}
+                onAccept={(entry) => {
+                  if (entry.conversation_id) {
+                    setSelectedId(entry.conversation_id);
+                    setShowMobileList(false);
+                  }
+                }}
+              />
+            </div>
+          )}
           {/* Sidebar tabs */}
           <div className="flex border-b border-border bg-card/60">
             {([

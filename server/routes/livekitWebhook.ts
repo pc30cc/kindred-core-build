@@ -349,8 +349,11 @@ livekitWebhookRouter.post(
       await sb.from('livekit_webhook_events').insert({
         event_id: dedupKey,
         event_type: ev.event,
-        body_sha256: expectedSha,
-        payload: ev as unknown as Record<string, unknown>,
+        raw: ev as unknown as Record<string, unknown>,
+        room_name: ev.room?.name ?? null,
+        participant_identity: ev.participant?.identity ?? null,
+        egress_id: ev.egressInfo?.egressId ?? null,
+        signature_valid: true,
       });
     } catch {
       // Race with a concurrent identical webhook - treat as dedup.
@@ -371,9 +374,23 @@ livekitWebhookRouter.post(
     // 6. Apply.
     try {
       const result = await applyEvent(config, ev);
+      await sb
+        .from('livekit_webhook_events')
+        .update({
+          processed_at: new Date().toISOString(),
+          process_error: result.applied ? null : (result.reason ?? 'not_applied'),
+        })
+        .eq('event_id', dedupKey);
       return res.status(200).json({ ok: true, applied: result.applied, reason: result.reason });
     } catch (err: any) {
       console.error('[livekit-webhook] apply failed:', err?.message || err);
+      await sb
+        .from('livekit_webhook_events')
+        .update({
+          processed_at: new Date().toISOString(),
+          process_error: String(err?.message || 'apply_error').slice(0, 500),
+        })
+        .eq('event_id', dedupKey);
       // Still 200: LiveKit will retry on non-2xx. We have the dedup row so
       // we won't double-process; the failed event is logged for ops review.
       return res.status(200).json({ ok: true, applied: false, reason: 'apply_error' });

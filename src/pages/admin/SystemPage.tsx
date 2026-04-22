@@ -1,11 +1,12 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useAdminRuntimeConfig } from '@/hooks/useAdmin';
-import { CheckCircle, Activity, AlertTriangle, AlertOctagon } from 'lucide-react';
+import { CheckCircle, Activity, AlertTriangle, AlertOctagon, Gauge } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { fetchMetricsSummary } from '@/lib/admin-metrics-api';
 import { fetchActiveAlerts, type ActiveAlert } from '@/lib/admin-alerts-api';
+import { fetchPerfSummary, fetchPerfProcess } from '@/lib/admin-perf-api';
 
 export default function AdminSystemPage() {
   const { data: config } = useAdminRuntimeConfig();
@@ -18,6 +19,16 @@ export default function AdminSystemPage() {
     queryKey: ['admin-alerts-active'],
     queryFn: () => fetchActiveAlerts(),
     refetchInterval: 30_000,
+  });
+  const perfSummaryQ = useQuery({
+    queryKey: ['admin-perf-summary', '1h'],
+    queryFn: () => fetchPerfSummary('1h'),
+    refetchInterval: 60_000,
+  });
+  const perfProcessQ = useQuery({
+    queryKey: ['admin-perf-process', '1h'],
+    queryFn: () => fetchPerfProcess('1h'),
+    refetchInterval: 60_000,
   });
   const counts = summary.data?.counts || {};
   const summaryRows = [

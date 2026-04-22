@@ -230,7 +230,21 @@
     function scheduleReconnect() {
       if (manuallyClosed) return;
       reconnectAttempt += 1;
-      var delay = Math.min(30000, 1000 * Math.pow(2, Math.min(reconnectAttempt, 5)));
+      var baseDelay = Math.min(30000, 1000 * Math.pow(2, Math.min(reconnectAttempt, 5)));
+      // Phase 6C — apply the effective policy reconnect backoff multiplier
+      // so admins can stretch reconnect spacing during overload events.
+      // Hard-cap at 60s (2x baseline) so a misconfigured multiplier can
+      // never produce minute-scale stalls. Preserve the existing jitter
+      // style by adding ±15% randomness to avoid synchronized retries.
+      var mult = 1;
+      try {
+        var p = (typeof window !== 'undefined') ? window.__gs_policy : null;
+        var raw = p && Number(p.reconnect_backoff_multiplier);
+        if (isFinite(raw) && raw >= 1 && raw <= 10) mult = raw;
+      } catch (_) {}
+      var scaled = Math.min(60000, baseDelay * mult);
+      var jitter = Math.round(scaled * (0.85 + Math.random() * 0.30));
+      var delay = Math.max(0, jitter);
       setState('reconnecting');
       reconnectTimer = setTimeout(function () {
         reconnectTimer = null;

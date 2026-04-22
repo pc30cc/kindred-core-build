@@ -32,6 +32,7 @@ import { getCallNetworkBundle } from '../services/calls/rtcResolver.js';
 import { CallProviderNotReadyError } from '../services/calls/providers/types.js';
 import { mintTurnCreds } from '../services/calls/turnAuth.js';
 import { emitCallMetric } from '../services/calls/metrics.js';
+import { publishConversationEvent } from '../services/realtime/publish.js';
 
 export const callsRouter = Router();
 

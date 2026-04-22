@@ -30,6 +30,8 @@ import {
 } from '../services/calls/controlPlane.js';
 import { getCallNetworkBundle } from '../services/calls/rtcResolver.js';
 import { CallProviderNotReadyError } from '../services/calls/providers/types.js';
+import { mintTurnCreds } from '../services/calls/turnAuth.js';
+import { emitCallMetric } from '../services/calls/metrics.js';
 
 export const callsRouter = Router();
 

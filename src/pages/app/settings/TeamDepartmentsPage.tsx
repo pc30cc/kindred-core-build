@@ -140,9 +140,7 @@ export default function TeamDepartmentsPage() {
   });
 
   const customerMembers = useMemo(
-    () => allMembers.filter((m: any) =>
-      m.role === 'owner' || (CUSTOMER_FACING_ROLES as readonly string[]).includes(m.role),
-    ),
+    () => allMembers.filter((m: any) => isCustomerFacingRole(m.role)),
     [allMembers],
   );
 

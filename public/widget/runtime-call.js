@@ -141,7 +141,7 @@
       '  <div class="cberr" data-el="cb-error"></div>',
       '  <div class="row" style="margin-top:10px"><button class="btn primary" data-el="cb-submit" type="button">Request callback</button><button class="btn ghost" data-el="cb-cancel" type="button">Cancel</button></div>',
       '</div>',
-      '<div class="pending" data-el="cb-pending"><span class="pdot"></span><b data-el="cb-pending-title">Callback pending</b><span class="cd" data-el="cb-pending-cd"></span></div>',
+      '<div class="pending" data-el="cb-pending" role="status" aria-live="polite" aria-atomic="true"><span class="pdot" aria-hidden="true"></span><b data-el="cb-pending-title">Callback pending</b><span class="cd" data-el="cb-pending-cd"></span></div>',
       '<p class="status" data-el="status"></p>',
     ].join('');
     shadow.appendChild(rootEl);

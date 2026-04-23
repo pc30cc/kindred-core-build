@@ -32,6 +32,7 @@ import { callQueueRouter } from './routes/callQueue.js';
 import { workspaceCallsRouter } from './routes/workspaceCalls.js';
 import { callAvailabilityRouter } from './routes/callAvailability.js';
 import { callbacksRouter } from './routes/callbacks.js';
+import { workspaceDepartmentsRouter } from './routes/workspaceDepartments.js';
 import { startCallQueueTicker } from './services/calls/queueTicker.js';
 import { startAttachmentJanitor } from './services/attachmentJanitor.js';
 import { startPrivacyWorker } from './services/privacy/worker.js';
@@ -228,6 +229,9 @@ app.use('/api/call-availability', callAvailabilityRouter);
 
 // Phase 8D — Callback requests (operator-side management).
 app.use('/api/callbacks', callbacksRouter);
+
+// Phase 8H — Workspace-scoped department management.
+app.use('/api/workspace-departments', workspaceDepartmentsRouter);
 
 // 404
 app.use((_req, res) => {

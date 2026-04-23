@@ -58,6 +58,7 @@ import { resolveVisitorIdentity, readVisitorCookie } from '../services/widget/vi
 import { widgetIdentityRouter } from './widgetIdentity.js';
 import { widgetAttachmentsRouter, attachUploadedFileToMessage, enrichMessagesWithAttachments } from './widgetAttachments.js';
 import { widgetCallbacksRouter } from './widgetCallbacks.js';
+import { widgetDepartmentsRouter } from './widgetDepartments.js';
 import { recordConversationEvent } from '../services/conversationEvents.js';
 import { resolveAvailability, snapshotToWirePayload } from '../services/widget/availability.js';
 import { sendEmail } from '../services/email/index.js';
@@ -79,6 +80,11 @@ widgetRouter.use('/attachments', widgetAttachmentsRouter);
 // Phase 8D — Visitor-side callback request endpoint.
 // Mounted under widget so it inherits CORS + token + origin gate.
 widgetRouter.use('/callback', widgetCallbacksRouter);
+
+// Phase 8H — Widget-facing department visibility (token + origin enforced
+// inside the sub-router). Used by the widget runtime to choose between
+// general / single / multi mode.
+widgetRouter.use('/departments', widgetDepartmentsRouter);
 
 // ─── CORS preflight for all widget routes ───
 widgetRouter.use(widgetSecurityCors);

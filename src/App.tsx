@@ -53,6 +53,7 @@ import SettingsSecurityPage from "@/pages/app/settings/SecurityPage";
 import SettingsCannedResponsesPage from "@/pages/app/settings/CannedResponsesPage";
 import SettingsPrivacyPage from "@/pages/app/settings/PrivacyPage";
 import SettingsInterfacePage from "@/pages/app/settings/InterfacePage";
+import DepartmentsPage from "@/pages/app/settings/DepartmentsPage";
 import PrivacyRequestsPage from "@/pages/app/PrivacyRequestsPage";
 
 import AdminDashboardPage from "@/pages/admin/DashboardPage";
@@ -188,6 +189,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                   <Route path="privacy" element={<SettingsPrivacyPage />} />
                   <Route path="interface" element={<SettingsInterfacePage />} />
                   <Route path="team" element={<TeamPage />} />
+                  <Route path="departments" element={<DepartmentsPage />} />
                   <Route path="privacy-requests" element={<PrivacyRequestsPage />} />
                   <Route path="knowledge-base" element={<KnowledgeBasePage />} />
                   <Route path="ai" element={<AIPage />} />

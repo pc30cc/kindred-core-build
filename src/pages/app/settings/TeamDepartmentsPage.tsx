@@ -621,13 +621,20 @@ function DeptMembersDialog({
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Members of {department.name}</DialogTitle>
+          <DialogTitle>{department.name} — members</DialogTitle>
         </DialogHeader>
-        <div className="space-y-2 max-h-[50vh] overflow-y-auto py-2">
+        <p className="text-xs text-muted-foreground -mt-2">
+          Pick the team members who handle this department.
+        </p>
+        <div className="space-y-1 max-h-[50vh] overflow-y-auto py-2">
           {members.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-6">
-              No customer-facing team members yet. Invite one from Team & Departments.
-            </p>
+            <div className="text-center py-8">
+              <Users className="h-8 w-8 mx-auto text-muted-foreground/50 mb-2" />
+              <p className="text-sm font-medium text-foreground">No team members yet</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Invite one from Team members above.
+              </p>
+            </div>
           ) : (
             members.map((m: any) => (
               <label key={m.user_id}

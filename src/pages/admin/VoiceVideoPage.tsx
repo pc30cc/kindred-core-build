@@ -429,6 +429,13 @@ function CallbacksTab() {
   });
   const summary = summaryQuery.data;
   const completionPct = summary ? Math.round((summary.completion_rate || 0) * 100) : 0;
+  const upcomingQuery = useQuery({
+    queryKey: ['admin', 'callbacks-upcoming'],
+    queryFn: fetchUpcomingCallbacks,
+    refetchInterval: 60_000,
+  });
+  const upcoming = upcomingQuery.data?.items ?? [];
+  const scheduledCount = upcomingQuery.data?.scheduled_count ?? 0;
 
   useEffect(() => {
     if (!workspaces) return;

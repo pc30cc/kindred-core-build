@@ -19,6 +19,7 @@ const adminNav = [
   { key: 'mapGeo', path: '/admin/map-geo', icon: MapPin },
   { key: 'widgetSettings', path: '/admin/widget-settings', icon: MessageSquare },
   { key: 'voiceVideo', path: '/admin/voice-video', icon: Video },
+  { key: 'advancedRouting', path: '/admin/advanced-routing', icon: Activity },
   { key: 'system', path: '/admin/system', icon: Server },
   { key: 'observability', path: '/admin/observability', icon: Activity },
   { key: 'featureFlags', path: '/admin/feature-flags', icon: Flag },

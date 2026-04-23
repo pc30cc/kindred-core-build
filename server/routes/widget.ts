@@ -908,6 +908,8 @@ const messageSchema = z.object({
   session_id: z.string().uuid().optional().nullable(),
   force_new_conversation: z.boolean().optional(),
   attachment_id: z.string().uuid().optional().nullable(),
+  /** Phase 8H — optional department selected by widget (single/multi mode). */
+  department_id: z.string().uuid().optional().nullable(),
 }).refine(
   d => !!((d.message && d.message.trim()) || (d.body && d.body.trim()) || d.attachment_id),
   { message: 'message, body, or attachment_id required' }

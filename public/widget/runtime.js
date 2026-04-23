@@ -3856,6 +3856,10 @@
       var tab = shellStore.get().activeTab;
       if (tab === 'chat') {
         if (!identityStore.get().loaded) { renderLoading(); return; }
+        // Phase 8H — department gate (chat). Multi mode shows a lightweight
+        // selector BEFORE pre-chat. Single mode auto-binds in resolver.
+        // General mode is a no-op. Resolved-once-per-session via store.
+        if (renderDepartmentGateIfNeeded('chat')) return;
         if (identity.needsPrechat()) {
           // Composer must be invisible while pre-chat is showing — visitor
           // cannot send a message until they've identified themselves.

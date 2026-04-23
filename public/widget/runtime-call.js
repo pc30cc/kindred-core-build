@@ -103,6 +103,12 @@
       '.cbnote{resize:vertical;min-height:48px;max-height:120px;font-family:inherit}',
       '.cberr{font-size:11px;color:#dc2626;margin-top:4px;display:none}',
       '.cberr.show{display:block}',
+      '.pending{display:none;margin-top:8px;padding:8px 10px;border-radius:8px;background:#ecfeff;color:#0e7490;border:1px solid #a5f3fc;font-size:12px;line-height:1.4}',
+      '.pending.show{display:block}',
+      '.pending .pdot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#0891b2;margin-right:6px;vertical-align:middle;animation:pulse 1.4s infinite}',
+      '.pending b{font-weight:600}',
+      '.pending .cd{display:block;margin-top:2px;font-size:11px;color:#0891b2;opacity:.85}',
+      '@media (prefers-color-scheme: dark){.pending{background:#0c2a30;color:#a5f3fc;border-color:#155e75}.pending .cd{color:#a5f3fc}}',
     ].join('');
     shadow.appendChild(style);
 
@@ -135,6 +141,7 @@
       '  <div class="cberr" data-el="cb-error"></div>',
       '  <div class="row" style="margin-top:10px"><button class="btn primary" data-el="cb-submit" type="button">Request callback</button><button class="btn ghost" data-el="cb-cancel" type="button">Cancel</button></div>',
       '</div>',
+      '<div class="pending" data-el="cb-pending"><span class="pdot"></span><b data-el="cb-pending-title">Callback pending</b><span class="cd" data-el="cb-pending-cd"></span></div>',
       '<p class="status" data-el="status"></p>',
     ].join('');
     shadow.appendChild(rootEl);

@@ -802,6 +802,9 @@
         if (Array.isArray(item) && item[0] === 'call:callback-offer' && item[1]) {
           window.__gs_call.offerCallback(item[1]);
         }
+        if (Array.isArray(item) && item[0] === 'call:greet') {
+          showGreeting(item[1] || {});
+        }
       }
     }
   } catch (_) {}
@@ -824,6 +827,10 @@
       }
       if (Array.isArray(item) && item[0] === 'call:callback-offer' && item[1]) {
         window.__gs_call.offerCallback(item[1]);
+        return;
+      }
+      if (Array.isArray(item) && item[0] === 'call:greet') {
+        showGreeting(item[1] || {});
         return;
       }
       if (origPush) return origPush(item);

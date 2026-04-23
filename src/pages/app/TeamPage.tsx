@@ -8,6 +8,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from '@/components/ui/dialog';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useTranslation } from '@/i18n';
@@ -17,7 +21,7 @@ import { toast } from 'sonner';
 import {
   Users, UserPlus, Shield, Loader2, Copy, Trash2,
   Crown, MoreHorizontal, Mail, Clock, Search, UserCog,
-  Ban, RotateCcw, CheckCircle2,
+  Ban, RotateCcw, CheckCircle2, Building2,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
@@ -86,13 +90,18 @@ export default function TeamPage() {
   const { workspace } = useActiveWorkspace();
   const queryClient = useQueryClient();
 
-  const [activeSection, setActiveSection] = useState<'members' | 'invitations' | 'roles'>('members');
+  const [activeSection, setActiveSection] = useState<'members' | 'invitations'>('members');
   const [inviteRole, setInviteRole] = useState('agent');
   const [inviteExpiration, setInviteExpiration] = useState<ExpirationOption>('30d');
   const [inviteCustomDate, setInviteCustomDate] = useState('');
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteLink, setInviteLink] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [editDeptsFor, setEditDeptsFor] = useState<{
+    memberId: string;
+    userId: string;
+    name: string;
+  } | null>(null);
 
   const wsId = workspace?.id;
 
@@ -141,6 +150,39 @@ export default function TeamPage() {
     },
     enabled: !!wsId,
   });
+
+  // Fetch all department names + per-user assignments to render the
+  // Departments column inline on the Team page.
+  const { data: deptsData } = useQuery({
+    queryKey: ['ws-departments-overview', wsId],
+    queryFn: async () => {
+      const [{ data: depts, error: e1 }, { data: assigns, error: e2 }] = await Promise.all([
+        supabase
+          .from('workspace_departments')
+          .select('id, name')
+          .eq('workspace_id', wsId!),
+        supabase
+          .from('workspace_department_members')
+          .select('user_id, department_id')
+          .eq('workspace_id', wsId!),
+      ]);
+      if (e1) throw e1;
+      if (e2) throw e2;
+      return { departments: depts ?? [], assignments: assigns ?? [] };
+    },
+    enabled: !!wsId,
+  });
+
+  const deptNameById = new Map<string, string>(
+    (deptsData?.departments ?? []).map((d: any) => [d.id, d.name]),
+  );
+  const deptsByUser = new Map<string, string[]>();
+  for (const a of deptsData?.assignments ?? []) {
+    const list = deptsByUser.get(a.user_id) ?? [];
+    const name = deptNameById.get(a.department_id);
+    if (name) list.push(name);
+    deptsByUser.set(a.user_id, list);
+  }
 
   // Generate invite
   const generateInvite = useMutation({
@@ -327,7 +369,6 @@ export default function TeamPage() {
         {[
           { key: 'members',     icon: Users,  label: t('team.tabMembers'),     badge: 0 },
           { key: 'invitations', icon: Mail,   label: t('team.tabInvitations'), badge: activeInvites.length },
-          { key: 'roles',       icon: Shield, label: t('team.tabRoles'),       badge: 0 },
         ].map(tab => {
           const active = activeSection === tab.key;
           const Icon = tab.icon;
@@ -424,6 +465,14 @@ export default function TeamPage() {
                       <Badge className={`text-[10px] px-2 py-0.5 border ${roleColors[m.role] || roleColors.viewer}`}>
                         {getRoleLabel(m.role)}
                       </Badge>
+                      <MemberDepartmentsCell
+                        deptNames={deptsByUser.get(m.user_id) ?? []}
+                        onManage={() => setEditDeptsFor({
+                          memberId: m.id,
+                          userId: m.user_id,
+                          name: m.profile?.full_name || m.profile?.email || 'member',
+                        })}
+                      />
                       {!isOwner && !isCurrentUser && (
                         <MemberActions
                           currentRole={m.role}
@@ -572,38 +621,14 @@ export default function TeamPage() {
         </>
       )}
 
-      {/* ═══════════ Roles Tab ═══════════ */}
-      {activeSection === 'roles' && (
-        <Card className="overflow-hidden border-border/60 shadow-sm">
-          <div className="border-b border-border/60 px-6 py-4">
-            <h2 className="text-base font-semibold text-foreground">{t('team.tabRoles')}</h2>
-            <p className="mt-1 text-sm text-muted-foreground">{t('team.rolesDesc')}</p>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-6">
-            {allRolesWithOwner.map(role => (
-              <div key={role} className="rounded-lg border border-border/60 bg-background p-5 transition-colors hover:border-border">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2">
-                      <Badge className={`text-xs px-2.5 py-1 border ${roleColors[role] || roleColors.viewer}`}>
-                        {getRoleLabel(role)}
-                      </Badge>
-                      <span className="text-xs text-muted-foreground">
-                        ({roleStats[role] || 0} {t('team.membersCount')})
-                      </span>
-                    </div>
-                    {role === 'owner' && <Crown className="w-4 h-4 text-amber-500" />}
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {(rolePermissionKeys[role] || []).map(permKey => (
-                      <span key={permKey} className="text-[10px] px-2 py-0.5 rounded-full bg-muted/50 text-muted-foreground border border-border/50">
-                        {(t as any)(`team.${permKey}`)}
-                      </span>
-                    ))}
-                  </div>
-              </div>
-            ))}
-          </div>
-        </Card>
+      {/* Member departments dialog (assignment from Team page) */}
+      {editDeptsFor && wsId && (
+        <MemberDepartmentsDialog
+          workspaceId={wsId}
+          memberUserId={editDeptsFor.userId}
+          memberName={editDeptsFor.name}
+          onClose={() => setEditDeptsFor(null)}
+        />
       )}
     </div>
   );
@@ -767,4 +792,185 @@ function buildInviteEmailHtml(workspaceName: string, role: string, inviterEmail:
       </p>
     </div>
   `;
+}
+
+/**
+ * Compact pill that summarises which departments a member belongs to.
+ * "General Pool" is shown when the member has no department assignment —
+ * matching the routing semantics in `server/services/calls/departments.ts`.
+ */
+function MemberDepartmentsCell({
+  deptNames,
+  onManage,
+}: {
+  deptNames: string[];
+  onManage: () => void;
+}) {
+  const summary =
+    deptNames.length === 0
+      ? 'General Pool'
+      : deptNames.length === 1
+        ? deptNames[0]
+        : `${deptNames[0]} +${deptNames.length - 1}`;
+  return (
+    <button
+      type="button"
+      onClick={onManage}
+      title={deptNames.length ? deptNames.join(', ') : 'Not assigned to any department — receives via General Pool'}
+      className="hidden md:inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-background/40 px-2.5 py-1 text-[10px] text-muted-foreground hover:text-foreground hover:border-border transition-colors max-w-[160px]"
+    >
+      <Building2 className="w-3 h-3 shrink-0" />
+      <span className="truncate">{summary}</span>
+    </button>
+  );
+}
+
+/**
+ * Inline dialog that lets owners/admins assign a member to zero, one, or
+ * multiple departments without leaving the Team page. Writes go through
+ * the same `workspace_department_members` table the Departments page uses,
+ * so cache invalidation, RLS, and routing semantics stay in sync.
+ */
+function MemberDepartmentsDialog({
+  workspaceId,
+  memberUserId,
+  memberName,
+  onClose,
+}: {
+  workspaceId: string;
+  memberUserId: string;
+  memberName: string;
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+
+  const { data: departments = [], isLoading: loadingDepts } = useQuery({
+    queryKey: ['ws-departments-list', workspaceId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('workspace_departments')
+        .select('id, name, enabled')
+        .eq('workspace_id', workspaceId)
+        .order('sort_order', { ascending: true });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  const { data: assignedIds = [], isLoading: loadingAssign } = useQuery({
+    queryKey: ['ws-department-member-assignments', workspaceId, memberUserId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('workspace_department_members')
+        .select('department_id')
+        .eq('workspace_id', workspaceId)
+        .eq('user_id', memberUserId);
+      if (error) throw error;
+      return (data ?? []).map((r: any) => r.department_id as string);
+    },
+  });
+
+  const [selected, setSelected] = useState<Set<string> | null>(null);
+  const sel: Set<string> = selected ?? new Set<string>(assignedIds);
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const next = new Set<string>(sel);
+      const prev = new Set<string>(assignedIds as string[]);
+      const toAdd: string[] = [];
+      const toRemove: string[] = [];
+      for (const id of next) if (!prev.has(id)) toAdd.push(id);
+      for (const id of prev) if (!next.has(id)) toRemove.push(id);
+
+      if (toRemove.length > 0) {
+        const { error } = await supabase
+          .from('workspace_department_members')
+          .delete()
+          .eq('workspace_id', workspaceId)
+          .eq('user_id', memberUserId)
+          .in('department_id', toRemove);
+        if (error) throw error;
+      }
+      if (toAdd.length > 0) {
+        const rows = toAdd.map(department_id => ({
+          workspace_id: workspaceId,
+          user_id: memberUserId,
+          department_id,
+        }));
+        const { error } = await supabase
+          .from('workspace_department_members')
+          .insert(rows);
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      toast.success('Department assignments updated');
+      queryClient.invalidateQueries({ queryKey: ['ws-departments-overview', workspaceId] });
+      queryClient.invalidateQueries({ queryKey: ['ws-department-member-assignments', workspaceId, memberUserId] });
+      // Keep Departments page in sync.
+      queryClient.invalidateQueries({ queryKey: ['workspace-departments', workspaceId] });
+      queryClient.invalidateQueries({ queryKey: ['workspace-departments-diag', workspaceId] });
+      onClose();
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  function toggle(id: string) {
+    const next = new Set(sel);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelected(next);
+  }
+
+  const loading = loadingDepts || loadingAssign;
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Departments — {memberName}</DialogTitle>
+        </DialogHeader>
+        <p className="text-xs text-muted-foreground -mt-2 mb-1">
+          Choose zero or more departments. Members with no assignment stay
+          in the General Pool and receive routed conversations there.
+        </p>
+        <div className="max-h-[360px] overflow-y-auto py-2 space-y-1">
+          {loading ? (
+            <div className="flex items-center justify-center py-6">
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            </div>
+          ) : departments.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-6">
+              No departments yet. Create them in Departments settings.
+            </p>
+          ) : (
+            departments.map((d: any) => (
+              <label
+                key={d.id}
+                className="flex items-center gap-3 p-2 rounded hover:bg-accent/40 cursor-pointer"
+              >
+                <Checkbox
+                  checked={sel.has(d.id)}
+                  onCheckedChange={() => toggle(d.id)}
+                />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">{d.name}</p>
+                </div>
+                {!d.enabled && (
+                  <Badge variant="outline" className="text-[10px]">Disabled</Badge>
+                )}
+              </label>
+            ))
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button onClick={() => save.mutate()} disabled={save.isPending || loading}>
+            {save.isPending && <Loader2 className="h-4 w-4 me-2 animate-spin" />}
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }

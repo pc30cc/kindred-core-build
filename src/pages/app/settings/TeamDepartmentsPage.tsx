@@ -756,7 +756,7 @@ function DeptMembersDialog({
   });
 
   const toggle = (uid: string) => {
-    const next = new Set(sel);
+    const next = new Set<string>(sel);
     next.has(uid) ? next.delete(uid) : next.add(uid);
     setSelected(next);
   };

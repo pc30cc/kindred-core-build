@@ -532,6 +532,11 @@
       errEl.classList.remove('show');
       ctaBtn.disabled = !!callbackRequestedFlag;
       ctaBtn.textContent = callbackRequestedFlag ? 'Callback requested' : 'Request callback';
+      // Best-effort: restore pending state if visitor already has one.
+      checkCallbackStatus();
+      if (callbackRequestedFlag) {
+        showPendingBadge({ message: 'Callback pending' });
+      }
       show();
 
       function openModal() {

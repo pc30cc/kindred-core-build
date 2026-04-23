@@ -181,6 +181,77 @@
   var isSubmittingCallback = false;
   var lastCallbackSubmitTs = 0;
   var callbackRequestedFlag = false;
+  // Phase 8D++ — Cooldown + persistent pending state (UI-only).
+  var callbackCooldownUntilMs = 0;
+  var callbackCooldownTimer = null;
+  var callbackStatusChecked = false;
+
+  function fmtRemaining(ms) {
+    if (ms <= 0) return '';
+    var totalSec = Math.ceil(ms / 1000);
+    if (totalSec < 60) return 'You can request again in ' + totalSec + 's';
+    var min = Math.ceil(totalSec / 60);
+    return 'You can request again in ' + min + ' minute' + (min === 1 ? '' : 's');
+  }
+
+  function startCooldownTicker() {
+    if (callbackCooldownTimer) { clearInterval(callbackCooldownTimer); callbackCooldownTimer = null; }
+    if (!rootEl) return;
+    var cdEl = rootEl.querySelector('[data-el="cb-pending-cd"]');
+    if (!cdEl) return;
+    function tick() {
+      var remain = callbackCooldownUntilMs - Date.now();
+      if (remain <= 0) {
+        cdEl.textContent = '';
+        if (callbackCooldownTimer) { clearInterval(callbackCooldownTimer); callbackCooldownTimer = null; }
+        return;
+      }
+      cdEl.textContent = fmtRemaining(remain);
+    }
+    tick();
+    callbackCooldownTimer = setInterval(tick, 15000);
+  }
+
+  function showPendingBadge(opts) {
+    ensureShell();
+    var pendingEl = rootEl.querySelector('[data-el="cb-pending"]');
+    var titleEl = rootEl.querySelector('[data-el="cb-pending-title"]');
+    if (!pendingEl || !titleEl) return;
+    titleEl.textContent = (opts && opts.message) || 'Callback pending';
+    pendingEl.classList.add('show');
+    startCooldownTicker();
+  }
+
+  function hidePendingBadge() {
+    if (!rootEl) return;
+    var pendingEl = rootEl.querySelector('[data-el="cb-pending"]');
+    if (pendingEl) pendingEl.classList.remove('show');
+    if (callbackCooldownTimer) { clearInterval(callbackCooldownTimer); callbackCooldownTimer = null; }
+  }
+
+  // Phase 8D++ — Restore "pending" state across widget reopen.
+  // Workspace + visitor scoped via existing widget auth. Best-effort.
+  function checkCallbackStatus() {
+    if (callbackStatusChecked) return;
+    var ctx = getWidgetCtx();
+    if (!ctx.apiBase || !ctx.token) return;
+    callbackStatusChecked = true;
+    try {
+      fetch(ctx.apiBase + '/api/widget/callback/status', {
+        method: 'GET',
+        credentials: 'include',
+        headers: { 'X-Widget-Token': ctx.token },
+      }).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+        if (!j || !j.has_open_callback) return;
+        callbackRequestedFlag = true;
+        if (j.cooldown_until) {
+          var t = new Date(j.cooldown_until).getTime();
+          if (!isNaN(t)) callbackCooldownUntilMs = t;
+        }
+        showPendingBadge({ message: 'Callback pending' });
+      }).catch(function () {});
+    } catch (_) {}
+  }
 
   // Resolve widget context (workspace, apiBase, identity) from globals the
   // loader/runtime expose. Polling fallback uses these to fetch a visitor

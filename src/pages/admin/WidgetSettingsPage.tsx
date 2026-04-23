@@ -19,6 +19,7 @@ import {
   SecurityIsolationSection,
   FloodProtectionSection,
 } from '@/components/admin/widget/HardeningSection';
+import { AdvancedRoutingSection } from '@/components/admin/widget/AdvancedRoutingSection';
 
 const PRECHAT_OPTIONS: { value: PreChatPolicy; label: string; desc: string }[] = [
   { value: 'force_on', label: 'Force ON', desc: 'Workspaces cannot disable — field is always required' },
@@ -91,6 +92,7 @@ export default function AdminWidgetSettingsPage() {
           <TabsTrigger value="realtime" className="gap-1.5 text-xs"><Activity className="h-3.5 w-3.5" />Realtime / Transport</TabsTrigger>
           <TabsTrigger value="security" className="gap-1.5 text-xs"><Lock className="h-3.5 w-3.5" />Security / Isolation</TabsTrigger>
           <TabsTrigger value="flood" className="gap-1.5 text-xs"><Zap className="h-3.5 w-3.5" />Flood Protection</TabsTrigger>
+          <TabsTrigger value="routing" className="gap-1.5 text-xs"><Activity className="h-3.5 w-3.5" />Advanced Routing</TabsTrigger>
         </TabsList>
 
         {/* Deployment URLs (single source of truth) */}
@@ -358,6 +360,11 @@ export default function AdminWidgetSettingsPage() {
         {/* Phase 1 hardening — Flood / Abuse Protection */}
         <TabsContent value="flood">
           <FloodProtectionSection settings={settings} onSave={update} />
+        </TabsContent>
+
+        {/* Global Advanced Routing — platform-wide owner-fallback / general-pool policy. */}
+        <TabsContent value="routing">
+          <AdvancedRoutingSection />
         </TabsContent>
       </Tabs>
     </div>

@@ -261,6 +261,41 @@ export function CallQueuePanel({ workspaceId, onAccept }: CallQueuePanelProps) {
                     </div>
                   )}
 
+                  {/* Phase 8E — Operator call preview card. Reuses queue entry
+                      metadata + visitor identifiers. No new joins. */}
+                  {(() => {
+                    const md = (entry.metadata || {}) as Record<string, unknown>;
+                    const pageUrl = typeof md.page_url === 'string' ? md.page_url : null;
+                    const visitorName = typeof md.visitor_name === 'string' ? md.visitor_name : null;
+                    const country = typeof md.country === 'string' ? md.country : null;
+                    const lastMessage = typeof md.last_message === 'string' ? md.last_message : null;
+                    const hasAny = pageUrl || visitorName || country || lastMessage;
+                    if (!hasAny) return null;
+                    return (
+                      <div className="rounded-md border border-border/60 bg-background/40 p-2 space-y-1 text-[10px]">
+                        {visitorName && (
+                          <div className="flex items-center gap-1.5 text-foreground">
+                            <User className="h-2.5 w-2.5 text-muted-foreground shrink-0" />
+                            <span className="font-medium truncate">{visitorName}</span>
+                            {country && <span className="text-muted-foreground">· {country}</span>}
+                          </div>
+                        )}
+                        {pageUrl && (
+                          <div className="flex items-center gap-1.5 text-muted-foreground">
+                            <Globe className="h-2.5 w-2.5 shrink-0" />
+                            <span className="truncate font-mono">{pageUrl}</span>
+                          </div>
+                        )}
+                        {lastMessage && (
+                          <div className="flex items-start gap-1.5 text-muted-foreground">
+                            <MessageSquare className="h-2.5 w-2.5 shrink-0 mt-0.5" />
+                            <span className="line-clamp-2 italic">"{lastMessage}"</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+
                   <div className="flex items-center gap-1.5">
                     {!isOffered && (
                       <Button

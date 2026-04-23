@@ -355,11 +355,6 @@ export default function TeamDepartmentsPage() {
                       <p className="text-xs text-muted-foreground truncate">{m.profile?.email}</p>
                     </div>
 
-                    {/* Customer-facing role badge */}
-                    <Badge className={`text-[10px] px-2 py-0.5 border ${ROLE_BADGE[m.role] || 'bg-secondary text-muted-foreground border-border'}`}>
-                      {roleLabel(m.role)}
-                    </Badge>
-
                     {/* Department membership */}
                     <button
                       type="button"
@@ -388,15 +383,15 @@ export default function TeamDepartmentsPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          {CUSTOMER_FACING_ROLES.map(r => (
-                            <DropdownMenuItem
-                              key={r}
-                              onClick={() => updateMemberRole.mutate({ memberId: m.id, newRole: r })}
-                              className={m.role === r ? 'bg-primary/10' : ''}
-                            >
-                              Change to {roleLabel(r)}
-                            </DropdownMenuItem>
-                          ))}
+                          <DropdownMenuItem
+                            onClick={() => setEditDeptsFor({
+                              userId: m.user_id,
+                              name: m.profile?.full_name || m.profile?.email || 'member',
+                            })}
+                          >
+                            <Building2 className="w-3.5 h-3.5 me-2" />
+                            Manage departments
+                          </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => removeMember.mutate(m.id)}
                             className="text-destructive focus:text-destructive"
@@ -414,126 +409,6 @@ export default function TeamDepartmentsPage() {
           )}
         </Card>
       </section>
-
-      {/* ═══════════ Advanced — Routing diagnostics + fallback ═══════════ */}
-      <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
-        <Card className="border-border/60">
-          <CollapsibleTrigger asChild>
-            <button className="w-full flex items-center justify-between px-5 py-4 text-start hover:bg-muted/30 transition-colors">
-              <div className="flex items-center gap-2">
-                <Eye className="h-4 w-4 text-muted-foreground" />
-                <div>
-                  <div className="text-sm font-semibold text-foreground">Advanced routing</div>
-                  <div className="text-xs text-muted-foreground">
-                    Fallback policy, diagnostics, and hidden-department reasons
-                  </div>
-                </div>
-              </div>
-              {advancedOpen
-                ? <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
-            </button>
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <div className="border-t border-border/60 p-5 space-y-6">
-              {/* Fallback policy */}
-              <div>
-                <h3 className="text-sm font-semibold text-foreground mb-1">Fallback policy</h3>
-                <p className="text-xs text-muted-foreground mb-3">
-                  Order tried when no eligible department member is available:
-                  General Pool → Owner → Queue → Callback → Offline.
-                </p>
-                {!fallback ? (
-                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                ) : (
-                  <div className="space-y-2">
-                    <ToggleRow
-                      label="Enable owner fallback"
-                      checked={fallback.owner_fallback_enabled}
-                      onChange={(v) => updateFallback.mutate({ owner_fallback_enabled: v })}
-                    />
-                    <div className="ms-6 space-y-2 opacity-90">
-                      <ToggleRow
-                        label="Owner answers chat"
-                        checked={fallback.owner_fallback_for_chat}
-                        disabled={!fallback.owner_fallback_enabled}
-                        onChange={(v) => updateFallback.mutate({ owner_fallback_for_chat: v })}
-                      />
-                      <ToggleRow
-                        label="Owner answers audio calls"
-                        checked={fallback.owner_fallback_for_audio}
-                        disabled={!fallback.owner_fallback_enabled}
-                        onChange={(v) => updateFallback.mutate({ owner_fallback_for_audio: v })}
-                      />
-                      <ToggleRow
-                        label="Owner answers video calls"
-                        checked={fallback.owner_fallback_for_video}
-                        disabled={!fallback.owner_fallback_enabled}
-                        onChange={(v) => updateFallback.mutate({ owner_fallback_for_video: v })}
-                      />
-                    </div>
-                    <ToggleRow
-                      label="Use General Pool when no department selected"
-                      checked={fallback.general_pool_enabled}
-                      onChange={(v) => updateFallback.mutate({ general_pool_enabled: v })}
-                    />
-                  </div>
-                )}
-              </div>
-
-              {/* Diagnostics */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-sm font-semibold text-foreground">Routing diagnostics</h3>
-                  <Select value={diagChannel} onValueChange={(v) => setDiagChannel(v as any)}>
-                    <SelectTrigger className="w-32 h-8 text-xs"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="chat">Chat</SelectItem>
-                      <SelectItem value="audio">Audio</SelectItem>
-                      <SelectItem value="video">Video</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                {diagnostics && (
-                  <div className="space-y-3 text-sm">
-                    <div className="flex items-center gap-4 text-muted-foreground text-xs">
-                      <span>Visible: <strong className="text-foreground">{diagnostics.visible_departments.length}</strong></span>
-                      <span>Hidden: <strong className="text-foreground">{diagnostics.hidden_departments.length}</strong></span>
-                      <span>General Pool: <strong className="text-foreground">{diagnostics.general_pool_size}</strong></span>
-                    </div>
-                    {diagnostics.visible_departments.length > 0 && (
-                      <div className="space-y-1">
-                        <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Visible</p>
-                        {diagnostics.visible_departments.map((v) => (
-                          <div key={v.id} className="flex items-center gap-2 text-xs">
-                            <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
-                            <span className="text-foreground">{v.name}</span>
-                            <span className="text-muted-foreground">
-                              {v.available_count} available · {v.member_count} eligible
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {diagnostics.hidden_departments.length > 0 && (
-                      <div className="space-y-1">
-                        <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Hidden</p>
-                        {diagnostics.hidden_departments.map((h) => (
-                          <div key={h.id} className="flex items-center gap-2 text-xs">
-                            <AlertCircle className="h-3.5 w-3.5 text-muted-foreground" />
-                            <span className="text-foreground">{h.name}</span>
-                            <Badge variant="outline" className="text-[10px]">{h.reason}</Badge>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          </CollapsibleContent>
-        </Card>
-      </Collapsible>
 
       {/* Pointer to Staff Access */}
       <Card className="p-4 border-border/60 bg-muted/20">

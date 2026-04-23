@@ -336,7 +336,6 @@ export default function TeamPage() {
         {[
           { key: 'members',     icon: Users,  label: t('team.tabMembers'),     badge: 0 },
           { key: 'invitations', icon: Mail,   label: t('team.tabInvitations'), badge: activeInvites.length },
-          { key: 'roles',       icon: Shield, label: t('team.tabRoles'),       badge: 0 },
         ].map(tab => {
           const active = activeSection === tab.key;
           const Icon = tab.icon;
@@ -581,38 +580,14 @@ export default function TeamPage() {
         </>
       )}
 
-      {/* ═══════════ Roles Tab ═══════════ */}
-      {activeSection === 'roles' && (
-        <Card className="overflow-hidden border-border/60 shadow-sm">
-          <div className="border-b border-border/60 px-6 py-4">
-            <h2 className="text-base font-semibold text-foreground">{t('team.tabRoles')}</h2>
-            <p className="mt-1 text-sm text-muted-foreground">{t('team.rolesDesc')}</p>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-6">
-            {allRolesWithOwner.map(role => (
-              <div key={role} className="rounded-lg border border-border/60 bg-background p-5 transition-colors hover:border-border">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2">
-                      <Badge className={`text-xs px-2.5 py-1 border ${roleColors[role] || roleColors.viewer}`}>
-                        {getRoleLabel(role)}
-                      </Badge>
-                      <span className="text-xs text-muted-foreground">
-                        ({roleStats[role] || 0} {t('team.membersCount')})
-                      </span>
-                    </div>
-                    {role === 'owner' && <Crown className="w-4 h-4 text-amber-500" />}
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {(rolePermissionKeys[role] || []).map(permKey => (
-                      <span key={permKey} className="text-[10px] px-2 py-0.5 rounded-full bg-muted/50 text-muted-foreground border border-border/50">
-                        {(t as any)(`team.${permKey}`)}
-                      </span>
-                    ))}
-                  </div>
-              </div>
-            ))}
-          </div>
-        </Card>
+      {/* Member departments dialog (assignment from Team page) */}
+      {editDeptsFor && wsId && (
+        <MemberDepartmentsDialog
+          workspaceId={wsId}
+          memberUserId={editDeptsFor.userId}
+          memberName={editDeptsFor.name}
+          onClose={() => setEditDeptsFor(null)}
+        />
       )}
     </div>
   );

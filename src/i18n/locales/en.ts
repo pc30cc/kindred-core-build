@@ -858,6 +858,7 @@ const en = {
       mapGeo: 'Map & Geo',
       widgetSettings: 'Widget Settings',
       voiceVideo: 'Voice & Video',
+      advancedRouting: 'Advanced Routing',
       system: 'System',
       observability: 'Observability',
       featureFlags: 'Feature Flags',

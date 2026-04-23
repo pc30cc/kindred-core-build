@@ -25,8 +25,8 @@ import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   Building2, Plus, Trash2, Users, MessageSquare, Phone, Video,
-  Loader2, AlertCircle, CheckCircle2, Eye, UserPlus, Crown,
-  ChevronDown, ChevronRight, Mail, Search, Settings2, ArrowRight,
+  Loader2, UserPlus, Crown,
+  Mail, Search, Settings2, ArrowRight,
 } from 'lucide-react';
 
 import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
@@ -37,8 +37,7 @@ import { supabase } from '@/lib/supabase';
 import {
   listDepartments, createDepartment, updateDepartment, deleteDepartment,
   listDepartmentMembers, setDepartmentMembers,
-  getFallbackPolicy, updateFallbackPolicy, getDepartmentDiagnostics,
-  type Department, type DepartmentChannel,
+  type Department,
 } from '@/lib/workspace-departments-api';
 
 import { Card } from '@/components/ui/card';
@@ -51,12 +50,12 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
 
 /**
- * Customer-facing roles. The same role identifiers are still stored in
- * `workspace_members.role` — we just group them visually so this page only
- * surfaces the people who interact with visitors.
+ * Customer-facing roles are stored in `workspace_members.role` but are
+ * intentionally NOT exposed in this UI. Workspace owners think in terms of
+ * "team members" and "departments" — not raw role taxonomy. The base role
+ * (`agent`) is assigned silently when inviting from this page.
  */
 const CUSTOMER_FACING_ROLES = [
   'agent',
@@ -64,26 +63,6 @@ const CUSTOMER_FACING_ROLES = [
   'support_agent',
   'sales_agent',
 ] as const;
-
-const ROLE_BADGE: Record<string, string> = {
-  owner: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
-  team_lead: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-  agent: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
-  sales_agent: 'bg-violet-500/10 text-violet-400 border-violet-500/20',
-  support_agent: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20',
-};
-
-const ROLE_LABEL: Record<string, string> = {
-  team_lead: 'Team Lead',
-  agent: 'Agent',
-  support_agent: 'Support Agent',
-  sales_agent: 'Sales Agent',
-  owner: 'Owner',
-};
-
-function roleLabel(r: string) {
-  return ROLE_LABEL[r] ?? r;
-}
 
 export default function TeamDepartmentsPage() {
   const { user } = useAuth();
@@ -105,7 +84,6 @@ export default function TeamDepartmentsPage() {
 
   const invalidateDepts = () => {
     qc.invalidateQueries({ queryKey: ['workspace-departments', wsId] });
-    qc.invalidateQueries({ queryKey: ['workspace-departments-diag', wsId] });
     qc.invalidateQueries({ queryKey: ['ws-departments-overview', wsId] });
   };
 
@@ -191,21 +169,6 @@ export default function TeamDepartmentsPage() {
   const [editDeptsFor, setEditDeptsFor] = useState<{ userId: string; name: string } | null>(null);
   const [showInvite, setShowInvite] = useState(false);
 
-  const updateMemberRole = useMutation({
-    mutationFn: async ({ memberId, newRole }: { memberId: string; newRole: string }) => {
-      const { error } = await supabase
-        .from('workspace_members')
-        .update({ role: newRole as any })
-        .eq('id', memberId);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      toast.success('Role updated');
-      qc.invalidateQueries({ queryKey: ['ws-members', wsId] });
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
   const removeMember = useMutation({
     mutationFn: async (memberId: string) => {
       const { error } = await supabase.from('workspace_members').delete().eq('id', memberId);
@@ -214,30 +177,6 @@ export default function TeamDepartmentsPage() {
     onSuccess: () => {
       toast.success('Member removed');
       qc.invalidateQueries({ queryKey: ['ws-members', wsId] });
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
-  /* ─── Advanced (collapsed) ─── */
-  const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [diagChannel, setDiagChannel] = useState<DepartmentChannel>('chat');
-  const { data: fallback } = useQuery({
-    queryKey: ['workspace-departments-fallback', wsId],
-    queryFn: () => getFallbackPolicy(wsId!),
-    enabled: !!wsId && advancedOpen,
-  });
-  const { data: diagnostics } = useQuery({
-    queryKey: ['workspace-departments-diag', wsId, diagChannel],
-    queryFn: () => getDepartmentDiagnostics(wsId!, diagChannel),
-    enabled: !!wsId && advancedOpen,
-    refetchInterval: advancedOpen ? 15_000 : false,
-  });
-  const updateFallback = useMutation({
-    mutationFn: (patch: Partial<NonNullable<typeof fallback>>) =>
-      updateFallbackPolicy(wsId!, patch as any),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['workspace-departments-fallback', wsId] });
-      qc.invalidateQueries({ queryKey: ['workspace-departments-diag', wsId] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -415,11 +354,6 @@ export default function TeamDepartmentsPage() {
                       <p className="text-xs text-muted-foreground truncate">{m.profile?.email}</p>
                     </div>
 
-                    {/* Customer-facing role badge */}
-                    <Badge className={`text-[10px] px-2 py-0.5 border ${ROLE_BADGE[m.role] || 'bg-secondary text-muted-foreground border-border'}`}>
-                      {roleLabel(m.role)}
-                    </Badge>
-
                     {/* Department membership */}
                     <button
                       type="button"
@@ -448,15 +382,15 @@ export default function TeamDepartmentsPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          {CUSTOMER_FACING_ROLES.map(r => (
-                            <DropdownMenuItem
-                              key={r}
-                              onClick={() => updateMemberRole.mutate({ memberId: m.id, newRole: r })}
-                              className={m.role === r ? 'bg-primary/10' : ''}
-                            >
-                              Change to {roleLabel(r)}
-                            </DropdownMenuItem>
-                          ))}
+                          <DropdownMenuItem
+                            onClick={() => setEditDeptsFor({
+                              userId: m.user_id,
+                              name: m.profile?.full_name || m.profile?.email || 'member',
+                            })}
+                          >
+                            <Building2 className="w-3.5 h-3.5 me-2" />
+                            Manage departments
+                          </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => removeMember.mutate(m.id)}
                             className="text-destructive focus:text-destructive"
@@ -474,126 +408,6 @@ export default function TeamDepartmentsPage() {
           )}
         </Card>
       </section>
-
-      {/* ═══════════ Advanced — Routing diagnostics + fallback ═══════════ */}
-      <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
-        <Card className="border-border/60">
-          <CollapsibleTrigger asChild>
-            <button className="w-full flex items-center justify-between px-5 py-4 text-start hover:bg-muted/30 transition-colors">
-              <div className="flex items-center gap-2">
-                <Eye className="h-4 w-4 text-muted-foreground" />
-                <div>
-                  <div className="text-sm font-semibold text-foreground">Advanced routing</div>
-                  <div className="text-xs text-muted-foreground">
-                    Fallback policy, diagnostics, and hidden-department reasons
-                  </div>
-                </div>
-              </div>
-              {advancedOpen
-                ? <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
-            </button>
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <div className="border-t border-border/60 p-5 space-y-6">
-              {/* Fallback policy */}
-              <div>
-                <h3 className="text-sm font-semibold text-foreground mb-1">Fallback policy</h3>
-                <p className="text-xs text-muted-foreground mb-3">
-                  Order tried when no eligible department member is available:
-                  General Pool → Owner → Queue → Callback → Offline.
-                </p>
-                {!fallback ? (
-                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                ) : (
-                  <div className="space-y-2">
-                    <ToggleRow
-                      label="Enable owner fallback"
-                      checked={fallback.owner_fallback_enabled}
-                      onChange={(v) => updateFallback.mutate({ owner_fallback_enabled: v })}
-                    />
-                    <div className="ms-6 space-y-2 opacity-90">
-                      <ToggleRow
-                        label="Owner answers chat"
-                        checked={fallback.owner_fallback_for_chat}
-                        disabled={!fallback.owner_fallback_enabled}
-                        onChange={(v) => updateFallback.mutate({ owner_fallback_for_chat: v })}
-                      />
-                      <ToggleRow
-                        label="Owner answers audio calls"
-                        checked={fallback.owner_fallback_for_audio}
-                        disabled={!fallback.owner_fallback_enabled}
-                        onChange={(v) => updateFallback.mutate({ owner_fallback_for_audio: v })}
-                      />
-                      <ToggleRow
-                        label="Owner answers video calls"
-                        checked={fallback.owner_fallback_for_video}
-                        disabled={!fallback.owner_fallback_enabled}
-                        onChange={(v) => updateFallback.mutate({ owner_fallback_for_video: v })}
-                      />
-                    </div>
-                    <ToggleRow
-                      label="Use General Pool when no department selected"
-                      checked={fallback.general_pool_enabled}
-                      onChange={(v) => updateFallback.mutate({ general_pool_enabled: v })}
-                    />
-                  </div>
-                )}
-              </div>
-
-              {/* Diagnostics */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-sm font-semibold text-foreground">Routing diagnostics</h3>
-                  <Select value={diagChannel} onValueChange={(v) => setDiagChannel(v as any)}>
-                    <SelectTrigger className="w-32 h-8 text-xs"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="chat">Chat</SelectItem>
-                      <SelectItem value="audio">Audio</SelectItem>
-                      <SelectItem value="video">Video</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                {diagnostics && (
-                  <div className="space-y-3 text-sm">
-                    <div className="flex items-center gap-4 text-muted-foreground text-xs">
-                      <span>Visible: <strong className="text-foreground">{diagnostics.visible_departments.length}</strong></span>
-                      <span>Hidden: <strong className="text-foreground">{diagnostics.hidden_departments.length}</strong></span>
-                      <span>General Pool: <strong className="text-foreground">{diagnostics.general_pool_size}</strong></span>
-                    </div>
-                    {diagnostics.visible_departments.length > 0 && (
-                      <div className="space-y-1">
-                        <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Visible</p>
-                        {diagnostics.visible_departments.map((v) => (
-                          <div key={v.id} className="flex items-center gap-2 text-xs">
-                            <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
-                            <span className="text-foreground">{v.name}</span>
-                            <span className="text-muted-foreground">
-                              {v.available_count} available · {v.member_count} eligible
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {diagnostics.hidden_departments.length > 0 && (
-                      <div className="space-y-1">
-                        <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Hidden</p>
-                        {diagnostics.hidden_departments.map((h) => (
-                          <div key={h.id} className="flex items-center gap-2 text-xs">
-                            <AlertCircle className="h-3.5 w-3.5 text-muted-foreground" />
-                            <span className="text-foreground">{h.name}</span>
-                            <Badge variant="outline" className="text-[10px]">{h.reason}</Badge>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          </CollapsibleContent>
-        </Card>
-      </Collapsible>
 
       {/* Pointer to Staff Access */}
       <Card className="p-4 border-border/60 bg-muted/20">
@@ -929,6 +743,9 @@ export function InviteMemberDialog({
 }) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  // Customer-facing members all share the same base operator role. The
+  // raw role taxonomy is intentionally hidden from workspace owners — they
+  // only need to think in terms of "team members" and "departments".
   const roles = mode === 'customer' ? CUSTOMER_INVITE_ROLES : STAFF_INVITE_ROLES;
   const [email, setEmail] = useState('');
   const [role, setRole] = useState(roles[0]);
@@ -997,21 +814,26 @@ export function InviteMemberDialog({
               If provided, an invitation email is sent automatically.
             </p>
           </div>
-          <div>
-            <Label className="text-xs">
-              {mode === 'customer' ? 'Customer-facing role' : 'Internal access role'}
-            </Label>
-            <Select value={role} onValueChange={setRole}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {roles.map(r => (
-                  <SelectItem key={r} value={r}>
-                    {r.replace(/_/g, ' ')}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {mode === 'staff' ? (
+            <div>
+              <Label className="text-xs">Internal access role</Label>
+              <Select value={role} onValueChange={setRole}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {roles.map(r => (
+                    <SelectItem key={r} value={r}>
+                      {r.replace(/_/g, ' ')}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : (
+            <p className="text-[11px] text-muted-foreground rounded-md border border-border/60 bg-muted/30 px-3 py-2">
+              The new member will join as a customer-facing operator. Assign them
+              to one or more departments after they accept the invitation.
+            </p>
+          )}
           {link && (
             <div className="rounded-md border border-primary/30 bg-primary/5 p-3 space-y-1">
               <p className="text-xs text-foreground">Invitation link (copied to clipboard):</p>

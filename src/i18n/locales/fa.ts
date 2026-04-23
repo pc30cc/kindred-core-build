@@ -848,6 +848,7 @@ const fa: TranslationKeys = {
       mapGeo: 'نقشه و موقعیت',
       widgetSettings: 'تنظیمات ویجت',
       voiceVideo: 'صدا و تصویر',
+      advancedRouting: 'مسیریابی پیشرفته',
       system: 'سیستم',
       observability: 'رصدپذیری',
       featureFlags: 'پرچم‌های ویژگی',

@@ -15,6 +15,8 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { resolveRolePermissions, type RoleSlug } from './permissions.js';
+import { listWorkspaceAvailability, isEligible } from './availability.js';
 
 export type DepartmentChannel = 'chat' | 'audio' | 'video';
 
@@ -35,6 +37,7 @@ interface CacheEntry<T> { value: T; ts: number }
 const deptCache = new Map<string, CacheEntry<DepartmentRow[]>>();
 const memberCache = new Map<string, CacheEntry<string[]>>(); // key = department_id
 const generalCache = new Map<string, CacheEntry<string[]>>(); // key = workspace_id
+const fallbackCache = new Map<string, CacheEntry<FallbackPolicy>>(); // key = workspace_id
 
 function fresh<T>(e: CacheEntry<T> | undefined): e is CacheEntry<T> {
   return !!e && Date.now() - e.ts < CACHE_TTL_MS;
@@ -44,6 +47,7 @@ function fresh<T>(e: CacheEntry<T> | undefined): e is CacheEntry<T> {
 export function invalidateDepartmentCache(workspaceId: string): void {
   deptCache.delete(workspaceId);
   generalCache.delete(workspaceId);
+  fallbackCache.delete(workspaceId);
   // Department-member cache keyed by department_id — clear pessimistically.
   for (const k of Array.from(memberCache.keys())) memberCache.delete(k);
 }

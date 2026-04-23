@@ -25,9 +25,11 @@ widgetDepartmentsRouter.use(enforceOrigin);
 // GET /api/widget/departments/visible?channel=chat|audio|video
 widgetDepartmentsRouter.get('/visible', async (req: Request, res: Response) => {
   const config: ServerConfig = (req as any).serverConfig;
-  const workspaceId = await resolveWorkspaceId(req);
+  const workspaceId = resolveWorkspaceId(req, res);
   if (!workspaceId) {
-    return res.status(400).json({ error: 'workspace_unresolved' });
+    // resolveWorkspaceId may have already responded on mismatch.
+    if (!res.headersSent) res.status(400).json({ error: 'workspace_unresolved' });
+    return;
   }
   const channelRaw = String(req.query.channel || 'chat');
   const channel = (['chat', 'audio', 'video'].includes(channelRaw)

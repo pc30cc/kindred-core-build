@@ -16,15 +16,14 @@ import { useQuery } from '@tanstack/react-query';
 import {
   Activity, Phone, Video, Network, Disc, Users, Shield, Building2,
   Radio, FileText, AlertTriangle, CheckCircle2, Loader2,
-  GitBranch, Timer, Voicemail,
+  GitBranch, Timer, Voicemail, CalendarClock,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
-import { fetchCallControlPlane } from '@/lib/admin-calls-api';
-import { fetchPlatformCallbackSummary } from '@/lib/admin-calls-api';
+import { fetchCallControlPlane, fetchPlatformCallbackSummary, fetchUpcomingCallbacks } from '@/lib/admin-calls-api';
 import { CallControlPlanePanel } from '@/components/admin/calls/CallControlPlanePanel';
 import { RolePermissionsPanel } from '@/components/admin/calls/RolePermissionsPanel';
 import { AgoraExternalProviderPanel } from '@/components/admin/calls/AgoraExternalProviderPanel';

@@ -264,6 +264,60 @@
     callbackCooldownUntilMs = 0;
   }
 
+  // ───── Phase 8E — Smart Greeting (dismissible, in-shell) ─────
+  // Pure UI helper. Never touches widget FSM, identity, or transports.
+  // The greeting's content is resolved deterministically from the page
+  // context the caller passes in (or sniffed at call time as fallback).
+  var greetDismissed = false;
+  try {
+    if (window.sessionStorage && window.sessionStorage.getItem('__gs_greet_dismissed') === '1') {
+      greetDismissed = true;
+    }
+  } catch (_) {}
+
+  function resolveWidgetGreeting(ctx) {
+    var c = ctx || {};
+    var path = (c.path || (typeof location !== 'undefined' ? location.pathname || '' : '')).toLowerCase();
+    var timeOnPage = typeof c.time_on_page_ms === 'number' ? c.time_on_page_ms : 0;
+    var scrolled = !!c.scrolled_significantly;
+    if (path.indexOf('pricing') !== -1 || path.indexOf('plans') !== -1) {
+      return { title: 'Need help choosing a plan?', body: 'Talk to us instantly — we can answer pricing questions in seconds.' };
+    }
+    if (path.indexOf('checkout') !== -1 || path.indexOf('cart') !== -1) {
+      return { title: 'Stuck at checkout?', body: 'Start a quick call and we will walk you through it.' };
+    }
+    if (path.indexOf('docs') !== -1 || path.indexOf('help') !== -1 || path.indexOf('support') !== -1) {
+      return { title: 'Looking for something specific?', body: 'A quick call usually beats searching the docs.' };
+    }
+    if (timeOnPage >= 20_000 || scrolled) {
+      return { title: 'Have questions?', body: 'Start a quick call with our team — no wait if an agent is free.' };
+    }
+    return { title: 'Need help?', body: 'Talk to our team in seconds.' };
+  }
+
+  function showGreeting(ctx) {
+    if (greetDismissed) return;
+    ensureShell();
+    var greetEl = rootEl.querySelector('[data-el="greet"]');
+    var titleEl = rootEl.querySelector('[data-el="greet-title"]');
+    var bodyEl = rootEl.querySelector('[data-el="greet-body"]');
+    var xBtn = rootEl.querySelector('[data-el="greet-x"]');
+    if (!greetEl || !titleEl || !bodyEl) return;
+    var g = resolveWidgetGreeting(ctx);
+    titleEl.textContent = g.title;
+    bodyEl.textContent = g.body;
+    greetEl.classList.add('show');
+    if (xBtn && !xBtn.__bound) {
+      xBtn.__bound = true;
+      xBtn.addEventListener('click', function () {
+        greetEl.classList.remove('show');
+        greetDismissed = true;
+        try { window.sessionStorage && window.sessionStorage.setItem('__gs_greet_dismissed', '1'); } catch (_) {}
+      });
+    }
+    show();
+  }
+
   // Phase 8D++ — Restore "pending" state across widget reopen.
   // Workspace + visitor scoped via existing widget auth. Best-effort.
   function checkCallbackStatus() {
@@ -546,6 +600,13 @@
       ensureShell();
       checkCallbackStatus();
     },
+    /**
+     * Phase 8E — Smart greeting. Caller passes context; we resolve copy
+     * deterministically. Dismissible & sessionStorage-persistent.
+     * Example: window.__gs_call.greet({ path: '/pricing', time_on_page_ms: 25000 });
+     */
+    greet: showGreeting,
+    resolveWidgetGreeting: resolveWidgetGreeting,
     /**
      * Phase 8D — Show callback-request CTA. Used when queue is unavailable,
      * SLA exceeded, or no operator can take a live call. Reuses the visitor's

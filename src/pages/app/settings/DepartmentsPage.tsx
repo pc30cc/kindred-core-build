@@ -33,10 +33,13 @@ import {
   Building2, Plus, Trash2, Users, MessageSquare, Phone, Video,
   Loader2, AlertCircle, CheckCircle2, Eye,
 } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { useWorkspacePath } from '@/hooks/useWorkspace';
 
 export default function DepartmentsPage() {
   const { workspace } = useActiveWorkspace();
   const workspaceId = workspace?.id;
+  const wsPath = useWorkspacePath();
   const qc = useQueryClient();
 
   const { data: departments = [], isLoading } = useQuery({
@@ -104,15 +107,28 @@ export default function DepartmentsPage() {
             <Building2 className="h-6 w-6" />
             Departments
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Optional. Route conversations and calls to specific teams. Leave empty
-            to route everything to the General Pool.
+          <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
+            Optional <span className="text-foreground font-medium">routing</span> configuration.
+            Departments decide where incoming chats and calls go (Sales,
+            Support, Billing…). Leave empty to send everything to the
+            General Pool. Member access permissions live separately under{' '}
+            <Link to={wsPath('/settings/access-profiles')} className="text-primary hover:underline">
+              Access Profiles
+            </Link>.
           </p>
         </div>
-        <Button onClick={() => setShowCreate(true)}>
-          <Plus className="h-4 w-4 me-2" />
-          New department
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button asChild variant="outline" size="sm">
+            <Link to={wsPath('/settings/team')}>
+              <Users className="h-4 w-4 me-2" />
+              Manage in Team
+            </Link>
+          </Button>
+          <Button onClick={() => setShowCreate(true)}>
+            <Plus className="h-4 w-4 me-2" />
+            New department
+          </Button>
+        </div>
       </div>
 
       {/* Departments list */}

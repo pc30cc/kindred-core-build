@@ -4099,7 +4099,10 @@
           'Content-Type': 'application/json',
           'X-Widget-Token': token,
         },
-        body: JSON.stringify({ channel: channel }),
+        body: JSON.stringify({
+          channel: channel,
+          department_id: getSelectedDepartmentId() || undefined,
+        }),
       }).then(function (r) {
         return r.json().then(function (j) { return { ok: r.ok, body: j }; });
       }).then(function (resp) {

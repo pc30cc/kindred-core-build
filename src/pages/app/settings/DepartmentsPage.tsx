@@ -268,7 +268,7 @@ export default function DepartmentsPage() {
                 <p className="text-xs font-medium text-muted-foreground uppercase">Visible</p>
                 {diagnostics.visible_departments.map((v) => (
                   <div key={v.id} className="flex items-center gap-2 text-sm">
-                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                    <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
                     <span>{v.name}</span>
                     <span className="text-xs text-muted-foreground">
                       {v.available_count} available · {v.member_count} eligible

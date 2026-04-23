@@ -503,6 +503,44 @@ function CallbacksTab() {
         </Card>
       </div>
 
+      {/* Phase 8E — Scheduled / upcoming callbacks (visitor-chosen times). */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <CalendarClock className="h-4 w-4 text-info" />
+            Upcoming scheduled callbacks
+            <Badge variant="secondary" className="ml-auto text-[10px]">{scheduledCount}</Badge>
+          </CardTitle>
+          <CardDescription className="text-xs">
+            Callbacks where the visitor chose a future time. Operators handle them from the workspace inbox.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {upcomingQuery.isLoading ? (
+            <div className="flex items-center justify-center py-4 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /></div>
+          ) : upcoming.length === 0 ? (
+            <div className="text-xs text-muted-foreground text-center py-4">No upcoming scheduled callbacks.</div>
+          ) : (
+            <div className="space-y-1">
+              {upcoming.slice(0, 10).map((u) => (
+                <div key={u.id} className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-xs">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <CalendarClock className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    <div className="min-w-0">
+                      <div className="font-medium truncate">{new Date(u.scheduled_for).toLocaleString()}</div>
+                      <div className="text-[10px] text-muted-foreground truncate">
+                        {u.channel} · {u.contact_phone || u.contact_email || 'no contact'}
+                      </div>
+                    </div>
+                  </div>
+                  <Badge variant="outline" className="text-[10px] capitalize">{u.status}</Badge>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <Card>
       <CardHeader>
         <CardTitle className="text-sm flex items-center gap-2">

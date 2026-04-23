@@ -908,6 +908,8 @@ const messageSchema = z.object({
   session_id: z.string().uuid().optional().nullable(),
   force_new_conversation: z.boolean().optional(),
   attachment_id: z.string().uuid().optional().nullable(),
+  /** Phase 8H — optional department selected by widget (single/multi mode). */
+  department_id: z.string().uuid().optional().nullable(),
 }).refine(
   d => !!((d.message && d.message.trim()) || (d.body && d.body.trim()) || d.attachment_id),
   { message: 'message, body, or attachment_id required' }
@@ -1073,6 +1075,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
           visitor_id: body.visitor_id,
           session_id: body.session_id,
           attachment_id: data.attachment_id || undefined,
+          department_id: data.department_id || undefined,
         },
       })
       .select('id, conversation_id, sender_type, body, created_at, metadata, seen_at')
@@ -2264,6 +2267,8 @@ widgetRouter.post('/call-queue/enqueue', widgetRateLimit('message'), async (req:
     /** Phase 8E — optional page context for the operator preview card. */
     page_url: z.string().max(2048).optional(),
     page_title: z.string().max(512).optional(),
+    /** Phase 8H — optional department selected by widget. */
+    department_id: z.string().uuid().optional(),
   }).safeParse(req.body || {});
   if (!parsed.success) return res.status(400).json({ error: 'invalid_body' });
   try {
@@ -2276,6 +2281,7 @@ widgetRouter.post('/call-queue/enqueue', widgetRateLimit('message'), async (req:
       metadata: {
         page_url: parsed.data.page_url || null,
         page_title: parsed.data.page_title || null,
+        department_id: parsed.data.department_id || null,
       },
     });
     return res.json({ entry });

@@ -72,6 +72,8 @@ widgetCallbacksRouter.post('/request', async (req, res) => {
     queue_entry_id: z.string().uuid().optional(),
     /** Phase 8E — optional ISO datetime. Must be in the future and within 30d. */
     scheduled_for: z.string().datetime().optional(),
+    /** Phase 8H — optional department selected by widget. */
+    department_id: z.string().uuid().optional(),
   }).safeParse(req.body || {});
   if (!parsed.success) return res.status(400).json({ error: 'invalid_body' });
   // Validate scheduled_for window (UI-only safety; backend remains tolerant).
@@ -95,6 +97,9 @@ widgetCallbacksRouter.post('/request', async (req, res) => {
       contactEmail: parsed.data.contact_email ?? null,
       notes: parsed.data.notes ?? null,
       scheduledFor: scheduledForIso,
+      metadata: parsed.data.department_id
+        ? { department_id: parsed.data.department_id }
+        : undefined,
     });
     if (parsed.data.queue_entry_id) {
       await markEntryAsCallback(config, parsed.data.queue_entry_id, cb.id);

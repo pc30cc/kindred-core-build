@@ -2282,7 +2282,17 @@
       }
 
       transport.sendMessage(
-        { text: text, conversationId: s.conversationId, attachmentId: attachmentId || null },
+        {
+          text: text,
+          conversationId: s.conversationId,
+          attachmentId: attachmentId || null,
+          departmentId: (function () {
+            try {
+              var d = (typeof window !== 'undefined') ? window.__gs_departments : null;
+              return d && d.getSelectedId ? d.getSelectedId() : null;
+            } catch (_) { return null; }
+          })(),
+        },
         {
           onConversation: function (cid) {
             if (cid && cid !== chatStore.get().conversationId) {
@@ -3070,6 +3080,167 @@
       error: '',
     });
 
+    // ─── Phase 8H — Department resolver + state (additive) ────────────
+    // Optional, lightweight department layer. Default behavior (general
+    // mode / no departments configured) is identical to pre-8H.
+    //
+    // Session rules:
+    //   - Resolve mode ONCE per (workspace, channel) per browser session.
+    //   - Persist resolution + selection in sessionStorage so close+reopen
+    //     within the same tab session does NOT flicker UI.
+    //   - NEVER re-evaluate live during an open widget session.
+    //
+    // The store carries:
+    //   modes:    { chat?, audio?, video? } — frozen resolutions per channel
+    //   selectedId:    chosen department id (single mode auto-binds; multi
+    //                  mode user-picks; general mode stays null)
+    //   selectedFromCh: which channel the selection was made for (for debug)
+    var __DEPT_SS_KEY = 'gs:dept:' + (ctx.workspaceId || 'unknown');
+    function __deptLoadFromSession() {
+      try {
+        if (typeof sessionStorage === 'undefined') return null;
+        var raw = sessionStorage.getItem(__DEPT_SS_KEY);
+        if (!raw) return null;
+        var p = JSON.parse(raw);
+        if (!p || typeof p !== 'object') return null;
+        return p;
+      } catch (_) { return null; }
+    }
+    function __deptSaveToSession(state) {
+      try {
+        if (typeof sessionStorage === 'undefined') return;
+        sessionStorage.setItem(__DEPT_SS_KEY, JSON.stringify({
+          modes: state.modes || {},
+          selectedId: state.selectedId || null,
+          selectedFromCh: state.selectedFromCh || null,
+        }));
+      } catch (_) {}
+    }
+    var __deptInit = __deptLoadFromSession() || {};
+    var departmentStore = createStore({
+      modes: __deptInit.modes || {},          // { chat?: Resolution, audio?, video? }
+      selectedId: __deptInit.selectedId || null,
+      selectedFromCh: __deptInit.selectedFromCh || null,
+      // In-flight fetch promises keyed by channel — prevents duplicate calls.
+      _inflight: {},
+    });
+    // Persist whenever a meaningful field changes.
+    departmentStore.subscribe(function (s) { __deptSaveToSession(s); });
+
+    // Fetch and freeze the department mode for a given channel. Idempotent.
+    // Returns a Promise<Resolution> where Resolution is:
+    //   { mode: 'general'|'single'|'multi', visible_departments: [...],
+    //     default_department_id: string|null, channel: 'chat'|'audio'|'video' }
+    function resolveDepartmentMode(channel) {
+      var ch = channel === 'audio' || channel === 'video' ? channel : 'chat';
+      var s = departmentStore.get();
+      if (s.modes && s.modes[ch]) return Promise.resolve(s.modes[ch]);
+      if (s._inflight && s._inflight[ch]) return s._inflight[ch];
+      if (!ctx.apiBase || !ctx.workspaceId) {
+        // No API base available — degrade to general mode silently.
+        var fallback = { mode: 'general', visible_departments: [], default_department_id: null, channel: ch };
+        var modes0 = Object.assign({}, s.modes); modes0[ch] = fallback;
+        departmentStore.set({ modes: modes0 });
+        return Promise.resolve(fallback);
+      }
+      var url = ctx.apiBase + '/api/widget/departments/visible?channel=' + encodeURIComponent(ch);
+      var p = ctx.fetchWith(url, { method: 'GET' })
+        .then(function (r) {
+          if (!r.ok) throw new Error('dept_http_' + r.status);
+          return r.json();
+        })
+        .then(function (j) {
+          var resolution = {
+            mode: (j && j.mode) || 'general',
+            visible_departments: (j && j.visible_departments) || [],
+            default_department_id: (j && j.default_department_id) || null,
+            channel: ch,
+          };
+          var ns = departmentStore.get();
+          var modes = Object.assign({}, ns.modes); modes[ch] = resolution;
+          var inflight = Object.assign({}, ns._inflight); delete inflight[ch];
+          var nextSel = ns.selectedId;
+          var nextFrom = ns.selectedFromCh;
+          // Single mode → auto-bind selection if none yet.
+          if (resolution.mode === 'single' && !nextSel && resolution.default_department_id) {
+            nextSel = resolution.default_department_id;
+            nextFrom = ch;
+          }
+          departmentStore.set({ modes: modes, _inflight: inflight, selectedId: nextSel, selectedFromCh: nextFrom });
+          Util.log('[dept] resolved', ch, resolution.mode, 'visible=' + resolution.visible_departments.length);
+          return resolution;
+        })
+        .catch(function (err) {
+          // Network/server error → degrade to general mode for this channel.
+          var ns2 = departmentStore.get();
+          var inflight2 = Object.assign({}, ns2._inflight); delete inflight2[ch];
+          var fb = { mode: 'general', visible_departments: [], default_department_id: null, channel: ch };
+          var modes2 = Object.assign({}, ns2.modes); modes2[ch] = fb;
+          departmentStore.set({ modes: modes2, _inflight: inflight2 });
+          Util.warn('[dept] resolve failed for ' + ch + ' → general fallback', err && err.message);
+          return fb;
+        });
+      var inflight = Object.assign({}, s._inflight); inflight[ch] = p;
+      departmentStore.set({ _inflight: inflight });
+      return p;
+    }
+
+    function deptSelect(deptId, fromChannel) {
+      if (!deptId) return;
+      departmentStore.set({ selectedId: deptId, selectedFromCh: fromChannel || null });
+      Util.log('[dept] selected', deptId, 'from', fromChannel);
+    }
+
+    // Public helper read by chat send / call enqueue / callback request.
+    // Returns null when general mode (no department to attach).
+    function getSelectedDepartmentId() {
+      var s = departmentStore.get();
+      return s.selectedId || null;
+    }
+
+    // Resolve effective channel capabilities given the current selection.
+    // When no department is selected (general mode) this returns
+    // { chat:true, audio:true, video:true } so policy/widget gates remain
+    // the only filter. When a department is selected the intersection of
+    // its channel toggles applies. Useful for hiding tabs/buttons.
+    function deptChannelCaps() {
+      var s = departmentStore.get();
+      if (!s.selectedId) return { chat: true, audio: true, video: true };
+      // Find the department descriptor across any resolved channel.
+      var modes = s.modes || {};
+      var keys = ['chat', 'audio', 'video'];
+      for (var i = 0; i < keys.length; i++) {
+        var m = modes[keys[i]];
+        if (!m || !m.visible_departments) continue;
+        for (var j = 0; j < m.visible_departments.length; j++) {
+          var d = m.visible_departments[j];
+          if (d && d.id === s.selectedId && d.capabilities) {
+            return {
+              chat: d.capabilities.chat !== false,
+              audio: !!d.capabilities.audio,
+              video: !!d.capabilities.video,
+            };
+          }
+        }
+      }
+      // Selected dept not found in any cached resolution → permissive default.
+      return { chat: true, audio: true, video: true };
+    }
+
+    // Kick off chat-channel resolution at init time so the store is warm
+    // before the panel opens. Best-effort; never blocks any UI.
+    try { resolveDepartmentMode('chat'); } catch (_) {}
+
+    // Expose for debug + future templates.
+    ctx.departments = {
+      resolve: resolveDepartmentMode,
+      select: deptSelect,
+      getSelectedId: getSelectedDepartmentId,
+      caps: deptChannelCaps,
+      store: departmentStore,
+    };
+    try { window.__gs_departments = ctx.departments; } catch (_) {}
+
     // ─── Mount target ───
     var shellDiv = shadowRoot.querySelector ? shadowRoot.querySelector('.shell') : null;
     if (!shellDiv) {
@@ -3690,11 +3861,90 @@
     function renderLoading() {
       if (body) body.innerHTML = '<div class="empty"><p>' + Util.escapeHtml(t('loading')) + '</p></div>';
     }
+    // Phase 8H — Department gate. Returns true when the gate rendered
+    // (caller must NOT render any further body content for this pass).
+    // Resolves the channel-specific mode lazily; while in-flight shows
+    // a brief loading state and re-renders on completion.
+    function renderDepartmentGateIfNeeded(channel) {
+      var ch = channel === 'audio' || channel === 'video' ? channel : 'chat';
+      var s = departmentStore.get();
+      var resolution = s.modes && s.modes[ch];
+      if (!resolution) {
+        // Not yet resolved — kick fetch (no-op if already inflight) and
+        // show loading. When resolution arrives the subscriber re-renders.
+        renderLoading();
+        resolveDepartmentMode(ch);
+        return true;
+      }
+      // General mode → never gates anything.
+      if (resolution.mode === 'general') return false;
+      // Single mode → resolver auto-binds selectedId. No UI step needed.
+      if (resolution.mode === 'single') return false;
+      // Multi mode — show selector unless visitor already picked one.
+      if (s.selectedId) return false;
+      renderDepartmentPicker(channel, resolution);
+      return true;
+    }
+
+    var __DEPT_ICONS = {
+      chat:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>',
+      audio: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92Z"/></svg>',
+      video: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>',
+    };
+    function renderDepartmentPicker(channel, resolution) {
+      if (!body) return;
+      var depts = (resolution && resolution.visible_departments) || [];
+      var subtitleKey = channel === 'audio'
+        ? 'Choose who you would like to call'
+        : channel === 'video'
+          ? 'Choose who you would like to video call'
+          : 'Choose a team to chat with';
+      var html = '<div class="dept-picker" role="group" aria-label="Department selector">' +
+        '<h3 class="dept-picker__title">How can we help?</h3>' +
+        '<p class="dept-picker__subtitle">' + Util.escapeHtml(subtitleKey) + '</p>' +
+        '<div class="dept-picker__list">';
+      for (var i = 0; i < depts.length; i++) {
+        var d = depts[i];
+        if (!d || !d.id) continue;
+        var caps = d.capabilities || {};
+        var capHtml = '';
+        if (caps.chat) capHtml += '<span class="dept-option__cap" title="Chat" aria-label="Chat">' + __DEPT_ICONS.chat + '</span>';
+        if (caps.audio) capHtml += '<span class="dept-option__cap" title="Voice" aria-label="Voice">' + __DEPT_ICONS.audio + '</span>';
+        if (caps.video) capHtml += '<span class="dept-option__cap" title="Video" aria-label="Video">' + __DEPT_ICONS.video + '</span>';
+        html += '<button type="button" class="dept-option" data-dept-id="' + Util.escapeHtml(d.id) + '">' +
+          '<span class="dept-option__name">' + Util.escapeHtml(d.name || 'Team') + '</span>' +
+          '<span class="dept-option__caps" aria-hidden="true">' + capHtml + '</span>' +
+        '</button>';
+      }
+      html += '</div></div>';
+      body.innerHTML = html;
+      var btns = body.querySelectorAll('[data-dept-id]');
+      Array.prototype.forEach.call(btns, function (btn) {
+        btn.addEventListener('click', function () {
+          var id = btn.getAttribute('data-dept-id');
+          if (!id) return;
+          deptSelect(id, channel);
+          renderBody();
+        });
+      });
+      // Hide composer while picker is shown.
+      if (inputBar) inputBar.style.display = 'none';
+    }
+
+    // Re-render body when department state changes (mode resolves, or user
+    // selects). Only redraw if currently visible to avoid wasted paints.
+    departmentStore.subscribe(function () {
+      if (shellStore.get().isOpen) renderBody();
+    });
     function renderBody() {
       if (!body) return;
       var tab = shellStore.get().activeTab;
       if (tab === 'chat') {
         if (!identityStore.get().loaded) { renderLoading(); return; }
+        // Phase 8H — department gate (chat). Multi mode shows a lightweight
+        // selector BEFORE pre-chat. Single mode auto-binds in resolver.
+        // General mode is a no-op. Resolved-once-per-session via store.
+        if (renderDepartmentGateIfNeeded('chat')) return;
         if (identity.needsPrechat()) {
           // Composer must be invisible while pre-chat is showing — visitor
           // cannot send a message until they've identified themselves.
@@ -3742,6 +3992,32 @@
     function renderCallChannel(channel) {
       if (!body) return;
       if (!identityStore.get().loaded) { renderLoading(); return; }
+      // Phase 8H — department gate for the requested channel. If multi
+      // mode and no selection → render selector; on pick we re-render.
+      if (renderDepartmentGateIfNeeded(channel)) return;
+      // Capability filter — if a department is selected but does not
+      // support this channel, surface a clear "not available" message
+      // instead of a dead-end button.
+      var __caps = deptChannelCaps();
+      if (departmentStore.get().selectedId && !__caps[channel]) {
+        body.innerHTML = '<div class="call-panel" data-call-panel>' +
+          '<div class="call-title">' + Util.escapeHtml(t('callUnavailable')) + '</div>' +
+          '<div class="call-msg">' + Util.escapeHtml(channel === 'video' ? 'Video is not offered by this team.' : 'Voice is not offered by this team.') + '</div>' +
+          (chatEnabled ? '<button type="button" class="call-link" data-call-action="switch-chat">' + Util.escapeHtml(t('callSwitchToChat')) + '</button>' : '') +
+          '</div>';
+        var sw = body.querySelector('[data-call-action="switch-chat"]');
+        if (sw) sw.addEventListener('click', function () {
+          shellStore.set({ activeTab: 'chat' });
+          try {
+            var allTabs = panel.querySelectorAll('.tab');
+            Array.prototype.forEach.call(allTabs, function (t2) {
+              t2.classList.toggle('active', t2.getAttribute('data-tab') === 'chat');
+            });
+          } catch (_) {}
+          renderBody();
+        });
+        return;
+      }
       // Identity gate — share the existing pre-chat flow.
       if (identity.needsPrechat()) {
         chatUI.renderPreChat(body, identity, ctx.locale, function () {
@@ -3823,7 +4099,10 @@
           'Content-Type': 'application/json',
           'X-Widget-Token': token,
         },
-        body: JSON.stringify({ channel: channel }),
+        body: JSON.stringify({
+          channel: channel,
+          department_id: getSelectedDepartmentId() || undefined,
+        }),
       }).then(function (r) {
         return r.json().then(function (j) { return { ok: r.ok, body: j }; });
       }).then(function (resp) {

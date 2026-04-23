@@ -16,15 +16,14 @@ import { useQuery } from '@tanstack/react-query';
 import {
   Activity, Phone, Video, Network, Disc, Users, Shield, Building2,
   Radio, FileText, AlertTriangle, CheckCircle2, Loader2,
-  GitBranch, Timer, Voicemail,
+  GitBranch, Timer, Voicemail, CalendarClock,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
-import { fetchCallControlPlane } from '@/lib/admin-calls-api';
-import { fetchPlatformCallbackSummary } from '@/lib/admin-calls-api';
+import { fetchCallControlPlane, fetchPlatformCallbackSummary, fetchUpcomingCallbacks } from '@/lib/admin-calls-api';
 import { CallControlPlanePanel } from '@/components/admin/calls/CallControlPlanePanel';
 import { RolePermissionsPanel } from '@/components/admin/calls/RolePermissionsPanel';
 import { AgoraExternalProviderPanel } from '@/components/admin/calls/AgoraExternalProviderPanel';
@@ -430,6 +429,13 @@ function CallbacksTab() {
   });
   const summary = summaryQuery.data;
   const completionPct = summary ? Math.round((summary.completion_rate || 0) * 100) : 0;
+  const upcomingQuery = useQuery({
+    queryKey: ['admin', 'callbacks-upcoming'],
+    queryFn: fetchUpcomingCallbacks,
+    refetchInterval: 60_000,
+  });
+  const upcoming = upcomingQuery.data?.items ?? [];
+  const scheduledCount = upcomingQuery.data?.scheduled_count ?? 0;
 
   useEffect(() => {
     if (!workspaces) return;
@@ -496,6 +502,44 @@ function CallbacksTab() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Phase 8E — Scheduled / upcoming callbacks (visitor-chosen times). */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <CalendarClock className="h-4 w-4 text-info" />
+            Upcoming scheduled callbacks
+            <Badge variant="secondary" className="ml-auto text-[10px]">{scheduledCount}</Badge>
+          </CardTitle>
+          <CardDescription className="text-xs">
+            Callbacks where the visitor chose a future time. Operators handle them from the workspace inbox.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {upcomingQuery.isLoading ? (
+            <div className="flex items-center justify-center py-4 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /></div>
+          ) : upcoming.length === 0 ? (
+            <div className="text-xs text-muted-foreground text-center py-4">No upcoming scheduled callbacks.</div>
+          ) : (
+            <div className="space-y-1">
+              {upcoming.slice(0, 10).map((u) => (
+                <div key={u.id} className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-xs">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <CalendarClock className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    <div className="min-w-0">
+                      <div className="font-medium truncate">{new Date(u.scheduled_for).toLocaleString()}</div>
+                      <div className="text-[10px] text-muted-foreground truncate">
+                        {u.channel} · {u.contact_phone || u.contact_email || 'no contact'}
+                      </div>
+                    </div>
+                  </div>
+                  <Badge variant="outline" className="text-[10px] capitalize">{u.status}</Badge>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
       <CardHeader>

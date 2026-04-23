@@ -1101,6 +1101,7 @@ export type Database = {
           notes: string | null
           requested_at: string
           scheduled_at: string | null
+          scheduled_for: string | null
           status: string
           updated_at: string
           visitor_session_id: string | null
@@ -1121,6 +1122,7 @@ export type Database = {
           notes?: string | null
           requested_at?: string
           scheduled_at?: string | null
+          scheduled_for?: string | null
           status?: string
           updated_at?: string
           visitor_session_id?: string | null
@@ -1141,6 +1143,7 @@ export type Database = {
           notes?: string | null
           requested_at?: string
           scheduled_at?: string | null
+          scheduled_for?: string | null
           status?: string
           updated_at?: string
           visitor_session_id?: string | null

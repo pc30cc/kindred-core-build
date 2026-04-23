@@ -28,6 +28,8 @@ export interface CallbackRequestRow {
   metadata: Record<string, unknown>;
   requested_at: string;
   scheduled_at: string | null;
+  /** Phase 8E — visitor-chosen callback time. NULL = immediate. */
+  scheduled_for: string | null;
   completed_at: string | null;
   cancelled_at: string | null;
   handled_by: string | null;
@@ -45,6 +47,8 @@ export interface CreateCallbackInput {
   contactEmail?: string | null;
   notes?: string | null;
   metadata?: Record<string, unknown>;
+  /** Phase 8E — visitor-chosen callback time (ISO). Omit for "immediate". */
+  scheduledFor?: string | null;
 }
 
 function channelName(workspaceId: string): string {
@@ -102,6 +106,7 @@ export async function createCallbackRequest(
       contact_email: input.contactEmail ?? null,
       notes: input.notes ?? null,
       metadata: input.metadata ?? {},
+      scheduled_for: input.scheduledFor ?? null,
     })
     .select('*')
     .single();

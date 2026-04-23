@@ -2255,6 +2255,9 @@ widgetRouter.post('/call-queue/enqueue', widgetRateLimit('message'), async (req:
   const parsed = z.object({
     channel: z.enum(['audio', 'video']),
     conversation_id: z.string().uuid().optional(),
+    /** Phase 8E — optional page context for the operator preview card. */
+    page_url: z.string().max(2048).optional(),
+    page_title: z.string().max(512).optional(),
   }).safeParse(req.body || {});
   if (!parsed.success) return res.status(400).json({ error: 'invalid_body' });
   try {
@@ -2264,6 +2267,10 @@ widgetRouter.post('/call-queue/enqueue', widgetRateLimit('message'), async (req:
       visitorSessionId: visitorId ?? null,
       conversationId: parsed.data.conversation_id ?? null,
       requestedBy: 'visitor',
+      metadata: {
+        page_url: parsed.data.page_url || null,
+        page_title: parsed.data.page_title || null,
+      },
     });
     return res.json({ entry });
   } catch (err: any) {

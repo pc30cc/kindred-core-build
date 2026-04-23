@@ -71,6 +71,31 @@ adminCallsRouter.get('/callbacks/summary', async (req, res) => {
   }
 });
 
+/**
+ * Phase 8E — Upcoming scheduled callbacks across the platform.
+ * Returns visitor-chosen scheduled callbacks (scheduled_for not null) that
+ * are still open. Used by Voice & Video Center → Callbacks tab.
+ */
+adminCallsRouter.get('/callbacks/upcoming', async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
+  try {
+    const sb = getServiceClient(config);
+    const { data } = await sb
+      .from('callback_requests')
+      .select('id, workspace_id, channel, status, contact_phone, contact_email, notes, scheduled_for, requested_at')
+      .not('scheduled_for', 'is', null)
+      .in('status', ['requested', 'scheduled', 'in_progress'])
+      .gte('scheduled_for', new Date(Date.now() - 60 * 60 * 1000).toISOString())
+      .order('scheduled_for', { ascending: true })
+      .limit(50);
+    const items = data ?? [];
+    const scheduled_count = items.length;
+    res.json({ items, scheduled_count });
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message || 'failed' });
+  }
+});
+
 const cpUpdateSchema = z.object({
   enabled: z.boolean().optional(),
   primary_provider: z.enum(['livekit', 'jitsi', 'janus', 'agora_cloud', 'disabled']).optional(),

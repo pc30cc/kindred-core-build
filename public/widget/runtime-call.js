@@ -101,6 +101,13 @@
       '.cbinput.invalid{border-color:#dc2626}',
       '@media (prefers-color-scheme: dark){.cbinput{border-color:#1e293b}}',
       '.cbnote{resize:vertical;min-height:48px;max-height:120px;font-family:inherit}',
+      '.cbsched{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}',
+      '.cbchip{flex:1 1 calc(50% - 6px);min-width:0;border:1px solid #e2e8f0;background:transparent;color:inherit;border-radius:6px;padding:7px 8px;font:inherit;font-size:11px;cursor:pointer;text-align:center}',
+      '.cbchip:hover{background:#f8fafc}',
+      '.cbchip.selected{background:#16a34a;color:#fff;border-color:#16a34a}',
+      '@media (prefers-color-scheme: dark){.cbchip{border-color:#1e293b}.cbchip:hover{background:#1e293b}}',
+      '.cbcustom{display:none;margin-top:6px}',
+      '.cbcustom.show{display:block}',
       '.cberr{font-size:11px;color:#dc2626;margin-top:4px;display:none}',
       '.cberr.show{display:block}',
       '.pending{display:none;margin-top:8px;padding:8px 10px;border-radius:8px;background:#ecfeff;color:#0e7490;border:1px solid #a5f3fc;font-size:12px;line-height:1.4}',
@@ -109,6 +116,12 @@
       '.pending b{font-weight:600}',
       '.pending .cd{display:block;margin-top:2px;font-size:11px;color:#0891b2;opacity:.85}',
       '@media (prefers-color-scheme: dark){.pending{background:#0c2a30;color:#a5f3fc;border-color:#155e75}.pending .cd{color:#a5f3fc}}',
+      '.greet{display:none;position:relative;margin:0 0 10px;padding:10px 32px 10px 12px;border-radius:10px;background:linear-gradient(135deg,#eff6ff,#ecfeff);color:#0c4a6e;border:1px solid #bae6fd;font-size:12px;line-height:1.45}',
+      '.greet.show{display:block}',
+      '.greet b{font-weight:600;display:block;margin-bottom:2px}',
+      '.greet .gx{position:absolute;top:6px;right:8px;background:transparent;border:0;color:inherit;opacity:.6;cursor:pointer;font-size:14px;line-height:1;padding:2px 4px;border-radius:4px}',
+      '.greet .gx:hover{opacity:1;background:rgba(0,0,0,.06)}',
+      '@media (prefers-color-scheme: dark){.greet{background:linear-gradient(135deg,#0c2a30,#0e3a4a);color:#a5f3fc;border-color:#155e75}}',
     ].join('');
     shadow.appendChild(style);
 
@@ -117,6 +130,7 @@
     rootEl.setAttribute('role', 'dialog');
     rootEl.setAttribute('aria-label', 'Incoming call');
     rootEl.innerHTML = [
+      '<div class="greet" data-el="greet" role="status" aria-live="polite"><button class="gx" data-el="greet-x" type="button" aria-label="Dismiss">×</button><b data-el="greet-title">Need help?</b><span data-el="greet-body">Talk to our team in seconds.</span></div>',
       '<p class="title" data-el="title">Incoming call</p>',
       '<p class="sub" data-el="sub">Audio call from support</p>',
       '<div class="degraded" data-el="degraded">Audio-only mode (network limited)</div>',
@@ -138,6 +152,16 @@
       '  <div class="cbfield"><label class="cblabel" data-el="cb-phone-label">Phone (optional)</label><input class="cbinput" data-el="cb-phone" type="tel" autocomplete="tel" placeholder="+1 555 123 4567" /></div>',
       '  <div class="cbfield"><label class="cblabel" data-el="cb-email-label">Email (optional)</label><input class="cbinput" data-el="cb-email" type="email" autocomplete="email" placeholder="you@example.com" /></div>',
       '  <div class="cbfield"><label class="cblabel">Note (optional)</label><textarea class="cbinput cbnote" data-el="cb-notes" rows="2" placeholder="Anything we should know?"></textarea></div>',
+      '  <div class="cbfield"><label class="cblabel">When should we call?</label>',
+      '    <div class="cbsched" data-el="cb-sched" role="radiogroup" aria-label="Callback time">',
+      '      <button class="cbchip selected" type="button" data-sched="now">As soon as possible</button>',
+      '      <button class="cbchip" type="button" data-sched="30m">In 30 minutes</button>',
+      '      <button class="cbchip" type="button" data-sched="1h">In 1 hour</button>',
+      '      <button class="cbchip" type="button" data-sched="tomorrow">Tomorrow</button>',
+      '      <button class="cbchip" type="button" data-sched="custom">Custom time</button>',
+      '    </div>',
+      '    <div class="cbcustom" data-el="cb-custom"><input class="cbinput" data-el="cb-custom-input" type="datetime-local" /></div>',
+      '  </div>',
       '  <div class="cberr" data-el="cb-error"></div>',
       '  <div class="row" style="margin-top:10px"><button class="btn primary" data-el="cb-submit" type="button">Request callback</button><button class="btn ghost" data-el="cb-cancel" type="button">Cancel</button></div>',
       '</div>',
@@ -238,6 +262,60 @@
     }
     if (callbackCooldownTimer) { clearInterval(callbackCooldownTimer); callbackCooldownTimer = null; }
     callbackCooldownUntilMs = 0;
+  }
+
+  // ───── Phase 8E — Smart Greeting (dismissible, in-shell) ─────
+  // Pure UI helper. Never touches widget FSM, identity, or transports.
+  // The greeting's content is resolved deterministically from the page
+  // context the caller passes in (or sniffed at call time as fallback).
+  var greetDismissed = false;
+  try {
+    if (window.sessionStorage && window.sessionStorage.getItem('__gs_greet_dismissed') === '1') {
+      greetDismissed = true;
+    }
+  } catch (_) {}
+
+  function resolveWidgetGreeting(ctx) {
+    var c = ctx || {};
+    var path = (c.path || (typeof location !== 'undefined' ? location.pathname || '' : '')).toLowerCase();
+    var timeOnPage = typeof c.time_on_page_ms === 'number' ? c.time_on_page_ms : 0;
+    var scrolled = !!c.scrolled_significantly;
+    if (path.indexOf('pricing') !== -1 || path.indexOf('plans') !== -1) {
+      return { title: 'Need help choosing a plan?', body: 'Talk to us instantly — we can answer pricing questions in seconds.' };
+    }
+    if (path.indexOf('checkout') !== -1 || path.indexOf('cart') !== -1) {
+      return { title: 'Stuck at checkout?', body: 'Start a quick call and we will walk you through it.' };
+    }
+    if (path.indexOf('docs') !== -1 || path.indexOf('help') !== -1 || path.indexOf('support') !== -1) {
+      return { title: 'Looking for something specific?', body: 'A quick call usually beats searching the docs.' };
+    }
+    if (timeOnPage >= 20_000 || scrolled) {
+      return { title: 'Have questions?', body: 'Start a quick call with our team — no wait if an agent is free.' };
+    }
+    return { title: 'Need help?', body: 'Talk to our team in seconds.' };
+  }
+
+  function showGreeting(ctx) {
+    if (greetDismissed) return;
+    ensureShell();
+    var greetEl = rootEl.querySelector('[data-el="greet"]');
+    var titleEl = rootEl.querySelector('[data-el="greet-title"]');
+    var bodyEl = rootEl.querySelector('[data-el="greet-body"]');
+    var xBtn = rootEl.querySelector('[data-el="greet-x"]');
+    if (!greetEl || !titleEl || !bodyEl) return;
+    var g = resolveWidgetGreeting(ctx);
+    titleEl.textContent = g.title;
+    bodyEl.textContent = g.body;
+    greetEl.classList.add('show');
+    if (xBtn && !xBtn.__bound) {
+      xBtn.__bound = true;
+      xBtn.addEventListener('click', function () {
+        greetEl.classList.remove('show');
+        greetDismissed = true;
+        try { window.sessionStorage && window.sessionStorage.setItem('__gs_greet_dismissed', '1'); } catch (_) {}
+      });
+    }
+    show();
   }
 
   // Phase 8D++ — Restore "pending" state across widget reopen.
@@ -523,6 +601,13 @@
       checkCallbackStatus();
     },
     /**
+     * Phase 8E — Smart greeting. Caller passes context; we resolve copy
+     * deterministically. Dismissible & sessionStorage-persistent.
+     * Example: window.__gs_call.greet({ path: '/pricing', time_on_page_ms: 25000 });
+     */
+    greet: showGreeting,
+    resolveWidgetGreeting: resolveWidgetGreeting,
+    /**
      * Phase 8D — Show callback-request CTA. Used when queue is unavailable,
      * SLA exceeded, or no operator can take a live call. Reuses the visitor's
      * existing identity (token + workspace context). Never asks for a new form.
@@ -584,6 +669,44 @@
       ctaBtn.onclick = openModal;
       cancelBtn.onclick = closeModal;
 
+      // Phase 8E — Schedule chip group (single-select, default = now).
+      var schedGroup = rootEl.querySelector('[data-el="cb-sched"]');
+      var customWrap = rootEl.querySelector('[data-el="cb-custom"]');
+      var customInput = rootEl.querySelector('[data-el="cb-custom-input"]');
+      var selectedSched = 'now';
+      function selectSched(key) {
+        selectedSched = key;
+        var chips = schedGroup.querySelectorAll('.cbchip');
+        for (var i = 0; i < chips.length; i++) {
+          chips[i].classList.toggle('selected', chips[i].getAttribute('data-sched') === key);
+        }
+        customWrap.classList.toggle('show', key === 'custom');
+      }
+      schedGroup.onclick = function (ev) {
+        var t = ev.target;
+        if (t && t.getAttribute && t.getAttribute('data-sched')) {
+          selectSched(t.getAttribute('data-sched'));
+        }
+      };
+      function resolveScheduledForIso() {
+        if (selectedSched === 'now') return null;
+        var ms = Date.now();
+        if (selectedSched === '30m') return new Date(ms + 30 * 60 * 1000).toISOString();
+        if (selectedSched === '1h') return new Date(ms + 60 * 60 * 1000).toISOString();
+        if (selectedSched === 'tomorrow') {
+          var d = new Date(); d.setDate(d.getDate() + 1); d.setHours(10, 0, 0, 0);
+          return d.toISOString();
+        }
+        if (selectedSched === 'custom') {
+          var v = (customInput.value || '').trim();
+          if (!v) return null;
+          var t = new Date(v).getTime();
+          if (isNaN(t) || t < Date.now() - 60_000) return null;
+          return new Date(t).toISOString();
+        }
+        return null;
+      }
+
       submitBtn.onclick = function () {
         // Client-side guards: in-flight + 3s debounce + post-success lock.
         var now = Date.now();
@@ -601,6 +724,12 @@
         var phone = (phoneInput.value || '').trim();
         var email = (emailInput.value || '').trim();
         var notes = (notesInput.value || '').trim();
+        var scheduledForIso = resolveScheduledForIso();
+        if (selectedSched === 'custom' && !scheduledForIso) {
+          errEl.textContent = 'Please pick a valid future time.';
+          errEl.classList.add('show');
+          return;
+        }
 
         isSubmittingCallback = true;
         submitBtn.disabled = true;
@@ -618,6 +747,7 @@
             contact_email: email || undefined,
             notes: notes || undefined,
             queue_entry_id: opts.queue_entry_id || undefined,
+            scheduled_for: scheduledForIso || undefined,
           }),
         }).then(function (r) {
           if (!r.ok) return r.json().catch(function () { return {}; }).then(function (b) {
@@ -635,7 +765,14 @@
           ctaBtn.disabled = true;
           ctaBtn.textContent = 'Callback requested';
           titleEl.textContent = 'Callback requested';
-          subEl.textContent = "We'll call you back shortly.";
+          if (scheduledForIso) {
+            try {
+              var when = new Date(scheduledForIso);
+              subEl.textContent = "We'll call you on " + when.toLocaleString();
+            } catch (_) { subEl.textContent = "We'll call you at the scheduled time."; }
+          } else {
+            subEl.textContent = "We'll call you back shortly.";
+          }
           showPendingBadge({ message: 'Callback pending' });
           // Keep the badge visible after auto-hide so reopen still shows status.
           setTimeout(function () { hide(); }, 3500);
@@ -665,6 +802,9 @@
         if (Array.isArray(item) && item[0] === 'call:callback-offer' && item[1]) {
           window.__gs_call.offerCallback(item[1]);
         }
+        if (Array.isArray(item) && item[0] === 'call:greet') {
+          showGreeting(item[1] || {});
+        }
       }
     }
   } catch (_) {}
@@ -687,6 +827,10 @@
       }
       if (Array.isArray(item) && item[0] === 'call:callback-offer' && item[1]) {
         window.__gs_call.offerCallback(item[1]);
+        return;
+      }
+      if (Array.isArray(item) && item[0] === 'call:greet') {
+        showGreeting(item[1] || {});
         return;
       }
       if (origPush) return origPush(item);

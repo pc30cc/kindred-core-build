@@ -101,6 +101,32 @@ export async function fetchPlatformCallbackSummary(): Promise<PlatformCallbackSu
   return res.json();
 }
 
+/** Phase 8E — Upcoming visitor-scheduled callbacks (platform-wide). */
+export interface UpcomingCallbackItem {
+  id: string;
+  workspace_id: string;
+  channel: 'audio' | 'video';
+  status: 'requested' | 'scheduled' | 'in_progress' | 'completed' | 'cancelled';
+  contact_phone: string | null;
+  contact_email: string | null;
+  notes: string | null;
+  scheduled_for: string;
+  requested_at: string;
+}
+
+export interface UpcomingCallbacksResponse {
+  items: UpcomingCallbackItem[];
+  scheduled_count: number;
+}
+
+export async function fetchUpcomingCallbacks(): Promise<UpcomingCallbacksResponse> {
+  const res = await fetch(`${API_BASE}/api/admin/calls/callbacks/upcoming`, {
+    headers: await authHeader(),
+  });
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  return res.json();
+}
+
 export async function updateCallControlPlane(
   patch: Partial<CallControlPlane>,
 ): Promise<CallControlPlaneResponse> {

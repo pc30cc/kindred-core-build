@@ -739,13 +739,17 @@ function MemberDepartmentsDialog({
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Departments for {memberName}</DialogTitle>
+          <DialogTitle>Assign departments — {memberName}</DialogTitle>
         </DialogHeader>
         <div className="space-y-1 max-h-[50vh] overflow-y-auto py-2">
           {departments.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-6">
-              No departments exist yet. Create one above to assign members.
-            </p>
+            <div className="text-center py-8">
+              <Building2 className="h-8 w-8 mx-auto text-muted-foreground/50 mb-2" />
+              <p className="text-sm font-medium text-foreground">No departments yet</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Create one from Departments above to assign members.
+              </p>
+            </div>
           ) : (
             departments.map((d: any) => (
               <label key={d.id}
@@ -754,7 +758,7 @@ function MemberDepartmentsDialog({
                 <div className="flex-1 min-w-0">
                   <div className="text-sm text-foreground truncate">{d.name}</div>
                   {!d.enabled && (
-                    <div className="text-[10px] text-muted-foreground">Disabled</div>
+                    <div className="text-[10px] text-muted-foreground mt-0.5">Disabled</div>
                   )}
                 </div>
               </label>
@@ -762,7 +766,7 @@ function MemberDepartmentsDialog({
           )}
         </div>
         <p className="text-xs text-muted-foreground border-t border-border/60 pt-3">
-          A member with no departments stays in the General Pool.
+          With no departments selected, this member stays in the General Pool.
         </p>
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>Cancel</Button>

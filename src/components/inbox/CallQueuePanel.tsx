@@ -380,6 +380,12 @@ export function CallQueuePanel({ workspaceId, onAccept }: CallQueuePanelProps) {
                         {cb.contact_phone && ` · ${cb.contact_phone}`}
                         {cb.contact_email && ` · ${cb.contact_email}`}
                       </div>
+                      {cb.scheduled_for && (
+                        <div className="text-[10px] text-info flex items-center gap-1 mt-0.5">
+                          <CalendarClock className="h-2.5 w-2.5" />
+                          <span>Scheduled for {new Date(cb.scheduled_for).toLocaleString()}</span>
+                        </div>
+                      )}
                     </div>
                     <Badge variant="outline" className="text-[9px]">{cb.status}</Badge>
                   </div>

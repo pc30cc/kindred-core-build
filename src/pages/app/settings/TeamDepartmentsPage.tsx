@@ -538,25 +538,26 @@ function DepartmentDialog({
         <DialogHeader>
           <DialogTitle>{mode === 'create' ? 'New department' : 'Edit department'}</DialogTitle>
         </DialogHeader>
-        <div className="space-y-4 py-2">
-          <div>
-            <Label>Name</Label>
+        <div className="space-y-5 py-2">
+          <div className="space-y-1.5">
+            <Label className="text-xs">Name</Label>
             <Input
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               placeholder="e.g. Sales, Support, Billing"
             />
           </div>
-          <div>
-            <Label>Sort order</Label>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Sort order</Label>
             <Input
               type="number"
               value={form.sort_order}
               onChange={(e) => setForm({ ...form, sort_order: Number(e.target.value) || 0 })}
             />
+            <p className="text-[11px] text-muted-foreground">Lower numbers appear first.</p>
           </div>
-          <div className="space-y-2">
-            <Label>Channels</Label>
+          <div className="space-y-2.5 rounded-md border border-border/60 bg-muted/20 p-3">
+            <Label className="text-xs uppercase tracking-wide text-muted-foreground">Channels</Label>
             <ToggleRow label="Chat" checked={form.chat_enabled}
               onChange={(v) => setForm({ ...form, chat_enabled: v })} />
             <ToggleRow label="Audio calls" checked={form.audio_enabled}
@@ -564,8 +565,10 @@ function DepartmentDialog({
             <ToggleRow label="Video calls" checked={form.video_enabled}
               onChange={(v) => setForm({ ...form, video_enabled: v })} />
           </div>
-          <ToggleRow label="Enabled" checked={form.enabled}
-            onChange={(v) => setForm({ ...form, enabled: v })} />
+          <div className="rounded-md border border-border/60 p-3">
+            <ToggleRow label="Department enabled" checked={form.enabled}
+              onChange={(v) => setForm({ ...form, enabled: v })} />
+          </div>
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>Cancel</Button>

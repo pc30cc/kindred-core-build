@@ -30,7 +30,6 @@ import {
 } from '../services/calls/livekitConfig.js';
 import { CALL_PROVIDER_CLASSIFICATION } from '../services/calls/providers/types.js';
 import { getPlatformCallbackCounts } from '../services/calls/callbacks.js';
-import { getServiceClient as _gscUpcoming } from '../supabase.js';
 
 export const adminCallsRouter = Router();
 

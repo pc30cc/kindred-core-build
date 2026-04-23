@@ -324,11 +324,11 @@ export default function StaffAccessPage() {
         <div className="flex items-start gap-3 text-sm">
           <ArrowRight className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
           <div className="text-muted-foreground">
-            <span className="text-foreground font-medium">Looking for agents, support, or sales people?</span>{' '}
-            Customer-facing members and department routing live on{' '}
-            <Link to={wsPath('/settings/team-departments')} className="text-primary hover:underline">
-              Team & Departments
-              <Users className="inline h-3 w-3 ms-1" />
+            <span className="text-foreground font-medium">Looking for people who handle visitor chats?</span>{' '}
+            Team members and department routing live on{' '}
+            <Link to={wsPath('/settings/team-departments')} className="text-primary hover:underline inline-flex items-center gap-1">
+              Team &amp; Departments
+              <Users className="h-3 w-3" />
             </Link>.
           </div>
         </div>

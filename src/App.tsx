@@ -77,7 +77,6 @@ import AdminBootstrapPage from "@/pages/admin/BootstrapPage";
 import AdminWidgetSettingsPage from "@/pages/admin/WidgetSettingsPage";
 import AdminMapGeoPage from "@/pages/admin/MapGeoPage";
 import AdminVoiceVideoPage from "@/pages/admin/VoiceVideoPage";
-import AdminAdvancedRoutingPage from "@/pages/admin/AdvancedRoutingPage";
 
 import NotFound from "@/pages/NotFound";
 
@@ -150,7 +149,11 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <Route path="/admin/map-geo" element={<AdminMapGeoPage />} />
                 <Route path="/admin/widget-settings" element={<AdminWidgetSettingsPage />} />
                 <Route path="/admin/voice-video" element={<AdminVoiceVideoPage />} />
-                <Route path="/admin/advanced-routing" element={<AdminAdvancedRoutingPage />} />
+                {/* Legacy Advanced Routing page replaced by Widget Settings → Advanced Routing tab. */}
+                <Route
+                  path="/admin/advanced-routing"
+                  element={<Navigate to="/admin/widget-settings" replace />}
+                />
                 <Route path="/admin/system" element={<AdminSystemPage />} />
                 <Route path="/admin/observability" element={<AdminObservabilityPage />} />
                 <Route path="/admin/feature-flags" element={<AdminFeatureFlagsPage />} />

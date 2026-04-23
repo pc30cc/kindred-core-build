@@ -232,7 +232,7 @@ export default function TeamDepartmentsPage() {
               Departments
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Routing groups for visitors. Toggle channels per department.
+              Route visitors to the right team. Pick the channels each department handles.
             </p>
           </div>
           <Button onClick={() => setShowCreateDept(true)} size="sm">
@@ -244,15 +244,17 @@ export default function TeamDepartmentsPage() {
           {loadingDepts ? (
             <div className="p-8 text-center"><Loader2 className="h-5 w-5 animate-spin mx-auto text-muted-foreground" /></div>
           ) : departments.length === 0 ? (
-            <div className="p-10 text-center">
-              <Building2 className="h-10 w-10 mx-auto text-muted-foreground/50 mb-3" />
+            <div className="p-12 text-center">
+              <div className="mx-auto mb-4 w-12 h-12 rounded-full bg-muted/50 flex items-center justify-center">
+                <Building2 className="h-6 w-6 text-muted-foreground" />
+              </div>
               <p className="font-medium text-foreground">No departments yet</p>
-              <p className="text-sm text-muted-foreground mt-1 mb-4 max-w-sm mx-auto">
-                Your workspace works without departments — every conversation goes to the General Pool.
-                Add one only if you want to route by team.
+              <p className="text-sm text-muted-foreground mt-1.5 mb-5 max-w-sm mx-auto">
+                Without departments, every conversation goes to the General Pool.
+                Add one to route by team — Sales, Support, Billing.
               </p>
               <Button variant="outline" onClick={() => setShowCreateDept(true)}>
-                <Plus className="h-4 w-4 me-2" /> Create first department
+                <Plus className="h-4 w-4 me-2" /> New department
               </Button>
             </div>
           ) : (

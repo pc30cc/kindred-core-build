@@ -196,9 +196,11 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                   <Route path="canned-responses" element={<SettingsCannedResponsesPage />} />
                   <Route path="privacy" element={<SettingsPrivacyPage />} />
                   <Route path="interface" element={<SettingsInterfacePage />} />
-                  <Route path="team" element={<TeamPage />} />
-                  <Route path="access-profiles" element={<AccessProfilesPage />} />
-                  <Route path="departments" element={<DepartmentsPage />} />
+                  {/* Legacy IA routes — redirect to the new Team & Departments
+                      / Staff Access surfaces so old bookmarks keep working. */}
+                  <Route path="team" element={<Navigate to="../team-departments" replace />} />
+                  <Route path="departments" element={<Navigate to="../team-departments" replace />} />
+                  <Route path="access-profiles" element={<Navigate to="../staff-access" replace />} />
                   <Route path="team-departments" element={<TeamDepartmentsPage />} />
                   <Route path="staff-access" element={<StaffAccessPage />} />
                   <Route path="privacy-requests" element={<PrivacyRequestsPage />} />
@@ -206,7 +208,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                   <Route path="ai" element={<AIPage />} />
                 </Route>
                 {/* Backwards-compat redirects: legacy URLs → settings */}
-                <Route path="team" element={<Navigate to="../settings/team" replace />} />
+                <Route path="team" element={<Navigate to="../settings/team-departments" replace />} />
                 <Route path="privacy-requests" element={<Navigate to="../settings/privacy-requests" replace />} />
                 <Route path="knowledge-base" element={<Navigate to="../settings/knowledge-base" replace />} />
                 <Route path="ai" element={<Navigate to="../settings/ai" replace />} />

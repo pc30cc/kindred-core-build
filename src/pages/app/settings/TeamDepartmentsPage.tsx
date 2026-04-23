@@ -818,7 +818,7 @@ function MemberDepartmentsDialog({
       return data ?? [];
     },
   });
-  const { data: assignedIds = [] } = useQuery({
+  const { data: assignedIds = [] as string[] } = useQuery<string[]>({
     queryKey: ['ws-department-member-assignments', workspaceId, memberUserId],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -832,7 +832,10 @@ function MemberDepartmentsDialog({
   });
 
   const [draft, setDraft] = useState<Set<string> | null>(null);
-  const sel = useMemo(() => draft ?? new Set(assignedIds), [draft, assignedIds]);
+  const sel = useMemo<Set<string>>(
+    () => draft ?? new Set<string>(assignedIds),
+    [draft, assignedIds],
+  );
 
   const save = useMutation({
     mutationFn: async () => {

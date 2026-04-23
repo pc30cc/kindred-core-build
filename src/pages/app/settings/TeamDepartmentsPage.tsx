@@ -306,8 +306,8 @@ export default function TeamDepartmentsPage() {
               Team members
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Customer-facing members. Assign departments inline. Members
-              with no department fall into the General Pool.
+              People who handle visitors. Assign departments inline — anyone
+              without one stays in the General Pool.
             </p>
           </div>
           <Button onClick={() => setShowInvite(true)} size="sm">
@@ -320,7 +320,7 @@ export default function TeamDepartmentsPage() {
             <div className="text-xs text-muted-foreground">
               {customerMembers.length} member{customerMembers.length === 1 ? '' : 's'}
             </div>
-            <div className="relative w-64">
+            <div className="relative w-full max-w-xs">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
                 value={search}
@@ -334,9 +334,24 @@ export default function TeamDepartmentsPage() {
           {loadingMembers ? (
             <div className="p-8 text-center"><Loader2 className="h-5 w-5 animate-spin mx-auto text-muted-foreground" /></div>
           ) : visibleMembers.length === 0 ? (
-            <p className="text-center text-sm text-muted-foreground py-12">
-              {search ? 'No members match your search.' : 'No customer-facing members yet.'}
-            </p>
+            <div className="py-12 text-center">
+              {search ? (
+                <p className="text-sm text-muted-foreground">No members match your search.</p>
+              ) : (
+                <>
+                  <div className="mx-auto mb-4 w-12 h-12 rounded-full bg-muted/50 flex items-center justify-center">
+                    <UserPlus className="h-6 w-6 text-muted-foreground" />
+                  </div>
+                  <p className="font-medium text-foreground">No team members yet</p>
+                  <p className="text-sm text-muted-foreground mt-1.5 mb-5 max-w-sm mx-auto">
+                    Invite the first person who will handle visitor chats and calls.
+                  </p>
+                  <Button variant="outline" onClick={() => setShowInvite(true)}>
+                    <UserPlus className="h-4 w-4 me-2" /> Invite member
+                  </Button>
+                </>
+              )}
+            </div>
           ) : (
             <div className="divide-y divide-border/60">
               {visibleMembers.map((m: any) => {

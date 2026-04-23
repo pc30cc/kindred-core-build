@@ -56,13 +56,29 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
  * intentionally NOT exposed in this UI. Workspace owners think in terms of
  * "team members" and "departments" — not raw role taxonomy. The base role
  * (`agent`) is assigned silently when inviting from this page.
+ *
+ * Legacy role values (`team_lead`, `support_agent`, `sales_agent`) are
+ * normalized to a single "customer-facing" pool for UI purposes — the owner
+ * sees them as plain team members regardless of the historical role string
+ * stored in the database.
  */
-const CUSTOMER_FACING_ROLES = [
+export const CUSTOMER_FACING_ROLES = [
   'agent',
   'team_lead',
   'support_agent',
   'sales_agent',
 ] as const;
+
+/**
+ * UI-only predicate. Owner is always treated as customer-facing because they
+ * can answer chats/calls. All legacy customer-facing role values collapse
+ * into this one bucket so the UX stays unified.
+ */
+export function isCustomerFacingRole(role: string | null | undefined): boolean {
+  if (!role) return false;
+  if (role === 'owner') return true;
+  return (CUSTOMER_FACING_ROLES as readonly string[]).includes(role);
+}
 
 export default function TeamDepartmentsPage() {
   const { user } = useAuth();

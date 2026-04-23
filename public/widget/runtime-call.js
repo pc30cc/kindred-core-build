@@ -116,6 +116,12 @@
       '.pending b{font-weight:600}',
       '.pending .cd{display:block;margin-top:2px;font-size:11px;color:#0891b2;opacity:.85}',
       '@media (prefers-color-scheme: dark){.pending{background:#0c2a30;color:#a5f3fc;border-color:#155e75}.pending .cd{color:#a5f3fc}}',
+      '.greet{display:none;position:relative;margin:0 0 10px;padding:10px 32px 10px 12px;border-radius:10px;background:linear-gradient(135deg,#eff6ff,#ecfeff);color:#0c4a6e;border:1px solid #bae6fd;font-size:12px;line-height:1.45}',
+      '.greet.show{display:block}',
+      '.greet b{font-weight:600;display:block;margin-bottom:2px}',
+      '.greet .gx{position:absolute;top:6px;right:8px;background:transparent;border:0;color:inherit;opacity:.6;cursor:pointer;font-size:14px;line-height:1;padding:2px 4px;border-radius:4px}',
+      '.greet .gx:hover{opacity:1;background:rgba(0,0,0,.06)}',
+      '@media (prefers-color-scheme: dark){.greet{background:linear-gradient(135deg,#0c2a30,#0e3a4a);color:#a5f3fc;border-color:#155e75}}',
     ].join('');
     shadow.appendChild(style);
 
@@ -124,6 +130,7 @@
     rootEl.setAttribute('role', 'dialog');
     rootEl.setAttribute('aria-label', 'Incoming call');
     rootEl.innerHTML = [
+      '<div class="greet" data-el="greet" role="status" aria-live="polite"><button class="gx" data-el="greet-x" type="button" aria-label="Dismiss">×</button><b data-el="greet-title">Need help?</b><span data-el="greet-body">Talk to our team in seconds.</span></div>',
       '<p class="title" data-el="title">Incoming call</p>',
       '<p class="sub" data-el="sub">Audio call from support</p>',
       '<div class="degraded" data-el="degraded">Audio-only mode (network limited)</div>',

@@ -12,7 +12,7 @@
  * new /api/callbacks operator endpoint.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Phone, Video, X, Loader2, CheckCircle2, Bell, Voicemail, AlertTriangle, Clock } from 'lucide-react';
+import { Phone, Video, X, Loader2, CheckCircle2, Bell, Voicemail, AlertTriangle, Clock, Globe, User, MessageSquare, CalendarClock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';

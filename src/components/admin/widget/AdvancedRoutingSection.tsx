@@ -47,8 +47,10 @@ export function AdvancedRoutingSection() {
             <Activity className="h-4 w-4" /> Advanced Routing
           </CardTitle>
           <CardDescription>
-            Global routing defaults. <strong className="text-foreground">These settings currently apply to all workspaces.</strong>{' '}
-            Order tried when no eligible department member is available:
+            <strong className="text-foreground">Platform-wide routing defaults.</strong>{' '}
+            These settings apply globally to every workspace on this install —
+            workspace owners do not see or override them. Fallback order when
+            no eligible department member is available:
             General Pool → Owner → Queue → Callback → Offline.
           </CardDescription>
         </CardHeader>

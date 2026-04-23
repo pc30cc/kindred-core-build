@@ -38,7 +38,6 @@ import KnowledgeBasePage from "@/pages/app/KnowledgeBasePage";
 import WidgetPage from "@/pages/app/WidgetPage";
 import AIPage from "@/pages/app/AIPage";
 import EmailPage from "@/pages/app/EmailPage";
-import TeamPage from "@/pages/app/TeamPage";
 import BillingPage from "@/pages/app/BillingPage";
 import SettingsGeneralPage from "@/pages/app/settings/GeneralPage";
 import SettingsIntegrationsPage from "@/pages/app/settings/IntegrationsPage";
@@ -53,8 +52,6 @@ import SettingsSecurityPage from "@/pages/app/settings/SecurityPage";
 import SettingsCannedResponsesPage from "@/pages/app/settings/CannedResponsesPage";
 import SettingsPrivacyPage from "@/pages/app/settings/PrivacyPage";
 import SettingsInterfacePage from "@/pages/app/settings/InterfacePage";
-import DepartmentsPage from "@/pages/app/settings/DepartmentsPage";
-import AccessProfilesPage from "@/pages/app/settings/AccessProfilesPage";
 import TeamDepartmentsPage from "@/pages/app/settings/TeamDepartmentsPage";
 import StaffAccessPage from "@/pages/app/settings/StaffAccessPage";
 import PrivacyRequestsPage from "@/pages/app/PrivacyRequestsPage";
@@ -196,9 +193,11 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                   <Route path="canned-responses" element={<SettingsCannedResponsesPage />} />
                   <Route path="privacy" element={<SettingsPrivacyPage />} />
                   <Route path="interface" element={<SettingsInterfacePage />} />
-                  <Route path="team" element={<TeamPage />} />
-                  <Route path="access-profiles" element={<AccessProfilesPage />} />
-                  <Route path="departments" element={<DepartmentsPage />} />
+                  {/* Legacy IA routes — redirect to the new Team & Departments
+                      / Staff Access surfaces so old bookmarks keep working. */}
+                  <Route path="team" element={<Navigate to="../team-departments" replace />} />
+                  <Route path="departments" element={<Navigate to="../team-departments" replace />} />
+                  <Route path="access-profiles" element={<Navigate to="../staff-access" replace />} />
                   <Route path="team-departments" element={<TeamDepartmentsPage />} />
                   <Route path="staff-access" element={<StaffAccessPage />} />
                   <Route path="privacy-requests" element={<PrivacyRequestsPage />} />
@@ -206,7 +205,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                   <Route path="ai" element={<AIPage />} />
                 </Route>
                 {/* Backwards-compat redirects: legacy URLs → settings */}
-                <Route path="team" element={<Navigate to="../settings/team" replace />} />
+                <Route path="team" element={<Navigate to="../settings/team-departments" replace />} />
                 <Route path="privacy-requests" element={<Navigate to="../settings/privacy-requests" replace />} />
                 <Route path="knowledge-base" element={<Navigate to="../settings/knowledge-base" replace />} />
                 <Route path="ai" element={<Navigate to="../settings/ai" replace />} />

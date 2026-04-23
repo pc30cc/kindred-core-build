@@ -729,7 +729,14 @@ function MemberDepartmentsDialog({
 
 /* Shared invite dialog (also used by Staff Access) */
 
-const CUSTOMER_INVITE_ROLES = ['agent', 'support_agent', 'sales_agent', 'team_lead'];
+/**
+ * Hardened default for customer-facing invites. Workspace owners never see or
+ * choose a role from Team & Departments — every customer-facing member is
+ * created with this single base operator role. Department membership is the
+ * only visible concept. Do not replace this with `roles[0]`-style indexing.
+ */
+export const DEFAULT_CUSTOMER_FACING_ROLE = 'agent' as const;
+
 const STAFF_INVITE_ROLES = ['admin', 'marketing_manager', 'seo_manager', 'analyst', 'developer', 'billing', 'viewer'];
 
 export function InviteMemberDialog({
@@ -743,12 +750,16 @@ export function InviteMemberDialog({
 }) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
-  // Customer-facing members all share the same base operator role. The
-  // raw role taxonomy is intentionally hidden from workspace owners — they
-  // only need to think in terms of "team members" and "departments".
-  const roles = mode === 'customer' ? CUSTOMER_INVITE_ROLES : STAFF_INVITE_ROLES;
+  // Customer-facing members all share one base operator role
+  // (DEFAULT_CUSTOMER_FACING_ROLE). The raw role taxonomy is intentionally
+  // hidden from workspace owners — they only think in terms of "team members"
+  // and "departments". Staff Access keeps the role selector because internal
+  // permission bundles are the correct mental model there.
+  const staffRoles = STAFF_INVITE_ROLES;
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState(roles[0]);
+  const [role, setRole] = useState<string>(
+    mode === 'customer' ? DEFAULT_CUSTOMER_FACING_ROLE : staffRoles[0],
+  );
   const [link, setLink] = useState('');
   const API_BASE = import.meta.env.VITE_API_BASE_URL;
 
@@ -820,7 +831,7 @@ export function InviteMemberDialog({
               <Select value={role} onValueChange={setRole}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {roles.map(r => (
+                  {staffRoles.map(r => (
                     <SelectItem key={r} value={r}>
                       {r.replace(/_/g, ' ')}
                     </SelectItem>
@@ -830,8 +841,9 @@ export function InviteMemberDialog({
             </div>
           ) : (
             <p className="text-[11px] text-muted-foreground rounded-md border border-border/60 bg-muted/30 px-3 py-2">
-              The new member will join as a customer-facing operator. Assign them
-              to one or more departments after they accept the invitation.
+              The new member joins as a customer-facing team member. Assign them
+              to one or more departments after they accept — anyone with no
+              department stays in the General Pool.
             </p>
           )}
           {link && (

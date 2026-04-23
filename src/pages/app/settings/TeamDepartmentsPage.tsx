@@ -569,7 +569,15 @@ function DeptMembersDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const { data: members = [] } = useWorkspaceMembers(workspaceId);
+  const { data: allWsMembers = [] } = useWorkspaceMembers(workspaceId);
+  // Departments are customer-facing routing buckets, so the picker only
+  // surfaces customer-facing members. Internal staff (billing, SEO,
+  // analytics, developer, marketing, viewer, admin) live on Staff Access
+  // and must never appear here.
+  const members = useMemo(
+    () => allWsMembers.filter((m) => isCustomerFacingRole(m.role)),
+    [allWsMembers],
+  );
   const { data: assigned = [] } = useQuery({
     queryKey: ['department-members', workspaceId, department.id],
     queryFn: () => listDepartmentMembers(workspaceId, department.id),
@@ -598,7 +606,7 @@ function DeptMembersDialog({
         <div className="space-y-2 max-h-[50vh] overflow-y-auto py-2">
           {members.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-6">
-              No workspace members yet.
+              No customer-facing team members yet. Invite one from Team & Departments.
             </p>
           ) : (
             members.map((m: any) => (
@@ -609,7 +617,6 @@ function DeptMembersDialog({
                   <div className="text-sm text-foreground truncate">{m.full_name || m.email}</div>
                   <div className="text-xs text-muted-foreground truncate">{m.email}</div>
                 </div>
-                <Badge variant="outline" className="text-[10px]">{m.role}</Badge>
               </label>
             ))
           )}

@@ -748,6 +748,12 @@
             notes: notes || undefined,
             queue_entry_id: opts.queue_entry_id || undefined,
             scheduled_for: scheduledForIso || undefined,
+            department_id: (function () {
+              try {
+                var d = (typeof window !== 'undefined') ? window.__gs_departments : null;
+                return d && d.getSelectedId ? (d.getSelectedId() || undefined) : undefined;
+              } catch (_) { return undefined; }
+            })(),
           }),
         }).then(function (r) {
           if (!r.ok) return r.json().catch(function () { return {}; }).then(function (b) {

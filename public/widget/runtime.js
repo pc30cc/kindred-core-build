@@ -3851,6 +3851,81 @@
     function renderLoading() {
       if (body) body.innerHTML = '<div class="empty"><p>' + Util.escapeHtml(t('loading')) + '</p></div>';
     }
+    // Phase 8H — Department gate. Returns true when the gate rendered
+    // (caller must NOT render any further body content for this pass).
+    // Resolves the channel-specific mode lazily; while in-flight shows
+    // a brief loading state and re-renders on completion.
+    function renderDepartmentGateIfNeeded(channel) {
+      var ch = channel === 'audio' || channel === 'video' ? channel : 'chat';
+      var s = departmentStore.get();
+      var resolution = s.modes && s.modes[ch];
+      if (!resolution) {
+        // Not yet resolved — kick fetch (no-op if already inflight) and
+        // show loading. When resolution arrives the subscriber re-renders.
+        renderLoading();
+        resolveDepartmentMode(ch);
+        return true;
+      }
+      // General mode → never gates anything.
+      if (resolution.mode === 'general') return false;
+      // Single mode → resolver auto-binds selectedId. No UI step needed.
+      if (resolution.mode === 'single') return false;
+      // Multi mode — show selector unless visitor already picked one.
+      if (s.selectedId) return false;
+      renderDepartmentPicker(channel, resolution);
+      return true;
+    }
+
+    var __DEPT_ICONS = {
+      chat:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>',
+      audio: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92Z"/></svg>',
+      video: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>',
+    };
+    function renderDepartmentPicker(channel, resolution) {
+      if (!body) return;
+      var depts = (resolution && resolution.visible_departments) || [];
+      var subtitleKey = channel === 'audio'
+        ? 'Choose who you would like to call'
+        : channel === 'video'
+          ? 'Choose who you would like to video call'
+          : 'Choose a team to chat with';
+      var html = '<div class="dept-picker" role="group" aria-label="Department selector">' +
+        '<h3 class="dept-picker__title">How can we help?</h3>' +
+        '<p class="dept-picker__subtitle">' + Util.escapeHtml(subtitleKey) + '</p>' +
+        '<div class="dept-picker__list">';
+      for (var i = 0; i < depts.length; i++) {
+        var d = depts[i];
+        if (!d || !d.id) continue;
+        var caps = d.capabilities || {};
+        var capHtml = '';
+        if (caps.chat) capHtml += '<span class="dept-option__cap" title="Chat" aria-label="Chat">' + __DEPT_ICONS.chat + '</span>';
+        if (caps.audio) capHtml += '<span class="dept-option__cap" title="Voice" aria-label="Voice">' + __DEPT_ICONS.audio + '</span>';
+        if (caps.video) capHtml += '<span class="dept-option__cap" title="Video" aria-label="Video">' + __DEPT_ICONS.video + '</span>';
+        html += '<button type="button" class="dept-option" data-dept-id="' + Util.escapeHtml(d.id) + '">' +
+          '<span class="dept-option__name">' + Util.escapeHtml(d.name || 'Team') + '</span>' +
+          '<span class="dept-option__caps" aria-hidden="true">' + capHtml + '</span>' +
+        '</button>';
+      }
+      html += '</div></div>';
+      body.innerHTML = html;
+      var btns = body.querySelectorAll('[data-dept-id]');
+      Array.prototype.forEach.call(btns, function (btn) {
+        btn.addEventListener('click', function () {
+          var id = btn.getAttribute('data-dept-id');
+          if (!id) return;
+          deptSelect(id, channel);
+          renderBody();
+        });
+      });
+      // Hide composer while picker is shown.
+      if (inputBar) inputBar.style.display = 'none';
+    }
+
+    // Re-render body when department state changes (mode resolves, or user
+    // selects). Only redraw if currently visible to avoid wasted paints.
+    departmentStore.subscribe(function () {
+      if (shellStore.get().isOpen) renderBody();
+    });
     function renderBody() {
       if (!body) return;
       var tab = shellStore.get().activeTab;

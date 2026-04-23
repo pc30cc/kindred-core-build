@@ -52,9 +52,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 
 /**
- * Customer-facing roles. The same role identifiers are still stored in
- * `workspace_members.role` — we just group them visually so this page only
- * surfaces the people who interact with visitors.
+ * Customer-facing roles are stored in `workspace_members.role` but are
+ * intentionally NOT exposed in this UI. Workspace owners think in terms of
+ * "team members" and "departments" — not raw role taxonomy. The base role
+ * (`agent`) is assigned silently when inviting from this page.
  */
 const CUSTOMER_FACING_ROLES = [
   'agent',
@@ -62,26 +63,6 @@ const CUSTOMER_FACING_ROLES = [
   'support_agent',
   'sales_agent',
 ] as const;
-
-const ROLE_BADGE: Record<string, string> = {
-  owner: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
-  team_lead: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-  agent: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
-  sales_agent: 'bg-violet-500/10 text-violet-400 border-violet-500/20',
-  support_agent: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20',
-};
-
-const ROLE_LABEL: Record<string, string> = {
-  team_lead: 'Team Lead',
-  agent: 'Agent',
-  support_agent: 'Support Agent',
-  sales_agent: 'Sales Agent',
-  owner: 'Owner',
-};
-
-function roleLabel(r: string) {
-  return ROLE_LABEL[r] ?? r;
-}
 
 export default function TeamDepartmentsPage() {
   const { user } = useAuth();
@@ -189,21 +170,6 @@ export default function TeamDepartmentsPage() {
   const [editDeptsFor, setEditDeptsFor] = useState<{ userId: string; name: string } | null>(null);
   const [showInvite, setShowInvite] = useState(false);
 
-  const updateMemberRole = useMutation({
-    mutationFn: async ({ memberId, newRole }: { memberId: string; newRole: string }) => {
-      const { error } = await supabase
-        .from('workspace_members')
-        .update({ role: newRole as any })
-        .eq('id', memberId);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      toast.success('Role updated');
-      qc.invalidateQueries({ queryKey: ['ws-members', wsId] });
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
   const removeMember = useMutation({
     mutationFn: async (memberId: string) => {
       const { error } = await supabase.from('workspace_members').delete().eq('id', memberId);
@@ -212,30 +178,6 @@ export default function TeamDepartmentsPage() {
     onSuccess: () => {
       toast.success('Member removed');
       qc.invalidateQueries({ queryKey: ['ws-members', wsId] });
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
-  /* ─── Advanced (collapsed) ─── */
-  const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [diagChannel, setDiagChannel] = useState<DepartmentChannel>('chat');
-  const { data: fallback } = useQuery({
-    queryKey: ['workspace-departments-fallback', wsId],
-    queryFn: () => getFallbackPolicy(wsId!),
-    enabled: !!wsId && advancedOpen,
-  });
-  const { data: diagnostics } = useQuery({
-    queryKey: ['workspace-departments-diag', wsId, diagChannel],
-    queryFn: () => getDepartmentDiagnostics(wsId!, diagChannel),
-    enabled: !!wsId && advancedOpen,
-    refetchInterval: advancedOpen ? 15_000 : false,
-  });
-  const updateFallback = useMutation({
-    mutationFn: (patch: Partial<NonNullable<typeof fallback>>) =>
-      updateFallbackPolicy(wsId!, patch as any),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['workspace-departments-fallback', wsId] });
-      qc.invalidateQueries({ queryKey: ['workspace-departments-diag', wsId] });
     },
     onError: (e: Error) => toast.error(e.message),
   });

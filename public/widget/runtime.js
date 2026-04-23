@@ -2282,7 +2282,17 @@
       }
 
       transport.sendMessage(
-        { text: text, conversationId: s.conversationId, attachmentId: attachmentId || null, departmentId: deps.getSelectedDepartmentId ? deps.getSelectedDepartmentId() : null },
+        {
+          text: text,
+          conversationId: s.conversationId,
+          attachmentId: attachmentId || null,
+          departmentId: (function () {
+            try {
+              var d = (typeof window !== 'undefined') ? window.__gs_departments : null;
+              return d && d.getSelectedId ? d.getSelectedId() : null;
+            } catch (_) { return null; }
+          })(),
+        },
         {
           onConversation: function (cid) {
             if (cid && cid !== chatStore.get().conversationId) {

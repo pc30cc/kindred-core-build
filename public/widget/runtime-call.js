@@ -187,7 +187,8 @@
   var callbackStatusChecked = false;
 
   function fmtRemaining(ms) {
-    if (ms <= 0) return '';
+    // Zero-state — show a positive cue instead of the raw "0 minutes" string.
+    if (ms <= 0) return 'You can request again';
     var totalSec = Math.ceil(ms / 1000);
     if (totalSec < 60) return 'You can request again in ' + totalSec + 's';
     var min = Math.ceil(totalSec / 60);
@@ -202,7 +203,9 @@
     function tick() {
       var remain = callbackCooldownUntilMs - Date.now();
       if (remain <= 0) {
-        cdEl.textContent = '';
+        // Stop the timer and switch to the friendly zero-state message
+        // (announced once via the aria-live region — no further updates).
+        cdEl.textContent = 'You can request again';
         if (callbackCooldownTimer) { clearInterval(callbackCooldownTimer); callbackCooldownTimer = null; }
         return;
       }
@@ -218,6 +221,9 @@
     var titleEl = rootEl.querySelector('[data-el="cb-pending-title"]');
     if (!pendingEl || !titleEl) return;
     titleEl.textContent = (opts && opts.message) || 'Callback pending';
+    // Combined accessible label so screen readers get one descriptive phrase
+    // rather than the raw countdown number when the region updates.
+    pendingEl.setAttribute('aria-label', titleEl.textContent + '. We will contact you soon.');
     pendingEl.classList.add('show');
     startCooldownTicker();
   }
@@ -225,8 +231,13 @@
   function hidePendingBadge() {
     if (!rootEl) return;
     var pendingEl = rootEl.querySelector('[data-el="cb-pending"]');
-    if (pendingEl) pendingEl.classList.remove('show');
+    if (pendingEl) {
+      pendingEl.classList.remove('show');
+      var cdEl = pendingEl.querySelector('[data-el="cb-pending-cd"]');
+      if (cdEl) cdEl.textContent = '';
+    }
     if (callbackCooldownTimer) { clearInterval(callbackCooldownTimer); callbackCooldownTimer = null; }
+    callbackCooldownUntilMs = 0;
   }
 
   // Phase 8D++ — Restore "pending" state across widget reopen.
@@ -242,7 +253,16 @@
         credentials: 'include',
         headers: { 'X-Widget-Token': ctx.token },
       }).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
-        if (!j || !j.has_open_callback) return;
+        // Treat any non-open status (completed/cancelled/missing) as "no
+        // pending callback" — clear the badge and reset local flags so the
+        // CTA can render normally next time.
+        var open = !!(j && j.has_open_callback &&
+          (j.status === 'requested' || j.status === 'scheduled' || j.status === 'in_progress'));
+        if (!open) {
+          callbackRequestedFlag = false;
+          hidePendingBadge();
+          return;
+        }
         callbackRequestedFlag = true;
         if (j.cooldown_until) {
           var t = new Date(j.cooldown_until).getTime();

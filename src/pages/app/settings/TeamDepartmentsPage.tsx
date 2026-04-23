@@ -445,8 +445,8 @@ export default function TeamDepartmentsPage() {
         <div className="flex items-start gap-3 text-sm">
           <ArrowRight className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
           <div className="text-muted-foreground">
-            <span className="text-foreground font-medium">Need to give billing, SEO, or analytics access?</span>{' '}
-            Manage internal staff and non-customer-facing permissions on{' '}
+            <span className="text-foreground font-medium">Need to grant billing, SEO, or analytics access?</span>{' '}
+            Manage internal access on{' '}
             <Link to={wsPath('/settings/staff-access')} className="text-primary hover:underline">
               Staff Access
             </Link>.

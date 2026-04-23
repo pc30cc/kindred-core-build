@@ -151,6 +151,39 @@ export default function TeamPage() {
     enabled: !!wsId,
   });
 
+  // Fetch all department names + per-user assignments to render the
+  // Departments column inline on the Team page.
+  const { data: deptsData } = useQuery({
+    queryKey: ['ws-departments-overview', wsId],
+    queryFn: async () => {
+      const [{ data: depts, error: e1 }, { data: assigns, error: e2 }] = await Promise.all([
+        supabase
+          .from('workspace_departments')
+          .select('id, name')
+          .eq('workspace_id', wsId!),
+        supabase
+          .from('workspace_department_members')
+          .select('user_id, department_id')
+          .eq('workspace_id', wsId!),
+      ]);
+      if (e1) throw e1;
+      if (e2) throw e2;
+      return { departments: depts ?? [], assignments: assigns ?? [] };
+    },
+    enabled: !!wsId,
+  });
+
+  const deptNameById = new Map<string, string>(
+    (deptsData?.departments ?? []).map((d: any) => [d.id, d.name]),
+  );
+  const deptsByUser = new Map<string, string[]>();
+  for (const a of deptsData?.assignments ?? []) {
+    const list = deptsByUser.get(a.user_id) ?? [];
+    const name = deptNameById.get(a.department_id);
+    if (name) list.push(name);
+    deptsByUser.set(a.user_id, list);
+  }
+
   // Generate invite
   const generateInvite = useMutation({
     mutationFn: async () => {

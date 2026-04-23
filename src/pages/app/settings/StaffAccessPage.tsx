@@ -179,11 +179,9 @@ export default function StaffAccessPage() {
             Staff Access
           </h1>
           <p className="mt-1 text-sm text-muted-foreground max-w-2xl">
-            Internal members who handle billing, SEO, analytics, marketing,
-            development, or workspace administration — but do{' '}
-            <span className="text-foreground font-medium">not</span>{' '}
-            answer customer chats or calls. For customer-facing team and
-            department routing, open{' '}
+            Internal access for people who don't handle visitor chats —
+            billing, SEO, analytics, marketing, developers, admins.
+            For customer-facing team and routing, see{' '}
             <Link to={wsPath('/settings/team-departments')} className="text-primary hover:underline">
               Team & Departments
             </Link>.
@@ -199,7 +197,7 @@ export default function StaffAccessPage() {
         <div className="border-b border-border/60 px-5 py-3">
           <h2 className="text-sm font-semibold text-foreground">Access types</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Each access type maps to an internal permission bundle.
+            Each access type bundles a set of internal permissions.
           </p>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4">
@@ -211,7 +209,7 @@ export default function StaffAccessPage() {
                   {ROLE_LABEL[role]}
                 </Badge>
                 <span className="text-[10px] text-muted-foreground">
-                  {staffMembers.filter((m: any) => m.role === role).length} member(s)
+                  {staffMembers.filter((m: any) => m.role === role).length} {staffMembers.filter((m: any) => m.role === role).length === 1 ? 'member' : 'members'}
                 </span>
               </div>
               <p className="text-xs text-muted-foreground">{ROLE_ACCESS_HINT[role]}</p>
@@ -226,7 +224,7 @@ export default function StaffAccessPage() {
           <div className="text-xs text-muted-foreground">
             {staffMembers.length} staff member{staffMembers.length === 1 ? '' : 's'}
           </div>
-          <div className="relative w-64">
+          <div className="relative w-full max-w-xs">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
               value={search}
@@ -240,9 +238,24 @@ export default function StaffAccessPage() {
         {isLoading ? (
           <div className="p-8 text-center"><Loader2 className="h-5 w-5 animate-spin mx-auto text-muted-foreground" /></div>
         ) : visible.length === 0 ? (
-          <p className="text-center text-sm text-muted-foreground py-12">
-            {search ? 'No staff member matches your search.' : 'No internal staff members yet. Invite someone to get started.'}
-          </p>
+          <div className="py-12 text-center">
+            {search ? (
+              <p className="text-sm text-muted-foreground">No staff member matches your search.</p>
+            ) : (
+              <>
+                <div className="mx-auto mb-4 w-12 h-12 rounded-full bg-muted/50 flex items-center justify-center">
+                  <Shield className="h-6 w-6 text-muted-foreground" />
+                </div>
+                <p className="font-medium text-foreground">No staff members yet</p>
+                <p className="text-sm text-muted-foreground mt-1.5 mb-5 max-w-sm mx-auto">
+                  Invite someone for billing, SEO, analytics, or admin work.
+                </p>
+                <Button variant="outline" onClick={() => setShowInvite(true)}>
+                  <UserPlus className="h-4 w-4 me-2" /> Invite staff
+                </Button>
+              </>
+            )}
+          </div>
         ) : (
           <div className="divide-y divide-border/60">
             {visible.map((m: any) => {

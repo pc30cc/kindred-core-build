@@ -601,6 +601,44 @@
       ctaBtn.onclick = openModal;
       cancelBtn.onclick = closeModal;
 
+      // Phase 8E — Schedule chip group (single-select, default = now).
+      var schedGroup = rootEl.querySelector('[data-el="cb-sched"]');
+      var customWrap = rootEl.querySelector('[data-el="cb-custom"]');
+      var customInput = rootEl.querySelector('[data-el="cb-custom-input"]');
+      var selectedSched = 'now';
+      function selectSched(key) {
+        selectedSched = key;
+        var chips = schedGroup.querySelectorAll('.cbchip');
+        for (var i = 0; i < chips.length; i++) {
+          chips[i].classList.toggle('selected', chips[i].getAttribute('data-sched') === key);
+        }
+        customWrap.classList.toggle('show', key === 'custom');
+      }
+      schedGroup.onclick = function (ev) {
+        var t = ev.target;
+        if (t && t.getAttribute && t.getAttribute('data-sched')) {
+          selectSched(t.getAttribute('data-sched'));
+        }
+      };
+      function resolveScheduledForIso() {
+        if (selectedSched === 'now') return null;
+        var ms = Date.now();
+        if (selectedSched === '30m') return new Date(ms + 30 * 60 * 1000).toISOString();
+        if (selectedSched === '1h') return new Date(ms + 60 * 60 * 1000).toISOString();
+        if (selectedSched === 'tomorrow') {
+          var d = new Date(); d.setDate(d.getDate() + 1); d.setHours(10, 0, 0, 0);
+          return d.toISOString();
+        }
+        if (selectedSched === 'custom') {
+          var v = (customInput.value || '').trim();
+          if (!v) return null;
+          var t = new Date(v).getTime();
+          if (isNaN(t) || t < Date.now() - 60_000) return null;
+          return new Date(t).toISOString();
+        }
+        return null;
+      }
+
       submitBtn.onclick = function () {
         // Client-side guards: in-flight + 3s debounce + post-success lock.
         var now = Date.now();
@@ -618,6 +656,12 @@
         var phone = (phoneInput.value || '').trim();
         var email = (emailInput.value || '').trim();
         var notes = (notesInput.value || '').trim();
+        var scheduledForIso = resolveScheduledForIso();
+        if (selectedSched === 'custom' && !scheduledForIso) {
+          errEl.textContent = 'Please pick a valid future time.';
+          errEl.classList.add('show');
+          return;
+        }
 
         isSubmittingCallback = true;
         submitBtn.disabled = true;
@@ -635,6 +679,7 @@
             contact_email: email || undefined,
             notes: notes || undefined,
             queue_entry_id: opts.queue_entry_id || undefined,
+            scheduled_for: scheduledForIso || undefined,
           }),
         }).then(function (r) {
           if (!r.ok) return r.json().catch(function () { return {}; }).then(function (b) {
@@ -652,7 +697,14 @@
           ctaBtn.disabled = true;
           ctaBtn.textContent = 'Callback requested';
           titleEl.textContent = 'Callback requested';
-          subEl.textContent = "We'll call you back shortly.";
+          if (scheduledForIso) {
+            try {
+              var when = new Date(scheduledForIso);
+              subEl.textContent = "We'll call you on " + when.toLocaleString();
+            } catch (_) { subEl.textContent = "We'll call you at the scheduled time."; }
+          } else {
+            subEl.textContent = "We'll call you back shortly.";
+          }
           showPendingBadge({ message: 'Callback pending' });
           // Keep the badge visible after auto-hide so reopen still shows status.
           setTimeout(function () { hide(); }, 3500);

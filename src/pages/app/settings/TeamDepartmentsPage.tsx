@@ -84,7 +84,6 @@ export default function TeamDepartmentsPage() {
 
   const invalidateDepts = () => {
     qc.invalidateQueries({ queryKey: ['workspace-departments', wsId] });
-    qc.invalidateQueries({ queryKey: ['workspace-departments-diag', wsId] });
     qc.invalidateQueries({ queryKey: ['ws-departments-overview', wsId] });
   };
 
@@ -744,6 +743,9 @@ export function InviteMemberDialog({
 }) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  // Customer-facing members all share the same base operator role. The
+  // raw role taxonomy is intentionally hidden from workspace owners — they
+  // only need to think in terms of "team members" and "departments".
   const roles = mode === 'customer' ? CUSTOMER_INVITE_ROLES : STAFF_INVITE_ROLES;
   const [email, setEmail] = useState('');
   const [role, setRole] = useState(roles[0]);
@@ -812,21 +814,26 @@ export function InviteMemberDialog({
               If provided, an invitation email is sent automatically.
             </p>
           </div>
-          <div>
-            <Label className="text-xs">
-              {mode === 'customer' ? 'Customer-facing role' : 'Internal access role'}
-            </Label>
-            <Select value={role} onValueChange={setRole}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {roles.map(r => (
-                  <SelectItem key={r} value={r}>
-                    {r.replace(/_/g, ' ')}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {mode === 'staff' ? (
+            <div>
+              <Label className="text-xs">Internal access role</Label>
+              <Select value={role} onValueChange={setRole}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {roles.map(r => (
+                    <SelectItem key={r} value={r}>
+                      {r.replace(/_/g, ' ')}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : (
+            <p className="text-[11px] text-muted-foreground rounded-md border border-border/60 bg-muted/30 px-3 py-2">
+              The new member will join as a customer-facing operator. Assign them
+              to one or more departments after they accept the invitation.
+            </p>
+          )}
           {link && (
             <div className="rounded-md border border-primary/30 bg-primary/5 p-3 space-y-1">
               <p className="text-xs text-foreground">Invitation link (copied to clipboard):</p>

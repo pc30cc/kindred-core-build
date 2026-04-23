@@ -595,14 +595,20 @@
             throw new Error(b.error || ('http_' + r.status));
           });
           return r.json();
-        }).then(function () {
+        }).then(function (resp) {
           callbackRequestedFlag = true;
+          // Derive cooldown window from server response when present.
+          var cdUntil = resp && resp.cooldown_until ? new Date(resp.cooldown_until).getTime() : 0;
+          if (!cdUntil || isNaN(cdUntil)) cdUntil = Date.now() + 10 * 60 * 1000;
+          callbackCooldownUntilMs = cdUntil;
           modalEl.style.display = 'none';
           ctaBtn.style.display = '';
           ctaBtn.disabled = true;
           ctaBtn.textContent = 'Callback requested';
           titleEl.textContent = 'Callback requested';
           subEl.textContent = "We'll call you back shortly.";
+          showPendingBadge({ message: 'Callback pending' });
+          // Keep the badge visible after auto-hide so reopen still shows status.
           setTimeout(function () { hide(); }, 3500);
         }).catch(function (err) {
           errEl.textContent = (err && err.message) ? ('Could not request callback: ' + err.message) : 'Could not request callback';

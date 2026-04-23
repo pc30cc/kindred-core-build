@@ -865,7 +865,7 @@ function MemberDepartmentsDialog({
   });
 
   const toggle = (id: string) => {
-    const next = new Set(sel);
+    const next = new Set<string>(sel);
     next.has(id) ? next.delete(id) : next.add(id);
     setDraft(next);
   };

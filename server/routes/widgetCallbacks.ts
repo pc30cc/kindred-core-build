@@ -70,8 +70,21 @@ widgetCallbacksRouter.post('/request', async (req, res) => {
     contact_email: z.string().email().optional(),
     notes: z.string().max(2000).optional(),
     queue_entry_id: z.string().uuid().optional(),
+    /** Phase 8E — optional ISO datetime. Must be in the future and within 30d. */
+    scheduled_for: z.string().datetime().optional(),
   }).safeParse(req.body || {});
   if (!parsed.success) return res.status(400).json({ error: 'invalid_body' });
+  // Validate scheduled_for window (UI-only safety; backend remains tolerant).
+  let scheduledForIso: string | null = null;
+  if (parsed.data.scheduled_for) {
+    const t = new Date(parsed.data.scheduled_for).getTime();
+    const now = Date.now();
+    const maxAhead = now + 30 * 24 * 60 * 60 * 1000; // 30 days
+    if (isNaN(t) || t < now - 60_000 || t > maxAhead) {
+      return res.status(400).json({ error: 'invalid_schedule_window' });
+    }
+    scheduledForIso = new Date(t).toISOString();
+  }
   try {
     const cb = await createCallbackRequest(config, {
       workspaceId,
@@ -81,6 +94,7 @@ widgetCallbacksRouter.post('/request', async (req, res) => {
       contactPhone: parsed.data.contact_phone ?? null,
       contactEmail: parsed.data.contact_email ?? null,
       notes: parsed.data.notes ?? null,
+      scheduledFor: scheduledForIso,
     });
     if (parsed.data.queue_entry_id) {
       await markEntryAsCallback(config, parsed.data.queue_entry_id, cb.id);

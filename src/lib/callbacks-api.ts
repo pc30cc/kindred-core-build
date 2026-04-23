@@ -28,6 +28,8 @@ export interface CallbackRow {
   metadata: Record<string, unknown>;
   requested_at: string;
   scheduled_at: string | null;
+  /** Phase 8E — visitor-chosen callback time. NULL = immediate. */
+  scheduled_for: string | null;
   completed_at: string | null;
   cancelled_at: string | null;
   handled_by: string | null;

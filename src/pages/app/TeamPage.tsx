@@ -793,3 +793,184 @@ function buildInviteEmailHtml(workspaceName: string, role: string, inviterEmail:
     </div>
   `;
 }
+
+/**
+ * Compact pill that summarises which departments a member belongs to.
+ * "General Pool" is shown when the member has no department assignment —
+ * matching the routing semantics in `server/services/calls/departments.ts`.
+ */
+function MemberDepartmentsCell({
+  deptNames,
+  onManage,
+}: {
+  deptNames: string[];
+  onManage: () => void;
+}) {
+  const summary =
+    deptNames.length === 0
+      ? 'General Pool'
+      : deptNames.length === 1
+        ? deptNames[0]
+        : `${deptNames[0]} +${deptNames.length - 1}`;
+  return (
+    <button
+      type="button"
+      onClick={onManage}
+      title={deptNames.length ? deptNames.join(', ') : 'Not assigned to any department — receives via General Pool'}
+      className="hidden md:inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-background/40 px-2.5 py-1 text-[10px] text-muted-foreground hover:text-foreground hover:border-border transition-colors max-w-[160px]"
+    >
+      <Building2 className="w-3 h-3 shrink-0" />
+      <span className="truncate">{summary}</span>
+    </button>
+  );
+}
+
+/**
+ * Inline dialog that lets owners/admins assign a member to zero, one, or
+ * multiple departments without leaving the Team page. Writes go through
+ * the same `workspace_department_members` table the Departments page uses,
+ * so cache invalidation, RLS, and routing semantics stay in sync.
+ */
+function MemberDepartmentsDialog({
+  workspaceId,
+  memberUserId,
+  memberName,
+  onClose,
+}: {
+  workspaceId: string;
+  memberUserId: string;
+  memberName: string;
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+
+  const { data: departments = [], isLoading: loadingDepts } = useQuery({
+    queryKey: ['ws-departments-list', workspaceId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('workspace_departments')
+        .select('id, name, enabled')
+        .eq('workspace_id', workspaceId)
+        .order('sort_order', { ascending: true });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  const { data: assignedIds = [], isLoading: loadingAssign } = useQuery({
+    queryKey: ['ws-department-member-assignments', workspaceId, memberUserId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('workspace_department_members')
+        .select('department_id')
+        .eq('workspace_id', workspaceId)
+        .eq('user_id', memberUserId);
+      if (error) throw error;
+      return (data ?? []).map((r: any) => r.department_id as string);
+    },
+  });
+
+  const [selected, setSelected] = useState<Set<string> | null>(null);
+  const sel = selected ?? new Set(assignedIds);
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const next = new Set(sel);
+      const prev = new Set(assignedIds);
+      const toAdd: string[] = [];
+      const toRemove: string[] = [];
+      for (const id of next) if (!prev.has(id)) toAdd.push(id);
+      for (const id of prev) if (!next.has(id)) toRemove.push(id);
+
+      if (toRemove.length > 0) {
+        const { error } = await supabase
+          .from('workspace_department_members')
+          .delete()
+          .eq('workspace_id', workspaceId)
+          .eq('user_id', memberUserId)
+          .in('department_id', toRemove);
+        if (error) throw error;
+      }
+      if (toAdd.length > 0) {
+        const rows = toAdd.map(department_id => ({
+          workspace_id: workspaceId,
+          user_id: memberUserId,
+          department_id,
+        }));
+        const { error } = await supabase
+          .from('workspace_department_members')
+          .insert(rows);
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      toast.success('Department assignments updated');
+      queryClient.invalidateQueries({ queryKey: ['ws-departments-overview', workspaceId] });
+      queryClient.invalidateQueries({ queryKey: ['ws-department-member-assignments', workspaceId, memberUserId] });
+      // Keep Departments page in sync.
+      queryClient.invalidateQueries({ queryKey: ['workspace-departments', workspaceId] });
+      queryClient.invalidateQueries({ queryKey: ['workspace-departments-diag', workspaceId] });
+      onClose();
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  function toggle(id: string) {
+    const next = new Set(sel);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelected(next);
+  }
+
+  const loading = loadingDepts || loadingAssign;
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Departments — {memberName}</DialogTitle>
+        </DialogHeader>
+        <p className="text-xs text-muted-foreground -mt-2 mb-1">
+          Choose zero or more departments. Members with no assignment stay
+          in the General Pool and receive routed conversations there.
+        </p>
+        <div className="max-h-[360px] overflow-y-auto py-2 space-y-1">
+          {loading ? (
+            <div className="flex items-center justify-center py-6">
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            </div>
+          ) : departments.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-6">
+              No departments yet. Create them in Departments settings.
+            </p>
+          ) : (
+            departments.map((d: any) => (
+              <label
+                key={d.id}
+                className="flex items-center gap-3 p-2 rounded hover:bg-accent/40 cursor-pointer"
+              >
+                <Checkbox
+                  checked={sel.has(d.id)}
+                  onCheckedChange={() => toggle(d.id)}
+                />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">{d.name}</p>
+                </div>
+                {!d.enabled && (
+                  <Badge variant="outline" className="text-[10px]">Disabled</Badge>
+                )}
+              </label>
+            ))
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button onClick={() => save.mutate()} disabled={save.isPending || loading}>
+            {save.isPending && <Loader2 className="h-4 w-4 me-2 animate-spin" />}
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

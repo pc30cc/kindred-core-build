@@ -25,8 +25,8 @@ import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   Building2, Plus, Trash2, Users, MessageSquare, Phone, Video,
-  Loader2, AlertCircle, CheckCircle2, Eye, UserPlus, Crown,
-  ChevronDown, ChevronRight, Mail, Search, Settings2, ArrowRight,
+  Loader2, UserPlus, Crown,
+  Mail, Search, Settings2, ArrowRight,
 } from 'lucide-react';
 
 import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
@@ -37,8 +37,7 @@ import { supabase } from '@/lib/supabase';
 import {
   listDepartments, createDepartment, updateDepartment, deleteDepartment,
   listDepartmentMembers, setDepartmentMembers,
-  getFallbackPolicy, updateFallbackPolicy, getDepartmentDiagnostics,
-  type Department, type DepartmentChannel,
+  type Department,
 } from '@/lib/workspace-departments-api';
 
 import { Card } from '@/components/ui/card';
@@ -51,7 +50,6 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
 
 /**
  * Customer-facing roles. The same role identifiers are still stored in

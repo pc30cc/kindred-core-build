@@ -90,13 +90,18 @@ export default function TeamPage() {
   const { workspace } = useActiveWorkspace();
   const queryClient = useQueryClient();
 
-  const [activeSection, setActiveSection] = useState<'members' | 'invitations' | 'roles'>('members');
+  const [activeSection, setActiveSection] = useState<'members' | 'invitations'>('members');
   const [inviteRole, setInviteRole] = useState('agent');
   const [inviteExpiration, setInviteExpiration] = useState<ExpirationOption>('30d');
   const [inviteCustomDate, setInviteCustomDate] = useState('');
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteLink, setInviteLink] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [editDeptsFor, setEditDeptsFor] = useState<{
+    memberId: string;
+    userId: string;
+    name: string;
+  } | null>(null);
 
   const wsId = workspace?.id;
 

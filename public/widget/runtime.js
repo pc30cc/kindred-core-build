@@ -2282,7 +2282,7 @@
       }
 
       transport.sendMessage(
-        { text: text, conversationId: s.conversationId, attachmentId: attachmentId || null },
+        { text: text, conversationId: s.conversationId, attachmentId: attachmentId || null, departmentId: deps.getSelectedDepartmentId ? deps.getSelectedDepartmentId() : null },
         {
           onConversation: function (cid) {
             if (cid && cid !== chatStore.get().conversationId) {

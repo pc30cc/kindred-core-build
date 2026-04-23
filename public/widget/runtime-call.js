@@ -494,6 +494,15 @@
       showIncoming({ call_id: slim.id, call_type: slim.call_type || 'audio' });
     },
     /**
+     * Phase 8D++ — Probe for an existing open callback for this visitor and
+     * render the persistent "Callback pending" badge if one exists. UI-only.
+     */
+    refreshCallbackStatus: function () {
+      callbackStatusChecked = false;
+      ensureShell();
+      checkCallbackStatus();
+    },
+    /**
      * Phase 8D — Show callback-request CTA. Used when queue is unavailable,
      * SLA exceeded, or no operator can take a live call. Reuses the visitor's
      * existing identity (token + workspace context). Never asks for a new form.

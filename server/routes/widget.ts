@@ -2267,6 +2267,8 @@ widgetRouter.post('/call-queue/enqueue', widgetRateLimit('message'), async (req:
     /** Phase 8E — optional page context for the operator preview card. */
     page_url: z.string().max(2048).optional(),
     page_title: z.string().max(512).optional(),
+    /** Phase 8H — optional department selected by widget. */
+    department_id: z.string().uuid().optional(),
   }).safeParse(req.body || {});
   if (!parsed.success) return res.status(400).json({ error: 'invalid_body' });
   try {
@@ -2279,6 +2281,7 @@ widgetRouter.post('/call-queue/enqueue', widgetRateLimit('message'), async (req:
       metadata: {
         page_url: parsed.data.page_url || null,
         page_title: parsed.data.page_title || null,
+        department_id: parsed.data.department_id || null,
       },
     });
     return res.json({ entry });

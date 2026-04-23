@@ -213,9 +213,9 @@ export default function TeamDepartmentsPage() {
             Team & Departments
           </h1>
           <p className="mt-1 text-sm text-muted-foreground max-w-2xl">
-            Manage the people who handle visitors and the departments that
-            decide where chats and calls get routed. Internal staff (billing,
-            SEO, analytics, developers) live on{' '}
+            People who handle visitor chats and calls, and the departments
+            that route them. For internal access (billing, SEO, analytics,
+            developers), see{' '}
             <Link to={wsPath('/settings/staff-access')} className="text-primary hover:underline">
               Staff Access
             </Link>.

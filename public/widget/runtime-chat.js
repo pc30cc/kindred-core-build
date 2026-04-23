@@ -41,6 +41,7 @@
       var conversationId = opts.conversationId || null;
       var attachmentId = opts.attachmentId || null;
       var text = opts.text;
+      var departmentId = opts.departmentId || null;
       var onReply = opts.onReply;
       var onConversation = opts.onConversation;
       // Phase 7 — receives { conversationId, messageId } once the backend
@@ -62,6 +63,7 @@
           conversation_id: conversationId || undefined,
           attachment_id: attachmentId || undefined,
           message: text,
+          department_id: departmentId || undefined,
         }),
       })
         .then(function (r) {

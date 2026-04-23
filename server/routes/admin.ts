@@ -17,6 +17,7 @@ import { adminAutoActionsRouter } from './adminAutoActions.js';
 import { adminReliabilityRouter } from './adminReliability.js';
 import { adminEnforcementRouter } from './adminEnforcement.js';
 import { adminCallsRouter } from './adminCalls.js';
+import { adminAdvancedRoutingRouter } from './adminAdvancedRouting.js';
 
 export const adminRouter = Router();
 
@@ -110,6 +111,10 @@ adminRouter.use('/enforcement', adminEnforcementRouter);
 
 // Phase 8A — Voice/Video control plane (super admin only).
 adminRouter.use('/calls', adminCallsRouter);
+
+// Global Advanced Routing — owner fallback / general-pool policy applied to
+// all workspaces. Lives inside super-admin Widget Settings UI.
+adminRouter.use('/advanced-routing', adminAdvancedRoutingRouter);
 
 // ─── Send Password Reset Link ────────────────────────────────────
 const resetLinkSchema = z.object({

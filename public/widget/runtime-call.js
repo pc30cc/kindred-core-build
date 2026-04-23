@@ -103,6 +103,12 @@
       '.cbnote{resize:vertical;min-height:48px;max-height:120px;font-family:inherit}',
       '.cberr{font-size:11px;color:#dc2626;margin-top:4px;display:none}',
       '.cberr.show{display:block}',
+      '.pending{display:none;margin-top:8px;padding:8px 10px;border-radius:8px;background:#ecfeff;color:#0e7490;border:1px solid #a5f3fc;font-size:12px;line-height:1.4}',
+      '.pending.show{display:block}',
+      '.pending .pdot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#0891b2;margin-right:6px;vertical-align:middle;animation:pulse 1.4s infinite}',
+      '.pending b{font-weight:600}',
+      '.pending .cd{display:block;margin-top:2px;font-size:11px;color:#0891b2;opacity:.85}',
+      '@media (prefers-color-scheme: dark){.pending{background:#0c2a30;color:#a5f3fc;border-color:#155e75}.pending .cd{color:#a5f3fc}}',
     ].join('');
     shadow.appendChild(style);
 
@@ -135,6 +141,7 @@
       '  <div class="cberr" data-el="cb-error"></div>',
       '  <div class="row" style="margin-top:10px"><button class="btn primary" data-el="cb-submit" type="button">Request callback</button><button class="btn ghost" data-el="cb-cancel" type="button">Cancel</button></div>',
       '</div>',
+      '<div class="pending" data-el="cb-pending"><span class="pdot"></span><b data-el="cb-pending-title">Callback pending</b><span class="cd" data-el="cb-pending-cd"></span></div>',
       '<p class="status" data-el="status"></p>',
     ].join('');
     shadow.appendChild(rootEl);
@@ -174,6 +181,77 @@
   var isSubmittingCallback = false;
   var lastCallbackSubmitTs = 0;
   var callbackRequestedFlag = false;
+  // Phase 8D++ — Cooldown + persistent pending state (UI-only).
+  var callbackCooldownUntilMs = 0;
+  var callbackCooldownTimer = null;
+  var callbackStatusChecked = false;
+
+  function fmtRemaining(ms) {
+    if (ms <= 0) return '';
+    var totalSec = Math.ceil(ms / 1000);
+    if (totalSec < 60) return 'You can request again in ' + totalSec + 's';
+    var min = Math.ceil(totalSec / 60);
+    return 'You can request again in ' + min + ' minute' + (min === 1 ? '' : 's');
+  }
+
+  function startCooldownTicker() {
+    if (callbackCooldownTimer) { clearInterval(callbackCooldownTimer); callbackCooldownTimer = null; }
+    if (!rootEl) return;
+    var cdEl = rootEl.querySelector('[data-el="cb-pending-cd"]');
+    if (!cdEl) return;
+    function tick() {
+      var remain = callbackCooldownUntilMs - Date.now();
+      if (remain <= 0) {
+        cdEl.textContent = '';
+        if (callbackCooldownTimer) { clearInterval(callbackCooldownTimer); callbackCooldownTimer = null; }
+        return;
+      }
+      cdEl.textContent = fmtRemaining(remain);
+    }
+    tick();
+    callbackCooldownTimer = setInterval(tick, 15000);
+  }
+
+  function showPendingBadge(opts) {
+    ensureShell();
+    var pendingEl = rootEl.querySelector('[data-el="cb-pending"]');
+    var titleEl = rootEl.querySelector('[data-el="cb-pending-title"]');
+    if (!pendingEl || !titleEl) return;
+    titleEl.textContent = (opts && opts.message) || 'Callback pending';
+    pendingEl.classList.add('show');
+    startCooldownTicker();
+  }
+
+  function hidePendingBadge() {
+    if (!rootEl) return;
+    var pendingEl = rootEl.querySelector('[data-el="cb-pending"]');
+    if (pendingEl) pendingEl.classList.remove('show');
+    if (callbackCooldownTimer) { clearInterval(callbackCooldownTimer); callbackCooldownTimer = null; }
+  }
+
+  // Phase 8D++ — Restore "pending" state across widget reopen.
+  // Workspace + visitor scoped via existing widget auth. Best-effort.
+  function checkCallbackStatus() {
+    if (callbackStatusChecked) return;
+    var ctx = getWidgetCtx();
+    if (!ctx.apiBase || !ctx.token) return;
+    callbackStatusChecked = true;
+    try {
+      fetch(ctx.apiBase + '/api/widget/callback/status', {
+        method: 'GET',
+        credentials: 'include',
+        headers: { 'X-Widget-Token': ctx.token },
+      }).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+        if (!j || !j.has_open_callback) return;
+        callbackRequestedFlag = true;
+        if (j.cooldown_until) {
+          var t = new Date(j.cooldown_until).getTime();
+          if (!isNaN(t)) callbackCooldownUntilMs = t;
+        }
+        showPendingBadge({ message: 'Callback pending' });
+      }).catch(function () {});
+    } catch (_) {}
+  }
 
   // Resolve widget context (workspace, apiBase, identity) from globals the
   // loader/runtime expose. Polling fallback uses these to fetch a visitor
@@ -416,6 +494,15 @@
       showIncoming({ call_id: slim.id, call_type: slim.call_type || 'audio' });
     },
     /**
+     * Phase 8D++ — Probe for an existing open callback for this visitor and
+     * render the persistent "Callback pending" badge if one exists. UI-only.
+     */
+    refreshCallbackStatus: function () {
+      callbackStatusChecked = false;
+      ensureShell();
+      checkCallbackStatus();
+    },
+    /**
      * Phase 8D — Show callback-request CTA. Used when queue is unavailable,
      * SLA exceeded, or no operator can take a live call. Reuses the visitor's
      * existing identity (token + workspace context). Never asks for a new form.
@@ -454,6 +541,11 @@
       errEl.classList.remove('show');
       ctaBtn.disabled = !!callbackRequestedFlag;
       ctaBtn.textContent = callbackRequestedFlag ? 'Callback requested' : 'Request callback';
+      // Best-effort: restore pending state if visitor already has one.
+      checkCallbackStatus();
+      if (callbackRequestedFlag) {
+        showPendingBadge({ message: 'Callback pending' });
+      }
       show();
 
       function openModal() {
@@ -512,14 +604,20 @@
             throw new Error(b.error || ('http_' + r.status));
           });
           return r.json();
-        }).then(function () {
+        }).then(function (resp) {
           callbackRequestedFlag = true;
+          // Derive cooldown window from server response when present.
+          var cdUntil = resp && resp.cooldown_until ? new Date(resp.cooldown_until).getTime() : 0;
+          if (!cdUntil || isNaN(cdUntil)) cdUntil = Date.now() + 10 * 60 * 1000;
+          callbackCooldownUntilMs = cdUntil;
           modalEl.style.display = 'none';
           ctaBtn.style.display = '';
           ctaBtn.disabled = true;
           ctaBtn.textContent = 'Callback requested';
           titleEl.textContent = 'Callback requested';
           subEl.textContent = "We'll call you back shortly.";
+          showPendingBadge({ message: 'Callback pending' });
+          // Keep the badge visible after auto-hide so reopen still shows status.
           setTimeout(function () { hide(); }, 3500);
         }).catch(function (err) {
           errEl.textContent = (err && err.message) ? ('Could not request callback: ' + err.message) : 'Could not request callback';

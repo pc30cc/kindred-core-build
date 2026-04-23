@@ -43,55 +43,68 @@ export function AdvancedRoutingSection() {
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Activity className="h-4 w-4" /> Advanced Routing
-          </CardTitle>
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Activity className="h-4 w-4 text-muted-foreground" /> Advanced Routing
+            </CardTitle>
+            <span className="text-[10px] uppercase tracking-wider rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-muted-foreground">
+              Global
+            </span>
+          </div>
           <CardDescription>
-            <strong className="text-foreground">Platform-wide routing defaults.</strong>{' '}
-            These settings apply globally to every workspace on this install —
-            workspace owners do not see or override them. Fallback order when
-            no eligible department member is available:
-            General Pool → Owner → Queue → Callback → Offline.
+            Platform-wide fallback defaults applied to every workspace on this
+            install. Workspace owners cannot see or override them.
+            Fallback order: General Pool → Owner → Queue → Callback → Offline.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="space-y-4">
           {isLoading || !policy ? (
             <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
           ) : (
-            <>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-foreground/80 uppercase tracking-wide">
+                  Owner fallback
+                </p>
               <ToggleRow
-                label="Enable owner fallback"
-                description="Route to the workspace owner when no eligible operator is available."
+                  label="Enable owner fallback"
+                  description="Route to the workspace owner when no eligible operator is available."
                 checked={policy.owner_fallback_enabled}
                 onChange={(v) => updateMut.mutate({ owner_fallback_enabled: v })}
               />
-              <div className="ms-6 space-y-2 opacity-95">
+                <div className="ms-4 ps-3 border-s border-border/50 space-y-2">
+                  <ToggleRow
+                    label="Owner answers chat"
+                    checked={policy.owner_fallback_for_chat}
+                    disabled={!policy.owner_fallback_enabled}
+                    onChange={(v) => updateMut.mutate({ owner_fallback_for_chat: v })}
+                  />
+                  <ToggleRow
+                    label="Owner answers audio calls"
+                    checked={policy.owner_fallback_for_audio}
+                    disabled={!policy.owner_fallback_enabled}
+                    onChange={(v) => updateMut.mutate({ owner_fallback_for_audio: v })}
+                  />
+                  <ToggleRow
+                    label="Owner answers video calls"
+                    checked={policy.owner_fallback_for_video}
+                    disabled={!policy.owner_fallback_enabled}
+                    onChange={(v) => updateMut.mutate({ owner_fallback_for_video: v })}
+                  />
+                </div>
+              </div>
+              <div className="space-y-2 pt-2 border-t border-border/40">
+                <p className="text-xs font-medium text-foreground/80 uppercase tracking-wide">
+                  General Pool
+                </p>
                 <ToggleRow
-                  label="Owner answers chat"
-                  checked={policy.owner_fallback_for_chat}
-                  disabled={!policy.owner_fallback_enabled}
-                  onChange={(v) => updateMut.mutate({ owner_fallback_for_chat: v })}
-                />
-                <ToggleRow
-                  label="Owner answers audio calls"
-                  checked={policy.owner_fallback_for_audio}
-                  disabled={!policy.owner_fallback_enabled}
-                  onChange={(v) => updateMut.mutate({ owner_fallback_for_audio: v })}
-                />
-                <ToggleRow
-                  label="Owner answers video calls"
-                  checked={policy.owner_fallback_for_video}
-                  disabled={!policy.owner_fallback_enabled}
-                  onChange={(v) => updateMut.mutate({ owner_fallback_for_video: v })}
+                  label="Use General Pool when no department selected"
+                  description="When a visitor doesn't pick a department, fall back to members not assigned to any department."
+                  checked={policy.general_pool_enabled}
+                  onChange={(v) => updateMut.mutate({ general_pool_enabled: v })}
                 />
               </div>
-              <ToggleRow
-                label="Use General Pool when no department selected"
-                description="When a visitor doesn't pick a department, fall back to members not assigned to any department."
-                checked={policy.general_pool_enabled}
-                onChange={(v) => updateMut.mutate({ general_pool_enabled: v })}
-              />
-            </>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -100,10 +113,9 @@ export function AdvancedRoutingSection() {
         <CardContent className="p-4 flex items-start gap-3 text-xs text-muted-foreground">
           <Info className="h-4 w-4 mt-0.5 shrink-0" />
           <div>
-            Stored under <code className="mx-1 px-1 rounded bg-muted text-foreground">app_runtime_config.global_advanced_routing</code>.
-            Workspace owners no longer see fallback policy in their normal Team &amp; Departments view —
-            it is managed here as a platform-wide default. Per-workspace fallback rows from older
-            installs are ignored by the routing engine.
+            These defaults apply to every workspace on this install. Stored under{' '}
+            <code className="mx-0.5 px-1 rounded bg-muted text-foreground">app_runtime_config.global_advanced_routing</code>.
+            Legacy per-workspace fallback rows are ignored by the routing engine.
           </div>
         </CardContent>
       </Card>

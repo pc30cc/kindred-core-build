@@ -213,9 +213,9 @@ export default function TeamDepartmentsPage() {
             Team & Departments
           </h1>
           <p className="mt-1 text-sm text-muted-foreground max-w-2xl">
-            Manage the people who handle visitors and the departments that
-            decide where chats and calls get routed. Internal staff (billing,
-            SEO, analytics, developers) live on{' '}
+            People who handle visitor chats and calls, and the departments
+            that route them. For internal access (billing, SEO, analytics,
+            developers), see{' '}
             <Link to={wsPath('/settings/staff-access')} className="text-primary hover:underline">
               Staff Access
             </Link>.
@@ -232,7 +232,7 @@ export default function TeamDepartmentsPage() {
               Departments
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Routing groups for visitors. Toggle channels per department.
+              Route visitors to the right team. Pick the channels each department handles.
             </p>
           </div>
           <Button onClick={() => setShowCreateDept(true)} size="sm">
@@ -244,15 +244,17 @@ export default function TeamDepartmentsPage() {
           {loadingDepts ? (
             <div className="p-8 text-center"><Loader2 className="h-5 w-5 animate-spin mx-auto text-muted-foreground" /></div>
           ) : departments.length === 0 ? (
-            <div className="p-10 text-center">
-              <Building2 className="h-10 w-10 mx-auto text-muted-foreground/50 mb-3" />
+            <div className="p-12 text-center">
+              <div className="mx-auto mb-4 w-12 h-12 rounded-full bg-muted/50 flex items-center justify-center">
+                <Building2 className="h-6 w-6 text-muted-foreground" />
+              </div>
               <p className="font-medium text-foreground">No departments yet</p>
-              <p className="text-sm text-muted-foreground mt-1 mb-4 max-w-sm mx-auto">
-                Your workspace works without departments — every conversation goes to the General Pool.
-                Add one only if you want to route by team.
+              <p className="text-sm text-muted-foreground mt-1.5 mb-5 max-w-sm mx-auto">
+                Without departments, every conversation goes to the General Pool.
+                Add one to route by team — Sales, Support, Billing.
               </p>
               <Button variant="outline" onClick={() => setShowCreateDept(true)}>
-                <Plus className="h-4 w-4 me-2" /> Create first department
+                <Plus className="h-4 w-4 me-2" /> New department
               </Button>
             </div>
           ) : (
@@ -304,8 +306,8 @@ export default function TeamDepartmentsPage() {
               Team members
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Customer-facing members. Assign departments inline. Members
-              with no department fall into the General Pool.
+              People who handle visitors. Assign departments inline — anyone
+              without one stays in the General Pool.
             </p>
           </div>
           <Button onClick={() => setShowInvite(true)} size="sm">
@@ -318,7 +320,7 @@ export default function TeamDepartmentsPage() {
             <div className="text-xs text-muted-foreground">
               {customerMembers.length} member{customerMembers.length === 1 ? '' : 's'}
             </div>
-            <div className="relative w-64">
+            <div className="relative w-full max-w-xs">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
                 value={search}
@@ -332,9 +334,24 @@ export default function TeamDepartmentsPage() {
           {loadingMembers ? (
             <div className="p-8 text-center"><Loader2 className="h-5 w-5 animate-spin mx-auto text-muted-foreground" /></div>
           ) : visibleMembers.length === 0 ? (
-            <p className="text-center text-sm text-muted-foreground py-12">
-              {search ? 'No members match your search.' : 'No customer-facing members yet.'}
-            </p>
+            <div className="py-12 text-center">
+              {search ? (
+                <p className="text-sm text-muted-foreground">No members match your search.</p>
+              ) : (
+                <>
+                  <div className="mx-auto mb-4 w-12 h-12 rounded-full bg-muted/50 flex items-center justify-center">
+                    <UserPlus className="h-6 w-6 text-muted-foreground" />
+                  </div>
+                  <p className="font-medium text-foreground">No team members yet</p>
+                  <p className="text-sm text-muted-foreground mt-1.5 mb-5 max-w-sm mx-auto">
+                    Invite the first person who will handle visitor chats and calls.
+                  </p>
+                  <Button variant="outline" onClick={() => setShowInvite(true)}>
+                    <UserPlus className="h-4 w-4 me-2" /> Invite member
+                  </Button>
+                </>
+              )}
+            </div>
           ) : (
             <div className="divide-y divide-border/60">
               {visibleMembers.map((m: any) => {
@@ -428,8 +445,8 @@ export default function TeamDepartmentsPage() {
         <div className="flex items-start gap-3 text-sm">
           <ArrowRight className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
           <div className="text-muted-foreground">
-            <span className="text-foreground font-medium">Need to give billing, SEO, or analytics access?</span>{' '}
-            Manage internal staff and non-customer-facing permissions on{' '}
+            <span className="text-foreground font-medium">Need to grant billing, SEO, or analytics access?</span>{' '}
+            Manage internal access on{' '}
             <Link to={wsPath('/settings/staff-access')} className="text-primary hover:underline">
               Staff Access
             </Link>.
@@ -521,25 +538,26 @@ function DepartmentDialog({
         <DialogHeader>
           <DialogTitle>{mode === 'create' ? 'New department' : 'Edit department'}</DialogTitle>
         </DialogHeader>
-        <div className="space-y-4 py-2">
-          <div>
-            <Label>Name</Label>
+        <div className="space-y-5 py-2">
+          <div className="space-y-1.5">
+            <Label className="text-xs">Name</Label>
             <Input
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               placeholder="e.g. Sales, Support, Billing"
             />
           </div>
-          <div>
-            <Label>Sort order</Label>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Sort order</Label>
             <Input
               type="number"
               value={form.sort_order}
               onChange={(e) => setForm({ ...form, sort_order: Number(e.target.value) || 0 })}
             />
+            <p className="text-[11px] text-muted-foreground">Lower numbers appear first.</p>
           </div>
-          <div className="space-y-2">
-            <Label>Channels</Label>
+          <div className="space-y-2.5 rounded-md border border-border/60 bg-muted/20 p-3">
+            <Label className="text-xs uppercase tracking-wide text-muted-foreground">Channels</Label>
             <ToggleRow label="Chat" checked={form.chat_enabled}
               onChange={(v) => setForm({ ...form, chat_enabled: v })} />
             <ToggleRow label="Audio calls" checked={form.audio_enabled}
@@ -547,8 +565,10 @@ function DepartmentDialog({
             <ToggleRow label="Video calls" checked={form.video_enabled}
               onChange={(v) => setForm({ ...form, video_enabled: v })} />
           </div>
-          <ToggleRow label="Enabled" checked={form.enabled}
-            onChange={(v) => setForm({ ...form, enabled: v })} />
+          <div className="rounded-md border border-border/60 p-3">
+            <ToggleRow label="Department enabled" checked={form.enabled}
+              onChange={(v) => setForm({ ...form, enabled: v })} />
+          </div>
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
@@ -601,13 +621,20 @@ function DeptMembersDialog({
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Members of {department.name}</DialogTitle>
+          <DialogTitle>{department.name} — members</DialogTitle>
         </DialogHeader>
-        <div className="space-y-2 max-h-[50vh] overflow-y-auto py-2">
+        <p className="text-xs text-muted-foreground -mt-2">
+          Pick the team members who handle this department.
+        </p>
+        <div className="space-y-1 max-h-[50vh] overflow-y-auto py-2">
           {members.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-6">
-              No customer-facing team members yet. Invite one from Team & Departments.
-            </p>
+            <div className="text-center py-8">
+              <Users className="h-8 w-8 mx-auto text-muted-foreground/50 mb-2" />
+              <p className="text-sm font-medium text-foreground">No team members yet</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Invite one from Team members above.
+              </p>
+            </div>
           ) : (
             members.map((m: any) => (
               <label key={m.user_id}
@@ -712,13 +739,17 @@ function MemberDepartmentsDialog({
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Departments for {memberName}</DialogTitle>
+          <DialogTitle>Assign departments — {memberName}</DialogTitle>
         </DialogHeader>
         <div className="space-y-1 max-h-[50vh] overflow-y-auto py-2">
           {departments.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-6">
-              No departments exist yet. Create one above to assign members.
-            </p>
+            <div className="text-center py-8">
+              <Building2 className="h-8 w-8 mx-auto text-muted-foreground/50 mb-2" />
+              <p className="text-sm font-medium text-foreground">No departments yet</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Create one from Departments above to assign members.
+              </p>
+            </div>
           ) : (
             departments.map((d: any) => (
               <label key={d.id}
@@ -727,7 +758,7 @@ function MemberDepartmentsDialog({
                 <div className="flex-1 min-w-0">
                   <div className="text-sm text-foreground truncate">{d.name}</div>
                   {!d.enabled && (
-                    <div className="text-[10px] text-muted-foreground">Disabled</div>
+                    <div className="text-[10px] text-muted-foreground mt-0.5">Disabled</div>
                   )}
                 </div>
               </label>
@@ -735,7 +766,7 @@ function MemberDepartmentsDialog({
           )}
         </div>
         <p className="text-xs text-muted-foreground border-t border-border/60 pt-3">
-          A member with no departments stays in the General Pool.
+          With no departments selected, this member stays in the General Pool.
         </p>
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
@@ -832,23 +863,23 @@ export function InviteMemberDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            {mode === 'customer' ? 'Invite team member' : 'Invite staff'}
+            {mode === 'customer' ? 'Invite team member' : 'Invite staff member'}
           </DialogTitle>
         </DialogHeader>
-        <div className="space-y-4 py-2">
-          <div>
+        <div className="space-y-5 py-2">
+          <div className="space-y-1.5">
             <Label className="text-xs">Email (optional)</Label>
             <Input type="email" value={email} dir="ltr"
               onChange={(e) => setEmail(e.target.value)}
               placeholder="user@example.com"
               className="text-left text-xs" />
-            <p className="text-[10px] text-muted-foreground mt-1">
-              If provided, an invitation email is sent automatically.
+            <p className="text-[11px] text-muted-foreground">
+              If provided, we'll email the invitation automatically.
             </p>
           </div>
           {mode === 'staff' ? (
-            <div>
-              <Label className="text-xs">Internal access role</Label>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Internal access</Label>
               <Select value={role} onValueChange={setRole}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -861,15 +892,14 @@ export function InviteMemberDialog({
               </Select>
             </div>
           ) : (
-            <p className="text-[11px] text-muted-foreground rounded-md border border-border/60 bg-muted/30 px-3 py-2">
-              The new member joins as a customer-facing team member. Assign them
-              to one or more departments after they accept — anyone with no
-              department stays in the General Pool.
-            </p>
+            <div className="rounded-md border border-border/60 bg-muted/30 px-3 py-2.5 text-[11px] text-muted-foreground leading-relaxed">
+              Joins as a team member who handles visitor chats and calls.
+              Assign departments after they accept — without one, they stay in the General Pool.
+            </div>
           )}
           {link && (
-            <div className="rounded-md border border-primary/30 bg-primary/5 p-3 space-y-1">
-              <p className="text-xs text-foreground">Invitation link (copied to clipboard):</p>
+            <div className="rounded-md border border-primary/30 bg-primary/5 p-3 space-y-1.5">
+              <p className="text-xs font-medium text-foreground">Invitation link (copied to clipboard)</p>
               <Input value={link} readOnly dir="ltr" className="font-mono text-[11px]" />
             </div>
           )}
@@ -880,7 +910,7 @@ export function InviteMemberDialog({
             {create.isPending
               ? <Loader2 className="h-4 w-4 me-2 animate-spin" />
               : <Mail className="h-4 w-4 me-2" />}
-            Generate invite
+            {link ? 'Generate another' : 'Generate invite'}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -863,23 +863,23 @@ export function InviteMemberDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            {mode === 'customer' ? 'Invite team member' : 'Invite staff'}
+            {mode === 'customer' ? 'Invite team member' : 'Invite staff member'}
           </DialogTitle>
         </DialogHeader>
-        <div className="space-y-4 py-2">
-          <div>
+        <div className="space-y-5 py-2">
+          <div className="space-y-1.5">
             <Label className="text-xs">Email (optional)</Label>
             <Input type="email" value={email} dir="ltr"
               onChange={(e) => setEmail(e.target.value)}
               placeholder="user@example.com"
               className="text-left text-xs" />
-            <p className="text-[10px] text-muted-foreground mt-1">
-              If provided, an invitation email is sent automatically.
+            <p className="text-[11px] text-muted-foreground">
+              If provided, we'll email the invitation automatically.
             </p>
           </div>
           {mode === 'staff' ? (
-            <div>
-              <Label className="text-xs">Internal access role</Label>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Internal access</Label>
               <Select value={role} onValueChange={setRole}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -892,15 +892,14 @@ export function InviteMemberDialog({
               </Select>
             </div>
           ) : (
-            <p className="text-[11px] text-muted-foreground rounded-md border border-border/60 bg-muted/30 px-3 py-2">
-              The new member joins as a customer-facing team member. Assign them
-              to one or more departments after they accept — anyone with no
-              department stays in the General Pool.
-            </p>
+            <div className="rounded-md border border-border/60 bg-muted/30 px-3 py-2.5 text-[11px] text-muted-foreground leading-relaxed">
+              Joins as a team member who handles visitor chats and calls.
+              Assign departments after they accept — without one, they stay in the General Pool.
+            </div>
           )}
           {link && (
-            <div className="rounded-md border border-primary/30 bg-primary/5 p-3 space-y-1">
-              <p className="text-xs text-foreground">Invitation link (copied to clipboard):</p>
+            <div className="rounded-md border border-primary/30 bg-primary/5 p-3 space-y-1.5">
+              <p className="text-xs font-medium text-foreground">Invitation link (copied to clipboard)</p>
               <Input value={link} readOnly dir="ltr" className="font-mono text-[11px]" />
             </div>
           )}
@@ -911,7 +910,7 @@ export function InviteMemberDialog({
             {create.isPending
               ? <Loader2 className="h-4 w-4 me-2 animate-spin" />
               : <Mail className="h-4 w-4 me-2" />}
-            Generate invite
+            {link ? 'Generate another' : 'Generate invite'}
           </Button>
         </DialogFooter>
       </DialogContent>

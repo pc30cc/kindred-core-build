@@ -875,8 +875,8 @@ function MemberDepartmentsDialog({
 
   const save = useMutation({
     mutationFn: async () => {
-      const next = new Set(sel);
-      const prev = new Set(assignedIds);
+      const next = new Set<string>(sel);
+      const prev = new Set<string>(assignedIds as string[]);
       const toAdd: string[] = [];
       const toRemove: string[] = [];
       for (const id of next) if (!prev.has(id)) toAdd.push(id);

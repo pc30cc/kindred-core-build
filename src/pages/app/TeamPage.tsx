@@ -8,6 +8,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from '@/components/ui/dialog';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useTranslation } from '@/i18n';
@@ -17,7 +21,7 @@ import { toast } from 'sonner';
 import {
   Users, UserPlus, Shield, Loader2, Copy, Trash2,
   Crown, MoreHorizontal, Mail, Clock, Search, UserCog,
-  Ban, RotateCcw, CheckCircle2,
+  Ban, RotateCcw, CheckCircle2, Building2,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';

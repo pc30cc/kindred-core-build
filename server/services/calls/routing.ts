@@ -28,6 +28,7 @@ import { getServiceClient } from '../../supabase.js';
 import { loadCallControlPlane, loadEffectiveCallChannels } from './controlPlane.js';
 import { resolveRolePermissions, type RoleSlug } from './permissions.js';
 import { listWorkspaceAvailability, isEligible } from './availability.js';
+import { resolveRoutingCandidates } from './departments.js';
 
 export type RoutingChannel = 'audio' | 'video';
 
@@ -48,6 +49,7 @@ export async function resolveEligibleOperatorsForCall(
   config: ServerConfig,
   workspaceId: string,
   channel: RoutingChannel,
+  departmentId?: string | null,
 ): Promise<EligibleOperator[]> {
   const sb = getServiceClient(config);
   const { data: members } = await sb
@@ -59,10 +61,22 @@ export async function resolveEligibleOperatorsForCall(
   const availability = await listWorkspaceAvailability(config, workspaceId);
   const availMap = new Map(availability.map((a) => [a.user_id, a]));
 
+  // Optional department narrowing. When departmentId is omitted the
+  // candidate pool is the General Pool (or all members if empty), which
+  // preserves pre-Phase-8H behavior for workspaces without departments.
+  const candidates = await resolveRoutingCandidates(
+    config,
+    workspaceId,
+    channel,
+    departmentId ?? null,
+  );
+  const candidateSet = new Set(candidates.user_ids);
+
   const out: EligibleOperator[] = [];
   // Resolve permissions per distinct role to avoid N+1.
   const perRole = new Map<string, Awaited<ReturnType<typeof resolveRolePermissions>>>();
   for (const m of members) {
+    if (!candidateSet.has(m.user_id)) continue;
     const role = (m.role || 'viewer') as RoleSlug;
     if (!perRole.has(role)) {
       perRole.set(role, await resolveRolePermissions(config, workspaceId, role));
@@ -90,6 +104,7 @@ export async function resolveCallRoutingTarget(
   config: ServerConfig,
   workspaceId: string,
   channel: RoutingChannel,
+  departmentId?: string | null,
 ): Promise<RoutingDecision> {
   const channels = await loadEffectiveCallChannels(config, workspaceId);
   if (channel === 'audio' && !channels.visitor_initiated_audio) {
@@ -99,7 +114,13 @@ export async function resolveCallRoutingTarget(
     return { kind: 'unavailable', reason: 'video_disabled' };
   }
 
-  const eligible = await resolveEligibleOperatorsForCall(config, workspaceId, channel);
+  // 1) Try department-scoped pool when provided.
+  let eligible = await resolveEligibleOperatorsForCall(config, workspaceId, channel, departmentId ?? null);
+  // 2) Fallback: if a department was given but no one is available, retry
+  //    against the General Pool. This guarantees no routing dead-ends.
+  if (eligible.length === 0 && departmentId) {
+    eligible = await resolveEligibleOperatorsForCall(config, workspaceId, channel, null);
+  }
   if (eligible.length > 0) {
     return { kind: 'direct', operator_id: eligible[0].user_id };
   }
@@ -121,8 +142,14 @@ export async function pickOperatorForOffer(
   workspaceId: string,
   channel: RoutingChannel,
   excludeUserIds: string[] = [],
+  departmentId?: string | null,
 ): Promise<string | null> {
-  const eligible = await resolveEligibleOperatorsForCall(config, workspaceId, channel);
-  const next = eligible.find((e) => !excludeUserIds.includes(e.user_id));
+  let eligible = await resolveEligibleOperatorsForCall(config, workspaceId, channel, departmentId ?? null);
+  let next = eligible.find((e) => !excludeUserIds.includes(e.user_id));
+  if (!next && departmentId) {
+    // Fallback to General Pool to avoid stranded queue entries.
+    eligible = await resolveEligibleOperatorsForCall(config, workspaceId, channel, null);
+    next = eligible.find((e) => !excludeUserIds.includes(e.user_id));
+  }
   return next?.user_id ?? null;
 }

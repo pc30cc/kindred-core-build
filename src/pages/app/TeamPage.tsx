@@ -871,7 +871,7 @@ function MemberDepartmentsDialog({
   });
 
   const [selected, setSelected] = useState<Set<string> | null>(null);
-  const sel = selected ?? new Set(assignedIds);
+  const sel: Set<string> = selected ?? new Set<string>(assignedIds);
 
   const save = useMutation({
     mutationFn: async () => {

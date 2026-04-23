@@ -3907,6 +3907,32 @@
     function renderCallChannel(channel) {
       if (!body) return;
       if (!identityStore.get().loaded) { renderLoading(); return; }
+      // Phase 8H — department gate for the requested channel. If multi
+      // mode and no selection → render selector; on pick we re-render.
+      if (renderDepartmentGateIfNeeded(channel)) return;
+      // Capability filter — if a department is selected but does not
+      // support this channel, surface a clear "not available" message
+      // instead of a dead-end button.
+      var __caps = deptChannelCaps();
+      if (departmentStore.get().selectedId && !__caps[channel]) {
+        body.innerHTML = '<div class="call-panel" data-call-panel>' +
+          '<div class="call-title">' + Util.escapeHtml(t('callUnavailable')) + '</div>' +
+          '<div class="call-msg">' + Util.escapeHtml(channel === 'video' ? 'Video is not offered by this team.' : 'Voice is not offered by this team.') + '</div>' +
+          (chatEnabled ? '<button type="button" class="call-link" data-call-action="switch-chat">' + Util.escapeHtml(t('callSwitchToChat')) + '</button>' : '') +
+          '</div>';
+        var sw = body.querySelector('[data-call-action="switch-chat"]');
+        if (sw) sw.addEventListener('click', function () {
+          shellStore.set({ activeTab: 'chat' });
+          try {
+            var allTabs = panel.querySelectorAll('.tab');
+            Array.prototype.forEach.call(allTabs, function (t2) {
+              t2.classList.toggle('active', t2.getAttribute('data-tab') === 'chat');
+            });
+          } catch (_) {}
+          renderBody();
+        });
+        return;
+      }
       // Identity gate — share the existing pre-chat flow.
       if (identity.needsPrechat()) {
         chatUI.renderPreChat(body, identity, ctx.locale, function () {

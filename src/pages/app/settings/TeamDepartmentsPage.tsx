@@ -56,13 +56,29 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
  * intentionally NOT exposed in this UI. Workspace owners think in terms of
  * "team members" and "departments" — not raw role taxonomy. The base role
  * (`agent`) is assigned silently when inviting from this page.
+ *
+ * Legacy role values (`team_lead`, `support_agent`, `sales_agent`) are
+ * normalized to a single "customer-facing" pool for UI purposes — the owner
+ * sees them as plain team members regardless of the historical role string
+ * stored in the database.
  */
-const CUSTOMER_FACING_ROLES = [
+export const CUSTOMER_FACING_ROLES = [
   'agent',
   'team_lead',
   'support_agent',
   'sales_agent',
 ] as const;
+
+/**
+ * UI-only predicate. Owner is always treated as customer-facing because they
+ * can answer chats/calls. All legacy customer-facing role values collapse
+ * into this one bucket so the UX stays unified.
+ */
+export function isCustomerFacingRole(role: string | null | undefined): boolean {
+  if (!role) return false;
+  if (role === 'owner') return true;
+  return (CUSTOMER_FACING_ROLES as readonly string[]).includes(role);
+}
 
 export default function TeamDepartmentsPage() {
   const { user } = useAuth();
@@ -124,9 +140,7 @@ export default function TeamDepartmentsPage() {
   });
 
   const customerMembers = useMemo(
-    () => allMembers.filter((m: any) =>
-      m.role === 'owner' || (CUSTOMER_FACING_ROLES as readonly string[]).includes(m.role),
-    ),
+    () => allMembers.filter((m: any) => isCustomerFacingRole(m.role)),
     [allMembers],
   );
 
@@ -555,7 +569,15 @@ function DeptMembersDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const { data: members = [] } = useWorkspaceMembers(workspaceId);
+  const { data: allWsMembers = [] } = useWorkspaceMembers(workspaceId);
+  // Departments are customer-facing routing buckets, so the picker only
+  // surfaces customer-facing members. Internal staff (billing, SEO,
+  // analytics, developer, marketing, viewer, admin) live on Staff Access
+  // and must never appear here.
+  const members = useMemo(
+    () => allWsMembers.filter((m) => isCustomerFacingRole(m.role)),
+    [allWsMembers],
+  );
   const { data: assigned = [] } = useQuery({
     queryKey: ['department-members', workspaceId, department.id],
     queryFn: () => listDepartmentMembers(workspaceId, department.id),
@@ -584,7 +606,7 @@ function DeptMembersDialog({
         <div className="space-y-2 max-h-[50vh] overflow-y-auto py-2">
           {members.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-6">
-              No workspace members yet.
+              No customer-facing team members yet. Invite one from Team & Departments.
             </p>
           ) : (
             members.map((m: any) => (
@@ -595,7 +617,6 @@ function DeptMembersDialog({
                   <div className="text-sm text-foreground truncate">{m.full_name || m.email}</div>
                   <div className="text-xs text-muted-foreground truncate">{m.email}</div>
                 </div>
-                <Badge variant="outline" className="text-[10px]">{m.role}</Badge>
               </label>
             ))
           )}

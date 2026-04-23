@@ -7,7 +7,7 @@ import {
   User, CreditCard, Settings, MessageSquare, Inbox, Mail,
   BookOpen, BarChart3, ChevronDown, ChevronLeft, ChevronRight,
   Globe, Palette, Languages, Plug, Shield, Users,
-  MessageCircleReply, ShieldCheck, Monitor, Bot,
+  MessageCircleReply, ShieldCheck, Monitor, Bot, UserCog,
 } from 'lucide-react';
 
 interface SettingsGroup {
@@ -40,10 +40,14 @@ const settingsGroupsDef: SettingsGroup[] = [
       { key: 'integrations', label: 'Setup & Integrations', subPath: '/settings/integrations' },
       { key: 'branding', label: 'Branding', subPath: '/settings/branding' },
       { key: 'domains', label: 'Domains', subPath: '/settings/domains' },
-      { key: 'team', label: 'Team', subPath: '/settings/team' },
-      { key: 'accessProfiles', label: 'Access Profiles', subPath: '/settings/access-profiles' },
-      { key: 'departments', label: 'Departments', subPath: '/settings/departments' },
       { key: 'privacyRequests', label: 'Privacy Requests', subPath: '/settings/privacy-requests' },
+    ],
+  },
+  {
+    key: 'people', label: 'People & Access', icon: Users,
+    items: [
+      { key: 'teamDepartments', label: 'Team & Departments', subPath: '/settings/team-departments' },
+      { key: 'staffAccess', label: 'Staff Access', subPath: '/settings/staff-access' },
     ],
   },
   {

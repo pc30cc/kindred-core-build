@@ -4248,6 +4248,92 @@ export type Database = {
           },
         ]
       }
+      workspace_department_members: {
+        Row: {
+          created_at: string
+          department_id: string
+          id: string
+          user_id: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          department_id: string
+          id?: string
+          user_id: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          department_id?: string
+          id?: string
+          user_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workspace_department_members_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "workspace_departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workspace_department_members_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workspace_departments: {
+        Row: {
+          audio_enabled: boolean
+          chat_enabled: boolean
+          created_at: string
+          enabled: boolean
+          id: string
+          name: string
+          sort_order: number
+          updated_at: string
+          video_enabled: boolean
+          workspace_id: string
+        }
+        Insert: {
+          audio_enabled?: boolean
+          chat_enabled?: boolean
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          name: string
+          sort_order?: number
+          updated_at?: string
+          video_enabled?: boolean
+          workspace_id: string
+        }
+        Update: {
+          audio_enabled?: boolean
+          chat_enabled?: boolean
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          name?: string
+          sort_order?: number
+          updated_at?: string
+          video_enabled?: boolean
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workspace_departments_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       workspace_domains: {
         Row: {
           created_at: string | null

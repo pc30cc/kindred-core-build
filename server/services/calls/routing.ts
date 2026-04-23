@@ -28,7 +28,12 @@ import { getServiceClient } from '../../supabase.js';
 import { loadCallControlPlane, loadEffectiveCallChannels } from './controlPlane.js';
 import { resolveRolePermissions, type RoleSlug } from './permissions.js';
 import { listWorkspaceAvailability, isEligible } from './availability.js';
-import { resolveRoutingCandidates } from './departments.js';
+import {
+  resolveRoutingCandidates,
+  loadFallbackPolicy,
+  ownerFallbackAllowed,
+  resolveWorkspaceOwnerId,
+} from './departments.js';
 
 export type RoutingChannel = 'audio' | 'video';
 
@@ -123,6 +128,26 @@ export async function resolveCallRoutingTarget(
   }
   if (eligible.length > 0) {
     return { kind: 'direct', operator_id: eligible[0].user_id };
+  }
+
+  // Owner fallback — last-resort direct route before queue/callback. Only
+  // applies when the policy explicitly allows it for this channel AND the
+  // owner themselves passes the same eligibility checks.
+  const fallback = await loadFallbackPolicy(config, workspaceId);
+  if (ownerFallbackAllowed(fallback, channel)) {
+    const ownerId = await resolveWorkspaceOwnerId(config, workspaceId);
+    if (ownerId) {
+      const ownerEligible = await resolveEligibleOperatorsForCall(
+        config,
+        workspaceId,
+        channel,
+        null,
+      );
+      const ownerEntry = ownerEligible.find((e) => e.user_id === ownerId);
+      if (ownerEntry) {
+        return { kind: 'direct', operator_id: ownerId };
+      }
+    }
   }
 
   if (channels.queue_enabled) return { kind: 'queue' };

@@ -465,6 +465,14 @@ export default function TeamPage() {
                       <Badge className={`text-[10px] px-2 py-0.5 border ${roleColors[m.role] || roleColors.viewer}`}>
                         {getRoleLabel(m.role)}
                       </Badge>
+                      <MemberDepartmentsCell
+                        deptNames={deptsByUser.get(m.user_id) ?? []}
+                        onManage={() => setEditDeptsFor({
+                          memberId: m.id,
+                          userId: m.user_id,
+                          name: m.profile?.full_name || m.profile?.email || 'member',
+                        })}
+                      />
                       {!isOwner && !isCurrentUser && (
                         <MemberActions
                           currentRole={m.role}

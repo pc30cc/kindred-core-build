@@ -420,6 +420,16 @@
       }
     } catch (_) {}
     if (rootEl) rootEl.classList.add('show');
+    // If a remote video track was attached BEFORE the stage became
+    // visible (the original Bug A), the <video> element will be paused
+    // with zero layout. Now that the stage is shown, re-issue play() so
+    // it actually displays frames. Safe to call repeatedly.
+    if (isVideo && videoEl && videoEl.srcObject) {
+      try {
+        var p = videoEl.play();
+        if (p && p.catch) p.catch(function () {});
+      } catch (_) {}
+    }
     dlog('setInCallMode()', {
       isVideo: isVideo,
       cardVisible: rootEl ? rootEl.classList.contains('show') : false,

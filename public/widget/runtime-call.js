@@ -205,8 +205,8 @@
       // In-panel: fill the available space; sidecar: a 320px floating card.
       // Layout uses container-style breakpoints rather than hard pixel
       // widths so the call surface stays inside whatever frame hosts it.
-      ':host([data-mode="in-panel"]) .card{width:100%;height:100%;min-height:300px;border:0;border-radius:0;box-shadow:none;padding:12px;display:none;flex-direction:column}',
-      ':host([data-mode="sidecar"]) .card{width:320px;padding:14px;border:1px solid #e2e8f0;border-radius:12px;box-shadow:0 12px 32px -8px rgba(0,0,0,.18);display:none;flex-direction:column}',
+      ':host([data-mode="in-panel"]) .card{width:100%;height:100%;min-height:100%;border:0;border-radius:0;box-shadow:none;padding:12px;display:none;flex-direction:column}',
+      ':host([data-mode="sidecar"]) .card{width:320px;min-height:300px;padding:14px;border:1px solid #e2e8f0;border-radius:12px;box-shadow:0 12px 32px -8px rgba(0,0,0,.18);display:none;flex-direction:column}',
       '.card{font:13px/1.4 -apple-system,Segoe UI,Roboto,sans-serif;background:#fff;color:#0f172a;overflow:hidden}',
       '.card.show{display:flex}',
       '@media (prefers-color-scheme: dark){.card{background:#0f172a;color:#f1f5f9;border-color:#1e293b}}',
@@ -228,14 +228,14 @@
       // Video stage — fills available card area inside the panel,
       // capped at 220px in sidecar mode so the floating card stays
       // small. The local self-view is a 25%-wide PIP in the bottom-right.
-      '.stage{position:relative;width:100%;background:#000;border-radius:8px;overflow:hidden;display:none;flex:1 1 auto;min-height:0}',
+      '.stage{position:relative;width:100%;background:#000;border-radius:8px;overflow:hidden;display:none;flex:1 1 280px;min-height:220px;isolation:isolate}',
       '.stage.show{display:block}',
-      ':host([data-mode="sidecar"]) .stage{height:220px;flex:0 0 220px}',
-      ':host([data-mode="in-panel"]) .stage{margin-bottom:8px}',
-      '.stage video.remote{width:100%;height:100%;object-fit:cover;background:#000;display:block}',
+      ':host([data-mode="sidecar"]) .stage{height:220px;min-height:220px;flex:0 0 220px}',
+      ':host([data-mode="in-panel"]) .stage{margin-bottom:8px;flex:1 1 320px;min-height:260px}',
+      '.stage video.remote{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000;display:block}',
       '.stage .pip{position:absolute;right:8px;bottom:8px;width:30%;max-width:120px;aspect-ratio:4/3;border-radius:6px;overflow:hidden;border:2px solid rgba(255,255,255,.7);background:#111;box-shadow:0 4px 12px rgba(0,0,0,.4)}',
       '.stage .pip video{width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}',
-      '.stage .nostream{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:12px}',
+      '.stage .nostream{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:12px;z-index:1}',
       // Audio-only stage — compact pulse + status, never a fake video tile.
       '.audio-stage{display:none;flex-direction:column;align-items:center;justify-content:center;padding:18px 12px;background:linear-gradient(135deg,#f1f5f9,#e2e8f0);border-radius:8px;gap:10px;flex:1 1 auto;min-height:120px}',
       '.audio-stage.show{display:flex}',
@@ -350,6 +350,131 @@
     btnCam = rootEl.querySelector('[data-el="cam"]');
     btnHangup = rootEl.querySelector('[data-el="hangup"]');
     degradedEl = rootEl.querySelector('[data-el="degraded"]');
+    bindVideoDebugOnce();
+  }
+
+  function getParticipantDescriptor(participant) {
+    var participantType = 'unknown';
+    var identity = participant && participant.identity ? String(participant.identity) : null;
+    if (identity && identity.indexOf(':') !== -1) participantType = identity.split(':', 1)[0] || participantType;
+    if (participant && participant.metadata) {
+      try {
+        var parsed = JSON.parse(participant.metadata);
+        if (parsed && parsed.participant_type) participantType = String(parsed.participant_type);
+      } catch (_) {}
+    }
+    return {
+      participantIdentity: identity,
+      participantType: participantType,
+      isOperator: participantType === 'operator' || !!(identity && identity.indexOf('operator:') === 0),
+    };
+  }
+
+  function readBox(el) {
+    if (!el) return null;
+    var rect = null;
+    var style = null;
+    try { rect = el.getBoundingClientRect ? el.getBoundingClientRect() : null; } catch (_) {}
+    try { style = window.getComputedStyle ? window.getComputedStyle(el) : null; } catch (_) {}
+    return {
+      w: typeof el.clientWidth === 'number' ? el.clientWidth : 0,
+      h: typeof el.clientHeight === 'number' ? el.clientHeight : 0,
+      rectW: rect ? Math.round(rect.width) : 0,
+      rectH: rect ? Math.round(rect.height) : 0,
+      display: style ? style.display : null,
+      position: style ? style.position : null,
+      minH: style ? style.minHeight : null,
+      height: style ? style.height : null,
+      flex: style ? style.flex : null,
+    };
+  }
+
+  function getLayoutSnapshot() {
+    var inst = null;
+    var mountHost = null;
+    var stage = null;
+    try {
+      inst = window.__gs_runtime && window.__gs_runtime._instance;
+      mountHost = inst && inst.getCallMountHost ? inst.getCallMountHost() : null;
+    } catch (_) {}
+    try { stage = rootEl && rootEl.querySelector ? rootEl.querySelector('[data-el="stage"]') : null; } catch (_) {}
+    return {
+      mountMode: mountMode,
+      mountHost: readBox(mountHost),
+      hostEl: readBox(hostEl),
+      card: readBox(rootEl),
+      stage: readBox(stage),
+      video: readBox(videoEl),
+    };
+  }
+
+  function dlogLayout(label, extra) {
+    var payload = getLayoutSnapshot();
+    if (extra && typeof extra === 'object') {
+      var keys = Object.keys(extra);
+      for (var i = 0; i < keys.length; i++) payload[keys[i]] = extra[keys[i]];
+    }
+    dlog(label, payload);
+  }
+
+  function ensureStageLayout(reason) {
+    if (!rootEl) return;
+    var stage = rootEl.querySelector('[data-el="stage"]');
+    if (!stage) return;
+    if (!stage.classList.contains('show')) {
+      stage.style.height = '';
+      return;
+    }
+    if (mountMode === 'sidecar') {
+      stage.style.height = '220px';
+      stage.style.minHeight = '220px';
+      dlogLayout('stage layout applied', { reason: reason, stageHeightPx: 220 });
+      return;
+    }
+    var snap = getLayoutSnapshot();
+    var availableHeight = (snap.mountHost && snap.mountHost.h) || (snap.hostEl && snap.hostEl.h) || (snap.card && snap.card.h) || 0;
+    var stageHeight = availableHeight > 0 ? Math.max(240, Math.min(availableHeight - 180, 420)) : 300;
+    stage.style.height = stageHeight + 'px';
+    stage.style.minHeight = stageHeight + 'px';
+    dlogLayout('stage layout applied', { reason: reason, stageHeightPx: stageHeight });
+  }
+
+  function bindVideoDebugOnce() {
+    if (!videoEl || videoEl.__gsDebugBound) return;
+    videoEl.__gsDebugBound = true;
+    ['loadedmetadata', 'playing', 'resize', 'pause', 'waiting', 'emptied'].forEach(function (evtName) {
+      videoEl.addEventListener(evtName, function () {
+        dlogLayout('remote video ' + evtName, {
+          readyState: typeof videoEl.readyState === 'number' ? videoEl.readyState : null,
+          networkState: typeof videoEl.networkState === 'number' ? videoEl.networkState : null,
+          paused: !!videoEl.paused,
+          currentTime: Number(videoEl.currentTime || 0),
+          videoWidth: typeof videoEl.videoWidth === 'number' ? videoEl.videoWidth : 0,
+          videoHeight: typeof videoEl.videoHeight === 'number' ? videoEl.videoHeight : 0,
+          hasSrcObject: !!videoEl.srcObject,
+        });
+      });
+    });
+    if (window.ResizeObserver) {
+      var stage = rootEl && rootEl.querySelector ? rootEl.querySelector('[data-el="stage"]') : null;
+      var lastSig = '';
+      var ro = new ResizeObserver(function () {
+        var snap = getLayoutSnapshot();
+        var sig = [
+          snap.mountHost ? snap.mountHost.w + 'x' + snap.mountHost.h : '0x0',
+          snap.hostEl ? snap.hostEl.w + 'x' + snap.hostEl.h : '0x0',
+          snap.card ? snap.card.w + 'x' + snap.card.h : '0x0',
+          snap.stage ? snap.stage.w + 'x' + snap.stage.h : '0x0',
+          snap.video ? snap.video.w + 'x' + snap.video.h : '0x0',
+        ].join('|');
+        if (sig === lastSig) return;
+        lastSig = sig;
+        dlog('remote video resize-observed', snap);
+      });
+      if (stage) ro.observe(stage);
+      ro.observe(videoEl);
+      videoEl.__gsResizeObserver = ro;
+    }
   }
 
   function isCallActiveOrConnecting() {

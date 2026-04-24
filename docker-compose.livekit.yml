@@ -4,12 +4,16 @@
 # Deploy as a STANDALONE Coolify service (separate from backend/frontend),
 # reachable via a public domain such as wss://livekit.your-domain.tld.
 #
-# Why this shape?
-#   LiveKit's full server config is passed as a single YAML blob via the
-#   LIVEKIT_CONFIG environment variable. This avoids ALL bind-mount
-#   fragility (file-vs-directory races, repo-relative path issues, Coolify
-#   build pack staging quirks) that plagued the previous file-mount setup.
-#   The compose file becomes the single source of truth.
+# Strategy: env-driven + startup-generated config file
+# ----------------------------------------------------
+# At container startup, a tiny shell wrapper writes a real YAML file to
+# /tmp/livekit.yaml using the environment variables set in Coolify, then
+# execs `livekit-server --config /tmp/livekit.yaml`. This avoids:
+#   - bind-mount fragility (file-vs-directory races, repo path resolution,
+#     Coolify build pack staging quirks)
+#   - inline LIVEKIT_CONFIG YAML interpolation problems (especially the
+#     `keys:` map, which broke when injected as a single string)
+# The compose file remains the single source of truth.
 #
 # Coolify deployment settings (must match exactly):
 #   Build Pack             : Docker Compose
@@ -25,11 +29,11 @@
 #   LIVEKIT_API_SECRET  - LiveKit API secret (signing secret).
 #                         Generate: openssl rand -hex 32
 #                         MUST match Super Admin -> Providers -> Calls -> LiveKit.
-#   LIVEKIT_NODE_IP  - Public IP of the host running this container.
-#                      REQUIRED. Without it, LiveKit advertises a Docker
-#                      internal IP in ICE candidates and remote browsers
-#                      cannot establish media streams.
-#                      Find with: curl -s https://api.ipify.org
+#   LIVEKIT_NODE_IP     - Public IP of the host running this container.
+#                         REQUIRED. Without it, LiveKit advertises a Docker
+#                         internal IP in ICE candidates and remote browsers
+#                         cannot establish media streams.
+#                         Find with: curl -s https://api.ipify.org
 #
 # Optional environment variables:
 #   LIVEKIT_LOG_LEVEL          - debug | info | warn | error  (default info)
@@ -49,23 +53,21 @@ services:
     image: livekit/livekit-server:v1.7.2
     restart: unless-stopped
 
-    # Signaling reaches LiveKit via Coolify's reverse proxy on the internal
-    # Docker network -> `expose`. Media ports MUST be published to the host
-    # because WebRTC traffic does NOT traverse Coolify's HTTP proxy.
-    expose:
-      - "7880"
-    ports:
-      - "7881:7881/tcp"
-      - "50000-50100:50000-50100/udp"
-
-    environment:
-      # --- Full server config as a single YAML blob ---------------------
-      # LiveKit reads its entire configuration from this env var when set,
-      # so no /etc/livekit/livekit.yaml file is needed. Secrets and the
-      # advertised public IP are interpolated from sibling env vars below.
-      LIVEKIT_CONFIG: |
+    # Override the image entrypoint so we can run a tiny shell wrapper that
+    # generates the config file from env vars BEFORE launching livekit-server.
+    # `exec` replaces the shell with the LiveKit process so signals (SIGTERM
+    # from Coolify on redeploy) are delivered correctly and PID 1 stays clean.
+    entrypoint: ["/bin/sh", "-lc"]
+    command:
+      - |
+        set -eu
+        : "${LIVEKIT_API_KEY:?LIVEKIT_API_KEY is required}"
+        : "${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET is required}"
+        : "${LIVEKIT_NODE_IP:?LIVEKIT_NODE_IP is required (public IP of this host)}"
+        LOG_LEVEL="${LIVEKIT_LOG_LEVEL:-info}"
+        cat > /tmp/livekit.yaml <<EOF
         port: 7880
-        log_level: ${LIVEKIT_LOG_LEVEL:-info}
+        log_level: ${LOG_LEVEL}
         rtc:
           tcp_port: 7881
           port_range_start: 50000
@@ -78,11 +80,24 @@ services:
           auto_create: true
           empty_timeout: 300
           departure_timeout: 20
+        EOF
+        echo "[livekit-bootstrap] generated /tmp/livekit.yaml (log_level=${LOG_LEVEL}, node_ip=${LIVEKIT_NODE_IP})"
+        exec /livekit-server --config /tmp/livekit.yaml
 
-      # --- Sibling env vars referenced inside LIVEKIT_CONFIG ------------
-      LIVEKIT_NODE_IP: ${LIVEKIT_NODE_IP}
+    # Signaling reaches LiveKit via Coolify's reverse proxy on the internal
+    # Docker network -> `expose`. Media ports MUST be published to the host
+    # because WebRTC traffic does NOT traverse Coolify's HTTP proxy.
+    expose:
+      - "7880"
+    ports:
+      - "7881:7881/tcp"
+      - "50000-50100:50000-50100/udp"
+
+    environment:
+      # --- Required: consumed by the startup wrapper above ---------------
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
+      LIVEKIT_NODE_IP: ${LIVEKIT_NODE_IP}
       LIVEKIT_LOG_LEVEL: ${LIVEKIT_LOG_LEVEL:-info}
 
       # --- Optional: webhook signing (only if used) ---------------------

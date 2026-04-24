@@ -201,11 +201,36 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
       setSurface((prev) => {
         if (!prev.invitation) return prev;
         if (prev.invitation.id !== evt.invitation_id) return prev;
+        // Critical: once we have a live, connected room for this
+        // invitation, ignore *all* further server-side status echoes.
+        // - Re-delivered "joined" events would re-trigger the connect
+        //   effect and orphan the existing Room (CLIENT_REQUEST_LEAVE).
+        // - Late "expired"/"cancelled" can race the join transition and
+        //   would yank us into terminal mid-call.
+        // The only legitimate way out of 'connected' is operator hangup
+        // or true unmount, both of which are local actions.
+        if (
+          connectedInvitationIdRef.current === evt.invitation_id &&
+          (prev.phase === 'connected' || prev.phase === 'connecting')
+        ) {
+          rtDebug('call', 'ignoring stale invitation event', {
+            invitation_id: evt.invitation_id,
+            status: evt.status,
+            phase: prev.phase,
+          });
+          return prev;
+        }
         const status = evt.status;
         if (status === 'pending') {
           return { ...prev, invitation: { ...prev.invitation, status: 'pending' } };
         }
         if (status === 'joined') {
+          // Only transition to 'connecting' from 'waiting'. If we are
+          // already 'connecting' or 'connected', this is a re-delivered
+          // event and must be ignored to avoid spinning a second Room.
+          if (prev.phase !== 'waiting') {
+            return prev;
+          }
           return {
             ...prev,
             phase: 'connecting',

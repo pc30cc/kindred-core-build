@@ -598,6 +598,9 @@
     var script = document.createElement("script");
     script.src = runtimeJs;
     script.async = true;
+    // Tag so runtime.js's lazy-inject fallback can locate this script
+    // regardless of whether the filename is hashed.
+    script.setAttribute("data-gs-runtime", "true");
     // Phase 9C — expose the call-module URL BEFORE runtime.js executes.
     // Two reasons this must happen here, not inside script.onload:
     //   1. runtime.js may render an invitation card and the visitor may

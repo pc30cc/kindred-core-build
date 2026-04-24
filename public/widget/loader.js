@@ -598,13 +598,30 @@
     var script = document.createElement("script");
     script.src = runtimeJs;
     script.async = true;
+    // Phase 9C — expose the call-module URL BEFORE runtime.js executes.
+    // Two reasons this must happen here, not inside script.onload:
+    //   1. runtime.js may render an invitation card and the visitor may
+    //      click Join before the chat runtime's onload completes the
+    //      sidecar injection (we'd then race `__gs_call_url`).
+    //   2. The fallback in runtime.js that derives the URL from the
+    //      runtime <script> tag uses a literal `/widget/runtime.js`
+    //      match — when the asset is hashed (runtime-abc123.js, served
+    //      from a CDN base) that fallback returns null and the visitor
+    //      sees `call_runtime_url_unknown`. Setting the global here is
+    //      the single source of truth.
+    try {
+      var preCallJs = runtimeJs.replace(/runtime(?:[.-][A-Za-z0-9]+)?\.js(?:\?[^#]*)?(?:#.*)?$/, "runtime-call.js");
+      if (preCallJs && preCallJs !== runtimeJs) {
+        window.__gs_call_url = preCallJs;
+      }
+    } catch (_) { /* noop */ }
     script.onload = function () {
       jsLoaded = true;
       // Phase 8B - lazy-load the incoming call module alongside the runtime.
       // Self-contained (own shadow root, own SDK loader). Failure is
       // non-fatal: chat keeps working even if call module can't load.
       try {
-        var callJs = runtimeJs.replace(/runtime\.js(?:\?[^#]*)?(?:#.*)?$/, "runtime-call.js");
+        var callJs = window.__gs_call_url || runtimeJs.replace(/runtime(?:[.-][A-Za-z0-9]+)?\.js(?:\?[^#]*)?(?:#.*)?$/, "runtime-call.js");
         if (callJs && callJs !== runtimeJs && !document.querySelector('script[data-gs-runtime-call]')) {
           // Phase 9 fix — expose readiness so the chat join handler can
           // await the call module BEFORE invoking window.__gs_call.incoming.

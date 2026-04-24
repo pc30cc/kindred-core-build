@@ -121,10 +121,18 @@ services:
       LIVEKIT_LOG_LEVEL: ${LIVEKIT_LOG_LEVEL:-info}
 
     volumes:
-      # Reference config. Bind mount works in Coolify because the build
-      # pack runs from the repo root. All secret values are injected via
-      # env vars above, NOT written into this YAML.
-      - ./deploy/livekit/livekit.yaml:/etc/livekit/livekit.yaml:ro
+      # Mount the WHOLE deploy/livekit directory rather than the single
+      # YAML file. Coolify's Docker Compose build pack stages the repo
+      # before mounting; if the target file doesn't exist on the host at
+      # mount time, Docker silently creates an empty DIRECTORY at the
+      # destination path, which is why a file-to-file bind mount fails
+      # with "read /etc/livekit/livekit.yaml: is a directory".
+      # Mounting the parent directory sidesteps that race entirely — the
+      # directory always exists in the repo, and `livekit.yaml` inside it
+      # is read as a file by the LiveKit binary via the --config flag.
+      # All secret values are injected via env vars above, NOT written
+      # into this YAML.
+      - ./deploy/livekit:/etc/livekit:ro
 
     ulimits:
       nofile:

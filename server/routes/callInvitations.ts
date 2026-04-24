@@ -19,6 +19,8 @@ import {
   getInvitationById,
   listInvitationsForConversation,
   getInvitationTtlSeconds,
+  INVITE_TTL_MIN_SECONDS,
+  INVITE_TTL_MAX_SECONDS,
 } from '../services/calls/invitations.js';
 
 export const callInvitationsRouter = Router();
@@ -60,6 +62,13 @@ const createSchema = z.object({
   workspace_id: z.string().uuid(),
   conversation_id: z.string().uuid(),
   channel: z.enum(['audio', 'video']),
+  /** Optional operator-chosen TTL. Clamped server-side. */
+  ttl_seconds: z
+    .number()
+    .int()
+    .min(INVITE_TTL_MIN_SECONDS)
+    .max(INVITE_TTL_MAX_SECONDS)
+    .optional(),
 });
 
 callInvitationsRouter.post('/', async (req, res) => {
@@ -70,7 +79,7 @@ callInvitationsRouter.post('/', async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: 'invalid_payload', details: parsed.error.flatten() });
   }
-  const { workspace_id, conversation_id, channel } = parsed.data;
+  const { workspace_id, conversation_id, channel, ttl_seconds } = parsed.data;
   if (!(await assertWorkspaceMember(config, workspace_id, auth.userId))) {
     return res.status(403).json({ error: 'not_a_workspace_member' });
   }
@@ -79,13 +88,14 @@ callInvitationsRouter.post('/', async (req, res) => {
     conversationId: conversation_id,
     operatorUserId: auth.userId,
     channel,
+    ttlSeconds: ttl_seconds ?? null,
   });
   if (!result.ok) {
     return res.status(409).json({ error: (result as { ok: false; reason: string }).reason });
   }
   return res.json({
     invitation: result.invitation,
-    ttl_seconds: getInvitationTtlSeconds(),
+    ttl_seconds: ttl_seconds ?? getInvitationTtlSeconds(),
   });
 });
 

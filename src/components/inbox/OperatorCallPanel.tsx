@@ -30,6 +30,7 @@ import {
   type InvitationStatus,
 } from '@/lib/call-invitations-api';
 import { onInvitationChanged } from '@/lib/call-invitations-events';
+import { InviteWaitDialog } from './InviteWaitDialog';
 
 interface OperatorCallPanelProps {
   workspaceId: string;
@@ -59,6 +60,11 @@ export function OperatorCallPanel({ workspaceId, conversationId }: OperatorCallP
   const [creating, setCreating] = useState<InvitationChannel | null>(null);
   const [, forceTick] = useState(0);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Dialog state — the operator must pick a wait window before the
+  // invitation is actually created. Channel here drives both the dialog
+  // copy and the create payload on confirm.
+  const [dialogChannel, setDialogChannel] = useState<InvitationChannel | null>(null);
 
   // ── Localized "Xm Ys left" formatter ──────────────────────────────
   const formatRemaining = useCallback((expiresAt: string): string => {
@@ -136,7 +142,13 @@ export function OperatorCallPanel({ workspaceId, conversationId }: OperatorCallP
     return () => clearInterval(id);
   }, [latest?.status, latest?.id]);
 
-  const sendInvite = useCallback(async (channel: InvitationChannel) => {
+  // Open the wait-time chooser. Actual create happens in handleConfirmWait.
+  const openInviteDialog = useCallback((channel: InvitationChannel) => {
+    if (creating || (latest?.status === 'pending')) return;
+    setDialogChannel(channel);
+  }, [creating, latest?.status]);
+
+  const sendInvite = useCallback(async (channel: InvitationChannel, ttlSeconds: number) => {
     if (creating || (latest?.status === 'pending')) return;
     setCreating(channel);
     setLoading(true);
@@ -145,8 +157,10 @@ export function OperatorCallPanel({ workspaceId, conversationId }: OperatorCallP
         workspace_id: workspaceId,
         conversation_id: conversationId,
         channel,
+        ttl_seconds: ttlSeconds,
       });
       setLatest(invitation);
+      setDialogChannel(null);
       toast({
         title: channel === 'video'
           ? (t('inbox.callInvite.videoSent') || 'Video invite sent')
@@ -164,6 +178,16 @@ export function OperatorCallPanel({ workspaceId, conversationId }: OperatorCallP
       setLoading(false);
     }
   }, [workspaceId, conversationId, creating, latest?.status, t]);
+
+  const handleConfirmWait = useCallback((seconds: number) => {
+    if (!dialogChannel) return;
+    void sendInvite(dialogChannel, seconds);
+  }, [dialogChannel, sendInvite]);
+
+  const closeDialog = useCallback(() => {
+    if (creating) return;
+    setDialogChannel(null);
+  }, [creating]);
 
   const cancelInvite = useCallback(async () => {
     if (!latest || latest.status !== 'pending') return;
@@ -196,6 +220,7 @@ export function OperatorCallPanel({ workspaceId, conversationId }: OperatorCallP
     const accentBg = latest.channel === 'video' ? 'bg-violet-500/5 border-violet-500/30' : 'bg-warning/5 border-warning/30';
     const accentText = latest.channel === 'video' ? 'text-violet-600 dark:text-violet-400' : 'text-warning';
     return (
+      <>
       <div
         className={cn(
           'flex items-center gap-1.5 rounded-md border px-2 py-1 ring-1 ring-inset transition-colors',
@@ -232,12 +257,14 @@ export function OperatorCallPanel({ workspaceId, conversationId }: OperatorCallP
           {loading ? <Loader2 className="w-3 h-3 animate-spin" aria-hidden="true" /> : <X className="w-3 h-3" aria-hidden="true" />}
         </Button>
       </div>
+      </>
     );
   }
 
   // Idle / terminal — invite buttons + a status pill + (if terminal) a resend shortcut.
   const TerminalIcon = visual?.Icon ?? Clock;
   return (
+    <>
     <div className="flex items-center gap-1.5" role="group" aria-label={t('inbox.callInvite.lastInvite') || 'Last invite'}>
       {isTerminal && latest && visual && (
         <Badge
@@ -254,7 +281,7 @@ export function OperatorCallPanel({ workspaceId, conversationId }: OperatorCallP
           size="sm"
           variant="ghost"
           className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
-          onClick={() => sendInvite(lastChannel)}
+          onClick={() => openInviteDialog(lastChannel)}
           disabled={loading || creating !== null}
           aria-label={
             lastChannel === 'video'
@@ -272,7 +299,7 @@ export function OperatorCallPanel({ workspaceId, conversationId }: OperatorCallP
         size="sm"
         variant="outline"
         className="h-7 px-2.5 text-[10px] font-semibold gap-1.5 hover:bg-warning/5 hover:border-warning/30 hover:text-warning transition-colors"
-        onClick={() => sendInvite('audio')}
+        onClick={() => openInviteDialog('audio')}
         disabled={loading || creating !== null}
         aria-label={t('inbox.callInvite.audioAria') || 'Invite to audio call'}
         title={t('inbox.callInvite.inviteAudio') || 'Invite to audio'}
@@ -286,7 +313,7 @@ export function OperatorCallPanel({ workspaceId, conversationId }: OperatorCallP
         size="sm"
         variant="outline"
         className="h-7 px-2.5 text-[10px] font-semibold gap-1.5 hover:bg-violet-500/5 hover:border-violet-500/30 hover:text-violet-600 dark:hover:text-violet-400 transition-colors"
-        onClick={() => sendInvite('video')}
+        onClick={() => openInviteDialog('video')}
         disabled={loading || creating !== null}
         aria-label={t('inbox.callInvite.videoAria') || 'Invite to video call'}
         title={t('inbox.callInvite.inviteVideo') || 'Invite to video'}
@@ -297,5 +324,13 @@ export function OperatorCallPanel({ workspaceId, conversationId }: OperatorCallP
         <span className="hidden sm:inline">{t('inbox.callInvite.inviteVideoShort') || 'Video'}</span>
       </Button>
     </div>
+    <InviteWaitDialog
+      open={dialogChannel !== null}
+      channel={dialogChannel ?? 'audio'}
+      submitting={creating !== null}
+      onCancel={closeDialog}
+      onConfirm={handleConfirmWait}
+    />
+    </>
   );
 }

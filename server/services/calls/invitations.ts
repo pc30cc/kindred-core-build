@@ -61,6 +61,25 @@ export function getInvitationTtlSeconds(): number {
   return n;
 }
 
+/**
+ * Hard min/max that the operator-facing wait-time chooser is allowed to
+ * pick per invite. Server clamps regardless of what the client sent so
+ * we can never produce a degenerate or abusive TTL.
+ */
+export const INVITE_TTL_MIN_SECONDS = 60;       // 1 min
+export const INVITE_TTL_MAX_SECONDS = 60 * 10;  // 10 min
+
+/** Coerce a caller-supplied TTL into the allowed window. Falls back to env default. */
+export function resolveInvitationTtlSeconds(requested?: number | null): number {
+  if (requested && Number.isFinite(requested)) {
+    const n = Math.floor(requested);
+    if (n < INVITE_TTL_MIN_SECONDS) return INVITE_TTL_MIN_SECONDS;
+    if (n > INVITE_TTL_MAX_SECONDS) return INVITE_TTL_MAX_SECONDS;
+    return n;
+  }
+  return getInvitationTtlSeconds();
+}
+
 /** Card payload embedded in conversation_messages.metadata. */
 export interface InvitationCardMeta {
   kind: 'call_invitation';
@@ -69,6 +88,12 @@ export interface InvitationCardMeta {
   status: InvitationStatus;
   expires_at: string;
   operator_name?: string | null;
+  /**
+   * The wait window the operator chose for this invite, in whole minutes.
+   * Surfaced in the visitor card body as "Operator will wait up to X
+   * minutes for you to join." Falls back to derived value on the client.
+   */
+  wait_minutes?: number;
 }
 
 function bodyForCard(channel: InvitationChannel): string {
@@ -129,6 +154,8 @@ export async function createInvitation(
     conversationId: string;
     operatorUserId: string;
     channel: InvitationChannel;
+    /** Operator-chosen wait window, in seconds. Optional; clamped server-side. */
+    ttlSeconds?: number | null;
   },
 ): Promise<
   | { ok: true; invitation: CallInvitationRow }
@@ -154,7 +181,7 @@ export async function createInvitation(
     .eq('conversation_id', input.conversationId)
     .eq('status', 'pending');
 
-  const ttlSeconds = getInvitationTtlSeconds();
+  const ttlSeconds = resolveInvitationTtlSeconds(input.ttlSeconds ?? null);
   const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
 
   const { data: inserted, error: insErr } = await sb
@@ -189,6 +216,7 @@ export async function createInvitation(
     status: invitation.status,
     expires_at: invitation.expires_at,
     operator_name: operatorName,
+    wait_minutes: Math.max(1, Math.round(ttlSeconds / 60)),
   };
 
   let systemMessageId: string | null = null;

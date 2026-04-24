@@ -42,9 +42,9 @@ function normalizeLiveKitWsUrl(rawUrl: string): string {
     // CRITICAL: livekit-client appends its own signaling path
     // (`/rtc`, `/rtc/v1`, `/rtc/validate`, etc.) to whatever base URL we
     // hand it. We must therefore return an ORIGIN-ONLY base
-    // (`wss://host[:port]`) and strip any pre-existing `/rtc[...]` suffix
-    // — otherwise the SDK builds `/rtc/rtc/v1` which the server 404s.
-    url.pathname = url.pathname.replace(/\/rtc(?:\/v1)?(?:\/validate)?\/?$/i, '');
+    // (`wss://host[:port]`) and strip any pre-existing signaling suffix,
+    // including malformed duplicates like `/rtc/rtc/v1`.
+    url.pathname = url.pathname.replace(/(?:\/rtc)+(?:\/v1)?(?:\/validate)?\/?$/i, '');
     url.pathname = url.pathname.replace(/\/+$/, '');
     return (`${url.protocol}//${url.host}${url.pathname}`).replace(/\/+$/, '');
   } catch {
@@ -201,6 +201,8 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
     lkLog('connect() begin', {
       wsUrl: input.wsUrl,
       normalizedWsUrl,
+      signalingPathPreview: `${new URL(normalizedWsUrl).pathname || '/'} → /rtc/v1`,
+      duplicatedPathDetected: /\/rtc\/rtc(?:\/|$)|\/rtc\/v1\/v1(?:\/|$)/i.test(input.wsUrl) || /\/rtc\/rtc(?:\/|$)|\/rtc\/v1\/v1(?:\/|$)/i.test(normalizedWsUrl),
       hasToken: !!input.token,
     });
     const room = new Room({

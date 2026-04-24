@@ -66,10 +66,10 @@ export function InviteWaitDialog({
       : 'text-warning';
   const title =
     channel === 'video'
-      ? t('inbox.callInvite.dialogTitleVideo') || 'Invite to video call'
-      : t('inbox.callInvite.dialogTitleAudio') || 'Invite to audio call';
+      ? t('callInvite.dialogTitleVideo') || 'Invite to video call'
+      : t('callInvite.dialogTitleAudio') || 'Invite to audio call';
   const description =
-    t('inbox.callInvite.dialogDescription') ||
+    t('callInvite.dialogDescription') ||
     'How long should we wait for the visitor to join?';
 
   return (
@@ -92,7 +92,7 @@ export function InviteWaitDialog({
           value={String(minutes)}
           onValueChange={(v) => setMinutes(parseInt(v, 10))}
           className="grid grid-cols-3 gap-2"
-          aria-label={t('inbox.callInvite.dialogRadioLabel') || 'Wait time in minutes'}
+          aria-label={t('callInvite.dialogRadioLabel') || 'Wait time in minutes'}
         >
           {WAIT_OPTIONS_MINUTES.map((m) => {
             const id = `wait-${m}`;
@@ -113,7 +113,7 @@ export function InviteWaitDialog({
                 >
                   <span className="text-base font-semibold tabular-nums">{m}</span>
                   <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                    {t('inbox.callInvite.minutesUnit') || 'min'}
+                    {t('callInvite.minutesUnit') || 'min'}
                   </span>
                 </Label>
               </div>
@@ -122,7 +122,7 @@ export function InviteWaitDialog({
         </RadioGroup>
 
         <p className="text-xs text-muted-foreground">
-          {(t('inbox.callInvite.dialogHelp') ||
+          {(t('callInvite.dialogHelp') ||
             'The invitation will expire automatically if the visitor does not join in time.')}
         </p>
 
@@ -141,8 +141,8 @@ export function InviteWaitDialog({
           >
             {submitting && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
             {channel === 'video'
-              ? t('inbox.callInvite.dialogConfirmVideo') || 'Send video invite'
-              : t('inbox.callInvite.dialogConfirmAudio') || 'Send audio invite'}
+              ? t('callInvite.dialogConfirmVideo') || 'Send video invite'
+              : t('callInvite.dialogConfirmAudio') || 'Send audio invite'}
           </Button>
         </DialogFooter>
       </DialogContent>

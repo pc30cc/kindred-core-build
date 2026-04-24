@@ -36,7 +36,6 @@ import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { ConversationActionPanel } from '@/components/inbox/ConversationActionPanel';
 import { ConversationActivityPanel } from '@/components/inbox/ConversationActivityPanel';
-import { OperatorCallSurface } from '@/components/inbox/OperatorCallSurface';
 import { SidebarCallCard } from '@/components/inbox/SidebarCallCard';
 import { CannedResponsePicker, type CannedPickerHandle } from '@/components/canned-responses/CannedResponsePicker';
 import { interpolate } from '@/components/canned-responses/interpolation';
@@ -1431,17 +1430,6 @@ export default function InboxPage() {
           </ScrollArea>
         </div>
         </>
-      )}
-      {/* Channel-aware operator call surface — opens automatically right
-          after invitation creation, transitions waiting → connecting →
-          connected (audio-only or video) when the visitor joins, and
-          shows terminal state on cancel/expire/decline/failed. */}
-      {workspace?.id && (
-        <OperatorCallSurface
-          workspaceId={workspace.id}
-          conversationId={selectedId ?? null}
-          contactName={selected?.contacts?.name ?? null}
-        />
       )}
     </div>
   );

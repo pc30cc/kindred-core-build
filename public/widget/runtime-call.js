@@ -722,6 +722,7 @@
   }
 
   function teardown(reason) {
+    dlog('teardown', { reason: reason });
     if (current && current.room) {
       try { current.room.disconnect(); } catch (_) {}
     }
@@ -741,7 +742,9 @@
     // Show the terminal message a bit longer when the operator hung up so
     // the visitor actually reads it before the surface auto-closes.
     var hideDelay = reason === 'remote' ? 2200 : 600;
-    setTimeout(hide, hideDelay);
+    // teardown() is the legitimate close path — bypass the active-guard
+    // we added to hide() so the surface actually disappears.
+    setTimeout(function () { hide({ force: true }); }, hideDelay);
   }
 
   function reject() {

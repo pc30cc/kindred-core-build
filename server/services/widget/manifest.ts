@@ -27,6 +27,7 @@ interface WidgetManifest {
   'runtime.css'?: string;
   'runtime-chat.js'?: string;
   'runtime-kb.js'?: string;
+  'runtime-call.js'?: string;
   'runtime-rt-centrifugo.js'?: string;
   'runtime-rt-supabase.js'?: string;
   'runtime-rt-resolver.js'?: string;
@@ -39,6 +40,7 @@ type WidgetAssetKey =
   | 'runtime.css'
   | 'runtime-chat.js'
   | 'runtime-kb.js'
+  | 'runtime-call.js'
   | 'runtime-rt-centrifugo.js'
   | 'runtime-rt-supabase.js'
   | 'runtime-rt-resolver.js';
@@ -198,6 +200,7 @@ function fallbackManifest(): WidgetManifest {
     'runtime.css': 'runtime.css',
     'runtime-chat.js': 'runtime-chat.js',
     'runtime-kb.js': 'runtime-kb.js',
+    'runtime-call.js': 'runtime-call.js',
     'runtime-rt-centrifugo.js': 'runtime-rt-centrifugo.js',
     'runtime-rt-supabase.js': 'runtime-rt-supabase.js',
     'runtime-rt-resolver.js': 'runtime-rt-resolver.js',
@@ -283,6 +286,7 @@ export function getManifestDiagnostics() {
     runtimeCss: manifest['runtime.css'],
     runtimeChatJs: manifest['runtime-chat.js'],
     runtimeKbJs: manifest['runtime-kb.js'],
+    runtimeCallJs: manifest['runtime-call.js'],
     cachedAt: lastReadTime ? new Date(lastReadTime).toISOString() : null,
     remoteUrl: getRemoteManifestUrl(),
     remoteStatus: lastRemoteStatus,

@@ -161,6 +161,14 @@ export function OperatorCallPanel({ workspaceId, conversationId }: OperatorCallP
       });
       setLatest(invitation);
       setDialogChannel(null);
+      // Open the operator-side waiting/call surface immediately. The
+      // surface listens for this event in the same tab and decides which
+      // channel-specific UI (audio-only or video) to render.
+      try {
+        window.dispatchEvent(new CustomEvent('operator-call:invitation-created', {
+          detail: { invitation, conversationId },
+        }));
+      } catch { /* ignore */ }
       toast({
         title: channel === 'video'
           ? (t('inbox.callInvite.videoSent') || 'Video invite sent')

@@ -45,10 +45,9 @@
       // CRITICAL: livekit-client appends its own signaling path
       // (`/rtc`, `/rtc/v1`, `/rtc/validate`, etc.) to whatever base
       // URL we hand it. We must therefore return an ORIGIN-ONLY base
-      // (`wss://host[:port]`) and strip any pre-existing `/rtc[...]`
-      // suffix — otherwise the SDK builds `/rtc/rtc/v1` which the
-      // server 404s.
-      url.pathname = url.pathname.replace(/\/rtc(?:\/v1)?(?:\/validate)?\/?$/i, '');
+      // (`wss://host[:port]`) and strip any pre-existing signaling suffix,
+      // including malformed duplicates like `/rtc/rtc/v1`.
+      url.pathname = url.pathname.replace(/(?:\/rtc)+(?:\/v1)?(?:\/validate)?\/?$/i, '');
       url.pathname = url.pathname.replace(/\/+$/, '');
       if (!url.pathname) url.pathname = '';
       // Reconstruct origin-only (drop search/hash too — signaling base
@@ -848,9 +847,15 @@
         });
       }
       var normalizedWsUrl = normalizeLiveKitWsUrl(invite.ws_url);
+      var signalingPathPreview = '/ → /rtc/v1';
+      try {
+        signalingPathPreview = ((new URL(normalizedWsUrl)).pathname || '/') + ' → /rtc/v1';
+      } catch (_) {}
       dlog('room.connect start', {
         ws_url: invite.ws_url,
         normalizedWsUrl: normalizedWsUrl,
+        signalingPathPreview: signalingPathPreview,
+        duplicatedPathDetected: /\/rtc\/rtc(?:\/|$)|\/rtc\/v1\/v1(?:\/|$)/i.test(invite.ws_url) || /\/rtc\/rtc(?:\/|$)|\/rtc\/v1\/v1(?:\/|$)/i.test(normalizedWsUrl),
         call_id: invite.call_id,
       });
       var room = new LK.Room({ adaptiveStream: true, dynacast: true, disconnectOnPageLeave: false });

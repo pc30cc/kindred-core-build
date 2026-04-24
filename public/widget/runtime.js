@@ -2131,6 +2131,80 @@
       });
     }
 
+    // Local optimistic patch: swap the in-memory metadata for an invitation
+    // card so the UI reflects state instantly. The next /poll tick will
+    // confirm with the server-canonical metadata.
+    function patchInvitationStatusLocally(invitationId, status) {
+      var s = chatStore.get();
+      var arr = s.messages.slice();
+      var changed = false;
+      for (var i = 0; i < arr.length; i++) {
+        var m = arr[i];
+        if (m.senderType === 'system' && m.metadata && m.metadata.kind === 'call_invitation'
+            && m.metadata.invitation_id === invitationId) {
+          arr[i] = Object.assign({}, m, {
+            metadata: Object.assign({}, m.metadata, { status: status }),
+          });
+          changed = true;
+        }
+      }
+      if (changed) chatStore.set({ messages: arr });
+    }
+
+    function handleCallInvitationClick(ev) {
+      ev.preventDefault();
+      var btn = ev.currentTarget;
+      if (!btn || btn.disabled) return;
+      var action = btn.getAttribute('data-ci-action');
+      var invitationId = btn.getAttribute('data-ci-id');
+      if (!action || !invitationId) return;
+
+      btn.disabled = true;
+      var prevText = btn.textContent;
+      btn.textContent = action === 'join' ? 'Joining…' : 'Declining…';
+
+      if (action === 'decline') {
+        postCallInvitationAction(invitationId, 'decline')
+          .then(function () {
+            patchInvitationStatusLocally(invitationId, 'declined');
+          })
+          .catch(function (err) {
+            btn.disabled = false;
+            btn.textContent = prevText;
+            try { console.warn('[gs-call] decline failed:', err && err.message); } catch (_) {}
+          });
+        return;
+      }
+
+      // Join — reuse the existing runtime-call accept/connect path.
+      var channel = btn.getAttribute('data-ci-channel') === 'video' ? 'video' : 'audio';
+      postCallInvitationAction(invitationId, 'join').then(function (bundle) {
+        if (!window.__gs_call || typeof window.__gs_call.incoming !== 'function') {
+          throw new Error('call_runtime_unavailable');
+        }
+        // Render via the shared call surface, then immediately accept so the
+        // visitor lands directly in the call (no second confirmation step —
+        // they already consented by clicking Join).
+        window.__gs_call.incoming({
+          call_id: bundle.call_id,
+          call_type: bundle.call_type || channel,
+          ws_url: bundle.ws_url,
+          token: bundle.token,
+          turn: bundle.turn || { urls: [] },
+          ice_policy: bundle.ice_policy || 'all',
+          recording: false,
+          operator_name: null,
+          // signal to runtime-call that we want to auto-accept on render.
+          auto_accept: true,
+        });
+        patchInvitationStatusLocally(invitationId, 'joined');
+      }).catch(function (err) {
+        btn.disabled = false;
+        btn.textContent = prevText;
+        try { console.warn('[gs-call] join failed:', err && err.message); } catch (_) {}
+      });
+    }
+
     function renderChat(body) {
       var s = chatStore.get();
       if (!s.messages.length) { renderEmpty(body); return; }

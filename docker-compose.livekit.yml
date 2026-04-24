@@ -124,6 +124,21 @@ services:
         soft: 65535
         hard: 65535
 
+    # Local-only healthcheck. The LiveKit signaling endpoint returns the
+    # literal body "OK" on `GET /` once the server is listening on 7880.
+    # `wget` is provided by BusyBox in the alpine-based LiveKit image, so no
+    # extra tooling is required. Probing 127.0.0.1 keeps the check entirely
+    # inside the container — it doesn't depend on Coolify's reverse proxy,
+    # DNS, or the public domain, so a transient external outage cannot flip
+    # the container to "unhealthy". `start_period: 20s` covers first-boot
+    # config render + listener bind so the very first probe doesn't fail.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:7880/ | grep -q OK"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
     labels:
       - "coolify.managed=true"
       - "coolify.service=livekit"

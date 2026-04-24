@@ -498,6 +498,49 @@ export async function getInvitationById(
   return (data as CallInvitationRow | null) ?? null;
 }
 
+/**
+ * Validate that an invitation is currently joinable by the visitor.
+ *
+ * Returns a discriminated result:
+ *   { ok: true, invitation }              ready to mint provider room/token
+ *   { ok: false, reason: 'not_found' }    invitation row missing
+ *   { ok: false, reason: 'expired' }      TTL passed (also flips DB row)
+ *   { ok: false, reason: 'cancelled' }    operator cancelled
+ *   { ok: false, reason: 'declined' }     visitor previously declined
+ *   { ok: false, reason: 'already_joined' } a call_session is already linked
+ */
+export async function validateInvitationForJoin(
+  config: ServerConfig,
+  invitationId: string,
+): Promise<
+  | { ok: true; invitation: CallInvitationRow }
+  | { ok: false; reason: 'not_found' | 'expired' | 'cancelled' | 'declined' | 'already_joined' }
+> {
+  const inv = await getInvitationById(config, invitationId);
+  if (!inv) return { ok: false, reason: 'not_found' };
+  if (inv.status === 'cancelled') return { ok: false, reason: 'cancelled' };
+  if (inv.status === 'declined') return { ok: false, reason: 'declined' };
+  if (inv.status === 'joined') return { ok: false, reason: 'already_joined' };
+  if (inv.status === 'expired') return { ok: false, reason: 'expired' };
+  // status === 'pending' — verify TTL hasn't elapsed.
+  if (new Date(inv.expires_at).getTime() < Date.now()) {
+    // Flip the row + sync card so subsequent queries see the terminal state.
+    const sb = getServiceClient(config);
+    const { data: updated } = await sb
+      .from('call_invitations')
+      .update({ status: 'expired', ended_at: new Date().toISOString() })
+      .eq('id', inv.id)
+      .eq('status', 'pending')
+      .select('*')
+      .maybeSingle();
+    if (updated) {
+      await syncCardForStatus(config, updated as CallInvitationRow);
+    }
+    return { ok: false, reason: 'expired' };
+  }
+  return { ok: true, invitation: inv };
+}
+
 export async function listInvitationsForConversation(
   config: ServerConfig,
   conversationId: string,

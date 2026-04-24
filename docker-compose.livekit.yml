@@ -1,27 +1,15 @@
 # docker-compose.livekit.yml
 #
-# Production-ready, fully env-driven LiveKit deployment for Coolify.
-# Designed to be deployed as a STANDALONE service (separately from the
-# backend/frontend), reachable via a public domain such as:
-#   livekit.destekly.tr  →  wss://livekit.destekly.tr
+# Production-ready, env-driven LiveKit deployment for Coolify.
+# Deploy as a STANDALONE Coolify service (separate from backend/frontend),
+# reachable via a public domain such as wss://livekit.your-domain.tld.
 #
-# Why a dedicated compose file?
-#   LiveKit has very different operational requirements from the main app
-#   (UDP/TCP media ports, TURN, public IP awareness, optional Redis for
-#   multi-node). Bundling it into the main backend container would couple
-#   two unrelated lifecycles and make scaling/firewall configuration
-#   harder. Coolify deploys this file as its own resource.
-#
-# Why a real config file (livekit.yaml) AND env vars?
-#   Unlike Centrifugo, LiveKit's config surface is large enough that a
-#   real YAML file is the most readable option. The container reads
-#   `/etc/livekit/livekit.yaml` (mounted from `deploy/livekit/livekit.yaml`),
-#   and any value can still be overridden via LIVEKIT_<KEY> env vars.
-#
-#   Coolify's Docker Compose build pack runs from the repo root, so the
-#   relative bind mount `./deploy/livekit/livekit.yaml` resolves correctly.
-#   The file is committed to the repo for transparency; secrets stay in
-#   env vars (NOT in the YAML file).
+# Why this shape?
+#   LiveKit's full server config is passed as a single YAML blob via the
+#   LIVEKIT_CONFIG environment variable. This avoids ALL bind-mount
+#   fragility (file-vs-directory races, repo-relative path issues, Coolify
+#   build pack staging quirks) that plagued the previous file-mount setup.
+#   The compose file becomes the single source of truth.
 #
 # Coolify deployment settings (must match exactly):
 #   Build Pack             : Docker Compose
@@ -30,123 +18,86 @@
 #   Custom Start Command   : (leave empty)
 #   Base Directory         : /
 #
-# Required environment variables (set them in Coolify → this service → Env):
-#   LIVEKIT_KEYS              – `<api_key>: <api_secret>` pair, single line.
-#                               Generate with:
-#                                   API_KEY=$(openssl rand -hex 16)
-#                                   API_SECRET=$(openssl rand -hex 32)
-#                                   echo "$API_KEY: $API_SECRET"
-#                               MUST match the values entered in
-#                               Super Admin → Providers → Calls → LiveKit
-#                               (api_key + api_secret).
-#   LIVEKIT_WEBHOOK_API_KEY   – Same api_key as above. LiveKit signs
-#                               webhook callbacks with this key/secret.
-#   LIVEKIT_NODE_IP           – Publicly reachable IP of the host.
-#                               REQUIRED for media to work from the public
-#                               internet. Without it, LiveKit advertises
-#                               an internal Docker IP and clients cannot
-#                               connect their media streams.
-#                               Find with: `curl -s https://api.ipify.org`
+# Required environment variables (set in Coolify -> this service -> Env):
+#   LIVEKIT_KEYS     - "API_KEY:API_SECRET" (NO space after colon).
+#                      Generate:
+#                          API_KEY=$(openssl rand -hex 16)
+#                          API_SECRET=$(openssl rand -hex 32)
+#                          echo "$API_KEY:$API_SECRET"
+#                      MUST match the values entered in:
+#                          Super Admin -> Providers -> Calls -> LiveKit
+#   LIVEKIT_NODE_IP  - Public IP of the host running this container.
+#                      REQUIRED. Without it, LiveKit advertises a Docker
+#                      internal IP in ICE candidates and remote browsers
+#                      cannot establish media streams.
+#                      Find with: curl -s https://api.ipify.org
 #
 # Optional environment variables:
-#   LIVEKIT_REDIS_ADDRESS     – e.g. `redis:6379`. Only required for
-#                               multi-node deployments. Leave unset for
-#                               single-node (default).
-#   LIVEKIT_TURN_DOMAIN       – e.g. `turn.destekly.tr`. Required only if
-#                               you enable TURN/TLS (see livekit.yaml).
+#   LIVEKIT_LOG_LEVEL          - debug | info | warn | error  (default info)
+#   LIVEKIT_WEBHOOK_API_KEY    - api_key half of LIVEKIT_KEYS, for webhooks
+#   LIVEKIT_REDIS_ADDRESS      - "host:port", multi-node only
+#   LIVEKIT_TURN_DOMAIN        - reserved for future TURN/TLS rollout
 #
-# Ports:
-#   7880/tcp  – Signaling (WebSocket). Coolify proxies this via the public
-#               domain on 443 with TLS termination.
-#   7881/tcp  – ICE/TCP fallback for restrictive networks.
-#   7882/udp  – Media (WebRTC). MUST be reachable from the public internet.
-#               Coolify does NOT proxy UDP — this port has to be open on
-#               the host firewall AND published from the container.
-#   3478/udp  – TURN/UDP (only if TURN enabled in livekit.yaml).
-#   5349/tcp  – TURN/TLS (only if TURN/TLS enabled in livekit.yaml).
-#
-# After deploy, in Coolify add a domain (e.g. livekit.destekly.tr) pointing
-# to port 7880 of this container for the WebSocket signaling. Coolify will
-# terminate TLS for the WSS handshake. UDP media bypasses the proxy and
-# goes directly to the host's public IP — make sure your cloud firewall
-# allows inbound UDP 7882.
+# Ports (host firewall must allow):
+#   7880/tcp        - Signaling. Coolify proxies wss://<domain>/ -> 7880.
+#   7881/tcp        - ICE/TCP fallback for restrictive networks.
+#   50000-50100/udp - WebRTC media. UDP bypasses Coolify's HTTP proxy and
+#                     goes DIRECTLY to the host. Open this range on the
+#                     cloud provider firewall.
 
 services:
   livekit:
     image: livekit/livekit-server:v1.7.2
     restart: unless-stopped
-    command: ["--config", "/etc/livekit/livekit.yaml"]
 
-    # NOTE: Signaling (7880) is reached by Coolify's reverse proxy over
-    # the internal Docker network via `expose`. Media ports MUST be
-    # published to the host (`ports:`) because WebRTC traffic does NOT
-    # go through Coolify's HTTP proxy.
+    # Signaling reaches LiveKit via Coolify's reverse proxy on the internal
+    # Docker network -> `expose`. Media ports MUST be published to the host
+    # because WebRTC traffic does NOT traverse Coolify's HTTP proxy.
     expose:
       - "7880"
     ports:
       - "7881:7881/tcp"
-      - "7882:7882/udp"
-      # Uncomment if you enable TURN in livekit.yaml:
-      # - "3478:3478/udp"
-      # - "5349:5349/tcp"
+      - "50000-50100:50000-50100/udp"
 
     environment:
-      # --- Auth (REQUIRED) ----------------------------------------------
-      # `keys` is a YAML map of api_key→api_secret. LiveKit accepts it as
-      # a single env var with the same syntax: "api_key: api_secret".
+      # --- Full server config as a single YAML blob ---------------------
+      # LiveKit reads its entire configuration from this env var when set,
+      # so no /etc/livekit/livekit.yaml file is needed. Secrets and the
+      # advertised public IP are interpolated from sibling env vars below.
+      LIVEKIT_CONFIG: |
+        port: 7880
+        log_level: ${LIVEKIT_LOG_LEVEL:-info}
+        rtc:
+          tcp_port: 7881
+          port_range_start: 50000
+          port_range_end: 50100
+          use_external_ip: true
+          node_ip: ${LIVEKIT_NODE_IP}
+        keys:
+          ${LIVEKIT_KEYS}
+        room:
+          auto_create: true
+          empty_timeout: 300
+          departure_timeout: 20
+
+      # --- Sibling env vars referenced inside LIVEKIT_CONFIG ------------
+      LIVEKIT_NODE_IP: ${LIVEKIT_NODE_IP}
       LIVEKIT_KEYS: ${LIVEKIT_KEYS}
-
-      # --- Public address (REQUIRED for production) ---------------------
-      # Without this, LiveKit advertises a Docker-internal IP and remote
-      # browsers cannot establish media. Set to the host's public IP.
-      LIVEKIT_RTC_NODE_IP: ${LIVEKIT_NODE_IP}
-
-      # --- Webhooks ------------------------------------------------------
-      # LiveKit signs webhook callbacks with this api_key. The backend
-      # verifies them in server/routes/livekitWebhook.ts using the
-      # corresponding api_secret from livekit_config.
-      LIVEKIT_WEBHOOK_API_KEY: ${LIVEKIT_WEBHOOK_API_KEY:-}
-
-      # --- Optional: Redis (multi-node only) ----------------------------
-      # Leave empty for single-node. Set to "redis:6379" and add a redis
-      # service to this compose file for HA / horizontal scaling.
-      LIVEKIT_REDIS_ADDRESS: ${LIVEKIT_REDIS_ADDRESS:-}
-
-      # --- Optional: TURN/TLS domain ------------------------------------
-      # Only used if TURN is enabled in livekit.yaml. Required when your
-      # users sit behind restrictive corporate firewalls that block UDP.
-      LIVEKIT_TURN_DOMAIN: ${LIVEKIT_TURN_DOMAIN:-}
-
-      # --- Logging -------------------------------------------------------
       LIVEKIT_LOG_LEVEL: ${LIVEKIT_LOG_LEVEL:-info}
 
-    volumes:
-      # Mount the WHOLE deploy/livekit directory rather than the single
-      # YAML file. Coolify's Docker Compose build pack stages the repo
-      # before mounting; if the target file doesn't exist on the host at
-      # mount time, Docker silently creates an empty DIRECTORY at the
-      # destination path, which is why a file-to-file bind mount fails
-      # with "read /etc/livekit/livekit.yaml: is a directory".
-      # Mounting the parent directory sidesteps that race entirely — the
-      # directory always exists in the repo, and `livekit.yaml` inside it
-      # is read as a file by the LiveKit binary via the --config flag.
-      # All secret values are injected via env vars above, NOT written
-      # into this YAML.
-      - ./deploy/livekit:/etc/livekit:ro
+      # --- Optional: webhook signing (only if used) ---------------------
+      LIVEKIT_WEBHOOK_API_KEY: ${LIVEKIT_WEBHOOK_API_KEY:-}
+
+      # --- Optional: multi-node Redis (leave unset for single-node) -----
+      LIVEKIT_REDIS_ADDRESS: ${LIVEKIT_REDIS_ADDRESS:-}
+
+      # --- Optional: reserved for future TURN/TLS rollout ---------------
+      LIVEKIT_TURN_DOMAIN: ${LIVEKIT_TURN_DOMAIN:-}
 
     ulimits:
       nofile:
         soft: 65535
         hard: 65535
-
-    healthcheck:
-      # The official livekit/livekit-server image ships with `wget` (busybox).
-      # LiveKit exposes an HTTP liveness endpoint on the signaling port.
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:7880/"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 15s
 
     labels:
       - "coolify.managed=true"

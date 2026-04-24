@@ -661,8 +661,18 @@
           if (pub.kind === LK.Track.Kind.Video && !firstVideo) firstVideo = pub.track.mediaStreamTrack;
         });
       });
-      if (setSrc(audioEl, firstAudio) && firstAudio) safePlay(audioEl);
-      if (setSrc(videoEl, firstVideo) && firstVideo) safePlay(videoEl);
+      var audioChanged = setSrc(audioEl, firstAudio);
+      if (audioChanged && firstAudio) safePlay(audioEl);
+      var videoChanged = setSrc(videoEl, firstVideo);
+      if (videoChanged && firstVideo) safePlay(videoEl);
+      if (audioChanged || videoChanged) {
+        dlog('refresh remote media', {
+          audio: !!firstAudio, video: !!firstVideo,
+          videoElConnected: videoEl ? videoEl.isConnected : false,
+          videoElW: videoEl ? videoEl.clientWidth : 0,
+          videoElH: videoEl ? videoEl.clientHeight : 0,
+        });
+      }
       // No-stream placeholder for video calls before the operator's
       // camera track arrives (or if it's never published).
       if (rootEl) {
@@ -687,7 +697,10 @@
         });
       }
       if (localVideoTrack) {
-        if (setSrc(localVideoEl, localVideoTrack)) safePlay(localVideoEl);
+        if (setSrc(localVideoEl, localVideoTrack)) {
+          safePlay(localVideoEl);
+          dlog('local PIP attached');
+        }
         if (pip) pip.style.display = '';
       } else {
         setSrc(localVideoEl, null);

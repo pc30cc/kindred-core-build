@@ -177,6 +177,12 @@ export function LiveKitSelfHostedProviderPanel() {
 
   // Mirror of livekitProvider.isReady() in the backend.
   const ready = cfg.enabled && cfg.api_key_present && cfg.api_secret_present && !!cfg.rtc_url;
+  // For the Test button: trust the *typed* RTC URL too (we'll auto-save before probing).
+  const canTest =
+    cfg.enabled &&
+    cfg.api_key_present &&
+    cfg.api_secret_present &&
+    !!(cfg.rtc_url ?? '').trim();
 
   return (
     <Card>
@@ -219,8 +225,8 @@ export function LiveKitSelfHostedProviderPanel() {
               size="sm"
               variant="outline"
               onClick={runTest}
-              disabled={testing || !ready}
-              title={!ready ? 'Configure API key, secret, RTC URL and enable LiveKit first' : 'Probe LiveKit using saved credentials'}
+              disabled={testing || saving || !canTest}
+              title={!canTest ? 'Configure API key, secret, RTC URL and enable LiveKit first' : 'Probe LiveKit using saved credentials'}
             >
               {testing ? (
                 <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />

@@ -1877,6 +1877,24 @@
               }
             }
           }
+          // Phase 9 — system invitation cards mutate (pending → joined /
+          // expired / cancelled / declined). When the same message id comes
+          // back with a different invitation status, patch it in place so
+          // the card re-renders without duplicating.
+          if (senderRaw === 'system' && m.metadata && typeof m.metadata === 'object'
+              && m.metadata.kind === 'call_invitation') {
+            for (var sm = 0; sm < messages.length; sm++) {
+              if (messages[sm].__id === id) {
+                var prevMeta = messages[sm].metadata || {};
+                if (!prevMeta || prevMeta.status !== m.metadata.status
+                    || prevMeta.expires_at !== m.metadata.expires_at) {
+                  messages[sm].metadata = m.metadata;
+                  changed = true;
+                }
+                break;
+              }
+            }
+          }
           return;
         }
         seenIds[id] = true;

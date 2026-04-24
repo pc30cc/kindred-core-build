@@ -284,6 +284,7 @@ export class CallSessionEngine {
       }
 
       this.transition({ phase: 'connecting' });
+      this.armConnectWatchdog(myGen);
       await this.opts.transport.connect({
         wsUrl: tok.ws_url,
         token: tok.token,
@@ -301,6 +302,7 @@ export class CallSessionEngine {
       try { await callsApi.accept(created.id); } catch { /* ignore */ }
 
       this.clearRingTimeout();
+      this.clearConnectWatchdog();
       this.transition({ phase: 'connected', startedAt: Date.now() });
     } catch (err) {
       if (this.gen !== myGen) return; // a newer attempt already took over
@@ -383,6 +385,7 @@ export class CallSessionEngine {
     const myGen = this.gen;
     this.clearIncomingTimeout();
     this.transition({ phase: 'connecting' });
+    this.armConnectWatchdog(myGen);
 
     let acceptedCallId: string | null = offer.callSessionId;
     try {

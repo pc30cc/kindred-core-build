@@ -39,17 +39,14 @@ function normalizeLiveKitWsUrl(rawUrl: string): string {
   if (!trimmed) return trimmed;
   try {
     const url = new URL(trimmed);
-    // The public LiveKit deploy behind livekit.destekly.tr currently serves
-    // the legacy `/rtc` signal endpoint, while livekit-client 2.x probes
-    // `/rtc/v1` first when given the bare origin. Returning an explicit `/rtc`
-    // base keeps the first hop deterministic and avoids the initial refused /
-    // 404 noise before fallback.
-    if (/\/rtc(?:\/v1)?\/?$/.test(url.pathname)) {
-      url.pathname = url.pathname.replace(/\/rtc(?:\/v1)?\/?$/, '/rtc');
-    } else {
-      url.pathname = (url.pathname.replace(/\/+$/, '') || '') + '/rtc';
-    }
-    return url.toString().replace(/\/+$/, '');
+    // CRITICAL: livekit-client appends its own signaling path
+    // (`/rtc`, `/rtc/v1`, `/rtc/validate`, etc.) to whatever base URL we
+    // hand it. We must therefore return an ORIGIN-ONLY base
+    // (`wss://host[:port]`) and strip any pre-existing `/rtc[...]` suffix
+    // — otherwise the SDK builds `/rtc/rtc/v1` which the server 404s.
+    url.pathname = url.pathname.replace(/\/rtc(?:\/v1)?(?:\/validate)?\/?$/i, '');
+    url.pathname = url.pathname.replace(/\/+$/, '');
+    return (`${url.protocol}//${url.host}${url.pathname}`).replace(/\/+$/, '');
   } catch {
     return trimmed;
   }

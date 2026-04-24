@@ -45,6 +45,7 @@ import { useLiveKitCall } from '@/hooks/useLiveKitCall';
 import { callsApi } from '@/lib/calls-api';
 import { InviteWaitDialog } from './InviteWaitDialog';
 import { rtDebug } from '@/realtime/debug';
+import { useLocalMediaPreview, type LocalPreviewState } from '@/hooks/useLocalMediaPreview';
 
 interface SidebarCallCardProps {
   workspaceId: string;
@@ -116,6 +117,14 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
   const live = useLiveKitCall({
     publishMic: true,
     publishCamera: surfaceChannel === 'video',
+  });
+
+  // Phase 9 — local-device preview during the waiting phase. Decoupled
+  // from LiveKit; releases the camera/mic the instant we move out of
+  // 'waiting' so the LiveKit client can re-acquire them on connect.
+  const preview = useLocalMediaPreview({
+    enabled: surface.phase === 'waiting',
+    wantVideo: surfaceChannel === 'video',
   });
 
   // Localized "Xm Ys" helper used both in pending pill and surface countdown.
@@ -518,7 +527,9 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
           <CardContent className="pt-2.5 space-y-2.5">
             {surface.phase === 'waiting' && (
               <>
-                {isVideo ? <VideoWaitingTile /> : <AudioWaitingTile />}
+                {isVideo
+                  ? <VideoWaitingTile previewStream={preview.stream} previewState={preview.state} />
+                  : <AudioWaitingTile previewStream={preview.stream} previewState={preview.state} />}
                 <div className="flex items-center justify-between gap-2">
                   <Badge className="h-5 px-1.5 text-[10px] font-semibold gap-1 border bg-warning/10 border-warning/30 text-warning">
                     <Loader2 className="w-2.5 h-2.5 animate-spin" aria-hidden="true" />

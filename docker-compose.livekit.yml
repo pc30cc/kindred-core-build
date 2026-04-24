@@ -73,7 +73,7 @@ services:
           use_external_ip: true
           node_ip: ${LIVEKIT_NODE_IP}
         keys:
-          ${LIVEKIT_KEYS}
+          ${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}
         room:
           auto_create: true
           empty_timeout: 300
@@ -81,7 +81,8 @@ services:
 
       # --- Sibling env vars referenced inside LIVEKIT_CONFIG ------------
       LIVEKIT_NODE_IP: ${LIVEKIT_NODE_IP}
-      LIVEKIT_KEYS: ${LIVEKIT_KEYS}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
       LIVEKIT_LOG_LEVEL: ${LIVEKIT_LOG_LEVEL:-info}
 
       # --- Optional: webhook signing (only if used) ---------------------

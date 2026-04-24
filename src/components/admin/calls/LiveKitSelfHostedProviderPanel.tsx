@@ -27,10 +27,12 @@ import { useToast } from '@/hooks/use-toast';
 import {
   fetchLiveKitConfig,
   updateLiveKitConfig,
+  testLiveKitConnection,
   type LiveKitConfigPublicView,
   type LiveKitConfigPatch,
+  type LiveKitTestResult,
 } from '@/lib/admin-calls-api';
-import { Server, Loader2, Save, ShieldCheck, Info, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Server, Loader2, Save, ShieldCheck, Info, CheckCircle2, AlertTriangle, Plug } from 'lucide-react';
 
 function ReadinessBadge({ ok, label }: { ok: boolean; label: string }) {
   return (
@@ -46,6 +48,8 @@ export function LiveKitSelfHostedProviderPanel() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [cfg, setCfg] = useState<LiveKitConfigPublicView | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<LiveKitTestResult | null>(null);
 
   // Local-only secret edit buffers — never seeded from the server.
   const [apiKeyEdit, setApiKeyEdit] = useState('');
@@ -84,11 +88,34 @@ export function LiveKitSelfHostedProviderPanel() {
       if ('webhook_secret' in patch) setWebhookSecretEdit('');
       if (patch.recording_storage && 'access_key' in patch.recording_storage) setS3AccessEdit('');
       if (patch.recording_storage && 'secret_key' in patch.recording_storage) setS3SecretEdit('');
+      // Stale once config changes — force a fresh probe.
+      setTestResult(null);
       toast({ title: 'LiveKit settings saved' });
     } catch (e: any) {
       toast({ title: 'Save failed', description: e.message, variant: 'destructive' });
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function runTest() {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const r = await testLiveKitConnection();
+      setTestResult(r);
+      toast({
+        title: r.ok ? 'LiveKit connection OK' : 'LiveKit connection failed',
+        description: r.ok
+          ? `Reached ${r.rtc_url} in ${r.latency_ms}ms`
+          : r.error || 'Unknown error',
+        variant: r.ok ? 'default' : 'destructive',
+      });
+    } catch (e: any) {
+      setTestResult({ ok: false, error: e.message });
+      toast({ title: 'Test failed', description: e.message, variant: 'destructive' });
+    } finally {
+      setTesting(false);
     }
   }
 
@@ -140,7 +167,23 @@ export function LiveKitSelfHostedProviderPanel() {
       <CardContent className="space-y-4">
         {/* Readiness summary — mirrors backend livekitProvider.isReady() */}
         <div className="rounded-md border border-border p-3 space-y-2 bg-muted/20">
-          <div className="text-xs font-semibold text-foreground">Readiness</div>
+          <div className="flex items-center justify-between">
+            <div className="text-xs font-semibold text-foreground">Readiness</div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={runTest}
+              disabled={testing || !ready}
+              title={!ready ? 'Configure API key, secret, RTC URL and enable LiveKit first' : 'Probe LiveKit using saved credentials'}
+            >
+              {testing ? (
+                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+              ) : (
+                <Plug className="h-3.5 w-3.5 mr-1.5" />
+              )}
+              Test connection
+            </Button>
+          </div>
           <div className="flex flex-wrap gap-2">
             <ReadinessBadge ok={cfg.enabled} label="Enabled" />
             <ReadinessBadge ok={cfg.api_key_present} label="API key" />
@@ -151,6 +194,31 @@ export function LiveKitSelfHostedProviderPanel() {
             <p className="text-[11px] text-muted-foreground">
               All four conditions must be satisfied for the resolver to mark LiveKit as ready.
             </p>
+          )}
+          {testResult && (
+            <div
+              className={
+                'mt-2 rounded-md border p-2 text-xs ' +
+                (testResult.ok
+                  ? 'border-primary/40 bg-primary/5 text-foreground'
+                  : 'border-destructive/40 bg-destructive/5 text-destructive')
+              }
+            >
+              {testResult.ok ? (
+                <div className="flex items-center gap-1.5">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  <span>
+                    Reached <code className="font-mono">{testResult.rtc_url}</code> in{' '}
+                    {testResult.latency_ms}ms.
+                  </span>
+                </div>
+              ) : (
+                <div className="flex items-start gap-1.5">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span className="break-words">{testResult.error}</span>
+                </div>
+              )}
+            </div>
           )}
         </div>
 

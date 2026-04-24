@@ -155,7 +155,8 @@ If signaling works but no media:
 ## 6. Operational notes
 
 - **No persistent volume needed** for single-node setups. `/tmp/livekit.yaml` is regenerated on every start from current env vars — there is no stale-config risk after rotating secrets.
-- **No healthcheck is configured yet.** We want startup failures to surface as plain restart loops with readable logs, not as masked "unhealthy" states. A healthcheck can be added once the deploy is proven stable in your environment.
+- **Healthcheck**: a local-only probe runs `wget -qO- http://127.0.0.1:7880/ | grep -q OK` every 30s with a 20s `start_period`. It uses BusyBox `wget` (already in the alpine-based image), targets loopback only, and never depends on Coolify's reverse proxy or the public domain — so an external outage cannot flip the container to `unhealthy`. Startup failures still surface as restart loops because the entrypoint's `set -eu` + `${VAR:?}` checks abort before the healthcheck ever runs.
+- **`LIVEKIT_LOG_LEVEL`** defaults to `info` if unset. The bootstrap log line echoes the resolved value (e.g. `log_level=info`) so a misconfigured env var is obvious from container logs.
 - **Egress / recording** is a separate LiveKit service. Add later when needed.
 - **Scaling**: set `LIVEKIT_REDIS_ADDRESS`, add a Redis service, replicate this compose service.
 - **TURN/TLS**: deferred. Extend the rendered YAML with a `turn:` block and open UDP 3478 / TCP 5349 when you need it.

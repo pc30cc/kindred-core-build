@@ -198,10 +198,16 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
     setError(null);
     setState('connecting');
     const normalizedWsUrl = normalizeLiveKitWsUrl(input.wsUrl);
+    let signalingPathPreview = '/ → /rtc/v1';
+    try {
+      signalingPathPreview = `${new URL(normalizedWsUrl).pathname || '/'} → /rtc/v1`;
+    } catch {
+      // Ignore preview parsing failures; connect() will still surface the real error.
+    }
     lkLog('connect() begin', {
       wsUrl: input.wsUrl,
       normalizedWsUrl,
-      signalingPathPreview: `${new URL(normalizedWsUrl).pathname || '/'} → /rtc/v1`,
+      signalingPathPreview,
       duplicatedPathDetected: /\/rtc\/rtc(?:\/|$)|\/rtc\/v1\/v1(?:\/|$)/i.test(input.wsUrl) || /\/rtc\/rtc(?:\/|$)|\/rtc\/v1\/v1(?:\/|$)/i.test(normalizedWsUrl),
       hasToken: !!input.token,
     });

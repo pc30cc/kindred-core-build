@@ -570,6 +570,13 @@
     setStatus('');
     setRingingMode();
     show();
+    // Phase 9 — Invitation flow auto-accepts (the visitor already consented
+    // by clicking Join on the conversation card). Kept opt-in via the
+    // `auto_accept` flag so the legacy direct-incoming path still requires
+    // an explicit Answer tap.
+    if (invite.auto_accept) {
+      try { accept(); } catch (_) {}
+    }
   }
 
   // ───── Public API ─────

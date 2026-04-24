@@ -1877,6 +1877,24 @@
               }
             }
           }
+          // Phase 9 — system invitation cards mutate (pending → joined /
+          // expired / cancelled / declined). When the same message id comes
+          // back with a different invitation status, patch it in place so
+          // the card re-renders without duplicating.
+          if (senderRaw === 'system' && m.metadata && typeof m.metadata === 'object'
+              && m.metadata.kind === 'call_invitation') {
+            for (var sm = 0; sm < messages.length; sm++) {
+              if (messages[sm].__id === id) {
+                var prevMeta = messages[sm].metadata || {};
+                if (!prevMeta || prevMeta.status !== m.metadata.status
+                    || prevMeta.expires_at !== m.metadata.expires_at) {
+                  messages[sm].metadata = m.metadata;
+                  changed = true;
+                }
+                break;
+              }
+            }
+          }
           return;
         }
         seenIds[id] = true;
@@ -1926,6 +1944,12 @@
           // Phase 7 — lifecycle (visitor messages only have a meaningful status).
           status: sender === 'visitor' ? (seenAt ? 'seen' : 'sent') : null,
           seenAt: sender === 'visitor' ? seenAt : null,
+          // Phase 9 — system messages may carry a metadata payload (e.g.
+          // { kind: 'call_invitation', invitation_id, channel, status,
+          // expires_at }). Plain chat bubbles ignore this; the renderer
+          // detects the kind and draws an interactive card instead.
+          senderType: senderRaw,
+          metadata: (m.metadata && typeof m.metadata === 'object') ? m.metadata : null,
         });
         changed = true;
       });
@@ -2003,6 +2027,184 @@
         '</div>';
     }
 
+    // ─── Phase 9 — Call invitation card renderer ───
+    // System messages with metadata.kind === 'call_invitation' are rendered
+    // as an interactive card. The persisted system message is the canonical
+    // source; this is purely presentation. Click handlers are wired via
+    // event delegation in renderChat() below, so re-renders never leak
+    // listeners.
+    function fmtInvitationRemaining(expiresAtIso) {
+      var ms = new Date(expiresAtIso).getTime() - Date.now();
+      if (!isFinite(ms) || ms <= 0) return t('callInvite.expiredSoon') || 'Expired';
+      var total = Math.ceil(ms / 1000);
+      if (total < 60) return total + 's left';
+      var m = Math.floor(total / 60);
+      var s = total % 60;
+      return s === 0 ? m + 'm left' : m + 'm ' + s + 's left';
+    }
+
+    function renderCallInvitationCard(msg) {
+      var meta = msg.metadata || {};
+      var channel = meta.channel === 'video' ? 'video' : 'audio';
+      var status = meta.status || 'pending';
+      var inviteId = Util.escapeHtml(meta.invitation_id || '');
+      var op = meta.operator_name ? Util.escapeHtml(meta.operator_name) : '';
+      var headline = channel === 'video'
+        ? (op ? op + ' invited you to a video call' : 'You have been invited to a video call')
+        : (op ? op + ' invited you to an audio call' : 'You have been invited to an audio call');
+      var iconSvg = channel === 'video'
+        ? '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>'
+        : '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92Z"/></svg>';
+
+      var statusBlock = '';
+      var actionBlock = '';
+      if (status === 'pending') {
+        var rem = Util.escapeHtml(fmtInvitationRemaining(meta.expires_at));
+        statusBlock = '<div class="ci-meta">' + rem + '</div>';
+        actionBlock = '<div class="ci-actions">' +
+          '<button type="button" class="ci-btn ci-btn-primary" data-ci-action="join" data-ci-id="' + inviteId +
+            '" data-ci-channel="' + channel + '">' +
+            (channel === 'video' ? 'Join video call' : 'Join call') +
+          '</button>' +
+          '<button type="button" class="ci-btn ci-btn-ghost" data-ci-action="decline" data-ci-id="' + inviteId + '">Decline</button>' +
+        '</div>';
+      } else if (status === 'joined') {
+        statusBlock = '<div class="ci-meta ci-status ci-status-joined">In call</div>';
+      } else if (status === 'expired') {
+        statusBlock = '<div class="ci-meta ci-status ci-status-expired">Invitation expired</div>';
+      } else if (status === 'cancelled') {
+        statusBlock = '<div class="ci-meta ci-status ci-status-cancelled">Operator cancelled the invite</div>';
+      } else if (status === 'declined') {
+        statusBlock = '<div class="ci-meta ci-status ci-status-declined">You declined this call</div>';
+      }
+
+      return '<div class="msg-row system">' +
+        '<div class="ci-card ci-status-' + Util.escapeHtml(status) + '" data-ci-card="' + inviteId + '">' +
+          '<div class="ci-row">' +
+            '<span class="ci-icon">' + iconSvg + '</span>' +
+            '<div class="ci-text">' +
+              '<div class="ci-title">' + Util.escapeHtml(headline) + '</div>' +
+              statusBlock +
+            '</div>' +
+          '</div>' +
+          actionBlock +
+        '</div>' +
+      '</div>';
+    }
+
+    function callInvitationContext() {
+      try {
+        var apiBase = ctx && ctx.apiBase ? ctx.apiBase : '';
+        var workspaceId = ctx && ctx.workspaceId ? ctx.workspaceId : '';
+        var token = (window.__gs_token && window.__gs_token.get && window.__gs_token.get()) || '';
+        var ident = window.__gs_identity || {};
+        return {
+          apiBase: apiBase,
+          workspaceId: workspaceId,
+          token: token,
+          visitorId: ident.visitorId || null,
+          sessionId: ident.sessionId || null,
+        };
+      } catch (_) {
+        return { apiBase: '', workspaceId: '', token: '', visitorId: null, sessionId: null };
+      }
+    }
+
+    function postCallInvitationAction(invitationId, action) {
+      var c = callInvitationContext();
+      if (!c.apiBase || !c.workspaceId || !c.token) {
+        return Promise.reject(new Error('widget context not ready'));
+      }
+      return fetch(c.apiBase + '/api/widget/call-invitations/' + encodeURIComponent(invitationId) + '/' + action, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', 'X-Widget-Token': c.token },
+        body: JSON.stringify({
+          workspace_id: c.workspaceId,
+          visitor_id: c.visitorId || undefined,
+          session_id: c.sessionId || undefined,
+        }),
+      }).then(function (r) {
+        if (!r.ok) return r.json().catch(function () { return {}; })
+          .then(function (b) { throw new Error(b.error || 'http_' + r.status); });
+        return r.json();
+      });
+    }
+
+    // Local optimistic patch: swap the in-memory metadata for an invitation
+    // card so the UI reflects state instantly. The next /poll tick will
+    // confirm with the server-canonical metadata.
+    function patchInvitationStatusLocally(invitationId, status) {
+      var s = chatStore.get();
+      var arr = s.messages.slice();
+      var changed = false;
+      for (var i = 0; i < arr.length; i++) {
+        var m = arr[i];
+        if (m.senderType === 'system' && m.metadata && m.metadata.kind === 'call_invitation'
+            && m.metadata.invitation_id === invitationId) {
+          arr[i] = Object.assign({}, m, {
+            metadata: Object.assign({}, m.metadata, { status: status }),
+          });
+          changed = true;
+        }
+      }
+      if (changed) chatStore.set({ messages: arr });
+    }
+
+    function handleCallInvitationClick(ev) {
+      ev.preventDefault();
+      var btn = ev.currentTarget;
+      if (!btn || btn.disabled) return;
+      var action = btn.getAttribute('data-ci-action');
+      var invitationId = btn.getAttribute('data-ci-id');
+      if (!action || !invitationId) return;
+
+      btn.disabled = true;
+      var prevText = btn.textContent;
+      btn.textContent = action === 'join' ? 'Joining…' : 'Declining…';
+
+      if (action === 'decline') {
+        postCallInvitationAction(invitationId, 'decline')
+          .then(function () {
+            patchInvitationStatusLocally(invitationId, 'declined');
+          })
+          .catch(function (err) {
+            btn.disabled = false;
+            btn.textContent = prevText;
+            try { console.warn('[gs-call] decline failed:', err && err.message); } catch (_) {}
+          });
+        return;
+      }
+
+      // Join — reuse the existing runtime-call accept/connect path.
+      var channel = btn.getAttribute('data-ci-channel') === 'video' ? 'video' : 'audio';
+      postCallInvitationAction(invitationId, 'join').then(function (bundle) {
+        if (!window.__gs_call || typeof window.__gs_call.incoming !== 'function') {
+          throw new Error('call_runtime_unavailable');
+        }
+        // Render via the shared call surface, then immediately accept so the
+        // visitor lands directly in the call (no second confirmation step —
+        // they already consented by clicking Join).
+        window.__gs_call.incoming({
+          call_id: bundle.call_id,
+          call_type: bundle.call_type || channel,
+          ws_url: bundle.ws_url,
+          token: bundle.token,
+          turn: bundle.turn || { urls: [] },
+          ice_policy: bundle.ice_policy || 'all',
+          recording: false,
+          operator_name: null,
+          // signal to runtime-call that we want to auto-accept on render.
+          auto_accept: true,
+        });
+        patchInvitationStatusLocally(invitationId, 'joined');
+      }).catch(function (err) {
+        btn.disabled = false;
+        btn.textContent = prevText;
+        try { console.warn('[gs-call] join failed:', err && err.message); } catch (_) {}
+      });
+    }
+
     function renderChat(body) {
       var s = chatStore.get();
       if (!s.messages.length) { renderEmpty(body); return; }
@@ -2023,6 +2225,13 @@
         return m.sender === 'visitor' ? 'v' : ('op:' + (m.senderName || '') + '|' + (m.senderAvatar || ''));
       });
       s.messages.forEach(function (m, idx) {
+        // Phase 9 — Call invitation card. System messages with
+        // metadata.kind === 'call_invitation' render as an interactive
+        // card (Join / state) instead of a normal chat bubble.
+        if (m.senderType === 'system' && m.metadata && m.metadata.kind === 'call_invitation') {
+          html += renderCallInvitationCard(m);
+          return;
+        }
         var bg = m.sender === 'visitor' ? 'style="background:' + ctx.primaryColor + '"' : '';
         var cls = m.sender === 'visitor' ? 'visitor' : 'operator';
         var hasText = m.body && String(m.body).trim().length > 0;
@@ -2083,6 +2292,12 @@
           var id = this.getAttribute('data-att-preview');
           if (id) openImageLightbox(id);
         });
+      }
+      // Phase 9 — Call invitation card actions (Join / Decline). Re-bound
+      // on every render; safe because each render replaces innerHTML.
+      var ciButtons = body.querySelectorAll('[data-ci-action]');
+      for (var ci = 0; ci < ciButtons.length; ci++) {
+        ciButtons[ci].addEventListener('click', handleCallInvitationClick);
       }
       // Image load failure: swap in fallback label without breaking layout.
       var imgs = body.querySelectorAll('.msg-att-image img');

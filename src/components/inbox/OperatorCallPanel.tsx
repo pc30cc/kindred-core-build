@@ -1,277 +1,216 @@
 /**
- * Phase 8B - Operator Call Panel.
+ * Phase 9 — Invitation-first Operator Call Panel.
  *
- * Bounded module mounted inside the inbox header. Owns one call session
- * lifecycle at a time. Token + URLs always come from the backend.
+ * Replaces the legacy direct-ringing buttons. The operator now creates a
+ * call invitation that posts an interactive card into the visitor's
+ * conversation; the actual media session only starts when the visitor
+ * clicks Join. This panel:
  *
- * Strict rules:
- *  - No page reload, no inbox refactor.
- *  - All RTC URLs/TURN come from callsApi.token() (resolver-backed).
- *  - All errors surface inline via toast - never crash the inbox.
+ *   - exposes Invite-to-audio / Invite-to-video buttons
+ *   - polls /api/call-invitations?conversation_id=… so the latest
+ *     invitation lifecycle (pending / joined / expired / cancelled /
+ *     declined) is always visible without needing realtime
+ *   - lets the operator cancel a pending invitation
+ *
+ * IMPORTANT: this component never mints tokens, never connects media, and
+ * never puts the operator into a Busy state. The visitor join handler
+ * (server) is the sole entry point into the existing call provider stack.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  Phone, PhoneOff, Video, VideoOff, Mic, MicOff, Loader2, Circle,
-} from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Phone, Video, Loader2, X, CheckCircle2, Clock, Ban, PhoneOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
-import { callsApi, type CallType } from '@/lib/calls-api';
-import { useLiveKitCall } from '@/hooks/useLiveKitCall';
+import { cn } from '@/lib/utils';
+import {
+  callInvitationsApi,
+  type CallInvitation,
+  type InvitationChannel,
+  type InvitationStatus,
+} from '@/lib/call-invitations-api';
 
 interface OperatorCallPanelProps {
   workspaceId: string;
   conversationId: string;
-  /** Optional visitor display name for token. */
   contactName?: string | null;
 }
 
-type Phase = 'idle' | 'creating' | 'ringing' | 'in_call' | 'ending';
+interface StatusVisual {
+  label: string;
+  Icon: React.ComponentType<{ className?: string }>;
+  className: string;
+}
 
-export function OperatorCallPanel({ workspaceId, conversationId, contactName }: OperatorCallPanelProps) {
-  const [phase, setPhase] = useState<Phase>('idle');
-  const [callId, setCallId] = useState<string | null>(null);
-  const [callType, setCallType] = useState<CallType>('audio');
-  const [recordingId, setRecordingId] = useState<string | null>(null);
-  const [recording, setRecording] = useState(false);
+const STATUS_VISUAL: Record<InvitationStatus, StatusVisual> = {
+  pending:   { label: 'Pending',   Icon: Loader2,        className: 'bg-warning/10 border-warning/30 text-warning' },
+  joined:    { label: 'Joined',    Icon: CheckCircle2,   className: 'bg-success/10 border-success/30 text-success' },
+  expired:   { label: 'Expired',   Icon: Clock,          className: 'bg-muted border-border text-muted-foreground' },
+  cancelled: { label: 'Cancelled', Icon: Ban,            className: 'bg-muted border-border text-muted-foreground' },
+  declined:  { label: 'Declined',  Icon: PhoneOff,       className: 'bg-destructive/10 border-destructive/30 text-destructive' },
+};
 
-  const lk = useLiveKitCall({ publishMic: true, publishCamera: false });
+function formatRemaining(expiresAt: string): string {
+  const ms = new Date(expiresAt).getTime() - Date.now();
+  if (ms <= 0) return 'expired';
+  const total = Math.ceil(ms / 1000);
+  if (total < 60) return total + 's left';
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return s === 0 ? m + 'm left' : m + 'm ' + s + 's left';
+}
 
-  const remoteAudioRef = useRef<HTMLAudioElement>(null);
-  const remoteVideoRef = useRef<HTMLVideoElement>(null);
+export function OperatorCallPanel({ workspaceId, conversationId }: OperatorCallPanelProps) {
+  const [latest, setLatest] = useState<CallInvitation | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [creating, setCreating] = useState<InvitationChannel | null>(null);
+  const [, forceTick] = useState(0);
+  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Attach remote tracks to the audio/video elements.
-  useEffect(() => {
-    const first = lk.remote[0];
-    const audioEl = remoteAudioRef.current;
-    const videoEl = remoteVideoRef.current;
-    if (audioEl) {
-      if (first?.audio) {
-        const stream = new MediaStream([first.audio]);
-        audioEl.srcObject = stream;
-        audioEl.play().catch(() => { /* user gesture may be required */ });
-      } else {
-        audioEl.srcObject = null;
-      }
-    }
-    if (videoEl) {
-      if (first?.video) {
-        const stream = new MediaStream([first.video]);
-        videoEl.srcObject = stream;
-        videoEl.play().catch(() => { /* ignore autoplay errors */ });
-      } else {
-        videoEl.srcObject = null;
-      }
-    }
-  }, [lk.remote]);
-
-  const cleanup = useCallback(async () => {
-    await lk.disconnect();
-    setCallId(null);
-    setRecordingId(null);
-    setRecording(false);
-    setPhase('idle');
-  }, [lk]);
-
-  const startCall = useCallback(async (type: CallType) => {
-    if (phase !== 'idle') return;
-    setCallType(type);
-    setPhase('creating');
-    let createdId: string | null = null;
+  const refresh = useCallback(async () => {
     try {
-      const created = await callsApi.create({
+      const { invitations } = await callInvitationsApi.listForConversation(conversationId);
+      // The list comes back ordered DESC by created_at; take the first.
+      const next = invitations[0] ?? null;
+      setLatest(next);
+    } catch (e: any) {
+      // Don't toast — silent retry on next interval.
+      // 403 just means we joined a conversation we don't own; never spammy.
+    }
+  }, [conversationId]);
+
+  // Poll lifecycle (every 4s while pending, every 15s otherwise).
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    const interval = latest?.status === 'pending' ? 4000 : 15000;
+    if (tickRef.current) clearInterval(tickRef.current);
+    tickRef.current = setInterval(() => { void refresh(); }, interval);
+    return () => {
+      if (tickRef.current) clearInterval(tickRef.current);
+      tickRef.current = null;
+    };
+  }, [latest?.status, refresh]);
+
+  // Countdown ticker (re-render every second while pending so TTL updates).
+  useEffect(() => {
+    if (latest?.status !== 'pending') return;
+    const id = setInterval(() => forceTick((n) => n + 1), 1000);
+    return () => clearInterval(id);
+  }, [latest?.status, latest?.id]);
+
+  const sendInvite = useCallback(async (channel: InvitationChannel) => {
+    if (creating || (latest?.status === 'pending')) return;
+    setCreating(channel);
+    setLoading(true);
+    try {
+      const { invitation } = await callInvitationsApi.create({
         workspace_id: workspaceId,
-        call_type: type,
-        context_type: 'conversation',
-        context_id: conversationId,
+        conversation_id: conversationId,
+        channel,
       });
-      createdId = created.id;
-      setCallId(created.id);
-      // Invite the visitor (server marks state=ringing + emits call_event).
-      await callsApi.invite(created.id, { participant_type: 'visitor' });
-      setPhase('ringing');
-      // Mint participant token + TURN bundle.
-      const tok = await callsApi.token(created.id, {
-        display_name: 'Operator',
-        ttl_seconds: 600,
+      setLatest(invitation);
+      toast({
+        title: channel === 'video' ? 'Video invite sent' : 'Audio invite sent',
+        description: 'The visitor can join from the conversation card.',
       });
-      if (!tok.ws_url) throw new Error('Backend did not return ws_url. Configure LiveKit RTC URL in admin.');
-      const iceServers: RTCIceServer[] = [];
-      if (tok.turn?.urls?.length) {
-        iceServers.push({
-          urls: tok.turn.urls,
-          username: tok.turn.username || undefined,
-          credential: tok.turn.credential || undefined,
-        });
-      }
-      await lk.connect({
-        wsUrl: tok.ws_url,
-        token: tok.token,
-        iceServers: iceServers.length ? iceServers : undefined,
-        iceTransportPolicy: tok.ice_policy,
-      });
-      // Mark as accepted on our side (server transitions to in_progress).
-      try { await callsApi.accept(created.id); } catch { /* non-fatal */ }
-      setPhase('in_call');
     } catch (e: any) {
       toast({
-        title: 'Could not start call',
+        title: 'Could not send invite',
         description: e?.message || String(e),
         variant: 'destructive',
       });
-      if (createdId) {
-        try { await callsApi.hangup(createdId); } catch { /* ignore */ }
-      }
-      await cleanup();
+    } finally {
+      setCreating(null);
+      setLoading(false);
     }
-  }, [phase, workspaceId, conversationId, lk, cleanup]);
+  }, [workspaceId, conversationId, creating, latest?.status]);
 
-  const hangup = useCallback(async () => {
-    if (!callId) { await cleanup(); return; }
-    setPhase('ending');
-    try { await callsApi.hangup(callId); } catch { /* ignore */ }
-    await cleanup();
-  }, [callId, cleanup]);
-
-  const toggleRecording = useCallback(async () => {
-    if (!callId) return;
+  const cancelInvite = useCallback(async () => {
+    if (!latest || latest.status !== 'pending') return;
+    setLoading(true);
     try {
-      if (!recording) {
-        const r = await callsApi.startRecording(callId);
-        setRecordingId(r.recording_id);
-        setRecording(true);
-      } else if (recordingId) {
-        await callsApi.stopRecording(callId, recordingId);
-        setRecording(false);
-      }
+      const { invitation } = await callInvitationsApi.cancel(latest.id);
+      setLatest(invitation);
     } catch (e: any) {
       toast({
-        title: recording ? 'Stop recording failed' : 'Start recording failed',
+        title: 'Could not cancel invitation',
         description: e?.message || String(e),
         variant: 'destructive',
       });
+    } finally {
+      setLoading(false);
     }
-  }, [callId, recording, recordingId]);
+  }, [latest]);
 
-  // Reflect remote disconnect into our local phase.
-  useEffect(() => {
-    if (phase === 'in_call' && (lk.state === 'disconnected' || lk.state === 'failed')) {
-      void cleanup();
-    }
-  }, [lk.state, phase, cleanup]);
+  const visual = useMemo(() => latest ? STATUS_VISUAL[latest.status] : null, [latest]);
+  const isPending = latest?.status === 'pending';
 
-  // Idle launchers
-  if (phase === 'idle') {
+  // Pending state — show the live invitation with cancel.
+  if (isPending && latest && visual) {
+    const remaining = formatRemaining(latest.expires_at);
+    const VisualIcon = visual.Icon;
+    const ChannelIcon = latest.channel === 'video' ? Video : Phone;
     return (
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-1.5 rounded-md border border-warning/30 bg-warning/5 px-2 py-1">
+        <ChannelIcon className="w-3 h-3 text-warning" />
+        <span className="text-[10px] font-semibold text-foreground">
+          {latest.channel === 'video' ? 'Video invite' : 'Audio invite'}
+        </span>
+        <Badge className={cn('h-4 px-1.5 text-[9px] font-semibold gap-1 border', visual.className)}>
+          <VisualIcon className={cn('w-2.5 h-2.5', isPending && 'animate-spin')} />
+          {remaining}
+        </Badge>
         <Button
           size="sm"
-          variant="outline"
-          className="h-7 px-2.5 text-[10px] font-semibold"
-          onClick={() => startCall('audio')}
-          aria-label="Start audio call"
+          variant="ghost"
+          className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+          onClick={cancelInvite}
+          disabled={loading}
+          aria-label="Cancel invitation"
+          title="Cancel invitation"
         >
-          <Phone className="w-3 h-3" />
-          <span className="hidden sm:inline">Call</span>
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-7 px-2.5 text-[10px] font-semibold"
-          onClick={() => startCall('video')}
-          aria-label="Start video call"
-        >
-          <Video className="w-3 h-3" />
-          <span className="hidden sm:inline">Video</span>
+          <X className="w-3 h-3" />
         </Button>
       </div>
     );
   }
 
-  // Active call surface (compact, fits inside header row, expands below)
+  // Idle / terminal — show invite buttons + last status pill if any.
   return (
-    <div className="flex flex-col items-stretch gap-2 rounded-lg border border-border bg-card/60 p-2 min-w-[260px]">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0">
-          {phase === 'creating' && <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />}
-          {phase === 'ringing' && <Loader2 className="w-3.5 h-3.5 animate-spin text-warning" />}
-          {phase === 'in_call' && (
-            <span className="inline-flex w-2 h-2 rounded-full bg-success animate-pulse" aria-hidden />
-          )}
-          <span className="text-[11px] font-semibold text-foreground truncate">
-            {phase === 'creating' && 'Starting call...'}
-            {phase === 'ringing' && 'Ringing ' + (contactName || 'visitor') + '...'}
-            {phase === 'in_call' && 'In call' + (callType === 'video' ? ' (video)' : '')}
-            {phase === 'ending' && 'Ending...'}
-          </span>
-          {recording && (
-            <Badge variant="destructive" className="h-5 px-1.5 text-[9px] font-semibold gap-1">
-              <Circle className="w-2 h-2 fill-current" /> REC
-            </Badge>
-          )}
-        </div>
-        <Button
-          size="sm"
-          variant="destructive"
-          className="h-7 px-2.5 text-[10px] font-semibold"
-          onClick={hangup}
-          aria-label="Hang up"
+    <div className="flex items-center gap-1.5">
+      {latest && visual && (
+        <Badge
+          className={cn('h-5 px-1.5 text-[9px] font-semibold gap-1 border', visual.className)}
+          title={'Last invitation: ' + visual.label.toLowerCase()}
         >
-          <PhoneOff className="w-3 h-3" />
-          End
-        </Button>
-      </div>
-
-      {phase === 'in_call' && (
-        <>
-          {callType === 'video' && (
-            <video
-              ref={remoteVideoRef}
-              className="w-full max-h-48 rounded-md bg-black object-contain"
-              autoPlay
-              playsInline
-            />
-          )}
-          <audio ref={remoteAudioRef} autoPlay />
-          <div className="flex items-center gap-1.5">
-            <Button
-              size="sm"
-              variant={lk.micEnabled ? 'outline' : 'secondary'}
-              className="h-7 px-2 text-[10px]"
-              onClick={() => void lk.toggleMic()}
-              aria-label={lk.micEnabled ? 'Mute microphone' : 'Unmute microphone'}
-            >
-              {lk.micEnabled ? <Mic className="w-3 h-3" /> : <MicOff className="w-3 h-3" />}
-            </Button>
-            <Button
-              size="sm"
-              variant={lk.cameraEnabled ? 'outline' : 'secondary'}
-              className="h-7 px-2 text-[10px]"
-              onClick={() => void lk.toggleCamera()}
-              aria-label={lk.cameraEnabled ? 'Stop camera' : 'Start camera'}
-            >
-              {lk.cameraEnabled ? <Video className="w-3 h-3" /> : <VideoOff className="w-3 h-3" />}
-            </Button>
-            <Button
-              size="sm"
-              variant={recording ? 'destructive' : 'outline'}
-              className={cn('h-7 px-2 text-[10px] ml-auto', recording && 'animate-pulse')}
-              onClick={() => void toggleRecording()}
-              aria-label={recording ? 'Stop recording' : 'Start recording'}
-            >
-              <Circle className={cn('w-3 h-3', recording && 'fill-current')} />
-              {recording ? 'Stop' : 'Rec'}
-            </Button>
-          </div>
-          {lk.state === 'reconnecting' && (
-            <p className="text-[10px] text-warning">Reconnecting...</p>
-          )}
-          {lk.error && (
-            <p className="text-[10px] text-destructive">{lk.error}</p>
-          )}
-        </>
+          <visual.Icon className="w-2.5 h-2.5" />
+          {visual.label}
+        </Badge>
       )}
+      <Button
+        size="sm"
+        variant="outline"
+        className="h-7 px-2.5 text-[10px] font-semibold"
+        onClick={() => sendInvite('audio')}
+        disabled={loading || creating !== null}
+        aria-label="Invite to audio call"
+      >
+        {creating === 'audio' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Phone className="w-3 h-3" />}
+        <span className="hidden sm:inline">Invite</span>
+      </Button>
+      <Button
+        size="sm"
+        variant="outline"
+        className="h-7 px-2.5 text-[10px] font-semibold"
+        onClick={() => sendInvite('video')}
+        disabled={loading || creating !== null}
+        aria-label="Invite to video call"
+      >
+        {creating === 'video' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Video className="w-3 h-3" />}
+        <span className="hidden sm:inline">Video</span>
+      </Button>
     </div>
   );
 }

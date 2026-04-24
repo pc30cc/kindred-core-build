@@ -154,14 +154,20 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
     // Apply ICE config via the connect-time options (LiveKit forwards this
     // to the underlying RTCPeerConnection). Falls back to defaults when the
     // backend resolver returned no TURN config.
-    const connectOptions = input.iceServers
-      ? {
-          rtcConfig: {
-            iceServers: input.iceServers,
-            iceTransportPolicy: (input.iceTransportPolicy ?? 'all') as RTCIceTransportPolicy,
-          },
-        }
-      : undefined;
+    // Bound the SDK's internal join attempts so that infra failures
+    // (cloudflare 404 on /rtc/v1, websocket refusal, region fallback)
+    // do not trap the engine in `connecting` while the SDK silently loops.
+    const connectOptions: Parameters<Room['connect']>[2] = {
+      maxRetries: 2,
+      ...(input.iceServers
+        ? {
+            rtcConfig: {
+              iceServers: input.iceServers,
+              iceTransportPolicy: (input.iceTransportPolicy ?? 'all') as RTCIceTransportPolicy,
+            },
+          }
+        : {}),
+    };
     roomRef.current = room;
     wireRoom(room);
     try {

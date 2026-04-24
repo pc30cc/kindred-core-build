@@ -92,6 +92,19 @@ const DEFAULT_RING_TIMEOUT_MS = 35_000;
 const ENDING_TIMEOUT_MS = 6_000;
 
 /**
+ * Hard watchdog for the pre-connected join window. The LiveKit SDK
+ * internally retries (region fallback, v1→v0 path fallback, websocket
+ * reconnect) and may sit in those retries long enough to trap the engine
+ * in `connecting`. This watchdog forces a terminal failure if we do not
+ * reach `connected` within the budget.
+ *
+ * Applies to both outgoing (after token success) and incoming
+ * (acceptIncoming) flows. Cleared on every transition out of
+ * preparing/connecting/outgoing_ringing.
+ */
+const CONNECT_WATCHDOG_MS = 20_000;
+
+/**
  * Compact description of an incoming offer, derived from the existing
  * call_queue_entries row. Surfaces consume this — they MUST NOT poll the
  * queue independently.
@@ -144,13 +157,38 @@ export interface EngineOptions {
 }
 
 function classifyError(e: unknown): { code: string; message: string } {
-  const msg = (e as { message?: string })?.message || String(e);
+  const err = e as { message?: string; code?: string; reason?: number; reasonName?: string; name?: string } | undefined;
+  const msg = err?.message || String(e);
   const lower = msg.toLowerCase();
-  if (lower.includes('permission') || lower.includes('notallowed') || lower.includes('denied')) {
+  // Caller-provided codes (e.g. config_missing throws) win.
+  if (err?.code && typeof err.code === 'string') {
+    return { code: err.code, message: msg };
+  }
+  // LiveKit SDK ConnectionError — most reliable signal we have.
+  // reasonName is set by livekit-client/ConnectionError.
+  const reasonName = err?.reasonName;
+  if (reasonName === 'ServiceNotFound' || /v1 rtc path not found|service.*not.*found/i.test(msg)) {
+    return { code: 'rtc_path_not_found', message: 'Call server is incompatible with the current client.' };
+  }
+  if (reasonName === 'ServerUnreachable' || /websocket|ws_error|1006|connection refused|server unreachable|networkerror/i.test(msg)) {
+    return { code: 'ws_connection_refused', message: 'Could not reach the call server.' };
+  }
+  if (reasonName === 'Timeout' || lower.includes('timeout') || lower.includes('timed out')) {
+    return { code: 'connect_timeout', message: 'Call connection timed out.' };
+  }
+  if (reasonName === 'NotAllowed' || lower.includes('permission') || lower.includes('notallowed')) {
     return { code: 'media_denied', message: msg };
   }
+  if (reasonName === 'Cancelled' || lower.includes('cancelled') || lower.includes('canceled')) {
+    return { code: 'cancelled', message: msg };
+  }
+  if (lower.includes('closed peer connection') || lower.includes('createoffer')) {
+    return { code: 'peer_connection_closed', message: 'Could not establish media connection.' };
+  }
   if (lower.includes('token')) return { code: 'token_failed', message: msg };
-  if (lower.includes('ws_url') || lower.includes('rtc')) return { code: 'config_missing', message: msg };
+  if (lower.includes('ws_url') || lower.includes('rtc url') || lower.includes('config')) {
+    return { code: 'config_missing', message: msg };
+  }
   if (lower.includes('connect')) return { code: 'connect_failed', message: msg };
   return { code: 'unknown', message: msg };
 }
@@ -162,6 +200,7 @@ export class CallSessionEngine {
   private ringTimer: ReturnType<typeof setTimeout> | null = null;
   private endingTimer: ReturnType<typeof setTimeout> | null = null;
   private incomingTimer: ReturnType<typeof setTimeout> | null = null;
+  private connectTimer: ReturnType<typeof setTimeout> | null = null;
   /**
    * Generation counter — every new call attempt bumps this. Async callbacks
    * compare against the captured value and bail if the engine has moved on.
@@ -245,6 +284,7 @@ export class CallSessionEngine {
       }
 
       this.transition({ phase: 'connecting' });
+      this.armConnectWatchdog(myGen);
       await this.opts.transport.connect({
         wsUrl: tok.ws_url,
         token: tok.token,
@@ -262,6 +302,7 @@ export class CallSessionEngine {
       try { await callsApi.accept(created.id); } catch { /* ignore */ }
 
       this.clearRingTimeout();
+      this.clearConnectWatchdog();
       this.transition({ phase: 'connected', startedAt: Date.now() });
     } catch (err) {
       if (this.gen !== myGen) return; // a newer attempt already took over
@@ -284,6 +325,7 @@ export class CallSessionEngine {
       this.clearRingTimeout();
       this.clearEndingTimeout();
       this.clearIncomingTimeout();
+      this.clearConnectWatchdog();
       try { await this.opts.transport.disconnect(); } catch { /* ignore */ }
       this.releaseBusy();
       return;
@@ -344,6 +386,7 @@ export class CallSessionEngine {
     const myGen = this.gen;
     this.clearIncomingTimeout();
     this.transition({ phase: 'connecting' });
+    this.armConnectWatchdog(myGen);
 
     let acceptedCallId: string | null = offer.callSessionId;
     try {
@@ -395,6 +438,7 @@ export class CallSessionEngine {
       // 4) Ack the call session itself (non-fatal).
       try { await callsApi.accept(acceptedCallId); } catch { /* ignore */ }
 
+      this.clearConnectWatchdog();
       this.transition({ phase: 'connected', startedAt: Date.now() });
     } catch (err) {
       if (this.gen !== myGen) return;
@@ -465,6 +509,7 @@ export class CallSessionEngine {
     this.clearRingTimeout();
     this.clearEndingTimeout();
     this.clearIncomingTimeout();
+    this.clearConnectWatchdog();
     if (!TERMINAL.has(this.state.phase) && this.state.phase !== 'idle') {
       const id = this.state.callId;
       if (id) {
@@ -502,6 +547,7 @@ export class CallSessionEngine {
       this.clearRingTimeout();
       this.clearEndingTimeout();
       this.clearIncomingTimeout();
+      this.clearConnectWatchdog();
       try { await this.opts.transport.disconnect(); } catch { /* ignore */ }
       this.transition({ phase: terminal, errorMessage: detail, errorCode: detail ? 'remote_hangup' : null });
       this.releaseBusy();
@@ -522,6 +568,7 @@ export class CallSessionEngine {
       this.clearRingTimeout();
       this.clearEndingTimeout();
       this.clearIncomingTimeout();
+      this.clearConnectWatchdog();
       try { await this.opts.transport.disconnect(); } catch { /* ignore */ }
       this.transition({ phase: terminal, errorCode: code, errorMessage: message });
       this.releaseBusy();
@@ -600,6 +647,29 @@ export class CallSessionEngine {
 
   private clearIncomingTimeout(): void {
     if (this.incomingTimer) { clearTimeout(this.incomingTimer); this.incomingTimer = null; }
+  }
+
+  /**
+   * Bounded join window — fires after CONNECT_WATCHDOG_MS spent in
+   * preparing/connecting/outgoing_ringing without reaching connected. The
+   * SDK's internal v1→v0 / region fallback can take time; this guard keeps
+   * the engine from being trapped if those internal retries silently spin.
+   */
+  private armConnectWatchdog(myGen: number): void {
+    this.clearConnectWatchdog();
+    this.connectTimer = setTimeout(() => {
+      if (this.gen !== myGen) return;
+      const p = this.state.phase;
+      if (p !== 'preparing' && p !== 'connecting' && p !== 'outgoing_ringing') return;
+      this.log('connect watchdog fired — forcing terminal failure');
+      const id = this.state.callId;
+      if (id) { void callsApi.hangup(id).catch(() => { /* ignore */ }); }
+      void this.failTo('failed', 'connect_timeout', 'Call connection timed out.', myGen);
+    }, CONNECT_WATCHDOG_MS);
+  }
+
+  private clearConnectWatchdog(): void {
+    if (this.connectTimer) { clearTimeout(this.connectTimer); this.connectTimer = null; }
   }
 
   private log(msg: string, extra?: unknown): void {

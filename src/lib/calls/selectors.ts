@@ -11,6 +11,40 @@ export function isOperatorIdle(s: CallSessionState): boolean {
   return s.phase === 'idle';
 }
 
+/**
+ * Friendly, operator-facing message for a terminal failure code. Returns
+ * a concise sentence — never a raw SDK payload. Keep the set small and
+ * deterministic; unknown codes fall back to a generic line.
+ */
+export function operatorCallErrorMessage(code: string | null, fallback?: string | null): string {
+  switch (code) {
+    case 'rtc_path_not_found':
+      return 'Call server is incompatible with the current client.';
+    case 'ws_connection_refused':
+      return 'Could not reach the call server.';
+    case 'connect_timeout':
+      return 'Call connection timed out.';
+    case 'peer_connection_closed':
+      return 'Could not establish media connection.';
+    case 'media_denied':
+      return 'Microphone or camera access was denied.';
+    case 'token_failed':
+      return 'Could not authorize the call.';
+    case 'config_missing':
+      return 'Call provider is not configured.';
+    case 'connect_failed':
+      return 'Could not connect to the call.';
+    case 'cancelled':
+      return 'Call was cancelled.';
+    case 'remote_hangup':
+      return 'The other side ended the call.';
+    case 'no_answer':
+      return 'No answer.';
+    default:
+      return fallback || 'The call could not be completed.';
+  }
+}
+
 export function isOperatorRinging(s: CallSessionState): boolean {
   return s.phase === 'incoming_ringing';
 }

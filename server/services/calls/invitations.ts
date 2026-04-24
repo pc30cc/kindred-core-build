@@ -511,3 +511,34 @@ export async function listInvitationsForConversation(
     .limit(20);
   return (data as CallInvitationRow[] | null) ?? [];
 }
+
+/**
+ * Background TTL sweeper. Polls every 30s, flips pending invitations whose
+ * expires_at is in the past to 'expired', patches their system card, and
+ * records a timeline event. Best-effort: never throws to the caller.
+ */
+export function startInvitationExpirySweeper(config: ServerConfig): { stop: () => void } {
+  let stopped = false;
+  let timer: NodeJS.Timeout | null = null;
+  const tick = async () => {
+    if (stopped) return;
+    try {
+      const result = await sweepExpiredInvitations(config);
+      if (result.expired > 0) {
+        console.log(`[invitations] expired ${result.expired} stale invitation(s)`);
+      }
+    } catch (err: any) {
+      console.warn('[invitations] sweeper tick failed:', err?.message || err);
+    } finally {
+      if (!stopped) timer = setTimeout(tick, 30_000);
+    }
+  };
+  // First tick after a small delay so we don't compete with startup work.
+  timer = setTimeout(tick, 5_000);
+  return {
+    stop() {
+      stopped = true;
+      if (timer) { clearTimeout(timer); timer = null; }
+    },
+  };
+}

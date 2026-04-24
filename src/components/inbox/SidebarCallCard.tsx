@@ -413,8 +413,21 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
     try {
       const { invitation } = await callInvitationsApi.cancel(target.id);
       setLatest(invitation);
-      // Realtime echo will flip the surface to terminal; if not the active
-      // invitation, just sync the pill.
+      // Optimistically transition the surface to terminal so the operator
+      // sees immediate feedback even when the realtime echo is delayed
+      // (e.g. Centrifugo permission/connection errors). The realtime echo
+      // will harmlessly re-confirm 'cancelled'.
+      setSurface((prev) => {
+        if (!prev.invitation || prev.invitation.id !== target.id) return prev;
+        // Don't yank a live, connected room into terminal.
+        if (prev.phase === 'connected') return prev;
+        return {
+          ...prev,
+          phase: 'terminal',
+          invitation: { ...prev.invitation, status: 'cancelled' },
+          terminalStatus: 'cancelled',
+        };
+      });
     } catch (err: any) {
       toast({
         title: t('inbox.callInvite.cancelFailed') || 'Could not cancel invitation',

@@ -102,6 +102,15 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
   const [surface, setSurface] = useState<SurfaceState>(INITIAL_SURFACE);
   const autoCloseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancellingRef = useRef(false);
+  // Tracks the invitation id we have *already* connected for. Once a
+  // connect succeeds for an invitation, ignore further realtime/poll
+  // updates for it — those are stale echoes and would orphan the live
+  // LiveKit Room, which the server then logs as CLIENT_REQUEST_LEAVE.
+  const connectedInvitationIdRef = useRef<string | null>(null);
+  // Tracks the invitation id we have started a connect attempt for, so
+  // the connecting effect cannot re-fire and double-mount the LiveKit
+  // Room when the surface state transiently re-enters 'connecting'.
+  const startedConnectInvitationIdRef = useRef<string | null>(null);
 
   const surfaceChannel: InvitationChannel = surface.invitation?.channel ?? 'audio';
   const live = useLiveKitCall({

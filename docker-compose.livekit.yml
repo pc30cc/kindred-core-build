@@ -47,6 +47,16 @@
 #   50000-50100/udp - WebRTC media. UDP bypasses Coolify's HTTP proxy and
 #                     goes DIRECTLY to the host. Open this range on the
 #                     cloud provider firewall.
+#
+# Healthcheck:
+#   `wget -qO- http://127.0.0.1:7880/ | grep -q OK` runs INSIDE the container
+#   against LiveKit's signaling port. The base image is alpine-based and ships
+#   with BusyBox `wget`, so no extra tooling is needed. The check is local-only
+#   (no DNS, no public domain, no Coolify proxy) so it can't be poisoned by an
+#   external outage and won't mask real startup failures — if the YAML render
+#   step in the entrypoint aborts, the container still exits and Coolify still
+#   shows the restart loop. `start_period: 20s` gives LiveKit enough time to
+#   bind 7880 on first boot before the first probe runs.
 
 services:
   livekit:
@@ -67,21 +77,21 @@ services:
         LOG_LEVEL="${LIVEKIT_LOG_LEVEL:-info}"
         cat > /tmp/livekit.yaml <<EOF
         port: 7880
-        log_level: ${LOG_LEVEL}
+        log_level: $${LOG_LEVEL}
         rtc:
           tcp_port: 7881
           port_range_start: 50000
           port_range_end: 50100
           use_external_ip: true
-          node_ip: ${LIVEKIT_NODE_IP}
+          node_ip: $${LIVEKIT_NODE_IP}
         keys:
-          ${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}
+          $${LIVEKIT_API_KEY}: $${LIVEKIT_API_SECRET}
         room:
           auto_create: true
           empty_timeout: 300
           departure_timeout: 20
         EOF
-        echo "[livekit-bootstrap] generated /tmp/livekit.yaml (log_level=${LOG_LEVEL}, node_ip=${LIVEKIT_NODE_IP})"
+        echo "[livekit-bootstrap] generated /tmp/livekit.yaml (log_level=$${LOG_LEVEL}, node_ip=$${LIVEKIT_NODE_IP})"
         exec /livekit-server --config /tmp/livekit.yaml
 
     # Signaling reaches LiveKit via Coolify's reverse proxy on the internal

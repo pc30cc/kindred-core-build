@@ -264,7 +264,10 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
   const scheduleAutoClose = useCallback((delayMs: number) => {
     if (autoCloseRef.current) clearTimeout(autoCloseRef.current);
     autoCloseRef.current = setTimeout(() => {
+      rtDebug('call', 'auto-close terminal disconnect');
       try { void live.disconnect(); } catch { /* ignore */ }
+      connectedInvitationIdRef.current = null;
+      startedConnectInvitationIdRef.current = null;
       setSurface(INITIAL_SURFACE);
     }, delayMs);
   }, [live]);
@@ -418,7 +421,10 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
   // ── Hangup an active call (or close terminal early) ───────────────────
   const onHangup = useCallback(async () => {
     if (autoCloseRef.current) { clearTimeout(autoCloseRef.current); autoCloseRef.current = null; }
+    rtDebug('call', 'operator hangup disconnect');
     try { await live.disconnect(); } catch { /* ignore */ }
+    connectedInvitationIdRef.current = null;
+    startedConnectInvitationIdRef.current = null;
     setSurface(INITIAL_SURFACE);
   }, [live]);
 

@@ -784,6 +784,15 @@
     // hide() between invite-show and accept can't leave the surface
     // hidden while media starts streaming behind it.
     show();
+    // ─── Bug A fix: activate the in-call stage BEFORE room.connect() ──
+    // Previously setInCallMode() ran only AFTER the mic published, which
+    // meant the .stage element was still display:none when the operator's
+    // remote video TrackSubscribed fired. The <video> element therefore
+    // measured 0×0 and never auto-played, even though the track was
+    // attached. By switching the stage on up-front (using the call_type
+    // we already know from the invite), the video element has real layout
+    // size from the moment the first remote track is subscribed.
+    try { setInCallMode(invite.call_type === 'video'); } catch (_) {}
     loadSdk().then(function (LK) {
       var iceServers = [];
       if (invite.turn && invite.turn.urls && invite.turn.urls.length) {
@@ -829,7 +838,30 @@
           btnMic.textContent = 'Mute';
           btnMic.classList.remove('off');
           var isVideo = invite.call_type === 'video';
+          // Re-assert stage mode (it was set up-front; this is a no-op
+          // re-assertion that also re-runs the host-visibility re-show).
           setInCallMode(isVideo);
+          // Nudge the remote video to play now that the stage has real
+          // size — this is the critical step when a track arrived while
+          // the element was momentarily detached/hidden.
+          try {
+            if (videoEl && videoEl.srcObject) {
+              var pp = videoEl.play();
+              if (pp && pp.catch) pp.catch(function () {});
+            }
+            // Diagnostic: log the layout size of every node in the chain
+            // so any future zero-size regression is immediately visible.
+            var inst = window.__gs_runtime && window.__gs_runtime._instance;
+            var mountHost = inst && inst.getCallMountHost ? inst.getCallMountHost() : null;
+            var stage = rootEl && rootEl.querySelector('[data-el="stage"]');
+            dlog('layout sizes after setInCallMode', {
+              mountHost: mountHost ? { w: mountHost.clientWidth, h: mountHost.clientHeight, display: mountHost.style.display } : null,
+              hostEl: hostEl ? { w: hostEl.clientWidth, h: hostEl.clientHeight } : null,
+              card: rootEl ? { w: rootEl.clientWidth, h: rootEl.clientHeight, show: rootEl.classList.contains('show') } : null,
+              stage: stage ? { w: stage.clientWidth, h: stage.clientHeight, show: stage.classList.contains('show') } : null,
+              video: videoEl ? { w: videoEl.clientWidth, h: videoEl.clientHeight, hasSrc: !!videoEl.srcObject } : null,
+            });
+          } catch (_) {}
           dlog('mic published; mode set', { isVideo: isVideo });
           if (isVideo) {
             return room.localParticipant.setCameraEnabled(true).then(function () {

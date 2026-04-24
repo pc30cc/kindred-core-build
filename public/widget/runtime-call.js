@@ -862,15 +862,20 @@
       if (!rootEl || !rootEl.isConnected) return;
       var firstAudio = null;
       var operatorVideo = null;
+      var fallbackVideo = null;
       room.remoteParticipants.forEach(function (p) {
+        var descriptor = getParticipantDescriptor(p);
         p.trackPublications.forEach(function (pub) {
           if (!pub.track || !pub.track.mediaStreamTrack) return;
           if (pub.kind === LK.Track.Kind.Audio && !firstAudio) firstAudio = pub.track.mediaStreamTrack;
-          if (pub.kind === LK.Track.Kind.Video && !operatorVideo) {
-            operatorVideo = { track: pub.track, publication: pub, participant: p };
+          if (pub.kind === LK.Track.Kind.Video) {
+            var candidate = { track: pub.track, publication: pub, participant: p };
+            if (descriptor.isOperator && !operatorVideo) operatorVideo = candidate;
+            if (!fallbackVideo) fallbackVideo = candidate;
           }
         });
       });
+      if (!operatorVideo) operatorVideo = fallbackVideo;
       var audioChanged = setMediaStreamSrc(audioEl, firstAudio);
       if (audioChanged && firstAudio) safePlay(audioEl);
       var videoChanged = false;

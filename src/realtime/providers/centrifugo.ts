@@ -925,7 +925,8 @@ export class CentrifugoClientProvider implements ClientRealtimeProvider {
     const refresh = (): Promise<SubscribeResponse | null> => {
       if (parsed.kind === 'conversation') return operatorSubscribe(parsed.workspaceId, parsed.conversationId);
       if (parsed.kind === 'inbox') return operatorInboxSubscribe(parsed.workspaceId);
-      return operatorVisitorsSubscribe(parsed.workspaceId);
+      if (parsed.kind === 'visitors') return operatorVisitorsSubscribe(parsed.workspaceId);
+      return operatorQueueSubscribe(parsed.workspaceId);
     };
 
     // Compute the channel name up front. `refresh()` will return the same
@@ -937,7 +938,9 @@ export class CentrifugoClientProvider implements ClientRealtimeProvider {
         ? `ws:${parsed.workspaceId}:conv:${parsed.conversationId}`
         : parsed.kind === 'inbox'
           ? `ws:${parsed.workspaceId}:inbox`
-          : `ws:${parsed.workspaceId}:visitors`;
+          : parsed.kind === 'visitors'
+            ? `ws:${parsed.workspaceId}:visitors`
+            : `ws:${parsed.workspaceId}:queue`;
 
     handlers.onStatus?.('connecting');
 

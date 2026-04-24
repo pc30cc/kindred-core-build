@@ -42,12 +42,18 @@
     if (!rawUrl || typeof rawUrl !== 'string') return rawUrl;
     try {
       var url = new URL(rawUrl);
-      if (/\/rtc(?:\/v1)?\/?$/.test(url.pathname)) {
-        url.pathname = url.pathname.replace(/\/rtc(?:\/v1)?\/?$/, '/rtc');
-      } else {
-        url.pathname = (url.pathname.replace(/\/+$/, '') || '') + '/rtc';
-      }
-      return url.toString().replace(/\/+$/, '');
+      // CRITICAL: livekit-client appends its own signaling path
+      // (`/rtc`, `/rtc/v1`, `/rtc/validate`, etc.) to whatever base
+      // URL we hand it. We must therefore return an ORIGIN-ONLY base
+      // (`wss://host[:port]`) and strip any pre-existing `/rtc[...]`
+      // suffix — otherwise the SDK builds `/rtc/rtc/v1` which the
+      // server 404s.
+      url.pathname = url.pathname.replace(/\/rtc(?:\/v1)?(?:\/validate)?\/?$/i, '');
+      url.pathname = url.pathname.replace(/\/+$/, '');
+      if (!url.pathname) url.pathname = '';
+      // Reconstruct origin-only (drop search/hash too — signaling base
+      // never carries query params).
+      return (url.protocol + '//' + url.host + url.pathname).replace(/\/+$/, '');
     } catch (_) {
       return rawUrl;
     }

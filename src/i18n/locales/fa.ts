@@ -368,6 +368,9 @@ const fa: TranslationKeys = {
     'timeline.callInvitationExpired': 'دعوت تماس منقضی شد',
     'timeline.callInvitationCancelled': 'دعوت تماس لغو شد',
     'timeline.callInvitationDeclined': 'بازدیدکننده دعوت تماس را رد کرد',
+    // کارت تماس در نوار کناری (جایگزین داک صف قدیمی)
+    'sidebarCall.title': 'تماس با بازدیدکننده',
+    'sidebarCall.hint': 'یک دعوت‌نامه ارسال کنید — بازدیدکننده هنگام آماده بودن از داخل چت خود می‌پیوندد.',
   },
   contacts: {
     title: 'مخاطبین',

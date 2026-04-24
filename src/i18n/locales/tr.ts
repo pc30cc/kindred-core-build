@@ -368,6 +368,9 @@ const tr: TranslationKeys = {
     'timeline.callInvitationExpired': 'Arama daveti süresi doldu',
     'timeline.callInvitationCancelled': 'Arama daveti iptal edildi',
     'timeline.callInvitationDeclined': 'Ziyaretçi arama davetini reddetti',
+    // Kenar çubuğu arama kartı (eski kuyruk panelinin yerini alır)
+    'sidebarCall.title': 'Ziyaretçiyi ara',
+    'sidebarCall.hint': 'Bir davet gönderin — ziyaretçi hazır olduğunda kendi sohbetinden katılır.',
   },
   contacts: {
     title: 'Kişiler',

@@ -565,6 +565,7 @@
       }
     } catch (_) {}
     if (rootEl) rootEl.classList.add('show');
+    ensureStageLayout('setInCallMode:' + (isVideo ? 'video' : 'audio'));
     // If a remote video track was attached BEFORE the stage became
     // visible (the original Bug A), the <video> element will be paused
     // with zero layout. Now that the stage is shown, re-issue play() so
@@ -575,7 +576,7 @@
         if (p && p.catch) p.catch(function () {});
       } catch (_) {}
     }
-    dlog('setInCallMode()', {
+    dlogLayout('setInCallMode()', {
       isVideo: isVideo,
       cardVisible: rootEl ? rootEl.classList.contains('show') : false,
       stageOn: stage ? stage.classList.contains('show') : false,
@@ -1124,13 +1125,9 @@
             // so any future zero-size regression is immediately visible.
             var inst = window.__gs_runtime && window.__gs_runtime._instance;
             var mountHost = inst && inst.getCallMountHost ? inst.getCallMountHost() : null;
-            var stage = rootEl && rootEl.querySelector('[data-el="stage"]');
-            dlog('layout sizes after setInCallMode', {
+            dlogLayout('layout sizes after setInCallMode', {
               mountHost: mountHost ? { w: mountHost.clientWidth, h: mountHost.clientHeight, display: mountHost.style.display } : null,
-              hostEl: hostEl ? { w: hostEl.clientWidth, h: hostEl.clientHeight } : null,
-              card: rootEl ? { w: rootEl.clientWidth, h: rootEl.clientHeight, show: rootEl.classList.contains('show') } : null,
-              stage: stage ? { w: stage.clientWidth, h: stage.clientHeight, show: stage.classList.contains('show') } : null,
-              video: videoEl ? { w: videoEl.clientWidth, h: videoEl.clientHeight, hasSrc: !!videoEl.srcObject } : null,
+              videoHasSrc: videoEl ? !!videoEl.srcObject : false,
             });
           } catch (_) {}
           dlog('mic published; mode set', { isVideo: isVideo });

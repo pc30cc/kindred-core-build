@@ -36,7 +36,6 @@ import {
   channelBelongsToWorkspace,
   isInboxChannel,
   isVisitorsChannel,
-  isQueueChannel,
 } from '../services/realtime/types.js';
 import { loadWidgetPlatformRuntimeSettings } from '../services/widget/platformSettings.js';
 import { emitMetric } from '../services/observability/metrics.js';
@@ -308,8 +307,7 @@ realtimeRouter.post('/subscribe', perfHttpMiddleware('realtime.subscribe'), asyn
     const channel = `ws:${parsed.data.workspace_id}:conv:${parsed.data.conversation_id}`;
     if (!channelBelongsToWorkspace(channel, parsed.data.workspace_id)
         || isInboxChannel(channel, parsed.data.workspace_id)
-        || isVisitorsChannel(channel, parsed.data.workspace_id)
-        || isQueueChannel(channel, parsed.data.workspace_id)) {
+        || isVisitorsChannel(channel, parsed.data.workspace_id)) {
       emitMetric(config, {
         metric: 'realtime.channel_ownership_reject',
         workspaceId: parsed.data.workspace_id,
@@ -611,53 +609,6 @@ realtimeRouter.post('/operator-visitors-subscribe', async (req, res) => {
       driver: 'centrifugo',
       source: 'operator',
       tags: { endpoint: 'operator-visitors-subscribe', reason: 'internal_error' },
-    });
-    res.status(500).json({ error: 'Internal error' });
-  }
-});
-
-// ─────────────────────────────────────────────────────────────────────
-//  OPERATOR (call queue): /api/realtime/operator-queue-subscribe
-//  Issues a Centrifugo subscription token for the operator-only channel
-//  `ws:<workspace_id>:queue`. Carries `event` envelopes with
-//  payload.kind = 'call_queue' for live queue updates (offered/accepted/
-//  cancelled/expired/missed/requeued). Used by the unified call signal
-//  adapter to feed CallSessionEngine without polling.
-// ─────────────────────────────────────────────────────────────────────
-const operatorQueueSubscribeSchema = z.object({ workspace_id: z.string().uuid() });
-
-realtimeRouter.post('/operator-queue-subscribe', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
-  try {
-    const parsed = operatorQueueSubscribeSchema.safeParse(req.body);
-    if (!parsed.success) {
-      emitMetric(config, {
-        metric: 'realtime.subscribe_failed',
-        driver: 'centrifugo',
-        source: 'operator',
-        tags: { endpoint: 'operator-queue-subscribe', reason: 'invalid_request' },
-      });
-      return res.status(400).json({ error: 'Invalid request' });
-    }
-    const user = await authorizeOperator(req, res, config, parsed.data.workspace_id);
-    if (!user) return;
-
-    const driver = await getCentrifugoDriver(config);
-    if (!driver) return res.json({ vendor: 'polling_builtin' });
-    const channel = `ws:${parsed.data.workspace_id}:queue`;
-    const platform = await loadWidgetPlatformRuntimeSettings(config);
-    const tk = driver.issueSubscriptionToken({
-      sub: `op_${user.id}`, channel, workspaceId: parsed.data.workspace_id,
-      expiresInSeconds: platform.realtime.tokenTtlSeconds,
-    });
-    return res.json({ vendor: 'centrifugo', channel, token: tk.token, expires_at: tk.expires_at });
-  } catch (err: any) {
-    console.error('[realtime/operator-queue-subscribe]', err);
-    emitMetric(config, {
-      metric: 'realtime.subscribe_failed',
-      driver: 'centrifugo',
-      source: 'operator',
-      tags: { endpoint: 'operator-queue-subscribe', reason: 'internal_error' },
     });
     res.status(500).json({ error: 'Internal error' });
   }

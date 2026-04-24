@@ -19,15 +19,6 @@ export function useConversations(workspaceId: string | undefined, status?: strin
       return data as (Conversation & { contacts: { name: string; email: string; avatar_url: string } | null })[];
     },
     enabled: !!workspaceId,
-    // Polling fallback: realtime is the primary signal, but Centrifugo
-    // tokens can transiently expire / reconnect, and on first paint the
-    // subscription may not be live yet. A 12s background refetch keeps
-    // the inbox list correct even when the realtime channel is degraded
-    // — without it, new visitor messages required a manual reload to
-    // appear. The interval pauses when the tab is hidden.
-    refetchInterval: 12_000,
-    refetchIntervalInBackground: false,
-    refetchOnWindowFocus: true,
   });
 }
 

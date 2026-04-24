@@ -26,7 +26,6 @@ import type { ServerConfig } from '../config.js';
 import {
   publishConversationEvent,
   buildMessageEnvelope,
-  publishOperatorEvent,
 } from '../services/realtime/publish.js';
 import { getActiveTemplateSlug } from '../services/widget/templates.js';
 import {
@@ -1107,27 +1106,6 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
         convId!,
         buildMessageEnvelope(insertedMsg as any),
       ).catch(() => {});
-      // Inbox-list fan-out — operators viewing the inbox list (without this
-      // specific conversation open) need a signal to refresh, otherwise new
-      // visitor messages only appear after a manual reload. The inbox hook
-      // (`useInboxListRealtime`) recognizes `conversation_updated` and either
-      // patches the cached row or invalidates the list query as a fallback
-      // (handles the brand-new-conversation case where the row isn't cached
-      // yet). Skip the conversation channel here — we already published the
-      // full `message` envelope above; this is purely an inbox-list ping.
-      void publishOperatorEvent(
-        config,
-        {
-          kind: 'conversation_updated',
-          conversation_id: convId!,
-          workspace_id: workspaceId,
-          actor_id: null,
-          updated_at: new Date().toISOString(),
-          last_message_at: insertedMsg.created_at ?? new Date().toISOString(),
-          source: 'visitor_message',
-        },
-        { skipConversationChannel: true },
-      );
     }
 
     // AI auto-reply attempt
@@ -1194,21 +1172,6 @@ If you cannot answer, say so politely.${kbContext}`;
               convId!,
               buildMessageEnvelope(aiMsg as any),
             ).catch(() => {});
-            // Inbox-list fan-out for the AI auto-reply so the operator's
-            // conversation row bubbles up with the latest activity.
-            void publishOperatorEvent(
-              config,
-              {
-                kind: 'conversation_updated',
-                conversation_id: convId!,
-                workspace_id: workspaceId,
-                actor_id: null,
-                updated_at: new Date().toISOString(),
-                last_message_at: aiMsg.created_at ?? new Date().toISOString(),
-                source: 'ai_reply',
-              },
-              { skipConversationChannel: true },
-            );
             // Phase 4b — record canonical 'ai_reply' timeline event.
             // Payload contract: { message_id, provider?, model? }
             void recordConversationEvent(config, {

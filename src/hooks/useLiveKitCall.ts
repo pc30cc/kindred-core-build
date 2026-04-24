@@ -22,7 +22,6 @@ import {
   type RemoteTrack,
   type RemoteTrackPublication,
   type LocalTrackPublication,
-  type LocalTrack,
 } from 'livekit-client';
 
 export type CallConnState =
@@ -53,8 +52,6 @@ export interface UseLiveKitCallApi {
   remote: RemoteMediaEntry[];
   micEnabled: boolean;
   cameraEnabled: boolean;
-  /** Local camera track for picture-in-picture preview, if published. */
-  localVideo: MediaStreamTrack | null;
   /** Connect to a room. URL/token come from the backend token endpoint. */
   connect(input: {
     wsUrl: string;
@@ -75,20 +72,6 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
   const [remote, setRemote] = useState<RemoteMediaEntry[]>([]);
   const [micEnabled, setMicEnabled] = useState(publishMic);
   const [cameraEnabled, setCameraEnabled] = useState(publishCamera);
-  const [localVideo, setLocalVideo] = useState<MediaStreamTrack | null>(null);
-
-  const refreshLocalVideo = useCallback(() => {
-    const room = roomRef.current;
-    if (!room) { setLocalVideo(null); return; }
-    let found: MediaStreamTrack | null = null;
-    room.localParticipant.trackPublications.forEach((pub) => {
-      if (pub.kind === Track.Kind.Video) {
-        const t = pub.track as LocalTrack | undefined;
-        if (t?.mediaStreamTrack) found = t.mediaStreamTrack;
-      }
-    });
-    setLocalVideo(found);
-  }, []);
 
   const refreshRemotes = useCallback(() => {
     const room = roomRef.current;
@@ -123,20 +106,19 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
       .on(RoomEvent.TrackUnsubscribed, refreshRemotes)
       .on(RoomEvent.LocalTrackPublished, (pub: LocalTrackPublication) => {
         if (pub.kind === Track.Kind.Audio) setMicEnabled(true);
-        if (pub.kind === Track.Kind.Video) { setCameraEnabled(true); refreshLocalVideo(); }
+        if (pub.kind === Track.Kind.Video) setCameraEnabled(true);
       })
       .on(RoomEvent.LocalTrackUnpublished, (pub: LocalTrackPublication) => {
         if (pub.kind === Track.Kind.Audio) setMicEnabled(false);
-        if (pub.kind === Track.Kind.Video) { setCameraEnabled(false); refreshLocalVideo(); }
+        if (pub.kind === Track.Kind.Video) setCameraEnabled(false);
       })
       .on(RoomEvent.Reconnecting, () => setState('reconnecting'))
       .on(RoomEvent.Reconnected, () => setState('connected'))
       .on(RoomEvent.Disconnected, () => {
         setState('disconnected');
         refreshRemotes();
-        setLocalVideo(null);
       });
-  }, [refreshRemotes, refreshLocalVideo]);
+  }, [refreshRemotes]);
 
   const connect = useCallback(async (input: {
     wsUrl: string;
@@ -154,20 +136,14 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
     // Apply ICE config via the connect-time options (LiveKit forwards this
     // to the underlying RTCPeerConnection). Falls back to defaults when the
     // backend resolver returned no TURN config.
-    // Bound the SDK's internal join attempts so that infra failures
-    // (cloudflare 404 on /rtc/v1, websocket refusal, region fallback)
-    // do not trap the engine in `connecting` while the SDK silently loops.
-    const connectOptions: Parameters<Room['connect']>[2] = {
-      maxRetries: 2,
-      ...(input.iceServers
-        ? {
-            rtcConfig: {
-              iceServers: input.iceServers,
-              iceTransportPolicy: (input.iceTransportPolicy ?? 'all') as RTCIceTransportPolicy,
-            },
-          }
-        : {}),
-    };
+    const connectOptions = input.iceServers
+      ? {
+          rtcConfig: {
+            iceServers: input.iceServers,
+            iceTransportPolicy: (input.iceTransportPolicy ?? 'all') as RTCIceTransportPolicy,
+          },
+        }
+      : undefined;
     roomRef.current = room;
     wireRoom(room);
     try {
@@ -197,7 +173,6 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
     try { await room.disconnect(); } catch { /* ignore */ }
     roomRef.current = null;
     setRemote([]);
-    setLocalVideo(null);
     setState('disconnected');
   }, []);
 
@@ -215,8 +190,7 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
     const next = !room.localParticipant.isCameraEnabled;
     await room.localParticipant.setCameraEnabled(next);
     setCameraEnabled(next);
-    refreshLocalVideo();
-  }, [refreshLocalVideo]);
+  }, []);
 
   // Cleanup on unmount.
   useEffect(() => {
@@ -229,5 +203,5 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
     };
   }, []);
 
-  return { state, error, remote, micEnabled, cameraEnabled, localVideo, connect, disconnect, toggleMic, toggleCamera };
+  return { state, error, remote, micEnabled, cameraEnabled, connect, disconnect, toggleMic, toggleCamera };
 }

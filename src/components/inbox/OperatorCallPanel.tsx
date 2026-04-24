@@ -1,37 +1,24 @@
 /**
- * Phase — Inbox Call Hardening · Pass 1 + 2 + 3 + 4
+ * Phase 8B - Operator Call Panel.
  *
- * Bounded module mounted inside the inbox header. Lifecycle is owned by
- * the shared CallSessionEngine via useCallSession(). This component is
- * a presentation orchestrator:
- *   - reads engine state (phase / errors / busy)
- *   - renders idle launchers + ringing-out surface
- *   - delegates the connected surface to AudioCallSurface or
- *     VideoCallSurface depending on engine.callType (Pass 4)
- *   - drives outgoing ringback via the central ringtone controller
- *     (Pass 3) — tied to engine.phase, stops on ANY non-ringing transition
+ * Bounded module mounted inside the inbox header. Owns one call session
+ * lifecycle at a time. Token + URLs always come from the backend.
  *
- * Hard guarantees inherited from the engine:
- *   - Busy lock is released on EVERY terminal path (token failure, invite
- *     failure, connect failure, media-permission denial, no-answer
- *     timeout, remote hangup, local hangup, ending timeout, unmount).
- *   - Token + RTC URLs always come from callsApi.token() (resolver-backed).
- *   - All errors surface inline via toast — never crash the inbox.
+ * Strict rules:
+ *  - No page reload, no inbox refactor.
+ *  - All RTC URLs/TURN come from callsApi.token() (resolver-backed).
+ *  - All errors surface inline via toast - never crash the inbox.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Phone, PhoneOff, Video, Loader2,
+  Phone, PhoneOff, Video, VideoOff, Mic, MicOff, Loader2, Circle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { callsApi, type CallType } from '@/lib/calls-api';
-import { useCallSession } from '@/hooks/useCallSession';
-import { describePhase, isTerminalPhase } from '@/lib/calls/CallSessionEngine';
-import { operatorCallErrorMessage } from '@/lib/calls/selectors';
-import { ringtone } from '@/lib/calls/ringtone';
-import { AudioCallSurface } from './calls/AudioCallSurface';
-import { VideoCallSurface } from './calls/VideoCallSurface';
+import { useLiveKitCall } from '@/hooks/useLiveKitCall';
 
 interface OperatorCallPanelProps {
   workspaceId: string;
@@ -40,54 +27,112 @@ interface OperatorCallPanelProps {
   contactName?: string | null;
 }
 
+type Phase = 'idle' | 'creating' | 'ringing' | 'in_call' | 'ending';
+
 export function OperatorCallPanel({ workspaceId, conversationId, contactName }: OperatorCallPanelProps) {
-  const session = useCallSession();
-  const { state: engineState, media: lk } = session;
-  const phase = engineState.phase;
-  const callType = engineState.callType;
-  const callId = engineState.callId;
+  const [phase, setPhase] = useState<Phase>('idle');
+  const [callId, setCallId] = useState<string | null>(null);
+  const [callType, setCallType] = useState<CallType>('audio');
   const [recordingId, setRecordingId] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
-  const lastErrorRef = useRef<string | null>(null);
 
-  // First remote participant — the visitor side. Surfaces just consume tracks.
-  const first = lk.remote[0];
-  const remoteAudio = first?.audio ?? null;
-  const remoteVideo = first?.video ?? null;
+  const lk = useLiveKitCall({ publishMic: true, publishCamera: false });
 
-  // ── Pass 3 — Outgoing ringback ──────────────────────────────────────
-  // Ringback plays only while the engine is actively ringing the visitor.
-  // The controller is idempotent so duplicate effect runs are safe.
+  const remoteAudioRef = useRef<HTMLAudioElement>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement>(null);
+
+  // Attach remote tracks to the audio/video elements.
   useEffect(() => {
-    if (phase === 'outgoing_ringing') {
-      ringtone.start('ringback');
-    } else {
-      // Only stop ringback — don't touch the global incoming ringtone
-      // (that one belongs to the IncomingCallSurface).
-      if (ringtone.currentKind() === 'ringback') ringtone.stop();
+    const first = lk.remote[0];
+    const audioEl = remoteAudioRef.current;
+    const videoEl = remoteVideoRef.current;
+    if (audioEl) {
+      if (first?.audio) {
+        const stream = new MediaStream([first.audio]);
+        audioEl.srcObject = stream;
+        audioEl.play().catch(() => { /* user gesture may be required */ });
+      } else {
+        audioEl.srcObject = null;
+      }
     }
-  }, [phase]);
+    if (videoEl) {
+      if (first?.video) {
+        const stream = new MediaStream([first.video]);
+        videoEl.srcObject = stream;
+        videoEl.play().catch(() => { /* ignore autoplay errors */ });
+      } else {
+        videoEl.srcObject = null;
+      }
+    }
+  }, [lk.remote]);
 
-  // Final safety net — if this surface unmounts mid-ring, cut the sound.
-  useEffect(() => {
-    return () => {
-      if (ringtone.currentKind() === 'ringback') ringtone.stop();
-    };
-  }, []);
+  const cleanup = useCallback(async () => {
+    await lk.disconnect();
+    setCallId(null);
+    setRecordingId(null);
+    setRecording(false);
+    setPhase('idle');
+  }, [lk]);
 
-  const startCall = useCallback((type: CallType) => {
+  const startCall = useCallback(async (type: CallType) => {
     if (phase !== 'idle') return;
-    void session.startOutgoing({
-      workspaceId,
-      conversationId,
-      callType: type,
-      displayName: 'Operator',
-    });
-  }, [phase, session, workspaceId, conversationId]);
+    setCallType(type);
+    setPhase('creating');
+    let createdId: string | null = null;
+    try {
+      const created = await callsApi.create({
+        workspace_id: workspaceId,
+        call_type: type,
+        context_type: 'conversation',
+        context_id: conversationId,
+      });
+      createdId = created.id;
+      setCallId(created.id);
+      // Invite the visitor (server marks state=ringing + emits call_event).
+      await callsApi.invite(created.id, { participant_type: 'visitor' });
+      setPhase('ringing');
+      // Mint participant token + TURN bundle.
+      const tok = await callsApi.token(created.id, {
+        display_name: 'Operator',
+        ttl_seconds: 600,
+      });
+      if (!tok.ws_url) throw new Error('Backend did not return ws_url. Configure LiveKit RTC URL in admin.');
+      const iceServers: RTCIceServer[] = [];
+      if (tok.turn?.urls?.length) {
+        iceServers.push({
+          urls: tok.turn.urls,
+          username: tok.turn.username || undefined,
+          credential: tok.turn.credential || undefined,
+        });
+      }
+      await lk.connect({
+        wsUrl: tok.ws_url,
+        token: tok.token,
+        iceServers: iceServers.length ? iceServers : undefined,
+        iceTransportPolicy: tok.ice_policy,
+      });
+      // Mark as accepted on our side (server transitions to in_progress).
+      try { await callsApi.accept(created.id); } catch { /* non-fatal */ }
+      setPhase('in_call');
+    } catch (e: any) {
+      toast({
+        title: 'Could not start call',
+        description: e?.message || String(e),
+        variant: 'destructive',
+      });
+      if (createdId) {
+        try { await callsApi.hangup(createdId); } catch { /* ignore */ }
+      }
+      await cleanup();
+    }
+  }, [phase, workspaceId, conversationId, lk, cleanup]);
 
-  const hangup = useCallback(() => {
-    void session.hangup();
-  }, [session]);
+  const hangup = useCallback(async () => {
+    if (!callId) { await cleanup(); return; }
+    setPhase('ending');
+    try { await callsApi.hangup(callId); } catch { /* ignore */ }
+    await cleanup();
+  }, [callId, cleanup]);
 
   const toggleRecording = useCallback(async () => {
     if (!callId) return;
@@ -109,37 +154,15 @@ export function OperatorCallPanel({ workspaceId, conversationId, contactName }: 
     }
   }, [callId, recording, recordingId]);
 
-  // Surface engine failures via toast — exactly once per failure.
+  // Reflect remote disconnect into our local phase.
   useEffect(() => {
-    if (phase !== 'failed' && phase !== 'missed') return;
-    const key = phase + ':' + (engineState.errorCode ?? '') + ':' + (engineState.errorMessage ?? '');
-    if (lastErrorRef.current === key) return;
-    lastErrorRef.current = key;
-    toast({
-      title: phase === 'missed' ? 'No answer' : 'Could not start call',
-      description: phase === 'missed'
-        ? 'The visitor did not answer.'
-        : operatorCallErrorMessage(engineState.errorCode, engineState.errorMessage),
-      variant: 'destructive',
-    });
-  }, [phase, engineState.errorCode, engineState.errorMessage]);
-
-  // When a terminal phase settles, reset local recording bookkeeping
-  // AND make sure ringback is silenced (belt & suspenders alongside the
-  // phase-driven effect above — guards against a rapid terminal race).
-  useEffect(() => {
-    if (isTerminalPhase(phase)) {
-      setRecordingId(null);
-      setRecording(false);
-      if (ringtone.currentKind() === 'ringback') ringtone.stop();
+    if (phase === 'in_call' && (lk.state === 'disconnected' || lk.state === 'failed')) {
+      void cleanup();
     }
-  }, [phase]);
-
-  // Treat terminal phases (after a brief moment) as idle for the launcher.
-  const showLauncher = phase === 'idle' || isTerminalPhase(phase);
+  }, [lk.state, phase, cleanup]);
 
   // Idle launchers
-  if (showLauncher) {
+  if (phase === 'idle') {
     return (
       <div className="flex items-center gap-1.5">
         <Button
@@ -166,74 +189,89 @@ export function OperatorCallPanel({ workspaceId, conversationId, contactName }: 
     );
   }
 
-  const isConnecting = phase === 'preparing' || phase === 'connecting';
-  const isRinging = phase === 'outgoing_ringing';
-  const isLive = phase === 'connected' || phase === 'reconnecting';
-  const liveSurfacePhase = phase === 'reconnecting' ? 'reconnecting' : 'connected';
-
-  // ── Connected: delegate to audio-first or video-first surface ───────
-  if (isLive) {
-    if (callType === 'video') {
-      return (
-        <VideoCallSurface
-          contactName={contactName ?? null}
-          phase={liveSurfacePhase}
-          startedAt={engineState.startedAt}
-          remoteAudio={remoteAudio}
-          remoteVideo={remoteVideo}
-          localVideo={lk.localVideo}
-          micEnabled={lk.micEnabled}
-          cameraEnabled={lk.cameraEnabled}
-          onToggleMic={() => void lk.toggleMic()}
-          onToggleCamera={() => void lk.toggleCamera()}
-          onHangup={hangup}
-          recording={recording}
-          onToggleRecording={() => void toggleRecording()}
-          error={lk.error}
-        />
-      );
-    }
-    return (
-      <AudioCallSurface
-        contactName={contactName ?? null}
-        phase={liveSurfacePhase}
-        startedAt={engineState.startedAt}
-        remoteAudio={remoteAudio}
-        micEnabled={lk.micEnabled}
-        onToggleMic={() => void lk.toggleMic()}
-        onHangup={hangup}
-        recording={recording}
-        onToggleRecording={() => void toggleRecording()}
-        error={lk.error}
-      />
-    );
-  }
-
-  // ── Pre-connected: compact ringing/connecting bar with End button ───
+  // Active call surface (compact, fits inside header row, expands below)
   return (
-    <div className="flex items-center justify-between gap-2 rounded-lg border border-border bg-card/60 p-2 min-w-[240px]">
-      <div className="flex items-center gap-2 min-w-0">
-        {isConnecting && <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />}
-        {isRinging && <Loader2 className="w-3.5 h-3.5 animate-spin text-warning" />}
-        <span className={cn(
-          'text-[11px] font-semibold truncate',
-          isRinging ? 'text-warning' : 'text-foreground',
-        )}>
-          {isRinging
-            ? 'Ringing ' + (contactName || 'visitor') + '…'
-            : describePhase(engineState)}
-        </span>
+    <div className="flex flex-col items-stretch gap-2 rounded-lg border border-border bg-card/60 p-2 min-w-[260px]">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          {phase === 'creating' && <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />}
+          {phase === 'ringing' && <Loader2 className="w-3.5 h-3.5 animate-spin text-warning" />}
+          {phase === 'in_call' && (
+            <span className="inline-flex w-2 h-2 rounded-full bg-success animate-pulse" aria-hidden />
+          )}
+          <span className="text-[11px] font-semibold text-foreground truncate">
+            {phase === 'creating' && 'Starting call...'}
+            {phase === 'ringing' && 'Ringing ' + (contactName || 'visitor') + '...'}
+            {phase === 'in_call' && 'In call' + (callType === 'video' ? ' (video)' : '')}
+            {phase === 'ending' && 'Ending...'}
+          </span>
+          {recording && (
+            <Badge variant="destructive" className="h-5 px-1.5 text-[9px] font-semibold gap-1">
+              <Circle className="w-2 h-2 fill-current" /> REC
+            </Badge>
+          )}
+        </div>
+        <Button
+          size="sm"
+          variant="destructive"
+          className="h-7 px-2.5 text-[10px] font-semibold"
+          onClick={hangup}
+          aria-label="Hang up"
+        >
+          <PhoneOff className="w-3 h-3" />
+          End
+        </Button>
       </div>
-      <Button
-        size="sm"
-        variant="destructive"
-        className="h-7 px-2.5 text-[10px] font-semibold"
-        onClick={hangup}
-        aria-label="Cancel call"
-      >
-        <PhoneOff className="w-3 h-3 mr-1" />
-        Cancel
-      </Button>
+
+      {phase === 'in_call' && (
+        <>
+          {callType === 'video' && (
+            <video
+              ref={remoteVideoRef}
+              className="w-full max-h-48 rounded-md bg-black object-contain"
+              autoPlay
+              playsInline
+            />
+          )}
+          <audio ref={remoteAudioRef} autoPlay />
+          <div className="flex items-center gap-1.5">
+            <Button
+              size="sm"
+              variant={lk.micEnabled ? 'outline' : 'secondary'}
+              className="h-7 px-2 text-[10px]"
+              onClick={() => void lk.toggleMic()}
+              aria-label={lk.micEnabled ? 'Mute microphone' : 'Unmute microphone'}
+            >
+              {lk.micEnabled ? <Mic className="w-3 h-3" /> : <MicOff className="w-3 h-3" />}
+            </Button>
+            <Button
+              size="sm"
+              variant={lk.cameraEnabled ? 'outline' : 'secondary'}
+              className="h-7 px-2 text-[10px]"
+              onClick={() => void lk.toggleCamera()}
+              aria-label={lk.cameraEnabled ? 'Stop camera' : 'Start camera'}
+            >
+              {lk.cameraEnabled ? <Video className="w-3 h-3" /> : <VideoOff className="w-3 h-3" />}
+            </Button>
+            <Button
+              size="sm"
+              variant={recording ? 'destructive' : 'outline'}
+              className={cn('h-7 px-2 text-[10px] ml-auto', recording && 'animate-pulse')}
+              onClick={() => void toggleRecording()}
+              aria-label={recording ? 'Stop recording' : 'Start recording'}
+            >
+              <Circle className={cn('w-3 h-3', recording && 'fill-current')} />
+              {recording ? 'Stop' : 'Rec'}
+            </Button>
+          </div>
+          {lk.state === 'reconnecting' && (
+            <p className="text-[10px] text-warning">Reconnecting...</p>
+          )}
+          {lk.error && (
+            <p className="text-[10px] text-destructive">{lk.error}</p>
+          )}
+        </>
+      )}
     </div>
   );
 }

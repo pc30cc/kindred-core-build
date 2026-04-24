@@ -25,6 +25,19 @@
   if (window.__gs_call_loaded) return;
   window.__gs_call_loaded = true;
 
+  // ───── Debug logger ─────
+  // Always logs to console with a [gs-call] prefix. Cheap, no PII; helps
+  // diagnose visibility/lifecycle issues across the widget call surface.
+  // Caller can disable with `window.__gs_call_debug = false`.
+  function dlog() {
+    if (window.__gs_call_debug === false) return;
+    try {
+      var args = ['[gs-call]'].concat(Array.prototype.slice.call(arguments));
+      // eslint-disable-next-line no-console
+      console.log.apply(console, args);
+    } catch (_) {}
+  }
+
   // CDN fallback. Self-hosters can override via window.__gs_call_sdk_url.
   var LIVEKIT_SDK_URL = (window && window.__gs_call_sdk_url)
     || 'https://cdn.jsdelivr.net/npm/livekit-client@2.5.0/dist/livekit-client.umd.min.js';
@@ -74,8 +87,15 @@
       var inst = window.__gs_runtime && window.__gs_runtime._instance;
       if (inst && typeof inst.getCallMountHost === 'function') {
         var host = inst.getCallMountHost();
-        if (host && host.appendChild) return host;
+        if (host && host.appendChild) {
+          dlog('mount target resolved → in-panel call-host', {
+            w: host.clientWidth, h: host.clientHeight,
+            display: host.style.display,
+          });
+          return host;
+        }
       }
+      dlog('mount target unresolved → will fall back to body sidecar');
     } catch (_) {}
     return null;
   }
@@ -141,6 +161,7 @@
           mountMode = 'in-panel';
           if (hostEl.setAttribute) hostEl.setAttribute('data-mode', mountMode);
           applyMountStyles();
+          dlog('host migrated into in-panel target');
         } catch (_) {}
       }
       return;
@@ -149,6 +170,7 @@
     hostEl.setAttribute('data-gs-call-host', '');
     var initialTarget = getWidgetMountTarget();
     mountMode = initialTarget ? 'in-panel' : 'sidecar';
+    dlog('ensureShell → first mount', { mountMode: mountMode });
     applyMountStyles();
     shadow = hostEl.attachShadow({ mode: 'open' });
     var style = document.createElement('style');

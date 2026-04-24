@@ -28,7 +28,6 @@ import {
   saveLiveKitConfig,
   toPublicView as toLiveKitPublicView,
 } from '../services/calls/livekitConfig.js';
-import { livekitProvider } from '../services/calls/providers/livekitProvider.js';
 import { probeLiveKitProvisioning } from '../services/calls/providers/livekitProvider.js';
 import { CallProviderNotReadyError } from '../services/calls/providers/types.js';
 import { CALL_PROVIDER_CLASSIFICATION } from '../services/calls/providers/types.js';

@@ -73,7 +73,10 @@ export const livekitProvider: CallProvider = {
 
   async isReady(config) {
     try {
-      const cfg = await loadLiveKitConfig(config);
+      // Force-refresh so the readiness probe never reports a stale "not ready"
+      // when the admin has just saved credentials. The 30s in-process cache is
+      // still used by the hot path (createRoom / token mint) below.
+      const cfg = await loadLiveKitConfig(config, true);
       if (!isMinimallyConfigured(cfg)) return false;
       // Treat config presence as readiness; we don't ping LiveKit on every
       // resolver pass to keep the call hot path fast.

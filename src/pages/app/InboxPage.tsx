@@ -1448,5 +1448,6 @@ export default function InboxPage() {
         </>
       )}
     </div>
+    </CallSessionProvider>
   );
 }

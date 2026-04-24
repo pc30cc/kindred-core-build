@@ -1926,6 +1926,12 @@
           // Phase 7 — lifecycle (visitor messages only have a meaningful status).
           status: sender === 'visitor' ? (seenAt ? 'seen' : 'sent') : null,
           seenAt: sender === 'visitor' ? seenAt : null,
+          // Phase 9 — system messages may carry a metadata payload (e.g.
+          // { kind: 'call_invitation', invitation_id, channel, status,
+          // expires_at }). Plain chat bubbles ignore this; the renderer
+          // detects the kind and draws an interactive card instead.
+          senderType: senderRaw,
+          metadata: (m.metadata && typeof m.metadata === 'object') ? m.metadata : null,
         });
         changed = true;
       });

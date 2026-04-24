@@ -73,15 +73,14 @@ function normalizeLiveKitSignalBase(rawUrl: string | null): string | null {
   if (!base) return null;
   try {
     const url = new URL(base);
-    // livekit-client 2.x appends `/rtc/v1` (and `/validate`) to whatever base
-    // URL we hand it. The current public deployment serves the legacy `/rtc`
-    // path but not `/rtc/v1`, so returning the bare origin causes an initial
-    // 404 / websocket refusal before the SDK falls back. By normalizing the
-    // base to omit an already-present `/rtc` suffix and leaving callers on the
-    // same origin, we keep one canonical shape and can switch to the legacy
-    // path explicitly where needed on the client.
-    url.pathname = url.pathname.replace(/\/rtc(?:\/v1)?\/?$/, '') || '/';
-    return stripTrailingSlash(url.toString());
+    // CRITICAL: livekit-client appends its own signaling path
+    // (`/rtc`, `/rtc/v1`, `/rtc/validate`, …) to whatever base URL we
+    // hand it. We must therefore return an ORIGIN-ONLY base
+    // (`wss://host[:port]`) and strip any pre-existing `/rtc[...]`
+    // suffix — otherwise the SDK builds `/rtc/rtc/v1` which 404s.
+    url.pathname = url.pathname.replace(/\/rtc(?:\/v1)?(?:\/validate)?\/?$/i, '');
+    url.pathname = url.pathname.replace(/\/+$/, '');
+    return stripTrailingSlash(`${url.protocol}//${url.host}${url.pathname}`);
   } catch {
     return base;
   }

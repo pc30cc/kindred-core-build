@@ -16,7 +16,39 @@ export function useConversations(workspaceId: string | undefined, status?: strin
       if (status && status !== 'all') q = q.eq('status', status);
       const { data, error } = await q;
       if (error) throw error;
-      return data as (Conversation & { contacts: { name: string; email: string; avatar_url: string } | null })[];
+      const convos = (data || []) as (Conversation & {
+        contacts: { name: string; email: string; avatar_url: string } | null;
+        last_visitor_message?: { body: string; created_at: string } | null;
+      })[];
+
+      // Enrich each conversation with the latest visitor (sender_type='contact')
+      // message preview so the inbox list can show what the visitor last said
+      // instead of just the conversation subject. Single batched query keyed
+      // on conversation_id IN (...).
+      const ids = convos.map((c) => c.id).filter(Boolean);
+      if (ids.length > 0) {
+        const { data: msgs } = await supabase
+          .from('conversation_messages')
+          .select('conversation_id, body, created_at, sender_type')
+          .in('conversation_id', ids)
+          .eq('sender_type', 'contact')
+          .order('created_at', { ascending: false })
+          .limit(500);
+        const byConv: Record<string, { body: string; created_at: string }> = {};
+        for (const m of (msgs || []) as Array<{
+          conversation_id: string; body: string | null; created_at: string;
+        }>) {
+          if (!m.conversation_id || byConv[m.conversation_id]) continue;
+          byConv[m.conversation_id] = {
+            body: m.body ?? '',
+            created_at: m.created_at,
+          };
+        }
+        for (const c of convos) {
+          c.last_visitor_message = byConv[c.id] ?? null;
+        }
+      }
+      return convos;
     },
     enabled: !!workspaceId,
   });

@@ -545,6 +545,7 @@ export class CallSessionEngine {
       this.clearRingTimeout();
       this.clearEndingTimeout();
       this.clearIncomingTimeout();
+      this.clearConnectWatchdog();
       try { await this.opts.transport.disconnect(); } catch { /* ignore */ }
       this.transition({ phase: terminal, errorMessage: detail, errorCode: detail ? 'remote_hangup' : null });
       this.releaseBusy();
@@ -565,6 +566,7 @@ export class CallSessionEngine {
       this.clearRingTimeout();
       this.clearEndingTimeout();
       this.clearIncomingTimeout();
+      this.clearConnectWatchdog();
       try { await this.opts.transport.disconnect(); } catch { /* ignore */ }
       this.transition({ phase: terminal, errorCode: code, errorMessage: message });
       this.releaseBusy();
@@ -643,6 +645,29 @@ export class CallSessionEngine {
 
   private clearIncomingTimeout(): void {
     if (this.incomingTimer) { clearTimeout(this.incomingTimer); this.incomingTimer = null; }
+  }
+
+  /**
+   * Bounded join window — fires after CONNECT_WATCHDOG_MS spent in
+   * preparing/connecting/outgoing_ringing without reaching connected. The
+   * SDK's internal v1→v0 / region fallback can take time; this guard keeps
+   * the engine from being trapped if those internal retries silently spin.
+   */
+  private armConnectWatchdog(myGen: number): void {
+    this.clearConnectWatchdog();
+    this.connectTimer = setTimeout(() => {
+      if (this.gen !== myGen) return;
+      const p = this.state.phase;
+      if (p !== 'preparing' && p !== 'connecting' && p !== 'outgoing_ringing') return;
+      this.log('connect watchdog fired — forcing terminal failure');
+      const id = this.state.callId;
+      if (id) { void callsApi.hangup(id).catch(() => { /* ignore */ }); }
+      void this.failTo('failed', 'connect_timeout', 'Call connection timed out.', myGen);
+    }, CONNECT_WATCHDOG_MS);
+  }
+
+  private clearConnectWatchdog(): void {
+    if (this.connectTimer) { clearTimeout(this.connectTimer); this.connectTimer = null; }
   }
 
   private log(msg: string, extra?: unknown): void {

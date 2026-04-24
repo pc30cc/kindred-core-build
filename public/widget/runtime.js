@@ -2145,8 +2145,37 @@
 
       var statusBlock = '';
       var actionBlock = '';
+      var bodyBlock = '';
       var stateLabel = '';
       if (status === 'pending') {
+        // Body line: "An operator is inviting you to a voice call."
+        // + "The operator will wait up to X minutes for you to join."
+        var bodyKey = channel === 'video' ? 'ciBodyVideo' : 'ciBodyAudio';
+        var bodyText = t(bodyKey) || (channel === 'video'
+          ? 'An operator is inviting you to a video call.'
+          : 'An operator is inviting you to a voice call.');
+        var waitMinutes = (typeof meta.wait_minutes === 'number' && isFinite(meta.wait_minutes) && meta.wait_minutes > 0)
+          ? Math.round(meta.wait_minutes)
+          : 0;
+        // Fallback: derive from expires_at if server didn't provide wait_minutes.
+        if (!waitMinutes && meta.expires_at) {
+          var deltaMs = new Date(meta.expires_at).getTime() - new Date(msg.createdAt || Date.now()).getTime();
+          if (isFinite(deltaMs) && deltaMs > 0) {
+            waitMinutes = Math.max(1, Math.round(deltaMs / 60000));
+          }
+        }
+        var waitLine = '';
+        if (waitMinutes === 1) {
+          waitLine = t('ciWaitOneMinute') || 'The operator will wait up to one minute for you to join.';
+        } else if (waitMinutes > 1) {
+          waitLine = (t('ciWaitMinutes') || 'The operator will wait up to {m} minutes for you to join.')
+            .replace('{m}', String(waitMinutes));
+        }
+        bodyBlock = '<div class="ci-body">' +
+          '<div>' + Util.escapeHtml(bodyText) + '</div>' +
+          (waitLine ? '<div class="ci-wait">' + Util.escapeHtml(waitLine) + '</div>' : '') +
+        '</div>';
+
         var rem = Util.escapeHtml(fmtInvitationRemaining(meta.expires_at));
         statusBlock = '<div class="ci-meta ci-countdown" aria-live="polite">' +
           '<span class="ci-pulse" aria-hidden="true"></span>' + rem +
@@ -2186,6 +2215,7 @@
             '<span class="ci-icon" aria-hidden="true">' + iconSvg + '</span>' +
             '<div class="ci-text">' +
               '<div class="ci-title">' + Util.escapeHtml(headline) + '</div>' +
+              bodyBlock +
               statusBlock +
             '</div>' +
           '</div>' +

@@ -107,14 +107,15 @@
   function applyMountStyles() {
     if (!hostEl) return;
     if (mountMode === 'in-panel') {
-      // Inside the widget panel — fill the panel body and let the host
-      // page's layout (the widget shell already clips overflow) bound us.
+      // Inside the dedicated stable call mount root (sibling of .panel
+      // inside .shell). The mount root itself is already sized/positioned
+      // to overlay the panel area — we just fill it.
       hostEl.style.cssText = [
         'all:initial',
         'display:block',
         'position:absolute',
         'inset:0',
-        'z-index:5',
+        'z-index:1',
         'pointer-events:auto',
       ].join(';');
     } else {
@@ -131,13 +132,14 @@
 
   function ensureShell() {
     if (hostEl) {
-      // Re-evaluate mount target on every show in case the widget panel
+      // Re-evaluate mount target on every show in case the widget shell
       // appeared since last call (loader→runtime race).
       var nowTarget = getWidgetMountTarget();
       if (nowTarget && hostEl.parentNode !== nowTarget) {
         try {
           nowTarget.appendChild(hostEl);
           mountMode = 'in-panel';
+          if (hostEl.setAttribute) hostEl.setAttribute('data-mode', mountMode);
           applyMountStyles();
         } catch (_) {}
       }

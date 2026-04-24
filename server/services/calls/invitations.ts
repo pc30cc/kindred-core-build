@@ -226,7 +226,7 @@ export async function createInvitation(
           sender_type: 'system',
           body: msg.body as string,
           created_at: msg.created_at as string | null,
-          metadata: (msg.metadata as Record<string, unknown>) ?? cardMeta,
+          metadata: ((msg.metadata as Record<string, unknown>) ?? (cardMeta as unknown as Record<string, unknown>)),
           seen_at: (msg as any).seen_at ?? null,
         }),
       );
@@ -302,7 +302,7 @@ async function syncCardForStatus(
         sender_type: 'system',
         body: existing.body as string,
         created_at: existing.created_at as string | null,
-        metadata: nextMeta,
+        metadata: nextMeta as unknown as Record<string, unknown>,
         seen_at: (existing as any).seen_at ?? null,
       }),
     );
@@ -498,6 +498,49 @@ export async function getInvitationById(
   return (data as CallInvitationRow | null) ?? null;
 }
 
+/**
+ * Validate that an invitation is currently joinable by the visitor.
+ *
+ * Returns a discriminated result:
+ *   { ok: true, invitation }              ready to mint provider room/token
+ *   { ok: false, reason: 'not_found' }    invitation row missing
+ *   { ok: false, reason: 'expired' }      TTL passed (also flips DB row)
+ *   { ok: false, reason: 'cancelled' }    operator cancelled
+ *   { ok: false, reason: 'declined' }     visitor previously declined
+ *   { ok: false, reason: 'already_joined' } a call_session is already linked
+ */
+export async function validateInvitationForJoin(
+  config: ServerConfig,
+  invitationId: string,
+): Promise<
+  | { ok: true; invitation: CallInvitationRow }
+  | { ok: false; reason: 'not_found' | 'expired' | 'cancelled' | 'declined' | 'already_joined' }
+> {
+  const inv = await getInvitationById(config, invitationId);
+  if (!inv) return { ok: false, reason: 'not_found' };
+  if (inv.status === 'cancelled') return { ok: false, reason: 'cancelled' };
+  if (inv.status === 'declined') return { ok: false, reason: 'declined' };
+  if (inv.status === 'joined') return { ok: false, reason: 'already_joined' };
+  if (inv.status === 'expired') return { ok: false, reason: 'expired' };
+  // status === 'pending' — verify TTL hasn't elapsed.
+  if (new Date(inv.expires_at).getTime() < Date.now()) {
+    // Flip the row + sync card so subsequent queries see the terminal state.
+    const sb = getServiceClient(config);
+    const { data: updated } = await sb
+      .from('call_invitations')
+      .update({ status: 'expired', ended_at: new Date().toISOString() })
+      .eq('id', inv.id)
+      .eq('status', 'pending')
+      .select('*')
+      .maybeSingle();
+    if (updated) {
+      await syncCardForStatus(config, updated as CallInvitationRow);
+    }
+    return { ok: false, reason: 'expired' };
+  }
+  return { ok: true, invitation: inv };
+}
+
 export async function listInvitationsForConversation(
   config: ServerConfig,
   conversationId: string,
@@ -510,4 +553,35 @@ export async function listInvitationsForConversation(
     .order('created_at', { ascending: false })
     .limit(20);
   return (data as CallInvitationRow[] | null) ?? [];
+}
+
+/**
+ * Background TTL sweeper. Polls every 30s, flips pending invitations whose
+ * expires_at is in the past to 'expired', patches their system card, and
+ * records a timeline event. Best-effort: never throws to the caller.
+ */
+export function startInvitationExpirySweeper(config: ServerConfig): { stop: () => void } {
+  let stopped = false;
+  let timer: NodeJS.Timeout | null = null;
+  const tick = async () => {
+    if (stopped) return;
+    try {
+      const result = await sweepExpiredInvitations(config);
+      if (result.expired > 0) {
+        console.log(`[invitations] expired ${result.expired} stale invitation(s)`);
+      }
+    } catch (err: any) {
+      console.warn('[invitations] sweeper tick failed:', err?.message || err);
+    } finally {
+      if (!stopped) timer = setTimeout(tick, 30_000);
+    }
+  };
+  // First tick after a small delay so we don't compete with startup work.
+  timer = setTimeout(tick, 5_000);
+  return {
+    stop() {
+      stopped = true;
+      if (timer) { clearTimeout(timer); timer = null; }
+    },
+  };
 }

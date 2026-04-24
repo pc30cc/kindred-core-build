@@ -33,7 +33,9 @@ import { workspaceCallsRouter } from './routes/workspaceCalls.js';
 import { callAvailabilityRouter } from './routes/callAvailability.js';
 import { callbacksRouter } from './routes/callbacks.js';
 import { workspaceDepartmentsRouter } from './routes/workspaceDepartments.js';
+import { callInvitationsRouter } from './routes/callInvitations.js';
 import { startCallQueueTicker } from './services/calls/queueTicker.js';
+import { startInvitationExpirySweeper } from './services/calls/invitations.js';
 import { startAttachmentJanitor } from './services/attachmentJanitor.js';
 import { startPrivacyWorker } from './services/privacy/worker.js';
 import { startPrivacyExpirySweep } from './services/privacy/expirySweep.js';
@@ -233,6 +235,10 @@ app.use('/api/callbacks', callbacksRouter);
 // Phase 8H — Workspace-scoped department management.
 app.use('/api/workspace-departments', workspaceDepartmentsRouter);
 
+// Phase 9 — Operator-side Call Invitations (invitation-first calling).
+// Auth + workspace membership enforced inside the router.
+app.use('/api/call-invitations', callInvitationsRouter);
+
 // 404
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });
@@ -280,6 +286,11 @@ app.listen(config.port, () => {
 
   // Phase 8C — Call queue expiry sweeper (every 30s). Best-effort.
   startCallQueueTicker(config);
+
+  // Phase 9 — Call invitation TTL sweeper (every 30s). Flips pending
+  // invitations whose CALL_INVITATION_TTL_SECONDS window passed into
+  // 'expired' and patches the system card so the widget UI updates.
+  startInvitationExpirySweeper(config);
 
   // ─── Post-deploy widget manifest invalidation ────────────────────
   // The in-memory widget manifest cache is per-process, so a fresh deploy

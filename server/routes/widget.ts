@@ -59,6 +59,7 @@ import { widgetIdentityRouter } from './widgetIdentity.js';
 import { widgetAttachmentsRouter, attachUploadedFileToMessage, enrichMessagesWithAttachments } from './widgetAttachments.js';
 import { widgetCallbacksRouter } from './widgetCallbacks.js';
 import { widgetDepartmentsRouter } from './widgetDepartments.js';
+import { widgetCallInvitationsRouter } from './widgetCallInvitations.js';
 import { recordConversationEvent } from '../services/conversationEvents.js';
 import { resolveAvailability, snapshotToWirePayload } from '../services/widget/availability.js';
 import { sendEmail } from '../services/email/index.js';
@@ -85,6 +86,11 @@ widgetRouter.use('/callback', widgetCallbacksRouter);
 // inside the sub-router). Used by the widget runtime to choose between
 // general / single / multi mode.
 widgetRouter.use('/departments', widgetDepartmentsRouter);
+
+// Phase 9 — Widget-side Call Invitation join/decline. Sub-router enforces
+// its own widget token + origin; visitor identity is verified via the
+// existing conversation-ownership helper.
+widgetRouter.use('/call-invitations', widgetCallInvitationsRouter);
 
 // ─── CORS preflight for all widget routes ───
 widgetRouter.use(widgetSecurityCors);

@@ -38,6 +38,7 @@ import { ConversationActivityPanel } from '@/components/inbox/ConversationActivi
 import { OperatorCallPanel } from '@/components/inbox/OperatorCallPanel';
 import { CallQueuePanel } from '@/components/inbox/CallQueuePanel';
 import { OperatorCallDock } from '@/components/inbox/OperatorCallDock';
+import { IncomingCallSurface } from '@/components/inbox/calls/IncomingCallSurface';
 import { CannedResponsePicker, type CannedPickerHandle } from '@/components/canned-responses/CannedResponsePicker';
 import { interpolate } from '@/components/canned-responses/interpolation';
 import { useTrackCannedResponseUse } from '@/hooks/useCannedResponses';
@@ -566,6 +567,20 @@ export default function InboxPage() {
 
   return (
     <div className="flex h-full" dir={dir}>
+      {/* Operator-side incoming call surface — rings on queue offers
+          targeted at this user. Global to the inbox so it shows even when
+          no conversation is selected. */}
+      {workspace?.id && (
+        <IncomingCallSurface
+          workspaceId={workspace.id}
+          onAccepted={(entry) => {
+            if (entry.conversation_id) {
+              setSelectedId(entry.conversation_id);
+              setShowMobileList(false);
+            }
+          }}
+        />
+      )}
       {/* ═══════ LEFT: Conversation List ═══════ */}
       <div className={cn(
         'w-full md:w-[300px] lg:w-[340px] xl:w-[380px] shrink-0 border-e border-border flex flex-col bg-card',

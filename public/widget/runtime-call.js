@@ -326,8 +326,41 @@
     degradedEl = rootEl.querySelector('[data-el="degraded"]');
   }
 
-  function show() { ensureShell(); rootEl.classList.add('show'); }
-  function hide() {
+  function isCallActiveOrConnecting() {
+    if (!current) return false;
+    if (current.room) return true;
+    // While accept() is running we have `current` but no room yet — the
+    // SDK is mid-handshake. Treat that as active so a stray hide() can't
+    // pull the rug out from under it.
+    return !!current.invite;
+  }
+
+  function show() {
+    ensureShell();
+    rootEl.classList.add('show');
+    dlog('show() → .card.show added', { mountMode: mountMode });
+    // Defensive: if our hostEl somehow lost its in-panel target between
+    // calls (shell rerender, stale parent), re-attach to the live mount
+    // root so the surface is always inside the widget frame.
+    try {
+      var liveTarget = getWidgetMountTarget();
+      if (liveTarget && hostEl && hostEl.parentNode !== liveTarget) {
+        liveTarget.appendChild(hostEl);
+        mountMode = 'in-panel';
+        if (hostEl.setAttribute) hostEl.setAttribute('data-mode', mountMode);
+        applyMountStyles();
+        dlog('show() → re-attached host to live in-panel target');
+      }
+    } catch (_) {}
+  }
+  function hide(opts) {
+    var force = !!(opts && opts.force);
+    // Guard: never hide a live call surface from stale paths (e.g. a
+    // delayed pending-callback timer firing while a real call started).
+    if (!force && isCallActiveOrConnecting()) {
+      dlog('hide() suppressed — call active/connecting');
+      return;
+    }
     if (rootEl) rootEl.classList.remove('show');
     // Release the stable widget mount root so chat clicks pass through
     // again and the host stops covering the panel area.
@@ -335,6 +368,7 @@
       var inst = window.__gs_runtime && window.__gs_runtime._instance;
       if (inst && typeof inst.releaseCallMountHost === 'function') {
         inst.releaseCallMountHost();
+        dlog('hide() → released call mount host');
       }
     } catch (_) {}
   }
@@ -351,6 +385,7 @@
     var astage = rootEl.querySelector('[data-el="audio-stage"]');
     if (stage) stage.classList.remove('show');
     if (astage) astage.classList.remove('show');
+    dlog('setRingingMode()');
   }
   function setInCallMode(isVideo) {
     if (!rootEl) return;
@@ -367,6 +402,24 @@
     }
     // Hide camera toggle on audio calls — it's never relevant.
     if (btnCam) btnCam.style.display = isVideo ? '' : 'none';
+    // Re-assert host visibility — at this point the user has already
+    // accepted, so anything that disabled the host surface is a bug. We
+    // explicitly re-show via the runtime API.
+    try {
+      var inst = window.__gs_runtime && window.__gs_runtime._instance;
+      if (inst && typeof inst.getCallMountHost === 'function') {
+        // Re-running getCallMountHost() also re-asserts display:block +
+        // pointer-events:auto on the stable mount root.
+        inst.getCallMountHost();
+      }
+    } catch (_) {}
+    if (rootEl) rootEl.classList.add('show');
+    dlog('setInCallMode()', {
+      isVideo: isVideo,
+      cardVisible: rootEl ? rootEl.classList.contains('show') : false,
+      stageOn: stage ? stage.classList.contains('show') : false,
+      audioStageOn: astage ? astage.classList.contains('show') : false,
+    });
   }
 
   // ───── Single active call state ─────

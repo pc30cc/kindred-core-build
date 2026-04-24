@@ -530,6 +530,7 @@
     // ─────────────────────────────────────────────────────────────
     var runtimeCss = configData.styleUrl || "";
     var runtimeJs = configData.runtimeUrl || "";
+    var callRuntimeJs = configData.callRuntimeUrl || "";
     if (!runtimeJs || !runtimeCss) {
       warn("No runtime URL");
       runtimeLoading = false;
@@ -613,7 +614,7 @@
     //      sees `call_runtime_url_unknown`. Setting the global here is
     //      the single source of truth.
     try {
-      var preCallJs = runtimeJs.replace(/runtime(?:[.-][A-Za-z0-9]+)?\.js(?:\?[^#]*)?(?:#.*)?$/, "runtime-call.js");
+      var preCallJs = callRuntimeJs || runtimeJs.replace(/runtime(?:[.-][A-Za-z0-9]+)?\.js(?:\?[^#]*)?(?:#.*)?$/, "runtime-call.js");
       if (preCallJs && preCallJs !== runtimeJs) {
         window.__gs_call_url = preCallJs;
       }
@@ -624,7 +625,7 @@
       // Self-contained (own shadow root, own SDK loader). Failure is
       // non-fatal: chat keeps working even if call module can't load.
       try {
-        var callJs = window.__gs_call_url || runtimeJs.replace(/runtime(?:[.-][A-Za-z0-9]+)?\.js(?:\?[^#]*)?(?:#.*)?$/, "runtime-call.js");
+        var callJs = configData.callRuntimeUrl || window.__gs_call_url || runtimeJs.replace(/runtime(?:[.-][A-Za-z0-9]+)?\.js(?:\?[^#]*)?(?:#.*)?$/, "runtime-call.js");
         if (callJs && callJs !== runtimeJs && !document.querySelector('script[data-gs-runtime-call]')) {
           // Phase 9 fix — expose readiness so the chat join handler can
           // await the call module BEFORE invoking window.__gs_call.incoming.

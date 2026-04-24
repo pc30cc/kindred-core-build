@@ -2391,7 +2391,7 @@
         // Lazy-inject if loader never queued it (e.g. asset base unknown
         // until config landed). Best-effort — failure rejects the promise.
         ready = new Promise(function (resolve, reject) {
-          var url = window.__gs_call_url;
+          var url = (window.__gs_call_config && window.__gs_call_config.url) || window.__gs_call_url;
           if (!url) {
             // Derive from current runtime script tag if loader didn't
             // expose it. The selector matches both unhashed
@@ -2406,11 +2406,13 @@
             } catch (_) { /* noop */ }
           }
           if (!url) {
-            try { console.warn('[gs-call] runtime URL unknown — neither window.__gs_call_url nor runtime <script> tag was resolvable'); } catch (_) {}
+            try { console.warn('[gs-call] runtime URL unknown — missing config.callRuntimeUrl/window.__gs_call_url and runtime <script> tag fallback failed'); } catch (_) {}
             return reject(new Error('call_runtime_url_unknown'));
           }
           // Cache so subsequent re-tries don't re-derive.
           window.__gs_call_url = url;
+          window.__gs_call_config = window.__gs_call_config || {};
+          window.__gs_call_config.url = url;
           var existing = document.querySelector('script[data-gs-runtime-call]');
           if (existing) {
             // Already injected; just poll.
@@ -3338,6 +3340,13 @@
     try { lsDebug = (typeof localStorage !== 'undefined') && localStorage.getItem('gs:debug') === '1'; } catch (_) {}
     Util.debug = !!(config.debugMode || lsDebug || (typeof window !== 'undefined' && window.__gs_debug));
     Util.log('Runtime init (Shadow DOM, Phase 2)');
+    try {
+      if (config && config.callRuntimeUrl) {
+        window.__gs_call_url = config.callRuntimeUrl;
+        window.__gs_call_config = window.__gs_call_config || {};
+        window.__gs_call_config.url = config.callRuntimeUrl;
+      }
+    } catch (_) { /* noop */ }
 
     var shadowRoot = (shell && shell.shadowRoot) || (shell && shell.shellEl && shell.shellEl.shadowRoot) || null;
     if (!shell || !shadowRoot) {

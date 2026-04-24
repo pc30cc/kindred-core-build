@@ -40,7 +40,7 @@ if (!existsSync(SRC_DIR)) {
 }
 
 // Files that get content-hashed filenames
-const HASHED_FILES = ['runtime.js', 'runtime.css', 'runtime-chat.js', 'runtime-kb.js', 'runtime-rt-centrifugo.js', 'runtime-rt-supabase.js', 'runtime-rt-resolver.js'];
+const HASHED_FILES = ['runtime.js', 'runtime.css', 'runtime-chat.js', 'runtime-kb.js', 'runtime-call.js', 'runtime-rt-centrifugo.js', 'runtime-rt-supabase.js', 'runtime-rt-resolver.js'];
 
 // Files copied as-is (stable entry points)
 const STABLE_FILES = ['loader.js'];
@@ -101,6 +101,18 @@ const manifestPath = join(OUT_DIR, 'widget-manifest.json');
 writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
 console.log(`[widget-hash] Manifest written to ${manifestPath}`);
 console.log(JSON.stringify(manifest, null, 2));
+
+// Build must fail loudly if the visitor call runtime was omitted from the
+// widget output. The join flow now depends on an explicit manifest-backed URL,
+// so silently succeeding here would regress back to runtime URL guessing.
+if (!manifest['runtime-call.js']) {
+  console.error('[widget-hash] FATAL: runtime-call.js missing from widget manifest');
+  process.exit(1);
+}
+if (!existsSync(join(OUT_DIR, manifest['runtime-call.js']))) {
+  console.error(`[widget-hash] FATAL: runtime-call.js missing from build output: ${join(OUT_DIR, manifest['runtime-call.js'])}`);
+  process.exit(1);
+}
 
 // Final sanity check — refuse to "succeed" if the manifest didn't land
 // where the Dockerfile expects it. This catches any future path/CWD

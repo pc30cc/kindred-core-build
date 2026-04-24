@@ -18,11 +18,21 @@ import {
   Room,
   RoomEvent,
   Track,
+  DisconnectReason,
   type RemoteParticipant,
   type RemoteTrack,
   type RemoteTrackPublication,
   type LocalTrackPublication,
 } from 'livekit-client';
+
+// Lightweight namespaced logger. Always on; cheap; no PII. The operator
+// side has been the noisy half of the call lifecycle, and the only way to
+// know whether a disconnect originated client-side, server-side, or from
+// a stale reconnect is to actually trace it.
+function lkLog(...args: unknown[]) {
+  // eslint-disable-next-line no-console
+  console.log('[livekit-hook]', ...args);
+}
 
 export type CallConnState =
   | 'idle'
@@ -106,21 +116,47 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
 
   const wireRoom = useCallback((room: Room) => {
     room
-      .on(RoomEvent.ParticipantConnected, refreshRemotes)
-      .on(RoomEvent.ParticipantDisconnected, refreshRemotes)
-      .on(RoomEvent.TrackSubscribed, refreshRemotes)
-      .on(RoomEvent.TrackUnsubscribed, refreshRemotes)
+      .on(RoomEvent.ParticipantConnected, (p: RemoteParticipant) => {
+        lkLog('participant connected', p.identity);
+        refreshRemotes();
+      })
+      .on(RoomEvent.ParticipantDisconnected, (p: RemoteParticipant) => {
+        lkLog('participant disconnected', p.identity);
+        refreshRemotes();
+      })
+      .on(RoomEvent.TrackSubscribed, (_t, pub) => {
+        lkLog('track subscribed', pub.kind);
+        refreshRemotes();
+      })
+      .on(RoomEvent.TrackUnsubscribed, (_t, pub) => {
+        lkLog('track unsubscribed', pub.kind);
+        refreshRemotes();
+      })
       .on(RoomEvent.LocalTrackPublished, (pub: LocalTrackPublication) => {
+        lkLog('local track published', pub.kind);
         if (pub.kind === Track.Kind.Audio) setMicEnabled(true);
         if (pub.kind === Track.Kind.Video) setCameraEnabled(true);
       })
       .on(RoomEvent.LocalTrackUnpublished, (pub: LocalTrackPublication) => {
+        lkLog('local track unpublished', pub.kind);
         if (pub.kind === Track.Kind.Audio) setMicEnabled(false);
         if (pub.kind === Track.Kind.Video) setCameraEnabled(false);
       })
-      .on(RoomEvent.Reconnecting, () => setState('reconnecting'))
-      .on(RoomEvent.Reconnected, () => setState('connected'))
-      .on(RoomEvent.Disconnected, () => {
+      .on(RoomEvent.Reconnecting, () => {
+        lkLog('reconnecting');
+        setState('reconnecting');
+      })
+      .on(RoomEvent.Reconnected, () => {
+        lkLog('reconnected');
+        setState('connected');
+      })
+      .on(RoomEvent.Disconnected, (reason?: DisconnectReason) => {
+        // DisconnectReason is the single biggest clue on the operator side.
+        // CLIENT_INITIATED  → our own disconnect() — expected.
+        // SERVER_SHUTDOWN / DUPLICATE_IDENTITY → server kicked us.
+        // PARTICIPANT_REMOVED → operator hangup endpoint fired.
+        // SIGNAL_CLOSE / STATE_MISMATCH → the unstable path we're chasing.
+        lkLog('disconnected', { reason: reason, reasonName: reason !== undefined ? DisconnectReason[reason] : 'unknown' });
         setState('disconnected');
         refreshRemotes();
       });
@@ -143,9 +179,19 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
     connectingRef.current = true;
     setError(null);
     setState('connecting');
+    lkLog('connect() begin', { wsUrl: input.wsUrl, hasToken: !!input.token });
     const room = new Room({
       adaptiveStream: true,
       dynacast: true,
+      // Disable the SDK's automatic reconnect for the initial connection
+      // path — when the WebSocket is refused (proxy / cert / wrong path)
+      // the SDK retries silently which collides with React-side state and
+      // surfaces as the "could not restart participant" server log. We
+      // want a single deterministic attempt; if it fails, surface the
+      // error and let the caller (SidebarCallCard) decide.
+      reconnectPolicy: {
+        nextRetryDelayInMs: () => null,
+      },
     });
     // Apply ICE config via the connect-time options (LiveKit forwards this
     // to the underlying RTCPeerConnection). Falls back to defaults when the
@@ -162,32 +208,38 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
     wireRoom(room);
     try {
       await room.connect(input.wsUrl, input.token, connectOptions);
+      lkLog('room.connect() resolved');
       // Race guard: if someone called disconnect() while we were awaiting
       // the WS handshake, roomRef was cleared. The Room we just joined is
       // now orphaned — tear it down immediately or LiveKit will mark it
       // CLIENT_REQUEST_LEAVE on its own timeout. This is the precise
       // disconnect path that produced the operator's premature leave.
       if (roomRef.current !== room) {
+        lkLog('post-connect race: ref changed, disconnecting orphan');
         try { await room.disconnect(); } catch { /* ignore */ }
         return;
       }
       if (publishMic) {
         await room.localParticipant.setMicrophoneEnabled(true);
         setMicEnabled(true);
+        lkLog('mic enabled');
       }
       if (publishCamera) {
         await room.localParticipant.setCameraEnabled(true);
         setCameraEnabled(true);
+        lkLog('camera enabled');
       }
       // Re-check after the (potentially long) device-publish phase too —
       // device prompts can take seconds on first call.
       if (roomRef.current !== room) {
+        lkLog('post-publish race: ref changed, disconnecting orphan');
         try { await room.disconnect(); } catch { /* ignore */ }
         return;
       }
       setState('connected');
       refreshRemotes();
     } catch (e: any) {
+      lkLog('connect() failed', { message: e?.message });
       setError(e?.message || 'Failed to connect');
       setState('failed');
       try { await room.disconnect(); } catch { /* ignore */ }
@@ -203,6 +255,7 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
   const disconnect = useCallback(async () => {
     const room = roomRef.current;
     if (!room) return;
+    lkLog('disconnect() called by app');
     // Clear the ref BEFORE awaiting so any concurrent disconnect/connect
     // call sees a clean slate and does not double-fire.
     roomRef.current = null;

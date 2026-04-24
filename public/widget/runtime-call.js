@@ -754,6 +754,22 @@
   function accept() {
     if (!current || !current.invite) return;
     var invite = current.invite;
+    // Re-entrancy guard. accept() can be called from multiple paths:
+    //   - manual user click on the Answer button
+    //   - auto_accept on the invitation flow
+    //   - duplicate showIncoming() dispatches (poll + realtime racing)
+    // Each one would mint a new LK.Room with the same identity, and
+    // LiveKit kicks the older one with SIGNAL_SOURCE_CLOSE — which is
+    // exactly the visitor-side instability we're chasing. Bail silently
+    // if a connect is already in flight or a room is already alive.
+    if (current.connecting || current.room) {
+      dlog('accept() ignored — already connecting/connected', {
+        connecting: !!current.connecting,
+        hasRoom: !!current.room,
+      });
+      return;
+    }
+    current.connecting = true;
     dlog('accept() start', { call_id: invite.call_id, call_type: invite.call_type });
     setStatus('Connecting...');
     btnAccept.disabled = true;
@@ -772,6 +788,13 @@
         });
       }
       var room = new LK.Room({ adaptiveStream: true, dynacast: true });
+      // Race guard: if teardown() ran between loadSdk() and here, do not
+      // create a zombie connection — `current` was cleared.
+      if (!current || current.invite !== invite) {
+        dlog('accept() pre-connect race: invite changed, aborting');
+        try { room.disconnect(); } catch (_) {}
+        return;
+      }
       current.room = room;
       attachRemote(room, LK);
       var connectOpts = iceServers.length ? {
@@ -782,8 +805,20 @@
       } : undefined;
       return room.connect(invite.ws_url, invite.token, connectOpts).then(function () {
         dlog('room.connect resolved');
+        // Race guard: teardown() during the WS handshake clears current.
+        // The freshly-joined room is now orphaned; disconnect it cleanly
+        // so LiveKit doesn't see a dangling participant.
+        if (!current || current.room !== room) {
+          dlog('accept() post-connect race: ref changed, disconnecting orphan');
+          try { room.disconnect(); } catch (_) {}
+          return;
+        }
         setStatus('');
         return room.localParticipant.setMicrophoneEnabled(true).then(function () {
+          if (!current || current.room !== room) {
+            try { room.disconnect(); } catch (_) {}
+            return;
+          }
           current.micEnabled = true;
           btnMic.textContent = 'Mute';
           btnMic.classList.remove('off');
@@ -792,6 +827,10 @@
           dlog('mic published; mode set', { isVideo: isVideo });
           if (isVideo) {
             return room.localParticipant.setCameraEnabled(true).then(function () {
+              if (!current || current.room !== room) {
+                try { room.disconnect(); } catch (_) {}
+                return;
+              }
               current.camEnabled = true;
               btnCam.textContent = 'Stop cam';
               btnCam.classList.remove('off');
@@ -806,6 +845,9 @@
       btnAccept.disabled = false;
       btnReject.disabled = false;
       teardown('error');
+    }).then(function () {
+      // Always clear the connecting flag whether resolve or catch ran.
+      if (current) current.connecting = false;
     });
   }
 

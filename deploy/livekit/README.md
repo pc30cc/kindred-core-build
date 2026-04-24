@@ -75,10 +75,11 @@ The compose file publishes these ports from the container — you only need to m
 
 | Variable | Required | Example | Notes |
 |---|---|---|---|
-| `LIVEKIT_KEYS` | ✅ | `APIabc123:secretvalue` | Format `API_KEY:API_SECRET`, **no space after the colon**. Generate with `openssl rand -hex 16` (key) and `openssl rand -hex 32` (secret). **Must match** the values in Super Admin → Providers → Calls → LiveKit. |
+| `LIVEKIT_API_KEY` | ✅ | `APIabc123` | LiveKit API key (identifier). Generate with `openssl rand -hex 16`. **Must match** the API Key in Super Admin → Providers → Calls → LiveKit. |
+| `LIVEKIT_API_SECRET` | ✅ | `secretvalue...` | LiveKit API secret (signing secret). Generate with `openssl rand -hex 32`. **Must match** the API Secret in Super Admin → Providers → Calls → LiveKit. |
 | `LIVEKIT_NODE_IP` | ✅ | `203.0.113.10` | Public IP of the host. Find with `curl -s https://api.ipify.org`. **Without this, calls connect but no audio/video flows.** |
 | `LIVEKIT_LOG_LEVEL` | ❌ | `info` | `debug` / `info` / `warn` / `error` |
-| `LIVEKIT_WEBHOOK_API_KEY` | ❌ | `APIabc123` | Only if you enable webhooks (§2.5). |
+| `LIVEKIT_WEBHOOK_API_KEY` | ❌ | `APIabc123` | Same value as `LIVEKIT_API_KEY`. Only if you enable webhooks (§2.5). |
 | `LIVEKIT_REDIS_ADDRESS` | ❌ | `redis:6379` | Multi-node only. |
 | `LIVEKIT_TURN_DOMAIN` | ❌ | `turn.your-domain.tld` | Reserved for a future TURN/TLS rollout. |
 

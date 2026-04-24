@@ -795,7 +795,9 @@ export default function InboxPage() {
                         'text-[12px] truncate mb-1.5 leading-snug',
                         hasUnread ? 'text-foreground/90' : 'text-muted-foreground',
                       )}>
-                        {conv.subject || (t('inbox.noMessages') || 'No messages yet')}
+                        {(conv as any).last_visitor_message?.body
+                          || conv.subject
+                          || (t('inbox.noMessages') || 'No messages yet')}
                       </p>
                       {/* Row 3: Status + meta */}
                       <div className="flex items-center gap-1.5 flex-wrap">

@@ -39,6 +39,7 @@ import { OperatorCallPanel } from '@/components/inbox/OperatorCallPanel';
 import { CallQueuePanel } from '@/components/inbox/CallQueuePanel';
 import { OperatorCallDock } from '@/components/inbox/OperatorCallDock';
 import { IncomingCallSurface } from '@/components/inbox/calls/IncomingCallSurface';
+import { CallSessionProvider } from '@/features/calls/CallSessionProvider';
 import { CannedResponsePicker, type CannedPickerHandle } from '@/components/canned-responses/CannedResponsePicker';
 import { interpolate } from '@/components/canned-responses/interpolation';
 import { useTrackCannedResponseUse } from '@/hooks/useCannedResponses';
@@ -566,6 +567,7 @@ export default function InboxPage() {
   };
 
   return (
+    <CallSessionProvider>
     <div className="flex h-full" dir={dir}>
       {/* Operator-side incoming call surface — rings on queue offers
           targeted at this user. Global to the inbox so it shows even when
@@ -573,9 +575,9 @@ export default function InboxPage() {
       {workspace?.id && (
         <IncomingCallSurface
           workspaceId={workspace.id}
-          onAccepted={(entry) => {
-            if (entry.conversation_id) {
-              setSelectedId(entry.conversation_id);
+          onAccepted={(info) => {
+            if (info.conversationId) {
+              setSelectedId(info.conversationId);
               setShowMobileList(false);
             }
           }}

@@ -92,6 +92,19 @@ const DEFAULT_RING_TIMEOUT_MS = 35_000;
 const ENDING_TIMEOUT_MS = 6_000;
 
 /**
+ * Hard watchdog for the pre-connected join window. The LiveKit SDK
+ * internally retries (region fallback, v1→v0 path fallback, websocket
+ * reconnect) and may sit in those retries long enough to trap the engine
+ * in `connecting`. This watchdog forces a terminal failure if we do not
+ * reach `connected` within the budget.
+ *
+ * Applies to both outgoing (after token success) and incoming
+ * (acceptIncoming) flows. Cleared on every transition out of
+ * preparing/connecting/outgoing_ringing.
+ */
+const CONNECT_WATCHDOG_MS = 20_000;
+
+/**
  * Compact description of an incoming offer, derived from the existing
  * call_queue_entries row. Surfaces consume this — they MUST NOT poll the
  * queue independently.
@@ -144,13 +157,38 @@ export interface EngineOptions {
 }
 
 function classifyError(e: unknown): { code: string; message: string } {
-  const msg = (e as { message?: string })?.message || String(e);
+  const err = e as { message?: string; code?: string; reason?: number; reasonName?: string; name?: string } | undefined;
+  const msg = err?.message || String(e);
   const lower = msg.toLowerCase();
-  if (lower.includes('permission') || lower.includes('notallowed') || lower.includes('denied')) {
+  // Caller-provided codes (e.g. config_missing throws) win.
+  if (err?.code && typeof err.code === 'string') {
+    return { code: err.code, message: msg };
+  }
+  // LiveKit SDK ConnectionError — most reliable signal we have.
+  // reasonName is set by livekit-client/ConnectionError.
+  const reasonName = err?.reasonName;
+  if (reasonName === 'ServiceNotFound' || /v1 rtc path not found|service.*not.*found/i.test(msg)) {
+    return { code: 'rtc_path_not_found', message: 'Call server is incompatible with the current client.' };
+  }
+  if (reasonName === 'ServerUnreachable' || /websocket|ws_error|1006|connection refused|server unreachable|networkerror/i.test(msg)) {
+    return { code: 'ws_connection_refused', message: 'Could not reach the call server.' };
+  }
+  if (reasonName === 'Timeout' || lower.includes('timeout') || lower.includes('timed out')) {
+    return { code: 'connect_timeout', message: 'Call connection timed out.' };
+  }
+  if (reasonName === 'NotAllowed' || lower.includes('permission') || lower.includes('notallowed')) {
     return { code: 'media_denied', message: msg };
   }
+  if (reasonName === 'Cancelled' || lower.includes('cancelled') || lower.includes('canceled')) {
+    return { code: 'cancelled', message: msg };
+  }
+  if (lower.includes('closed peer connection') || lower.includes('createoffer')) {
+    return { code: 'peer_connection_closed', message: 'Could not establish media connection.' };
+  }
   if (lower.includes('token')) return { code: 'token_failed', message: msg };
-  if (lower.includes('ws_url') || lower.includes('rtc')) return { code: 'config_missing', message: msg };
+  if (lower.includes('ws_url') || lower.includes('rtc url') || lower.includes('config')) {
+    return { code: 'config_missing', message: msg };
+  }
   if (lower.includes('connect')) return { code: 'connect_failed', message: msg };
   return { code: 'unknown', message: msg };
 }
@@ -162,6 +200,7 @@ export class CallSessionEngine {
   private ringTimer: ReturnType<typeof setTimeout> | null = null;
   private endingTimer: ReturnType<typeof setTimeout> | null = null;
   private incomingTimer: ReturnType<typeof setTimeout> | null = null;
+  private connectTimer: ReturnType<typeof setTimeout> | null = null;
   /**
    * Generation counter — every new call attempt bumps this. Async callbacks
    * compare against the captured value and bail if the engine has moved on.

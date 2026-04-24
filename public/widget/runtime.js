@@ -675,6 +675,10 @@
         ciAriaJoinAudio: 'هم‌اکنون به تماس صوتی بپیوندید',
         ciAriaJoinVideo: 'هم‌اکنون به تماس تصویری بپیوندید',
         ciAriaDecline: 'رد این دعوت تماس',
+        ciBodyAudio: 'یک اپراتور شما را به تماس صوتی دعوت می‌کند.',
+        ciBodyVideo: 'یک اپراتور شما را به تماس تصویری دعوت می‌کند.',
+        ciWaitMinutes: 'اپراتور حداکثر {m} دقیقه منتظر پیوستن شما می‌ماند.',
+        ciWaitOneMinute: 'اپراتور حداکثر یک دقیقه منتظر پیوستن شما می‌ماند.',
       },
       tr: {
         chat: 'Sohbet', help: 'Yardım',
@@ -773,6 +777,10 @@
         ciAriaJoinAudio: 'Sesli aramaya hemen katıl',
         ciAriaJoinVideo: 'Görüntülü aramaya hemen katıl',
         ciAriaDecline: 'Bu arama davetini reddet',
+        ciBodyAudio: 'Bir operatör sizi sesli aramaya davet ediyor.',
+        ciBodyVideo: 'Bir operatör sizi görüntülü aramaya davet ediyor.',
+        ciWaitMinutes: 'Operatör katılmanız için en fazla {m} dakika bekleyecek.',
+        ciWaitOneMinute: 'Operatör katılmanız için en fazla bir dakika bekleyecek.',
       },
     };
     return {

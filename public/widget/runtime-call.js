@@ -40,7 +40,13 @@
 
   // CDN fallback. Self-hosters can override via window.__gs_call_sdk_url.
   var LIVEKIT_SDK_URL = (window && window.__gs_call_sdk_url)
-    || 'https://cdn.jsdelivr.net/npm/livekit-client@2.5.0/dist/livekit-client.umd.min.js';
+    || 'https://cdn.jsdelivr.net/npm/livekit-client@2.18.6/dist/livekit-client.umd.min.js';
+  // ─── Version-alignment note ──────────────────────────────────────────
+  // The operator app installs livekit-client 2.18.x via npm and the server
+  // is on 1.9.x. Keeping the widget on 2.5.0 caused a signaling-protocol
+  // skew where the visitor (widget) side periodically dropped with
+  // SIGNAL_SOURCE_CLOSE while the operator stayed connected. Bumping the
+  // CDN pin to 2.18.6 puts both sides on the same major/minor family.
 
   var sdkPromise = null;
   function loadSdk() {

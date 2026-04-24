@@ -2219,6 +2219,12 @@
           if (id) openImageLightbox(id);
         });
       }
+      // Phase 9 — Call invitation card actions (Join / Decline). Re-bound
+      // on every render; safe because each render replaces innerHTML.
+      var ciButtons = body.querySelectorAll('[data-ci-action]');
+      for (var ci = 0; ci < ciButtons.length; ci++) {
+        ciButtons[ci].addEventListener('click', handleCallInvitationClick);
+      }
       // Image load failure: swap in fallback label without breaking layout.
       var imgs = body.querySelectorAll('.msg-att-image img');
       for (var j = 0; j < imgs.length; j++) {

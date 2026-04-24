@@ -305,7 +305,17 @@
   }
 
   function show() { ensureShell(); rootEl.classList.add('show'); }
-  function hide() { if (rootEl) rootEl.classList.remove('show'); }
+  function hide() {
+    if (rootEl) rootEl.classList.remove('show');
+    // Release the stable widget mount root so chat clicks pass through
+    // again and the host stops covering the panel area.
+    try {
+      var inst = window.__gs_runtime && window.__gs_runtime._instance;
+      if (inst && typeof inst.releaseCallMountHost === 'function') {
+        inst.releaseCallMountHost();
+      }
+    } catch (_) {}
+  }
   function setStatus(t, kind) {
     if (!statusEl) return;
     statusEl.textContent = t || '';

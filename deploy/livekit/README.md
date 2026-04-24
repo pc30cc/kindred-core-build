@@ -62,6 +62,8 @@ You do **not** need to deploy any additional backend code for LiveKit.
 4. Enable **HTTPS** (Coolify issues a Let's Encrypt cert).
 5. Confirm **WebSocket support** is on (default).
 
+> If the public domain returns **`503 no available server`**, that is a **Coolify/Traefik routing problem**, not a LiveKit API/auth problem. In practice this means Coolify cannot see a healthy upstream for the domain yet — most often because the domain target port is not `7880`, the container is unhealthy, or the proxy did not get the correct internal service port.
+
 After this, signaling must be reachable at `wss://livekit.your-domain.tld/`.
 
 ### 2.3 Open media ports on the host firewall

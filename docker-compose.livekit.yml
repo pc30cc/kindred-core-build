@@ -146,3 +146,8 @@ services:
     labels:
       - "coolify.managed=true"
       - "coolify.service=livekit"
+      # Harden Coolify/Traefik routing for Docker Compose stacks: explicitly
+      # tell the proxy which internal port serves HTTP signaling. Without an
+      # explicit load-balancer port, some Coolify versions can produce a public
+      # `503 no available server` even while the container itself is running.
+      - "traefik.http.services.livekit.loadbalancer.server.port=7880"

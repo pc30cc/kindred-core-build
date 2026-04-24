@@ -920,7 +920,22 @@
     if (invite.call_id) lastDispatchedCallId = invite.call_id;
     ensureShell();
     bindHandlersOnce();
-    // Replace any in-flight call.
+    // If we already have an in-flight or active call for the SAME call_id,
+    // ignore the duplicate dispatch. Polling + realtime can both deliver
+    // the same invite within milliseconds, and tearing down the active
+    // room here is what produces the visitor-side SIGNAL_SOURCE_CLOSE
+    // (LiveKit kicks the just-joined participant when the local SDK
+    // disconnects mid-handshake).
+    if (current && current.invite && invite.call_id &&
+        current.invite.call_id === invite.call_id) {
+      dlog('showIncoming() ignored — same call_id already active', {
+        call_id: invite.call_id,
+        connecting: !!current.connecting,
+        hasRoom: !!current.room,
+      });
+      return;
+    }
+    // Genuine replacement (different call_id) — tear the previous one down.
     if (current) teardown('replaced');
     current = { invite: invite, room: null, micEnabled: false, camEnabled: false };
     var titleEl = rootEl.querySelector('[data-el="title"]');

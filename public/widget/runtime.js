@@ -3757,6 +3757,43 @@
     }
     var launcher = shell.launcher;
 
+    // ─── Phase 9.1 — Stable call mount root (sibling of .panel) ───
+    //
+    // The chat panel is destroyed and recreated on every shell rerender
+    // (tab switch / settings change / template swap). Mounting the call UI
+    // INSIDE the panel detaches the <video> elements mid-call, which
+    // triggers DOMException + CLIENT_REQUEST_LEAVE on the LiveKit side.
+    //
+    // Solution: a dedicated, persistent `.call-host` lives at .shell level
+    // for the entire widget lifetime. It overlays the same screen area as
+    // the panel (matching position/size from CSS) but is NEVER removed by
+    // panel rebuilds. The call module mounts into this host instead.
+    var callMountRoot = shellDiv.querySelector ? shellDiv.querySelector('.call-host') : null;
+    if (!callMountRoot) {
+      callMountRoot = document.createElement('div');
+      callMountRoot.className = 'call-host';
+      // Match the panel's fixed position so the call surface visually fills
+      // the widget frame. Hidden until the call module appends a child.
+      // pointer-events:none lets clicks pass through when no call is up;
+      // the call module's own host re-enables pointer-events:auto.
+      callMountRoot.style.cssText = [
+        'position:fixed',
+        'z-index:2147483646', // one above .panel so call surface stacks on top
+        'width:380px',
+        'max-width:calc(100vw - 32px)',
+        'height:min(620px, calc(100vh - 100px))',
+        'border-radius:16px',
+        'overflow:hidden',
+        'pointer-events:none',
+        'display:none',
+      ].join(';');
+      // Match panel anchor (bottom-right vs bottom-left) — `posClass` is
+      // computed later, so default to bottom-right and adjust on first show.
+      callMountRoot.style.bottom = '92px';
+      callMountRoot.style.right = '24px';
+      shellDiv.appendChild(callMountRoot);
+    }
+
     // ─── Domain stores (each one isolated, with pub/sub) ───
     var shellStore = createStore({
       isOpen: false,

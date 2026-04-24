@@ -285,16 +285,32 @@ async function operatorVisitorsSubscribe(workspaceId: string): Promise<Subscribe
   }
 }
 
+async function operatorQueueSubscribe(workspaceId: string): Promise<SubscribeResponse | null> {
+  try {
+    const res = await fetch(`${API_BASE}/api/realtime/operator-queue-subscribe`, {
+      method: 'POST',
+      headers: await authHeaders(),
+      body: JSON.stringify({ workspace_id: workspaceId }),
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as SubscribeResponse;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Parse a workspace channel and decide which subscription endpoint to use.
  *  - ws:<wsId>:conv:<convId> → per-conversation token endpoint
  *  - ws:<wsId>:inbox         → operator inbox token endpoint
  *  - ws:<wsId>:visitors      → operator visitors token endpoint
+ *  - ws:<wsId>:queue         → operator call-queue token endpoint
  */
 type ParsedChannel =
   | { kind: 'conversation'; workspaceId: string; conversationId: string }
   | { kind: 'inbox'; workspaceId: string }
-  | { kind: 'visitors'; workspaceId: string };
+  | { kind: 'visitors'; workspaceId: string }
+  | { kind: 'queue'; workspaceId: string };
 
 function parseChannel(channel: string): ParsedChannel | null {
   let m = /^ws:([^:]+):conv:(.+)$/.exec(channel);
@@ -303,6 +319,8 @@ function parseChannel(channel: string): ParsedChannel | null {
   if (m) return { kind: 'inbox', workspaceId: m[1] };
   m = /^ws:([^:]+):visitors$/.exec(channel);
   if (m) return { kind: 'visitors', workspaceId: m[1] };
+  m = /^ws:([^:]+):queue$/.exec(channel);
+  if (m) return { kind: 'queue', workspaceId: m[1] };
   return null;
 }
 
@@ -907,7 +925,8 @@ export class CentrifugoClientProvider implements ClientRealtimeProvider {
     const refresh = (): Promise<SubscribeResponse | null> => {
       if (parsed.kind === 'conversation') return operatorSubscribe(parsed.workspaceId, parsed.conversationId);
       if (parsed.kind === 'inbox') return operatorInboxSubscribe(parsed.workspaceId);
-      return operatorVisitorsSubscribe(parsed.workspaceId);
+      if (parsed.kind === 'visitors') return operatorVisitorsSubscribe(parsed.workspaceId);
+      return operatorQueueSubscribe(parsed.workspaceId);
     };
 
     // Compute the channel name up front. `refresh()` will return the same
@@ -919,7 +938,9 @@ export class CentrifugoClientProvider implements ClientRealtimeProvider {
         ? `ws:${parsed.workspaceId}:conv:${parsed.conversationId}`
         : parsed.kind === 'inbox'
           ? `ws:${parsed.workspaceId}:inbox`
-          : `ws:${parsed.workspaceId}:visitors`;
+          : parsed.kind === 'visitors'
+            ? `ws:${parsed.workspaceId}:visitors`
+            : `ws:${parsed.workspaceId}:queue`;
 
     handlers.onStatus?.('connecting');
 

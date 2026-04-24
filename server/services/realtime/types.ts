@@ -99,15 +99,17 @@ export function buildInboxChannelName(workspaceId: string): string {
 /** Validate that a channel name belongs to the given workspace. */
 export function channelBelongsToWorkspace(channel: string, workspaceId: string): boolean {
   // Phase 1.2 — strict pattern match. Loose prefix matching is rejected:
-  // only the three sanctioned channel shapes are valid for a workspace.
+  // only the four sanctioned channel shapes are valid for a workspace.
   //   ws:{workspaceId}:inbox
   //   ws:{workspaceId}:visitors
+  //   ws:{workspaceId}:queue                          (operator-only, call queue)
   //   ws:{workspaceId}:conv:{conversationId}        (conversationId is opaque
   //     but constrained to safe URL chars — letters/digits/_-)
   if (!channel || typeof channel !== 'string') return false;
   if (!workspaceId || typeof workspaceId !== 'string') return false;
   if (channel === `ws:${workspaceId}:inbox`) return true;
   if (channel === `ws:${workspaceId}:visitors`) return true;
+  if (channel === `ws:${workspaceId}:queue`) return true;
   // Conversation channel — the conversation id segment must be non-empty
   // and contain only safe characters (UUIDs and short opaque ids).
   const convPrefix = `ws:${workspaceId}:conv:`;
@@ -144,4 +146,18 @@ export function buildVisitorsChannelName(workspaceId: string): string {
  */
 export function isVisitorsChannel(channel: string, workspaceId: string): boolean {
   return channel === `ws:${workspaceId}:visitors`;
+}
+
+/**
+ * Operator-only call queue channel. Carries `event` envelopes with
+ * payload.kind = 'call_queue' for queue lifecycle (queued/offered/
+ * accepted/cancelled/expired/missed/requeued). Widget tokens MUST NOT
+ * be issuable for this channel.
+ */
+export function buildQueueChannelName(workspaceId: string): string {
+  return `ws:${workspaceId}:queue`;
+}
+
+export function isQueueChannel(channel: string, workspaceId: string): boolean {
+  return channel === `ws:${workspaceId}:queue`;
 }

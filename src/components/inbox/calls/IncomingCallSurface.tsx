@@ -42,7 +42,9 @@ export function IncomingCallSurface({ workspaceId, onAccepted }: IncomingCallSur
   const isConnecting = phase === 'connecting' && state.direction === 'incoming';
   const [busy, setBusy] = useState<'accept' | 'decline' | null>(null);
 
-  // Single signal source — feeds the engine. No local state about offers.
+  // Single signal source — feeds the engine via the central adapter
+  // (realtime-first, polling fallback). Stats are unused here; the
+  // OperatorCallDock surfaces the secondary "another call waiting" badge.
   useIncomingCallSignal({ workspaceId, userId: myId, engine });
 
   // Ringtone strictly follows engine phase.

@@ -2314,32 +2314,148 @@
 
       // Join — reuse the existing runtime-call accept/connect path.
       var channel = btn.getAttribute('data-ci-channel') === 'video' ? 'video' : 'audio';
-      postCallInvitationAction(invitationId, 'join').then(function (bundle) {
-        if (!window.__gs_call || typeof window.__gs_call.incoming !== 'function') {
-          throw new Error('call_runtime_unavailable');
-        }
-        // Render via the shared call surface, then immediately accept so the
-        // visitor lands directly in the call (no second confirmation step —
-        // they already consented by clicking Join).
-        window.__gs_call.incoming({
-          call_id: bundle.call_id,
-          call_type: bundle.call_type || channel,
-          ws_url: bundle.ws_url,
-          token: bundle.token,
-          turn: bundle.turn || { urls: [] },
-          ice_policy: bundle.ice_policy || 'all',
-          recording: false,
-          operator_name: null,
-          // signal to runtime-call that we want to auto-accept on render.
-          auto_accept: true,
+      // Phase 9 hardening — the call runtime is loaded asynchronously
+      // alongside the chat runtime (see loader.js). Visitors who click
+      // Join very fast (or whose network slowed the runtime-call.js
+      // request) used to hit `call_runtime_unavailable` because we
+      // checked the global synchronously. We now:
+      //   1. Show a real "Opening call…" state on the button.
+      //   2. Await loader's readiness promise (or lazy-inject if missing).
+      //   3. Only call the join API once the runtime is actually ready.
+      //   4. Surface a real error if the runtime never becomes available.
+      btn.textContent = (t('ciOpeningCall') || 'Opening call…');
+      ensureCallRuntimeReady(8000)
+        .then(function () {
+          return postCallInvitationAction(invitationId, 'join');
+        })
+        .then(function (bundle) {
+          // Defensive — readiness resolved but the global was somehow
+          // wiped between then and now. Treat as runtime failure.
+          if (!window.__gs_call || typeof window.__gs_call.incoming !== 'function') {
+            throw new Error('call_runtime_unavailable');
+          }
+          window.__gs_call.incoming({
+            call_id: bundle.call_id,
+            call_type: bundle.call_type || channel,
+            ws_url: bundle.ws_url,
+            token: bundle.token,
+            turn: bundle.turn || { urls: [] },
+            ice_policy: bundle.ice_policy || 'all',
+            recording: false,
+            operator_name: null,
+            // signal to runtime-call that we want to auto-accept on render.
+            auto_accept: true,
+          });
+          // Patch local status only after the call surface actually opens —
+          // prevents a false "joined" pill if window.__gs_call.incoming
+          // throws synchronously.
+          patchInvitationStatusLocally(invitationId, 'joined');
+        })
+        .catch(function (err) {
+          btn.disabled = false;
+          btn.textContent = prevText;
+          btn.removeAttribute('aria-busy');
+          var msg = (err && err.message) || 'unknown';
+          try { console.warn('[gs-call] join failed:', msg); } catch (_) {}
+          // Surface a visible message under the card so the visitor isn't
+          // left wondering. Reuses the existing card so we don't introduce
+          // a new toast surface.
+          showCallInvitationError(invitationId, msg);
         });
-        patchInvitationStatusLocally(invitationId, 'joined');
-      }).catch(function (err) {
-        btn.disabled = false;
-        btn.textContent = prevText;
-        btn.removeAttribute('aria-busy');
-        try { console.warn('[gs-call] join failed:', err && err.message); } catch (_) {}
+    }
+
+    /**
+     * Resolve when window.__gs_call.incoming is callable. Strategy:
+     *   1. If already present → immediate.
+     *   2. Else await loader's readiness promise (set when loader injects
+     *      runtime-call.js).
+     *   3. If neither exists, lazy-inject the script ourselves using the
+     *      asset base hint loader exposed via window.__gs_call_url.
+     *   4. Bound by a hard timeout so the visitor never hangs forever.
+     */
+    function ensureCallRuntimeReady(timeoutMs) {
+      if (window.__gs_call && typeof window.__gs_call.incoming === 'function') {
+        return Promise.resolve();
+      }
+      var ready = window.__gs_call_ready;
+      if (!ready) {
+        // Lazy-inject if loader never queued it (e.g. asset base unknown
+        // until config landed). Best-effort — failure rejects the promise.
+        ready = new Promise(function (resolve, reject) {
+          var url = window.__gs_call_url;
+          if (!url) {
+            // Derive from current runtime script tag if loader didn't expose it.
+            try {
+              var rs = document.querySelector('script[src*="/widget/runtime.js"]');
+              if (rs && rs.src) url = rs.src.replace(/runtime\.js(?:\?[^#]*)?(?:#.*)?$/, 'runtime-call.js');
+            } catch (_) { /* noop */ }
+          }
+          if (!url) return reject(new Error('call_runtime_url_unknown'));
+          var existing = document.querySelector('script[data-gs-runtime-call]');
+          if (existing) {
+            // Already injected; just poll.
+            var t0 = Date.now();
+            var iv = setInterval(function () {
+              if (window.__gs_call && typeof window.__gs_call.incoming === 'function') {
+                clearInterval(iv); resolve();
+              } else if (Date.now() - t0 > (timeoutMs || 8000)) {
+                clearInterval(iv); reject(new Error('call_runtime_timeout'));
+              }
+            }, 100);
+            return;
+          }
+          var s = document.createElement('script');
+          s.src = url;
+          s.async = true;
+          s.setAttribute('data-gs-runtime-call', 'true');
+          s.onload = function () {
+            if (window.__gs_call && typeof window.__gs_call.incoming === 'function') resolve();
+            else reject(new Error('call_runtime_loaded_but_missing_api'));
+          };
+          s.onerror = function () { reject(new Error('call_runtime_load_failed')); };
+          document.head.appendChild(s);
+        });
+        window.__gs_call_ready = ready;
+      }
+      // Wrap in a hard timeout so a stuck network never freezes the UI.
+      return new Promise(function (resolve, reject) {
+        var done = false;
+        var to = setTimeout(function () {
+          if (done) return;
+          done = true;
+          reject(new Error('call_runtime_timeout'));
+        }, timeoutMs || 8000);
+        ready.then(function (v) {
+          if (done) return; done = true; clearTimeout(to); resolve(v);
+        }).catch(function (err) {
+          if (done) return; done = true; clearTimeout(to); reject(err);
+        });
       });
+    }
+
+    /**
+     * Render a small inline error row beneath an invitation card so the
+     * visitor sees a real failure reason instead of a silently re-enabled
+     * button. Idempotent — replaces previous error for the same card.
+     */
+    function showCallInvitationError(invitationId, message) {
+      try {
+        var card = document.querySelector('[data-ci-card="' + invitationId + '"]');
+        if (!card) return;
+        var prev = card.querySelector('.ci-err');
+        if (prev) prev.remove();
+        var div = document.createElement('div');
+        div.className = 'ci-err';
+        div.setAttribute('role', 'alert');
+        var label;
+        if (message === 'call_runtime_timeout' || message === 'call_runtime_load_failed' || message === 'call_runtime_loaded_but_missing_api' || message === 'call_runtime_unavailable') {
+          label = (t('ciErrCallRuntime') || 'Call service is starting. Please tap Join again.');
+        } else {
+          label = (t('ciErrJoin') || 'Could not join the call. Please try again.');
+        }
+        div.textContent = label;
+        card.appendChild(div);
+      } catch (_) { /* noop */ }
     }
 
     function renderChat(body) {

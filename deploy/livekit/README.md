@@ -150,6 +150,6 @@ If signaling works but no media:
 |---|---|---|
 | `wss://...` returns 502 | Container down, or Coolify domain points to wrong port | Confirm `expose: ["7880"]` and Coolify domain target = 7880 |
 | Signaling connects, no audio/video | `LIVEKIT_NODE_IP` missing or UDP `50000-50100` blocked | Set the env var; open the range on the cloud firewall |
-| `unauthorized` on token mint | `LIVEKIT_KEYS` doesn't match Super Admin → Providers → Calls → LiveKit | Re-enter both sides so they match exactly |
-| Container restart loop with config error | `LIVEKIT_KEYS` has a space after the `:` | Use `API_KEY:API_SECRET` with no space |
+| `unauthorized` on token mint | `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` don't match Super Admin → Providers → Calls → LiveKit | Re-enter both sides so they match exactly |
+| Container restart loop with `cannot unmarshal !!str ... into map[string]string` | Old `LIVEKIT_KEYS` env var still set, or `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` empty | Remove `LIVEKIT_KEYS`; set `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET` |
 | Calls work locally but break for some users | Their network blocks UDP and TCP 7881 fallback | Plan a TURN/TLS rollout |

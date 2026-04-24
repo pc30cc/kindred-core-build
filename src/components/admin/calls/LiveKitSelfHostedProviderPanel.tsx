@@ -27,10 +27,12 @@ import { useToast } from '@/hooks/use-toast';
 import {
   fetchLiveKitConfig,
   updateLiveKitConfig,
+  testLiveKitConnection,
   type LiveKitConfigPublicView,
   type LiveKitConfigPatch,
+  type LiveKitTestResult,
 } from '@/lib/admin-calls-api';
-import { Server, Loader2, Save, ShieldCheck, Info, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Server, Loader2, Save, ShieldCheck, Info, CheckCircle2, AlertTriangle, Plug } from 'lucide-react';
 
 function ReadinessBadge({ ok, label }: { ok: boolean; label: string }) {
   return (
@@ -46,6 +48,8 @@ export function LiveKitSelfHostedProviderPanel() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [cfg, setCfg] = useState<LiveKitConfigPublicView | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<LiveKitTestResult | null>(null);
 
   // Local-only secret edit buffers — never seeded from the server.
   const [apiKeyEdit, setApiKeyEdit] = useState('');
@@ -84,11 +88,34 @@ export function LiveKitSelfHostedProviderPanel() {
       if ('webhook_secret' in patch) setWebhookSecretEdit('');
       if (patch.recording_storage && 'access_key' in patch.recording_storage) setS3AccessEdit('');
       if (patch.recording_storage && 'secret_key' in patch.recording_storage) setS3SecretEdit('');
+      // Stale once config changes — force a fresh probe.
+      setTestResult(null);
       toast({ title: 'LiveKit settings saved' });
     } catch (e: any) {
       toast({ title: 'Save failed', description: e.message, variant: 'destructive' });
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function runTest() {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const r = await testLiveKitConnection();
+      setTestResult(r);
+      toast({
+        title: r.ok ? 'LiveKit connection OK' : 'LiveKit connection failed',
+        description: r.ok
+          ? `Reached ${r.rtc_url} in ${r.latency_ms}ms`
+          : r.error || 'Unknown error',
+        variant: r.ok ? 'default' : 'destructive',
+      });
+    } catch (e: any) {
+      setTestResult({ ok: false, error: e.message });
+      toast({ title: 'Test failed', description: e.message, variant: 'destructive' });
+    } finally {
+      setTesting(false);
     }
   }
 

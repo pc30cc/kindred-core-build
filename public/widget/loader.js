@@ -576,9 +576,25 @@
     }
 
     function fail(what) {
+      // Prevent re-entry: if we already failed, don't toast/log twice.
+      if (failed) return;
       failed = true;
       runtimeLoading = false;
       warn("Runtime asset failed:", what);
+      // Clean up any half-loaded sibling so a successful CSS load does
+      // not later flip `cssLoaded=true` and re-enter `done()` with a
+      // mismatched runtime. Hard-removes the offending <script>/<link>
+      // from the shadow root and head.
+      try {
+        var staleScript = document.head.querySelector('script[data-gs-runtime]');
+        if (staleScript) staleScript.remove();
+        var staleCallScript = document.head.querySelector('script[data-gs-runtime-call]');
+        if (staleCallScript) staleCallScript.remove();
+        if (shadowRoot) {
+          var staleLink = shadowRoot.querySelector('link[data-gs-runtime]');
+          if (staleLink) staleLink.remove();
+        }
+      } catch (_) { /* noop */ }
       showShellError("Chat resources failed to load.");
     }
 

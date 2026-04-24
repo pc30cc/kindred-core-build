@@ -45,6 +45,7 @@ import { useLiveKitCall } from '@/hooks/useLiveKitCall';
 import { callsApi } from '@/lib/calls-api';
 import { InviteWaitDialog } from './InviteWaitDialog';
 import { rtDebug } from '@/realtime/debug';
+import { useLocalMediaPreview, type LocalPreviewState } from '@/hooks/useLocalMediaPreview';
 
 interface SidebarCallCardProps {
   workspaceId: string;
@@ -116,6 +117,14 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
   const live = useLiveKitCall({
     publishMic: true,
     publishCamera: surfaceChannel === 'video',
+  });
+
+  // Phase 9 — local-device preview during the waiting phase. Decoupled
+  // from LiveKit; releases the camera/mic the instant we move out of
+  // 'waiting' so the LiveKit client can re-acquire them on connect.
+  const preview = useLocalMediaPreview({
+    enabled: surface.phase === 'waiting',
+    wantVideo: surfaceChannel === 'video',
   });
 
   // Localized "Xm Ys" helper used both in pending pill and surface countdown.
@@ -518,7 +527,9 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
           <CardContent className="pt-2.5 space-y-2.5">
             {surface.phase === 'waiting' && (
               <>
-                {isVideo ? <VideoWaitingTile /> : <AudioWaitingTile />}
+                {isVideo
+                  ? <VideoWaitingTile previewStream={preview.stream} previewState={preview.state} />
+                  : <AudioWaitingTile previewStream={preview.stream} previewState={preview.state} />}
                 <div className="flex items-center justify-between gap-2">
                   <Badge className="h-5 px-1.5 text-[10px] font-semibold gap-1 border bg-warning/10 border-warning/30 text-warning">
                     <Loader2 className="w-2.5 h-2.5 animate-spin" aria-hidden="true" />
@@ -780,7 +791,59 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
 
 // ─── Channel-specific tiles (carried over from OperatorCallSurface) ──────
 
-function AudioWaitingTile() {
+interface WaitingTileProps {
+  previewStream: MediaStream | null;
+  previewState: LocalPreviewState;
+}
+
+function AudioWaitingTile({ previewStream, previewState }: WaitingTileProps) {
+  // Local mic-level meter (best-effort). Falls back to animated bars if
+  // AudioContext / analyser is unavailable. Released in cleanup so we
+  // don't leak audio nodes after the visitor joins.
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const [level, setLevel] = useState(0);
+
+  useEffect(() => {
+    if (!previewStream) {
+      setLevel(0);
+      return;
+    }
+    const AudioCtx: typeof AudioContext | undefined =
+      (window as any).AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) return;
+    let ctx: AudioContext | null = null;
+    try {
+      ctx = new AudioCtx();
+      audioCtxRef.current = ctx;
+      const src = ctx.createMediaStreamSource(previewStream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      src.connect(analyser);
+      const data = new Uint8Array(analyser.frequencyBinCount);
+      const tick = () => {
+        analyser.getByteFrequencyData(data);
+        let sum = 0;
+        for (let i = 0; i < data.length; i++) sum += data[i];
+        setLevel(Math.min(1, sum / (data.length * 128)));
+        rafRef.current = requestAnimationFrame(tick);
+      };
+      tick();
+    } catch {
+      /* analyser unavailable — bars will animate via CSS */
+    }
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+      if (audioCtxRef.current) {
+        try { void audioCtxRef.current.close(); } catch { /* noop */ }
+        audioCtxRef.current = null;
+      }
+      setLevel(0);
+    };
+  }, [previewStream]);
+
+  const live = previewState === 'ready';
   return (
     <div className="rounded-lg bg-warning/5 border border-warning/20 px-3 py-3 flex items-center gap-3">
       <div className="relative">
@@ -792,31 +855,73 @@ function AudioWaitingTile() {
           aria-hidden="true"
         />
       </div>
-      <div className="flex-1 flex items-center gap-1" aria-hidden="true">
-        {[0, 1, 2, 3, 4, 5, 6].map((i) => (
-          <span
-            key={i}
-            className="block w-1 rounded-sm bg-warning/40 animate-pulse"
-            style={{ height: `${10 + ((i * 7) % 14)}px`, animationDelay: `${i * 90}ms` }}
-          />
-        ))}
+      <div className="flex-1 flex items-end gap-1 h-6" aria-hidden="true">
+        {[0, 1, 2, 3, 4, 5, 6].map((i) => {
+          // Distance from center → louder bars in the middle when speaking.
+          const dist = Math.abs(i - 3);
+          const target = live
+            ? Math.max(4, Math.min(22, level * 24 * (1 - dist * 0.18) + 4))
+            : 10 + ((i * 7) % 14);
+          return (
+            <span
+              key={i}
+              className={cn(
+                'block w-1 rounded-sm transition-all duration-150',
+                live ? 'bg-warning' : 'bg-warning/40 animate-pulse',
+              )}
+              style={{ height: `${target}px`, animationDelay: `${i * 90}ms` }}
+            />
+          );
+        })}
       </div>
     </div>
   );
 }
 
-function VideoWaitingTile() {
+function VideoWaitingTile({ previewStream, previewState }: WaitingTileProps) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el) return;
+    if (previewStream) {
+      if (el.srcObject !== previewStream) el.srcObject = previewStream;
+    } else {
+      el.srcObject = null;
+    }
+  }, [previewStream]);
+  const showVideo = previewState === 'ready' && !!previewStream;
   return (
-    <div className="aspect-video w-full rounded-lg border border-violet-500/20 bg-gradient-to-br from-violet-500/10 via-violet-500/5 to-transparent flex flex-col items-center justify-center gap-2">
-      <div className="relative">
-        <div className="w-12 h-12 rounded-full bg-violet-500/10 flex items-center justify-center text-violet-600 dark:text-violet-400">
-          <Video className="w-5 h-5" aria-hidden="true" />
+    <div className="relative aspect-video w-full rounded-lg overflow-hidden border border-violet-500/20 bg-gradient-to-br from-violet-500/10 via-violet-500/5 to-transparent">
+      {/* Local self-view — rendered as soon as getUserMedia resolves.
+          Mirrored so the operator sees a natural reflection. */}
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted
+        className={cn(
+          'absolute inset-0 w-full h-full object-cover bg-black transition-opacity duration-200',
+          showVideo ? 'opacity-100' : 'opacity-0',
+        )}
+        style={{ transform: 'scaleX(-1)' }}
+      />
+      {!showVideo && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+          <div className="relative">
+            <div className="w-12 h-12 rounded-full bg-violet-500/10 flex items-center justify-center text-violet-600 dark:text-violet-400">
+              {previewState === 'denied'
+                ? <VideoOff className="w-5 h-5" aria-hidden="true" />
+                : <Video className="w-5 h-5" aria-hidden="true" />}
+            </div>
+            {previewState === 'requesting' && (
+              <span
+                className="absolute inset-0 rounded-full ring-2 ring-violet-500/30 animate-ping"
+                aria-hidden="true"
+              />
+            )}
+          </div>
         </div>
-        <span
-          className="absolute inset-0 rounded-full ring-2 ring-violet-500/30 animate-ping"
-          aria-hidden="true"
-        />
-      </div>
+      )}
     </div>
   );
 }

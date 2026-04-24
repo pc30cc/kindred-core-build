@@ -1718,3 +1718,24 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
   .ci-card.ci-status-cancelled,
   .ci-card.ci-status-declined { background: #0b1220; }
 }
+
+/* Phase 9 — inline error row beneath the invitation card.
+   Surfaced when the visitor's Join attempt cannot reach the call
+   runtime (timeout, load failure, or runtime API missing). */
+.ci-card .ci-err {
+  margin-top: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+  font-size: 11px;
+  line-height: 1.35;
+}
+@media (prefers-color-scheme: dark) {
+  .ci-card .ci-err {
+    background: color-mix(in srgb, #dc2626 14%, #1e293b);
+    border-color: color-mix(in srgb, #dc2626 32%, #1e293b);
+    color: #fecaca;
+  }
+}

@@ -162,6 +162,15 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
     wireRoom(room);
     try {
       await room.connect(input.wsUrl, input.token, connectOptions);
+      // Race guard: if someone called disconnect() while we were awaiting
+      // the WS handshake, roomRef was cleared. The Room we just joined is
+      // now orphaned — tear it down immediately or LiveKit will mark it
+      // CLIENT_REQUEST_LEAVE on its own timeout. This is the precise
+      // disconnect path that produced the operator's premature leave.
+      if (roomRef.current !== room) {
+        try { await room.disconnect(); } catch { /* ignore */ }
+        return;
+      }
       if (publishMic) {
         await room.localParticipant.setMicrophoneEnabled(true);
         setMicEnabled(true);
@@ -170,13 +179,21 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
         await room.localParticipant.setCameraEnabled(true);
         setCameraEnabled(true);
       }
+      // Re-check after the (potentially long) device-publish phase too —
+      // device prompts can take seconds on first call.
+      if (roomRef.current !== room) {
+        try { await room.disconnect(); } catch { /* ignore */ }
+        return;
+      }
       setState('connected');
       refreshRemotes();
     } catch (e: any) {
       setError(e?.message || 'Failed to connect');
       setState('failed');
       try { await room.disconnect(); } catch { /* ignore */ }
-      roomRef.current = null;
+      // Only clear the ref if we still own it. If disconnect() already
+      // cleared and replaced it (unlikely but defensive), don't stomp.
+      if (roomRef.current === room) roomRef.current = null;
       throw e;
     } finally {
       connectingRef.current = false;

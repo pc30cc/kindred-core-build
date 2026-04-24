@@ -19,9 +19,23 @@ export type TranslationKey = NestedKeyOf<TranslationKeys>;
 function getNestedValue(obj: Record<string, unknown>, path: string): string {
   const keys = path.split('.');
   let current: unknown = obj;
-  for (const key of keys) {
+  for (let i = 0; i < keys.length; i++) {
     if (current == null || typeof current !== 'object') return path;
-    current = (current as Record<string, unknown>)[key];
+    const obj = current as Record<string, unknown>;
+    // Greedy match: try the longest remaining key as a literal property first.
+    // This supports locale entries that store flat dotted keys (e.g.
+    // `inbox: { 'callInvite.statusCancelled': '...' }`) alongside nested ones.
+    let matched = false;
+    for (let j = keys.length; j > i; j--) {
+      const candidate = keys.slice(i, j).join('.');
+      if (Object.prototype.hasOwnProperty.call(obj, candidate)) {
+        current = obj[candidate];
+        i = j - 1; // for-loop will increment to j
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) return path;
   }
   return typeof current === 'string' ? current : path;
 }

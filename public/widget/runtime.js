@@ -2393,13 +2393,24 @@
         ready = new Promise(function (resolve, reject) {
           var url = window.__gs_call_url;
           if (!url) {
-            // Derive from current runtime script tag if loader didn't expose it.
+            // Derive from current runtime script tag if loader didn't
+            // expose it. The selector matches both unhashed
+            // (`/widget/runtime.js`) and hashed (`/widget/runtime-abc.js`
+            // or `/widget/runtime.abc.js`) filenames so production
+            // CDN-hashed builds resolve correctly.
             try {
-              var rs = document.querySelector('script[src*="/widget/runtime.js"]');
-              if (rs && rs.src) url = rs.src.replace(/runtime\.js(?:\?[^#]*)?(?:#.*)?$/, 'runtime-call.js');
+              var rs = document.querySelector('script[data-gs-runtime]')
+                    || document.querySelector('script[src*="/widget/runtime"][src$=".js"]')
+                    || document.querySelector('script[src*="/widget/runtime.js"]');
+              if (rs && rs.src) url = rs.src.replace(/runtime(?:[.-][A-Za-z0-9]+)?\.js(?:\?[^#]*)?(?:#.*)?$/, 'runtime-call.js');
             } catch (_) { /* noop */ }
           }
-          if (!url) return reject(new Error('call_runtime_url_unknown'));
+          if (!url) {
+            try { console.warn('[gs-call] runtime URL unknown — neither window.__gs_call_url nor runtime <script> tag was resolvable'); } catch (_) {}
+            return reject(new Error('call_runtime_url_unknown'));
+          }
+          // Cache so subsequent re-tries don't re-derive.
+          window.__gs_call_url = url;
           var existing = document.querySelector('script[data-gs-runtime-call]');
           if (existing) {
             // Already injected; just poll.

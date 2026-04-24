@@ -71,10 +71,10 @@ services:
     command:
       - |
         set -eu
-        : "${LIVEKIT_API_KEY:?LIVEKIT_API_KEY is required}"
-        : "${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET is required}"
-        : "${LIVEKIT_NODE_IP:?LIVEKIT_NODE_IP is required (public IP of this host)}"
-        LOG_LEVEL="${LIVEKIT_LOG_LEVEL:-info}"
+        : "$${LIVEKIT_API_KEY:?LIVEKIT_API_KEY is required}"
+        : "$${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET is required}"
+        : "$${LIVEKIT_NODE_IP:?LIVEKIT_NODE_IP is required (public IP of this host)}"
+        LOG_LEVEL="$${LIVEKIT_LOG_LEVEL:-info}"
         cat > /tmp/livekit.yaml <<EOF
         port: 7880
         log_level: $${LOG_LEVEL}

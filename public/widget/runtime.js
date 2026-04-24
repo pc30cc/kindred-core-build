@@ -4882,6 +4882,21 @@
       getTransportCapabilities: function () {
         return transport.getCapabilities ? transport.getCapabilities() : {};
       },
+      // Phase 9 — expose the in-shell mount host for the call module so
+      // visitor call UI renders INSIDE the widget panel instead of as a
+      // floating sidecar attached to <body>. Returns the panel element
+      // (which lives inside the widget's shadow root). Callers must
+      // tolerate a null return (panel unmounted) and fall back to body.
+      getCallMountHost: function () {
+        try {
+          return panel || null;
+        } catch (_) { return null; }
+      },
+      // Sibling helper — primary color so the call module can theme
+      // controls to match the brand instead of hard-coding green/red.
+      getPrimaryColor: function () {
+        return ctx.primaryColor || '#3B82F6';
+      },
     };
   };
 

@@ -97,8 +97,8 @@ After the LiveKit service is up:
 
 1. Open the main app → **Super Admin → Providers → Calls → LiveKit**.
 2. Enter:
-   - **API Key** — the part of `LIVEKIT_KEYS` before the `:`
-   - **API Secret** — the part after the `:`
+   - **API Key** — the value of `LIVEKIT_API_KEY`
+   - **API Secret** — the value of `LIVEKIT_API_SECRET`
    - **RTC URL** — `wss://livekit.your-domain.tld`
    - **WS URL** — same as RTC URL
 3. Toggle **Enabled** on and **Save**.

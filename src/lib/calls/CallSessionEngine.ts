@@ -325,6 +325,7 @@ export class CallSessionEngine {
       this.clearRingTimeout();
       this.clearEndingTimeout();
       this.clearIncomingTimeout();
+      this.clearConnectWatchdog();
       try { await this.opts.transport.disconnect(); } catch { /* ignore */ }
       this.releaseBusy();
       return;

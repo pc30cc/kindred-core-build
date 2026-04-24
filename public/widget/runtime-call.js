@@ -38,6 +38,21 @@
     } catch (_) {}
   }
 
+  function normalizeLiveKitWsUrl(rawUrl) {
+    if (!rawUrl || typeof rawUrl !== 'string') return rawUrl;
+    try {
+      var url = new URL(rawUrl);
+      if (/\/rtc(?:\/v1)?\/?$/.test(url.pathname)) {
+        url.pathname = url.pathname.replace(/\/rtc(?:\/v1)?\/?$/, '/rtc');
+      } else {
+        url.pathname = (url.pathname.replace(/\/+$/, '') || '') + '/rtc';
+      }
+      return url.toString().replace(/\/+$/, '');
+    } catch (_) {
+      return rawUrl;
+    }
+  }
+
   // CDN fallback. Self-hosters can override via window.__gs_call_sdk_url.
   var LIVEKIT_SDK_URL = (window && window.__gs_call_sdk_url)
     || 'https://cdn.jsdelivr.net/npm/livekit-client@2.18.6/dist/livekit-client.umd.min.js';
@@ -730,15 +745,29 @@
       .on(LK.RoomEvent.TrackUnsubscribed, refresh)
       .on(LK.RoomEvent.LocalTrackPublished, refreshLocal)
       .on(LK.RoomEvent.LocalTrackUnpublished, refreshLocal)
-      .on(LK.RoomEvent.Reconnecting, function () { setStatus('Reconnecting...'); })
-      .on(LK.RoomEvent.Reconnected, function () { setStatus(''); })
-      .on(LK.RoomEvent.Disconnected, function () { teardown('remote'); });
+      .on(LK.RoomEvent.Reconnecting, function () {
+        dlog('room event: reconnecting');
+        setStatus('Reconnecting...');
+      })
+      .on(LK.RoomEvent.Reconnected, function () {
+        dlog('room event: reconnected');
+        setStatus('');
+      })
+      .on(LK.RoomEvent.Disconnected, function (reason) {
+        dlog('room event: disconnected', { reason: reason });
+        teardown('remote:' + String(reason == null ? 'unknown' : reason));
+      });
     refresh();
     refreshLocal();
   }
 
   function teardown(reason) {
-    dlog('teardown', { reason: reason });
+    dlog('teardown', {
+      reason: reason,
+      hasCurrent: !!current,
+      hasRoom: !!(current && current.room),
+      connecting: !!(current && current.connecting),
+    });
     if (current && current.room) {
       try { current.room.disconnect(); } catch (_) {}
     }
@@ -746,7 +775,7 @@
     // Distinguish "operator ended" (remote-initiated) from local actions
     // so the visitor sees a real explanation, not a generic "ended".
     var msg = '';
-    if (reason === 'remote') msg = 'Operator ended the call';
+    if (reason === 'remote' || (typeof reason === 'string' && reason.indexOf('remote:') === 0)) msg = 'Operator ended the call';
     else if (reason === 'local') msg = 'Call ended';
     else if (reason === 'error') msg = ''; // accept() already set a reason
     setStatus(msg, reason === 'remote' ? 'ended' : null);
@@ -757,7 +786,7 @@
     if (degradedEl) degradedEl.classList.remove('show');
     // Show the terminal message a bit longer when the operator hung up so
     // the visitor actually reads it before the surface auto-closes.
-    var hideDelay = reason === 'remote' ? 2200 : 600;
+    var hideDelay = (reason === 'remote' || (typeof reason === 'string' && reason.indexOf('remote:') === 0)) ? 2200 : 600;
     // teardown() is the legitimate close path — bypass the active-guard
     // we added to hide() so the surface actually disappears.
     setTimeout(function () { hide({ force: true }); }, hideDelay);
@@ -812,7 +841,13 @@
           credential: invite.turn.credential || undefined,
         });
       }
-      var room = new LK.Room({ adaptiveStream: true, dynacast: true });
+      var normalizedWsUrl = normalizeLiveKitWsUrl(invite.ws_url);
+      dlog('room.connect start', {
+        ws_url: invite.ws_url,
+        normalizedWsUrl: normalizedWsUrl,
+        call_id: invite.call_id,
+      });
+      var room = new LK.Room({ adaptiveStream: true, dynacast: true, disconnectOnPageLeave: false });
       // Race guard: if teardown() ran between loadSdk() and here, do not
       // create a zombie connection — `current` was cleared.
       if (!current || current.invite !== invite) {
@@ -828,8 +863,8 @@
           iceTransportPolicy: invite.ice_policy === 'relay' ? 'relay' : 'all',
         },
       } : undefined;
-      return room.connect(invite.ws_url, invite.token, connectOpts).then(function () {
-        dlog('room.connect resolved');
+      return room.connect(normalizedWsUrl, invite.token, connectOpts).then(function () {
+        dlog('room.connect resolved', { call_id: invite.call_id });
         // Race guard: teardown() during the WS handshake clears current.
         // The freshly-joined room is now orphaned; disconnect it cleanly
         // so LiveKit doesn't see a dangling participant.

@@ -34,6 +34,27 @@ function lkLog(...args: unknown[]) {
   console.log('[livekit-hook]', ...args);
 }
 
+function normalizeLiveKitWsUrl(rawUrl: string): string {
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return trimmed;
+  try {
+    const url = new URL(trimmed);
+    // The public LiveKit deploy behind livekit.destekly.tr currently serves
+    // the legacy `/rtc` signal endpoint, while livekit-client 2.x probes
+    // `/rtc/v1` first when given the bare origin. Returning an explicit `/rtc`
+    // base keeps the first hop deterministic and avoids the initial refused /
+    // 404 noise before fallback.
+    if (/\/rtc(?:\/v1)?\/?$/.test(url.pathname)) {
+      url.pathname = url.pathname.replace(/\/rtc(?:\/v1)?\/?$/, '/rtc');
+    } else {
+      url.pathname = (url.pathname.replace(/\/+$/, '') || '') + '/rtc';
+    }
+    return url.toString().replace(/\/+$/, '');
+  } catch {
+    return trimmed;
+  }
+}
+
 export type CallConnState =
   | 'idle'
   | 'connecting'
@@ -179,10 +200,16 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
     connectingRef.current = true;
     setError(null);
     setState('connecting');
-    lkLog('connect() begin', { wsUrl: input.wsUrl, hasToken: !!input.token });
+    const normalizedWsUrl = normalizeLiveKitWsUrl(input.wsUrl);
+    lkLog('connect() begin', {
+      wsUrl: input.wsUrl,
+      normalizedWsUrl,
+      hasToken: !!input.token,
+    });
     const room = new Room({
       adaptiveStream: true,
       dynacast: true,
+      disconnectOnPageLeave: false,
       // Disable the SDK's automatic reconnect for the initial connection
       // path — when the WebSocket is refused (proxy / cert / wrong path)
       // the SDK retries silently which collides with React-side state and
@@ -207,7 +234,7 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
     roomRef.current = room;
     wireRoom(room);
     try {
-      await room.connect(input.wsUrl, input.token, connectOptions);
+      await room.connect(normalizedWsUrl, input.token, connectOptions);
       lkLog('room.connect() resolved');
       // Race guard: if someone called disconnect() while we were awaiting
       // the WS handshake, roomRef was cleared. The Room we just joined is

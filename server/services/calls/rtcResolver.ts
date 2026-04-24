@@ -68,6 +68,25 @@ function stripTrailingSlash(s: string | null | undefined): string | null {
   return t.replace(/\/+$/, '');
 }
 
+function normalizeLiveKitSignalBase(rawUrl: string | null): string | null {
+  const base = stripTrailingSlash(rawUrl);
+  if (!base) return null;
+  try {
+    const url = new URL(base);
+    // livekit-client 2.x appends `/rtc/v1` (and `/validate`) to whatever base
+    // URL we hand it. The current public deployment serves the legacy `/rtc`
+    // path but not `/rtc/v1`, so returning the bare origin causes an initial
+    // 404 / websocket refusal before the SDK falls back. By normalizing the
+    // base to omit an already-present `/rtc` suffix and leaving callers on the
+    // same origin, we keep one canonical shape and can switch to the legacy
+    // path explicitly where needed on the client.
+    url.pathname = url.pathname.replace(/\/rtc(?:\/v1)?\/?$/, '') || '/';
+    return stripTrailingSlash(url.toString());
+  } catch {
+    return base;
+  }
+}
+
 /**
  * Read the raw RTC endpoint config from app_runtime_config. Never throws.
  */
@@ -270,10 +289,12 @@ export async function getTurnConfig(config: ServerConfig): Promise<CallTurnConfi
  */
 export async function getCallNetworkBundle(config: ServerConfig): Promise<CallRtcConfig> {
   const raw = await loadRawRtcConfig(config);
+  const rtcUrl = normalizeLiveKitSignalBase(raw.rtc_url ?? stripTrailingSlash(process.env.RTC_BASE_URL ?? null));
+  const wsUrl = normalizeLiveKitSignalBase(raw.ws_url ?? raw.rtc_url ?? stripTrailingSlash(process.env.RTC_WS_URL ?? null));
   return {
     ...raw,
-    rtc_url: raw.rtc_url ?? stripTrailingSlash(process.env.RTC_BASE_URL ?? null),
-    ws_url: raw.ws_url ?? raw.rtc_url ?? stripTrailingSlash(process.env.RTC_WS_URL ?? null),
+    rtc_url: rtcUrl,
+    ws_url: wsUrl,
     recording_url:
       raw.recording_url ?? stripTrailingSlash(process.env.RTC_RECORDING_URL ?? null),
   };

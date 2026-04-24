@@ -367,6 +367,9 @@ const en = {
     'timeline.callInvitationExpired': 'Call invitation expired',
     'timeline.callInvitationCancelled': 'Call invitation cancelled',
     'timeline.callInvitationDeclined': 'Visitor declined the call invitation',
+    // Sidebar call card (replaces legacy queue dock)
+    'sidebarCall.title': 'Call visitor',
+    'sidebarCall.hint': 'Send an invitation — the visitor joins from their chat when ready.',
   },
   contacts: {
     title: 'Contacts',

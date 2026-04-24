@@ -1002,9 +1002,18 @@
     setStatus(msg, reason === 'remote' ? 'ended' : null);
     setRingingMode();
     if (audioEl) audioEl.srcObject = null;
-    if (videoEl) videoEl.srcObject = null;
+    if (videoEl) {
+      try {
+        var srcTracks = videoEl.srcObject && videoEl.srcObject.getVideoTracks ? videoEl.srcObject.getVideoTracks() : [];
+        for (var i = 0; i < srcTracks.length; i++) {
+          if (srcTracks[i] && typeof srcTracks[i].stop === 'function') srcTracks[i].stop();
+        }
+      } catch (_) {}
+      videoEl.srcObject = null;
+    }
     if (localVideoEl) localVideoEl.srcObject = null;
     if (degradedEl) degradedEl.classList.remove('show');
+    ensureStageLayout('teardown');
     // Show the terminal message a bit longer when the operator hung up so
     // the visitor actually reads it before the surface auto-closes.
     var hideDelay = (reason === 'remote' || (typeof reason === 'string' && reason.indexOf('remote:') === 0)) ? 2200 : 600;

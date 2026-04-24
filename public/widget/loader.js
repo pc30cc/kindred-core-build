@@ -606,11 +606,32 @@
       try {
         var callJs = runtimeJs.replace(/runtime\.js(?:\?[^#]*)?(?:#.*)?$/, "runtime-call.js");
         if (callJs && callJs !== runtimeJs && !document.querySelector('script[data-gs-runtime-call]')) {
+          // Phase 9 fix — expose readiness so the chat join handler can
+          // await the call module BEFORE invoking window.__gs_call.incoming.
+          // Without this the visitor could click "Join" before this script
+          // executed and would hit `call_runtime_unavailable`.
+          window.__gs_call_url = callJs;
+          window.__gs_call_ready = window.__gs_call_ready || new Promise(function (resolve, reject) {
+            window.__gs_call_resolveReady = resolve;
+            window.__gs_call_rejectReady = reject;
+          });
           var cs = document.createElement("script");
           cs.src = callJs;
           cs.async = true;
           cs.setAttribute("data-gs-runtime-call", "true");
-          cs.onerror = function () { warn("call module failed to load"); };
+          cs.onload = function () {
+            // The script defines window.__gs_call synchronously inside its
+            // IIFE — by the time onload fires the global is present.
+            if (window.__gs_call && typeof window.__gs_call.incoming === 'function') {
+              try { window.__gs_call_resolveReady && window.__gs_call_resolveReady(window.__gs_call); } catch (_) {}
+            } else {
+              try { window.__gs_call_rejectReady && window.__gs_call_rejectReady(new Error('call_module_loaded_but_api_missing')); } catch (_) {}
+            }
+          };
+          cs.onerror = function () {
+            warn("call module failed to load");
+            try { window.__gs_call_rejectReady && window.__gs_call_rejectReady(new Error('call_module_load_failed')); } catch (_) {}
+          };
           document.head.appendChild(cs);
         }
       } catch (_) { /* never block chat boot on the call module */ }

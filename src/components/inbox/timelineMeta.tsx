@@ -172,6 +172,24 @@ export function describeEvent(
         secondary: wait ? `${wait} so far` : undefined,
       };
     }
+    case 'call_invited': {
+      const ch = p?.channel === 'video' ? 'video' : 'audio';
+      return {
+        primary: t('inbox.timeline.callInvited') || `Operator invited visitor to ${ch} call`,
+        secondary: ch,
+      };
+    }
+    case 'call_invitation_joined':
+      return { primary: t('inbox.timeline.callInvitationJoined') || 'Visitor joined the call' };
+    case 'call_invitation_expired':
+      return { primary: t('inbox.timeline.callInvitationExpired') || 'Call invitation expired' };
+    case 'call_invitation_cancelled':
+      return {
+        primary: t('inbox.timeline.callInvitationCancelled') || 'Call invitation cancelled',
+        secondary: p?.reason || undefined,
+      };
+    case 'call_invitation_declined':
+      return { primary: t('inbox.timeline.callInvitationDeclined') || 'Visitor declined the call invitation' };
     default:
       return { primary: ev.event_type };
   }

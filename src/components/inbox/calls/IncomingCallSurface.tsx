@@ -12,7 +12,7 @@
  * the audio-vs-video split applies across the full lifecycle instead of
  * only at connected.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Phone, Video, PhoneOff, CheckCircle2, Loader2, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';

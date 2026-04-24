@@ -73,11 +73,21 @@ server {
     # Widget loader — never cache so widget config/domain changes apply immediately
     location = /widget/loader.js {
         root /usr/share/nginx/html;
+        # Explicit script content-type so Firefox ORB / Chrome CORB do not
+        # block this third-party script when the host page is on another
+        # origin. Without an explicit type, nginx's MIME guess + the global
+        # `X-Content-Type-Options: nosniff` can produce an
+        # "OpaqueResponseBlocking" failure where the script never runs.
+        types { } default_type application/javascript;
         expires -1;
         add_header Cache-Control "no-cache, no-store, must-revalidate" always;
         add_header Pragma "no-cache" always;
         add_header X-Widget-Asset "loader" always;
         add_header Access-Control-Allow-Origin "*" always;
+        # CORP must be cross-origin so browsers (Firefox ORB / Safari) allow
+        # this asset to be loaded as a script from a third-party origin.
+        add_header Cross-Origin-Resource-Policy "cross-origin" always;
+        add_header Access-Control-Allow-Methods "GET, OPTIONS" always;
         # Force Cloudflare (and any CDN that honors these headers) to bypass
         # cache. Without this, even with `no-store` in Cache-Control, CF can
         # still cache based on its own Cache Rules / default policy.
@@ -94,6 +104,7 @@ server {
         add_header Cache-Control "no-cache, no-store, must-revalidate" always;
         add_header X-Widget-Asset "manifest" always;
         add_header Access-Control-Allow-Origin "*" always;
+        add_header Cross-Origin-Resource-Policy "cross-origin" always;
         # See note above — Cloudflare-aware cache bypass.
         add_header CDN-Cache-Control "no-store" always;
         add_header Cloudflare-CDN-Cache-Control "no-store" always;
@@ -105,6 +116,7 @@ server {
     location ^~ /widget/ {
         root /usr/share/nginx/html;
         add_header Access-Control-Allow-Origin "*" always;
+        add_header Cross-Origin-Resource-Policy "cross-origin" always;
 
         # ─────────────────────────────────────────────────────────────
         # Cache policy split:
@@ -123,21 +135,37 @@ server {
         # ─────────────────────────────────────────────────────────────
         location ~* "^/widget/.*\.[a-f0-9]{8}\.(?:js|css)$" {
             root /usr/share/nginx/html;
+            # Force MIME so Firefox ORB / Chrome CORB cannot mis-classify
+            # the response and refuse to execute it as a script.
+            types {
+                application/javascript js;
+                text/css              css;
+            }
             expires 365d;
             add_header Cache-Control "public, max-age=31536000, immutable" always;
             add_header X-Widget-Asset "runtime-hashed" always;
             add_header Access-Control-Allow-Origin "*" always;
+            add_header Cross-Origin-Resource-Policy "cross-origin" always;
+            add_header Access-Control-Allow-Methods "GET, OPTIONS" always;
             try_files $uri =404;
         }
 
         # Unhashed runtime/css/js fallbacks — never cache. If any client
         # ever loads these by accident, we want them to re-validate next
         # time so a fresh deploy converges.
+        types {
+            application/javascript js;
+            text/css              css;
+            application/json      json;
+        }
         expires -1;
         add_header Cache-Control "no-cache, no-store, must-revalidate" always;
         add_header CDN-Cache-Control "no-store" always;
         add_header Cloudflare-CDN-Cache-Control "no-store" always;
         add_header X-Widget-Asset "runtime-unhashed" always;
+        add_header Access-Control-Allow-Origin "*" always;
+        add_header Cross-Origin-Resource-Policy "cross-origin" always;
+        add_header Access-Control-Allow-Methods "GET, OPTIONS" always;
         # Hard 404 — DO NOT fall back to index.html for /widget/* paths.
         try_files $uri =404;
     }

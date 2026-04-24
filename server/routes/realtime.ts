@@ -36,6 +36,7 @@ import {
   channelBelongsToWorkspace,
   isInboxChannel,
   isVisitorsChannel,
+  isQueueChannel,
 } from '../services/realtime/types.js';
 import { loadWidgetPlatformRuntimeSettings } from '../services/widget/platformSettings.js';
 import { emitMetric } from '../services/observability/metrics.js';
@@ -307,7 +308,8 @@ realtimeRouter.post('/subscribe', perfHttpMiddleware('realtime.subscribe'), asyn
     const channel = `ws:${parsed.data.workspace_id}:conv:${parsed.data.conversation_id}`;
     if (!channelBelongsToWorkspace(channel, parsed.data.workspace_id)
         || isInboxChannel(channel, parsed.data.workspace_id)
-        || isVisitorsChannel(channel, parsed.data.workspace_id)) {
+        || isVisitorsChannel(channel, parsed.data.workspace_id)
+        || isQueueChannel(channel, parsed.data.workspace_id)) {
       emitMetric(config, {
         metric: 'realtime.channel_ownership_reject',
         workspaceId: parsed.data.workspace_id,

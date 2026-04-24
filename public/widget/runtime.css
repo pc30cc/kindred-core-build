@@ -1623,6 +1623,20 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 }
 .ci-text { flex: 1; min-width: 0; }
 .ci-title { font-size: 13px; font-weight: 600; color: #0f172a; line-height: 1.4; }
+.ci-body {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #475569;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ci-wait { color: #64748b; font-size: 11px; }
+@media (prefers-color-scheme: dark) {
+  .ci-body { color: #cbd5e1; }
+  .ci-wait { color: #94a3b8; }
+}
 .ci-meta {
   font-size: 11px;
   color: #64748b;

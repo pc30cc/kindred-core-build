@@ -2047,6 +2047,13 @@
         return m.sender === 'visitor' ? 'v' : ('op:' + (m.senderName || '') + '|' + (m.senderAvatar || ''));
       });
       s.messages.forEach(function (m, idx) {
+        // Phase 9 — Call invitation card. System messages with
+        // metadata.kind === 'call_invitation' render as an interactive
+        // card (Join / state) instead of a normal chat bubble.
+        if (m.senderType === 'system' && m.metadata && m.metadata.kind === 'call_invitation') {
+          html += renderCallInvitationCard(m);
+          return;
+        }
         var bg = m.sender === 'visitor' ? 'style="background:' + ctx.primaryColor + '"' : '';
         var cls = m.sender === 'visitor' ? 'visitor' : 'operator';
         var hasText = m.body && String(m.body).trim().length > 0;

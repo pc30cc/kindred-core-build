@@ -226,7 +226,7 @@ export async function createInvitation(
           sender_type: 'system',
           body: msg.body as string,
           created_at: msg.created_at as string | null,
-          metadata: (msg.metadata as Record<string, unknown>) ?? cardMeta,
+          metadata: ((msg.metadata as Record<string, unknown>) ?? (cardMeta as unknown as Record<string, unknown>)),
           seen_at: (msg as any).seen_at ?? null,
         }),
       );
@@ -302,7 +302,7 @@ async function syncCardForStatus(
         sender_type: 'system',
         body: existing.body as string,
         created_at: existing.created_at as string | null,
-        metadata: nextMeta,
+        metadata: nextMeta as unknown as Record<string, unknown>,
         seen_at: (existing as any).seen_at ?? null,
       }),
     );

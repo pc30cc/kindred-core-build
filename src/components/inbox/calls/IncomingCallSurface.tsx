@@ -1,207 +1,172 @@
 /**
- * Phase — Inbox Call Hardening · Pass 3
+ * Phase — Inbox Call Unification · Pass C + D
  *
- * Operator-side incoming-call surface.
+ * Pure-presentation incoming-call modal. Reads engine state from the
+ * shared CallSessionProvider. Owns ZERO lifecycle:
+ *   - polling lives in useIncomingCallSignal
+ *   - ringtone is gated by phase === 'incoming_ringing' (one effect)
+ *   - accept/decline call engine commands; engine connects media + handles
+ *     every failure path (busy release, queue cancel, transport teardown)
  *
- * Source of truth: the existing call queue (offered_to_user_id === me).
- * This intentionally REUSES the polling already done by CallQueuePanel /
- * OperatorCallDock so we don't open a third polling channel for the same
- * data. The widget core, departments, and queue routing are untouched.
- *
- * Lifecycle:
- *   1. Poll /api/call-queue every 5s (own poll — the panel mounts above
- *      the inbox shell and we don't want to depend on its mount).
- *   2. When an entry's state === 'offered' AND offered_to_user_id === me,
- *      enter "incoming ringing" UI and start the incoming ringtone.
- *   3. Operator clicks Accept → call queueApi.accept → host receives the
- *      conversation and CallQueuePanel's onAccept switches the inbox.
- *      Operator clicks Decline → call queueApi.cancel with reason
- *      'operator_declined' so the engine cleans up.
- *   4. On any transition out (accepted/cancelled/expired/missed/poll
- *      reveals a different offer), stop the ringtone idempotently.
- *
- * Hard rules:
- *   - Ringtone uses the central controller → impossible to overlap with
- *     ringback or with another incoming surface mounted twice.
- *   - Cleanup runs on offer change, accept, decline, unmount, and
- *     visibility change. Each is idempotent.
- *   - Modal is closed automatically when the offer goes away — the
- *     operator never has to manually dismiss a stale ringing card.
+ * Visual: video calls now render the video icon during ringing too, so
+ * the audio-vs-video split applies across the full lifecycle instead of
+ * only at connected.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Phone, Video, PhoneOff, CheckCircle2, Loader2, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
-import { callQueueApi, type CallQueueEntry } from '@/lib/call-queue-api';
 import { ringtone } from '@/lib/calls/ringtone';
 import { useAuth } from '@/features/auth/AuthContext';
-
-const POLL_MS = 5000;
-
-function offerVisitorName(entry: CallQueueEntry): string {
-  const md = (entry.metadata || {}) as Record<string, unknown>;
-  if (typeof md.visitor_name === 'string' && md.visitor_name.trim()) return md.visitor_name;
-  return 'Visitor';
-}
-
-function offerCountry(entry: CallQueueEntry): string | null {
-  const md = (entry.metadata || {}) as Record<string, unknown>;
-  return typeof md.country === 'string' && md.country ? md.country : null;
-}
+import { useCallSessionContext } from '@/features/calls/CallSessionProvider';
+import { useIncomingCallSignal } from '@/hooks/useIncomingCallSignal';
+import { isTerminalPhase } from '@/lib/calls/CallSessionEngine';
 
 export interface IncomingCallSurfaceProps {
   workspaceId: string;
-  /** Called when operator accepts. Host should switch to the conversation. */
-  onAccepted?: (entry: CallQueueEntry) => void;
+  /** Called when operator accepts — host can focus the linked conversation. */
+  onAccepted?: (info: { conversationId: string | null }) => void;
 }
 
 export function IncomingCallSurface({ workspaceId, onAccepted }: IncomingCallSurfaceProps) {
   const { user } = useAuth();
   const myId = user?.id ?? null;
-  const [active, setActive] = useState<CallQueueEntry | null>(null);
+  const session = useCallSessionContext();
+  const { state, engine, acceptIncoming, declineIncoming } = session;
+  const phase = state.phase;
+  const offer = state.incomingOffer;
+  const isRinging = phase === 'incoming_ringing' && !!offer;
+  const isConnecting = phase === 'connecting' && state.direction === 'incoming';
   const [busy, setBusy] = useState<'accept' | 'decline' | null>(null);
-  // Track which offer we already rang for, to avoid re-starting the
-  // ringtone every poll tick (start() is already idempotent for the same
-  // kind, but this also resets per-offer state cleanly).
-  const ringingForRef = useRef<string | null>(null);
 
-  const stopRing = useCallback(() => {
-    if (ringtone.currentKind() === 'incoming') ringtone.stop();
-    ringingForRef.current = null;
-  }, []);
+  // Single signal source — feeds the engine. No local state about offers.
+  useIncomingCallSignal({ workspaceId, userId: myId, engine });
 
-  // ── Polling ──────────────────────────────────────────────────────────
+  // Ringtone strictly follows engine phase.
   useEffect(() => {
-    if (!workspaceId || !myId) return;
-    let cancelled = false;
-
-    const tick = async () => {
-      try {
-        const r = await callQueueApi.list(workspaceId);
-        if (cancelled) return;
-        const offer = r.entries.find(
-          (e) => e.state === 'offered' && e.offered_to_user_id === myId,
-        ) ?? null;
-        setActive((prev) => {
-          if (!offer) return null;
-          if (!prev || prev.id !== offer.id) return offer;
-          // Keep the same reference when nothing meaningful changed —
-          // avoids needless re-renders of the modal.
-          return offer;
-        });
-      } catch {
-        /* network blips: keep current state, next tick recovers */
-      }
-    };
-    void tick();
-    const id = setInterval(() => void tick(), POLL_MS);
-    return () => { cancelled = true; clearInterval(id); };
-  }, [workspaceId, myId]);
-
-  // ── Ringtone lifecycle, driven by `active` ──────────────────────────
-  useEffect(() => {
-    if (active && ringingForRef.current !== active.id) {
-      ringingForRef.current = active.id;
-      // start() is idempotent for the same kind; switching from ringback
-      // (operator initiated outgoing while an offer arrived — rare) is
-      // also handled by the controller's start() guard.
+    if (phase === 'incoming_ringing') {
       ringtone.start('incoming');
-    } else if (!active) {
-      stopRing();
+    } else if (ringtone.currentKind() === 'incoming') {
+      ringtone.stop();
     }
-  }, [active, stopRing]);
+  }, [phase]);
 
   // Final safety net — unmount.
-  useEffect(() => () => stopRing(), [stopRing]);
+  useEffect(() => () => {
+    if (ringtone.currentKind() === 'incoming') ringtone.stop();
+  }, []);
 
-  // Stop sound when the tab is hidden — visual modal stays so the
-  // operator can still see who's calling when they return.
+  // Pause sound while tab hidden; visuals stay so operator sees on return.
   useEffect(() => {
     const onVis = () => {
       if (document.visibilityState === 'hidden') {
         if (ringtone.currentKind() === 'incoming') ringtone.stop();
-      } else if (active) {
+      } else if (phase === 'incoming_ringing') {
         ringtone.start('incoming');
       }
     };
     document.addEventListener('visibilitychange', onVis);
     return () => document.removeEventListener('visibilitychange', onVis);
-  }, [active]);
+  }, [phase]);
 
   const accept = useCallback(async () => {
-    if (!active) return;
+    if (!offer) return;
     setBusy('accept');
+    const convId = offer.conversationId;
     try {
-      const r = await callQueueApi.accept(workspaceId, active.id);
-      stopRing();
-      onAccepted?.(r.entry);
-      setActive(null);
+      await acceptIncoming({ displayName: 'Operator' });
+      // Focus the conversation so the operator lands in the right thread.
+      if (convId) onAccepted?.({ conversationId: convId });
     } catch (e: any) {
+      // Engine has already classified + cleaned up; we just surface it.
       toast({ title: 'Could not accept', description: e?.message, variant: 'destructive' });
     } finally {
       setBusy(null);
     }
-  }, [active, workspaceId, onAccepted, stopRing]);
+  }, [offer, acceptIncoming, onAccepted]);
 
   const decline = useCallback(async () => {
-    if (!active) return;
+    if (!offer) return;
     setBusy('decline');
     try {
-      await callQueueApi.cancel(workspaceId, active.id, 'operator_declined');
-      stopRing();
-      setActive(null);
+      await declineIncoming('operator_declined');
     } catch (e: any) {
       toast({ title: 'Could not decline', description: e?.message, variant: 'destructive' });
     } finally {
       setBusy(null);
     }
-  }, [active, workspaceId, stopRing]);
+  }, [offer, declineIncoming]);
 
-  const open = !!active;
-  const isVideo = active?.channel === 'video';
+  // Surface terminal failures from accept attempts.
+  useEffect(() => {
+    if (phase === 'failed' && state.direction === 'incoming') {
+      toast({
+        title: 'Could not start the call',
+        description: state.errorMessage || 'Media connection failed.',
+        variant: 'destructive',
+      });
+    }
+  }, [phase, state.direction, state.errorMessage]);
+
+  // Keep the modal up across ringing → connecting → (terminal grace).
+  const open = isRinging || isConnecting;
+  const isVideo = (offer?.callType ?? 'audio') === 'video';
   const Icon = isVideo ? Video : Phone;
-  const visitor = useMemo(() => (active ? offerVisitorName(active) : ''), [active]);
-  const country = active ? offerCountry(active) : null;
+  const visitor = useMemo(() => offer?.visitorName || 'Visitor', [offer?.visitorName]);
+  const country = offer?.country ?? null;
 
   return (
     <Dialog
       open={open}
       onOpenChange={(v) => {
-        if (!v && open) {
-          // Treat a dismissal as a soft decline so we don't keep ringing
-          // someone who closed the modal.
+        // Only "soft decline" while still ringing — dismissing during
+        // connecting would tear down media we just attached.
+        if (!v && isRinging) {
           void decline();
         }
       }}
     >
-      <DialogContent className="max-w-sm" onEscapeKeyDown={(e) => e.preventDefault()}>
+      <DialogContent
+        className="max-w-sm"
+        onEscapeKeyDown={(e) => e.preventDefault()}
+        // Don't let outside-clicks tear down a connecting call.
+        onPointerDownOutside={(e) => { if (!isRinging) e.preventDefault(); }}
+        onInteractOutside={(e) => { if (!isRinging) e.preventDefault(); }}
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-base">
             <span
               className={cn(
                 'inline-flex items-center justify-center w-8 h-8 rounded-full',
                 isVideo ? 'bg-info/10 text-info' : 'bg-success/10 text-success',
-                'animate-call-ring-pulse',
+                isRinging && 'animate-call-ring-pulse',
               )}
               aria-hidden
             >
               <Icon className="w-4 h-4" />
             </span>
-            Incoming {isVideo ? 'video' : 'audio'} call
+            {isConnecting ? 'Connecting…' : `Incoming ${isVideo ? 'video' : 'audio'} call`}
             <Badge variant="secondary" className="ml-auto text-[10px] capitalize">
-              {active?.channel}
+              {offer?.callType}
             </Badge>
           </DialogTitle>
           <DialogDescription className="text-xs flex items-center gap-1.5 pt-1">
             <User className="w-3 h-3 text-muted-foreground" />
             <span className="font-medium text-foreground">{visitor}</span>
             {country && <span className="text-muted-foreground">· {country}</span>}
-            <span className="text-warning ml-auto inline-flex items-center gap-1">
-              <Loader2 className="w-3 h-3 animate-spin" /> Ringing…
-            </span>
+            {isRinging && (
+              <span className="text-warning ml-auto inline-flex items-center gap-1">
+                <Loader2 className="w-3 h-3 animate-spin" /> Ringing…
+              </span>
+            )}
+            {isConnecting && (
+              <span className="text-info ml-auto inline-flex items-center gap-1">
+                <Loader2 className="w-3 h-3 animate-spin" /> Connecting…
+              </span>
+            )}
           </DialogDescription>
         </DialogHeader>
 
@@ -210,7 +175,7 @@ export function IncomingCallSurface({ workspaceId, onAccepted }: IncomingCallSur
             variant="outline"
             className="h-10 border-destructive/40 text-destructive hover:bg-destructive/10"
             onClick={() => void decline()}
-            disabled={busy !== null}
+            disabled={busy !== null || !isRinging}
             aria-label="Decline incoming call"
           >
             {busy === 'decline' ? (
@@ -225,10 +190,10 @@ export function IncomingCallSurface({ workspaceId, onAccepted }: IncomingCallSur
           <Button
             className="h-10 bg-success text-success-foreground hover:bg-success/90"
             onClick={() => void accept()}
-            disabled={busy !== null}
+            disabled={busy !== null || !isRinging}
             aria-label="Accept incoming call"
           >
-            {busy === 'accept' ? (
+            {busy === 'accept' || isConnecting ? (
               <Loader2 className="w-4 h-4 animate-spin" />
             ) : (
               <>
@@ -242,3 +207,6 @@ export function IncomingCallSurface({ workspaceId, onAccepted }: IncomingCallSur
     </Dialog>
   );
 }
+
+// Suppress unused-import warning for isTerminalPhase if pruned later.
+void isTerminalPhase;

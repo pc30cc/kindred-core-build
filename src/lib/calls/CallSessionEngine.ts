@@ -1,5 +1,5 @@
 /**
- * Phase — Inbox Call Hardening · Pass 1
+ * Phase — Inbox Call Hardening · Pass 1 + Unification Pass A
  *
  * CallSessionEngine — single deterministic owner of an operator-side call
  * lifecycle. UI surfaces (Inbox today, Call Center tomorrow) subscribe to
@@ -16,12 +16,17 @@
  *  - Transport (LiveKit) is injected, not imported, so the engine can be
  *    unit-tested and reused by the future Call Center surface.
  *
- * NOT in scope for this pass:
- *  - Audio/Video UI surface split (Pass 4)
- *  - Ringing/ringback audio (Pass 3)
- *  - Incoming call subscription (Pass 3)
+ * Unification Pass A adds first-class incoming-call ownership:
+ *   - receiveIncoming(offer)  → moves engine into `incoming_ringing`
+ *   - acceptIncoming()        → fetches token + connects transport
+ *   - declineIncoming(reason) → notifies queue + clears state
+ *   - cancelIncoming(reason)  → external (remote/queue) cancellation
+ *   - expireIncoming()        → offer timeout
+ * The signal source (queue poll today, realtime tomorrow) is now an
+ * adapter that calls these commands. Surfaces no longer own lifecycle.
  */
 import { callsApi, type CallType, type CreateCallInput } from '@/lib/calls-api';
+import { callQueueApi } from '@/lib/call-queue-api';
 
 export type CallPhase =
   | 'idle'
@@ -57,6 +62,12 @@ export interface CallSessionState {
   /** True while the engine considers the operator "busy" (owns the lock). */
   busy: boolean;
   startedAt: number | null;
+  /** Direction of the active attempt — 'outgoing' | 'incoming' | null. */
+  direction: 'outgoing' | 'incoming' | null;
+  /** Active incoming offer (queue entry) — only populated for incoming. */
+  incomingOffer: IncomingOffer | null;
+  /** Conversation context if known — used by the UI to focus the right thread. */
+  conversationId: string | null;
 }
 
 export type Listener = (s: CallSessionState) => void;
@@ -69,6 +80,9 @@ const INITIAL: CallSessionState = {
   errorCode: null,
   busy: false,
   startedAt: null,
+  direction: null,
+  incomingOffer: null,
+  conversationId: null,
 };
 
 /** Default no-answer window for outgoing calls (ms). */
@@ -76,6 +90,29 @@ const DEFAULT_RING_TIMEOUT_MS = 35_000;
 
 /** Soft fallback so a stuck `ending` cannot trap the UI. */
 const ENDING_TIMEOUT_MS = 6_000;
+
+/**
+ * Compact description of an incoming offer, derived from the existing
+ * call_queue_entries row. Surfaces consume this — they MUST NOT poll the
+ * queue independently.
+ */
+export interface IncomingOffer {
+  /** Queue entry id — used by accept/decline/cancel queue calls. */
+  offerId: string;
+  workspaceId: string;
+  callType: CallType;             // mapped from queue.channel
+  conversationId: string | null;
+  callSessionId: string | null;   // server-side call id, if already linked
+  visitorName: string | null;
+  country: string | null;
+  /** ISO timestamp when the offer expires (queue offer timeout). */
+  expiresAt: string | null;
+}
+
+export interface AcceptIncomingInput {
+  /** Operator display name shown to the visitor. */
+  displayName?: string;
+}
 
 export interface MediaTransport {
   /** Join the room. Throws on any unrecoverable error. */
@@ -124,6 +161,7 @@ export class CallSessionEngine {
   private opts: Required<Pick<EngineOptions, 'ringTimeoutMs'>> & EngineOptions;
   private ringTimer: ReturnType<typeof setTimeout> | null = null;
   private endingTimer: ReturnType<typeof setTimeout> | null = null;
+  private incomingTimer: ReturnType<typeof setTimeout> | null = null;
   /**
    * Generation counter — every new call attempt bumps this. Async callbacks
    * compare against the captured value and bail if the engine has moved on.
@@ -155,7 +193,16 @@ export class CallSessionEngine {
       return;
     }
     const myGen = ++this.gen;
-    this.transition({ phase: 'preparing', callType: input.callType, busy: true, errorMessage: null, errorCode: null });
+    this.transition({
+      phase: 'preparing',
+      callType: input.callType,
+      busy: true,
+      errorMessage: null,
+      errorCode: null,
+      direction: 'outgoing',
+      conversationId: input.conversationId,
+      incomingOffer: null,
+    });
 
     let createdId: string | null = null;
     try {
@@ -236,6 +283,7 @@ export class CallSessionEngine {
       // Already done — make sure busy is cleared and transport is gone.
       this.clearRingTimeout();
       this.clearEndingTimeout();
+      this.clearIncomingTimeout();
       try { await this.opts.transport.disconnect(); } catch { /* ignore */ }
       this.releaseBusy();
       return;
@@ -246,6 +294,150 @@ export class CallSessionEngine {
       try { await callsApi.hangup(id); } catch { /* ignore */ }
     }
     await this.fullCleanup('ended', null);
+  }
+
+  // ─── Incoming-call commands (Unification Pass A) ──────────────────────
+
+  /**
+   * Move the engine into incoming_ringing for `offer`. Idempotent for the
+   * same offerId — repeated polls do not bump phase or reset the timer.
+   * If the engine is already busy with anything else (outgoing call,
+   * different offer), the new offer is dropped to keep one-call-at-a-time.
+   */
+  receiveIncoming(offer: IncomingOffer): void {
+    if (this.state.phase === 'incoming_ringing'
+        && this.state.incomingOffer?.offerId === offer.offerId) {
+      // Same offer, just refresh metadata in case visitor name resolved late.
+      this.transition({ incomingOffer: offer });
+      return;
+    }
+    if (this.state.phase !== 'idle') {
+      this.log('receiveIncoming ignored — engine not idle', this.state.phase);
+      return;
+    }
+    const myGen = ++this.gen;
+    this.transition({
+      phase: 'incoming_ringing',
+      callType: offer.callType,
+      callId: offer.callSessionId,
+      busy: true,
+      direction: 'incoming',
+      conversationId: offer.conversationId,
+      incomingOffer: offer,
+      errorMessage: null,
+      errorCode: null,
+    });
+    this.armIncomingTimeout(offer, myGen);
+  }
+
+  /**
+   * Operator accepted the incoming call. This is the critical path that
+   * was previously missing: queue accept ➜ token fetch ➜ media connect.
+   * Every failure branch releases busy.
+   */
+  async acceptIncoming(input: AcceptIncomingInput = {}): Promise<void> {
+    const offer = this.state.incomingOffer;
+    if (this.state.phase !== 'incoming_ringing' || !offer) {
+      this.log('acceptIncoming ignored — no active offer');
+      return;
+    }
+    const myGen = this.gen;
+    this.clearIncomingTimeout();
+    this.transition({ phase: 'connecting' });
+
+    let acceptedCallId: string | null = offer.callSessionId;
+    try {
+      // 1) Confirm queue ownership server-side. Server links the call_session
+      //    if it wasn't already on the offer.
+      const accepted = await callQueueApi.accept(offer.workspaceId, offer.offerId);
+      if (this.gen !== myGen) return;
+      acceptedCallId = accepted.entry.call_session_id ?? acceptedCallId;
+      if (!acceptedCallId) {
+        throw new Error('Queue accept did not return a call session id');
+      }
+      this.transition({ callId: acceptedCallId, conversationId: accepted.entry.conversation_id ?? this.state.conversationId });
+
+      // 2) Fetch token from the resolver-backed endpoint.
+      const tok = await callsApi.token(acceptedCallId, {
+        display_name: input.displayName || 'Operator',
+        ttl_seconds: 600,
+      });
+      if (this.gen !== myGen) return;
+      if (!tok.ws_url) {
+        throw Object.assign(
+          new Error('RTC ws_url missing — configure the call provider in admin'),
+          { code: 'config_missing' },
+        );
+      }
+
+      const iceServers: RTCIceServer[] = [];
+      if (tok.turn?.urls?.length) {
+        iceServers.push({
+          urls: tok.turn.urls,
+          username: tok.turn.username || undefined,
+          credential: tok.turn.credential || undefined,
+        });
+      }
+
+      // 3) Connect media. publishCamera flips on for video calls.
+      await this.opts.transport.connect({
+        wsUrl: tok.ws_url,
+        token: tok.token,
+        iceServers: iceServers.length ? iceServers : undefined,
+        iceTransportPolicy: tok.ice_policy,
+        publishCamera: offer.callType === 'video',
+      });
+      if (this.gen !== myGen) {
+        try { await this.opts.transport.disconnect(); } catch { /* ignore */ }
+        return;
+      }
+
+      // 4) Ack the call session itself (non-fatal).
+      try { await callsApi.accept(acceptedCallId); } catch { /* ignore */ }
+
+      this.transition({ phase: 'connected', startedAt: Date.now() });
+    } catch (err) {
+      if (this.gen !== myGen) return;
+      const { code, message } = classifyError(err);
+      this.log('acceptIncoming failed', { code, message });
+      // Best-effort server hangup so the visitor side stops ringing.
+      if (acceptedCallId) {
+        try { await callsApi.hangup(acceptedCallId); } catch { /* ignore */ }
+      }
+      // Best-effort queue cancel — if accept partially succeeded but media
+      // failed, we want the queue entry to terminate cleanly.
+      try { await callQueueApi.cancel(offer.workspaceId, offer.offerId, 'accept_failed'); } catch { /* ignore */ }
+      await this.failTo('failed', code, message, myGen);
+    }
+  }
+
+  /** Operator declined the incoming offer. */
+  async declineIncoming(reason: string = 'operator_declined'): Promise<void> {
+    const offer = this.state.incomingOffer;
+    if (this.state.phase !== 'incoming_ringing' || !offer) return;
+    this.clearIncomingTimeout();
+    try {
+      await callQueueApi.cancel(offer.workspaceId, offer.offerId, reason);
+    } catch { /* network blip — engine still terminates */ }
+    await this.fullCleanup('declined', null);
+  }
+
+  /**
+   * Signal source detected the offer is gone (visitor cancelled, queue
+   * timeout server-side, accepted by another operator). Idempotent.
+   */
+  async cancelIncoming(reason: string = 'remote_cancelled'): Promise<void> {
+    if (this.state.phase !== 'incoming_ringing') return;
+    this.clearIncomingTimeout();
+    this.log('cancelIncoming', reason);
+    await this.fullCleanup('expired', reason);
+  }
+
+  /** Local offer expiry (we never saw a server cancellation in time). */
+  async expireIncoming(): Promise<void> {
+    if (this.state.phase !== 'incoming_ringing') return;
+    this.clearIncomingTimeout();
+    await this.fullCleanup('missed', 'no_answer');
   }
 
   /** Transport-side disconnect signal (e.g. LiveKit Disconnected event). */
@@ -272,10 +464,16 @@ export class CallSessionEngine {
     this.gen++; // invalidate any in-flight async work
     this.clearRingTimeout();
     this.clearEndingTimeout();
+    this.clearIncomingTimeout();
     if (!TERMINAL.has(this.state.phase) && this.state.phase !== 'idle') {
       const id = this.state.callId;
       if (id) {
         try { await callsApi.hangup(id); } catch { /* ignore */ }
+      }
+      // For an unaccepted incoming offer, also tell the queue we're gone.
+      const offer = this.state.incomingOffer;
+      if (this.state.phase === 'incoming_ringing' && offer) {
+        try { await callQueueApi.cancel(offer.workspaceId, offer.offerId, 'operator_unmounted'); } catch { /* ignore */ }
       }
     }
     try { await this.opts.transport.disconnect(); } catch { /* ignore */ }
@@ -303,9 +501,14 @@ export class CallSessionEngine {
     try {
       this.clearRingTimeout();
       this.clearEndingTimeout();
+      this.clearIncomingTimeout();
       try { await this.opts.transport.disconnect(); } catch { /* ignore */ }
       this.transition({ phase: terminal, errorMessage: detail, errorCode: detail ? 'remote_hangup' : null });
       this.releaseBusy();
+      // After a beat in a terminal state, return to idle so the engine
+      // accepts the next call. UI may keep showing the terminal label
+      // for a moment via its own logic (toast, etc).
+      this.scheduleIdleReset();
     } finally {
       this.releasing = false;
     }
@@ -318,9 +521,11 @@ export class CallSessionEngine {
     try {
       this.clearRingTimeout();
       this.clearEndingTimeout();
+      this.clearIncomingTimeout();
       try { await this.opts.transport.disconnect(); } catch { /* ignore */ }
       this.transition({ phase: terminal, errorCode: code, errorMessage: message });
       this.releaseBusy();
+      this.scheduleIdleReset();
     } finally {
       this.releasing = false;
     }
@@ -329,6 +534,21 @@ export class CallSessionEngine {
   /** Final guarantee: clear busy AFTER terminal phase has been published. */
   private releaseBusy(): void {
     if (this.state.busy) this.transition({ busy: false });
+  }
+
+  /** Drop back to idle so a follow-up call can start. ~3s grace for UI toast. */
+  private idleResetTimer: ReturnType<typeof setTimeout> | null = null;
+  private scheduleIdleReset(): void {
+    if (this.idleResetTimer) clearTimeout(this.idleResetTimer);
+    this.idleResetTimer = setTimeout(() => {
+      this.idleResetTimer = null;
+      if (TERMINAL.has(this.state.phase)) {
+        this.state = { ...INITIAL };
+        for (const fn of this.listeners) {
+          try { fn(this.state); } catch { /* */ }
+        }
+      }
+    }, 3000);
   }
 
   private armRingTimeout(myGen: number): void {
@@ -359,6 +579,27 @@ export class CallSessionEngine {
 
   private clearEndingTimeout(): void {
     if (this.endingTimer) { clearTimeout(this.endingTimer); this.endingTimer = null; }
+  }
+
+  private armIncomingTimeout(offer: IncomingOffer, myGen: number): void {
+    this.clearIncomingTimeout();
+    // Local safety net — server typically expires the offer first, but if
+    // the signal source doesn't see the cancellation we still terminate.
+    let ms = this.opts.ringTimeoutMs;
+    if (offer.expiresAt) {
+      const remain = new Date(offer.expiresAt).getTime() - Date.now();
+      if (remain > 0) ms = Math.min(ms, remain + 1500);
+    }
+    this.incomingTimer = setTimeout(() => {
+      if (this.gen !== myGen) return;
+      if (this.state.phase !== 'incoming_ringing') return;
+      this.log('incoming offer timed out');
+      void this.expireIncoming();
+    }, Math.max(2000, ms));
+  }
+
+  private clearIncomingTimeout(): void {
+    if (this.incomingTimer) { clearTimeout(this.incomingTimer); this.incomingTimer = null; }
   }
 
   private log(msg: string, extra?: unknown): void {

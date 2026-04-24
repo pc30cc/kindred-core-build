@@ -26,6 +26,7 @@ import type { ServerConfig } from '../config.js';
 import {
   publishConversationEvent,
   buildMessageEnvelope,
+  publishOperatorEvent,
 } from '../services/realtime/publish.js';
 import { getActiveTemplateSlug } from '../services/widget/templates.js';
 import {

@@ -1,0 +1,108 @@
+# deploy/livekit/livekit.yaml
+#
+# LiveKit server configuration — production reference.
+#
+# This file is mounted read-only into the LiveKit container at
+#   /etc/livekit/livekit.yaml
+# by docker-compose.livekit.yml.
+#
+# CRITICAL RULES:
+#   - NO secrets in this file. The api_key/api_secret pair lives ONLY in
+#     the LIVEKIT_KEYS environment variable (set in Coolify). LiveKit
+#     merges env vars over this YAML at startup.
+#   - NO hardcoded hostnames. The advertised public IP comes from the
+#     LIVEKIT_RTC_NODE_IP env var.
+#   - This config assumes a reverse proxy (Coolify's Traefik) terminates
+#     TLS for the WebSocket signaling on port 7880. Media (UDP 7882, TCP
+#     7881) bypasses the proxy and goes directly to the host's public IP.
+
+# Internal port for the WebSocket signaling endpoint. Coolify proxies
+# wss://<your-domain>/ → http://<container>:7880/. Do not change this
+# unless you also change the `expose:` value in docker-compose.livekit.yml.
+port: 7880
+
+# Bind to all interfaces inside the container.
+bind_addresses:
+  - ""
+
+# Logging — overridable via LIVEKIT_LOG_LEVEL.
+log_level: info
+
+# RTC (media) configuration.
+rtc:
+  # UDP port for WebRTC media. MUST be reachable from the public
+  # internet. Published in docker-compose.livekit.yml as 7882/udp.
+  udp_port: 7882
+
+  # TCP fallback for clients on networks that block UDP. Published as
+  # 7881/tcp. Slower than UDP but keeps calls working in restrictive
+  # corporate environments.
+  tcp_port: 7881
+
+  # Enable ICE-Lite. Recommended for servers with a stable public IP.
+  # The server only acts as a controlled agent and does not gather
+  # candidates from STUN — clients connect directly to node_ip:7882.
+  use_external_ip: false
+
+  # Public IP advertised to clients in ICE candidates. This is REQUIRED
+  # for media to work; without it the server hands out the container's
+  # internal Docker IP. Injected via LIVEKIT_RTC_NODE_IP at runtime.
+  # node_ip: <set via env>
+
+# Authentication — keys are injected via LIVEKIT_KEYS env var.
+# Format: { "<api_key>": "<api_secret>" }
+# Do NOT write keys here.
+# keys:
+#   <api_key>: <api_secret>
+
+# Webhooks — LiveKit POSTs room/participant/egress events to the URLs
+# below. The backend verifies the signature using the api_key/api_secret
+# pair in livekit_config (server/routes/livekitWebhook.ts).
+#
+# Replace <your-backend-domain> with your actual API domain at deploy
+# time, OR set LIVEKIT_WEBHOOK_URLS in env to override this list.
+webhook:
+  api_key: ${LIVEKIT_WEBHOOK_API_KEY}
+  urls: []
+  # Example (uncomment and replace):
+  #   - https://api.destekly.tr/api/webhooks/livekit
+
+# Redis — REQUIRED for multi-node deployments, optional for single-node.
+# Single-node uses an in-memory store (default). For HA, uncomment and
+# point to a Redis service in the same compose file or a managed Redis.
+# redis:
+#   address: ${LIVEKIT_REDIS_ADDRESS}
+
+# TURN — disabled by default. Enable ONLY if your users connect from
+# restrictive networks (corporate firewalls, hotel WiFi) that block
+# direct UDP/TCP to the LiveKit ports.
+#
+# When enabled:
+#   - You need a separate DNS record (LIVEKIT_TURN_DOMAIN, e.g.
+#     turn.destekly.tr) pointing to the same host.
+#   - For TURN/TLS you need a real TLS certificate for that domain.
+#     Either reuse Coolify's Let's Encrypt cert by mounting it into
+#     the container, or terminate TLS at a reverse proxy that supports
+#     STUN/TURN (most don't — usually you run TURN/TLS directly).
+#   - Open UDP 3478 and/or TCP 5349 on the host firewall.
+turn:
+  enabled: false
+  # domain: ${LIVEKIT_TURN_DOMAIN}
+  # tls_port: 5349
+  # udp_port: 3478
+  # cert_file: /etc/livekit/turn.crt
+  # key_file: /etc/livekit/turn.key
+
+# Room defaults. Backend can override these per room when calling
+# RoomService.CreateRoom (server/services/calls/livekitTwirp.ts).
+room:
+  auto_create: true
+  empty_timeout: 300        # delete empty rooms after 5 minutes
+  departure_timeout: 20     # wait 20s after last participant leaves
+  max_participants: 0       # 0 = unlimited; tighten per workspace plan in app
+
+# Egress — recording / streaming. Disabled here. To enable, deploy the
+# LiveKit Egress service separately and configure its endpoint and S3
+# storage in Super Admin → Providers → Calls → LiveKit (recording_storage).
+# The backend already supports this (server/services/calls/livekitConfig.ts
+# → egress_url, recording_storage).

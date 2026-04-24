@@ -75,10 +75,11 @@ The compose file publishes these ports from the container — you only need to m
 
 | Variable | Required | Example | Notes |
 |---|---|---|---|
-| `LIVEKIT_KEYS` | ✅ | `APIabc123:secretvalue` | Format `API_KEY:API_SECRET`, **no space after the colon**. Generate with `openssl rand -hex 16` (key) and `openssl rand -hex 32` (secret). **Must match** the values in Super Admin → Providers → Calls → LiveKit. |
+| `LIVEKIT_API_KEY` | ✅ | `APIabc123` | LiveKit API key (identifier). Generate with `openssl rand -hex 16`. **Must match** the API Key in Super Admin → Providers → Calls → LiveKit. |
+| `LIVEKIT_API_SECRET` | ✅ | `secretvalue...` | LiveKit API secret (signing secret). Generate with `openssl rand -hex 32`. **Must match** the API Secret in Super Admin → Providers → Calls → LiveKit. |
 | `LIVEKIT_NODE_IP` | ✅ | `203.0.113.10` | Public IP of the host. Find with `curl -s https://api.ipify.org`. **Without this, calls connect but no audio/video flows.** |
 | `LIVEKIT_LOG_LEVEL` | ❌ | `info` | `debug` / `info` / `warn` / `error` |
-| `LIVEKIT_WEBHOOK_API_KEY` | ❌ | `APIabc123` | Only if you enable webhooks (§2.5). |
+| `LIVEKIT_WEBHOOK_API_KEY` | ❌ | `APIabc123` | Same value as `LIVEKIT_API_KEY`. Only if you enable webhooks (§2.5). |
 | `LIVEKIT_REDIS_ADDRESS` | ❌ | `redis:6379` | Multi-node only. |
 | `LIVEKIT_TURN_DOMAIN` | ❌ | `turn.your-domain.tld` | Reserved for a future TURN/TLS rollout. |
 
@@ -96,8 +97,8 @@ After the LiveKit service is up:
 
 1. Open the main app → **Super Admin → Providers → Calls → LiveKit**.
 2. Enter:
-   - **API Key** — the part of `LIVEKIT_KEYS` before the `:`
-   - **API Secret** — the part after the `:`
+   - **API Key** — the value of `LIVEKIT_API_KEY`
+   - **API Secret** — the value of `LIVEKIT_API_SECRET`
    - **RTC URL** — `wss://livekit.your-domain.tld`
    - **WS URL** — same as RTC URL
 3. Toggle **Enabled** on and **Save**.
@@ -149,6 +150,6 @@ If signaling works but no media:
 |---|---|---|
 | `wss://...` returns 502 | Container down, or Coolify domain points to wrong port | Confirm `expose: ["7880"]` and Coolify domain target = 7880 |
 | Signaling connects, no audio/video | `LIVEKIT_NODE_IP` missing or UDP `50000-50100` blocked | Set the env var; open the range on the cloud firewall |
-| `unauthorized` on token mint | `LIVEKIT_KEYS` doesn't match Super Admin → Providers → Calls → LiveKit | Re-enter both sides so they match exactly |
-| Container restart loop with config error | `LIVEKIT_KEYS` has a space after the `:` | Use `API_KEY:API_SECRET` with no space |
+| `unauthorized` on token mint | `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` don't match Super Admin → Providers → Calls → LiveKit | Re-enter both sides so they match exactly |
+| Container restart loop with `cannot unmarshal !!str ... into map[string]string` | Old `LIVEKIT_KEYS` env var still set, or `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` empty | Remove `LIVEKIT_KEYS`; set `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET` |
 | Calls work locally but break for some users | Their network blocks UDP and TCP 7881 fallback | Plan a TURN/TLS rollout |

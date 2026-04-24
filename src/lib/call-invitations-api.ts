@@ -65,6 +65,12 @@ export interface CreateInvitationInput {
   workspace_id: string;
   conversation_id: string;
   channel: InvitationChannel;
+  /**
+   * Operator-chosen wait window in seconds. Clamped server-side to
+   * [60, 600]. Optional — when omitted the server falls back to
+   * CALL_INVITATION_TTL_SECONDS (default 300).
+   */
+  ttl_seconds?: number;
 }
 
 export const callInvitationsApi = {

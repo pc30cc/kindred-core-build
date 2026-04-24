@@ -44,6 +44,7 @@ import { onInvitationChanged } from '@/lib/call-invitations-events';
 import { useLiveKitCall } from '@/hooks/useLiveKitCall';
 import { callsApi } from '@/lib/calls-api';
 import { InviteWaitDialog } from './InviteWaitDialog';
+import { rtDebug } from '@/realtime/debug';
 
 interface SidebarCallCardProps {
   workspaceId: string;
@@ -101,6 +102,15 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
   const [surface, setSurface] = useState<SurfaceState>(INITIAL_SURFACE);
   const autoCloseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancellingRef = useRef(false);
+  // Tracks the invitation id we have *already* connected for. Once a
+  // connect succeeds for an invitation, ignore further realtime/poll
+  // updates for it — those are stale echoes and would orphan the live
+  // LiveKit Room, which the server then logs as CLIENT_REQUEST_LEAVE.
+  const connectedInvitationIdRef = useRef<string | null>(null);
+  // Tracks the invitation id we have started a connect attempt for, so
+  // the connecting effect cannot re-fire and double-mount the LiveKit
+  // Room when the surface state transiently re-enters 'connecting'.
+  const startedConnectInvitationIdRef = useRef<string | null>(null);
 
   const surfaceChannel: InvitationChannel = surface.invitation?.channel ?? 'audio';
   const live = useLiveKitCall({
@@ -132,7 +142,10 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
     setCreating(null);
     setLoading(false);
     if (autoCloseRef.current) { clearTimeout(autoCloseRef.current); autoCloseRef.current = null; }
+    rtDebug('call', 'conversation-switch disconnect', { conversationId });
     try { void live.disconnect(); } catch { /* ignore */ }
+    connectedInvitationIdRef.current = null;
+    startedConnectInvitationIdRef.current = null;
     setSurface(INITIAL_SURFACE);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]);
@@ -141,6 +154,7 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
   useEffect(() => {
     return () => {
       if (autoCloseRef.current) clearTimeout(autoCloseRef.current);
+      rtDebug('call', 'unmount disconnect');
       try { live.disconnect(); } catch { /* ignore */ }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -187,11 +201,36 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
       setSurface((prev) => {
         if (!prev.invitation) return prev;
         if (prev.invitation.id !== evt.invitation_id) return prev;
+        // Critical: once we have a live, connected room for this
+        // invitation, ignore *all* further server-side status echoes.
+        // - Re-delivered "joined" events would re-trigger the connect
+        //   effect and orphan the existing Room (CLIENT_REQUEST_LEAVE).
+        // - Late "expired"/"cancelled" can race the join transition and
+        //   would yank us into terminal mid-call.
+        // The only legitimate way out of 'connected' is operator hangup
+        // or true unmount, both of which are local actions.
+        if (
+          connectedInvitationIdRef.current === evt.invitation_id &&
+          (prev.phase === 'connected' || prev.phase === 'connecting')
+        ) {
+          rtDebug('call', 'ignoring stale invitation event', {
+            invitation_id: evt.invitation_id,
+            status: evt.status,
+            phase: prev.phase,
+          });
+          return prev;
+        }
         const status = evt.status;
         if (status === 'pending') {
           return { ...prev, invitation: { ...prev.invitation, status: 'pending' } };
         }
         if (status === 'joined') {
+          // Only transition to 'connecting' from 'waiting'. If we are
+          // already 'connecting' or 'connected', this is a re-delivered
+          // event and must be ignored to avoid spinning a second Room.
+          if (prev.phase !== 'waiting') {
+            return prev;
+          }
           return {
             ...prev,
             phase: 'connecting',
@@ -225,7 +264,10 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
   const scheduleAutoClose = useCallback((delayMs: number) => {
     if (autoCloseRef.current) clearTimeout(autoCloseRef.current);
     autoCloseRef.current = setTimeout(() => {
+      rtDebug('call', 'auto-close terminal disconnect');
       try { void live.disconnect(); } catch { /* ignore */ }
+      connectedInvitationIdRef.current = null;
+      startedConnectInvitationIdRef.current = null;
       setSurface(INITIAL_SURFACE);
     }, delayMs);
   }, [live]);
@@ -239,6 +281,18 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
   // ── On 'connecting' phase → resolve call_session_id then connect media
   useEffect(() => {
     if (surface.phase !== 'connecting') return;
+    const inv = surface.invitation;
+    if (!inv) return;
+    // Guard against re-runs for the same invitation. Without this, a
+    // re-delivered realtime 'joined' event (or a re-render that briefly
+    // re-enters 'connecting') would call live.connect a second time on
+    // the same invitation — orphaning the active Room. The hook itself
+    // also has an idempotency guard, but checking here keeps the logs
+    // clean and avoids unnecessary token re-fetches.
+    if (startedConnectInvitationIdRef.current === inv.id) {
+      return;
+    }
+    startedConnectInvitationIdRef.current = inv.id;
     let cancelled = false;
     (async () => {
       try {
@@ -264,9 +318,17 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
           iceTransportPolicy: tok.ice_policy,
         });
         if (cancelled) return;
+        // Latch this invitation as "connected" so subsequent stale
+        // realtime/poll updates for it cannot tear down the active room.
+        connectedInvitationIdRef.current = inv.id;
+        rtDebug('call', 'connected', { invitation_id: inv.id, channel: inv.channel });
         setSurface((prev) => prev.phase === 'connecting' ? { ...prev, phase: 'connected' } : prev);
       } catch (err: any) {
         if (cancelled) return;
+        // Allow a fresh attempt only if this invitation actually failed
+        // to connect. Terminal cleanup will clear the ref next.
+        startedConnectInvitationIdRef.current = null;
+        rtDebug('call', 'connect failed', { invitation_id: inv.id, error: err?.message });
         setSurface((prev) => ({
           ...prev,
           phase: 'terminal',
@@ -277,7 +339,7 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [surface.phase]);
+  }, [surface.phase, surface.invitation?.id]);
 
   // ── Invite creation ───────────────────────────────────────────────────
   const openInviteDialog = useCallback((channel: InvitationChannel) => {
@@ -359,7 +421,10 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
   // ── Hangup an active call (or close terminal early) ───────────────────
   const onHangup = useCallback(async () => {
     if (autoCloseRef.current) { clearTimeout(autoCloseRef.current); autoCloseRef.current = null; }
+    rtDebug('call', 'operator hangup disconnect');
     try { await live.disconnect(); } catch { /* ignore */ }
+    connectedInvitationIdRef.current = null;
+    startedConnectInvitationIdRef.current = null;
     setSurface(INITIAL_SURFACE);
   }, [live]);
 

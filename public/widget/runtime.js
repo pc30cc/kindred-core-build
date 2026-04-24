@@ -573,6 +573,10 @@
         ciAriaJoinAudio: 'Join the audio call now',
         ciAriaJoinVideo: 'Join the video call now',
         ciAriaDecline: 'Decline this call invitation',
+        ciBodyAudio: 'An operator is inviting you to a voice call.',
+        ciBodyVideo: 'An operator is inviting you to a video call.',
+        ciWaitMinutes: 'The operator will wait up to {m} minutes for you to join.',
+        ciWaitOneMinute: 'The operator will wait up to one minute for you to join.',
       },
       fa: {
         chat: 'گفتگو', help: 'راهنما',

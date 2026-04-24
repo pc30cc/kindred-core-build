@@ -24,7 +24,7 @@ export function AudioWaveform({ active = true, className }: { active?: boolean; 
           key={i}
           className={
             'w-[3px] rounded-sm bg-success ' +
-            (active ? 'animate-[wave_1s_ease-in-out_infinite]' : 'opacity-40')
+            (active ? 'animate-call-wave' : 'opacity-40')
           }
           style={{
             height: '100%',

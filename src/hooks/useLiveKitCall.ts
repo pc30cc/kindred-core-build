@@ -67,6 +67,12 @@ export interface UseLiveKitCallApi {
 export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCallApi {
   const { publishMic = true, publishCamera = false } = opts;
   const roomRef = useRef<Room | null>(null);
+  // Re-entrancy guard. While a connect attempt is in flight OR a room is
+  // already active, a second connect() call must NOT spin up a second Room
+  // — that orphans the first one and the LiveKit server sees the leave as
+  // CLIENT_REQUEST_LEAVE on the just-joined participant. This was the
+  // primary cause of the "join then immediate leave" symptom.
+  const connectingRef = useRef(false);
   const [state, setState] = useState<CallConnState>('idle');
   const [error, setError] = useState<string | null>(null);
   const [remote, setRemote] = useState<RemoteMediaEntry[]>([]);
@@ -127,6 +133,14 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
     iceTransportPolicy?: 'all' | 'relay';
   }) => {
     if (!input.wsUrl) throw new Error('Missing RTC ws_url from backend resolver');
+    // Idempotency: if a room is already live or a connect is mid-flight,
+    // skip silently. The caller (SidebarCallCard) already drives lifecycle
+    // via surface.phase — re-entrant calls are bugs we want to swallow,
+    // not errors we want to surface.
+    if (connectingRef.current || roomRef.current) {
+      return;
+    }
+    connectingRef.current = true;
     setError(null);
     setState('connecting');
     const room = new Room({
@@ -164,14 +178,18 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
       try { await room.disconnect(); } catch { /* ignore */ }
       roomRef.current = null;
       throw e;
+    } finally {
+      connectingRef.current = false;
     }
   }, [publishMic, publishCamera, wireRoom, refreshRemotes]);
 
   const disconnect = useCallback(async () => {
     const room = roomRef.current;
     if (!room) return;
-    try { await room.disconnect(); } catch { /* ignore */ }
+    // Clear the ref BEFORE awaiting so any concurrent disconnect/connect
+    // call sees a clean slate and does not double-fire.
     roomRef.current = null;
+    try { await room.disconnect(); } catch { /* ignore */ }
     setRemote([]);
     setState('disconnected');
   }, []);

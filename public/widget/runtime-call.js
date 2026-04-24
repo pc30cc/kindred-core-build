@@ -38,6 +38,21 @@
     } catch (_) {}
   }
 
+  function normalizeLiveKitWsUrl(rawUrl) {
+    if (!rawUrl || typeof rawUrl !== 'string') return rawUrl;
+    try {
+      var url = new URL(rawUrl);
+      if (/\/rtc(?:\/v1)?\/?$/.test(url.pathname)) {
+        url.pathname = url.pathname.replace(/\/rtc(?:\/v1)?\/?$/, '/rtc');
+      } else {
+        url.pathname = (url.pathname.replace(/\/+$/, '') || '') + '/rtc';
+      }
+      return url.toString().replace(/\/+$/, '');
+    } catch (_) {
+      return rawUrl;
+    }
+  }
+
   // CDN fallback. Self-hosters can override via window.__gs_call_sdk_url.
   var LIVEKIT_SDK_URL = (window && window.__gs_call_sdk_url)
     || 'https://cdn.jsdelivr.net/npm/livekit-client@2.18.6/dist/livekit-client.umd.min.js';

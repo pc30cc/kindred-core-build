@@ -40,7 +40,13 @@
 
   // CDN fallback. Self-hosters can override via window.__gs_call_sdk_url.
   var LIVEKIT_SDK_URL = (window && window.__gs_call_sdk_url)
-    || 'https://cdn.jsdelivr.net/npm/livekit-client@2.5.0/dist/livekit-client.umd.min.js';
+    || 'https://cdn.jsdelivr.net/npm/livekit-client@2.18.6/dist/livekit-client.umd.min.js';
+  // ─── Version-alignment note ──────────────────────────────────────────
+  // The operator app installs livekit-client 2.18.x via npm and the server
+  // is on 1.9.x. Keeping the widget on 2.5.0 caused a signaling-protocol
+  // skew where the visitor (widget) side periodically dropped with
+  // SIGNAL_SOURCE_CLOSE while the operator stayed connected. Bumping the
+  // CDN pin to 2.18.6 puts both sides on the same major/minor family.
 
   var sdkPromise = null;
   function loadSdk() {
@@ -414,6 +420,16 @@
       }
     } catch (_) {}
     if (rootEl) rootEl.classList.add('show');
+    // If a remote video track was attached BEFORE the stage became
+    // visible (the original Bug A), the <video> element will be paused
+    // with zero layout. Now that the stage is shown, re-issue play() so
+    // it actually displays frames. Safe to call repeatedly.
+    if (isVideo && videoEl && videoEl.srcObject) {
+      try {
+        var p = videoEl.play();
+        if (p && p.catch) p.catch(function () {});
+      } catch (_) {}
+    }
     dlog('setInCallMode()', {
       isVideo: isVideo,
       cardVisible: rootEl ? rootEl.classList.contains('show') : false,
@@ -778,6 +794,15 @@
     // hide() between invite-show and accept can't leave the surface
     // hidden while media starts streaming behind it.
     show();
+    // ─── Bug A fix: activate the in-call stage BEFORE room.connect() ──
+    // Previously setInCallMode() ran only AFTER the mic published, which
+    // meant the .stage element was still display:none when the operator's
+    // remote video TrackSubscribed fired. The <video> element therefore
+    // measured 0×0 and never auto-played, even though the track was
+    // attached. By switching the stage on up-front (using the call_type
+    // we already know from the invite), the video element has real layout
+    // size from the moment the first remote track is subscribed.
+    try { setInCallMode(invite.call_type === 'video'); } catch (_) {}
     loadSdk().then(function (LK) {
       var iceServers = [];
       if (invite.turn && invite.turn.urls && invite.turn.urls.length) {
@@ -823,7 +848,30 @@
           btnMic.textContent = 'Mute';
           btnMic.classList.remove('off');
           var isVideo = invite.call_type === 'video';
+          // Re-assert stage mode (it was set up-front; this is a no-op
+          // re-assertion that also re-runs the host-visibility re-show).
           setInCallMode(isVideo);
+          // Nudge the remote video to play now that the stage has real
+          // size — this is the critical step when a track arrived while
+          // the element was momentarily detached/hidden.
+          try {
+            if (videoEl && videoEl.srcObject) {
+              var pp = videoEl.play();
+              if (pp && pp.catch) pp.catch(function () {});
+            }
+            // Diagnostic: log the layout size of every node in the chain
+            // so any future zero-size regression is immediately visible.
+            var inst = window.__gs_runtime && window.__gs_runtime._instance;
+            var mountHost = inst && inst.getCallMountHost ? inst.getCallMountHost() : null;
+            var stage = rootEl && rootEl.querySelector('[data-el="stage"]');
+            dlog('layout sizes after setInCallMode', {
+              mountHost: mountHost ? { w: mountHost.clientWidth, h: mountHost.clientHeight, display: mountHost.style.display } : null,
+              hostEl: hostEl ? { w: hostEl.clientWidth, h: hostEl.clientHeight } : null,
+              card: rootEl ? { w: rootEl.clientWidth, h: rootEl.clientHeight, show: rootEl.classList.contains('show') } : null,
+              stage: stage ? { w: stage.clientWidth, h: stage.clientHeight, show: stage.classList.contains('show') } : null,
+              video: videoEl ? { w: videoEl.clientWidth, h: videoEl.clientHeight, hasSrc: !!videoEl.srcObject } : null,
+            });
+          } catch (_) {}
           dlog('mic published; mode set', { isVideo: isVideo });
           if (isVideo) {
             return room.localParticipant.setCameraEnabled(true).then(function () {

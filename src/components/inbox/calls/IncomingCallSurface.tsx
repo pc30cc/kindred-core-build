@@ -24,6 +24,7 @@ import { useAuth } from '@/features/auth/AuthContext';
 import { useCallSessionContext } from '@/features/calls/CallSessionProvider';
 import { useIncomingCallSignal } from '@/hooks/useIncomingCallSignal';
 import { isTerminalPhase } from '@/lib/calls/CallSessionEngine';
+import { operatorCallErrorMessage } from '@/lib/calls/selectors';
 
 export interface IncomingCallSurfaceProps {
   workspaceId: string;
@@ -41,6 +42,7 @@ export function IncomingCallSurface({ workspaceId, onAccepted }: IncomingCallSur
   const isRinging = phase === 'incoming_ringing' && !!offer;
   const isConnecting = phase === 'connecting' && state.direction === 'incoming';
   const [busy, setBusy] = useState<'accept' | 'decline' | null>(null);
+  const lastErrorRef = useRef<string | null>(null);
 
   // Single signal source — feeds the engine via the central adapter
   // (realtime-first, polling fallback). Stats are unused here; the
@@ -105,13 +107,18 @@ export function IncomingCallSurface({ workspaceId, onAccepted }: IncomingCallSur
   // Surface terminal failures from accept attempts.
   useEffect(() => {
     if (phase === 'failed' && state.direction === 'incoming') {
+      const key = (state.errorCode ?? '') + ':' + (state.errorMessage ?? '');
+      if (lastErrorRef.current === key) return;
+      lastErrorRef.current = key;
       toast({
         title: 'Could not start the call',
-        description: state.errorMessage || 'Media connection failed.',
+        description: operatorCallErrorMessage(state.errorCode, state.errorMessage),
         variant: 'destructive',
       });
+    } else if (phase === 'idle') {
+      lastErrorRef.current = null;
     }
-  }, [phase, state.direction, state.errorMessage]);
+  }, [phase, state.direction, state.errorCode, state.errorMessage]);
 
   // Keep the modal up across ringing → connecting → (terminal grace).
   const open = isRinging || isConnecting;

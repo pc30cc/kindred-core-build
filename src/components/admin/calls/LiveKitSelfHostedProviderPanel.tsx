@@ -167,7 +167,23 @@ export function LiveKitSelfHostedProviderPanel() {
       <CardContent className="space-y-4">
         {/* Readiness summary — mirrors backend livekitProvider.isReady() */}
         <div className="rounded-md border border-border p-3 space-y-2 bg-muted/20">
-          <div className="text-xs font-semibold text-foreground">Readiness</div>
+          <div className="flex items-center justify-between">
+            <div className="text-xs font-semibold text-foreground">Readiness</div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={runTest}
+              disabled={testing || !ready}
+              title={!ready ? 'Configure API key, secret, RTC URL and enable LiveKit first' : 'Probe LiveKit using saved credentials'}
+            >
+              {testing ? (
+                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+              ) : (
+                <Plug className="h-3.5 w-3.5 mr-1.5" />
+              )}
+              Test connection
+            </Button>
+          </div>
           <div className="flex flex-wrap gap-2">
             <ReadinessBadge ok={cfg.enabled} label="Enabled" />
             <ReadinessBadge ok={cfg.api_key_present} label="API key" />
@@ -178,6 +194,31 @@ export function LiveKitSelfHostedProviderPanel() {
             <p className="text-[11px] text-muted-foreground">
               All four conditions must be satisfied for the resolver to mark LiveKit as ready.
             </p>
+          )}
+          {testResult && (
+            <div
+              className={
+                'mt-2 rounded-md border p-2 text-xs ' +
+                (testResult.ok
+                  ? 'border-primary/40 bg-primary/5 text-foreground'
+                  : 'border-destructive/40 bg-destructive/5 text-destructive')
+              }
+            >
+              {testResult.ok ? (
+                <div className="flex items-center gap-1.5">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  <span>
+                    Reached <code className="font-mono">{testResult.rtc_url}</code> in{' '}
+                    {testResult.latency_ms}ms.
+                  </span>
+                </div>
+              ) : (
+                <div className="flex items-start gap-1.5">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span className="break-words">{testResult.error}</span>
+                </div>
+              )}
+            </div>
           )}
         </div>
 

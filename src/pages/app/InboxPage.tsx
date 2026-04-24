@@ -4,6 +4,7 @@ import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useConversations, useConversationMessages, useSendMessage, useUpdateConversation, useDeleteAllConversations, useMarkConversationSeen } from '@/hooks/useConversations';
 import type { MessageAttachment } from '@/hooks/useConversations';
 import { useInboxRealtime } from '@/hooks/useInboxRealtime';
+import { emitInvitationChanged } from '@/lib/call-invitations-events';
 import { useInboxListRealtime } from '@/hooks/useInboxListRealtime';
 import { useVisitorPresenceForConversation } from '@/hooks/useVisitorPresence';
 import { conversationsApi } from '@/lib/conversations-api';
@@ -191,6 +192,23 @@ export default function InboxPage() {
       const kind = (payload as { kind?: string })?.kind;
       const convId = (payload as { conversation_id?: string })?.conversation_id;
       if (!kind || !convId) return;
+      // Phase 9 — forward invitation lifecycle events to OperatorCallPanel
+      // so the operator's panel updates instantly without waiting for its
+      // 4s/15s polling tick. Polling remains a safety net.
+      if (kind === 'call_invitation_changed') {
+        const p = payload as Record<string, unknown>;
+        emitInvitationChanged({
+          workspace_id: String(p.workspace_id ?? workspace?.id ?? ''),
+          conversation_id: String(p.conversation_id ?? convId),
+          invitation_id: String(p.invitation_id ?? ''),
+          status: (p.status as 'pending' | 'joined' | 'expired' | 'cancelled' | 'declined') ?? 'pending',
+          channel: (p.channel as 'audio' | 'video') ?? 'audio',
+          expires_at: (p.expires_at as string | null) ?? null,
+        });
+        // also refresh timeline so the lifecycle row appears immediately
+        qc.invalidateQueries({ queryKey: ['conversation-timeline', convId, workspace?.id] });
+        return;
+      }
       if (kind === 'note_added' || kind === 'note_deleted') {
         qc.invalidateQueries({ queryKey: ['conversation-notes', convId, workspace?.id] });
         qc.invalidateQueries({ queryKey: ['conversation-timeline', convId, workspace?.id] });

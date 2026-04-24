@@ -1194,6 +1194,21 @@ If you cannot answer, say so politely.${kbContext}`;
               convId!,
               buildMessageEnvelope(aiMsg as any),
             ).catch(() => {});
+            // Inbox-list fan-out for the AI auto-reply so the operator's
+            // conversation row bubbles up with the latest activity.
+            void publishOperatorEvent(
+              config,
+              {
+                kind: 'conversation_updated',
+                conversation_id: convId!,
+                workspace_id: workspaceId,
+                actor_id: null,
+                updated_at: new Date().toISOString(),
+                last_message_at: aiMsg.created_at ?? new Date().toISOString(),
+                source: 'ai_reply',
+              },
+              { skipConversationChannel: true },
+            );
             // Phase 4b — record canonical 'ai_reply' timeline event.
             // Payload contract: { message_id, provider?, model? }
             void recordConversationEvent(config, {

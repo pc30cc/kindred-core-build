@@ -3757,43 +3757,6 @@
     }
     var launcher = shell.launcher;
 
-    // ─── Phase 9.1 — Stable call mount root (sibling of .panel) ───
-    //
-    // The chat panel is destroyed and recreated on every shell rerender
-    // (tab switch / settings change / template swap). Mounting the call UI
-    // INSIDE the panel detaches the <video> elements mid-call, which
-    // triggers DOMException + CLIENT_REQUEST_LEAVE on the LiveKit side.
-    //
-    // Solution: a dedicated, persistent `.call-host` lives at .shell level
-    // for the entire widget lifetime. It overlays the same screen area as
-    // the panel (matching position/size from CSS) but is NEVER removed by
-    // panel rebuilds. The call module mounts into this host instead.
-    var callMountRoot = shellDiv.querySelector ? shellDiv.querySelector('.call-host') : null;
-    if (!callMountRoot) {
-      callMountRoot = document.createElement('div');
-      callMountRoot.className = 'call-host';
-      // Match the panel's fixed position so the call surface visually fills
-      // the widget frame. Hidden until the call module appends a child.
-      // pointer-events:none lets clicks pass through when no call is up;
-      // the call module's own host re-enables pointer-events:auto.
-      callMountRoot.style.cssText = [
-        'position:fixed',
-        'z-index:2147483646', // one above .panel so call surface stacks on top
-        'width:380px',
-        'max-width:calc(100vw - 32px)',
-        'height:min(620px, calc(100vh - 100px))',
-        'border-radius:16px',
-        'overflow:hidden',
-        'pointer-events:none',
-        'display:none',
-      ].join(';');
-      // Match panel anchor (bottom-right vs bottom-left) — `posClass` is
-      // computed later, so default to bottom-right and adjust on first show.
-      callMountRoot.style.bottom = '92px';
-      callMountRoot.style.right = '24px';
-      shellDiv.appendChild(callMountRoot);
-    }
-
     // ─── Domain stores (each one isolated, with pub/sub) ───
     var shellStore = createStore({
       isOpen: false,
@@ -4918,52 +4881,6 @@
       // Introspection for future runtime-ui modules — provider-agnostic.
       getTransportCapabilities: function () {
         return transport.getCapabilities ? transport.getCapabilities() : {};
-      },
-      // Phase 9 — expose the in-shell mount host for the call module so
-      // visitor call UI renders INSIDE the widget panel instead of as a
-      // floating sidecar attached to <body>. Returns the panel element
-      // (which lives inside the widget's shadow root). Callers must
-      // tolerate a null return (panel unmounted) and fall back to body.
-      getCallMountHost: function () {
-        try {
-          // Phase 9.1 — return the STABLE call mount root, never the
-          // panel. The panel is destroyed/recreated on shell rerenders;
-          // returning it would let the call <video> elements get yanked
-          // out of the DOM mid-call (→ DOMException + LiveKit teardown).
-          if (!callMountRoot) return null;
-          // Mirror the panel's current anchor so the call host overlays
-          // the same visual area regardless of position config.
-          try {
-            var posIsLeft = (config.position || '').indexOf('left') !== -1;
-            if (posIsLeft) {
-              callMountRoot.style.left = '24px';
-              callMountRoot.style.right = 'auto';
-            } else {
-              callMountRoot.style.right = '24px';
-              callMountRoot.style.left = 'auto';
-            }
-          } catch (_) {}
-          // Reveal the host now that something is being mounted into it.
-          callMountRoot.style.display = 'block';
-          callMountRoot.style.pointerEvents = 'auto';
-          return callMountRoot;
-        } catch (_) { return null; }
-      },
-      // Hide the call mount root again once the call surface tears down.
-      // Called by runtime-call.js after teardown to release pointer events
-      // and let chat clicks pass through normally.
-      releaseCallMountHost: function () {
-        try {
-          if (callMountRoot) {
-            callMountRoot.style.display = 'none';
-            callMountRoot.style.pointerEvents = 'none';
-          }
-        } catch (_) {}
-      },
-      // Sibling helper — primary color so the call module can theme
-      // controls to match the brand instead of hard-coding green/red.
-      getPrimaryColor: function () {
-        return ctx.primaryColor || '#3B82F6';
       },
     };
   };

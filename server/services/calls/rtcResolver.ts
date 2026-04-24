@@ -68,25 +68,6 @@ function stripTrailingSlash(s: string | null | undefined): string | null {
   return t.replace(/\/+$/, '');
 }
 
-function normalizeLiveKitSignalBase(rawUrl: string | null): string | null {
-  const base = stripTrailingSlash(rawUrl);
-  if (!base) return null;
-  try {
-    const url = new URL(base);
-    // CRITICAL: livekit-client appends its own signaling path
-    // (`/rtc`, `/rtc/v1`, `/rtc/validate`, …) to whatever base URL we
-    // hand it. We must therefore return an ORIGIN-ONLY base
-    // (`wss://host[:port]`) and strip any pre-existing signaling suffix,
-    // including malformed duplicates like `/rtc/rtc/v1` — otherwise the
-    // SDK appends another `/rtc[...]` and the browser hits `/rtc/rtc/...`.
-    url.pathname = url.pathname.replace(/(?:\/rtc)+(?:\/v1)?(?:\/validate)?\/?$/i, '');
-    url.pathname = url.pathname.replace(/\/+$/, '');
-    return stripTrailingSlash(`${url.protocol}//${url.host}${url.pathname}`);
-  } catch {
-    return base;
-  }
-}
-
 /**
  * Read the raw RTC endpoint config from app_runtime_config. Never throws.
  */
@@ -289,12 +270,10 @@ export async function getTurnConfig(config: ServerConfig): Promise<CallTurnConfi
  */
 export async function getCallNetworkBundle(config: ServerConfig): Promise<CallRtcConfig> {
   const raw = await loadRawRtcConfig(config);
-  const rtcUrl = normalizeLiveKitSignalBase(raw.rtc_url ?? stripTrailingSlash(process.env.RTC_BASE_URL ?? null));
-  const wsUrl = normalizeLiveKitSignalBase(raw.ws_url ?? raw.rtc_url ?? stripTrailingSlash(process.env.RTC_WS_URL ?? null));
   return {
     ...raw,
-    rtc_url: rtcUrl,
-    ws_url: wsUrl,
+    rtc_url: raw.rtc_url ?? stripTrailingSlash(process.env.RTC_BASE_URL ?? null),
+    ws_url: raw.ws_url ?? raw.rtc_url ?? stripTrailingSlash(process.env.RTC_WS_URL ?? null),
     recording_url:
       raw.recording_url ?? stripTrailingSlash(process.env.RTC_RECORDING_URL ?? null),
   };

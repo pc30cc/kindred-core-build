@@ -25,48 +25,9 @@
   if (window.__gs_call_loaded) return;
   window.__gs_call_loaded = true;
 
-  // ───── Debug logger ─────
-  // Always logs to console with a [gs-call] prefix. Cheap, no PII; helps
-  // diagnose visibility/lifecycle issues across the widget call surface.
-  // Caller can disable with `window.__gs_call_debug = false`.
-  function dlog() {
-    if (window.__gs_call_debug === false) return;
-    try {
-      var args = ['[gs-call]'].concat(Array.prototype.slice.call(arguments));
-      // eslint-disable-next-line no-console
-      console.log.apply(console, args);
-    } catch (_) {}
-  }
-
-  function normalizeLiveKitWsUrl(rawUrl) {
-    if (!rawUrl || typeof rawUrl !== 'string') return rawUrl;
-    try {
-      var url = new URL(rawUrl);
-      // CRITICAL: livekit-client appends its own signaling path
-      // (`/rtc`, `/rtc/v1`, `/rtc/validate`, etc.) to whatever base
-      // URL we hand it. We must therefore return an ORIGIN-ONLY base
-      // (`wss://host[:port]`) and strip any pre-existing signaling suffix,
-      // including malformed duplicates like `/rtc/rtc/v1`.
-      url.pathname = url.pathname.replace(/(?:\/rtc)+(?:\/v1)?(?:\/validate)?\/?$/i, '');
-      url.pathname = url.pathname.replace(/\/+$/, '');
-      if (!url.pathname) url.pathname = '';
-      // Reconstruct origin-only (drop search/hash too — signaling base
-      // never carries query params).
-      return (url.protocol + '//' + url.host + url.pathname).replace(/\/+$/, '');
-    } catch (_) {
-      return rawUrl;
-    }
-  }
-
   // CDN fallback. Self-hosters can override via window.__gs_call_sdk_url.
   var LIVEKIT_SDK_URL = (window && window.__gs_call_sdk_url)
-    || 'https://cdn.jsdelivr.net/npm/livekit-client@2.18.6/dist/livekit-client.umd.min.js';
-  // ─── Version-alignment note ──────────────────────────────────────────
-  // The operator app installs livekit-client 2.18.x via npm and the server
-  // is on 1.9.x. Keeping the widget on 2.5.0 caused a signaling-protocol
-  // skew where the visitor (widget) side periodically dropped with
-  // SIGNAL_SOURCE_CLOSE while the operator stayed connected. Bumping the
-  // CDN pin to 2.18.6 puts both sides on the same major/minor family.
+    || 'https://cdn.jsdelivr.net/npm/livekit-client@2.5.0/dist/livekit-client.umd.min.js';
 
   var sdkPromise = null;
   function loadSdk() {
@@ -93,7 +54,6 @@
   var rootEl = null;
   var audioEl = null;
   var videoEl = null;
-  var localVideoEl = null;
   var statusEl = null;
   var btnAccept = null;
   var btnReject = null;
@@ -101,118 +61,22 @@
   var btnCam = null;
   var btnHangup = null;
   var degradedEl = null;
-  // Phase 9 — track the mount mode so we know whether we are inside the
-  // widget panel (preferred) or floating as a sidecar (legacy fallback).
-  var mountMode = 'sidecar'; // 'in-panel' | 'sidecar'
-  // Re-mount when the widget shell appears late (loader→runtime race) so
-  // late-arriving incoming calls still mount inside the panel.
-  var remountWatcher = null;
-
-  function getWidgetMountTarget() {
-    try {
-      var inst = window.__gs_runtime && window.__gs_runtime._instance;
-      if (inst && typeof inst.getCallMountHost === 'function') {
-        var host = inst.getCallMountHost();
-        if (host && host.appendChild) {
-          dlog('mount target resolved → in-panel call-host', {
-            w: host.clientWidth, h: host.clientHeight,
-            display: host.style.display,
-          });
-          return host;
-        }
-      }
-      dlog('mount target unresolved → will fall back to body sidecar');
-    } catch (_) {}
-    return null;
-  }
-
-  // If the widget panel mounts AFTER an incoming call surface has been
-  // shown (e.g. polling-mode delivers the invite before the chat tab is
-  // opened), migrate the existing host into the panel. This keeps the
-  // call UI bounded by the widget frame even on the slow path.
-  function watchForPanelMount() {
-    if (remountWatcher || mountMode === 'in-panel') return;
-    var tries = 0;
-    remountWatcher = setInterval(function () {
-      tries++;
-      var target = getWidgetMountTarget();
-      if (target && hostEl && hostEl.parentNode !== target) {
-        try {
-          target.appendChild(hostEl);
-          mountMode = 'in-panel';
-          applyMountStyles();
-        } catch (_) {}
-      }
-      if (mountMode === 'in-panel' || tries > 50) {
-        clearInterval(remountWatcher);
-        remountWatcher = null;
-      }
-    }, 200);
-  }
-
-  function applyMountStyles() {
-    if (!hostEl) return;
-    if (mountMode === 'in-panel') {
-      // Inside the dedicated stable call mount root (sibling of .panel
-      // inside .shell). The mount root itself is already sized/positioned
-      // to overlay the panel area — we just fill it.
-      hostEl.style.cssText = [
-        'all:initial',
-        'display:block',
-        'position:absolute',
-        'inset:0',
-        'z-index:1',
-        'pointer-events:auto',
-      ].join(';');
-    } else {
-      // Sidecar fallback — only used when the widget shell isn't present
-      // (e.g. legacy direct-incoming on a page without an open panel).
-      hostEl.style.cssText = [
-        'all:initial',
-        'position:fixed',
-        'inset:auto 16px 16px auto',
-        'z-index:2147483646',
-      ].join(';');
-    }
-  }
 
   function ensureShell() {
-    if (hostEl) {
-      // Re-evaluate mount target on every show in case the widget shell
-      // appeared since last call (loader→runtime race).
-      var nowTarget = getWidgetMountTarget();
-      if (nowTarget && hostEl.parentNode !== nowTarget) {
-        try {
-          nowTarget.appendChild(hostEl);
-          mountMode = 'in-panel';
-          if (hostEl.setAttribute) hostEl.setAttribute('data-mode', mountMode);
-          applyMountStyles();
-          dlog('host migrated into in-panel target');
-        } catch (_) {}
-      }
-      return;
-    }
+    if (hostEl) return;
     hostEl = document.createElement('div');
     hostEl.setAttribute('data-gs-call-host', '');
-    var initialTarget = getWidgetMountTarget();
-    mountMode = initialTarget ? 'in-panel' : 'sidecar';
-    dlog('ensureShell → first mount', { mountMode: mountMode });
-    applyMountStyles();
+    hostEl.style.cssText = 'all:initial;position:fixed;inset:auto 16px 16px auto;z-index:2147483646;';
     shadow = hostEl.attachShadow({ mode: 'open' });
     var style = document.createElement('style');
     style.textContent = [
       ':host,*{box-sizing:border-box}',
-      // In-panel: fill the available space; sidecar: a 320px floating card.
-      // Layout uses container-style breakpoints rather than hard pixel
-      // widths so the call surface stays inside whatever frame hosts it.
-      ':host([data-mode="in-panel"]) .card{width:100%;height:100%;min-height:100%;border:0;border-radius:0;box-shadow:none;padding:12px;display:none;flex-direction:column}',
-      ':host([data-mode="sidecar"]) .card{width:320px;min-height:300px;padding:14px;border:1px solid #e2e8f0;border-radius:12px;box-shadow:0 12px 32px -8px rgba(0,0,0,.18);display:none;flex-direction:column}',
-      '.card{font:13px/1.4 -apple-system,Segoe UI,Roboto,sans-serif;background:#fff;color:#0f172a;overflow:hidden}',
-      '.card.show{display:flex}',
+      '.card{font:13px/1.4 -apple-system,Segoe UI,Roboto,sans-serif;background:#fff;color:#0f172a;border:1px solid #e2e8f0;border-radius:12px;box-shadow:0 12px 32px -8px rgba(0,0,0,.18);width:300px;padding:14px;display:none}',
+      '.card.show{display:block}',
       '@media (prefers-color-scheme: dark){.card{background:#0f172a;color:#f1f5f9;border-color:#1e293b}}',
       '.title{font-weight:600;font-size:14px;margin:0 0 4px}',
       '.sub{color:#64748b;font-size:12px;margin:0 0 10px}',
-      '.row{display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;flex:0 0 auto}',
+      '.row{display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap}',
       '.btn{flex:1;min-width:80px;border:0;border-radius:8px;padding:9px 10px;font-weight:600;font-size:12px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px}',
       '.btn.primary{background:#16a34a;color:#fff}',
       '.btn.primary:hover{background:#15803d}',
@@ -225,27 +89,9 @@
       '@media (prefers-color-scheme: dark){.btn.ghost{background:#1e293b;color:#f1f5f9}.btn.ghost:hover{background:#334155}}',
       '.dot{width:8px;height:8px;border-radius:50%;background:#16a34a;display:inline-block;margin-right:6px;animation:pulse 1.4s infinite}',
       '@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}',
-      // Video stage — fills available card area inside the panel,
-      // capped at 220px in sidecar mode so the floating card stays
-      // small. The local self-view is a 25%-wide PIP in the bottom-right.
-      '.stage{position:relative;width:100%;background:#000;border-radius:8px;overflow:hidden;display:none;flex:1 1 280px;min-height:220px;isolation:isolate}',
-      '.stage.show{display:block}',
-      ':host([data-mode="sidecar"]) .stage{height:220px;min-height:220px;flex:0 0 220px}',
-      ':host([data-mode="in-panel"]) .stage{margin-bottom:8px;flex:1 1 320px;min-height:260px}',
-      '.stage video.remote{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000;display:block}',
-      '.stage .pip{position:absolute;right:8px;bottom:8px;width:30%;max-width:120px;aspect-ratio:4/3;border-radius:6px;overflow:hidden;border:2px solid rgba(255,255,255,.7);background:#111;box-shadow:0 4px 12px rgba(0,0,0,.4)}',
-      '.stage .pip video{width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}',
-      '.stage .nostream{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:12px;z-index:1}',
-      // Audio-only stage — compact pulse + status, never a fake video tile.
-      '.audio-stage{display:none;flex-direction:column;align-items:center;justify-content:center;padding:18px 12px;background:linear-gradient(135deg,#f1f5f9,#e2e8f0);border-radius:8px;gap:10px;flex:1 1 auto;min-height:120px}',
-      '.audio-stage.show{display:flex}',
-      '@media (prefers-color-scheme: dark){.audio-stage{background:linear-gradient(135deg,#1e293b,#0f172a)}}',
-      '.audio-stage .pulse{width:54px;height:54px;border-radius:50%;background:#16a34a;display:flex;align-items:center;justify-content:center;color:#fff;font-size:24px;box-shadow:0 0 0 0 rgba(22,163,74,.5);animation:ringpulse 1.6s infinite}',
-      '@keyframes ringpulse{0%{box-shadow:0 0 0 0 rgba(22,163,74,.45)}70%{box-shadow:0 0 0 16px rgba(22,163,74,0)}100%{box-shadow:0 0 0 0 rgba(22,163,74,0)}}',
-      '.audio-stage .label{font-size:12px;color:#475569;font-weight:500}',
-      '@media (prefers-color-scheme: dark){.audio-stage .label{color:#cbd5e1}}',
+      'video{width:100%;max-height:200px;border-radius:8px;background:#000;margin-top:8px;display:none}',
+      'video.show{display:block}',
       '.status{font-size:11px;color:#64748b;margin-top:6px}',
-      '.status.ended{color:#dc2626;font-weight:600}',
       '.degraded{font-size:11px;color:#b45309;background:#fef3c7;border-radius:6px;padding:6px 8px;margin-top:6px;display:none}',
       '.degraded.show{display:block}',
       '.cbfield{display:flex;flex-direction:column;gap:3px;margin-top:8px}',
@@ -278,8 +124,6 @@
       '@media (prefers-color-scheme: dark){.greet{background:linear-gradient(135deg,#0c2a30,#0e3a4a);color:#a5f3fc;border-color:#155e75}}',
     ].join('');
     shadow.appendChild(style);
-    // Drive layout via a host attribute so CSS can branch on mode.
-    hostEl.setAttribute('data-mode', mountMode);
 
     rootEl = document.createElement('div');
     rootEl.className = 'card';
@@ -290,17 +134,7 @@
       '<p class="title" data-el="title">Incoming call</p>',
       '<p class="sub" data-el="sub">Audio call from support</p>',
       '<div class="degraded" data-el="degraded">Audio-only mode (network limited)</div>',
-      // Video call stage — main remote tile + local self-view PIP.
-      '<div class="stage" data-el="stage">',
-      '  <video class="remote" data-el="video" autoplay playsinline></video>',
-      '  <div class="pip" data-el="pip" style="display:none"><video data-el="local-video" autoplay playsinline muted></video></div>',
-      '  <div class="nostream" data-el="nostream" style="display:none">Waiting for video…</div>',
-      '</div>',
-      // Audio-only stage — separate, never used during video calls.
-      '<div class="audio-stage" data-el="audio-stage">',
-      '  <div class="pulse" aria-hidden="true">📞</div>',
-      '  <div class="label" data-el="audio-label">Connected</div>',
-      '</div>',
+      '<video data-el="video" autoplay playsinline></video>',
       '<audio data-el="audio" autoplay></audio>',
       '<div class="row" data-el="ring-row">',
       '  <button class="btn primary" data-el="accept" type="button">Answer</button>',
@@ -335,14 +169,10 @@
       '<p class="status" data-el="status"></p>',
     ].join('');
     shadow.appendChild(rootEl);
-    var mountTarget = initialTarget || document.body;
-    mountTarget.appendChild(hostEl);
-    // If we landed on body, watch for the panel so a late mount migrates.
-    if (mountMode !== 'in-panel') watchForPanelMount();
+    document.body.appendChild(hostEl);
 
     audioEl = rootEl.querySelector('[data-el="audio"]');
     videoEl = rootEl.querySelector('[data-el="video"]');
-    localVideoEl = rootEl.querySelector('[data-el="local-video"]');
     statusEl = rootEl.querySelector('[data-el="status"]');
     btnAccept = rootEl.querySelector('[data-el="accept"]');
     btnReject = rootEl.querySelector('[data-el="reject"]');
@@ -350,238 +180,22 @@
     btnCam = rootEl.querySelector('[data-el="cam"]');
     btnHangup = rootEl.querySelector('[data-el="hangup"]');
     degradedEl = rootEl.querySelector('[data-el="degraded"]');
-    bindVideoDebugOnce();
   }
 
-  function getParticipantDescriptor(participant) {
-    var participantType = 'unknown';
-    var identity = participant && participant.identity ? String(participant.identity) : null;
-    if (identity && identity.indexOf(':') !== -1) participantType = identity.split(':', 1)[0] || participantType;
-    if (participant && participant.metadata) {
-      try {
-        var parsed = JSON.parse(participant.metadata);
-        if (parsed && parsed.participant_type) participantType = String(parsed.participant_type);
-      } catch (_) {}
-    }
-    return {
-      participantIdentity: identity,
-      participantType: participantType,
-      isOperator: participantType === 'operator' || !!(identity && identity.indexOf('operator:') === 0),
-    };
-  }
-
-  function readBox(el) {
-    if (!el) return null;
-    var rect = null;
-    var style = null;
-    try { rect = el.getBoundingClientRect ? el.getBoundingClientRect() : null; } catch (_) {}
-    try { style = window.getComputedStyle ? window.getComputedStyle(el) : null; } catch (_) {}
-    return {
-      w: typeof el.clientWidth === 'number' ? el.clientWidth : 0,
-      h: typeof el.clientHeight === 'number' ? el.clientHeight : 0,
-      rectW: rect ? Math.round(rect.width) : 0,
-      rectH: rect ? Math.round(rect.height) : 0,
-      display: style ? style.display : null,
-      position: style ? style.position : null,
-      minH: style ? style.minHeight : null,
-      height: style ? style.height : null,
-      flex: style ? style.flex : null,
-    };
-  }
-
-  function getLayoutSnapshot() {
-    var inst = null;
-    var mountHost = null;
-    var stage = null;
-    try {
-      inst = window.__gs_runtime && window.__gs_runtime._instance;
-      mountHost = inst && inst.getCallMountHost ? inst.getCallMountHost() : null;
-    } catch (_) {}
-    try { stage = rootEl && rootEl.querySelector ? rootEl.querySelector('[data-el="stage"]') : null; } catch (_) {}
-    return {
-      mountMode: mountMode,
-      mountHost: readBox(mountHost),
-      hostEl: readBox(hostEl),
-      card: readBox(rootEl),
-      stage: readBox(stage),
-      video: readBox(videoEl),
-    };
-  }
-
-  function dlogLayout(label, extra) {
-    var payload = getLayoutSnapshot();
-    if (extra && typeof extra === 'object') {
-      var keys = Object.keys(extra);
-      for (var i = 0; i < keys.length; i++) payload[keys[i]] = extra[keys[i]];
-    }
-    dlog(label, payload);
-  }
-
-  function ensureStageLayout(reason) {
-    if (!rootEl) return;
-    var stage = rootEl.querySelector('[data-el="stage"]');
-    if (!stage) return;
-    if (!stage.classList.contains('show')) {
-      stage.style.height = '';
-      return;
-    }
-    if (mountMode === 'sidecar') {
-      stage.style.height = '220px';
-      stage.style.minHeight = '220px';
-      dlogLayout('stage layout applied', { reason: reason, stageHeightPx: 220 });
-      return;
-    }
-    var snap = getLayoutSnapshot();
-    var availableHeight = (snap.mountHost && snap.mountHost.h) || (snap.hostEl && snap.hostEl.h) || (snap.card && snap.card.h) || 0;
-    var stageHeight = availableHeight > 0 ? Math.max(240, Math.min(availableHeight - 180, 420)) : 300;
-    stage.style.height = stageHeight + 'px';
-    stage.style.minHeight = stageHeight + 'px';
-    dlogLayout('stage layout applied', { reason: reason, stageHeightPx: stageHeight });
-  }
-
-  function bindVideoDebugOnce() {
-    if (!videoEl || videoEl.__gsDebugBound) return;
-    videoEl.__gsDebugBound = true;
-    ['loadedmetadata', 'playing', 'resize', 'pause', 'waiting', 'emptied'].forEach(function (evtName) {
-      videoEl.addEventListener(evtName, function () {
-        dlogLayout('remote video ' + evtName, {
-          readyState: typeof videoEl.readyState === 'number' ? videoEl.readyState : null,
-          networkState: typeof videoEl.networkState === 'number' ? videoEl.networkState : null,
-          paused: !!videoEl.paused,
-          currentTime: Number(videoEl.currentTime || 0),
-          videoWidth: typeof videoEl.videoWidth === 'number' ? videoEl.videoWidth : 0,
-          videoHeight: typeof videoEl.videoHeight === 'number' ? videoEl.videoHeight : 0,
-          hasSrcObject: !!videoEl.srcObject,
-        });
-      });
-    });
-    if (window.ResizeObserver) {
-      var stage = rootEl && rootEl.querySelector ? rootEl.querySelector('[data-el="stage"]') : null;
-      var lastSig = '';
-      var ro = new ResizeObserver(function () {
-        var snap = getLayoutSnapshot();
-        var sig = [
-          snap.mountHost ? snap.mountHost.w + 'x' + snap.mountHost.h : '0x0',
-          snap.hostEl ? snap.hostEl.w + 'x' + snap.hostEl.h : '0x0',
-          snap.card ? snap.card.w + 'x' + snap.card.h : '0x0',
-          snap.stage ? snap.stage.w + 'x' + snap.stage.h : '0x0',
-          snap.video ? snap.video.w + 'x' + snap.video.h : '0x0',
-        ].join('|');
-        if (sig === lastSig) return;
-        lastSig = sig;
-        dlog('remote video resize-observed', snap);
-      });
-      if (stage) ro.observe(stage);
-      ro.observe(videoEl);
-      videoEl.__gsResizeObserver = ro;
-    }
-  }
-
-  function isCallActiveOrConnecting() {
-    if (!current) return false;
-    if (current.room) return true;
-    // While accept() is running we have `current` but no room yet — the
-    // SDK is mid-handshake. Treat that as active so a stray hide() can't
-    // pull the rug out from under it.
-    return !!current.invite;
-  }
-
-  function show() {
-    ensureShell();
-    rootEl.classList.add('show');
-    dlog('show() → .card.show added', { mountMode: mountMode });
-    // Defensive: if our hostEl somehow lost its in-panel target between
-    // calls (shell rerender, stale parent), re-attach to the live mount
-    // root so the surface is always inside the widget frame.
-    try {
-      var liveTarget = getWidgetMountTarget();
-      if (liveTarget && hostEl && hostEl.parentNode !== liveTarget) {
-        liveTarget.appendChild(hostEl);
-        mountMode = 'in-panel';
-        if (hostEl.setAttribute) hostEl.setAttribute('data-mode', mountMode);
-        applyMountStyles();
-        dlog('show() → re-attached host to live in-panel target');
-      }
-    } catch (_) {}
-  }
-  function hide(opts) {
-    var force = !!(opts && opts.force);
-    // Guard: never hide a live call surface from stale paths (e.g. a
-    // delayed pending-callback timer firing while a real call started).
-    if (!force && isCallActiveOrConnecting()) {
-      dlog('hide() suppressed — call active/connecting');
-      return;
-    }
-    if (rootEl) rootEl.classList.remove('show');
-    // Release the stable widget mount root so chat clicks pass through
-    // again and the host stops covering the panel area.
-    try {
-      var inst = window.__gs_runtime && window.__gs_runtime._instance;
-      if (inst && typeof inst.releaseCallMountHost === 'function') {
-        inst.releaseCallMountHost();
-        dlog('hide() → released call mount host');
-      }
-    } catch (_) {}
-  }
-  function setStatus(t, kind) {
-    if (!statusEl) return;
-    statusEl.textContent = t || '';
-    statusEl.classList.toggle('ended', kind === 'ended');
-  }
+  function show() { ensureShell(); rootEl.classList.add('show'); }
+  function hide() { if (rootEl) rootEl.classList.remove('show'); }
+  function setStatus(t) { if (statusEl) statusEl.textContent = t || ''; }
   function setRingingMode() {
     if (!rootEl) return;
     rootEl.querySelector('[data-el="ring-row"]').style.display = 'flex';
     rootEl.querySelector('[data-el="call-row"]').style.display = 'none';
-    var stage = rootEl.querySelector('[data-el="stage"]');
-    var astage = rootEl.querySelector('[data-el="audio-stage"]');
-    if (stage) stage.classList.remove('show');
-    if (astage) astage.classList.remove('show');
-    dlog('setRingingMode()');
+    if (videoEl) videoEl.classList.remove('show');
   }
   function setInCallMode(isVideo) {
     if (!rootEl) return;
     rootEl.querySelector('[data-el="ring-row"]').style.display = 'none';
     rootEl.querySelector('[data-el="call-row"]').style.display = 'flex';
-    var stage = rootEl.querySelector('[data-el="stage"]');
-    var astage = rootEl.querySelector('[data-el="audio-stage"]');
-    if (isVideo) {
-      if (stage) stage.classList.add('show');
-      if (astage) astage.classList.remove('show');
-    } else {
-      if (stage) stage.classList.remove('show');
-      if (astage) astage.classList.add('show');
-    }
-    // Hide camera toggle on audio calls — it's never relevant.
-    if (btnCam) btnCam.style.display = isVideo ? '' : 'none';
-    // Re-assert host visibility — at this point the user has already
-    // accepted, so anything that disabled the host surface is a bug. We
-    // explicitly re-show via the runtime API.
-    try {
-      var inst = window.__gs_runtime && window.__gs_runtime._instance;
-      if (inst && typeof inst.getCallMountHost === 'function') {
-        // Re-running getCallMountHost() also re-asserts display:block +
-        // pointer-events:auto on the stable mount root.
-        inst.getCallMountHost();
-      }
-    } catch (_) {}
-    if (rootEl) rootEl.classList.add('show');
-    ensureStageLayout('setInCallMode:' + (isVideo ? 'video' : 'audio'));
-    // If a remote video track was attached BEFORE the stage became
-    // visible (the original Bug A), the <video> element will be paused
-    // with zero layout. Now that the stage is shown, re-issue play() so
-    // it actually displays frames. Safe to call repeatedly.
-    if (isVideo && videoEl && videoEl.srcObject) {
-      try {
-        var p = videoEl.play();
-        if (p && p.catch) p.catch(function () {});
-      } catch (_) {}
-    }
-    dlogLayout('setInCallMode()', {
-      isVideo: isVideo,
-      cardVisible: rootEl ? rootEl.classList.contains('show') : false,
-      stageOn: stage ? stage.classList.contains('show') : false,
-      audioStageOn: astage ? astage.classList.contains('show') : false,
-    });
+    if (videoEl) videoEl.classList[isVideo ? 'add' : 'remove']('show');
   }
 
   // ───── Single active call state ─────
@@ -779,252 +393,46 @@
   }
 
   function attachRemote(room, LK) {
-    var remoteVideoTrack = null;
-    var remoteVideoAttachedEl = null;
-
-    function safePlay(el) {
-      if (!el || !el.isConnected) return;
-      try {
-        var p = el.play();
-        dlog('video.play() attempted', {
-          target: el === videoEl ? 'remote' : (el === localVideoEl ? 'local' : 'audio'),
-          hasSrcObject: !!el.srcObject,
-          isConnected: !!el.isConnected,
-        });
-        if (p && typeof p.catch === 'function') {
-          p.catch(function (err) {
-            if (err && err.name) Util.log && Util.log('[call] play suppressed', err.name);
-            dlog('video.play() suppressed', {
-              errorName: err && err.name,
-              errorMessage: err && err.message,
-              target: el === videoEl ? 'remote' : (el === localVideoEl ? 'local' : 'audio'),
-            });
-          });
-        }
-      } catch (_) {}
-    }
-
-    function setMediaStreamSrc(el, track) {
-      if (!el || !el.isConnected) return false;
-      var nextStream = track ? new MediaStream([track]) : null;
-      var cur = el.srcObject;
-      if (!track && !cur) return false;
-      if (track && cur && cur.getTracks && cur.getTracks().indexOf(track) !== -1) return false;
-      try { el.srcObject = nextStream; } catch (_) { return false; }
-      return true;
-    }
-
-    function detachRemoteVideo(reason) {
-      if (remoteVideoTrack && remoteVideoAttachedEl) {
-        try { remoteVideoTrack.detach(remoteVideoAttachedEl); } catch (_) {}
-      }
-      remoteVideoTrack = null;
-      remoteVideoAttachedEl = null;
-      if (videoEl) {
-        try { videoEl.srcObject = null; } catch (_) {}
-      }
-      dlogLayout('remote video detached', { reason: reason });
-    }
-
-    function attachRemoteVideo(track, publication, participant, reason) {
-      if (!videoEl || !videoEl.isConnected || !track) return false;
-      if (remoteVideoTrack === track && remoteVideoAttachedEl === videoEl) {
-        dlogLayout('remote video attach skipped (same track)', { reason: reason });
-        return false;
-      }
-      detachRemoteVideo('swap');
-      ensureStageLayout('attachRemoteVideo:' + reason);
-      try {
-        track.attach(videoEl);
-        remoteVideoTrack = track;
-        remoteVideoAttachedEl = videoEl;
-        dlogLayout('remote srcObject assigned', {
-          reason: reason,
-          participant: getParticipantDescriptor(participant),
-          trackSid: track.sid || null,
-          source: publication && publication.source ? String(publication.source) : null,
-          muted: !!(publication && publication.isMuted),
-          hasSrcObject: !!videoEl.srcObject,
-        });
-        safePlay(videoEl);
-        return true;
-      } catch (err) {
-        dlog('remote video attach failed', {
-          reason: reason,
-          error: err && err.message,
-          participant: getParticipantDescriptor(participant),
-        });
-        return false;
-      }
-    }
-
     function refresh() {
-      if (!rootEl || !rootEl.isConnected) return;
-      var firstAudio = null;
-      var operatorVideo = null;
-      var fallbackVideo = null;
+      var firstAudio = null, firstVideo = null;
       room.remoteParticipants.forEach(function (p) {
-        var descriptor = getParticipantDescriptor(p);
         p.trackPublications.forEach(function (pub) {
           if (!pub.track || !pub.track.mediaStreamTrack) return;
           if (pub.kind === LK.Track.Kind.Audio && !firstAudio) firstAudio = pub.track.mediaStreamTrack;
-          if (pub.kind === LK.Track.Kind.Video) {
-            var candidate = { track: pub.track, publication: pub, participant: p };
-            if (descriptor.isOperator && !operatorVideo) operatorVideo = candidate;
-            if (!fallbackVideo) fallbackVideo = candidate;
-          }
+          if (pub.kind === LK.Track.Kind.Video && !firstVideo) firstVideo = pub.track.mediaStreamTrack;
         });
       });
-      if (!operatorVideo) operatorVideo = fallbackVideo;
-      var audioChanged = setMediaStreamSrc(audioEl, firstAudio);
-      if (audioChanged && firstAudio) safePlay(audioEl);
-      var videoChanged = false;
-      if (operatorVideo && operatorVideo.track) {
-        videoChanged = attachRemoteVideo(operatorVideo.track, operatorVideo.publication, operatorVideo.participant, 'refresh');
-      } else if (remoteVideoTrack) {
-        detachRemoteVideo('no-remote-video');
-        videoChanged = true;
+      if (audioEl) {
+        audioEl.srcObject = firstAudio ? new MediaStream([firstAudio]) : null;
+        if (firstAudio) { try { audioEl.play(); } catch (_) {} }
       }
-      if (audioChanged || videoChanged || operatorVideo) {
-        dlogLayout('refresh remote media', {
-          audio: !!firstAudio,
-          video: !!(operatorVideo && operatorVideo.track),
-          operatorParticipant: operatorVideo ? getParticipantDescriptor(operatorVideo.participant) : null,
-          remoteTrackSid: operatorVideo && operatorVideo.track ? (operatorVideo.track.sid || null) : null,
-          remotePublicationSource: operatorVideo && operatorVideo.publication && operatorVideo.publication.source ? String(operatorVideo.publication.source) : null,
-          videoElConnected: videoEl ? videoEl.isConnected : false,
-          videoElW: videoEl ? videoEl.clientWidth : 0,
-          videoElH: videoEl ? videoEl.clientHeight : 0,
-          videoReadyState: videoEl ? videoEl.readyState : null,
-          videoPaused: videoEl ? !!videoEl.paused : null,
-          videoHasSrcObject: videoEl ? !!videoEl.srcObject : null,
-        });
-      }
-      if (rootEl) {
-        var ns = rootEl.querySelector('[data-el="nostream"]');
-        var isVideoCall = current && current.invite && current.invite.call_type === 'video';
-        if (ns) ns.style.display = (isVideoCall && !(operatorVideo && operatorVideo.track)) ? 'flex' : 'none';
+      if (videoEl) {
+        videoEl.srcObject = firstVideo ? new MediaStream([firstVideo]) : null;
+        if (firstVideo) { try { videoEl.play(); } catch (_) {} }
       }
     }
-
-    function refreshLocal() {
-      if (!localVideoEl || !rootEl) return;
-      if (!rootEl.isConnected) return;
-      var pip = rootEl.querySelector('[data-el="pip"]');
-      var lp = room.localParticipant;
-      var localVideoTrack = null;
-      if (lp && lp.trackPublications) {
-        lp.trackPublications.forEach(function (pub) {
-          if (pub.kind === LK.Track.Kind.Video && pub.track && pub.track.mediaStreamTrack) {
-            localVideoTrack = pub.track.mediaStreamTrack;
-          }
-        });
-      }
-      if (localVideoTrack) {
-        if (setMediaStreamSrc(localVideoEl, localVideoTrack)) {
-          safePlay(localVideoEl);
-          dlog('local PIP attached');
-        }
-        if (pip) pip.style.display = '';
-      } else {
-        setMediaStreamSrc(localVideoEl, null);
-        if (pip) pip.style.display = 'none';
-      }
-    }
-
     room
-      .on(LK.RoomEvent.ParticipantConnected, function (participant) {
-        dlog('room event: participant connected', getParticipantDescriptor(participant));
-        refresh();
-      })
-      .on(LK.RoomEvent.ParticipantDisconnected, function (participant) {
-        dlog('room event: participant disconnected', getParticipantDescriptor(participant));
-        refresh();
-      })
-      .on(LK.RoomEvent.TrackSubscribed, function (track, publication, participant) {
-        dlog('room event: TrackSubscribed', {
-          participant: getParticipantDescriptor(participant),
-          trackKind: track && track.kind ? String(track.kind) : null,
-          trackSid: track && track.sid ? String(track.sid) : null,
-          source: publication && publication.source ? String(publication.source) : null,
-          isSubscribed: publication ? !!publication.isSubscribed : null,
-          isMuted: publication ? !!publication.isMuted : null,
-        });
-        refresh();
-      })
-      .on(LK.RoomEvent.TrackUnsubscribed, function (track, publication, participant) {
-        dlog('room event: TrackUnsubscribed', {
-          participant: getParticipantDescriptor(participant),
-          trackKind: track && track.kind ? String(track.kind) : null,
-          trackSid: track && track.sid ? String(track.sid) : null,
-          source: publication && publication.source ? String(publication.source) : null,
-        });
-        if (track && remoteVideoTrack && track === remoteVideoTrack) detachRemoteVideo('track-unsubscribed');
-        refresh();
-      })
-      .on(LK.RoomEvent.LocalTrackPublished, refreshLocal)
-      .on(LK.RoomEvent.LocalTrackUnpublished, refreshLocal)
-      .on(LK.RoomEvent.Reconnecting, function () {
-        dlog('room event: reconnecting');
-        setStatus('Reconnecting...');
-      })
-      .on(LK.RoomEvent.Reconnected, function () {
-        dlog('room event: reconnected');
-        setStatus('');
-      })
-      .on(LK.RoomEvent.Disconnected, function (reason) {
-        dlog('room event: disconnected', { reason: reason });
-        teardown('remote:' + String(reason == null ? 'unknown' : reason));
-      });
-    if (window.addEventListener && !window.__gsCallWindowResizeBound) {
-      window.__gsCallWindowResizeBound = true;
-      window.addEventListener('resize', function () {
-        ensureStageLayout('window-resize');
-        dlogLayout('window resize', {});
-      });
-    }
+      .on(LK.RoomEvent.ParticipantConnected, refresh)
+      .on(LK.RoomEvent.ParticipantDisconnected, refresh)
+      .on(LK.RoomEvent.TrackSubscribed, refresh)
+      .on(LK.RoomEvent.TrackUnsubscribed, refresh)
+      .on(LK.RoomEvent.Reconnecting, function () { setStatus('Reconnecting...'); })
+      .on(LK.RoomEvent.Reconnected, function () { setStatus(''); })
+      .on(LK.RoomEvent.Disconnected, function () { teardown('remote'); });
     refresh();
-    refreshLocal();
   }
 
   function teardown(reason) {
-    dlog('teardown', {
-      reason: reason,
-      hasCurrent: !!current,
-      hasRoom: !!(current && current.room),
-      connecting: !!(current && current.connecting),
-    });
     if (current && current.room) {
       try { current.room.disconnect(); } catch (_) {}
     }
     current = null;
-    // Distinguish "operator ended" (remote-initiated) from local actions
-    // so the visitor sees a real explanation, not a generic "ended".
-    var msg = '';
-    if (reason === 'remote' || (typeof reason === 'string' && reason.indexOf('remote:') === 0)) msg = 'Operator ended the call';
-    else if (reason === 'local') msg = 'Call ended';
-    else if (reason === 'error') msg = ''; // accept() already set a reason
-    setStatus(msg, reason === 'remote' ? 'ended' : null);
+    setStatus(reason === 'remote' ? 'Call ended' : '');
     setRingingMode();
     if (audioEl) audioEl.srcObject = null;
-    if (videoEl) {
-      try {
-        var srcTracks = videoEl.srcObject && videoEl.srcObject.getVideoTracks ? videoEl.srcObject.getVideoTracks() : [];
-        for (var i = 0; i < srcTracks.length; i++) {
-          if (srcTracks[i] && typeof srcTracks[i].stop === 'function') srcTracks[i].stop();
-        }
-      } catch (_) {}
-      videoEl.srcObject = null;
-    }
-    if (localVideoEl) localVideoEl.srcObject = null;
+    if (videoEl) videoEl.srcObject = null;
     if (degradedEl) degradedEl.classList.remove('show');
-    ensureStageLayout('teardown');
-    // Show the terminal message a bit longer when the operator hung up so
-    // the visitor actually reads it before the surface auto-closes.
-    var hideDelay = (reason === 'remote' || (typeof reason === 'string' && reason.indexOf('remote:') === 0)) ? 2200 : 600;
-    // teardown() is the legitimate close path — bypass the active-guard
-    // we added to hide() so the surface actually disappears.
-    setTimeout(function () { hide({ force: true }); }, hideDelay);
+    setTimeout(hide, 600);
   }
 
   function reject() {
@@ -1034,39 +442,9 @@
   function accept() {
     if (!current || !current.invite) return;
     var invite = current.invite;
-    // Re-entrancy guard. accept() can be called from multiple paths:
-    //   - manual user click on the Answer button
-    //   - auto_accept on the invitation flow
-    //   - duplicate showIncoming() dispatches (poll + realtime racing)
-    // Each one would mint a new LK.Room with the same identity, and
-    // LiveKit kicks the older one with SIGNAL_SOURCE_CLOSE — which is
-    // exactly the visitor-side instability we're chasing. Bail silently
-    // if a connect is already in flight or a room is already alive.
-    if (current.connecting || current.room) {
-      dlog('accept() ignored — already connecting/connected', {
-        connecting: !!current.connecting,
-        hasRoom: !!current.room,
-      });
-      return;
-    }
-    current.connecting = true;
-    dlog('accept() start', { call_id: invite.call_id, call_type: invite.call_type });
     setStatus('Connecting...');
     btnAccept.disabled = true;
     btnReject.disabled = true;
-    // Re-assert host visibility BEFORE the SDK starts so that any stale
-    // hide() between invite-show and accept can't leave the surface
-    // hidden while media starts streaming behind it.
-    show();
-    // ─── Bug A fix: activate the in-call stage BEFORE room.connect() ──
-    // Previously setInCallMode() ran only AFTER the mic published, which
-    // meant the .stage element was still display:none when the operator's
-    // remote video TrackSubscribed fired. The <video> element therefore
-    // measured 0×0 and never auto-played, even though the track was
-    // attached. By switching the stage on up-front (using the call_type
-    // we already know from the invite), the video element has real layout
-    // size from the moment the first remote track is subscribed.
-    try { setInCallMode(invite.call_type === 'video'); } catch (_) {}
     loadSdk().then(function (LK) {
       var iceServers = [];
       if (invite.turn && invite.turn.urls && invite.turn.urls.length) {
@@ -1076,26 +454,7 @@
           credential: invite.turn.credential || undefined,
         });
       }
-      var normalizedWsUrl = normalizeLiveKitWsUrl(invite.ws_url);
-      var signalingPathPreview = '/ → /rtc/v1';
-      try {
-        signalingPathPreview = ((new URL(normalizedWsUrl)).pathname || '/') + ' → /rtc/v1';
-      } catch (_) {}
-      dlog('room.connect start', {
-        ws_url: invite.ws_url,
-        normalizedWsUrl: normalizedWsUrl,
-        signalingPathPreview: signalingPathPreview,
-        duplicatedPathDetected: /\/rtc\/rtc(?:\/|$)|\/rtc\/v1\/v1(?:\/|$)/i.test(invite.ws_url) || /\/rtc\/rtc(?:\/|$)|\/rtc\/v1\/v1(?:\/|$)/i.test(normalizedWsUrl),
-        call_id: invite.call_id,
-      });
-      var room = new LK.Room({ adaptiveStream: true, dynacast: true, disconnectOnPageLeave: false });
-      // Race guard: if teardown() ran between loadSdk() and here, do not
-      // create a zombie connection — `current` was cleared.
-      if (!current || current.invite !== invite) {
-        dlog('accept() pre-connect race: invite changed, aborting');
-        try { room.disconnect(); } catch (_) {}
-        return;
-      }
+      var room = new LK.Room({ adaptiveStream: true, dynacast: true });
       current.room = room;
       attachRemote(room, LK);
       var connectOpts = iceServers.length ? {
@@ -1104,70 +463,28 @@
           iceTransportPolicy: invite.ice_policy === 'relay' ? 'relay' : 'all',
         },
       } : undefined;
-      return room.connect(normalizedWsUrl, invite.token, connectOpts).then(function () {
-        dlog('room.connect resolved', { call_id: invite.call_id });
-        // Race guard: teardown() during the WS handshake clears current.
-        // The freshly-joined room is now orphaned; disconnect it cleanly
-        // so LiveKit doesn't see a dangling participant.
-        if (!current || current.room !== room) {
-          dlog('accept() post-connect race: ref changed, disconnecting orphan');
-          try { room.disconnect(); } catch (_) {}
-          return;
-        }
+      return room.connect(invite.ws_url, invite.token, connectOpts).then(function () {
         setStatus('');
         return room.localParticipant.setMicrophoneEnabled(true).then(function () {
-          if (!current || current.room !== room) {
-            try { room.disconnect(); } catch (_) {}
-            return;
-          }
           current.micEnabled = true;
           btnMic.textContent = 'Mute';
           btnMic.classList.remove('off');
           var isVideo = invite.call_type === 'video';
-          // Re-assert stage mode (it was set up-front; this is a no-op
-          // re-assertion that also re-runs the host-visibility re-show).
           setInCallMode(isVideo);
-          // Nudge the remote video to play now that the stage has real
-          // size — this is the critical step when a track arrived while
-          // the element was momentarily detached/hidden.
-          try {
-            if (videoEl && videoEl.srcObject) {
-              var pp = videoEl.play();
-              if (pp && pp.catch) pp.catch(function () {});
-            }
-            // Diagnostic: log the layout size of every node in the chain
-            // so any future zero-size regression is immediately visible.
-            var inst = window.__gs_runtime && window.__gs_runtime._instance;
-            var mountHost = inst && inst.getCallMountHost ? inst.getCallMountHost() : null;
-            dlogLayout('layout sizes after setInCallMode', {
-              mountHost: mountHost ? { w: mountHost.clientWidth, h: mountHost.clientHeight, display: mountHost.style.display } : null,
-              videoHasSrc: videoEl ? !!videoEl.srcObject : false,
-            });
-          } catch (_) {}
-          dlog('mic published; mode set', { isVideo: isVideo });
           if (isVideo) {
             return room.localParticipant.setCameraEnabled(true).then(function () {
-              if (!current || current.room !== room) {
-                try { room.disconnect(); } catch (_) {}
-                return;
-              }
               current.camEnabled = true;
               btnCam.textContent = 'Stop cam';
               btnCam.classList.remove('off');
-              dlog('camera published');
             });
           }
         });
       });
     }).catch(function (err) {
-      dlog('accept() failed', { error: err && err.message });
       setStatus('Could not join: ' + (err && err.message ? err.message : 'unknown'));
       btnAccept.disabled = false;
       btnReject.disabled = false;
       teardown('error');
-    }).then(function () {
-      // Always clear the connecting flag whether resolve or catch ran.
-      if (current) current.connecting = false;
     });
   }
 
@@ -1240,22 +557,7 @@
     if (invite.call_id) lastDispatchedCallId = invite.call_id;
     ensureShell();
     bindHandlersOnce();
-    // If we already have an in-flight or active call for the SAME call_id,
-    // ignore the duplicate dispatch. Polling + realtime can both deliver
-    // the same invite within milliseconds, and tearing down the active
-    // room here is what produces the visitor-side SIGNAL_SOURCE_CLOSE
-    // (LiveKit kicks the just-joined participant when the local SDK
-    // disconnects mid-handshake).
-    if (current && current.invite && invite.call_id &&
-        current.invite.call_id === invite.call_id) {
-      dlog('showIncoming() ignored — same call_id already active', {
-        call_id: invite.call_id,
-        connecting: !!current.connecting,
-        hasRoom: !!current.room,
-      });
-      return;
-    }
-    // Genuine replacement (different call_id) — tear the previous one down.
+    // Replace any in-flight call.
     if (current) teardown('replaced');
     current = { invite: invite, room: null, micEnabled: false, camEnabled: false };
     var titleEl = rootEl.querySelector('[data-el="title"]');
@@ -1486,7 +788,7 @@
           }
           showPendingBadge({ message: 'Callback pending' });
           // Keep the badge visible after auto-hide so reopen still shows status.
-          setTimeout(function () { hide({ force: true }); }, 3500);
+          setTimeout(function () { hide(); }, 3500);
         }).catch(function (err) {
           errEl.textContent = (err && err.message) ? ('Could not request callback: ' + err.message) : 'Could not request callback';
           errEl.classList.add('show');

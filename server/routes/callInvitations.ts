@@ -81,7 +81,7 @@ callInvitationsRouter.post('/', async (req, res) => {
     channel,
   });
   if (!result.ok) {
-    return res.status(409).json({ error: result.reason });
+    return res.status(409).json({ error: (result as { ok: false; reason: string }).reason });
   }
   return res.json({
     invitation: result.invitation,

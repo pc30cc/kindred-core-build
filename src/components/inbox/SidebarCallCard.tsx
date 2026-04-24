@@ -75,11 +75,11 @@ interface StatusVisual {
 }
 
 const STATUS_VISUAL: Record<InvitationStatus, StatusVisual> = {
-  pending:   { Icon: Loader2,      className: 'bg-warning/10 border-warning/30 text-warning',                 labelKey: 'callInvite.statusPending' },
-  joined:    { Icon: CheckCircle2, className: 'bg-success/10 border-success/30 text-success',                 labelKey: 'callInvite.statusJoined' },
-  expired:   { Icon: Clock,        className: 'bg-muted border-border text-muted-foreground',                 labelKey: 'callInvite.statusExpired' },
-  cancelled: { Icon: Ban,          className: 'bg-muted/60 border-border text-muted-foreground',              labelKey: 'callInvite.statusCancelled' },
-  declined:  { Icon: PhoneOff,     className: 'bg-destructive/10 border-destructive/30 text-destructive',     labelKey: 'callInvite.statusDeclined' },
+  pending:   { Icon: Loader2,      className: 'bg-warning/10 border-warning/30 text-warning',                 labelKey: 'inbox.callInvite.statusPending' },
+  joined:    { Icon: CheckCircle2, className: 'bg-success/10 border-success/30 text-success',                 labelKey: 'inbox.callInvite.statusJoined' },
+  expired:   { Icon: Clock,        className: 'bg-muted border-border text-muted-foreground',                 labelKey: 'inbox.callInvite.statusExpired' },
+  cancelled: { Icon: Ban,          className: 'bg-muted/60 border-border text-muted-foreground',              labelKey: 'inbox.callInvite.statusCancelled' },
+  declined:  { Icon: PhoneOff,     className: 'bg-destructive/10 border-destructive/30 text-destructive',     labelKey: 'inbox.callInvite.statusDeclined' },
 };
 
 export function SidebarCallCard({ workspaceId, conversationId, contactName }: SidebarCallCardProps) {

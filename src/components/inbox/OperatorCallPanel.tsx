@@ -1,13 +1,24 @@
 /**
- * Phase 8B - Operator Call Panel.
+ * Phase — Inbox Call Hardening · Pass 1 + 2
  *
- * Bounded module mounted inside the inbox header. Owns one call session
- * lifecycle at a time. Token + URLs always come from the backend.
+ * Bounded module mounted inside the inbox header. Lifecycle is owned by
+ * the shared CallSessionEngine via useCallSession(). This component is
+ * now a thin presentation layer:
+ *   - reads engine state (phase / errors / busy)
+ *   - renders idle launchers, ringing, and connected controls
+ *   - forwards user intent (start / hang up / toggle mic / toggle camera /
+ *     start-stop recording) to the engine or to the media transport
  *
- * Strict rules:
- *  - No page reload, no inbox refactor.
- *  - All RTC URLs/TURN come from callsApi.token() (resolver-backed).
- *  - All errors surface inline via toast - never crash the inbox.
+ * Hard guarantees inherited from the engine:
+ *   - Busy lock is released on EVERY terminal path (token failure, invite
+ *     failure, connect failure, media-permission denial, no-answer
+ *     timeout, remote hangup, local hangup, ending timeout, unmount).
+ *   - Token + RTC URLs always come from callsApi.token() (resolver-backed).
+ *   - All errors surface inline via toast — never crash the inbox.
+ *
+ * Intentionally deferred to later passes (per scope decision):
+ *   - Audio vs Video presentation split (Pass 4)
+ *   - Real ringtone / ringback audio + incoming-call surface (Pass 3)
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -18,7 +29,8 @@ import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { callsApi, type CallType } from '@/lib/calls-api';
-import { useLiveKitCall } from '@/hooks/useLiveKitCall';
+import { useCallSession } from '@/hooks/useCallSession';
+import { describePhase, isTerminalPhase } from '@/lib/calls/CallSessionEngine';
 
 interface OperatorCallPanelProps {
   workspaceId: string;
@@ -27,16 +39,15 @@ interface OperatorCallPanelProps {
   contactName?: string | null;
 }
 
-type Phase = 'idle' | 'creating' | 'ringing' | 'in_call' | 'ending';
-
 export function OperatorCallPanel({ workspaceId, conversationId, contactName }: OperatorCallPanelProps) {
-  const [phase, setPhase] = useState<Phase>('idle');
-  const [callId, setCallId] = useState<string | null>(null);
-  const [callType, setCallType] = useState<CallType>('audio');
+  const session = useCallSession();
+  const { state: engineState, media: lk } = session;
+  const phase = engineState.phase;
+  const callType = engineState.callType;
+  const callId = engineState.callId;
   const [recordingId, setRecordingId] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
-
-  const lk = useLiveKitCall({ publishMic: true, publishCamera: false });
+  const lastErrorRef = useRef<string | null>(null);
 
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -66,73 +77,19 @@ export function OperatorCallPanel({ workspaceId, conversationId, contactName }: 
     }
   }, [lk.remote]);
 
-  const cleanup = useCallback(async () => {
-    await lk.disconnect();
-    setCallId(null);
-    setRecordingId(null);
-    setRecording(false);
-    setPhase('idle');
-  }, [lk]);
-
-  const startCall = useCallback(async (type: CallType) => {
+  const startCall = useCallback((type: CallType) => {
     if (phase !== 'idle') return;
-    setCallType(type);
-    setPhase('creating');
-    let createdId: string | null = null;
-    try {
-      const created = await callsApi.create({
-        workspace_id: workspaceId,
-        call_type: type,
-        context_type: 'conversation',
-        context_id: conversationId,
-      });
-      createdId = created.id;
-      setCallId(created.id);
-      // Invite the visitor (server marks state=ringing + emits call_event).
-      await callsApi.invite(created.id, { participant_type: 'visitor' });
-      setPhase('ringing');
-      // Mint participant token + TURN bundle.
-      const tok = await callsApi.token(created.id, {
-        display_name: 'Operator',
-        ttl_seconds: 600,
-      });
-      if (!tok.ws_url) throw new Error('Backend did not return ws_url. Configure LiveKit RTC URL in admin.');
-      const iceServers: RTCIceServer[] = [];
-      if (tok.turn?.urls?.length) {
-        iceServers.push({
-          urls: tok.turn.urls,
-          username: tok.turn.username || undefined,
-          credential: tok.turn.credential || undefined,
-        });
-      }
-      await lk.connect({
-        wsUrl: tok.ws_url,
-        token: tok.token,
-        iceServers: iceServers.length ? iceServers : undefined,
-        iceTransportPolicy: tok.ice_policy,
-      });
-      // Mark as accepted on our side (server transitions to in_progress).
-      try { await callsApi.accept(created.id); } catch { /* non-fatal */ }
-      setPhase('in_call');
-    } catch (e: any) {
-      toast({
-        title: 'Could not start call',
-        description: e?.message || String(e),
-        variant: 'destructive',
-      });
-      if (createdId) {
-        try { await callsApi.hangup(createdId); } catch { /* ignore */ }
-      }
-      await cleanup();
-    }
-  }, [phase, workspaceId, conversationId, lk, cleanup]);
+    void session.startOutgoing({
+      workspaceId,
+      conversationId,
+      callType: type,
+      displayName: 'Operator',
+    });
+  }, [phase, session, workspaceId, conversationId]);
 
-  const hangup = useCallback(async () => {
-    if (!callId) { await cleanup(); return; }
-    setPhase('ending');
-    try { await callsApi.hangup(callId); } catch { /* ignore */ }
-    await cleanup();
-  }, [callId, cleanup]);
+  const hangup = useCallback(() => {
+    void session.hangup();
+  }, [session]);
 
   const toggleRecording = useCallback(async () => {
     if (!callId) return;
@@ -154,15 +111,32 @@ export function OperatorCallPanel({ workspaceId, conversationId, contactName }: 
     }
   }, [callId, recording, recordingId]);
 
-  // Reflect remote disconnect into our local phase.
+  // Surface engine failures via toast — exactly once per failure.
   useEffect(() => {
-    if (phase === 'in_call' && (lk.state === 'disconnected' || lk.state === 'failed')) {
-      void cleanup();
+    if (phase !== 'failed' && phase !== 'missed') return;
+    const key = phase + ':' + (engineState.errorCode ?? '') + ':' + (engineState.errorMessage ?? '');
+    if (lastErrorRef.current === key) return;
+    lastErrorRef.current = key;
+    toast({
+      title: phase === 'missed' ? 'No answer' : 'Could not start call',
+      description: engineState.errorMessage || 'The visitor did not answer.',
+      variant: 'destructive',
+    });
+  }, [phase, engineState.errorCode, engineState.errorMessage]);
+
+  // When a terminal phase settles, also reset our local recording bookkeeping.
+  useEffect(() => {
+    if (isTerminalPhase(phase)) {
+      setRecordingId(null);
+      setRecording(false);
     }
-  }, [lk.state, phase, cleanup]);
+  }, [phase]);
+
+  // Treat terminal phases (after a brief moment) as idle for the launcher.
+  const showLauncher = phase === 'idle' || isTerminalPhase(phase);
 
   // Idle launchers
-  if (phase === 'idle') {
+  if (showLauncher) {
     return (
       <div className="flex items-center gap-1.5">
         <Button
@@ -189,21 +163,27 @@ export function OperatorCallPanel({ workspaceId, conversationId, contactName }: 
     );
   }
 
+  const isConnecting = phase === 'preparing' || phase === 'connecting';
+  const isRinging = phase === 'outgoing_ringing';
+  const isLive = phase === 'connected' || phase === 'reconnecting';
+
   // Active call surface (compact, fits inside header row, expands below)
   return (
     <div className="flex flex-col items-stretch gap-2 rounded-lg border border-border bg-card/60 p-2 min-w-[260px]">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
-          {phase === 'creating' && <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />}
-          {phase === 'ringing' && <Loader2 className="w-3.5 h-3.5 animate-spin text-warning" />}
-          {phase === 'in_call' && (
-            <span className="inline-flex w-2 h-2 rounded-full bg-success animate-pulse" aria-hidden />
+          {isConnecting && <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />}
+          {isRinging && <Loader2 className="w-3.5 h-3.5 animate-spin text-warning" />}
+          {isLive && (
+            <span className={cn(
+              'inline-flex w-2 h-2 rounded-full',
+              phase === 'reconnecting' ? 'bg-warning animate-pulse' : 'bg-success animate-pulse',
+            )} aria-hidden />
           )}
           <span className="text-[11px] font-semibold text-foreground truncate">
-            {phase === 'creating' && 'Starting call...'}
-            {phase === 'ringing' && 'Ringing ' + (contactName || 'visitor') + '...'}
-            {phase === 'in_call' && 'In call' + (callType === 'video' ? ' (video)' : '')}
-            {phase === 'ending' && 'Ending...'}
+            {isRinging
+              ? 'Ringing ' + (contactName || 'visitor') + '...'
+              : describePhase(engineState)}
           </span>
           {recording && (
             <Badge variant="destructive" className="h-5 px-1.5 text-[9px] font-semibold gap-1">
@@ -223,7 +203,7 @@ export function OperatorCallPanel({ workspaceId, conversationId, contactName }: 
         </Button>
       </div>
 
-      {phase === 'in_call' && (
+      {isLive && (
         <>
           {callType === 'video' && (
             <video
@@ -264,7 +244,7 @@ export function OperatorCallPanel({ workspaceId, conversationId, contactName }: 
               {recording ? 'Stop' : 'Rec'}
             </Button>
           </div>
-          {lk.state === 'reconnecting' && (
+          {phase === 'reconnecting' && (
             <p className="text-[10px] text-warning">Reconnecting...</p>
           )}
           {lk.error && (

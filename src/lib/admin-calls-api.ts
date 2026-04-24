@@ -300,11 +300,26 @@ export interface LiveKitConfigPatch {
   recording_storage?: LiveKitRecordingStoragePatch;
 }
 
+/**
+ * Shared fetch helper that surfaces server-side error messages instead of the
+ * generic "Failed: 400". Without this the UI can't tell the user *why* a save
+ * was rejected (e.g. invalid URL, missing field).
+ */
+async function parseError(res: Response): Promise<string> {
+  try {
+    const j = await res.json();
+    if (j && typeof j.error === 'string') return j.error;
+  } catch {
+    /* fall through */
+  }
+  return `HTTP ${res.status}`;
+}
+
 export async function fetchLiveKitConfig(): Promise<{ livekit: LiveKitConfigPublicView }> {
   const res = await fetch(`${API_BASE}/api/admin/calls/livekit`, {
     headers: await authHeader(),
   });
-  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  if (!res.ok) throw new Error(await parseError(res));
   return res.json();
 }
 
@@ -316,6 +331,32 @@ export async function updateLiveKitConfig(
     headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
     body: JSON.stringify(patch),
   });
-  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  if (!res.ok) throw new Error(await parseError(res));
   return res.json();
+}
+
+export interface LiveKitTestResult {
+  ok: boolean;
+  error?: string;
+  message?: string;
+  latency_ms?: number;
+  rtc_url?: string;
+}
+
+/**
+ * Live-probe the saved LiveKit config. Issues a lightweight ListRooms call
+ * against the configured RTC URL using the persisted credentials. Resolves
+ * with `ok: false` (and a human message) on any failure rather than throwing,
+ * so the UI can render either outcome inline.
+ */
+export async function testLiveKitConnection(): Promise<LiveKitTestResult> {
+  const res = await fetch(`${API_BASE}/api/admin/calls/livekit/test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+  });
+  try {
+    return (await res.json()) as LiveKitTestResult;
+  } catch {
+    return { ok: false, error: `HTTP ${res.status}` };
+  }
 }

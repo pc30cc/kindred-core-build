@@ -28,6 +28,8 @@ import {
   saveLiveKitConfig,
   toPublicView as toLiveKitPublicView,
 } from '../services/calls/livekitConfig.js';
+import { livekitProvider } from '../services/calls/providers/livekitProvider.js';
+import { CallProviderNotReadyError } from '../services/calls/providers/types.js';
 import { CALL_PROVIDER_CLASSIFICATION } from '../services/calls/providers/types.js';
 import { getPlatformCallbackCounts } from '../services/calls/callbacks.js';
 
@@ -258,7 +260,52 @@ adminCallsRouter.put('/livekit', async (req, res) => {
     const merged = await saveLiveKitConfig(config, patch as any);
     res.json({ livekit: toLiveKitPublicView(merged) });
   } catch (err: any) {
-    res.status(400).json({ error: err?.message || 'update_failed' });
+    // Surface zod issues so the UI can show the offending field.
+    const detail = err?.issues
+      ? err.issues.map((i: any) => `${(i.path || []).join('.')}: ${i.message}`).join('; ')
+      : err?.message || 'update_failed';
+    res.status(400).json({ error: detail });
+  }
+});
+
+/**
+ * LiveKit live connection probe — uses the currently saved config to issue a
+ * lightweight ListRooms Twirp call against the configured RTC base URL. No
+ * mutation, no DB write. Returns 200 on success, 4xx with a human message
+ * when the server can't be reached or credentials are wrong.
+ */
+adminCallsRouter.post('/livekit/test', async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
+  const startedAt = Date.now();
+  try {
+    const cfg = await loadLiveKitConfig(config, true);
+    if (!cfg.enabled) {
+      return res.status(400).json({ ok: false, error: 'LiveKit is disabled. Enable it first.' });
+    }
+    if (!cfg.api_key || !cfg.api_secret) {
+      return res
+        .status(400)
+        .json({ ok: false, error: 'API key and secret are required before testing.' });
+    }
+    if (!cfg.rtc_url) {
+      return res.status(400).json({ ok: false, error: 'RTC URL is required before testing.' });
+    }
+    // Probe via getRoomState on a bogus room name — internally calls ListRooms
+    // and never throws on Twirp errors that aren't "not_ready". A successful
+    // response (even with zero rooms) confirms credentials + reachability.
+    await livekitProvider.getRoomState(config, '__healthcheck__');
+    res.json({
+      ok: true,
+      latency_ms: Date.now() - startedAt,
+      rtc_url: cfg.rtc_url,
+      message: 'LiveKit responded successfully.',
+    });
+  } catch (err: any) {
+    const msg =
+      err instanceof CallProviderNotReadyError
+        ? err.message
+        : err?.message || 'Unknown error contacting LiveKit.';
+    res.status(502).json({ ok: false, error: msg, latency_ms: Date.now() - startedAt });
   }
 });
 

@@ -38,8 +38,7 @@ import { ConversationActionPanel } from '@/components/inbox/ConversationActionPa
 import { ConversationActivityPanel } from '@/components/inbox/ConversationActivityPanel';
 import { OperatorCallPanel } from '@/components/inbox/OperatorCallPanel';
 import { OperatorCallSurface } from '@/components/inbox/OperatorCallSurface';
-import { CallQueuePanel } from '@/components/inbox/CallQueuePanel';
-import { OperatorCallDock } from '@/components/inbox/OperatorCallDock';
+import { SidebarCallCard } from '@/components/inbox/SidebarCallCard';
 import { CannedResponsePicker, type CannedPickerHandle } from '@/components/canned-responses/CannedResponsePicker';
 import { interpolate } from '@/components/canned-responses/interpolation';
 import { useTrackCannedResponseUse } from '@/hooks/useCannedResponses';
@@ -1295,21 +1294,13 @@ export default function InboxPage() {
             // Desktop: inline
             'lg:static lg:z-auto lg:w-[280px]',
           )}>
-          {/* Phase 8C — Call Queue panel (always visible, collapses itself when empty) */}
-          {workspace?.id && (
+          {/* Invitation-first call entry point (replaces legacy queue dock + panel) */}
+          {workspace?.id && selectedId && (
             <div className="p-2.5 border-b border-border bg-card/40">
-              {/* Compact persistent dock — read-only signals (audio/video readiness + queue count) */}
-              <div className="mb-2">
-                <OperatorCallDock workspaceId={workspace.id} />
-              </div>
-              <CallQueuePanel
+              <SidebarCallCard
                 workspaceId={workspace.id}
-                onAccept={(entry) => {
-                  if (entry.conversation_id) {
-                    setSelectedId(entry.conversation_id);
-                    setShowMobileList(false);
-                  }
-                }}
+                conversationId={selectedId}
+                contactName={selected?.contacts?.name ?? null}
               />
             </div>
           )}

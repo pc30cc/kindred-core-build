@@ -19,13 +19,12 @@
 #   Base Directory         : /
 #
 # Required environment variables (set in Coolify -> this service -> Env):
-#   LIVEKIT_KEYS     - "API_KEY:API_SECRET" (NO space after colon).
-#                      Generate:
-#                          API_KEY=$(openssl rand -hex 16)
-#                          API_SECRET=$(openssl rand -hex 32)
-#                          echo "$API_KEY:$API_SECRET"
-#                      MUST match the values entered in:
-#                          Super Admin -> Providers -> Calls -> LiveKit
+#   LIVEKIT_API_KEY     - LiveKit API key (identifier).
+#                         Generate: openssl rand -hex 16
+#                         MUST match Super Admin -> Providers -> Calls -> LiveKit.
+#   LIVEKIT_API_SECRET  - LiveKit API secret (signing secret).
+#                         Generate: openssl rand -hex 32
+#                         MUST match Super Admin -> Providers -> Calls -> LiveKit.
 #   LIVEKIT_NODE_IP  - Public IP of the host running this container.
 #                      REQUIRED. Without it, LiveKit advertises a Docker
 #                      internal IP in ICE candidates and remote browsers
@@ -34,7 +33,7 @@
 #
 # Optional environment variables:
 #   LIVEKIT_LOG_LEVEL          - debug | info | warn | error  (default info)
-#   LIVEKIT_WEBHOOK_API_KEY    - api_key half of LIVEKIT_KEYS, for webhooks
+#   LIVEKIT_WEBHOOK_API_KEY    - same value as LIVEKIT_API_KEY, for webhooks
 #   LIVEKIT_REDIS_ADDRESS      - "host:port", multi-node only
 #   LIVEKIT_TURN_DOMAIN        - reserved for future TURN/TLS rollout
 #

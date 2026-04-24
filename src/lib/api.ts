@@ -51,6 +51,7 @@ export function fetchWidgetConfig(workspaceId: string, origin?: string) {
     features: { chat: boolean; knowledgeBase: boolean; visitorTracking: boolean };
     runtimeUrl: string | null;
     styleUrl: string | null;
+    callRuntimeUrl: string | null;
   }>(`/api/widget/config?${params}`);
 }
 

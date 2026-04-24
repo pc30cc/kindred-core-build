@@ -205,8 +205,8 @@
       // In-panel: fill the available space; sidecar: a 320px floating card.
       // Layout uses container-style breakpoints rather than hard pixel
       // widths so the call surface stays inside whatever frame hosts it.
-      ':host([data-mode="in-panel"]) .card{width:100%;height:100%;min-height:300px;border:0;border-radius:0;box-shadow:none;padding:12px;display:none;flex-direction:column}',
-      ':host([data-mode="sidecar"]) .card{width:320px;padding:14px;border:1px solid #e2e8f0;border-radius:12px;box-shadow:0 12px 32px -8px rgba(0,0,0,.18);display:none;flex-direction:column}',
+      ':host([data-mode="in-panel"]) .card{width:100%;height:100%;min-height:100%;border:0;border-radius:0;box-shadow:none;padding:12px;display:none;flex-direction:column}',
+      ':host([data-mode="sidecar"]) .card{width:320px;min-height:300px;padding:14px;border:1px solid #e2e8f0;border-radius:12px;box-shadow:0 12px 32px -8px rgba(0,0,0,.18);display:none;flex-direction:column}',
       '.card{font:13px/1.4 -apple-system,Segoe UI,Roboto,sans-serif;background:#fff;color:#0f172a;overflow:hidden}',
       '.card.show{display:flex}',
       '@media (prefers-color-scheme: dark){.card{background:#0f172a;color:#f1f5f9;border-color:#1e293b}}',
@@ -228,14 +228,14 @@
       // Video stage — fills available card area inside the panel,
       // capped at 220px in sidecar mode so the floating card stays
       // small. The local self-view is a 25%-wide PIP in the bottom-right.
-      '.stage{position:relative;width:100%;background:#000;border-radius:8px;overflow:hidden;display:none;flex:1 1 auto;min-height:0}',
+      '.stage{position:relative;width:100%;background:#000;border-radius:8px;overflow:hidden;display:none;flex:1 1 280px;min-height:220px;isolation:isolate}',
       '.stage.show{display:block}',
-      ':host([data-mode="sidecar"]) .stage{height:220px;flex:0 0 220px}',
-      ':host([data-mode="in-panel"]) .stage{margin-bottom:8px}',
-      '.stage video.remote{width:100%;height:100%;object-fit:cover;background:#000;display:block}',
+      ':host([data-mode="sidecar"]) .stage{height:220px;min-height:220px;flex:0 0 220px}',
+      ':host([data-mode="in-panel"]) .stage{margin-bottom:8px;flex:1 1 320px;min-height:260px}',
+      '.stage video.remote{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000;display:block}',
       '.stage .pip{position:absolute;right:8px;bottom:8px;width:30%;max-width:120px;aspect-ratio:4/3;border-radius:6px;overflow:hidden;border:2px solid rgba(255,255,255,.7);background:#111;box-shadow:0 4px 12px rgba(0,0,0,.4)}',
       '.stage .pip video{width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}',
-      '.stage .nostream{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:12px}',
+      '.stage .nostream{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:12px;z-index:1}',
       // Audio-only stage — compact pulse + status, never a fake video tile.
       '.audio-stage{display:none;flex-direction:column;align-items:center;justify-content:center;padding:18px 12px;background:linear-gradient(135deg,#f1f5f9,#e2e8f0);border-radius:8px;gap:10px;flex:1 1 auto;min-height:120px}',
       '.audio-stage.show{display:flex}',
@@ -350,6 +350,131 @@
     btnCam = rootEl.querySelector('[data-el="cam"]');
     btnHangup = rootEl.querySelector('[data-el="hangup"]');
     degradedEl = rootEl.querySelector('[data-el="degraded"]');
+    bindVideoDebugOnce();
+  }
+
+  function getParticipantDescriptor(participant) {
+    var participantType = 'unknown';
+    var identity = participant && participant.identity ? String(participant.identity) : null;
+    if (identity && identity.indexOf(':') !== -1) participantType = identity.split(':', 1)[0] || participantType;
+    if (participant && participant.metadata) {
+      try {
+        var parsed = JSON.parse(participant.metadata);
+        if (parsed && parsed.participant_type) participantType = String(parsed.participant_type);
+      } catch (_) {}
+    }
+    return {
+      participantIdentity: identity,
+      participantType: participantType,
+      isOperator: participantType === 'operator' || !!(identity && identity.indexOf('operator:') === 0),
+    };
+  }
+
+  function readBox(el) {
+    if (!el) return null;
+    var rect = null;
+    var style = null;
+    try { rect = el.getBoundingClientRect ? el.getBoundingClientRect() : null; } catch (_) {}
+    try { style = window.getComputedStyle ? window.getComputedStyle(el) : null; } catch (_) {}
+    return {
+      w: typeof el.clientWidth === 'number' ? el.clientWidth : 0,
+      h: typeof el.clientHeight === 'number' ? el.clientHeight : 0,
+      rectW: rect ? Math.round(rect.width) : 0,
+      rectH: rect ? Math.round(rect.height) : 0,
+      display: style ? style.display : null,
+      position: style ? style.position : null,
+      minH: style ? style.minHeight : null,
+      height: style ? style.height : null,
+      flex: style ? style.flex : null,
+    };
+  }
+
+  function getLayoutSnapshot() {
+    var inst = null;
+    var mountHost = null;
+    var stage = null;
+    try {
+      inst = window.__gs_runtime && window.__gs_runtime._instance;
+      mountHost = inst && inst.getCallMountHost ? inst.getCallMountHost() : null;
+    } catch (_) {}
+    try { stage = rootEl && rootEl.querySelector ? rootEl.querySelector('[data-el="stage"]') : null; } catch (_) {}
+    return {
+      mountMode: mountMode,
+      mountHost: readBox(mountHost),
+      hostEl: readBox(hostEl),
+      card: readBox(rootEl),
+      stage: readBox(stage),
+      video: readBox(videoEl),
+    };
+  }
+
+  function dlogLayout(label, extra) {
+    var payload = getLayoutSnapshot();
+    if (extra && typeof extra === 'object') {
+      var keys = Object.keys(extra);
+      for (var i = 0; i < keys.length; i++) payload[keys[i]] = extra[keys[i]];
+    }
+    dlog(label, payload);
+  }
+
+  function ensureStageLayout(reason) {
+    if (!rootEl) return;
+    var stage = rootEl.querySelector('[data-el="stage"]');
+    if (!stage) return;
+    if (!stage.classList.contains('show')) {
+      stage.style.height = '';
+      return;
+    }
+    if (mountMode === 'sidecar') {
+      stage.style.height = '220px';
+      stage.style.minHeight = '220px';
+      dlogLayout('stage layout applied', { reason: reason, stageHeightPx: 220 });
+      return;
+    }
+    var snap = getLayoutSnapshot();
+    var availableHeight = (snap.mountHost && snap.mountHost.h) || (snap.hostEl && snap.hostEl.h) || (snap.card && snap.card.h) || 0;
+    var stageHeight = availableHeight > 0 ? Math.max(240, Math.min(availableHeight - 180, 420)) : 300;
+    stage.style.height = stageHeight + 'px';
+    stage.style.minHeight = stageHeight + 'px';
+    dlogLayout('stage layout applied', { reason: reason, stageHeightPx: stageHeight });
+  }
+
+  function bindVideoDebugOnce() {
+    if (!videoEl || videoEl.__gsDebugBound) return;
+    videoEl.__gsDebugBound = true;
+    ['loadedmetadata', 'playing', 'resize', 'pause', 'waiting', 'emptied'].forEach(function (evtName) {
+      videoEl.addEventListener(evtName, function () {
+        dlogLayout('remote video ' + evtName, {
+          readyState: typeof videoEl.readyState === 'number' ? videoEl.readyState : null,
+          networkState: typeof videoEl.networkState === 'number' ? videoEl.networkState : null,
+          paused: !!videoEl.paused,
+          currentTime: Number(videoEl.currentTime || 0),
+          videoWidth: typeof videoEl.videoWidth === 'number' ? videoEl.videoWidth : 0,
+          videoHeight: typeof videoEl.videoHeight === 'number' ? videoEl.videoHeight : 0,
+          hasSrcObject: !!videoEl.srcObject,
+        });
+      });
+    });
+    if (window.ResizeObserver) {
+      var stage = rootEl && rootEl.querySelector ? rootEl.querySelector('[data-el="stage"]') : null;
+      var lastSig = '';
+      var ro = new ResizeObserver(function () {
+        var snap = getLayoutSnapshot();
+        var sig = [
+          snap.mountHost ? snap.mountHost.w + 'x' + snap.mountHost.h : '0x0',
+          snap.hostEl ? snap.hostEl.w + 'x' + snap.hostEl.h : '0x0',
+          snap.card ? snap.card.w + 'x' + snap.card.h : '0x0',
+          snap.stage ? snap.stage.w + 'x' + snap.stage.h : '0x0',
+          snap.video ? snap.video.w + 'x' + snap.video.h : '0x0',
+        ].join('|');
+        if (sig === lastSig) return;
+        lastSig = sig;
+        dlog('remote video resize-observed', snap);
+      });
+      if (stage) ro.observe(stage);
+      ro.observe(videoEl);
+      videoEl.__gsResizeObserver = ro;
+    }
   }
 
   function isCallActiveOrConnecting() {
@@ -440,6 +565,7 @@
       }
     } catch (_) {}
     if (rootEl) rootEl.classList.add('show');
+    ensureStageLayout('setInCallMode:' + (isVideo ? 'video' : 'audio'));
     // If a remote video track was attached BEFORE the stage became
     // visible (the original Bug A), the <video> element will be paused
     // with zero layout. Now that the stage is shown, re-issue play() so
@@ -450,7 +576,7 @@
         if (p && p.catch) p.catch(function () {});
       } catch (_) {}
     }
-    dlog('setInCallMode()', {
+    dlogLayout('setInCallMode()', {
       isVideo: isVideo,
       cardVisible: rootEl ? rootEl.classList.contains('show') : false,
       stageOn: stage ? stage.classList.contains('show') : false,
@@ -653,73 +779,135 @@
   }
 
   function attachRemote(room, LK) {
-    // Guarded media attach: never call play() on detached <video>/<audio>,
-    // never overwrite srcObject if the underlying track is unchanged, and
-    // swallow AbortError/DOMException without tearing down the call.
+    var remoteVideoTrack = null;
+    var remoteVideoAttachedEl = null;
+
     function safePlay(el) {
       if (!el || !el.isConnected) return;
       try {
         var p = el.play();
+        dlog('video.play() attempted', {
+          target: el === videoEl ? 'remote' : (el === localVideoEl ? 'local' : 'audio'),
+          hasSrcObject: !!el.srcObject,
+          isConnected: !!el.isConnected,
+        });
         if (p && typeof p.catch === 'function') {
           p.catch(function (err) {
-            // AbortError / NotAllowedError / DOMException are harmless
-            // here — the element will retry on the next track event.
             if (err && err.name) Util.log && Util.log('[call] play suppressed', err.name);
+            dlog('video.play() suppressed', {
+              errorName: err && err.name,
+              errorMessage: err && err.message,
+              target: el === videoEl ? 'remote' : (el === localVideoEl ? 'local' : 'audio'),
+            });
           });
         }
-      } catch (_) { /* detached or paused — ignore */ }
+      } catch (_) {}
     }
-    function setSrc(el, track) {
+
+    function setMediaStreamSrc(el, track) {
       if (!el || !el.isConnected) return false;
       var nextStream = track ? new MediaStream([track]) : null;
-      // Avoid re-assigning srcObject for the same underlying track —
-      // re-assignment forces the element to abort the current decode
-      // pipeline, which is the source of "fetching process aborted".
       var cur = el.srcObject;
       if (!track && !cur) return false;
-      if (track && cur && cur.getTracks && cur.getTracks().indexOf(track) !== -1) {
-        return false; // same track already attached
-      }
+      if (track && cur && cur.getTracks && cur.getTracks().indexOf(track) !== -1) return false;
       try { el.srcObject = nextStream; } catch (_) { return false; }
       return true;
     }
 
+    function detachRemoteVideo(reason) {
+      if (remoteVideoTrack && remoteVideoAttachedEl) {
+        try { remoteVideoTrack.detach(remoteVideoAttachedEl); } catch (_) {}
+      }
+      remoteVideoTrack = null;
+      remoteVideoAttachedEl = null;
+      if (videoEl) {
+        try { videoEl.srcObject = null; } catch (_) {}
+      }
+      dlogLayout('remote video detached', { reason: reason });
+    }
+
+    function attachRemoteVideo(track, publication, participant, reason) {
+      if (!videoEl || !videoEl.isConnected || !track) return false;
+      if (remoteVideoTrack === track && remoteVideoAttachedEl === videoEl) {
+        dlogLayout('remote video attach skipped (same track)', { reason: reason });
+        return false;
+      }
+      detachRemoteVideo('swap');
+      ensureStageLayout('attachRemoteVideo:' + reason);
+      try {
+        track.attach(videoEl);
+        remoteVideoTrack = track;
+        remoteVideoAttachedEl = videoEl;
+        dlogLayout('remote srcObject assigned', {
+          reason: reason,
+          participant: getParticipantDescriptor(participant),
+          trackSid: track.sid || null,
+          source: publication && publication.source ? String(publication.source) : null,
+          muted: !!(publication && publication.isMuted),
+          hasSrcObject: !!videoEl.srcObject,
+        });
+        safePlay(videoEl);
+        return true;
+      } catch (err) {
+        dlog('remote video attach failed', {
+          reason: reason,
+          error: err && err.message,
+          participant: getParticipantDescriptor(participant),
+        });
+        return false;
+      }
+    }
+
     function refresh() {
-      // If the call host has been detached (panel rebuild leaked through,
-      // call torn down between events, etc.) bail out — re-attaching media
-      // to dead elements is what triggers DOMException in the first place.
       if (!rootEl || !rootEl.isConnected) return;
-      var firstAudio = null, firstVideo = null;
+      var firstAudio = null;
+      var operatorVideo = null;
+      var fallbackVideo = null;
       room.remoteParticipants.forEach(function (p) {
+        var descriptor = getParticipantDescriptor(p);
         p.trackPublications.forEach(function (pub) {
           if (!pub.track || !pub.track.mediaStreamTrack) return;
           if (pub.kind === LK.Track.Kind.Audio && !firstAudio) firstAudio = pub.track.mediaStreamTrack;
-          if (pub.kind === LK.Track.Kind.Video && !firstVideo) firstVideo = pub.track.mediaStreamTrack;
+          if (pub.kind === LK.Track.Kind.Video) {
+            var candidate = { track: pub.track, publication: pub, participant: p };
+            if (descriptor.isOperator && !operatorVideo) operatorVideo = candidate;
+            if (!fallbackVideo) fallbackVideo = candidate;
+          }
         });
       });
-      var audioChanged = setSrc(audioEl, firstAudio);
+      if (!operatorVideo) operatorVideo = fallbackVideo;
+      var audioChanged = setMediaStreamSrc(audioEl, firstAudio);
       if (audioChanged && firstAudio) safePlay(audioEl);
-      var videoChanged = setSrc(videoEl, firstVideo);
-      if (videoChanged && firstVideo) safePlay(videoEl);
-      if (audioChanged || videoChanged) {
-        dlog('refresh remote media', {
-          audio: !!firstAudio, video: !!firstVideo,
+      var videoChanged = false;
+      if (operatorVideo && operatorVideo.track) {
+        videoChanged = attachRemoteVideo(operatorVideo.track, operatorVideo.publication, operatorVideo.participant, 'refresh');
+      } else if (remoteVideoTrack) {
+        detachRemoteVideo('no-remote-video');
+        videoChanged = true;
+      }
+      if (audioChanged || videoChanged || operatorVideo) {
+        dlogLayout('refresh remote media', {
+          audio: !!firstAudio,
+          video: !!(operatorVideo && operatorVideo.track),
+          operatorParticipant: operatorVideo ? getParticipantDescriptor(operatorVideo.participant) : null,
+          remoteTrackSid: operatorVideo && operatorVideo.track ? (operatorVideo.track.sid || null) : null,
+          remotePublicationSource: operatorVideo && operatorVideo.publication && operatorVideo.publication.source ? String(operatorVideo.publication.source) : null,
           videoElConnected: videoEl ? videoEl.isConnected : false,
           videoElW: videoEl ? videoEl.clientWidth : 0,
           videoElH: videoEl ? videoEl.clientHeight : 0,
+          videoReadyState: videoEl ? videoEl.readyState : null,
+          videoPaused: videoEl ? !!videoEl.paused : null,
+          videoHasSrcObject: videoEl ? !!videoEl.srcObject : null,
         });
       }
-      // No-stream placeholder for video calls before the operator's
-      // camera track arrives (or if it's never published).
       if (rootEl) {
         var ns = rootEl.querySelector('[data-el="nostream"]');
         var isVideoCall = current && current.invite && current.invite.call_type === 'video';
-        if (ns) ns.style.display = (isVideoCall && !firstVideo) ? 'flex' : 'none';
+        if (ns) ns.style.display = (isVideoCall && !(operatorVideo && operatorVideo.track)) ? 'flex' : 'none';
       }
     }
+
     function refreshLocal() {
-      // Mirror the local participant's video track into the PIP. Audio
-      // is intentionally NOT attached locally (would echo).
       if (!localVideoEl || !rootEl) return;
       if (!rootEl.isConnected) return;
       var pip = rootEl.querySelector('[data-el="pip"]');
@@ -733,21 +921,47 @@
         });
       }
       if (localVideoTrack) {
-        if (setSrc(localVideoEl, localVideoTrack)) {
+        if (setMediaStreamSrc(localVideoEl, localVideoTrack)) {
           safePlay(localVideoEl);
           dlog('local PIP attached');
         }
         if (pip) pip.style.display = '';
       } else {
-        setSrc(localVideoEl, null);
+        setMediaStreamSrc(localVideoEl, null);
         if (pip) pip.style.display = 'none';
       }
     }
+
     room
-      .on(LK.RoomEvent.ParticipantConnected, refresh)
-      .on(LK.RoomEvent.ParticipantDisconnected, refresh)
-      .on(LK.RoomEvent.TrackSubscribed, refresh)
-      .on(LK.RoomEvent.TrackUnsubscribed, refresh)
+      .on(LK.RoomEvent.ParticipantConnected, function (participant) {
+        dlog('room event: participant connected', getParticipantDescriptor(participant));
+        refresh();
+      })
+      .on(LK.RoomEvent.ParticipantDisconnected, function (participant) {
+        dlog('room event: participant disconnected', getParticipantDescriptor(participant));
+        refresh();
+      })
+      .on(LK.RoomEvent.TrackSubscribed, function (track, publication, participant) {
+        dlog('room event: TrackSubscribed', {
+          participant: getParticipantDescriptor(participant),
+          trackKind: track && track.kind ? String(track.kind) : null,
+          trackSid: track && track.sid ? String(track.sid) : null,
+          source: publication && publication.source ? String(publication.source) : null,
+          isSubscribed: publication ? !!publication.isSubscribed : null,
+          isMuted: publication ? !!publication.isMuted : null,
+        });
+        refresh();
+      })
+      .on(LK.RoomEvent.TrackUnsubscribed, function (track, publication, participant) {
+        dlog('room event: TrackUnsubscribed', {
+          participant: getParticipantDescriptor(participant),
+          trackKind: track && track.kind ? String(track.kind) : null,
+          trackSid: track && track.sid ? String(track.sid) : null,
+          source: publication && publication.source ? String(publication.source) : null,
+        });
+        if (track && remoteVideoTrack && track === remoteVideoTrack) detachRemoteVideo('track-unsubscribed');
+        refresh();
+      })
       .on(LK.RoomEvent.LocalTrackPublished, refreshLocal)
       .on(LK.RoomEvent.LocalTrackUnpublished, refreshLocal)
       .on(LK.RoomEvent.Reconnecting, function () {
@@ -762,6 +976,13 @@
         dlog('room event: disconnected', { reason: reason });
         teardown('remote:' + String(reason == null ? 'unknown' : reason));
       });
+    if (window.addEventListener && !window.__gsCallWindowResizeBound) {
+      window.__gsCallWindowResizeBound = true;
+      window.addEventListener('resize', function () {
+        ensureStageLayout('window-resize');
+        dlogLayout('window resize', {});
+      });
+    }
     refresh();
     refreshLocal();
   }
@@ -786,9 +1007,18 @@
     setStatus(msg, reason === 'remote' ? 'ended' : null);
     setRingingMode();
     if (audioEl) audioEl.srcObject = null;
-    if (videoEl) videoEl.srcObject = null;
+    if (videoEl) {
+      try {
+        var srcTracks = videoEl.srcObject && videoEl.srcObject.getVideoTracks ? videoEl.srcObject.getVideoTracks() : [];
+        for (var i = 0; i < srcTracks.length; i++) {
+          if (srcTracks[i] && typeof srcTracks[i].stop === 'function') srcTracks[i].stop();
+        }
+      } catch (_) {}
+      videoEl.srcObject = null;
+    }
     if (localVideoEl) localVideoEl.srcObject = null;
     if (degradedEl) degradedEl.classList.remove('show');
+    ensureStageLayout('teardown');
     // Show the terminal message a bit longer when the operator hung up so
     // the visitor actually reads it before the surface auto-closes.
     var hideDelay = (reason === 'remote' || (typeof reason === 'string' && reason.indexOf('remote:') === 0)) ? 2200 : 600;
@@ -909,13 +1139,9 @@
             // so any future zero-size regression is immediately visible.
             var inst = window.__gs_runtime && window.__gs_runtime._instance;
             var mountHost = inst && inst.getCallMountHost ? inst.getCallMountHost() : null;
-            var stage = rootEl && rootEl.querySelector('[data-el="stage"]');
-            dlog('layout sizes after setInCallMode', {
+            dlogLayout('layout sizes after setInCallMode', {
               mountHost: mountHost ? { w: mountHost.clientWidth, h: mountHost.clientHeight, display: mountHost.style.display } : null,
-              hostEl: hostEl ? { w: hostEl.clientWidth, h: hostEl.clientHeight } : null,
-              card: rootEl ? { w: rootEl.clientWidth, h: rootEl.clientHeight, show: rootEl.classList.contains('show') } : null,
-              stage: stage ? { w: stage.clientWidth, h: stage.clientHeight, show: stage.classList.contains('show') } : null,
-              video: videoEl ? { w: videoEl.clientWidth, h: videoEl.clientHeight, hasSrc: !!videoEl.srcObject } : null,
+              videoHasSrc: videoEl ? !!videoEl.srcObject : false,
             });
           } catch (_) {}
           dlog('mic published; mode set', { isVideo: isVideo });

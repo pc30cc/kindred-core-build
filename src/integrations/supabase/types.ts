@@ -788,6 +788,102 @@ export type Database = {
           },
         ]
       }
+      call_invitations: {
+        Row: {
+          call_session_id: string | null
+          cancel_reason: string | null
+          channel: Database["public"]["Enums"]["call_invitation_channel"]
+          contact_id: string | null
+          conversation_id: string
+          created_at: string
+          created_by_user_id: string
+          ended_at: string | null
+          expires_at: string
+          id: string
+          joined_at: string | null
+          metadata: Json
+          status: Database["public"]["Enums"]["call_invitation_status"]
+          system_message_id: string | null
+          updated_at: string
+          visitor_session_id: string | null
+          workspace_id: string
+        }
+        Insert: {
+          call_session_id?: string | null
+          cancel_reason?: string | null
+          channel: Database["public"]["Enums"]["call_invitation_channel"]
+          contact_id?: string | null
+          conversation_id: string
+          created_at?: string
+          created_by_user_id: string
+          ended_at?: string | null
+          expires_at: string
+          id?: string
+          joined_at?: string | null
+          metadata?: Json
+          status?: Database["public"]["Enums"]["call_invitation_status"]
+          system_message_id?: string | null
+          updated_at?: string
+          visitor_session_id?: string | null
+          workspace_id: string
+        }
+        Update: {
+          call_session_id?: string | null
+          cancel_reason?: string | null
+          channel?: Database["public"]["Enums"]["call_invitation_channel"]
+          contact_id?: string | null
+          conversation_id?: string
+          created_at?: string
+          created_by_user_id?: string
+          ended_at?: string | null
+          expires_at?: string
+          id?: string
+          joined_at?: string | null
+          metadata?: Json
+          status?: Database["public"]["Enums"]["call_invitation_status"]
+          system_message_id?: string | null
+          updated_at?: string
+          visitor_session_id?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "call_invitations_call_session_id_fkey"
+            columns: ["call_session_id"]
+            isOneToOne: false
+            referencedRelation: "call_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "call_invitations_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "call_invitations_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "call_invitations_system_message_id_fkey"
+            columns: ["system_message_id"]
+            isOneToOne: false
+            referencedRelation: "conversation_messages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "call_invitations_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       call_participants: {
         Row: {
           call_session_id: string
@@ -5068,6 +5164,13 @@ export type Database = {
       app_role: "admin" | "moderator" | "user"
       article_status: "draft" | "published" | "archived"
       call_context_type: "conversation" | "internal" | "verification"
+      call_invitation_channel: "audio" | "video"
+      call_invitation_status:
+        | "pending"
+        | "joined"
+        | "expired"
+        | "cancelled"
+        | "declined"
       call_participant_type: "visitor" | "operator" | "admin" | "internal"
       call_queue_channel: "audio" | "video"
       call_queue_state:
@@ -5242,6 +5345,14 @@ export const Constants = {
       app_role: ["admin", "moderator", "user"],
       article_status: ["draft", "published", "archived"],
       call_context_type: ["conversation", "internal", "verification"],
+      call_invitation_channel: ["audio", "video"],
+      call_invitation_status: [
+        "pending",
+        "joined",
+        "expired",
+        "cancelled",
+        "declined",
+      ],
       call_participant_type: ["visitor", "operator", "admin", "internal"],
       call_queue_channel: ["audio", "video"],
       call_queue_state: [

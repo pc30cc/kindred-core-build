@@ -111,19 +111,19 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
   // Localized "Xm Ys" helper used both in pending pill and surface countdown.
   const formatRemaining = useCallback((expiresAt: string): string => {
     const ms = new Date(expiresAt).getTime() - Date.now();
-    if (ms <= 0) return t('callInvite.expired') || 'Expired';
+    if (ms <= 0) return t('inbox.callInvite.expired') || 'Expired';
     const total = Math.ceil(ms / 1000);
     let timeStr: string;
     if (total < 60) {
-      timeStr = (t('callInvite.secondsShort', { s: String(total) }) || `${total}s`);
+      timeStr = (t('inbox.callInvite.secondsShort', { s: String(total) }) || `${total}s`);
     } else {
       const m = Math.floor(total / 60);
       const s = total % 60;
       timeStr = s === 0
-        ? (t('callInvite.minutesShort', { m: String(m) }) || `${m}m`)
-        : (t('callInvite.minutesSeconds', { m: String(m), s: String(s) }) || `${m}m ${s}s`);
+        ? (t('inbox.callInvite.minutesShort', { m: String(m) }) || `${m}m`)
+        : (t('inbox.callInvite.minutesSeconds', { m: String(m), s: String(s) }) || `${m}m ${s}s`);
     }
-    return t('callInvite.timeLeft', { time: timeStr }) || `${timeStr} left`;
+    return t('inbox.callInvite.timeLeft', { time: timeStr }) || `${timeStr} left`;
   }, [t]);
 
   // Reset everything when switching conversations.
@@ -307,13 +307,13 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
       });
       toast({
         title: channel === 'video'
-          ? (t('callInvite.videoSent') || 'Video invite sent')
-          : (t('callInvite.audioSent') || 'Audio invite sent'),
-        description: t('callInvite.sentDesc') || 'Visitor can join from the conversation card.',
+          ? (t('inbox.callInvite.videoSent') || 'Video invite sent')
+          : (t('inbox.callInvite.audioSent') || 'Audio invite sent'),
+        description: t('inbox.callInvite.sentDesc') || 'Visitor can join from the conversation card.',
       });
     } catch (e: any) {
       toast({
-        title: t('callInvite.sendFailed') || 'Could not send invite',
+        title: t('inbox.callInvite.sendFailed') || 'Could not send invite',
         description: e?.message || String(e),
         variant: 'destructive',
       });
@@ -346,7 +346,7 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
       // invitation, just sync the pill.
     } catch (err: any) {
       toast({
-        title: t('callInvite.cancelFailed') || 'Could not cancel invitation',
+        title: t('inbox.callInvite.cancelFailed') || 'Could not cancel invitation',
         description: err?.message || String(err),
         variant: 'destructive',
       });
@@ -381,24 +381,24 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
   const surfaceTitle =
     surface.phase === 'waiting'
       ? (isVideo
-          ? (t('callSurface.waitingVideoTitle') || 'Waiting for visitor — video')
-          : (t('callSurface.waitingAudioTitle') || 'Waiting for visitor — audio'))
+          ? (t('inbox.callSurface.waitingVideoTitle') || 'Waiting for visitor — video')
+          : (t('inbox.callSurface.waitingAudioTitle') || 'Waiting for visitor — audio'))
       : surface.phase === 'connecting'
-        ? (t('callSurface.connecting') || 'Connecting…')
+        ? (t('inbox.callSurface.connecting') || 'Connecting…')
         : surface.phase === 'connected'
           ? (isVideo
-              ? (t('callSurface.connectedVideo') || 'Video call in progress')
-              : (t('callSurface.connectedAudio') || 'Audio call in progress'))
-          : (t('callSurface.ended') || 'Call ended');
+              ? (t('inbox.callSurface.connectedVideo') || 'Video call in progress')
+              : (t('inbox.callSurface.connectedAudio') || 'Audio call in progress'))
+          : (t('inbox.callSurface.ended') || 'Call ended');
 
   const terminalLabel = (() => {
     switch (surface.terminalStatus) {
-      case 'expired':   return t('callSurface.terminalExpired')   || 'The visitor did not join in time.';
-      case 'declined':  return t('callSurface.terminalDeclined')  || 'The visitor declined the call.';
-      case 'cancelled': return t('callSurface.terminalCancelled') || 'Invitation cancelled.';
+      case 'expired':   return t('inbox.callSurface.terminalExpired')   || 'The visitor did not join in time.';
+      case 'declined':  return t('inbox.callSurface.terminalDeclined')  || 'The visitor declined the call.';
+      case 'cancelled': return t('inbox.callSurface.terminalCancelled') || 'Invitation cancelled.';
       case 'failed':    return surface.errorMessage
-        ? `${t('callSurface.terminalFailed') || 'Could not connect.'} ${surface.errorMessage}`
-        : (t('callSurface.terminalFailed') || 'Could not connect.');
+        ? `${t('inbox.callSurface.terminalFailed') || 'Could not connect.'} ${surface.errorMessage}`
+        : (t('inbox.callSurface.terminalFailed') || 'Could not connect.');
       default: return null;
     }
   })();
@@ -413,14 +413,14 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
   const remainingLabel = surface.invitation && surface.phase === 'waiting'
     ? (() => {
         const ms = new Date(surface.invitation.expires_at).getTime() - Date.now();
-        if (ms <= 0) return t('callSurface.expiringNow') || 'Expiring…';
+        if (ms <= 0) return t('inbox.callSurface.expiringNow') || 'Expiring…';
         const total = Math.ceil(ms / 1000);
-        if (total < 60) return (t('callInvite.secondsShort', { s: String(total) }) || `${total}s`);
+        if (total < 60) return (t('inbox.callInvite.secondsShort', { s: String(total) }) || `${total}s`);
         const m = Math.floor(total / 60);
         const s = total % 60;
         return s === 0
-          ? (t('callInvite.minutesShort', { m: String(m) }) || `${m}m`)
-          : (t('callInvite.minutesSeconds', { m: String(m), s: String(s) }) || `${m}m ${s}s`);
+          ? (t('inbox.callInvite.minutesShort', { m: String(m) }) || `${m}m`)
+          : (t('inbox.callInvite.minutesSeconds', { m: String(m), s: String(s) }) || `${m}m ${s}s`);
       })()
     : null;
 
@@ -461,8 +461,8 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
                   </Badge>
                   <span className="text-[10px] text-muted-foreground truncate">
                     {contactName
-                      ? (t('callInvite.waitingFor', { name: contactName }) || `Waiting for ${contactName}…`)
-                      : (t('callInvite.waitingForVisitor') || 'Waiting for visitor…')}
+                      ? (t('inbox.callInvite.waitingFor', { name: contactName }) || `Waiting for ${contactName}…`)
+                      : (t('inbox.callInvite.waitingForVisitor') || 'Waiting for visitor…')}
                   </span>
                 </div>
                 <Button
@@ -471,12 +471,12 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
                   className="w-full h-8 text-[11px] font-semibold gap-1.5 hover:bg-destructive/10 hover:border-destructive/30 hover:text-destructive transition-colors"
                   onClick={() => void cancelInvite()}
                   disabled={loading}
-                  aria-label={t('callSurface.cancel') || 'Cancel invitation'}
+                  aria-label={t('inbox.callSurface.cancel') || 'Cancel invitation'}
                 >
                   {loading
                     ? <Loader2 className="w-3 h-3 animate-spin" aria-hidden="true" />
                     : <X className="w-3 h-3" aria-hidden="true" />}
-                  {t('callSurface.cancel') || 'Cancel invitation'}
+                  {t('inbox.callSurface.cancel') || 'Cancel invitation'}
                 </Button>
               </>
             )}
@@ -485,7 +485,7 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
               <div className="py-4 flex flex-col items-center justify-center gap-2 text-center">
                 <Loader2 className={cn('w-6 h-6 animate-spin', accentText)} aria-hidden="true" />
                 <div className="text-[11px] text-muted-foreground">
-                  {t('callSurface.establishing') || 'Establishing media connection…'}
+                  {t('inbox.callSurface.establishing') || 'Establishing media connection…'}
                 </div>
               </div>
             )}
@@ -505,8 +505,8 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
                     )}
                     onClick={() => void live.toggleMic()}
                     aria-label={live.micEnabled
-                      ? (t('callSurface.muteMic') || 'Mute microphone')
-                      : (t('callSurface.unmuteMic') || 'Unmute microphone')}
+                      ? (t('inbox.callSurface.muteMic') || 'Mute microphone')
+                      : (t('inbox.callSurface.unmuteMic') || 'Unmute microphone')}
                   >
                     {live.micEnabled ? <Mic className="w-3.5 h-3.5" /> : <MicOff className="w-3.5 h-3.5" />}
                   </Button>
@@ -520,8 +520,8 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
                       )}
                       onClick={() => void live.toggleCamera()}
                       aria-label={live.cameraEnabled
-                        ? (t('callSurface.cameraOff') || 'Turn camera off')
-                        : (t('callSurface.cameraOn') || 'Turn camera on')}
+                        ? (t('inbox.callSurface.cameraOff') || 'Turn camera off')
+                        : (t('inbox.callSurface.cameraOn') || 'Turn camera on')}
                     >
                       {live.cameraEnabled ? <Video className="w-3.5 h-3.5" /> : <VideoOff className="w-3.5 h-3.5" />}
                     </Button>
@@ -531,10 +531,10 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
                     variant="default"
                     className="h-8 px-3 rounded-full bg-destructive text-destructive-foreground hover:bg-destructive/90 gap-1.5"
                     onClick={() => void onHangup()}
-                    aria-label={t('callSurface.hangup') || 'End call'}
+                    aria-label={t('inbox.callSurface.hangup') || 'End call'}
                   >
                     <PhoneOff className="w-3.5 h-3.5" aria-hidden="true" />
-                    <span className="text-[11px] font-semibold">{t('callSurface.hangup') || 'End'}</span>
+                    <span className="text-[11px] font-semibold">{t('inbox.callSurface.hangup') || 'End'}</span>
                   </Button>
                 </div>
               </>
@@ -586,7 +586,7 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
         <CardHeader className="pb-2">
           <CardTitle className="text-xs font-semibold flex items-center gap-1.5 text-foreground">
             <Phone className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
-            {t('sidebarCall.title') || 'Call visitor'}
+            {t('inbox.sidebarCall.title') || 'Call visitor'}
           </CardTitle>
         </CardHeader>
         <CardContent className="pt-0 space-y-2">
@@ -609,8 +609,8 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
               <div className="min-w-0 flex-1">
                 <div className="text-[11px] font-semibold text-foreground truncate">
                   {contactName
-                    ? (t('callInvite.waitingFor', { name: contactName }) || `Waiting for ${contactName}…`)
-                    : (t('callInvite.waitingForVisitor') || 'Waiting for visitor…')}
+                    ? (t('inbox.callInvite.waitingFor', { name: contactName }) || `Waiting for ${contactName}…`)
+                    : (t('inbox.callInvite.waitingForVisitor') || 'Waiting for visitor…')}
                 </div>
                 <div className="text-[10px] text-muted-foreground tabular-nums">
                   {formatRemaining(latest.expires_at)}
@@ -622,8 +622,8 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
                 className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive shrink-0"
                 onClick={() => void cancelInvite()}
                 disabled={loading}
-                aria-label={t('callInvite.cancel') || 'Cancel invitation'}
-                title={t('callInvite.cancel') || 'Cancel invitation'}
+                aria-label={t('inbox.callInvite.cancel') || 'Cancel invitation'}
+                title={t('inbox.callInvite.cancel') || 'Cancel invitation'}
               >
                 {loading
                   ? <Loader2 className="w-3 h-3 animate-spin" aria-hidden="true" />
@@ -637,7 +637,7 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
             <div className="flex items-center gap-1.5">
               <Badge
                 className={cn('h-5 px-1.5 text-[10px] font-semibold gap-1 border', visual.className)}
-                title={`${t('callInvite.lastInvite') || 'Last invite'}: ${t(visual.labelKey) || visual.labelKey}`}
+                title={`${t('inbox.callInvite.lastInvite') || 'Last invite'}: ${t(visual.labelKey) || visual.labelKey}`}
               >
                 <visual.Icon className="w-2.5 h-2.5" aria-hidden="true" />
                 <span>{t(visual.labelKey) || visual.labelKey}</span>
@@ -650,14 +650,14 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
                 disabled={loading || creating !== null}
                 aria-label={
                   lastChannel === 'video'
-                    ? (t('callInvite.resendVideo') || 'Resend video invite')
-                    : (t('callInvite.resendAudio') || 'Resend audio invite')
+                    ? (t('inbox.callInvite.resendVideo') || 'Resend video invite')
+                    : (t('inbox.callInvite.resendAudio') || 'Resend audio invite')
                 }
               >
                 {creating === lastChannel
                   ? <Loader2 className="w-3 h-3 animate-spin" aria-hidden="true" />
                   : <RotateCw className="w-3 h-3" aria-hidden="true" />}
-                {t('callInvite.resend') || 'Resend'}
+                {t('inbox.callInvite.resend') || 'Resend'}
               </Button>
             </div>
           )}
@@ -670,13 +670,13 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
               className="h-8 px-2 text-[11px] font-semibold gap-1.5 hover:bg-warning/5 hover:border-warning/40 hover:text-warning transition-colors"
               onClick={() => openInviteDialog('audio')}
               disabled={disableInvites}
-              aria-label={t('callInvite.audioAria') || 'Invite visitor to an audio call'}
-              title={t('callInvite.inviteAudio') || 'Invite to audio'}
+              aria-label={t('inbox.callInvite.audioAria') || 'Invite visitor to an audio call'}
+              title={t('inbox.callInvite.inviteAudio') || 'Invite to audio'}
             >
               {creating === 'audio'
                 ? <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
                 : <Phone className="w-3.5 h-3.5" aria-hidden="true" />}
-              <span className="truncate">{t('callInvite.audio') || 'Audio'}</span>
+              <span className="truncate">{t('inbox.callInvite.audio') || 'Audio'}</span>
             </Button>
             <Button
               size="sm"
@@ -684,19 +684,19 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
               className="h-8 px-2 text-[11px] font-semibold gap-1.5 hover:bg-violet-500/5 hover:border-violet-500/40 hover:text-violet-600 dark:hover:text-violet-400 transition-colors"
               onClick={() => openInviteDialog('video')}
               disabled={disableInvites}
-              aria-label={t('callInvite.videoAria') || 'Invite visitor to a video call'}
-              title={t('callInvite.inviteVideo') || 'Invite to video'}
+              aria-label={t('inbox.callInvite.videoAria') || 'Invite visitor to a video call'}
+              title={t('inbox.callInvite.inviteVideo') || 'Invite to video'}
             >
               {creating === 'video'
                 ? <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
                 : <Video className="w-3.5 h-3.5" aria-hidden="true" />}
-              <span className="truncate">{t('callInvite.video') || 'Video'}</span>
+              <span className="truncate">{t('inbox.callInvite.video') || 'Video'}</span>
             </Button>
           </div>
 
           {!isPending && !isTerminal && (
             <p className="text-[10px] text-muted-foreground leading-snug">
-              {t('sidebarCall.hint') || 'Send an invitation — the visitor joins from their chat when ready.'}
+              {t('inbox.sidebarCall.hint') || 'Send an invitation — the visitor joins from their chat when ready.'}
             </p>
           )}
         </CardContent>

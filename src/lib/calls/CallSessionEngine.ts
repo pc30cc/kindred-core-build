@@ -438,6 +438,7 @@ export class CallSessionEngine {
       // 4) Ack the call session itself (non-fatal).
       try { await callsApi.accept(acceptedCallId); } catch { /* ignore */ }
 
+      this.clearConnectWatchdog();
       this.transition({ phase: 'connected', startedAt: Date.now() });
     } catch (err) {
       if (this.gen !== myGen) return;

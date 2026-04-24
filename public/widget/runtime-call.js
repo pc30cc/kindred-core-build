@@ -532,7 +532,42 @@
   }
 
   function attachRemote(room, LK) {
+    // Guarded media attach: never call play() on detached <video>/<audio>,
+    // never overwrite srcObject if the underlying track is unchanged, and
+    // swallow AbortError/DOMException without tearing down the call.
+    function safePlay(el) {
+      if (!el || !el.isConnected) return;
+      try {
+        var p = el.play();
+        if (p && typeof p.catch === 'function') {
+          p.catch(function (err) {
+            // AbortError / NotAllowedError / DOMException are harmless
+            // here — the element will retry on the next track event.
+            if (err && err.name) Util.log && Util.log('[call] play suppressed', err.name);
+          });
+        }
+      } catch (_) { /* detached or paused — ignore */ }
+    }
+    function setSrc(el, track) {
+      if (!el || !el.isConnected) return false;
+      var nextStream = track ? new MediaStream([track]) : null;
+      // Avoid re-assigning srcObject for the same underlying track —
+      // re-assignment forces the element to abort the current decode
+      // pipeline, which is the source of "fetching process aborted".
+      var cur = el.srcObject;
+      if (!track && !cur) return false;
+      if (track && cur && cur.getTracks && cur.getTracks().indexOf(track) !== -1) {
+        return false; // same track already attached
+      }
+      try { el.srcObject = nextStream; } catch (_) { return false; }
+      return true;
+    }
+
     function refresh() {
+      // If the call host has been detached (panel rebuild leaked through,
+      // call torn down between events, etc.) bail out — re-attaching media
+      // to dead elements is what triggers DOMException in the first place.
+      if (!rootEl || !rootEl.isConnected) return;
       var firstAudio = null, firstVideo = null;
       room.remoteParticipants.forEach(function (p) {
         p.trackPublications.forEach(function (pub) {
@@ -541,14 +576,8 @@
           if (pub.kind === LK.Track.Kind.Video && !firstVideo) firstVideo = pub.track.mediaStreamTrack;
         });
       });
-      if (audioEl) {
-        audioEl.srcObject = firstAudio ? new MediaStream([firstAudio]) : null;
-        if (firstAudio) { try { audioEl.play(); } catch (_) {} }
-      }
-      if (videoEl) {
-        videoEl.srcObject = firstVideo ? new MediaStream([firstVideo]) : null;
-        if (firstVideo) { try { videoEl.play(); } catch (_) {} }
-      }
+      if (setSrc(audioEl, firstAudio) && firstAudio) safePlay(audioEl);
+      if (setSrc(videoEl, firstVideo) && firstVideo) safePlay(videoEl);
       // No-stream placeholder for video calls before the operator's
       // camera track arrives (or if it's never published).
       if (rootEl) {
@@ -561,6 +590,7 @@
       // Mirror the local participant's video track into the PIP. Audio
       // is intentionally NOT attached locally (would echo).
       if (!localVideoEl || !rootEl) return;
+      if (!rootEl.isConnected) return;
       var pip = rootEl.querySelector('[data-el="pip"]');
       var lp = room.localParticipant;
       var localVideoTrack = null;
@@ -572,11 +602,10 @@
         });
       }
       if (localVideoTrack) {
-        localVideoEl.srcObject = new MediaStream([localVideoTrack]);
-        try { localVideoEl.play(); } catch (_) {}
+        if (setSrc(localVideoEl, localVideoTrack)) safePlay(localVideoEl);
         if (pip) pip.style.display = '';
       } else {
-        localVideoEl.srcObject = null;
+        setSrc(localVideoEl, null);
         if (pip) pip.style.display = 'none';
       }
     }

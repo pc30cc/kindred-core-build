@@ -547,16 +547,49 @@
         videoEl.srcObject = firstVideo ? new MediaStream([firstVideo]) : null;
         if (firstVideo) { try { videoEl.play(); } catch (_) {} }
       }
+      // No-stream placeholder for video calls before the operator's
+      // camera track arrives (or if it's never published).
+      if (rootEl) {
+        var ns = rootEl.querySelector('[data-el="nostream"]');
+        var isVideoCall = current && current.invite && current.invite.call_type === 'video';
+        if (ns) ns.style.display = (isVideoCall && !firstVideo) ? 'flex' : 'none';
+      }
+    }
+    function refreshLocal() {
+      // Mirror the local participant's video track into the PIP. Audio
+      // is intentionally NOT attached locally (would echo).
+      if (!localVideoEl || !rootEl) return;
+      var pip = rootEl.querySelector('[data-el="pip"]');
+      var lp = room.localParticipant;
+      var localVideoTrack = null;
+      if (lp && lp.trackPublications) {
+        lp.trackPublications.forEach(function (pub) {
+          if (pub.kind === LK.Track.Kind.Video && pub.track && pub.track.mediaStreamTrack) {
+            localVideoTrack = pub.track.mediaStreamTrack;
+          }
+        });
+      }
+      if (localVideoTrack) {
+        localVideoEl.srcObject = new MediaStream([localVideoTrack]);
+        try { localVideoEl.play(); } catch (_) {}
+        if (pip) pip.style.display = '';
+      } else {
+        localVideoEl.srcObject = null;
+        if (pip) pip.style.display = 'none';
+      }
     }
     room
       .on(LK.RoomEvent.ParticipantConnected, refresh)
       .on(LK.RoomEvent.ParticipantDisconnected, refresh)
       .on(LK.RoomEvent.TrackSubscribed, refresh)
       .on(LK.RoomEvent.TrackUnsubscribed, refresh)
+      .on(LK.RoomEvent.LocalTrackPublished, refreshLocal)
+      .on(LK.RoomEvent.LocalTrackUnpublished, refreshLocal)
       .on(LK.RoomEvent.Reconnecting, function () { setStatus('Reconnecting...'); })
       .on(LK.RoomEvent.Reconnected, function () { setStatus(''); })
       .on(LK.RoomEvent.Disconnected, function () { teardown('remote'); });
     refresh();
+    refreshLocal();
   }
 
   function teardown(reason) {
@@ -564,12 +597,22 @@
       try { current.room.disconnect(); } catch (_) {}
     }
     current = null;
-    setStatus(reason === 'remote' ? 'Call ended' : '');
+    // Distinguish "operator ended" (remote-initiated) from local actions
+    // so the visitor sees a real explanation, not a generic "ended".
+    var msg = '';
+    if (reason === 'remote') msg = 'Operator ended the call';
+    else if (reason === 'local') msg = 'Call ended';
+    else if (reason === 'error') msg = ''; // accept() already set a reason
+    setStatus(msg, reason === 'remote' ? 'ended' : null);
     setRingingMode();
     if (audioEl) audioEl.srcObject = null;
     if (videoEl) videoEl.srcObject = null;
+    if (localVideoEl) localVideoEl.srcObject = null;
     if (degradedEl) degradedEl.classList.remove('show');
-    setTimeout(hide, 600);
+    // Show the terminal message a bit longer when the operator hung up so
+    // the visitor actually reads it before the surface auto-closes.
+    var hideDelay = reason === 'remote' ? 2200 : 600;
+    setTimeout(hide, hideDelay);
   }
 
   function reject() {

@@ -745,15 +745,29 @@
       .on(LK.RoomEvent.TrackUnsubscribed, refresh)
       .on(LK.RoomEvent.LocalTrackPublished, refreshLocal)
       .on(LK.RoomEvent.LocalTrackUnpublished, refreshLocal)
-      .on(LK.RoomEvent.Reconnecting, function () { setStatus('Reconnecting...'); })
-      .on(LK.RoomEvent.Reconnected, function () { setStatus(''); })
-      .on(LK.RoomEvent.Disconnected, function () { teardown('remote'); });
+      .on(LK.RoomEvent.Reconnecting, function () {
+        dlog('room event: reconnecting');
+        setStatus('Reconnecting...');
+      })
+      .on(LK.RoomEvent.Reconnected, function () {
+        dlog('room event: reconnected');
+        setStatus('');
+      })
+      .on(LK.RoomEvent.Disconnected, function (reason) {
+        dlog('room event: disconnected', { reason: reason });
+        teardown('remote:' + String(reason == null ? 'unknown' : reason));
+      });
     refresh();
     refreshLocal();
   }
 
   function teardown(reason) {
-    dlog('teardown', { reason: reason });
+    dlog('teardown', {
+      reason: reason,
+      hasCurrent: !!current,
+      hasRoom: !!(current && current.room),
+      connecting: !!(current && current.connecting),
+    });
     if (current && current.room) {
       try { current.room.disconnect(); } catch (_) {}
     }
@@ -761,7 +775,7 @@
     // Distinguish "operator ended" (remote-initiated) from local actions
     // so the visitor sees a real explanation, not a generic "ended".
     var msg = '';
-    if (reason === 'remote') msg = 'Operator ended the call';
+    if (reason === 'remote' || (typeof reason === 'string' && reason.indexOf('remote:') === 0)) msg = 'Operator ended the call';
     else if (reason === 'local') msg = 'Call ended';
     else if (reason === 'error') msg = ''; // accept() already set a reason
     setStatus(msg, reason === 'remote' ? 'ended' : null);
@@ -772,7 +786,7 @@
     if (degradedEl) degradedEl.classList.remove('show');
     // Show the terminal message a bit longer when the operator hung up so
     // the visitor actually reads it before the surface auto-closes.
-    var hideDelay = reason === 'remote' ? 2200 : 600;
+    var hideDelay = (reason === 'remote' || (typeof reason === 'string' && reason.indexOf('remote:') === 0)) ? 2200 : 600;
     // teardown() is the legitimate close path — bypass the active-guard
     // we added to hide() so the surface actually disappears.
     setTimeout(function () { hide({ force: true }); }, hideDelay);

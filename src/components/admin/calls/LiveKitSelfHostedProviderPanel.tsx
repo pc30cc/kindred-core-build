@@ -50,6 +50,12 @@ export function LiveKitSelfHostedProviderPanel() {
   const [cfg, setCfg] = useState<LiveKitConfigPublicView | null>(null);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<LiveKitTestResult | null>(null);
+  // Tracks the last value the server confirmed it persisted, so we can detect
+  // unsaved edits in URL/region fields before running a connection test.
+  const [savedRtcUrl, setSavedRtcUrl] = useState<string | null>(null);
+  const [savedWsUrl, setSavedWsUrl] = useState<string | null>(null);
+  const [savedRegion, setSavedRegion] = useState<string | null>(null);
+  const [savedEgressUrl, setSavedEgressUrl] = useState<string | null>(null);
 
   // Local-only secret edit buffers — never seeded from the server.
   const [apiKeyEdit, setApiKeyEdit] = useState('');
@@ -63,6 +69,10 @@ export function LiveKitSelfHostedProviderPanel() {
     try {
       const r = await fetchLiveKitConfig();
       setCfg(r.livekit);
+      setSavedRtcUrl(r.livekit.rtc_url);
+      setSavedWsUrl(r.livekit.ws_url);
+      setSavedRegion(r.livekit.region);
+      setSavedEgressUrl(r.livekit.egress_url);
     } catch (e: any) {
       toast({
         title: 'Failed to load LiveKit settings',
@@ -83,6 +93,10 @@ export function LiveKitSelfHostedProviderPanel() {
     try {
       const r = await updateLiveKitConfig(patch);
       setCfg(r.livekit);
+      setSavedRtcUrl(r.livekit.rtc_url);
+      setSavedWsUrl(r.livekit.ws_url);
+      setSavedRegion(r.livekit.region);
+      setSavedEgressUrl(r.livekit.egress_url);
       if ('api_key' in patch) setApiKeyEdit('');
       if ('api_secret' in patch) setApiSecretEdit('');
       if ('webhook_secret' in patch) setWebhookSecretEdit('');
@@ -93,12 +107,44 @@ export function LiveKitSelfHostedProviderPanel() {
       toast({ title: 'LiveKit settings saved' });
     } catch (e: any) {
       toast({ title: 'Save failed', description: e.message, variant: 'destructive' });
+      throw e;
     } finally {
       setSaving(false);
     }
   }
 
   async function runTest() {
+    if (!cfg) return;
+    // Auto-flush any unsaved URL/region edits the user typed but didn't blur
+    // before clicking Test. Without this, Test races against state and the
+    // server returns "RTC URL is required before testing."
+    const pendingPatch: LiveKitConfigPatch = {};
+    const currentRtc = (cfg.rtc_url ?? '').trim();
+    const currentWs = (cfg.ws_url ?? '').trim();
+    const currentRegion = (cfg.region ?? '').trim();
+    const currentEgress = (cfg.egress_url ?? '').trim();
+    if (currentRtc !== (savedRtcUrl ?? '')) pendingPatch.rtc_url = currentRtc || null;
+    if (currentWs !== (savedWsUrl ?? '')) pendingPatch.ws_url = currentWs || null;
+    if (currentRegion !== (savedRegion ?? '')) pendingPatch.region = currentRegion || null;
+    if (cfg.egress_enabled && currentEgress !== (savedEgressUrl ?? '')) {
+      pendingPatch.egress_url = currentEgress || null;
+    }
+    if (Object.keys(pendingPatch).length > 0) {
+      try {
+        await save(pendingPatch);
+      } catch {
+        // save() already toasted; abort the test so we don't probe with stale data.
+        return;
+      }
+    }
+    if (!currentRtc) {
+      toast({
+        title: 'RTC URL is required',
+        description: 'Enter the LiveKit RTC URL (e.g. wss://livekit.example.com) before testing.',
+        variant: 'destructive',
+      });
+      return;
+    }
     setTesting(true);
     setTestResult(null);
     try {

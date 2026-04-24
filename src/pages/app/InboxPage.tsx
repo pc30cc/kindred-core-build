@@ -37,6 +37,7 @@ import { toast } from '@/hooks/use-toast';
 import { ConversationActionPanel } from '@/components/inbox/ConversationActionPanel';
 import { ConversationActivityPanel } from '@/components/inbox/ConversationActivityPanel';
 import { OperatorCallPanel } from '@/components/inbox/OperatorCallPanel';
+import { OperatorCallSurface } from '@/components/inbox/OperatorCallSurface';
 import { CallQueuePanel } from '@/components/inbox/CallQueuePanel';
 import { OperatorCallDock } from '@/components/inbox/OperatorCallDock';
 import { CannedResponsePicker, type CannedPickerHandle } from '@/components/canned-responses/CannedResponsePicker';

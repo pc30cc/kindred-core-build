@@ -27,6 +27,7 @@ import { fetchCallControlPlane, fetchPlatformCallbackSummary, fetchUpcomingCallb
 import { CallControlPlanePanel } from '@/components/admin/calls/CallControlPlanePanel';
 import { RolePermissionsPanel } from '@/components/admin/calls/RolePermissionsPanel';
 import { AgoraExternalProviderPanel } from '@/components/admin/calls/AgoraExternalProviderPanel';
+import { LiveKitSelfHostedProviderPanel } from '@/components/admin/calls/LiveKitSelfHostedProviderPanel';
 import { useAdminWorkspaces } from '@/hooks/useAdmin';
 import { Link } from 'react-router-dom';
 import { callbacksApi, type CallbackRow } from '@/lib/callbacks-api';
@@ -630,19 +631,21 @@ export default function VoiceVideoPage() {
         <TabsContent value="providers" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm">Self-hosted providers</CardTitle>
+              <CardTitle className="text-sm">Providers &amp; network</CardTitle>
               <CardDescription className="text-xs">
-                LiveKit, Jitsi and Janus are configured in the <em>Channels &amp; recording</em> tab (Provider section + RTC / TURN).
+                Configure self-hosted call providers here. Generic RTC / TURN / ICE policy is
+                configured in the <em>Channels &amp; recording</em> tab and applies to all providers.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <Button asChild variant="outline" size="sm">
                 <Link to="#" onClick={(e) => { e.preventDefault(); document.querySelector<HTMLButtonElement>('[data-state][value="channels"]')?.click(); }}>
-                  Go to Channels &amp; recording
+                  Open RTC / TURN / Network settings
                 </Link>
               </Button>
             </CardContent>
           </Card>
+          <LiveKitSelfHostedProviderPanel />
           <AgoraExternalProviderPanel />
         </TabsContent>
 

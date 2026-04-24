@@ -243,3 +243,79 @@ export async function updatePlatformRolePermission(input: {
   if (!res.ok) throw new Error(`Failed: ${res.status}`);
   return res.json();
 }
+
+// ────────────────────────────────────────────────────────────────────────
+// LiveKit (self-hosted) provider — admin config.
+// Secrets are write-only: GET returns presence flags, never values.
+// PUT semantics: omit field to preserve, send "" to clear, send value to set.
+// ────────────────────────────────────────────────────────────────────────
+export interface LiveKitRecordingStoragePublic {
+  vendor: 's3' | 's3_compatible' | null;
+  bucket: string | null;
+  region: string | null;
+  endpoint: string | null;
+  force_path_style: boolean;
+  access_key_present: boolean;
+  secret_key_present: boolean;
+}
+
+export interface LiveKitConfigPublicView {
+  enabled: boolean;
+  api_key_present: boolean;
+  api_secret_present: boolean;
+  rtc_url: string | null;
+  ws_url: string | null;
+  egress_enabled: boolean;
+  egress_url: string | null;
+  region: string | null;
+  webhook_secret_present: boolean;
+  recording_storage: LiveKitRecordingStoragePublic;
+}
+
+export interface LiveKitRecordingStoragePatch {
+  vendor?: 's3' | 's3_compatible' | null;
+  bucket?: string | null;
+  region?: string | null;
+  endpoint?: string | null;
+  force_path_style?: boolean;
+  /** Omit to preserve, send "" to clear, send value to set. */
+  access_key?: string | null;
+  /** Omit to preserve, send "" to clear, send value to set. */
+  secret_key?: string | null;
+}
+
+export interface LiveKitConfigPatch {
+  enabled?: boolean;
+  /** Omit to preserve, send "" to clear, send value to set. */
+  api_key?: string | null;
+  /** Omit to preserve, send "" to clear, send value to set. */
+  api_secret?: string | null;
+  rtc_url?: string | null;
+  ws_url?: string | null;
+  egress_enabled?: boolean;
+  egress_url?: string | null;
+  region?: string | null;
+  /** Omit to preserve, send "" to clear, send value to set. */
+  webhook_secret?: string | null;
+  recording_storage?: LiveKitRecordingStoragePatch;
+}
+
+export async function fetchLiveKitConfig(): Promise<{ livekit: LiveKitConfigPublicView }> {
+  const res = await fetch(`${API_BASE}/api/admin/calls/livekit`, {
+    headers: await authHeader(),
+  });
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  return res.json();
+}
+
+export async function updateLiveKitConfig(
+  patch: LiveKitConfigPatch,
+): Promise<{ livekit: LiveKitConfigPublicView }> {
+  const res = await fetch(`${API_BASE}/api/admin/calls/livekit`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+  return res.json();
+}

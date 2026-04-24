@@ -131,7 +131,7 @@ widgetCallInvitationsRouter.post(
     // Validate invitation lifecycle (also flips to 'expired' if past TTL).
     const v = await validateInvitationForJoin(config, owned.invitationId);
     if (!v.ok) {
-      return res.status(409).json({ error: v.reason });
+      return res.status(409).json({ error: (v as { ok: false; reason: string }).reason });
     }
     const invitation = v.invitation;
 

@@ -778,73 +778,130 @@
   }
 
   function attachRemote(room, LK) {
-    // Guarded media attach: never call play() on detached <video>/<audio>,
-    // never overwrite srcObject if the underlying track is unchanged, and
-    // swallow AbortError/DOMException without tearing down the call.
+    var remoteVideoTrack = null;
+    var remoteVideoAttachedEl = null;
+
     function safePlay(el) {
       if (!el || !el.isConnected) return;
       try {
         var p = el.play();
+        dlog('video.play() attempted', {
+          target: el === videoEl ? 'remote' : (el === localVideoEl ? 'local' : 'audio'),
+          hasSrcObject: !!el.srcObject,
+          isConnected: !!el.isConnected,
+        });
         if (p && typeof p.catch === 'function') {
           p.catch(function (err) {
-            // AbortError / NotAllowedError / DOMException are harmless
-            // here — the element will retry on the next track event.
             if (err && err.name) Util.log && Util.log('[call] play suppressed', err.name);
+            dlog('video.play() suppressed', {
+              errorName: err && err.name,
+              errorMessage: err && err.message,
+              target: el === videoEl ? 'remote' : (el === localVideoEl ? 'local' : 'audio'),
+            });
           });
         }
-      } catch (_) { /* detached or paused — ignore */ }
+      } catch (_) {}
     }
-    function setSrc(el, track) {
+
+    function setMediaStreamSrc(el, track) {
       if (!el || !el.isConnected) return false;
       var nextStream = track ? new MediaStream([track]) : null;
-      // Avoid re-assigning srcObject for the same underlying track —
-      // re-assignment forces the element to abort the current decode
-      // pipeline, which is the source of "fetching process aborted".
       var cur = el.srcObject;
       if (!track && !cur) return false;
-      if (track && cur && cur.getTracks && cur.getTracks().indexOf(track) !== -1) {
-        return false; // same track already attached
-      }
+      if (track && cur && cur.getTracks && cur.getTracks().indexOf(track) !== -1) return false;
       try { el.srcObject = nextStream; } catch (_) { return false; }
       return true;
     }
 
+    function detachRemoteVideo(reason) {
+      if (remoteVideoTrack && remoteVideoAttachedEl) {
+        try { remoteVideoTrack.detach(remoteVideoAttachedEl); } catch (_) {}
+      }
+      remoteVideoTrack = null;
+      remoteVideoAttachedEl = null;
+      if (videoEl) {
+        try { videoEl.srcObject = null; } catch (_) {}
+      }
+      dlogLayout('remote video detached', { reason: reason });
+    }
+
+    function attachRemoteVideo(track, publication, participant, reason) {
+      if (!videoEl || !videoEl.isConnected || !track) return false;
+      if (remoteVideoTrack === track && remoteVideoAttachedEl === videoEl) {
+        dlogLayout('remote video attach skipped (same track)', { reason: reason });
+        return false;
+      }
+      detachRemoteVideo('swap');
+      ensureStageLayout('attachRemoteVideo:' + reason);
+      try {
+        track.attach(videoEl);
+        remoteVideoTrack = track;
+        remoteVideoAttachedEl = videoEl;
+        dlogLayout('remote srcObject assigned', {
+          reason: reason,
+          participant: getParticipantDescriptor(participant),
+          trackSid: track.sid || null,
+          source: publication && publication.source ? String(publication.source) : null,
+          muted: !!(publication && publication.isMuted),
+          hasSrcObject: !!videoEl.srcObject,
+        });
+        safePlay(videoEl);
+        return true;
+      } catch (err) {
+        dlog('remote video attach failed', {
+          reason: reason,
+          error: err && err.message,
+          participant: getParticipantDescriptor(participant),
+        });
+        return false;
+      }
+    }
+
     function refresh() {
-      // If the call host has been detached (panel rebuild leaked through,
-      // call torn down between events, etc.) bail out — re-attaching media
-      // to dead elements is what triggers DOMException in the first place.
       if (!rootEl || !rootEl.isConnected) return;
-      var firstAudio = null, firstVideo = null;
+      var firstAudio = null;
+      var operatorVideo = null;
       room.remoteParticipants.forEach(function (p) {
         p.trackPublications.forEach(function (pub) {
           if (!pub.track || !pub.track.mediaStreamTrack) return;
           if (pub.kind === LK.Track.Kind.Audio && !firstAudio) firstAudio = pub.track.mediaStreamTrack;
-          if (pub.kind === LK.Track.Kind.Video && !firstVideo) firstVideo = pub.track.mediaStreamTrack;
+          if (pub.kind === LK.Track.Kind.Video && !operatorVideo) {
+            operatorVideo = { track: pub.track, publication: pub, participant: p };
+          }
         });
       });
-      var audioChanged = setSrc(audioEl, firstAudio);
+      var audioChanged = setMediaStreamSrc(audioEl, firstAudio);
       if (audioChanged && firstAudio) safePlay(audioEl);
-      var videoChanged = setSrc(videoEl, firstVideo);
-      if (videoChanged && firstVideo) safePlay(videoEl);
-      if (audioChanged || videoChanged) {
-        dlog('refresh remote media', {
-          audio: !!firstAudio, video: !!firstVideo,
+      var videoChanged = false;
+      if (operatorVideo && operatorVideo.track) {
+        videoChanged = attachRemoteVideo(operatorVideo.track, operatorVideo.publication, operatorVideo.participant, 'refresh');
+      } else if (remoteVideoTrack) {
+        detachRemoteVideo('no-remote-video');
+        videoChanged = true;
+      }
+      if (audioChanged || videoChanged || operatorVideo) {
+        dlogLayout('refresh remote media', {
+          audio: !!firstAudio,
+          video: !!(operatorVideo && operatorVideo.track),
+          operatorParticipant: operatorVideo ? getParticipantDescriptor(operatorVideo.participant) : null,
+          remoteTrackSid: operatorVideo && operatorVideo.track ? (operatorVideo.track.sid || null) : null,
+          remotePublicationSource: operatorVideo && operatorVideo.publication && operatorVideo.publication.source ? String(operatorVideo.publication.source) : null,
           videoElConnected: videoEl ? videoEl.isConnected : false,
           videoElW: videoEl ? videoEl.clientWidth : 0,
           videoElH: videoEl ? videoEl.clientHeight : 0,
+          videoReadyState: videoEl ? videoEl.readyState : null,
+          videoPaused: videoEl ? !!videoEl.paused : null,
+          videoHasSrcObject: videoEl ? !!videoEl.srcObject : null,
         });
       }
-      // No-stream placeholder for video calls before the operator's
-      // camera track arrives (or if it's never published).
       if (rootEl) {
         var ns = rootEl.querySelector('[data-el="nostream"]');
         var isVideoCall = current && current.invite && current.invite.call_type === 'video';
-        if (ns) ns.style.display = (isVideoCall && !firstVideo) ? 'flex' : 'none';
+        if (ns) ns.style.display = (isVideoCall && !(operatorVideo && operatorVideo.track)) ? 'flex' : 'none';
       }
     }
+
     function refreshLocal() {
-      // Mirror the local participant's video track into the PIP. Audio
-      // is intentionally NOT attached locally (would echo).
       if (!localVideoEl || !rootEl) return;
       if (!rootEl.isConnected) return;
       var pip = rootEl.querySelector('[data-el="pip"]');
@@ -858,21 +915,47 @@
         });
       }
       if (localVideoTrack) {
-        if (setSrc(localVideoEl, localVideoTrack)) {
+        if (setMediaStreamSrc(localVideoEl, localVideoTrack)) {
           safePlay(localVideoEl);
           dlog('local PIP attached');
         }
         if (pip) pip.style.display = '';
       } else {
-        setSrc(localVideoEl, null);
+        setMediaStreamSrc(localVideoEl, null);
         if (pip) pip.style.display = 'none';
       }
     }
+
     room
-      .on(LK.RoomEvent.ParticipantConnected, refresh)
-      .on(LK.RoomEvent.ParticipantDisconnected, refresh)
-      .on(LK.RoomEvent.TrackSubscribed, refresh)
-      .on(LK.RoomEvent.TrackUnsubscribed, refresh)
+      .on(LK.RoomEvent.ParticipantConnected, function (participant) {
+        dlog('room event: participant connected', getParticipantDescriptor(participant));
+        refresh();
+      })
+      .on(LK.RoomEvent.ParticipantDisconnected, function (participant) {
+        dlog('room event: participant disconnected', getParticipantDescriptor(participant));
+        refresh();
+      })
+      .on(LK.RoomEvent.TrackSubscribed, function (track, publication, participant) {
+        dlog('room event: TrackSubscribed', {
+          participant: getParticipantDescriptor(participant),
+          trackKind: track && track.kind ? String(track.kind) : null,
+          trackSid: track && track.sid ? String(track.sid) : null,
+          source: publication && publication.source ? String(publication.source) : null,
+          isSubscribed: publication ? !!publication.isSubscribed : null,
+          isMuted: publication ? !!publication.isMuted : null,
+        });
+        refresh();
+      })
+      .on(LK.RoomEvent.TrackUnsubscribed, function (track, publication, participant) {
+        dlog('room event: TrackUnsubscribed', {
+          participant: getParticipantDescriptor(participant),
+          trackKind: track && track.kind ? String(track.kind) : null,
+          trackSid: track && track.sid ? String(track.sid) : null,
+          source: publication && publication.source ? String(publication.source) : null,
+        });
+        if (track && remoteVideoTrack && track === remoteVideoTrack) detachRemoteVideo('track-unsubscribed');
+        refresh();
+      })
       .on(LK.RoomEvent.LocalTrackPublished, refreshLocal)
       .on(LK.RoomEvent.LocalTrackUnpublished, refreshLocal)
       .on(LK.RoomEvent.Reconnecting, function () {
@@ -887,6 +970,13 @@
         dlog('room event: disconnected', { reason: reason });
         teardown('remote:' + String(reason == null ? 'unknown' : reason));
       });
+    if (window.addEventListener && !window.__gsCallWindowResizeBound) {
+      window.__gsCallWindowResizeBound = true;
+      window.addEventListener('resize', function () {
+        ensureStageLayout('window-resize');
+        dlogLayout('window resize', {});
+      });
+    }
     refresh();
     refreshLocal();
   }

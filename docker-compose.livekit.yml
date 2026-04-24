@@ -60,7 +60,16 @@
 
 services:
   livekit:
-    image: livekit/livekit-server:v1.7.2
+    # v1.8.0+ is required because livekit-client SDK >=2.x first probes
+    # `/rtc/v1/validate` (with `/v1` appended) and falls back to legacy
+    # `/rtc/validate` only after the v1 path 404s. With server v1.7.2 the
+    # `/v1` path does not exist, producing the noisy
+    #   GET /rtc/v1/validate -> 404
+    #   WSS /rtc/v1          -> NS_ERROR_WEBSOCKET_CONNECTION_REFUSED
+    # sequence in operator/visitor consoles before the SDK silently retries
+    # on the legacy path. v1.9.x serves both paths cleanly so the initial
+    # probe succeeds and signaling is stable from the first attempt.
+    image: livekit/livekit-server:v1.9.0
     restart: unless-stopped
 
     # Override the image entrypoint so we can run a tiny shell wrapper that

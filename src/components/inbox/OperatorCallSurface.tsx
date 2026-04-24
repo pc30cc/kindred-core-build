@@ -73,7 +73,13 @@ export function OperatorCallSurface({
   conversationId,
   contactName,
 }: OperatorCallSurfaceProps) {
-  const { t } = useTranslation();
+  const i18n = useTranslation();
+  // Loose-typed translator. The `t` returned by useTranslation enforces a
+  // KnownKeys union that does not yet include the new callSurface.* /
+  // callInvite.* keys we add in this pass. Same pattern as elsewhere in
+  // this surface's sibling components (`as any` casts).
+  const t = (key: string, vars?: Record<string, string>): string =>
+    (i18n.t as unknown as (k: string, v?: Record<string, string>) => string)(key, vars) || '';
   const [state, setState] = useState<SurfaceState>(INITIAL);
   const [, forceTick] = useState(0);
   const autoCloseRef = useRef<ReturnType<typeof setTimeout> | null>(null);

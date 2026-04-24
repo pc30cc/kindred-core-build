@@ -508,6 +508,7 @@ export class CallSessionEngine {
     this.clearRingTimeout();
     this.clearEndingTimeout();
     this.clearIncomingTimeout();
+    this.clearConnectWatchdog();
     if (!TERMINAL.has(this.state.phase) && this.state.phase !== 'idle') {
       const id = this.state.callId;
       if (id) {

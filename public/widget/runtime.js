@@ -2027,6 +2027,110 @@
         '</div>';
     }
 
+    // ─── Phase 9 — Call invitation card renderer ───
+    // System messages with metadata.kind === 'call_invitation' are rendered
+    // as an interactive card. The persisted system message is the canonical
+    // source; this is purely presentation. Click handlers are wired via
+    // event delegation in renderChat() below, so re-renders never leak
+    // listeners.
+    function fmtInvitationRemaining(expiresAtIso) {
+      var ms = new Date(expiresAtIso).getTime() - Date.now();
+      if (!isFinite(ms) || ms <= 0) return t('callInvite.expiredSoon') || 'Expired';
+      var total = Math.ceil(ms / 1000);
+      if (total < 60) return total + 's left';
+      var m = Math.floor(total / 60);
+      var s = total % 60;
+      return s === 0 ? m + 'm left' : m + 'm ' + s + 's left';
+    }
+
+    function renderCallInvitationCard(msg) {
+      var meta = msg.metadata || {};
+      var channel = meta.channel === 'video' ? 'video' : 'audio';
+      var status = meta.status || 'pending';
+      var inviteId = Util.escapeHtml(meta.invitation_id || '');
+      var op = meta.operator_name ? Util.escapeHtml(meta.operator_name) : '';
+      var headline = channel === 'video'
+        ? (op ? op + ' invited you to a video call' : 'You have been invited to a video call')
+        : (op ? op + ' invited you to an audio call' : 'You have been invited to an audio call');
+      var iconSvg = channel === 'video'
+        ? '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>'
+        : '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92Z"/></svg>';
+
+      var statusBlock = '';
+      var actionBlock = '';
+      if (status === 'pending') {
+        var rem = Util.escapeHtml(fmtInvitationRemaining(meta.expires_at));
+        statusBlock = '<div class="ci-meta">' + rem + '</div>';
+        actionBlock = '<div class="ci-actions">' +
+          '<button type="button" class="ci-btn ci-btn-primary" data-ci-action="join" data-ci-id="' + inviteId +
+            '" data-ci-channel="' + channel + '">' +
+            (channel === 'video' ? 'Join video call' : 'Join call') +
+          '</button>' +
+          '<button type="button" class="ci-btn ci-btn-ghost" data-ci-action="decline" data-ci-id="' + inviteId + '">Decline</button>' +
+        '</div>';
+      } else if (status === 'joined') {
+        statusBlock = '<div class="ci-meta ci-status ci-status-joined">In call</div>';
+      } else if (status === 'expired') {
+        statusBlock = '<div class="ci-meta ci-status ci-status-expired">Invitation expired</div>';
+      } else if (status === 'cancelled') {
+        statusBlock = '<div class="ci-meta ci-status ci-status-cancelled">Operator cancelled the invite</div>';
+      } else if (status === 'declined') {
+        statusBlock = '<div class="ci-meta ci-status ci-status-declined">You declined this call</div>';
+      }
+
+      return '<div class="msg-row system">' +
+        '<div class="ci-card ci-status-' + Util.escapeHtml(status) + '" data-ci-card="' + inviteId + '">' +
+          '<div class="ci-row">' +
+            '<span class="ci-icon">' + iconSvg + '</span>' +
+            '<div class="ci-text">' +
+              '<div class="ci-title">' + Util.escapeHtml(headline) + '</div>' +
+              statusBlock +
+            '</div>' +
+          '</div>' +
+          actionBlock +
+        '</div>' +
+      '</div>';
+    }
+
+    function callInvitationContext() {
+      try {
+        var apiBase = ctx && ctx.apiBase ? ctx.apiBase : '';
+        var workspaceId = ctx && ctx.workspaceId ? ctx.workspaceId : '';
+        var token = (window.__gs_token && window.__gs_token.get && window.__gs_token.get()) || '';
+        var ident = window.__gs_identity || {};
+        return {
+          apiBase: apiBase,
+          workspaceId: workspaceId,
+          token: token,
+          visitorId: ident.visitorId || null,
+          sessionId: ident.sessionId || null,
+        };
+      } catch (_) {
+        return { apiBase: '', workspaceId: '', token: '', visitorId: null, sessionId: null };
+      }
+    }
+
+    function postCallInvitationAction(invitationId, action) {
+      var c = callInvitationContext();
+      if (!c.apiBase || !c.workspaceId || !c.token) {
+        return Promise.reject(new Error('widget context not ready'));
+      }
+      return fetch(c.apiBase + '/api/widget/call-invitations/' + encodeURIComponent(invitationId) + '/' + action, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', 'X-Widget-Token': c.token },
+        body: JSON.stringify({
+          workspace_id: c.workspaceId,
+          visitor_id: c.visitorId || undefined,
+          session_id: c.sessionId || undefined,
+        }),
+      }).then(function (r) {
+        if (!r.ok) return r.json().catch(function () { return {}; })
+          .then(function (b) { throw new Error(b.error || 'http_' + r.status); });
+        return r.json();
+      });
+    }
+
     function renderChat(body) {
       var s = chatStore.get();
       if (!s.messages.length) { renderEmpty(body); return; }

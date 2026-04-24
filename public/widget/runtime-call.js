@@ -1109,7 +1109,7 @@
           }
           showPendingBadge({ message: 'Callback pending' });
           // Keep the badge visible after auto-hide so reopen still shows status.
-          setTimeout(function () { hide(); }, 3500);
+          setTimeout(function () { hide({ force: true }); }, 3500);
         }).catch(function (err) {
           errEl.textContent = (err && err.message) ? ('Could not request callback: ' + err.message) : 'Could not request callback';
           errEl.classList.add('show');

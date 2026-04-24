@@ -751,9 +751,14 @@
   function accept() {
     if (!current || !current.invite) return;
     var invite = current.invite;
+    dlog('accept() start', { call_id: invite.call_id, call_type: invite.call_type });
     setStatus('Connecting...');
     btnAccept.disabled = true;
     btnReject.disabled = true;
+    // Re-assert host visibility BEFORE the SDK starts so that any stale
+    // hide() between invite-show and accept can't leave the surface
+    // hidden while media starts streaming behind it.
+    show();
     loadSdk().then(function (LK) {
       var iceServers = [];
       if (invite.turn && invite.turn.urls && invite.turn.urls.length) {
@@ -773,6 +778,7 @@
         },
       } : undefined;
       return room.connect(invite.ws_url, invite.token, connectOpts).then(function () {
+        dlog('room.connect resolved');
         setStatus('');
         return room.localParticipant.setMicrophoneEnabled(true).then(function () {
           current.micEnabled = true;
@@ -780,16 +786,19 @@
           btnMic.classList.remove('off');
           var isVideo = invite.call_type === 'video';
           setInCallMode(isVideo);
+          dlog('mic published; mode set', { isVideo: isVideo });
           if (isVideo) {
             return room.localParticipant.setCameraEnabled(true).then(function () {
               current.camEnabled = true;
               btnCam.textContent = 'Stop cam';
               btnCam.classList.remove('off');
+              dlog('camera published');
             });
           }
         });
       });
     }).catch(function (err) {
+      dlog('accept() failed', { error: err && err.message });
       setStatus('Could not join: ' + (err && err.message ? err.message : 'unknown'));
       btnAccept.disabled = false;
       btnReject.disabled = false;

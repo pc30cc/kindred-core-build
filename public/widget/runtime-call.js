@@ -179,7 +179,7 @@
       // In-panel: fill the available space; sidecar: a 320px floating card.
       // Layout uses container-style breakpoints rather than hard pixel
       // widths so the call surface stays inside whatever frame hosts it.
-      ':host([data-mode="in-panel"]) .card{width:100%;height:100%;border:0;border-radius:0;box-shadow:none;padding:12px;display:none;flex-direction:column}',
+      ':host([data-mode="in-panel"]) .card{width:100%;height:100%;min-height:300px;border:0;border-radius:0;box-shadow:none;padding:12px;display:none;flex-direction:column}',
       ':host([data-mode="sidecar"]) .card{width:320px;padding:14px;border:1px solid #e2e8f0;border-radius:12px;box-shadow:0 12px 32px -8px rgba(0,0,0,.18);display:none;flex-direction:column}',
       '.card{font:13px/1.4 -apple-system,Segoe UI,Roboto,sans-serif;background:#fff;color:#0f172a;overflow:hidden}',
       '.card.show{display:flex}',

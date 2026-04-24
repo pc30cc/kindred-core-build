@@ -529,6 +529,7 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
 
     const runtimeJsName = getWidgetAssetName('runtime.js');
     const runtimeCssName = getWidgetAssetName('runtime.css');
+    const callRuntimeJsName = getWidgetAssetName('runtime-call.js');
     const chatModuleName = getWidgetAssetName('runtime-chat.js');
     const kbModuleName = getWidgetAssetName('runtime-kb.js');
     const loaderVersion = getLoaderVersion();
@@ -627,6 +628,7 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       onlineOperators: 0, // Resolved client-side from realtime presence when supported.
       runtimeUrl: versionedAssetUrl(assetBase ? `${assetBase}/widget/${runtimeJsName}` : null),
       styleUrl: versionedAssetUrl(assetBase ? `${assetBase}/widget/${runtimeCssName}` : null),
+      callRuntimeUrl: versionedAssetUrl(assetBase ? `${assetBase}/widget/${callRuntimeJsName}` : null),
       modules: {
         chat: versionedAssetUrl(assetBase ? `${assetBase}/widget/${chatModuleName}` : null),
         kb: versionedAssetUrl(assetBase ? `${assetBase}/widget/${kbModuleName}` : null),
@@ -1798,12 +1800,14 @@ widgetRouter.get('/manifest', widgetRateLimit('bootstrap'), async (req: Request,
 
     const runtimeJsName = getWidgetAssetName('runtime.js');
     const runtimeCssName = getWidgetAssetName('runtime.css');
+    const callRuntimeJsName = getWidgetAssetName('runtime-call.js');
 
     const manifest = {
       version: RUNTIME_VERSION,
       build: v,
       runtime_entry: `${deliveryOrigin}/widget/${runtimeJsName}?v=${v}`,
       styles: [`${deliveryOrigin}/widget/${runtimeCssName}?v=${v}`],
+      call_runtime_entry: `${deliveryOrigin}/widget/${callRuntimeJsName}?v=${v}`,
       modules,
       locale: {
         default: ws.widget_language === 'auto' ? ws.locale : ws.widget_language,

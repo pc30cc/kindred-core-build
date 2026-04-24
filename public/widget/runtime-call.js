@@ -25,6 +25,19 @@
   if (window.__gs_call_loaded) return;
   window.__gs_call_loaded = true;
 
+  // ───── Debug logger ─────
+  // Always logs to console with a [gs-call] prefix. Cheap, no PII; helps
+  // diagnose visibility/lifecycle issues across the widget call surface.
+  // Caller can disable with `window.__gs_call_debug = false`.
+  function dlog() {
+    if (window.__gs_call_debug === false) return;
+    try {
+      var args = ['[gs-call]'].concat(Array.prototype.slice.call(arguments));
+      // eslint-disable-next-line no-console
+      console.log.apply(console, args);
+    } catch (_) {}
+  }
+
   // CDN fallback. Self-hosters can override via window.__gs_call_sdk_url.
   var LIVEKIT_SDK_URL = (window && window.__gs_call_sdk_url)
     || 'https://cdn.jsdelivr.net/npm/livekit-client@2.5.0/dist/livekit-client.umd.min.js';
@@ -74,8 +87,15 @@
       var inst = window.__gs_runtime && window.__gs_runtime._instance;
       if (inst && typeof inst.getCallMountHost === 'function') {
         var host = inst.getCallMountHost();
-        if (host && host.appendChild) return host;
+        if (host && host.appendChild) {
+          dlog('mount target resolved → in-panel call-host', {
+            w: host.clientWidth, h: host.clientHeight,
+            display: host.style.display,
+          });
+          return host;
+        }
       }
+      dlog('mount target unresolved → will fall back to body sidecar');
     } catch (_) {}
     return null;
   }
@@ -141,6 +161,7 @@
           mountMode = 'in-panel';
           if (hostEl.setAttribute) hostEl.setAttribute('data-mode', mountMode);
           applyMountStyles();
+          dlog('host migrated into in-panel target');
         } catch (_) {}
       }
       return;
@@ -149,6 +170,7 @@
     hostEl.setAttribute('data-gs-call-host', '');
     var initialTarget = getWidgetMountTarget();
     mountMode = initialTarget ? 'in-panel' : 'sidecar';
+    dlog('ensureShell → first mount', { mountMode: mountMode });
     applyMountStyles();
     shadow = hostEl.attachShadow({ mode: 'open' });
     var style = document.createElement('style');
@@ -157,7 +179,7 @@
       // In-panel: fill the available space; sidecar: a 320px floating card.
       // Layout uses container-style breakpoints rather than hard pixel
       // widths so the call surface stays inside whatever frame hosts it.
-      ':host([data-mode="in-panel"]) .card{width:100%;height:100%;border:0;border-radius:0;box-shadow:none;padding:12px;display:none;flex-direction:column}',
+      ':host([data-mode="in-panel"]) .card{width:100%;height:100%;min-height:300px;border:0;border-radius:0;box-shadow:none;padding:12px;display:none;flex-direction:column}',
       ':host([data-mode="sidecar"]) .card{width:320px;padding:14px;border:1px solid #e2e8f0;border-radius:12px;box-shadow:0 12px 32px -8px rgba(0,0,0,.18);display:none;flex-direction:column}',
       '.card{font:13px/1.4 -apple-system,Segoe UI,Roboto,sans-serif;background:#fff;color:#0f172a;overflow:hidden}',
       '.card.show{display:flex}',
@@ -304,8 +326,41 @@
     degradedEl = rootEl.querySelector('[data-el="degraded"]');
   }
 
-  function show() { ensureShell(); rootEl.classList.add('show'); }
-  function hide() {
+  function isCallActiveOrConnecting() {
+    if (!current) return false;
+    if (current.room) return true;
+    // While accept() is running we have `current` but no room yet — the
+    // SDK is mid-handshake. Treat that as active so a stray hide() can't
+    // pull the rug out from under it.
+    return !!current.invite;
+  }
+
+  function show() {
+    ensureShell();
+    rootEl.classList.add('show');
+    dlog('show() → .card.show added', { mountMode: mountMode });
+    // Defensive: if our hostEl somehow lost its in-panel target between
+    // calls (shell rerender, stale parent), re-attach to the live mount
+    // root so the surface is always inside the widget frame.
+    try {
+      var liveTarget = getWidgetMountTarget();
+      if (liveTarget && hostEl && hostEl.parentNode !== liveTarget) {
+        liveTarget.appendChild(hostEl);
+        mountMode = 'in-panel';
+        if (hostEl.setAttribute) hostEl.setAttribute('data-mode', mountMode);
+        applyMountStyles();
+        dlog('show() → re-attached host to live in-panel target');
+      }
+    } catch (_) {}
+  }
+  function hide(opts) {
+    var force = !!(opts && opts.force);
+    // Guard: never hide a live call surface from stale paths (e.g. a
+    // delayed pending-callback timer firing while a real call started).
+    if (!force && isCallActiveOrConnecting()) {
+      dlog('hide() suppressed — call active/connecting');
+      return;
+    }
     if (rootEl) rootEl.classList.remove('show');
     // Release the stable widget mount root so chat clicks pass through
     // again and the host stops covering the panel area.
@@ -313,6 +368,7 @@
       var inst = window.__gs_runtime && window.__gs_runtime._instance;
       if (inst && typeof inst.releaseCallMountHost === 'function') {
         inst.releaseCallMountHost();
+        dlog('hide() → released call mount host');
       }
     } catch (_) {}
   }
@@ -329,6 +385,7 @@
     var astage = rootEl.querySelector('[data-el="audio-stage"]');
     if (stage) stage.classList.remove('show');
     if (astage) astage.classList.remove('show');
+    dlog('setRingingMode()');
   }
   function setInCallMode(isVideo) {
     if (!rootEl) return;
@@ -345,6 +402,24 @@
     }
     // Hide camera toggle on audio calls — it's never relevant.
     if (btnCam) btnCam.style.display = isVideo ? '' : 'none';
+    // Re-assert host visibility — at this point the user has already
+    // accepted, so anything that disabled the host surface is a bug. We
+    // explicitly re-show via the runtime API.
+    try {
+      var inst = window.__gs_runtime && window.__gs_runtime._instance;
+      if (inst && typeof inst.getCallMountHost === 'function') {
+        // Re-running getCallMountHost() also re-asserts display:block +
+        // pointer-events:auto on the stable mount root.
+        inst.getCallMountHost();
+      }
+    } catch (_) {}
+    if (rootEl) rootEl.classList.add('show');
+    dlog('setInCallMode()', {
+      isVideo: isVideo,
+      cardVisible: rootEl ? rootEl.classList.contains('show') : false,
+      stageOn: stage ? stage.classList.contains('show') : false,
+      audioStageOn: astage ? astage.classList.contains('show') : false,
+    });
   }
 
   // ───── Single active call state ─────
@@ -586,8 +661,18 @@
           if (pub.kind === LK.Track.Kind.Video && !firstVideo) firstVideo = pub.track.mediaStreamTrack;
         });
       });
-      if (setSrc(audioEl, firstAudio) && firstAudio) safePlay(audioEl);
-      if (setSrc(videoEl, firstVideo) && firstVideo) safePlay(videoEl);
+      var audioChanged = setSrc(audioEl, firstAudio);
+      if (audioChanged && firstAudio) safePlay(audioEl);
+      var videoChanged = setSrc(videoEl, firstVideo);
+      if (videoChanged && firstVideo) safePlay(videoEl);
+      if (audioChanged || videoChanged) {
+        dlog('refresh remote media', {
+          audio: !!firstAudio, video: !!firstVideo,
+          videoElConnected: videoEl ? videoEl.isConnected : false,
+          videoElW: videoEl ? videoEl.clientWidth : 0,
+          videoElH: videoEl ? videoEl.clientHeight : 0,
+        });
+      }
       // No-stream placeholder for video calls before the operator's
       // camera track arrives (or if it's never published).
       if (rootEl) {
@@ -612,7 +697,10 @@
         });
       }
       if (localVideoTrack) {
-        if (setSrc(localVideoEl, localVideoTrack)) safePlay(localVideoEl);
+        if (setSrc(localVideoEl, localVideoTrack)) {
+          safePlay(localVideoEl);
+          dlog('local PIP attached');
+        }
         if (pip) pip.style.display = '';
       } else {
         setSrc(localVideoEl, null);
@@ -634,6 +722,7 @@
   }
 
   function teardown(reason) {
+    dlog('teardown', { reason: reason });
     if (current && current.room) {
       try { current.room.disconnect(); } catch (_) {}
     }
@@ -653,7 +742,9 @@
     // Show the terminal message a bit longer when the operator hung up so
     // the visitor actually reads it before the surface auto-closes.
     var hideDelay = reason === 'remote' ? 2200 : 600;
-    setTimeout(hide, hideDelay);
+    // teardown() is the legitimate close path — bypass the active-guard
+    // we added to hide() so the surface actually disappears.
+    setTimeout(function () { hide({ force: true }); }, hideDelay);
   }
 
   function reject() {
@@ -663,9 +754,14 @@
   function accept() {
     if (!current || !current.invite) return;
     var invite = current.invite;
+    dlog('accept() start', { call_id: invite.call_id, call_type: invite.call_type });
     setStatus('Connecting...');
     btnAccept.disabled = true;
     btnReject.disabled = true;
+    // Re-assert host visibility BEFORE the SDK starts so that any stale
+    // hide() between invite-show and accept can't leave the surface
+    // hidden while media starts streaming behind it.
+    show();
     loadSdk().then(function (LK) {
       var iceServers = [];
       if (invite.turn && invite.turn.urls && invite.turn.urls.length) {
@@ -685,6 +781,7 @@
         },
       } : undefined;
       return room.connect(invite.ws_url, invite.token, connectOpts).then(function () {
+        dlog('room.connect resolved');
         setStatus('');
         return room.localParticipant.setMicrophoneEnabled(true).then(function () {
           current.micEnabled = true;
@@ -692,16 +789,19 @@
           btnMic.classList.remove('off');
           var isVideo = invite.call_type === 'video';
           setInCallMode(isVideo);
+          dlog('mic published; mode set', { isVideo: isVideo });
           if (isVideo) {
             return room.localParticipant.setCameraEnabled(true).then(function () {
               current.camEnabled = true;
               btnCam.textContent = 'Stop cam';
               btnCam.classList.remove('off');
+              dlog('camera published');
             });
           }
         });
       });
     }).catch(function (err) {
+      dlog('accept() failed', { error: err && err.message });
       setStatus('Could not join: ' + (err && err.message ? err.message : 'unknown'));
       btnAccept.disabled = false;
       btnReject.disabled = false;
@@ -1009,7 +1109,7 @@
           }
           showPendingBadge({ message: 'Callback pending' });
           // Keep the badge visible after auto-hide so reopen still shows status.
-          setTimeout(function () { hide(); }, 3500);
+          setTimeout(function () { hide({ force: true }); }, 3500);
         }).catch(function (err) {
           errEl.textContent = (err && err.message) ? ('Could not request callback: ' + err.message) : 'Could not request callback';
           errEl.classList.add('show');

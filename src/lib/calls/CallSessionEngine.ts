@@ -233,8 +233,11 @@ export class CallSessionEngine {
     const id = this.state.callId;
     const myGen = this.gen;
     if (TERMINAL.has(this.state.phase) || this.state.phase === 'idle') {
-      // Already done — make sure busy is cleared.
-      await this.fullCleanup('cancelled', null);
+      // Already done — make sure busy is cleared and transport is gone.
+      this.clearRingTimeout();
+      this.clearEndingTimeout();
+      try { await this.opts.transport.disconnect(); } catch { /* ignore */ }
+      this.releaseBusy();
       return;
     }
     this.transition({ phase: 'ending' });

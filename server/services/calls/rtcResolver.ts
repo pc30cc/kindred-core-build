@@ -76,9 +76,10 @@ function normalizeLiveKitSignalBase(rawUrl: string | null): string | null {
     // CRITICAL: livekit-client appends its own signaling path
     // (`/rtc`, `/rtc/v1`, `/rtc/validate`, …) to whatever base URL we
     // hand it. We must therefore return an ORIGIN-ONLY base
-    // (`wss://host[:port]`) and strip any pre-existing `/rtc[...]`
-    // suffix — otherwise the SDK builds `/rtc/rtc/v1` which 404s.
-    url.pathname = url.pathname.replace(/\/rtc(?:\/v1)?(?:\/validate)?\/?$/i, '');
+    // (`wss://host[:port]`) and strip any pre-existing signaling suffix,
+    // including malformed duplicates like `/rtc/rtc/v1` — otherwise the
+    // SDK appends another `/rtc[...]` and the browser hits `/rtc/rtc/...`.
+    url.pathname = url.pathname.replace(/(?:\/rtc)+(?:\/v1)?(?:\/validate)?\/?$/i, '');
     url.pathname = url.pathname.replace(/\/+$/, '');
     return stripTrailingSlash(`${url.protocol}//${url.host}${url.pathname}`);
   } catch {

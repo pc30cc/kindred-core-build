@@ -6,7 +6,7 @@ import {
   MessageSquare, UserPlus, UserMinus, CheckCircle2, RefreshCw,
   AlertCircle, Hash, Paperclip, Bot, FileText, Star, User,
   Trash2, Flag, Phone, PhoneIncoming, PhoneMissed, PhoneOff, PhoneCall, Voicemail,
-  Timer, AlertTriangle,
+  Timer, AlertTriangle, Send, Video, Ban,
 } from 'lucide-react';
 import type { TimelineEvent } from '@/hooks/useConversationTimeline';
 
@@ -42,6 +42,11 @@ export function getTimelineMeta(type: string): TimelineMeta {
     case 'callback_requested':  return { Icon: Voicemail,      tone: 'info' };
     case 'callback_completed':  return { Icon: CheckCircle2,   tone: 'success' };
     case 'callback_offered':    return { Icon: Voicemail,      tone: 'warning' };
+    case 'call_invited':              return { Icon: Send,         tone: 'info' };
+    case 'call_invitation_joined':    return { Icon: PhoneCall,    tone: 'success' };
+    case 'call_invitation_expired':   return { Icon: Timer,        tone: 'neutral' };
+    case 'call_invitation_cancelled': return { Icon: Ban,          tone: 'neutral' };
+    case 'call_invitation_declined':  return { Icon: PhoneOff,     tone: 'danger' };
     case 'sla_breached':        return { Icon: AlertTriangle,  tone: 'danger' };
     case 'queue_long_wait':     return { Icon: Timer,          tone: 'warning' };
     default:                 return { Icon: AlertCircle,   tone: 'neutral' };

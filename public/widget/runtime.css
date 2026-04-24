@@ -1571,62 +1571,136 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 }
 
 /* ─── Phase 9 — Call invitation card (system message) ─── */
-.msg-row.system { justify-content: center; padding: 4px 0; }
+.msg-row.system { justify-content: center; padding: 6px 0; }
 .ci-card {
   width: 100%;
   max-width: 320px;
   border: 1px solid #e2e8f0;
   background: #fff;
-  border-radius: 12px;
-  padding: 12px 14px;
+  border-radius: 14px;
+  padding: 14px 14px 12px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  box-shadow: 0 4px 12px -6px rgba(0, 0, 0, 0.08);
+  gap: 12px;
+  box-shadow: 0 6px 18px -10px rgba(15, 23, 42, 0.18), 0 1px 2px rgba(15, 23, 42, 0.04);
+  position: relative;
+  overflow: hidden;
+  transition: border-color 180ms ease, box-shadow 180ms ease;
+}
+.ci-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--gs-primary, #3B82F6), color-mix(in srgb, var(--gs-primary, #3B82F6) 40%, transparent));
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+.ci-card.ci-status-pending::before { opacity: 1; }
+.ci-card.ci-channel-video::before {
+  background: linear-gradient(90deg, #8b5cf6, color-mix(in srgb, #8b5cf6 40%, transparent));
+}
+.ci-card.ci-channel-audio::before {
+  background: linear-gradient(90deg, #f59e0b, color-mix(in srgb, #f59e0b 40%, transparent));
 }
 .ci-row { display: flex; align-items: flex-start; gap: 10px; }
 .ci-icon {
   flex-shrink: 0;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--gs-primary, #3B82F6) 14%, #f1f5f9);
-  color: var(--gs-primary, #3B82F6);
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
+.ci-channel-audio .ci-icon {
+  background: color-mix(in srgb, #f59e0b 14%, #fff7ed);
+  color: #d97706;
+}
+.ci-channel-video .ci-icon {
+  background: color-mix(in srgb, #8b5cf6 14%, #f5f3ff);
+  color: #7c3aed;
+}
 .ci-text { flex: 1; min-width: 0; }
-.ci-title { font-size: 13px; font-weight: 600; color: #0f172a; line-height: 1.35; }
-.ci-meta { font-size: 11px; color: #64748b; margin-top: 2px; }
-.ci-status { font-weight: 500; }
-.ci-status-joined .ci-meta { color: #16a34a; }
-.ci-status-expired .ci-meta { color: #94a3b8; }
-.ci-status-cancelled .ci-meta { color: #94a3b8; }
-.ci-status-declined .ci-meta { color: #dc2626; }
+.ci-title { font-size: 13px; font-weight: 600; color: #0f172a; line-height: 1.4; }
+.ci-meta {
+  font-size: 11px;
+  color: #64748b;
+  margin-top: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.ci-status { font-weight: 600; }
+.ci-card.ci-status-joined    .ci-meta { color: #15803d; }
+.ci-card.ci-status-expired   .ci-meta { color: #94a3b8; }
+.ci-card.ci-status-cancelled .ci-meta { color: #94a3b8; }
+.ci-card.ci-status-declined  .ci-meta { color: #dc2626; }
+.ci-pulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  display: inline-block;
+  box-shadow: 0 0 0 0 currentColor;
+  animation: ci-pulse 1.6s ease-out infinite;
+  opacity: 0.85;
+}
+.ci-channel-audio .ci-pulse { color: #f59e0b; }
+.ci-channel-video .ci-pulse { color: #8b5cf6; }
+@keyframes ci-pulse {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 50%, transparent); }
+  70%  { box-shadow: 0 0 0 8px color-mix(in srgb, currentColor 0%, transparent); }
+  100% { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 0%, transparent); }
+}
 .ci-actions { display: flex; gap: 8px; }
 .ci-btn {
   flex: 1;
-  border: 0;
-  border-radius: 8px;
-  padding: 8px 12px;
-  font-size: 12px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 9px 12px;
+  font-size: 12.5px;
   font-weight: 600;
   cursor: pointer;
   font-family: inherit;
-  transition: background 0.15s, opacity 0.15s;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, opacity 0.15s, transform 80ms ease;
 }
-.ci-btn-primary { background: var(--gs-primary, #16a34a); color: #fff; }
-.ci-btn-primary:hover { filter: brightness(0.95); }
-.ci-btn-ghost { background: #f1f5f9; color: #0f172a; }
-.ci-btn-ghost:hover { background: #e2e8f0; }
+.ci-btn:active { transform: translateY(1px); }
+.ci-btn:focus-visible {
+  outline: 2px solid var(--gs-primary, #3B82F6);
+  outline-offset: 2px;
+}
+.ci-channel-audio .ci-btn-primary { background: #f59e0b; color: #fff; }
+.ci-channel-audio .ci-btn-primary:hover:not(:disabled) { background: #d97706; }
+.ci-channel-video .ci-btn-primary { background: #7c3aed; color: #fff; }
+.ci-channel-video .ci-btn-primary:hover:not(:disabled) { background: #6d28d9; }
+.ci-btn-ghost { background: #f1f5f9; color: #0f172a; border-color: #e2e8f0; }
+.ci-btn-ghost:hover:not(:disabled) { background: #e2e8f0; }
 .ci-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
+/* Terminal-state cards: dim slightly so they read as historical, not active. */
+.ci-card.ci-status-joined,
+.ci-card.ci-status-expired,
+.ci-card.ci-status-cancelled,
+.ci-card.ci-status-declined {
+  background: #f8fafc;
+}
+.ci-card.ci-status-declined  { border-color: color-mix(in srgb, #dc2626 18%, #e2e8f0); }
+.ci-card.ci-status-joined    { border-color: color-mix(in srgb, #16a34a 22%, #e2e8f0); }
+
 @media (prefers-color-scheme: dark) {
-  .ci-card { background: #0f172a; border-color: #1e293b; box-shadow: 0 4px 12px -6px rgba(0, 0, 0, 0.4); }
-  .ci-icon { background: color-mix(in srgb, var(--gs-primary, #3B82F6) 22%, #1e293b); }
+  .ci-card { background: #0f172a; border-color: #1e293b; box-shadow: 0 6px 18px -8px rgba(0, 0, 0, 0.5); }
+  .ci-channel-audio .ci-icon { background: color-mix(in srgb, #f59e0b 22%, #1e293b); color: #fbbf24; }
+  .ci-channel-video .ci-icon { background: color-mix(in srgb, #8b5cf6 22%, #1e293b); color: #a78bfa; }
   .ci-title { color: #f1f5f9; }
   .ci-meta { color: #94a3b8; }
-  .ci-btn-ghost { background: #1e293b; color: #f1f5f9; }
-  .ci-btn-ghost:hover { background: #334155; }
+  .ci-card.ci-status-joined    .ci-meta { color: #4ade80; }
+  .ci-card.ci-status-declined  .ci-meta { color: #f87171; }
+  .ci-btn-ghost { background: #1e293b; color: #f1f5f9; border-color: #334155; }
+  .ci-btn-ghost:hover:not(:disabled) { background: #334155; }
+  .ci-card.ci-status-joined,
+  .ci-card.ci-status-expired,
+  .ci-card.ci-status-cancelled,
+  .ci-card.ci-status-declined { background: #0b1220; }
 }

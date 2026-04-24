@@ -2102,12 +2102,18 @@
     // listeners.
     function fmtInvitationRemaining(expiresAtIso) {
       var ms = new Date(expiresAtIso).getTime() - Date.now();
-      if (!isFinite(ms) || ms <= 0) return t('callInvite.expiredSoon') || 'Expired';
+      if (!isFinite(ms) || ms <= 0) return t('ciStateExpired') || 'Expired';
       var total = Math.ceil(ms / 1000);
-      if (total < 60) return total + 's left';
-      var m = Math.floor(total / 60);
-      var s = total % 60;
-      return s === 0 ? m + 'm left' : m + 'm ' + s + 's left';
+      var timeStr;
+      if (total < 60) {
+        timeStr = (t('ciSeconds') || '{s}s').replace('{s}', String(total));
+      } else {
+        var m = Math.floor(total / 60);
+        var s = total % 60;
+        if (s === 0) timeStr = (t('ciMinutes') || '{m}m').replace('{m}', String(m));
+        else timeStr = (t('ciMinutesSeconds') || '{m}m {s}s').replace('{m}', String(m)).replace('{s}', String(s));
+      }
+      return (t('ciTimeLeft') || '{time} left').replace('{time}', timeStr);
     }
 
     function renderCallInvitationCard(msg) {
@@ -2116,39 +2122,56 @@
       var status = meta.status || 'pending';
       var inviteId = Util.escapeHtml(meta.invitation_id || '');
       var op = meta.operator_name ? Util.escapeHtml(meta.operator_name) : '';
-      var headline = channel === 'video'
-        ? (op ? op + ' invited you to a video call' : 'You have been invited to a video call')
-        : (op ? op + ' invited you to an audio call' : 'You have been invited to an audio call');
+      var headlineKey = channel === 'video'
+        ? (op ? 'ciHeadlineVideoFrom' : 'ciHeadlineVideo')
+        : (op ? 'ciHeadlineAudioFrom' : 'ciHeadlineAudio');
+      var headlineTpl = t(headlineKey) || (channel === 'video' ? 'You have been invited to a video call' : 'You have been invited to an audio call');
+      var headline = op ? headlineTpl.replace('{op}', op) : headlineTpl;
       var iconSvg = channel === 'video'
         ? '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>'
         : '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92Z"/></svg>';
 
       var statusBlock = '';
       var actionBlock = '';
+      var stateLabel = '';
       if (status === 'pending') {
         var rem = Util.escapeHtml(fmtInvitationRemaining(meta.expires_at));
-        statusBlock = '<div class="ci-meta">' + rem + '</div>';
+        statusBlock = '<div class="ci-meta ci-countdown" aria-live="polite">' +
+          '<span class="ci-pulse" aria-hidden="true"></span>' + rem +
+        '</div>';
+        var joinLabel = channel === 'video'
+          ? (t('ciJoinVideo') || 'Join video call')
+          : (t('ciJoinAudio') || 'Join call');
+        var joinAria = channel === 'video'
+          ? (t('ciAriaJoinVideo') || 'Join the video call now')
+          : (t('ciAriaJoinAudio') || 'Join the audio call now');
+        var declineLabel = t('ciDecline') || 'Decline';
+        var declineAria = t('ciAriaDecline') || 'Decline this call invitation';
         actionBlock = '<div class="ci-actions">' +
           '<button type="button" class="ci-btn ci-btn-primary" data-ci-action="join" data-ci-id="' + inviteId +
-            '" data-ci-channel="' + channel + '">' +
-            (channel === 'video' ? 'Join video call' : 'Join call') +
+            '" data-ci-channel="' + channel + '" aria-label="' + Util.escapeHtml(joinAria) + '">' +
+            Util.escapeHtml(joinLabel) +
           '</button>' +
-          '<button type="button" class="ci-btn ci-btn-ghost" data-ci-action="decline" data-ci-id="' + inviteId + '">Decline</button>' +
+          '<button type="button" class="ci-btn ci-btn-ghost" data-ci-action="decline" data-ci-id="' + inviteId +
+            '" aria-label="' + Util.escapeHtml(declineAria) + '">' +
+            Util.escapeHtml(declineLabel) +
+          '</button>' +
         '</div>';
-      } else if (status === 'joined') {
-        statusBlock = '<div class="ci-meta ci-status ci-status-joined">In call</div>';
-      } else if (status === 'expired') {
-        statusBlock = '<div class="ci-meta ci-status ci-status-expired">Invitation expired</div>';
-      } else if (status === 'cancelled') {
-        statusBlock = '<div class="ci-meta ci-status ci-status-cancelled">Operator cancelled the invite</div>';
-      } else if (status === 'declined') {
-        statusBlock = '<div class="ci-meta ci-status ci-status-declined">You declined this call</div>';
+      } else {
+        if (status === 'joined') stateLabel = t('ciStateJoined') || 'You joined the call';
+        else if (status === 'expired') stateLabel = t('ciStateExpired') || 'Invitation expired';
+        else if (status === 'cancelled') stateLabel = t('ciStateCancelled') || 'Operator cancelled the invitation';
+        else if (status === 'declined') stateLabel = t('ciStateDeclined') || 'You declined this call';
+        statusBlock = '<div class="ci-meta ci-status ci-status-' + Util.escapeHtml(status) + '">' + Util.escapeHtml(stateLabel) + '</div>';
       }
 
+      var ariaCard = (t('ciAriaCard') || 'Call invitation') + ' — ' +
+        (channel === 'video' ? (t('videoCall') || 'Video') : (t('voiceCall') || 'Voice'));
       return '<div class="msg-row system">' +
-        '<div class="ci-card ci-status-' + Util.escapeHtml(status) + '" data-ci-card="' + inviteId + '">' +
+        '<div class="ci-card ci-channel-' + channel + ' ci-status-' + Util.escapeHtml(status) +
+          '" data-ci-card="' + inviteId + '" role="group" aria-label="' + Util.escapeHtml(ariaCard) + '">' +
           '<div class="ci-row">' +
-            '<span class="ci-icon">' + iconSvg + '</span>' +
+            '<span class="ci-icon" aria-hidden="true">' + iconSvg + '</span>' +
             '<div class="ci-text">' +
               '<div class="ci-title">' + Util.escapeHtml(headline) + '</div>' +
               statusBlock +
@@ -2228,7 +2251,10 @@
 
       btn.disabled = true;
       var prevText = btn.textContent;
-      btn.textContent = action === 'join' ? 'Joining…' : 'Declining…';
+      btn.textContent = action === 'join'
+        ? (t('ciJoining') || 'Joining…')
+        : (t('ciDeclining') || 'Declining…');
+      btn.setAttribute('aria-busy', 'true');
 
       if (action === 'decline') {
         postCallInvitationAction(invitationId, 'decline')
@@ -2238,6 +2264,7 @@
           .catch(function (err) {
             btn.disabled = false;
             btn.textContent = prevText;
+            btn.removeAttribute('aria-busy');
             try { console.warn('[gs-call] decline failed:', err && err.message); } catch (_) {}
           });
         return;
@@ -2268,6 +2295,7 @@
       }).catch(function (err) {
         btn.disabled = false;
         btn.textContent = prevText;
+        btn.removeAttribute('aria-busy');
         try { console.warn('[gs-call] join failed:', err && err.message); } catch (_) {}
       });
     }

@@ -1107,6 +1107,27 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
         convId!,
         buildMessageEnvelope(insertedMsg as any),
       ).catch(() => {});
+      // Inbox-list fan-out — operators viewing the inbox list (without this
+      // specific conversation open) need a signal to refresh, otherwise new
+      // visitor messages only appear after a manual reload. The inbox hook
+      // (`useInboxListRealtime`) recognizes `conversation_updated` and either
+      // patches the cached row or invalidates the list query as a fallback
+      // (handles the brand-new-conversation case where the row isn't cached
+      // yet). Skip the conversation channel here — we already published the
+      // full `message` envelope above; this is purely an inbox-list ping.
+      void publishOperatorEvent(
+        config,
+        {
+          kind: 'conversation_updated',
+          conversation_id: convId!,
+          workspace_id: workspaceId,
+          actor_id: null,
+          updated_at: new Date().toISOString(),
+          last_message_at: insertedMsg.created_at ?? new Date().toISOString(),
+          source: 'visitor_message',
+        },
+        { skipConversationChannel: true },
+      );
     }
 
     // AI auto-reply attempt

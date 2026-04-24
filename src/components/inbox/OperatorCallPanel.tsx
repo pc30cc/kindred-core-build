@@ -28,6 +28,7 @@ import { toast } from '@/hooks/use-toast';
 import { callsApi, type CallType } from '@/lib/calls-api';
 import { useCallSession } from '@/hooks/useCallSession';
 import { describePhase, isTerminalPhase } from '@/lib/calls/CallSessionEngine';
+import { operatorCallErrorMessage } from '@/lib/calls/selectors';
 import { ringtone } from '@/lib/calls/ringtone';
 import { AudioCallSurface } from './calls/AudioCallSurface';
 import { VideoCallSurface } from './calls/VideoCallSurface';
@@ -116,7 +117,9 @@ export function OperatorCallPanel({ workspaceId, conversationId, contactName }: 
     lastErrorRef.current = key;
     toast({
       title: phase === 'missed' ? 'No answer' : 'Could not start call',
-      description: engineState.errorMessage || 'The visitor did not answer.',
+      description: phase === 'missed'
+        ? 'The visitor did not answer.'
+        : operatorCallErrorMessage(engineState.errorCode, engineState.errorMessage),
       variant: 'destructive',
     });
   }, [phase, engineState.errorCode, engineState.errorMessage]);

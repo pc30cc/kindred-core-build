@@ -278,6 +278,18 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
   // ── On 'connecting' phase → resolve call_session_id then connect media
   useEffect(() => {
     if (surface.phase !== 'connecting') return;
+    const inv = surface.invitation;
+    if (!inv) return;
+    // Guard against re-runs for the same invitation. Without this, a
+    // re-delivered realtime 'joined' event (or a re-render that briefly
+    // re-enters 'connecting') would call live.connect a second time on
+    // the same invitation — orphaning the active Room. The hook itself
+    // also has an idempotency guard, but checking here keeps the logs
+    // clean and avoids unnecessary token re-fetches.
+    if (startedConnectInvitationIdRef.current === inv.id) {
+      return;
+    }
+    startedConnectInvitationIdRef.current = inv.id;
     let cancelled = false;
     (async () => {
       try {
@@ -303,9 +315,17 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
           iceTransportPolicy: tok.ice_policy,
         });
         if (cancelled) return;
+        // Latch this invitation as "connected" so subsequent stale
+        // realtime/poll updates for it cannot tear down the active room.
+        connectedInvitationIdRef.current = inv.id;
+        rtDebug('call', 'connected', { invitation_id: inv.id, channel: inv.channel });
         setSurface((prev) => prev.phase === 'connecting' ? { ...prev, phase: 'connected' } : prev);
       } catch (err: any) {
         if (cancelled) return;
+        // Allow a fresh attempt only if this invitation actually failed
+        // to connect. Terminal cleanup will clear the ref next.
+        startedConnectInvitationIdRef.current = null;
+        rtDebug('call', 'connect failed', { invitation_id: inv.id, error: err?.message });
         setSurface((prev) => ({
           ...prev,
           phase: 'terminal',
@@ -316,7 +336,7 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [surface.phase]);
+  }, [surface.phase, surface.invitation?.id]);
 
   // ── Invite creation ───────────────────────────────────────────────────
   const openInviteDialog = useCallback((channel: InvitationChannel) => {

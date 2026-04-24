@@ -44,6 +44,7 @@ import { onInvitationChanged } from '@/lib/call-invitations-events';
 import { useLiveKitCall } from '@/hooks/useLiveKitCall';
 import { callsApi } from '@/lib/calls-api';
 import { InviteWaitDialog } from './InviteWaitDialog';
+import { rtDebug } from '@/realtime/debug';
 
 interface SidebarCallCardProps {
   workspaceId: string;

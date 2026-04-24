@@ -841,7 +841,13 @@
           credential: invite.turn.credential || undefined,
         });
       }
-      var room = new LK.Room({ adaptiveStream: true, dynacast: true });
+      var normalizedWsUrl = normalizeLiveKitWsUrl(invite.ws_url);
+      dlog('room.connect start', {
+        ws_url: invite.ws_url,
+        normalizedWsUrl: normalizedWsUrl,
+        call_id: invite.call_id,
+      });
+      var room = new LK.Room({ adaptiveStream: true, dynacast: true, disconnectOnPageLeave: false });
       // Race guard: if teardown() ran between loadSdk() and here, do not
       // create a zombie connection — `current` was cleared.
       if (!current || current.invite !== invite) {
@@ -857,8 +863,8 @@
           iceTransportPolicy: invite.ice_policy === 'relay' ? 'relay' : 'all',
         },
       } : undefined;
-      return room.connect(invite.ws_url, invite.token, connectOpts).then(function () {
-        dlog('room.connect resolved');
+      return room.connect(normalizedWsUrl, invite.token, connectOpts).then(function () {
+        dlog('room.connect resolved', { call_id: invite.call_id });
         // Race guard: teardown() during the WS handshake clears current.
         // The freshly-joined room is now orphaned; disconnect it cleanly
         // so LiveKit doesn't see a dangling participant.

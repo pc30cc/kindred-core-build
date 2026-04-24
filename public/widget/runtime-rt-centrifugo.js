@@ -80,6 +80,14 @@
       supportsPresence: !!(resolved.public_config && resolved.public_config.presence_enabled),
       supportsHistoryLoad: true,
       supportsReconnectSignals: true,
+      // Whether the widget is allowed to publish directly into the
+      // conversation channel from the browser. Defaults to false because
+      // our standard Centrifugo namespace is consume-only for visitors
+      // (publish goes through the backend). Without this guard, the widget
+      // emits `command('publish', ...)` for every keystroke and Centrifugo
+      // floods server logs with code 103 "insufficient permission".
+      // Backend can opt-in by setting `public_config.allow_client_publish`.
+      allowClientPublish: !!(resolved.public_config && resolved.public_config.allow_client_publish),
     }, resolved.capabilities || {});
 
     function log() {
@@ -452,6 +460,11 @@
       },
       sendTyping: function (payload) {
         if (!capabilities.supportsTyping) return;
+        // Backend-mediated typing is the default. Skip the direct publish
+        // attempt entirely unless the namespace explicitly allows it —
+        // otherwise Centrifugo logs `attempt to publish without
+        // sufficient permission (code 103)` for every keystroke.
+        if (!capabilities.allowClientPublish) return;
         if (!payload || !payload.conversationId) return;
         if (!ws || ws.readyState !== 1) return;
         var channel = buildChannel(payload.conversationId);

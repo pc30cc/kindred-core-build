@@ -39,8 +39,8 @@ interface ResolvedLk {
   apiSecret: string;
 }
 
-async function resolveLk(config: ServerConfig): Promise<ResolvedLk> {
-  const cfg = await loadLiveKitConfig(config);
+async function resolveLk(config: ServerConfig, forceRefresh = false): Promise<ResolvedLk> {
+  const cfg = await loadLiveKitConfig(config, forceRefresh);
   if (!isMinimallyConfigured(cfg)) {
     throw new CallProviderNotReadyError(
       'livekit',
@@ -61,6 +61,59 @@ async function resolveLk(config: ServerConfig): Promise<ResolvedLk> {
 
 function deterministicRoomName(workspaceId: string, callSessionId: string): string {
   return 'gs_' + workspaceId.slice(0, 8) + '_' + callSessionId.slice(0, 12);
+}
+
+export async function probeLiveKitProvisioning(config: ServerConfig): Promise<{
+  roomName: string;
+  latencyMs: number;
+  rtcUrl: string;
+}> {
+  const startedAt = Date.now();
+  const { baseUrl, apiKey, apiSecret } = await resolveLk(config, true);
+  const roomName = '__healthcheck_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+  try {
+    await twirp({
+      baseUrl,
+      apiKey,
+      apiSecret,
+      service: 'livekit.RoomService',
+      method: 'CreateRoom',
+      body: {
+        name: roomName,
+        empty_timeout: 30,
+        max_participants: 2,
+        metadata: JSON.stringify({ probe: true }),
+      },
+    });
+  } catch (err) {
+    if (err instanceof LiveKitTwirpError) {
+      throw new CallProviderNotReadyError(
+        'livekit',
+        'LiveKit provisioning failed: ' + err.code + ' / ' + err.message,
+      );
+    }
+    throw err;
+  }
+
+  try {
+    await twirp({
+      baseUrl,
+      apiKey,
+      apiSecret,
+      service: 'livekit.RoomService',
+      method: 'DeleteRoom',
+      body: { room: roomName },
+      room: roomName,
+    });
+  } catch {
+    // The probe has already proven room allocation works; cleanup is best-effort.
+  }
+
+  return {
+    roomName,
+    latencyMs: Date.now() - startedAt,
+    rtcUrl: baseUrl,
+  };
 }
 
 export const livekitProvider: CallProvider = {
@@ -87,9 +140,9 @@ export const livekitProvider: CallProvider = {
   },
 
   async createRoom(config, input: CreateRoomInput): Promise<CreateRoomResult> {
-    const { baseUrl, apiKey, apiSecret } = await resolveLk(config);
+    const { baseUrl, apiKey, apiSecret } = await resolveLk(config, true);
     const roomName = deterministicRoomName(input.workspaceId, input.callSessionId);
-    const cfg = await loadLiveKitConfig(config);
+    const cfg = await loadLiveKitConfig(config, true);
     const maxParticipants = Math.max(2, Math.min(input.maxParticipants, 100));
     try {
       await twirp({

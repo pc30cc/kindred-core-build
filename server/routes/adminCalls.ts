@@ -28,7 +28,7 @@ import {
   saveLiveKitConfig,
   toPublicView as toLiveKitPublicView,
 } from '../services/calls/livekitConfig.js';
-import { livekitProvider } from '../services/calls/providers/livekitProvider.js';
+import { probeLiveKitProvisioning } from '../services/calls/providers/livekitProvider.js';
 import { CallProviderNotReadyError } from '../services/calls/providers/types.js';
 import { CALL_PROVIDER_CLASSIFICATION } from '../services/calls/providers/types.js';
 import { getPlatformCallbackCounts } from '../services/calls/callbacks.js';
@@ -269,14 +269,13 @@ adminCallsRouter.put('/livekit', async (req, res) => {
 });
 
 /**
- * LiveKit live connection probe — uses the currently saved config to issue a
- * lightweight ListRooms Twirp call against the configured RTC base URL. No
- * mutation, no DB write. Returns 200 on success, 4xx with a human message
- * when the server can't be reached or credentials are wrong.
+ * LiveKit live provisioning probe — uses the currently saved config to create
+ * and immediately delete a tiny disposable room. This verifies not just API
+ * reachability, but also allocator/node availability (the same path the real
+ * call flow depends on).
  */
 adminCallsRouter.post('/livekit/test', async (req, res) => {
   const config: ServerConfig = (req as any).serverConfig;
-  const startedAt = Date.now();
   try {
     const cfg = await loadLiveKitConfig(config, true);
     if (!cfg.enabled) {
@@ -290,22 +289,19 @@ adminCallsRouter.post('/livekit/test', async (req, res) => {
     if (!cfg.rtc_url) {
       return res.status(400).json({ ok: false, error: 'RTC URL is required before testing.' });
     }
-    // Probe via getRoomState on a bogus room name — internally calls ListRooms
-    // and never throws on Twirp errors that aren't "not_ready". A successful
-    // response (even with zero rooms) confirms credentials + reachability.
-    await livekitProvider.getRoomState(config, '__healthcheck__');
+    const probe = await probeLiveKitProvisioning(config);
     res.json({
       ok: true,
-      latency_ms: Date.now() - startedAt,
-      rtc_url: cfg.rtc_url,
-      message: 'LiveKit responded successfully.',
+      latency_ms: probe.latencyMs,
+      rtc_url: probe.rtcUrl,
+      message: 'LiveKit created and deleted a probe room successfully.',
     });
   } catch (err: any) {
     const msg =
       err instanceof CallProviderNotReadyError
         ? err.message
         : err?.message || 'Unknown error contacting LiveKit.';
-    res.status(502).json({ ok: false, error: msg, latency_ms: Date.now() - startedAt });
+    res.status(502).json({ ok: false, error: msg });
   }
 });
 

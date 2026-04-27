@@ -595,6 +595,19 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
 
   const clearLastEnded = useCallback(() => setLastEnded(null), []);
 
+  const closeTerminal = useCallback(() => {
+    callLog('close terminal only', {
+      phase: surfaceRef.current.phase,
+      terminalStatus: surfaceRef.current.terminalStatus,
+      activeCallSessionId: activeCallSessionIdRef.current,
+    });
+    if (autoCloseRef.current) { clearTimeout(autoCloseRef.current); autoCloseRef.current = null; }
+    clearActiveCallRefs();
+    setLastEnded(null);
+    setSurface(INITIAL_SURFACE);
+    setFloatingMode('docked');
+  }, [clearActiveCallRefs]);
+
   // Auto-fade the "Call ended · mm:ss" surface so it never lingers
   // forever. The toast (below) carries the same info if the operator
   // navigates away in the meantime.
@@ -888,12 +901,13 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
     sendInvite,
     cancelInvite,
     hangup,
+    closeTerminal,
     refreshLatest,
     lastEnded,
     clearLastEnded,
   }), [
     surface, creating, loading, live, preview.stream, preview.state,
-    floatingMode, latestForConversation, sendInvite, cancelInvite, hangup, refreshLatest,
+    floatingMode, latestForConversation, sendInvite, cancelInvite, hangup, closeTerminal, refreshLatest,
     lastEnded, clearLastEnded,
   ]);
 

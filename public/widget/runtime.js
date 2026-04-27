@@ -580,6 +580,32 @@
         ciBodyVideo: 'An operator is inviting you to a video call.',
         ciWaitMinutes: 'The operator will wait up to {m} minutes for you to join.',
         ciWaitOneMinute: 'The operator will wait up to one minute for you to join.',
+        // Pass 2 — In-panel call surface
+        csConnecting: 'Connecting to the call\u2026',
+        csReconnecting: 'Reconnecting\u2026',
+        csInCall: 'In call',
+        csEnded: 'Call ended',
+        csMicMute: 'Mute',
+        csMicUnmute: 'Unmute',
+        csCamOn: 'Start camera',
+        csCamOff: 'Stop camera',
+        csHangup: 'End call',
+        csClose: 'Close',
+        csWaitingPeer: 'Waiting for the other side\u2026',
+        // Canonical engine error codes (mirrors server callErrorBody)
+        csErrSdkMissing: 'Call service unavailable. Please refresh and try again.',
+        csErrSdkLoad: 'Could not load the call service. Check your network and retry.',
+        csErrConnect: 'Could not connect to the call. Please retry.',
+        csErrTokenMint: 'Could not get a call token. Please retry.',
+        csErrProviderNotReady: 'Call service is not ready. Please try again shortly.',
+        csErrTurnMissing: 'Network configuration is missing. Please contact support.',
+        csErrPermMic: 'Microphone access was blocked. Allow it in your browser settings.',
+        csErrPermCam: 'Camera access was blocked. Allow it in your browser settings.',
+        csErrInvitationExpired: 'This invitation has expired.',
+        csErrInvitationJoined: 'This invitation was already used.',
+        csErrAccessDenied: 'You do not have access to this call.',
+        csErrOriginDenied: 'This site is not allowed to start a call.',
+        csErrUnknown: 'Something went wrong. Please retry.',
       },
       fa: {
         chat: 'گفتگو', help: 'راهنما',
@@ -2338,27 +2364,29 @@
           return postCallInvitationAction(invitationId, 'join');
         })
         .then(function (bundle) {
-          // Defensive — readiness resolved but the global was somehow
-          // wiped between then and now. Treat as runtime failure.
-          if (!window.__gs_call || typeof window.__gs_call.incoming !== 'function') {
+          // Pass 2 — drive the headless engine directly. No popup, no
+          // legacy `incoming(...)` shim. The in-panel call surface
+          // (renderCallSurface) is wired up via callSurfaceStore.
+          var engine = window.__gs_call && window.__gs_call.engine;
+          if (!engine || typeof engine.connect !== 'function') {
             throw new Error('call_runtime_unavailable');
           }
-          window.__gs_call.incoming({
-            call_id: bundle.call_id,
-            call_type: bundle.call_type || channel,
-            ws_url: bundle.ws_url,
+          subscribeToEngineOnce();
+          openCallSurface({
+            invitationId: invitationId,
+            callId: bundle.call_id,
+            channel: bundle.call_type || channel,
+          });
+          patchInvitationStatusLocally(invitationId, 'joined');
+          renderBody();
+          return engine.connect({
+            wsUrl: bundle.ws_url,
             token: bundle.token,
             turn: bundle.turn || { urls: [] },
             ice_policy: bundle.ice_policy || 'all',
-            recording: false,
-            operator_name: null,
-            // signal to runtime-call that we want to auto-accept on render.
-            auto_accept: true,
+            publishMic: true,
+            publishCamera: (bundle.call_type || channel) === 'video',
           });
-          // Patch local status only after the call surface actually opens —
-          // prevents a false "joined" pill if window.__gs_call.incoming
-          // throws synchronously.
-          patchInvitationStatusLocally(invitationId, 'joined');
         })
         .catch(function (err) {
           btn.disabled = false;
@@ -3346,6 +3374,12 @@
         window.__gs_call_config = window.__gs_call_config || {};
         window.__gs_call_config.url = config.callRuntimeUrl;
       }
+      // Pass 2 — vendor LiveKit SDK URL (hashed, self-hosted). Mirror it
+      // onto the global so the runtime-call.js engine's strict loadSdk()
+      // can find it whether the loader pre-set it or not.
+      if (config && config.livekitSdkUrl && !window.__gs_call_sdk_url) {
+        window.__gs_call_sdk_url = config.livekitSdkUrl;
+      }
     } catch (_) { /* noop */ }
 
     var shadowRoot = (shell && shell.shadowRoot) || (shell && shell.shellEl && shell.shellEl.shadowRoot) || null;
@@ -3576,6 +3610,229 @@
       entryId: null,
       error: '',
     });
+
+    // ─── Pass 2 — In-panel call surface store ───
+    // Drives the call view that lives INSIDE the widget panel Shadow DOM
+    // (see renderCallSurface below). Replaces the legacy out-of-panel
+    // popup that runtime-call.js used to mount on document.body. The
+    // surface is open whenever phase !== 'idle'; while open the panel
+    // hides tabs + composer and renders the call view full-bleed inside
+    // the .body container.
+    //
+    // Phases:
+    //   'idle'        — no call active.
+    //   'connecting'  — engine.connect() in flight.
+    //   'connected'   — at least one media track flowing.
+    //   'reconnecting'— transient SDK reconnect.
+    //   'failed'      — connect rejected; `error` carries { code, message }.
+    //   'ended'       — engine disconnected normally; surface lingers
+    //                   briefly so visitor sees "Call ended" before we
+    //                   restore the previous view.
+    var callSurfaceStore = createStore({
+      phase: 'idle',
+      invitationId: null,
+      callId: null,
+      channel: null,        // 'audio' | 'video'
+      previousTab: 'chat',  // restored when the surface closes
+      micEnabled: false,
+      cameraEnabled: false,
+      remote: { audio: null, video: null }, // MediaStreamTracks (live)
+      localVideo: null,
+      error: null,          // { code, message }
+    });
+
+    // Wire engine events ONCE the global engine appears. The engine is
+    // loaded asynchronously (runtime-call.js) — we set up subscriptions
+    // lazily the first time we need them.
+    var __engineSubscribed = false;
+    function subscribeToEngineOnce() {
+      if (__engineSubscribed) return;
+      var engine = window.__gs_call && window.__gs_call.engine;
+      if (!engine) return; // try again later when caller invokes us
+      __engineSubscribed = true;
+      engine.on('state', function (state) {
+        var cur = callSurfaceStore.get();
+        if (cur.phase === 'idle') return; // surface already closed
+        if (state === 'connected') callSurfaceStore.set({ phase: 'connected' });
+        else if (state === 'reconnecting') callSurfaceStore.set({ phase: 'reconnecting' });
+        else if (state === 'connecting') callSurfaceStore.set({ phase: 'connecting' });
+        else if (state === 'failed') {
+          // 'error' event already populated callSurfaceStore.error;
+          // just flip the phase. Don't auto-close — visitor needs to see
+          // the message and click Close.
+          callSurfaceStore.set({ phase: 'failed' });
+        } else if (state === 'disconnected') {
+          if (cur.phase !== 'failed') callSurfaceStore.set({ phase: 'ended' });
+          // Auto-close the surface a moment later so the visitor sees
+          // "Call ended" briefly. Closing restores the previous tab.
+          setTimeout(function () {
+            var s = callSurfaceStore.get();
+            if (s.phase === 'ended') closeCallSurface();
+          }, 1200);
+        }
+      });
+      engine.on('remote', function (tracks) {
+        callSurfaceStore.set({ remote: tracks || { audio: null, video: null } });
+      });
+      engine.on('local', function (payload) {
+        callSurfaceStore.set({ localVideo: (payload && payload.video) || null });
+      });
+      engine.on('micEnabled', function (v) { callSurfaceStore.set({ micEnabled: !!v }); });
+      engine.on('cameraEnabled', function (v) { callSurfaceStore.set({ cameraEnabled: !!v }); });
+      engine.on('error', function (err) {
+        // Normalize into a stable { code, message } shape for the UI.
+        callSurfaceStore.set({ error: { code: (err && err.code) || 'livekit_connect_failed', message: (err && err.message) || 'Call failed.' } });
+      });
+    }
+
+    function openCallSurface(opts) {
+      var prev = shellStore.get().activeTab || 'chat';
+      callSurfaceStore.set({
+        phase: 'connecting',
+        invitationId: opts.invitationId || null,
+        callId: opts.callId || null,
+        channel: opts.channel || 'audio',
+        previousTab: prev,
+        error: null,
+        remote: { audio: null, video: null },
+        localVideo: null,
+        micEnabled: false,
+        cameraEnabled: false,
+      });
+    }
+
+    function closeCallSurface() {
+      var prev = callSurfaceStore.get().previousTab || 'chat';
+      // Best-effort: ensure the engine is torn down. Idempotent.
+      try {
+        var engine = window.__gs_call && window.__gs_call.engine;
+        if (engine) engine.disconnect();
+      } catch (_) {}
+      callSurfaceStore.set({
+        phase: 'idle',
+        invitationId: null,
+        callId: null,
+        channel: null,
+        error: null,
+        remote: { audio: null, video: null },
+        localVideo: null,
+        micEnabled: false,
+        cameraEnabled: false,
+      });
+      // Restore the previous tab + re-render so the chat view comes back.
+      shellStore.set({ activeTab: prev });
+    }
+
+    // Map a canonical engine error code → translated message. Falls back
+    // to the engine's raw message when no i18n key matches the code.
+    function callErrorMessage(err) {
+      if (!err) return t('csErrUnknown') || 'Something went wrong.';
+      var code = err.code || '';
+      var map = {
+        sdk_url_missing: 'csErrSdkMissing',
+        sdk_load_failed: 'csErrSdkLoad',
+        livekit_connect_failed: 'csErrConnect',
+        token_mint_failed: 'csErrTokenMint',
+        provider_not_ready: 'csErrProviderNotReady',
+        turn_missing: 'csErrTurnMissing',
+        permission_denied_microphone: 'csErrPermMic',
+        permission_denied_camera: 'csErrPermCam',
+        invitation_expired: 'csErrInvitationExpired',
+        invitation_already_joined: 'csErrInvitationJoined',
+        invitation_access_denied: 'csErrAccessDenied',
+        origin_denied: 'csErrOriginDenied',
+      };
+      var key = map[code];
+      var msg = key ? t(key) : '';
+      return msg || err.message || (t('csErrUnknown') || 'Something went wrong.');
+    }
+
+    /**
+     * Render the in-panel call surface. Owns the .body container while
+     * a call is active. Mounts <audio>/<video> elements directly inside
+     * the widget Shadow DOM and binds their srcObject to the live
+     * MediaStreamTracks the engine emits via callSurfaceStore.
+     */
+    function renderCallSurface(container, s) {
+      if (!container) return;
+      var phase = s.phase;
+      var isVideo = s.channel === 'video';
+      var statusText = phase === 'connecting' ? (t('csConnecting') || 'Connecting…')
+        : phase === 'reconnecting' ? (t('csReconnecting') || 'Reconnecting…')
+        : phase === 'connected' ? (t('csInCall') || 'In call')
+        : phase === 'ended' ? (t('csEnded') || 'Call ended')
+        : phase === 'failed' ? callErrorMessage(s.error)
+        : '';
+      var hasRemoteVideo = !!(s.remote && s.remote.video);
+      var showWaiting = phase === 'connected' && isVideo && !hasRemoteVideo;
+      var html = '<div class="gs-call-surface" data-call-surface data-phase="' + phase + '">';
+      html += '<div class="gs-call-status" data-call-status>' + Util.escapeHtml(statusText) + '</div>';
+      html += '<div class="gs-call-stage" data-call-stage>';
+      if (isVideo) {
+        html += '<video class="gs-call-remote-video" data-call-remote-video autoplay playsinline></video>';
+        html += '<video class="gs-call-local-video" data-call-local-video autoplay playsinline muted></video>';
+      } else {
+        html += '<div class="gs-call-audio-orb" aria-hidden="true">' +
+          '<svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.37 1.9.72 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.35 1.85.59 2.81.72A2 2 0 0 1 22 16.92z"/></svg>' +
+          '</div>';
+      }
+      html += '<audio data-call-remote-audio autoplay></audio>';
+      if (showWaiting) {
+        html += '<div class="gs-call-waiting">' + Util.escapeHtml(t('csWaitingPeer') || 'Waiting…') + '</div>';
+      }
+      html += '</div>';
+      html += '<div class="gs-call-controls" data-call-controls>';
+      if (phase === 'failed' || phase === 'ended') {
+        html += '<button type="button" class="gs-call-btn gs-call-btn-close" data-call-action="close">' + Util.escapeHtml(t('csClose') || 'Close') + '</button>';
+      } else {
+        html += '<button type="button" class="gs-call-btn gs-call-btn-toggle' + (s.micEnabled ? '' : ' off') + '" data-call-action="mic" aria-label="' + Util.escapeHtml(s.micEnabled ? (t('csMicMute') || 'Mute') : (t('csMicUnmute') || 'Unmute')) + '">' +
+          (s.micEnabled ? '🎙' : '🔇') +
+          '</button>';
+        if (isVideo) {
+          html += '<button type="button" class="gs-call-btn gs-call-btn-toggle' + (s.cameraEnabled ? '' : ' off') + '" data-call-action="cam" aria-label="' + Util.escapeHtml(s.cameraEnabled ? (t('csCamOff') || 'Stop camera') : (t('csCamOn') || 'Start camera')) + '">' +
+            (s.cameraEnabled ? '📹' : '📷') +
+            '</button>';
+        }
+        html += '<button type="button" class="gs-call-btn gs-call-btn-hangup" data-call-action="hangup" aria-label="' + Util.escapeHtml(t('csHangup') || 'End call') + '">✕</button>';
+      }
+      html += '</div>';
+      html += '</div>';
+      container.innerHTML = html;
+
+      // Bind live media tracks (the store carries MediaStreamTracks).
+      try {
+        var aEl = container.querySelector('[data-call-remote-audio]');
+        if (aEl) {
+          aEl.srcObject = (s.remote && s.remote.audio) ? new MediaStream([s.remote.audio]) : null;
+          if (s.remote && s.remote.audio) { try { aEl.play(); } catch (_) {} }
+        }
+        var rvEl = container.querySelector('[data-call-remote-video]');
+        if (rvEl) {
+          rvEl.srcObject = (s.remote && s.remote.video) ? new MediaStream([s.remote.video]) : null;
+          if (s.remote && s.remote.video) { try { rvEl.play(); } catch (_) {} }
+        }
+        var lvEl = container.querySelector('[data-call-local-video]');
+        if (lvEl) {
+          lvEl.srcObject = s.localVideo ? new MediaStream([s.localVideo]) : null;
+          if (s.localVideo) { try { lvEl.play(); } catch (_) {} }
+        }
+      } catch (_) { /* noop */ }
+
+      // Wire controls.
+      var ctrls = container.querySelector('[data-call-controls]');
+      if (ctrls) {
+        ctrls.addEventListener('click', function (ev) {
+          var btn = ev.target && ev.target.closest && ev.target.closest('[data-call-action]');
+          if (!btn) return;
+          var action = btn.getAttribute('data-call-action');
+          var engine = window.__gs_call && window.__gs_call.engine;
+          if (action === 'mic' && engine) { engine.toggleMic(); }
+          else if (action === 'cam' && engine) { engine.toggleCamera(); }
+          else if (action === 'hangup') { closeCallSurface(); }
+          else if (action === 'close') { closeCallSurface(); }
+        });
+      }
+    }
 
     // ─── Phase 8H — Department resolver + state (additive) ────────────
     // Optional, lightweight department layer. Default behavior (general
@@ -4435,6 +4692,24 @@
     });
     function renderBody() {
       if (!body) return;
+      // Pass 2 — when an in-panel call surface is open it owns the
+      // entire body. Tabs + composer are hidden; we render the call view
+      // full-bleed inside the existing .body container (Shadow DOM).
+      var __cs = callSurfaceStore.get();
+      if (__cs.phase !== 'idle') {
+        if (inputBar) inputBar.style.display = 'none';
+        try {
+          var allTabs = panel.querySelectorAll('.tab');
+          Array.prototype.forEach.call(allTabs, function (t2) { t2.style.display = 'none'; });
+        } catch (_) {}
+        renderCallSurface(body, __cs);
+        return;
+      }
+      // Restore tab visibility when the surface is closed.
+      try {
+        var allTabs2 = panel.querySelectorAll('.tab');
+        Array.prototype.forEach.call(allTabs2, function (t2) { t2.style.display = ''; });
+      } catch (_) {}
       var tab = shellStore.get().activeTab;
       if (tab === 'chat') {
         if (!identityStore.get().loaded) { renderLoading(); return; }
@@ -4637,6 +4912,9 @@
       var t1 = shellStore.get().activeTab;
       if (t1 === 'voice' || t1 === 'video') renderBody();
     });
+    // Pass 2 — re-render whenever the in-panel call surface changes so
+    // status text, mic/cam state, and remote tracks paint immediately.
+    callSurfaceStore.subscribe(function () { renderBody(); });
     // Re-render body when presence flips so fallback/normal swap takes effect.
     presenceStore.subscribe(function () {
       if (shellStore.get().activeTab === 'chat') renderBody();

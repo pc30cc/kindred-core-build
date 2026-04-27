@@ -115,17 +115,16 @@
   var currentFacingMode = 'user';
   var availableCameras = [];
   // ── Connect-lifecycle flags (visitor-side regression fix) ──
-  // We MUST distinguish a transient SDK Disconnected during the initial
-  // /rtc/v1 handshake from a real teardown. Without this, the engine
-  // tears down the moment LiveKit closes the signal socket once (which
-  // routinely happens on retry), the visitor browser is removed from
-  // the room with `connectionType: unknown`, and the operator side
-  // mis-classifies it as `visitor_left`.
-  var connectStarted = false;
-  var connectSucceeded = false;
-  var publishStarted = false;
-  var publishSucceeded = false;
+  // Keep signaling, publishing, and "usable call" separate. LiveKit can
+  // emit Disconnected while the initial signal/media path is still settling;
+  // tearing down there closes the visitor before ICE/media establishes.
+  var signalingConnectStarted = false;
+  var signalingConnected = false;
+  var mediaPublishStarted = false;
+  var mediaPublished = false;
+  var engineFullyConnected = false;
   var explicitDisconnectRequested = false;
+  var connectPromiseSettled = false;
   var alreadyTornDown = false;
   // Diagnostics — visitor browser logs we always want when debugging
   // a failed-to-connect scenario.
@@ -191,6 +190,11 @@
   }
 
   function refreshAvailableCameras() {
+    if (!engineFullyConnected) {
+      availableCameras = [];
+      emitter.emit('cameras', { cameras: [], currentDeviceId: currentCameraDeviceId });
+      return Promise.resolve(availableCameras);
+    }
     if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
       availableCameras = [];
       emitter.emit('cameras', { cameras: [], currentDeviceId: currentCameraDeviceId });
@@ -244,7 +248,14 @@
       return;
     }
     alreadyTornDown = true;
-    dlog('teardown', { reasonState: reasonState, connectStarted: connectStarted, connectSucceeded: connectSucceeded, explicitDisconnectRequested: explicitDisconnectRequested });
+    dlog('teardown', {
+      reasonState: reasonState,
+      signalingConnectStarted: signalingConnectStarted,
+      signalingConnected: signalingConnected,
+      mediaPublished: mediaPublished,
+      engineFullyConnected: engineFullyConnected,
+      explicitDisconnectRequested: explicitDisconnectRequested,
+    });
     if (room) {
       try { room.disconnect(); } catch (_) { /* ignore */ }
     }
@@ -256,8 +267,8 @@
     lastLocalVideo = null;
     connectedAt = 0;
     currentCameraDeviceId = '';
-    // NB: do NOT clear connectStarted / connectSucceeded here — the
-    // caller's connect()-promise catch needs to inspect them. They are
+    // NB: do NOT clear lifecycle flags here — the caller's connect()
+    // promise catch may inspect them. They are
     // reset at the start of the next connect() call instead.
     emitter.emit('remote', lastRemote);
     emitter.emit('local', { video: null });
@@ -309,11 +320,13 @@
     var publishCamera = !!opts.publishCamera;
     if (opts.videoQuality) videoQuality = opts.videoQuality;
     // Reset all per-call flags at the start of a new connect.
-    connectStarted = true;
-    connectSucceeded = false;
-    publishStarted = false;
-    publishSucceeded = false;
+    signalingConnectStarted = true;
+    signalingConnected = false;
+    mediaPublishStarted = false;
+    mediaPublished = false;
+    engineFullyConnected = false;
     explicitDisconnectRequested = false;
+    connectPromiseSettled = false;
     alreadyTornDown = false;
     connecting = true;
     setState('connecting');
@@ -390,7 +403,7 @@
           //
           // Rule:
           //   - explicitDisconnectRequested → real hangup → teardown
-          //   - connectSucceeded → real session ended → teardown
+          //   - engineFullyConnected → real session ended → teardown
           //   - otherwise (still in /rtc/v1 handshake or publish) →
           //     log only. The connect() promise will reject in its own
           //     `.catch` if the SDK actually fails, and that path tears
@@ -398,14 +411,15 @@
           if (room !== nextRoom) return;
           dlog('room disconnected', {
             reason: reason,
-            connectStarted: connectStarted,
-            connectSucceeded: connectSucceeded,
-            publishStarted: publishStarted,
-            publishSucceeded: publishSucceeded,
+            signalingConnected: signalingConnected,
+            mediaPublishStarted: mediaPublishStarted,
+            mediaPublished: mediaPublished,
+            engineFullyConnected: engineFullyConnected,
             explicitDisconnectRequested: explicitDisconnectRequested,
+            connectPromiseSettled: connectPromiseSettled,
             currentState: state,
           });
-          if (explicitDisconnectRequested || connectSucceeded) {
+          if (explicitDisconnectRequested || engineFullyConnected) {
             teardownInternal('disconnected');
           } else {
             // Stay in 'connecting' — the connect() promise owns the
@@ -414,36 +428,56 @@
           }
         });
 
+      dlog('room.connect start');
       return nextRoom.connect(wsUrl, opts.token, connectOptions).then(function () {
         dlog('room.connect success');
+        signalingConnected = true;
         // Race guard: caller may have invoked disconnect() while we were
         // awaiting the WS handshake.
         if (room !== nextRoom) {
           try { nextRoom.disconnect(); } catch (_) {}
           throw makeErr('livekit_connect_failed', 'Connection cancelled before establishment.');
         }
-        // Mark the room as connected from a signaling point of view.
-        // From this point onwards, a Disconnected event IS a real teardown.
-        connectSucceeded = true;
         var publishChain = Promise.resolve();
         if (publishMic) {
           publishChain = publishChain.then(function () {
-            publishStarted = true;
+            mediaPublishStarted = true;
             dlog('publish mic start');
             return nextRoom.localParticipant.setMicrophoneEnabled(true).catch(function (e) {
-              dwarn('publish mic failed', { message: e && e.message });
-              throw makeErr('permission_denied_microphone', (e && e.message) || 'Microphone permission denied.');
-            }).then(function () { dlog('publish mic success'); });
+              var msg = (e && e.message) || 'Microphone permission denied.';
+              dwarn('publish mic fail', { code: e && e.code, message: msg });
+              micEnabled = false;
+              emitter.emit('micEnabled', false);
+              emitter.emit('error', { code: 'permission_denied_microphone', message: msg });
+              return null;
+            }).then(function () {
+              if (nextRoom.localParticipant && nextRoom.localParticipant.isMicrophoneEnabled) {
+                micEnabled = true;
+                emitter.emit('micEnabled', true);
+                dlog('publish mic success');
+              }
+            });
           });
         }
         if (publishCamera) {
           publishChain = publishChain.then(function () {
-            publishStarted = true;
+            mediaPublishStarted = true;
             dlog('publish camera start');
             return nextRoom.localParticipant.setCameraEnabled(true).catch(function (e) {
-              dwarn('publish camera failed', { message: e && e.message });
-              throw makeErr('permission_denied_camera', (e && e.message) || 'Camera permission denied.');
-            }).then(function () { dlog('publish camera success'); });
+              var msg = (e && e.message) || 'Camera permission denied.';
+              dwarn('publish camera fail', { code: e && e.code, message: msg });
+              cameraEnabled = false;
+              emitter.emit('cameraEnabled', false);
+              emitter.emit('local', { video: null });
+              emitter.emit('error', { code: 'permission_denied_camera', message: msg });
+              return null;
+            }).then(function () {
+              if (nextRoom.localParticipant && nextRoom.localParticipant.isCameraEnabled) {
+                cameraEnabled = true;
+                emitter.emit('cameraEnabled', true);
+                dlog('publish camera success');
+              }
+            });
           });
         }
         return publishChain.then(function () {
@@ -451,11 +485,13 @@
             try { nextRoom.disconnect(); } catch (_) {}
             throw makeErr('livekit_connect_failed', 'Connection cancelled during publish.');
           }
-          publishSucceeded = true;
+          mediaPublished = true;
           connecting = false;
           connectedAt = Date.now();
           setState('connected');
-          dlog('engine connected');
+          engineFullyConnected = true;
+          connectPromiseSettled = true;
+          dlog('engine fully connected');
           emitRemote(LK);
           emitLocalVideo(LK);
           // Best-effort: enumerate cameras AFTER permission so labels
@@ -466,7 +502,16 @@
     }).catch(function (err) {
       var code = (err && err.code) || 'livekit_connect_failed';
       var message = (err && err.message) || 'Failed to connect.';
-      dwarn('connect failed', { code: code, message: message, connectSucceeded: connectSucceeded, publishStarted: publishStarted });
+      connectPromiseSettled = true;
+      dwarn('connect failed', {
+        code: code,
+        message: message,
+        stack: err && err.stack,
+        signalingConnected: signalingConnected,
+        mediaPublishStarted: mediaPublishStarted,
+        mediaPublished: mediaPublished,
+        engineFullyConnected: engineFullyConnected,
+      });
       emitter.emit('error', { code: code, message: message });
       teardownInternal('failed');
       // Re-throw a normalized error so the caller's promise chain sees it.
@@ -483,7 +528,7 @@
   }
 
   function toggleMic() {
-    if (!room) return Promise.resolve(false);
+    if (!room || !engineFullyConnected) return Promise.resolve(micEnabled);
     var lp = room.localParticipant;
     var next = !lp.isMicrophoneEnabled;
     return lp.setMicrophoneEnabled(next).then(function () {
@@ -497,7 +542,7 @@
   }
 
   function toggleCamera() {
-    if (!room) return Promise.resolve(false);
+    if (!room || !engineFullyConnected) return Promise.resolve(cameraEnabled);
     var lp = room.localParticipant;
     var next = !lp.isCameraEnabled;
     var opts = next ? {
@@ -534,7 +579,7 @@
    *   5. Update local preview emission.
    */
   function switchCamera() {
-    if (!room) return Promise.resolve(null);
+    if (!room || !engineFullyConnected) return Promise.resolve(null);
     var LK = window.LivekitClient;
     if (!LK) return Promise.resolve(null);
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -630,7 +675,7 @@
       toggleCamera: toggleCamera,
       switchCamera: switchCamera,
       setVideoQuality: setVideoQuality,
-      listCameras: function () { return refreshAvailableCameras(); },
+      listCameras: function () { return engineFullyConnected ? refreshAvailableCameras() : Promise.resolve([]); },
       on: emitter.on,
       getState: function () {
         return {

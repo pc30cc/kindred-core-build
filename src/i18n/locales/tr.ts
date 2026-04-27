@@ -368,6 +368,11 @@ const tr: TranslationKeys = {
     'callSurface.close': 'Kapat',
     'callSurface.callEnded': 'Arama sona erdi',
     'callSurface.visitorEndedCall': 'Ziyaretçi aramayı sonlandırdı',
+    // Pass A — call summary written into chat thread.
+    'callEnded.summary.byOperator': 'Görüşme operatör tarafından sonlandırıldı · Süre {duration}',
+    'callEnded.summary.byVisitor': 'Görüşme ziyaretçi tarafından sonlandırıldı · Süre {duration}',
+    'callEnded.summary.bySystem': 'Görüşme sona erdi · Süre {duration}',
+    'callEnded.summary.notConnected': 'Görüşme bağlanamadı',
     'callSurface.expand': 'Genişlet',
     'callSurface.expandAria': 'Arama penceresini genişlet',
     'callSurface.minimize': 'Küçült',

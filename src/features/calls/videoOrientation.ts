@@ -16,6 +16,59 @@ export type CallVideoRole =
   | 'visitor-local'
   | 'visitor-remote';
 
+export type VideoOrientation = 'portrait' | 'landscape' | 'square';
+
+export function getVideoOrientation(el: HTMLVideoElement | null): VideoOrientation | null {
+  if (!el) return null;
+  const w = el.videoWidth || 0;
+  const h = el.videoHeight || 0;
+  if (!w || !h) return null;
+  if (h > w * 1.05) return 'portrait';
+  if (w > h * 1.05) return 'landscape';
+  return 'square';
+}
+
+/**
+ * Apply orientation classes to the video element AND its closest stage
+ * container. Returns the detected orientation (or null if metadata not yet
+ * available). Safe to call repeatedly — old classes are removed first.
+ */
+export function applyVideoOrientationClass(
+  el: HTMLVideoElement | null,
+  role: CallVideoRole,
+  stagePrefix: 'call-video' | 'gs-call-video' = 'call-video',
+): VideoOrientation | null {
+  if (!el) return null;
+  const orientation = getVideoOrientation(el);
+  if (!orientation) return null;
+  const classes = [`${stagePrefix}--portrait`, `${stagePrefix}--landscape`, `${stagePrefix}--square`];
+  el.classList.remove(...classes);
+  el.classList.add(`${stagePrefix}--${orientation}`);
+  // Mirror to nearest stage wrapper so layout (e.g. blurred bg) can react.
+  const stage = el.closest('[data-call-stage], [data-call-surface], [data-call-video-stage]') as HTMLElement | null;
+  if (stage) {
+    stage.classList.remove(...classes);
+    stage.classList.add(`${stagePrefix}--${orientation}`);
+    stage.setAttribute('data-video-orientation', orientation);
+  }
+  try {
+    // eslint-disable-next-line no-console
+    console.info('[call-ui] video dimensions', {
+      role,
+      videoWidth: el.videoWidth,
+      videoHeight: el.videoHeight,
+      orientation,
+    });
+    // eslint-disable-next-line no-console
+    console.info('[call-ui] orientation class applied', {
+      role,
+      orientation,
+      cls: `${stagePrefix}--${orientation}`,
+    });
+  } catch { /* diagnostic only */ }
+  return orientation;
+}
+
 export function isCallOrientationDebugEnabled(): boolean {
   try {
     const params = new URLSearchParams(window.location.search);

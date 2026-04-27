@@ -457,3 +457,15 @@ video.call-video {
   scale: 1 !important;
   rotate: 0deg !important;
 }
+
+/* ─── Orientation-aware remote video (operator side) ──────────────────
+   Remote video is rendered with object-fit: contain so portrait phone
+   streams stay portrait inside a landscape stage, with a blurred
+   backdrop fill behind. Landscape streams fill the whole stage. */
+.call-video-stage[data-video-orientation="landscape"] .call-video-remote {
+  object-fit: cover !important;
+}
+.call-video-stage[data-video-orientation="portrait"] .call-video-remote,
+.call-video-stage[data-video-orientation="square"] .call-video-remote {
+  object-fit: contain !important;
+}

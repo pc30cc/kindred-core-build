@@ -42,6 +42,7 @@ import {
 } from '@/lib/call-invitations-api';
 import { onInvitationChanged } from '@/lib/call-invitations-events';
 import { useLiveKitCall } from '@/hooks/useLiveKitCall';
+import type { RemoteAudioTrack, RemoteVideoTrack } from 'livekit-client';
 import { callsApi } from '@/lib/calls-api';
 import { InviteWaitDialog } from './InviteWaitDialog';
 import { rtDebug } from '@/realtime/debug';
@@ -1059,12 +1060,12 @@ function VideoCallStage({ remote }: { remote: ReturnType<typeof useLiveKitCall>[
   const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
   // Track currently-attached LiveKit RemoteVideoTrack per participant so
   // we know exactly when to detach (track replaced, gone, or stalled).
-  const attachedTrackRef = useRef<Record<string, RemoteVideoTrackLike | null>>({});
+  const attachedTrackRef = useRef<Record<string, RemoteVideoTrack | null>>({});
   // Audio mirrors the dedicated <audio> element; LiveKit owns the binding
   // via attach/detach, kept fully separate from video so a video-only
   // mute/stall cannot tear down audio.
   const audioRefs = useRef<Record<string, HTMLAudioElement | null>>({});
-  const attachedAudioRef = useRef<Record<string, RemoteAudioTrackLike | null>>({});
+  const attachedAudioRef = useRef<Record<string, RemoteAudioTrack | null>>({});
 
   // ── Video attach / detach ───────────────────────────────────────────
   useLayoutEffect(() => {

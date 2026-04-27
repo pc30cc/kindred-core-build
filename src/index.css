@@ -82,6 +82,10 @@
     --admin-sidebar-hover: 225 10% 15%;
     --admin-accent: 174 50% 44%;
     --admin-accent-foreground: 225 15% 6%;
+
+    --call-stage: 225 15% 4%;
+    --call-stage-foreground: 0 0% 98%;
+    --call-stage-muted: 225 12% 18%;
   }
 
   .dark {
@@ -142,6 +146,10 @@
     --shadow-card: 0 2px 12px -4px hsl(225 16% 4% / 0.35);
     --shadow-glow: 0 0 14px -4px hsl(221 83% 53% / 0.15);
     --shadow-elevated: 0 4px 20px -4px hsl(225 16% 4% / 0.5);
+
+    --call-stage: 225 15% 4%;
+    --call-stage-foreground: 0 0% 98%;
+    --call-stage-muted: 225 12% 18%;
   }
 
   /* Admin panel scope — dark theme for admin only */

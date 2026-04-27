@@ -145,8 +145,10 @@
   var cameraEnabled = false;
   var connectedAt = 0;
   var explicitDisconnectRequested = false;
+  var roomConnectStarted = false;
   var roomConnectSettled = false;
   var roomConnectSucceeded = false;
+  var roomConnectFinalRejectLogged = false;
   var engineFullyConnected = false;
   var alreadyTornDown = false;
 
@@ -240,8 +242,10 @@
     var publishMic = opts.publishMic !== false;
     var publishCamera = !!opts.publishCamera;
     explicitDisconnectRequested = false;
+    roomConnectStarted = false;
     roomConnectSettled = false;
     roomConnectSucceeded = false;
+    roomConnectFinalRejectLogged = false;
     engineFullyConnected = false;
     alreadyTornDown = false;
     connecting = true;
@@ -327,6 +331,7 @@
         });
 
       dlog('room.connect start');
+      roomConnectStarted = true;
       return nextRoom.connect(wsUrl, opts.token, connectOptions).then(function () {
         roomConnectSucceeded = true;
         roomConnectSettled = true;
@@ -384,6 +389,7 @@
       }).catch(function (err) {
         roomConnectSettled = true;
         if (!roomConnectSucceeded) {
+          roomConnectFinalRejectLogged = true;
           dlog('room.connect final reject', describeError(err));
         }
         var code = (err && err.code) || 'livekit_connect_failed';
@@ -395,7 +401,8 @@
     }).catch(function (err) {
       var code = (err && err.code) || 'livekit_connect_failed';
       var message = (err && err.message) || 'Failed to connect.';
-      if (!roomConnectSucceeded) {
+      if (roomConnectStarted && !roomConnectSucceeded && !roomConnectFinalRejectLogged) {
+        roomConnectFinalRejectLogged = true;
         dlog('room.connect final reject', describeError(err));
       }
       emitter.emit('error', { code: code, message: message });

@@ -138,10 +138,51 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
 
   const wireRoom = useCallback((room: Room) => {
     room
-      .on(RoomEvent.ParticipantConnected, refreshRemotes)
-      .on(RoomEvent.ParticipantDisconnected, refreshRemotes)
-      .on(RoomEvent.TrackSubscribed, refreshRemotes)
-      .on(RoomEvent.TrackUnsubscribed, refreshRemotes)
+      .on(RoomEvent.ParticipantConnected, (p: RemoteParticipant) => {
+        // eslint-disable-next-line no-console
+        console.debug('[livekit] ParticipantConnected', p.identity);
+        refreshRemotes();
+      })
+      .on(RoomEvent.ParticipantDisconnected, (p: RemoteParticipant) => {
+        // eslint-disable-next-line no-console
+        console.debug('[livekit] ParticipantDisconnected', p.identity);
+        refreshRemotes();
+      })
+      .on(RoomEvent.TrackSubscribed, (track: RemoteTrack, _pub, p: RemoteParticipant) => {
+        // eslint-disable-next-line no-console
+        console.debug('[livekit] TrackSubscribed', track.kind, p.identity, track.sid);
+        refreshRemotes();
+      })
+      .on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack, _pub, p: RemoteParticipant) => {
+        // eslint-disable-next-line no-console
+        console.debug('[livekit] TrackUnsubscribed', track.kind, p.identity, track.sid);
+        refreshRemotes();
+      })
+      // CRITICAL: when LiveKit pauses/resumes a video track (network drop,
+      // simulcast layer switch, sender mute) without unsubscribing, only
+      // these events fire. Without re-emitting `remote`, the operator's
+      // <video> keeps the now-stale MediaStreamTrack and shows the last
+      // decoded frame as a freeze. Recompute snapshots on every change.
+      .on(RoomEvent.TrackMuted, (pub: RemoteTrackPublication, p: RemoteParticipant) => {
+        // eslint-disable-next-line no-console
+        console.debug('[livekit] TrackMuted', pub.kind, p.identity);
+        refreshRemotes();
+      })
+      .on(RoomEvent.TrackUnmuted, (pub: RemoteTrackPublication, p: RemoteParticipant) => {
+        // eslint-disable-next-line no-console
+        console.debug('[livekit] TrackUnmuted', pub.kind, p.identity);
+        refreshRemotes();
+      })
+      .on(RoomEvent.TrackStreamStateChanged, (pub: RemoteTrackPublication, streamState, p: RemoteParticipant) => {
+        // eslint-disable-next-line no-console
+        console.debug('[livekit] TrackStreamStateChanged', pub.kind, p.identity, streamState);
+        refreshRemotes();
+      })
+      .on(RoomEvent.TrackSubscriptionStatusChanged, (pub: RemoteTrackPublication, status, p: RemoteParticipant) => {
+        // eslint-disable-next-line no-console
+        console.debug('[livekit] TrackSubscriptionStatusChanged', pub.kind, p.identity, status);
+        refreshRemotes();
+      })
       .on(RoomEvent.LocalTrackPublished, (pub: LocalTrackPublication) => {
         if (pub.kind === Track.Kind.Audio) setMicEnabled(true);
         if (pub.kind === Track.Kind.Video) setCameraEnabled(true);
@@ -150,9 +191,22 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
         if (pub.kind === Track.Kind.Audio) setMicEnabled(false);
         if (pub.kind === Track.Kind.Video) setCameraEnabled(false);
       })
-      .on(RoomEvent.Reconnecting, () => setState('reconnecting'))
-      .on(RoomEvent.Reconnected, () => setState('connected'))
+      .on(RoomEvent.Reconnecting, () => {
+        // eslint-disable-next-line no-console
+        console.debug('[livekit] Reconnecting');
+        setState('reconnecting');
+      })
+      .on(RoomEvent.Reconnected, () => {
+        // eslint-disable-next-line no-console
+        console.debug('[livekit] Reconnected');
+        setState('connected');
+        // Re-attach: simulcast/SFU may hand us new track refs after
+        // re-subscribe. Force the consumer to rebuild srcObject.
+        refreshRemotes();
+      })
       .on(RoomEvent.Disconnected, () => {
+        // eslint-disable-next-line no-console
+        console.debug('[livekit] Disconnected');
         setState('disconnected');
         refreshRemotes();
       });
@@ -205,6 +259,8 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
     roomRef.current = room;
     wireRoom(room);
     try {
+      // eslint-disable-next-line no-console
+      console.debug('[livekit] room.connect() →', wsUrl);
       await room.connect(wsUrl, input.token, connectOptions);
       // Race guard: if someone called disconnect() while we were awaiting
       // the WS handshake, roomRef was cleared. The Room we just joined is

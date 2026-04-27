@@ -85,7 +85,7 @@ export function FloatingOperatorCallWindow() {
     live.state === 'failed' ? 'bg-destructive/20 text-destructive border-destructive/40' :
     'bg-muted/70 text-muted-foreground border-border';
 
-  const title = surface.contactName || 'Visitor';
+  const title = surface.contactName || safeT('inbox.visitor', 'Visitor');
   const expandedStyle: CSSProperties = useMemo(() => {
     if (pos) return { left: pos.x, top: pos.y, right: 'auto', bottom: 'auto' };
     return { right: 24, bottom: 24 };
@@ -118,7 +118,7 @@ export function FloatingOperatorCallWindow() {
   return (
     <div
       role="dialog"
-      aria-label="Active call"
+      aria-label={safeT('inbox.callSurface.callDuration', 'Active call')}
       className={cn(
         'fixed z-[70] flex overflow-hidden border border-border bg-card shadow-elevated ring-1 ring-foreground/10',
         isMinimized
@@ -152,17 +152,17 @@ export function FloatingOperatorCallWindow() {
           </div>
         </div>
         <div className="flex items-center gap-1">
-          <Button size="sm" variant="ghost" className={cn('h-9 rounded-full px-3', isMinimized ? 'bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary' : 'bg-call-stage-foreground/10 text-call-stage-foreground hover:bg-call-stage-foreground/20 hover:text-call-stage-foreground')} onClick={stop(() => setFloatingMode(isMinimized ? 'expanded' : 'minimized'))} aria-label={isMinimized ? 'Expand call window' : 'Minimize call window'} title={isMinimized ? 'Expand' : 'Minimize'}>
+          <Button size="sm" variant="ghost" className={cn('h-9 rounded-full px-3', isMinimized ? 'bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary' : 'bg-call-stage-foreground/10 text-call-stage-foreground hover:bg-call-stage-foreground/20 hover:text-call-stage-foreground')} onClick={stop(() => setFloatingMode(isMinimized ? 'expanded' : 'minimized'))} aria-label={isMinimized ? safeT('inbox.callSurface.expandAria', 'Expand call window') : safeT('inbox.callSurface.minimizeAria', 'Minimize call window')} title={isMinimized ? safeT('inbox.callSurface.expand', 'Expand') : safeT('inbox.callSurface.minimize', 'Minimize')}>
             {isMinimized ? <Maximize2 className="h-4 w-4" /> : <Minimize2 className="h-4 w-4" />}
-            {isMinimized && <span className="text-[12px] font-bold">Expand</span>}
+            {isMinimized && <span className="text-[12px] font-bold">{safeT('inbox.callSurface.expand', 'Expand')}</span>}
           </Button>
           {!isMinimized && (
-            <Button size="sm" variant="ghost" className="h-8 w-8 rounded-full bg-call-stage-foreground/10 p-0 text-call-stage-foreground hover:bg-call-stage-foreground/20 hover:text-call-stage-foreground" onClick={stop(dockToInbox)} aria-label="Return to inbox dock" title="Return to inbox">
+            <Button size="sm" variant="ghost" className="h-8 w-8 rounded-full bg-call-stage-foreground/10 p-0 text-call-stage-foreground hover:bg-call-stage-foreground/20 hover:text-call-stage-foreground" onClick={stop(dockToInbox)} aria-label={safeT('inbox.callSurface.returnInbox', 'Return to inbox')} title={safeT('inbox.callSurface.returnInbox', 'Return to inbox')}>
               <PanelRightOpen className="h-4 w-4" />
             </Button>
           )}
           {isMinimized && (
-            <Button size="sm" variant="default" className="h-8 w-8 rounded-full bg-destructive p-0 text-destructive-foreground hover:bg-destructive/90" onClick={stop(hangup)} aria-label="End call" title="End call">
+            <Button size="sm" variant="default" className="h-8 w-8 rounded-full bg-destructive p-0 text-destructive-foreground hover:bg-destructive/90" onClick={stop(hangup)} aria-label={safeT('inbox.callSurface.hangup', 'End call')} title={safeT('inbox.callSurface.hangup', 'End call')}>
               <PhoneOff className="h-4 w-4" />
             </Button>
           )}
@@ -213,12 +213,12 @@ export function FloatingOperatorCallWindow() {
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-44 bg-gradient-to-t from-call-stage via-call-stage/70 to-transparent" aria-hidden="true" />
         <div className="absolute inset-x-0 bottom-0 z-30 flex items-center justify-center gap-3 px-4 pb-5 pt-10">
           {!isRemoteEndedTerminal && (
-            <Button size="sm" variant="outline" className={cn('h-12 w-12 rounded-full border-call-stage-foreground/20 bg-card/75 p-0 text-foreground shadow-elevated backdrop-blur-xl hover:bg-card', !live.micEnabled && 'border-destructive/40 bg-destructive/15 text-destructive')} onClick={stop(live.toggleMic)} aria-label={live.micEnabled ? 'Mute microphone' : 'Unmute microphone'} title={live.micEnabled ? 'Mute microphone' : 'Unmute microphone'}>
+            <Button size="sm" variant="outline" className={cn('h-12 w-12 rounded-full border-call-stage-foreground/20 bg-card/75 p-0 text-foreground shadow-elevated backdrop-blur-xl hover:bg-card', !live.micEnabled && 'border-destructive/40 bg-destructive/15 text-destructive')} onClick={stop(live.toggleMic)} aria-label={live.micEnabled ? safeT('inbox.callSurface.muteMic', 'Mute microphone') : safeT('inbox.callSurface.unmuteMic', 'Unmute microphone')} title={live.micEnabled ? safeT('inbox.callSurface.muteMic', 'Mute microphone') : safeT('inbox.callSurface.unmuteMic', 'Unmute microphone')}>
               {live.micEnabled ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}
             </Button>
           )}
           {!isRemoteEndedTerminal && isVideo && (
-            <Button size="sm" variant="outline" className={cn('h-12 w-12 rounded-full border-call-stage-foreground/20 bg-card/75 p-0 text-foreground shadow-elevated backdrop-blur-xl hover:bg-card', !live.cameraEnabled && 'border-destructive/40 bg-destructive/15 text-destructive')} onClick={stop(live.toggleCamera)} aria-label={live.cameraEnabled ? 'Turn camera off' : 'Turn camera on'} title={live.cameraEnabled ? 'Turn camera off' : 'Turn camera on'}>
+            <Button size="sm" variant="outline" className={cn('h-12 w-12 rounded-full border-call-stage-foreground/20 bg-card/75 p-0 text-foreground shadow-elevated backdrop-blur-xl hover:bg-card', !live.cameraEnabled && 'border-destructive/40 bg-destructive/15 text-destructive')} onClick={stop(live.toggleCamera)} aria-label={live.cameraEnabled ? safeT('inbox.callSurface.cameraOff', 'Turn camera off') : safeT('inbox.callSurface.cameraOn', 'Turn camera on')} title={live.cameraEnabled ? safeT('inbox.callSurface.cameraOff', 'Turn camera off') : safeT('inbox.callSurface.cameraOn', 'Turn camera on')}>
               {live.cameraEnabled ? <Video className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}
             </Button>
           )}

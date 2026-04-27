@@ -312,10 +312,26 @@ export function AudioCallStage({ remote }: { remote: Remote }) {
     }
   }, [remote]);
   return (
-    <div className="relative aspect-video w-full rounded-xl overflow-hidden border border-border bg-call-stage flex items-center justify-center">
-      <div className="w-20 h-20 rounded-full bg-call-stage-foreground/5 ring-1 ring-call-stage-foreground/10 flex items-center justify-center">
-        <div className="w-12 h-12 rounded-full bg-primary/30 animate-pulse" aria-hidden="true" />
+    <div className="relative h-full w-full overflow-hidden bg-gradient-to-br from-call-stage via-call-stage to-primary/20 flex flex-col items-center justify-center gap-6 px-6">
+      <div className="relative flex h-32 w-32 items-center justify-center rounded-full bg-primary/15 ring-1 ring-primary/30">
+        <div className="absolute inset-0 rounded-full bg-primary/20 animate-ping" aria-hidden="true" />
+        <div className="relative h-20 w-20 rounded-full bg-gradient-to-br from-primary/70 to-primary flex items-center justify-center text-2xl font-bold text-primary-foreground shadow-elevated">
+          ●
+        </div>
       </div>
+      <div className="flex items-end gap-1 h-8" aria-hidden="true">
+        {[0, 1, 2, 3, 4, 5, 6].map((i) => (
+          <span
+            key={i}
+            className="w-1.5 rounded-full bg-primary/60"
+            style={{
+              animation: `gs-eq 1.1s ease-in-out ${i * 0.08}s infinite alternate`,
+              height: '40%',
+            }}
+          />
+        ))}
+      </div>
+      <style>{`@keyframes gs-eq { 0% { height: 20%; opacity: .55 } 100% { height: 100%; opacity: 1 } }`}</style>
       {remote.map((r) => (
         <audio
           key={r.participantSid}

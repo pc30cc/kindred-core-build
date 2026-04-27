@@ -95,6 +95,7 @@ const overridesSchema = z.object({
   allow_voice: z.boolean().optional(),
   allow_video: z.boolean().optional(),
   allow_recording: z.boolean().optional(),
+  default_video_quality: z.enum(['auto', 'low', 'medium', 'high', 'hd']).optional(),
 });
 
 // PUT /api/workspace-calls/:workspaceId/settings

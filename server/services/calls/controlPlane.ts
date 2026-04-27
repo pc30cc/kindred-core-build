@@ -141,6 +141,11 @@ export interface WorkspaceCallOverrides {
   call_queue_enabled: boolean;
   visitor_initiated_audio_enabled: boolean;
   visitor_initiated_video_enabled: boolean;
+  /**
+   * Default video quality preset operators start with.
+   * 'auto' lets LiveKit's adaptiveStream pick.
+   */
+  default_video_quality: 'auto' | 'low' | 'medium' | 'high' | 'hd';
 }
 
 const DEFAULT_WORKSPACE_OVERRIDES: WorkspaceCallOverrides = {
@@ -155,6 +160,7 @@ const DEFAULT_WORKSPACE_OVERRIDES: WorkspaceCallOverrides = {
   call_queue_enabled: true,
   visitor_initiated_audio_enabled: true,
   visitor_initiated_video_enabled: true,
+  default_video_quality: 'auto',
 };
 
 export async function loadWorkspaceCallOverrides(

@@ -23,6 +23,7 @@ export interface WorkspaceCallOverrides {
   call_queue_enabled: boolean;
   visitor_initiated_audio_enabled: boolean;
   visitor_initiated_video_enabled: boolean;
+  default_video_quality: 'auto' | 'low' | 'medium' | 'high' | 'hd';
 }
 
 export interface EffectiveCallChannels {

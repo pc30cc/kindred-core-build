@@ -63,6 +63,7 @@ export function FloatingOperatorCallWindow() {
 
   const hasRemoteVideo = live.remote.some((r) => !!r.videoTrack);
   const status =
+    isRemoteEndedTerminal ? 'Call ended' :
     live.state === 'connecting' ? 'Connecting' :
     live.state === 'reconnecting' ? 'Reconnecting' :
     isVideo && surface.phase === 'connected' && !hasRemoteVideo ? 'Camera off' :
@@ -72,6 +73,7 @@ export function FloatingOperatorCallWindow() {
     'Live';
 
   const statusTone =
+    isRemoteEndedTerminal ? 'bg-muted/70 text-muted-foreground border-border' :
     live.state === 'connected' ? 'bg-success/20 text-success border-success/40' :
     live.state === 'reconnecting' || live.state === 'connecting' ? 'bg-warning/20 text-warning border-warning/40' :
     live.state === 'failed' ? 'bg-destructive/20 text-destructive border-destructive/40' :

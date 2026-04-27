@@ -616,9 +616,18 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
             ended_at: evt.ended_at,
             conversation_id: evt.conversation_id || recentConv,
           });
-          // Make sure UI is reset (idempotent) and floating window collapses.
-          setSurface(INITIAL_SURFACE);
-          setFloatingMode('docked');
+          // The remote-vanished effect has already flipped us to terminal
+          // 'remote_ended' (or we're already in idle if the auto-close
+          // already fired). The toast effect handles surfacing the
+          // canonical duration; we only update the surface if we never
+          // showed terminal yet.
+          if (surfaceRef.current.phase !== 'terminal' && surfaceRef.current.phase !== 'idle') {
+            setSurface((prev) => ({
+              ...prev,
+              phase: 'terminal',
+              terminalStatus: 'remote_ended',
+            }));
+          }
           // Clear the recent ref so the same envelope replayed by polling
           // does not double-fire.
           lastActiveCallSessionIdRef.current = null;

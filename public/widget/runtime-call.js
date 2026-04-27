@@ -403,7 +403,7 @@
           //
           // Rule:
           //   - explicitDisconnectRequested → real hangup → teardown
-          //   - connectSucceeded → real session ended → teardown
+          //   - engineFullyConnected → real session ended → teardown
           //   - otherwise (still in /rtc/v1 handshake or publish) →
           //     log only. The connect() promise will reject in its own
           //     `.catch` if the SDK actually fails, and that path tears
@@ -428,6 +428,7 @@
           }
         });
 
+      dlog('room.connect start');
       return nextRoom.connect(wsUrl, opts.token, connectOptions).then(function () {
         dlog('room.connect success');
         signalingConnected = true;

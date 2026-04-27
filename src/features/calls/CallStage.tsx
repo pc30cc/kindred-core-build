@@ -185,15 +185,21 @@ export function VideoCallStage({ remote, size = 'small' }: VideoStageProps) {
             : 'relative aspect-video w-full rounded-xl overflow-hidden border border-border bg-call-stage'}
         >
           <video
-            ref={(el) => { videoRefs.current[r.participantSid] = el; }}
+            ref={(el) => {
+              videoRefs.current[r.participantSid] = el;
+              if (el) logCallVideoOrientation('operator-remote', el);
+            }}
             autoPlay
             playsInline
             muted={false}
             className="call-video call-video-remote w-full h-full object-cover bg-call-stage"
             data-call-video
             data-remote-video
+            data-call-video-role="operator-remote"
+            data-orientation-correction={CALL_VIDEO_ORIENTATION_CORRECTION_MODE}
             style={CALL_VIDEO_STYLE}
           />
+          <OrientationDebugOverlay role="operator-remote" videoRef={{ current: videoRefs.current[r.participantSid] }} />
           {!r.videoTrack && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-call-stage/70 text-call-stage-foreground/80">
               <WifiOff className="w-5 h-5" aria-hidden="true" />
@@ -236,6 +242,7 @@ export function LocalVideoPiP({
     }
     if (next) {
       try { next.attach(el); } catch { /* ignore */ }
+      logCallVideoOrientation('operator-local', el);
       const p = el.play();
       if (p && typeof (p as Promise<void>).catch === 'function') {
         (p as Promise<void>).catch(() => {});
@@ -265,8 +272,11 @@ export function LocalVideoPiP({
         className="call-video call-video-local h-full w-full object-cover bg-call-stage"
         data-call-video
         data-local-video
+        data-call-video-role="operator-local"
+        data-orientation-correction={CALL_VIDEO_ORIENTATION_CORRECTION_MODE}
         style={CALL_VIDEO_STYLE}
       />
+      <OrientationDebugOverlay role="operator-local" videoRef={videoRef} />
       {(!track || !cameraEnabled) && (
         <div className="absolute inset-0 flex items-center justify-center bg-call-stage text-call-stage-foreground/70 text-[11px] font-medium">
           Camera off

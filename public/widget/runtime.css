@@ -1544,6 +1544,28 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
   scale: 1 !important;
   rotate: 0deg !important;
 }
+.gs-call-orientation-debug {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  color: #f8fafc;
+  font-size: 10px;
+  line-height: 1.2;
+}
+.gs-call-orientation-debug strong,
+.gs-call-orientation-debug small,
+.gs-call-orientation-debug .left,
+.gs-call-orientation-debug .right {
+  position: absolute;
+  border-radius: 6px;
+  background: rgba(2, 6, 23, 0.72);
+  padding: 4px 6px;
+}
+.gs-call-orientation-debug strong { top: 8px; left: 8px; }
+.gs-call-orientation-debug small { top: 30px; left: 8px; }
+.gs-call-orientation-debug .left { left: 8px; top: 50%; transform: translateY(-50%); }
+.gs-call-orientation-debug .right { right: 8px; top: 50%; transform: translateY(-50%); }
 .gs-call-audio-orb {
   width: 96px;
   height: 96px;

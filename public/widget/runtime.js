@@ -477,15 +477,12 @@
         chat: 'Chat', help: 'Help',
         voiceCall: 'Voice', videoCall: 'Video',
         callStart: 'Start call',
-        callStartAudio: 'Start a voice call',
-        callStartVideo: 'Start a video call',
         callRequiresPrechat: 'Please share your details to start a call.',
         callUnavailable: 'Calls are unavailable right now.',
         callQueueIntro: 'No operator is free right now. We can hold your place in the call queue.',
         callJoinQueue: 'Join the queue',
         callQueued: 'You\u2019re in the queue. We\u2019ll connect you as soon as an operator is free.',
         callQueueCancel: 'Cancel request',
-        callQueueLeftFallback: 'Request cancelled. You can also start a chat instead.',
         callConnecting: 'Connecting\u2026',
         callRecording: 'Recording may apply',
         callSwitchToChat: 'Start a chat instead',
@@ -626,8 +623,6 @@
         chat: 'گفتگو', help: 'راهنما',
         voiceCall: 'تماس صوتی', videoCall: 'تماس تصویری',
         callStart: 'شروع تماس',
-        callStartAudio: 'یک تماس صوتی برقرار کنید',
-        callStartVideo: 'یک تماس تصویری برقرار کنید',
         callRequiresPrechat: 'برای شروع تماس لطفاً اطلاعات خود را وارد کنید.',
         callUnavailable: 'تماس در حال حاضر در دسترس نیست.',
         callQueueIntro: 'اپراتوری در دسترس نیست. می‌توانید در صف تماس قرار بگیرید.',
@@ -768,8 +763,6 @@
         chat: 'Sohbet', help: 'Yardım',
         voiceCall: 'Sesli', videoCall: 'Görüntülü',
         callStart: 'Aramayı başlat',
-        callStartAudio: 'Sesli arama başlat',
-        callStartVideo: 'Görüntülü arama başlat',
         callRequiresPrechat: 'Aramayı başlatmak için lütfen bilgilerinizi paylaşın.',
         callUnavailable: 'Aramalar şu anda kullanılamıyor.',
         callQueueIntro: 'Şu an müsait operatör yok. Sıraya alabiliriz.',
@@ -3760,28 +3753,6 @@
     // Single source of truth: window.__gs_policy injected by handshakes.
     // No hardcoded defaults — when the policy is missing or call channels
     // are off the buttons are hidden so visitors see no broken UI.
-    function callPolicy() {
-      try {
-        var p = (typeof window !== 'undefined' && window.__gs_policy) || {};
-        return {
-          voice: !!p.voice_enabled && !!p.visitor_initiated_audio,
-          video: !!p.video_enabled && !!p.visitor_initiated_video,
-          queue: !!p.queue_enabled,
-          recording: !!p.recording_enabled,
-          preChat: !!p.pre_chat_required,
-        };
-      } catch (_) {
-        return { voice: false, video: false, queue: false, recording: false, preChat: false };
-      }
-    }
-    // Local store: queue entry for the current visitor (in-memory only).
-    var callStore = createStore({
-      activeChannel: null,    // 'audio' | 'video' | null
-      phase: 'idle',          // idle | enqueueing | queued | unavailable | error
-      entryId: null,
-      error: '',
-    });
-
     // ─── Pass 2 — In-panel call surface store ───
     // Drives the call view that lives INSIDE the widget panel Shadow DOM
     // (see renderCallSurface below). Replaces the legacy out-of-panel
@@ -5353,167 +5324,9 @@
       } else if (tab === 'help') {
         if (inputBar) inputBar.style.display = 'none';
         kbUI.ensure(function () { kbUI.render(body); });
-      } else if (tab === 'voice' || tab === 'video') {
-        if (inputBar) inputBar.style.display = 'none';
-        renderCallChannel(tab === 'voice' ? 'audio' : 'video');
       }
     }
 
-    // ─── Phase 8C — Call channel rendering (visitor) ───
-    // Reuses the existing pre-chat identity gate. Never duplicates the
-    // visitor profile — when identity.needsPrechat() is true we delegate
-    // to chatUI.renderPreChat exactly like the chat tab does.
-    function renderCallChannel(channel) {
-      if (!body) return;
-      if (!identityStore.get().loaded) { renderLoading(); return; }
-      // Phase 8H — department gate for the requested channel. If multi
-      // mode and no selection → render selector; on pick we re-render.
-      if (renderDepartmentGateIfNeeded(channel)) return;
-      // Capability filter — if a department is selected but does not
-      // support this channel, surface a clear "not available" message
-      // instead of a dead-end button.
-      var __caps = deptChannelCaps();
-      if (departmentStore.get().selectedId && !__caps[channel]) {
-        body.innerHTML = '<div class="call-panel" data-call-panel>' +
-          '<div class="call-title">' + Util.escapeHtml(t('callUnavailable')) + '</div>' +
-          '<div class="call-msg">' + Util.escapeHtml(channel === 'video' ? 'Video is not offered by this team.' : 'Voice is not offered by this team.') + '</div>' +
-          (chatEnabled ? '<button type="button" class="call-link" data-call-action="switch-chat">' + Util.escapeHtml(t('callSwitchToChat')) + '</button>' : '') +
-          '</div>';
-        var sw = body.querySelector('[data-call-action="switch-chat"]');
-        if (sw) sw.addEventListener('click', function () {
-          shellStore.set({ activeTab: 'chat' });
-          try {
-            var allTabs = panel.querySelectorAll('.tab');
-            Array.prototype.forEach.call(allTabs, function (t2) {
-              t2.classList.toggle('active', t2.getAttribute('data-tab') === 'chat');
-            });
-          } catch (_) {}
-          renderBody();
-        });
-        return;
-      }
-      // Identity gate — share the existing pre-chat flow.
-      if (identity.needsPrechat()) {
-        chatUI.renderPreChat(body, identity, ctx.locale, function () {
-          renderCallChannel(channel);
-        });
-        return;
-      }
-      var pol = callPolicy();
-      var available = (channel === 'audio' ? pol.voice : pol.video);
-      var s = callStore.get();
-      var html = '<div class="call-panel" data-call-panel>';
-      html += '<div class="call-icon" aria-hidden="true">' +
-        (channel === 'audio'
-          ? '<svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.37 1.9.72 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.35 1.85.59 2.81.72A2 2 0 0 1 22 16.92z"/></svg>'
-          : '<svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>') +
-        '</div>';
-      html += '<div class="call-title">' + Util.escapeHtml(channel === 'audio' ? t('callStartAudio') : t('callStartVideo')) + '</div>';
-      if (!available) {
-        html += '<div class="call-msg">' + Util.escapeHtml(t('callUnavailable')) + '</div>';
-        html += '<button type="button" class="call-link" data-call-action="switch-chat">' + Util.escapeHtml(t('callSwitchToChat')) + '</button>';
-      } else if (s.phase === 'queued') {
-        html += '<div class="call-msg">' + Util.escapeHtml(t('callQueued')) + '</div>';
-        html += '<button type="button" class="call-btn call-btn-secondary" data-call-action="cancel">' + Util.escapeHtml(t('callQueueCancel')) + '</button>';
-      } else if (s.phase === 'enqueueing') {
-        html += '<div class="call-msg">' + Util.escapeHtml(t('callConnecting')) + '</div>';
-      } else if (s.phase === 'error') {
-        html += '<div class="call-msg">' + Util.escapeHtml(s.error || t('callUnavailable')) + '</div>';
-        html += '<button type="button" class="call-link" data-call-action="switch-chat">' + Util.escapeHtml(t('callSwitchToChat')) + '</button>';
-      } else {
-        html += '<button type="button" class="call-btn" data-call-action="start" style="background:' + ctx.primaryColor + '">' + Util.escapeHtml(t('callStart')) + '</button>';
-        if (pol.queue) {
-          html += '<div class="call-msg call-msg-sub">' + Util.escapeHtml(t('callQueueIntro')) + '</div>';
-        }
-        if (pol.recording) {
-          html += '<div class="call-recording-note">' + Util.escapeHtml(t('callRecording')) + '</div>';
-        }
-      }
-      html += '</div>';
-      body.innerHTML = html;
-      // Wire actions
-      var startBtn = body.querySelector('[data-call-action="start"]');
-      if (startBtn) startBtn.addEventListener('click', function () { startCallRequest(channel); });
-      var cancelBtn = body.querySelector('[data-call-action="cancel"]');
-      if (cancelBtn) cancelBtn.addEventListener('click', function () { cancelQueueRequest(); });
-      var switchBtn = body.querySelector('[data-call-action="switch-chat"]');
-      if (switchBtn) switchBtn.addEventListener('click', function () {
-        if (!chatEnabled) return;
-        shellStore.set({ activeTab: 'chat' });
-        try {
-          var allTabs = panel.querySelectorAll('.tab');
-          Array.prototype.forEach.call(allTabs, function (t2) {
-            t2.classList.toggle('active', t2.getAttribute('data-tab') === 'chat');
-          });
-        } catch (_) {}
-        renderBody();
-      });
-    }
-
-    function startCallRequest(channel) {
-      var pol = callPolicy();
-      var available = (channel === 'audio' ? pol.voice : pol.video);
-      if (!available) { callStore.set({ phase: 'unavailable' }); renderBody(); return; }
-      if (!pol.queue) {
-        // No queue — surface a graceful fallback. Direct ringing flow is
-        // owned by the operator-initiated path (Phase 8B) and not duplicated
-        // here to keep the FSM untouched.
-        callStore.set({ phase: 'error', error: t('callUnavailable') });
-        renderBody();
-        return;
-      }
-      callStore.set({ activeChannel: channel, phase: 'enqueueing', error: '' });
-      renderBody();
-      var apiBase = (ctx.config && ctx.config.apiBase) || '';
-      var token = (ctx.config && ctx.config._sessionToken) || '';
-      fetch(apiBase + '/api/widget/call-queue/enqueue', {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Widget-Token': token,
-        },
-        body: JSON.stringify({
-          channel: channel,
-          department_id: getSelectedDepartmentId() || undefined,
-        }),
-      }).then(function (r) {
-        return r.json().then(function (j) { return { ok: r.ok, body: j }; });
-      }).then(function (resp) {
-        if (!resp.ok) {
-          callStore.set({ phase: 'error', error: t('callUnavailable') });
-        } else {
-          callStore.set({ phase: 'queued', entryId: resp.body && resp.body.entry && resp.body.entry.id });
-        }
-        renderBody();
-      }).catch(function () {
-        callStore.set({ phase: 'error', error: t('callUnavailable') });
-        renderBody();
-      });
-    }
-
-    function cancelQueueRequest() {
-      var s = callStore.get();
-      var apiBase = (ctx.config && ctx.config.apiBase) || '';
-      var token = (ctx.config && ctx.config._sessionToken) || '';
-      if (!s.entryId) { callStore.set({ phase: 'idle', entryId: null }); renderBody(); return; }
-      fetch(apiBase + '/api/widget/call-queue/' + encodeURIComponent(s.entryId) + '/cancel', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'X-Widget-Token': token },
-      }).then(function () {
-        callStore.set({ phase: 'idle', entryId: null });
-        renderBody();
-      }).catch(function () {
-        callStore.set({ phase: 'idle', entryId: null });
-        renderBody();
-      });
-    }
-
-    callStore.subscribe(function () {
-      var t1 = shellStore.get().activeTab;
-      if (t1 === 'voice' || t1 === 'video') renderBody();
-    });
     // Pass 2 — re-render whenever the in-panel call surface changes so
     // status text, mic/cam state, and remote tracks paint immediately.
     callSurfaceStore.subscribe(function () { renderBody(); });

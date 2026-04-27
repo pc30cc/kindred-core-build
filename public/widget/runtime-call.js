@@ -139,7 +139,7 @@
   var connecting = false;
   var emitter = createEmitter();
   var state = 'idle';
-  var lastRemote = { audio: null, video: null };
+  var lastRemote = { audio: null, video: null, audioTrack: null, videoTrack: null };
   var lastLocalVideo = null;
   var micEnabled = false;
   var cameraEnabled = false;
@@ -160,16 +160,39 @@
 
   function emitRemote(LK) {
     var firstAudio = null, firstVideo = null;
+    var firstAudioTrack = null, firstVideoTrack = null;
     if (room) {
       room.remoteParticipants.forEach(function (p) {
         p.trackPublications.forEach(function (pub) {
-          if (!pub.track || !pub.track.mediaStreamTrack) return;
-          if (pub.kind === LK.Track.Kind.Audio && !firstAudio) firstAudio = pub.track.mediaStreamTrack;
-          if (pub.kind === LK.Track.Kind.Video && !firstVideo) firstVideo = pub.track.mediaStreamTrack;
+          if (!pub.track) return;
+          var mst = pub.track.mediaStreamTrack || null;
+          if (pub.kind === LK.Track.Kind.Audio && !firstAudio) {
+            firstAudio = mst;
+            firstAudioTrack = pub.track;
+          }
+          if (pub.kind === LK.Track.Kind.Video && !firstVideo) {
+            firstVideo = mst;
+            firstVideoTrack = pub.track;
+          }
         });
       });
     }
-    lastRemote = { audio: firstAudio, video: firstVideo };
+    lastRemote = {
+      audio: firstAudio,
+      video: firstVideo,
+      audioTrack: firstAudioTrack,
+      videoTrack: firstVideoTrack,
+    };
+    try {
+      dlog('emit remote', {
+        hasAudio: !!firstAudio,
+        hasVideo: !!firstVideo,
+        audioReadyState: firstAudio && firstAudio.readyState,
+        videoReadyState: firstVideo && firstVideo.readyState,
+        hasVideoTrack: !!firstVideoTrack,
+        hasAudioTrack: !!firstAudioTrack,
+      });
+    } catch (_) {}
     emitter.emit('remote', lastRemote);
   }
 
@@ -206,7 +229,7 @@
     connecting = false;
     micEnabled = false;
     cameraEnabled = false;
-    lastRemote = { audio: null, video: null };
+    lastRemote = { audio: null, video: null, audioTrack: null, videoTrack: null };
     lastLocalVideo = null;
     connectedAt = 0;
     emitter.emit('remote', lastRemote);
@@ -280,14 +303,65 @@
       room = nextRoom;
 
       nextRoom
-        .on(LK.RoomEvent.ParticipantConnected, function () { emitRemote(LK); })
-        .on(LK.RoomEvent.ParticipantDisconnected, function () { emitRemote(LK); })
-        .on(LK.RoomEvent.TrackSubscribed, function () { emitRemote(LK); })
-        .on(LK.RoomEvent.TrackUnsubscribed, function () { emitRemote(LK); })
-        .on(LK.RoomEvent.TrackMuted, function () { emitRemote(LK); })
-        .on(LK.RoomEvent.TrackUnmuted, function () { emitRemote(LK); })
-        .on(LK.RoomEvent.TrackStreamStateChanged, function () { emitRemote(LK); })
-        .on(LK.RoomEvent.TrackSubscriptionStatusChanged, function () { emitRemote(LK); })
+        .on(LK.RoomEvent.ParticipantConnected, function (p) {
+          try { dlog('participant connected', { identity: p && p.identity }); } catch (_) {}
+          emitRemote(LK);
+        })
+        .on(LK.RoomEvent.ParticipantDisconnected, function (p) {
+          try { dlog('participant disconnected', { identity: p && p.identity }); } catch (_) {}
+          emitRemote(LK);
+        })
+        .on(LK.RoomEvent.TrackSubscribed, function (track, pub, p) {
+          try {
+            dlog('track subscribed', {
+              participant: p && p.identity,
+              kind: pub && pub.kind,
+              trackSid: pub && pub.trackSid,
+              source: pub && pub.source,
+              muted: pub && pub.isMuted,
+              mediaStreamTrackReadyState: track && track.mediaStreamTrack && track.mediaStreamTrack.readyState,
+            });
+          } catch (_) {}
+          emitRemote(LK);
+        })
+        .on(LK.RoomEvent.TrackUnsubscribed, function (track, pub, p) {
+          try {
+            dlog('track unsubscribed', {
+              participant: p && p.identity,
+              kind: pub && pub.kind,
+              trackSid: pub && pub.trackSid,
+            });
+          } catch (_) {}
+          emitRemote(LK);
+        })
+        .on(LK.RoomEvent.TrackMuted, function (pub, p) {
+          try { dlog('track muted', { participant: p && p.identity, kind: pub && pub.kind }); } catch (_) {}
+          emitRemote(LK);
+        })
+        .on(LK.RoomEvent.TrackUnmuted, function (pub, p) {
+          try { dlog('track unmuted', { participant: p && p.identity, kind: pub && pub.kind }); } catch (_) {}
+          emitRemote(LK);
+        })
+        .on(LK.RoomEvent.TrackStreamStateChanged, function (pub, streamState, p) {
+          try {
+            dlog('stream state changed', {
+              participant: p && p.identity,
+              kind: pub && pub.kind,
+              streamState: streamState,
+            });
+          } catch (_) {}
+          emitRemote(LK);
+        })
+        .on(LK.RoomEvent.TrackSubscriptionStatusChanged, function (pub, status, p) {
+          try {
+            dlog('subscription status changed', {
+              participant: p && p.identity,
+              kind: pub && pub.kind,
+              status: status,
+            });
+          } catch (_) {}
+          emitRemote(LK);
+        })
         .on(LK.RoomEvent.LocalTrackPublished, function (pub) {
           if (pub.kind === LK.Track.Kind.Audio) {
             micEnabled = true;
@@ -311,7 +385,10 @@
           }
         })
         .on(LK.RoomEvent.Reconnecting, function () { setState('reconnecting'); })
-        .on(LK.RoomEvent.Reconnected, function () { setState('connected'); })
+        .on(LK.RoomEvent.Reconnected, function () {
+          setState('connected');
+          emitRemote(LK);
+        })
         .on(LK.RoomEvent.Disconnected, function (reason) {
           if (room !== nextRoom) return;
           dlog('room disconnected', {

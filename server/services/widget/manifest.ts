@@ -31,6 +31,8 @@ interface WidgetManifest {
   'runtime-rt-centrifugo.js'?: string;
   'runtime-rt-supabase.js'?: string;
   'runtime-rt-resolver.js'?: string;
+  // Self-hosted vendor assets (Pass 1: LiveKit JS SDK).
+  'vendor/livekit-client.umd.min.js'?: string;
   'loader.js'?: string;
   loaderVersion?: string;
 }
@@ -43,7 +45,8 @@ type WidgetAssetKey =
   | 'runtime-call.js'
   | 'runtime-rt-centrifugo.js'
   | 'runtime-rt-supabase.js'
-  | 'runtime-rt-resolver.js';
+  | 'runtime-rt-resolver.js'
+  | 'vendor/livekit-client.umd.min.js';
 
 let cachedManifest: WidgetManifest | null = null;
 let lastReadTime = 0;
@@ -204,6 +207,8 @@ function fallbackManifest(): WidgetManifest {
     'runtime-rt-centrifugo.js': 'runtime-rt-centrifugo.js',
     'runtime-rt-supabase.js': 'runtime-rt-supabase.js',
     'runtime-rt-resolver.js': 'runtime-rt-resolver.js',
+    // Fallback (dev / pre-build) — served from public/widget/vendor/ as-is.
+    'vendor/livekit-client.umd.min.js': 'vendor/livekit-client.umd.min.js',
     'loader.js': 'loader.js',
     loaderVersion: computeFallbackVersion(),
   };
@@ -287,6 +292,7 @@ export function getManifestDiagnostics() {
     runtimeChatJs: manifest['runtime-chat.js'],
     runtimeKbJs: manifest['runtime-kb.js'],
     runtimeCallJs: manifest['runtime-call.js'],
+    livekitSdk: manifest['vendor/livekit-client.umd.min.js'] || null,
     cachedAt: lastReadTime ? new Date(lastReadTime).toISOString() : null,
     remoteUrl: getRemoteManifestUrl(),
     remoteStatus: lastRemoteStatus,

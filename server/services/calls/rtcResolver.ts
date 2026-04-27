@@ -69,6 +69,70 @@ function stripTrailingSlash(s: string | null | undefined): string | null {
 }
 
 /**
+ * Pass 1 — Strict client WS URL normalization.
+ *
+ * LiveKit's JS SDK expects an origin-only `wss://host[:port]` URL when
+ * calling `Room.connect()`. Operators frequently misconfigure the value as
+ * `https://...` (wrong scheme), `wss://host/rtc` (path the SDK then
+ * duplicates), or with a trailing slash. Past failures included the
+ * client trying to connect to `wss://host/rtc/rtc` which immediately
+ * disconnects with `CLIENT_REQUEST_LEAVE`.
+ *
+ * Rules:
+ *   - http:// / https:// → ws:// / wss:// (preserve loopback http for dev)
+ *   - strip any path segment (LiveKit appends its own internally)
+ *   - strip trailing slashes / whitespace
+ *   - keep host + port intact
+ * Returns null if the input is empty / unparseable.
+ */
+export function normalizeClientWsUrl(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const trimmed = String(raw).trim().replace(/\/+$/, '');
+  if (!trimmed) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return null;
+  }
+  // Map http(s) to ws(s). Preserve plain ws/wss as-is.
+  let protocol = parsed.protocol;
+  if (protocol === 'http:') protocol = 'ws:';
+  else if (protocol === 'https:') protocol = 'wss:';
+  if (protocol !== 'ws:' && protocol !== 'wss:') return null;
+  const host = parsed.host; // includes port
+  if (!host) return null;
+  // Origin-only: drop pathname / search / hash. LiveKit constructs its own
+  // `/rtc` internally — including it here causes duplicated path bugs.
+  return `${protocol}//${host}`;
+}
+
+/**
+ * Pass 1 — Normalize the RTC base used by the LiveKit Twirp REST client.
+ * Twirp uses HTTP(S), not WebSocket. We accept either scheme and map to
+ * https://, dropping any path so the Twirp client appends its own
+ * `/twirp/...` route deterministically.
+ */
+export function normalizeRtcBaseUrl(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const trimmed = String(raw).trim().replace(/\/+$/, '');
+  if (!trimmed) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return null;
+  }
+  let protocol = parsed.protocol;
+  if (protocol === 'ws:') protocol = 'http:';
+  else if (protocol === 'wss:') protocol = 'https:';
+  if (protocol !== 'http:' && protocol !== 'https:') return null;
+  const host = parsed.host;
+  if (!host) return null;
+  return `${protocol}//${host}`;
+}
+
+/**
  * Read the raw RTC endpoint config from app_runtime_config. Never throws.
  */
 async function loadRawRtcConfig(config: ServerConfig): Promise<CallRtcConfig> {
@@ -270,10 +334,19 @@ export async function getTurnConfig(config: ServerConfig): Promise<CallTurnConfi
  */
 export async function getCallNetworkBundle(config: ServerConfig): Promise<CallRtcConfig> {
   const raw = await loadRawRtcConfig(config);
+  // Resolve the raw + env-fallback values first.
+  const rtcRaw = raw.rtc_url ?? stripTrailingSlash(process.env.RTC_BASE_URL ?? null);
+  const wsRaw = raw.ws_url ?? raw.rtc_url ?? stripTrailingSlash(process.env.RTC_WS_URL ?? null);
+  // Pass 1 — strictly normalize the client-facing ws_url so the LiveKit
+  // SDK never sees `https://...` or a duplicated `/rtc` path.
+  const wsNormalized = normalizeClientWsUrl(wsRaw);
   return {
     ...raw,
-    rtc_url: raw.rtc_url ?? stripTrailingSlash(process.env.RTC_BASE_URL ?? null),
-    ws_url: raw.ws_url ?? raw.rtc_url ?? stripTrailingSlash(process.env.RTC_WS_URL ?? null),
+    rtc_url: rtcRaw,
+    // ws_url ALWAYS comes back normalized for the client. If normalization
+    // fails (e.g. malformed URL), surface null so the caller can return a
+    // clear `provider_not_ready` instead of handing the SDK a bad value.
+    ws_url: wsNormalized,
     recording_url:
       raw.recording_url ?? stripTrailingSlash(process.env.RTC_RECORDING_URL ?? null),
   };

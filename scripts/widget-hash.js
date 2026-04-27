@@ -9,8 +9,8 @@
  *   node scripts/widget-hash.js
  */
 import { createHash } from 'crypto';
-import { readFileSync, writeFileSync, mkdirSync, copyFileSync, existsSync, readdirSync, unlinkSync } from 'fs';
-import { resolve, join, dirname } from 'path';
+import { readFileSync, writeFileSync, mkdirSync, copyFileSync, existsSync, readdirSync, unlinkSync, statSync } from 'fs';
+import { resolve, join, dirname, relative } from 'path';
 import { fileURLToPath } from 'url';
 
 // NOTE: Do NOT use `import.meta.dirname` — it was only added in Node 20.11.
@@ -45,6 +45,19 @@ const HASHED_FILES = ['runtime.js', 'runtime.css', 'runtime-chat.js', 'runtime-k
 // Files copied as-is (stable entry points)
 const STABLE_FILES = ['loader.js'];
 
+// Vendor assets — third-party libraries we self-host. They get
+// content-hashed filenames AND are copied into dist/widget/vendor/<hash>.js
+// so nginx can serve them with `immutable, max-age=1y` cache headers like
+// every other hashed runtime asset. Manifest keys are PREFIXED with
+// `vendor/` so the backend can resolve them deterministically without
+// colliding with runtime asset keys.
+//
+// STRICT: do NOT add CDN fallback logic anywhere in the build or the
+// widget runtime. If a vendor file is missing here, the build must fail.
+const VENDOR_FILES = [
+  'vendor/livekit-client.umd.min.js',
+];
+
 function contentHash(buf) {
   return createHash('md5').update(buf).digest('hex').slice(0, 8);
 }
@@ -56,9 +69,19 @@ function cleanOldHashed() {
       unlinkSync(join(OUT_DIR, f));
     }
   }
+  // Also clean stale hashed vendor files so deploy converges.
+  const vendorDir = join(OUT_DIR, 'vendor');
+  if (existsSync(vendorDir)) {
+    for (const f of readdirSync(vendorDir)) {
+      if (/\.[a-f0-9]{8}\.(js|css)$/.test(f)) {
+        unlinkSync(join(vendorDir, f));
+      }
+    }
+  }
 }
 
 mkdirSync(OUT_DIR, { recursive: true });
+mkdirSync(join(OUT_DIR, 'vendor'), { recursive: true });
 cleanOldHashed();
 
 const manifest = {};
@@ -79,6 +102,27 @@ for (const file of HASHED_FILES) {
   writeFileSync(join(OUT_DIR, hashedName), buf);
   manifest[file] = hashedName;
   console.log(`[widget-hash] ${file} → ${hashedName}`);
+}
+
+// Hash vendor files. Manifest key is the logical name with `vendor/`
+// prefix preserved, value is the hashed path also under `vendor/`.
+for (const logical of VENDOR_FILES) {
+  const src = join(SRC_DIR, logical);
+  if (!existsSync(src)) {
+    console.error(`[widget-hash] FATAL: required vendor file missing: ${logical}`);
+    console.error('[widget-hash] Self-hosted vendor assets cannot be built without their source. ' +
+      'See public/widget/vendor/ — every entry of VENDOR_FILES must exist on disk.');
+    process.exit(1);
+  }
+  const buf = readFileSync(src);
+  const hash = contentHash(buf);
+  const baseName = logical.split('/').pop();
+  const ext = baseName.split('.').pop();
+  const stem = baseName.replace(`.${ext}`, '');
+  const hashedRel = `vendor/${stem}.${hash}.${ext}`;
+  writeFileSync(join(OUT_DIR, hashedRel), buf);
+  manifest[logical] = hashedRel;
+  console.log(`[widget-hash] ${logical} → ${hashedRel} (${(buf.length / 1024).toFixed(1)} KB)`);
 }
 
 // Copy stable files
@@ -112,6 +156,20 @@ if (!manifest['runtime-call.js']) {
 if (!existsSync(join(OUT_DIR, manifest['runtime-call.js']))) {
   console.error(`[widget-hash] FATAL: runtime-call.js missing from build output: ${join(OUT_DIR, manifest['runtime-call.js'])}`);
   process.exit(1);
+}
+
+// Self-hosted LiveKit SDK MUST be present. The visitor join path requires
+// it; falling back to a CDN is forbidden by the architecture rules.
+for (const logical of VENDOR_FILES) {
+  const hashed = manifest[logical];
+  if (!hashed) {
+    console.error(`[widget-hash] FATAL: vendor asset missing from manifest: ${logical}`);
+    process.exit(1);
+  }
+  if (!existsSync(join(OUT_DIR, hashed))) {
+    console.error(`[widget-hash] FATAL: vendor asset missing from build output: ${join(OUT_DIR, hashed)}`);
+    process.exit(1);
+  }
 }
 
 // Final sanity check — refuse to "succeed" if the manifest didn't land

@@ -101,6 +101,7 @@ export interface UseLiveKitCallOptions {
   publishCamera?: boolean;
   /** Optional owner lifecycle diagnostics; does not affect media attach. */
   onRemoteParticipantSeen?: (info: { identity: string; source: 'participant_connected' | 'track_subscribed' | 'snapshot' }) => void;
+  onRemoteParticipantDisconnected?: (info: { identity: string }) => void;
   onRemoteTrackSubscribed?: (info: { identity: string; kind: string; trackSid?: string }) => void;
 }
 
@@ -124,7 +125,7 @@ export interface UseLiveKitCallApi {
 }
 
 export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCallApi {
-  const { publishMic = true, publishCamera = false, onRemoteParticipantSeen, onRemoteTrackSubscribed } = opts;
+  const { publishMic = true, publishCamera = false, onRemoteParticipantSeen, onRemoteParticipantDisconnected, onRemoteTrackSubscribed } = opts;
   const roomRef = useRef<Room | null>(null);
   // Re-entrancy guard. While a connect attempt is in flight OR a room is
   // already active, a second connect() call must NOT spin up a second Room
@@ -197,6 +198,7 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
       .on(RoomEvent.ParticipantDisconnected, (p: RemoteParticipant) => {
         // eslint-disable-next-line no-console
         console.debug('[livekit] ParticipantDisconnected', p.identity);
+        onRemoteParticipantDisconnected?.({ identity: p.identity });
         refreshRemotes();
       })
       .on(RoomEvent.TrackSubscribed, (track: RemoteTrack, _pub, p: RemoteParticipant) => {
@@ -270,7 +272,7 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
       // eslint-disable-next-line no-console
       console.warn('[livekit] room emitted Disconnected', { reason });
     });
-  }, [refreshRemotes, refreshLocalVideo, onRemoteParticipantSeen, onRemoteTrackSubscribed]);
+  }, [refreshRemotes, refreshLocalVideo, onRemoteParticipantSeen, onRemoteParticipantDisconnected, onRemoteTrackSubscribed]);
 
   const connect = useCallback(async (input: {
     wsUrl: string;

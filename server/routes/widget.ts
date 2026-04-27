@@ -532,6 +532,10 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
     const callRuntimeJsName = getWidgetAssetName('runtime-call.js');
     const chatModuleName = getWidgetAssetName('runtime-chat.js');
     const kbModuleName = getWidgetAssetName('runtime-kb.js');
+    // Self-hosted LiveKit JS SDK. Hashed at build time so we can serve it
+    // with `immutable, max-age=1y`. The widget never contacts a CDN for
+    // this asset — see scripts/widget-hash.js VENDOR_FILES.
+    const livekitSdkName = getWidgetAssetName('vendor/livekit-client.umd.min.js');
     const loaderVersion = getLoaderVersion();
     const preChat = buildPreChatConfig(platformPreChatPolicy, workspacePreChatFlags || []);
     const versionedAssetUrl = (url: string | null) => {
@@ -629,6 +633,14 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       runtimeUrl: versionedAssetUrl(assetBase ? `${assetBase}/widget/${runtimeJsName}` : null),
       styleUrl: versionedAssetUrl(assetBase ? `${assetBase}/widget/${runtimeCssName}` : null),
       callRuntimeUrl: versionedAssetUrl(assetBase ? `${assetBase}/widget/${callRuntimeJsName}` : null),
+      // Pass 1 — explicit LiveKit SDK URL. Self-hosted, hashed asset. The
+      // call runtime MUST consume this and never fall back to a CDN. When
+      // assetBase is unresolved (very unusual — most likely a misconfigured
+      // deploy) we surface `null` so the widget can render a clear
+      // `provider_not_ready` error instead of silently breaking.
+      livekitSdkUrl: versionedAssetUrl(
+        assetBase ? `${assetBase}/widget/${livekitSdkName}` : null,
+      ),
       modules: {
         chat: versionedAssetUrl(assetBase ? `${assetBase}/widget/${chatModuleName}` : null),
         kb: versionedAssetUrl(assetBase ? `${assetBase}/widget/${kbModuleName}` : null),
@@ -1801,6 +1813,7 @@ widgetRouter.get('/manifest', widgetRateLimit('bootstrap'), async (req: Request,
     const runtimeJsName = getWidgetAssetName('runtime.js');
     const runtimeCssName = getWidgetAssetName('runtime.css');
     const callRuntimeJsName = getWidgetAssetName('runtime-call.js');
+    const livekitSdkName = getWidgetAssetName('vendor/livekit-client.umd.min.js');
 
     const manifest = {
       version: RUNTIME_VERSION,
@@ -1808,6 +1821,7 @@ widgetRouter.get('/manifest', widgetRateLimit('bootstrap'), async (req: Request,
       runtime_entry: `${deliveryOrigin}/widget/${runtimeJsName}?v=${v}`,
       styles: [`${deliveryOrigin}/widget/${runtimeCssName}?v=${v}`],
       call_runtime_entry: `${deliveryOrigin}/widget/${callRuntimeJsName}?v=${v}`,
+      livekit_sdk_entry: `${deliveryOrigin}/widget/${livekitSdkName}?v=${v}`,
       modules,
       locale: {
         default: ws.widget_language === 'auto' ? ws.locale : ws.widget_language,

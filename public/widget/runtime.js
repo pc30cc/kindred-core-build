@@ -2196,6 +2196,55 @@
       return (t('ciTimeLeft') || '{time} left').replace('{time}', timeStr);
     }
 
+    // Pass A — Format duration_seconds as mm:ss / hh:mm:ss.
+    function fmtCallDuration(seconds) {
+      var s = Math.max(0, Math.floor(Number(seconds) || 0));
+      var hh = Math.floor(s / 3600);
+      var mm = Math.floor((s % 3600) / 60);
+      var ss = s % 60;
+      function pad(n) { return n < 10 ? '0' + n : '' + n; }
+      return hh > 0 ? pad(hh) + ':' + pad(mm) + ':' + pad(ss) : pad(mm) + ':' + pad(ss);
+    }
+
+    // Pass A — Render the system "call ended" summary row in chat.
+    function renderCallEndedRow(msg) {
+      var meta = msg.metadata || {};
+      var endedBy = String(meta.ended_by || 'system');
+      var endReason = String(meta.end_reason || '');
+      var dur = Number(meta.duration_seconds) || 0;
+      var isMissed = endReason === 'failed' || dur <= 0;
+      var key;
+      if (isMissed) {
+        key = 'csEndedNotConnected';
+      } else if (endedBy === 'operator') {
+        key = 'csEndedByOperator';
+      } else if (endedBy === 'visitor') {
+        key = 'csEndedByVisitor';
+      } else {
+        key = 'csEndedBySystem';
+      }
+      var fallback;
+      if (isMissed) {
+        fallback = 'Call did not connect';
+      } else if (endedBy === 'operator') {
+        fallback = 'Call ended by operator · Duration ' + fmtCallDuration(dur);
+      } else if (endedBy === 'visitor') {
+        fallback = 'Call ended by visitor · Duration ' + fmtCallDuration(dur);
+      } else {
+        fallback = 'Call ended · Duration ' + fmtCallDuration(dur);
+      }
+      var raw = t(key);
+      var text = (raw && raw !== key)
+        ? String(raw).replace('{duration}', fmtCallDuration(dur))
+        : fallback;
+      var icon = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+        + '<path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92v3a2 2 0 0 1-2.18 2A19.79 19.79 0 0 1 8.63 18.5"/>'
+        + '<line x1="23" y1="1" x2="1" y2="23"/></svg>';
+      return '<div class="msg-row system-row"><div class="msg-system-pill">'
+        + icon + '<span>' + Util.escapeHtml(text) + '</span>'
+        + '</div></div>';
+    }
+
     function renderCallInvitationCard(msg) {
       var meta = msg.metadata || {};
       var channel = meta.channel === 'video' ? 'video' : 'audio';

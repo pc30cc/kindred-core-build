@@ -2240,7 +2240,7 @@
       var icon = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
         + '<path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92v3a2 2 0 0 1-2.18 2A19.79 19.79 0 0 1 8.63 18.5"/>'
         + '<line x1="23" y1="1" x2="1" y2="23"/></svg>';
-      return '<div class="msg-row system-row"><div class="msg-system-pill">'
+      return '<div class="msg-row system"><div class="msg-system-pill">'
         + icon + '<span>' + Util.escapeHtml(text) + '</span>'
         + '</div></div>';
     }

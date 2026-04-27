@@ -1,32 +1,19 @@
 /**
- * SidebarCallCard — invitation-first call entry point + active call surface
- * for the inbox sidebar.
+ * SidebarCallCard — invitation entry point + in-place call surface inside
+ * the inbox sidebar. State lives in OperatorCallProvider so route changes
+ * never tear down the active LiveKit room.
  *
- * This single component owns the operator's full call lifecycle so that the
- * UI never opens a floating dock. It lives in the right column above the
- * Info / Activity tabs and morphs in-place between two modes:
- *
- *   IDLE       → "Call visitor" card with [Audio] [Video] CTAs.
- *   WAITING    → channel-specific waiting tile (audio bars OR violet video
- *                placeholder), countdown, Cancel.
- *   CONNECTING → spinner while the LiveKit token is fetched and the room
- *                is joined.
- *   CONNECTED  → live AudioCallStage or VideoCallStage with mic/camera
- *                toggles and a destructive Hangup button.
- *   TERMINAL   → brief status (declined / expired / cancelled / failed)
- *                that auto-reverts to IDLE so the operator can invite again.
- *
- * Strict rules carried over from the previous OperatorCallSurface:
- *   - Token + URLs come from /api/calls/:id/token (callsApi.token). Never
- *     minted client-side.
- *   - Audio invitations NEVER publish camera and NEVER show video stages.
- *   - Disconnect is fired on every terminal/close path so the operator is
- *     never stuck "Busy" client-side.
+ * Modes:
+ *   - IDLE for this conversation:        invite buttons + last-invite pill
+ *   - WAITING / CONNECTING / CONNECTED:  channel-specific surface
+ *   - TERMINAL:                          brief outcome, auto-revert
+ *   - Active call belongs to a DIFFERENT conversation → show a compact
+ *     "open active call" link rather than offering new invites.
  */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Phone, Video, Loader2, X, CheckCircle2, Clock, Ban, PhoneOff, RotateCw,
-  Mic, MicOff, VideoOff, WifiOff,
+  Mic, MicOff, VideoOff, Maximize2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -35,42 +22,23 @@ import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { useTranslation } from '@/i18n';
 import {
-  callInvitationsApi,
   type CallInvitation,
   type InvitationChannel,
   type InvitationStatus,
 } from '@/lib/call-invitations-api';
-import { onInvitationChanged } from '@/lib/call-invitations-events';
-import { useLiveKitCall } from '@/hooks/useLiveKitCall';
-import type { RemoteAudioTrack, RemoteVideoTrack } from 'livekit-client';
-import { callsApi } from '@/lib/calls-api';
 import { InviteWaitDialog } from './InviteWaitDialog';
-import { rtDebug } from '@/realtime/debug';
 import { useLocalMediaPreview, type LocalPreviewState } from '@/hooks/useLocalMediaPreview';
+import { useOperatorCall } from '@/features/calls/OperatorCallContext';
+import { VideoCallStage, AudioCallStage } from '@/features/calls/CallStage';
 
 interface SidebarCallCardProps {
   workspaceId: string;
   conversationId: string;
   contactName?: string | null;
+  /** Notify the parent inbox so it can keep the sidebar mounted while a
+   *  call is active for this conversation. */
   onActiveCallChange?: (conversationId: string | null) => void;
 }
-
-// ─── Surface phases (mirror previous OperatorCallSurface) ────────────────
-type SurfacePhase = 'idle' | 'waiting' | 'connecting' | 'connected' | 'terminal';
-
-interface SurfaceState {
-  phase: SurfacePhase;
-  invitation: CallInvitation | null;
-  terminalStatus: 'expired' | 'cancelled' | 'declined' | 'failed' | null;
-  errorMessage: string | null;
-}
-
-const INITIAL_SURFACE: SurfaceState = {
-  phase: 'idle',
-  invitation: null,
-  terminalStatus: null,
-  errorMessage: null,
-};
 
 interface StatusVisual {
   Icon: React.ComponentType<{ className?: string }>;
@@ -88,51 +56,52 @@ const STATUS_VISUAL: Record<InvitationStatus, StatusVisual> = {
 
 export function SidebarCallCard({ workspaceId, conversationId, contactName, onActiveCallChange }: SidebarCallCardProps) {
   const i18n = useTranslation();
-  // Loose-typed translator so newer keys (callSurface.*, callInvite.*) that
-  // are not yet in the static KnownKeys union still resolve at runtime.
   const t = (key: string, vars?: Record<string, string>): string =>
     (i18n.t as unknown as (k: string, v?: Record<string, string>) => string)(key, vars) || '';
 
-  // ── Last invitation (drives terminal pill + resend shortcut) ──────────
-  const [latest, setLatest] = useState<CallInvitation | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [creating, setCreating] = useState<InvitationChannel | null>(null);
+  const {
+    surface, creating, loading, live, preview,
+    floatingMode, setFloatingMode,
+    latestForConversation, sendInvite, cancelInvite, hangup, refreshLatest,
+  } = useOperatorCall();
+
+  const latest = latestForConversation(conversationId);
   const [, forceTick] = useState(0);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [dialogChannel, setDialogChannel] = useState<InvitationChannel | null>(null);
 
-  // ── Active surface state (waiting → connecting → connected → terminal)
-  const [surface, setSurface] = useState<SurfaceState>(INITIAL_SURFACE);
-  const autoCloseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const cancellingRef = useRef(false);
-  // Tracks the invitation id we have *already* connected for. Once a
-  // connect succeeds for an invitation, ignore further realtime/poll
-  // updates for it — those are stale echoes and would orphan the live
-  // LiveKit Room, which the server then logs as CLIENT_REQUEST_LEAVE.
-  const connectedInvitationIdRef = useRef<string | null>(null);
-  // Tracks the invitation id we have started a connect attempt for, so
-  // the connecting effect cannot re-fire and double-mount the LiveKit
-  // Room when the surface state transiently re-enters 'connecting'.
-  const startedConnectInvitationIdRef = useRef<string | null>(null);
-  const activeCallConversationIdRef = useRef<string | null>(null);
-  const activeCallSessionIdRef = useRef<string | null>(null);
-  const previousConversationIdRef = useRef<string>(conversationId);
+  // Notify parent when an active call belongs to this conversation.
+  useEffect(() => {
+    if (surface.phase !== 'idle' && surface.conversationId === conversationId) {
+      onActiveCallChange?.(conversationId);
+    } else if (surface.conversationId !== conversationId) {
+      onActiveCallChange?.(null);
+    }
+  }, [surface.phase, surface.conversationId, conversationId, onActiveCallChange]);
 
-  const surfaceChannel: InvitationChannel = surface.invitation?.channel ?? 'audio';
-  const live = useLiveKitCall({
-    publishMic: true,
-    publishCamera: surfaceChannel === 'video',
-  });
+  // Refresh latest invite for this conversation on mount + every 4–20s.
+  useEffect(() => {
+    void refreshLatest(conversationId);
+  }, [conversationId, refreshLatest]);
+  useEffect(() => {
+    const interval = latest?.status === 'pending' ? 4000 : 20000;
+    if (tickRef.current) clearInterval(tickRef.current);
+    tickRef.current = setInterval(() => { void refreshLatest(conversationId); }, interval);
+    return () => {
+      if (tickRef.current) clearInterval(tickRef.current);
+      tickRef.current = null;
+    };
+  }, [latest?.status, conversationId, refreshLatest]);
 
-  // Phase 9 — local-device preview during the waiting phase. Decoupled
-  // from LiveKit; releases the camera/mic the instant we move out of
-  // 'waiting' so the LiveKit client can re-acquire them on connect.
-  const preview = useLocalMediaPreview({
-    enabled: surface.phase === 'waiting',
-    wantVideo: surfaceChannel === 'video',
-  });
+  // Ticker for countdown displays.
+  useEffect(() => {
+    const needsTicker = latest?.status === 'pending' ||
+      (surface.phase === 'waiting' && surface.conversationId === conversationId);
+    if (!needsTicker) return;
+    const id = setInterval(() => forceTick((n) => n + 1), 1000);
+    return () => clearInterval(id);
+  }, [latest?.status, surface.phase, surface.conversationId, conversationId]);
 
-  // Localized "Xm Ys" helper used both in pending pill and surface countdown.
   const formatRemaining = useCallback((expiresAt: string): string => {
     const ms = new Date(expiresAt).getTime() - Date.now();
     if (ms <= 0) return t('inbox.callInvite.expired') || 'Expired';
@@ -150,370 +119,49 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
     return t('inbox.callInvite.timeLeft', { time: timeStr }) || `${timeStr} left`;
   }, [t]);
 
-  const disconnectLive = useCallback((reason: Parameters<typeof live.disconnect>[0], currentConversationId = conversationId) => {
-    return live.disconnect(reason, {
-      activeCallSessionId: activeCallSessionIdRef.current,
-      activeCallConversationId: activeCallConversationIdRef.current,
-      currentConversationId,
-    });
-  }, [conversationId, live]);
-
-  const clearActiveCallRefs = useCallback(() => {
-    activeCallConversationIdRef.current = null;
-    activeCallSessionIdRef.current = null;
-    connectedInvitationIdRef.current = null;
-    startedConnectInvitationIdRef.current = null;
-    onActiveCallChange?.(null);
-  }, [onActiveCallChange]);
-
-  // Reset conversation-scoped UI only when the selected conversation id truly
-  // changes. Realtime object refreshes and same-id re-renders must never tear
-  // down the LiveKit Room.
-  useEffect(() => {
-    const previousConversationId = previousConversationIdRef.current;
-    if (previousConversationId === conversationId) return;
-    const activeConversationId = activeCallConversationIdRef.current;
-    const activeSessionId = activeCallSessionIdRef.current;
-    previousConversationIdRef.current = conversationId;
-
-    if (activeSessionId && activeConversationId && conversationId !== activeConversationId) {
-      console.warn('[livekit] conversation switch while active call is being left intentionally', {
-        activeCallSessionId: activeSessionId,
-        activeCallConversationId: activeConversationId,
-        currentConversationId: conversationId,
-      });
-      rtDebug('call', 'conversation switch active-call disconnect', {
-        activeCallSessionId: activeSessionId,
-        activeCallConversationId: activeConversationId,
-        currentConversationId: conversationId,
-      });
-      try { void disconnectLive('conversation_switch_active_call', conversationId); } catch { /* ignore */ }
-      clearActiveCallRefs();
-    }
-
-    setLatest(null);
-    setCreating(null);
-    setLoading(false);
-    if (autoCloseRef.current) { clearTimeout(autoCloseRef.current); autoCloseRef.current = null; }
-    if (!activeSessionId) clearActiveCallRefs();
-    setSurface(INITIAL_SURFACE);
-  }, [conversationId, clearActiveCallRefs, disconnectLive]);
-
-  // Cleanup on unmount.
-  useEffect(() => {
-    return () => {
-      if (autoCloseRef.current) clearTimeout(autoCloseRef.current);
-      if (activeCallSessionIdRef.current) {
-        console.warn('[livekit] SidebarCallCard unmounted with active call; LiveKit room is not disconnected here', {
-          activeCallSessionId: activeCallSessionIdRef.current,
-          activeCallConversationId: activeCallConversationIdRef.current,
-          currentConversationId: conversationId,
-        });
-        rtDebug('call', 'active unmount preserved');
-        return;
-      }
-      rtDebug('call', 'unmount no-active-call disconnect');
-      try { live.disconnect('component_unmount_no_active_call', {
-        activeCallSessionId: activeCallSessionIdRef.current,
-        activeCallConversationId: activeCallConversationIdRef.current,
-        currentConversationId: conversationId,
-      }); } catch { /* ignore */ }
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // ── Refresh latest invitation summary (drives the terminal pill) ──────
-  const refresh = useCallback(async () => {
-    try {
-      const { invitations } = await callInvitationsApi.listForConversation(conversationId);
-      setLatest(invitations[0] ?? null);
-    } catch {
-      /* polling will retry */
-    }
-  }, [conversationId]);
-
-  useEffect(() => { void refresh(); }, [refresh]);
-
-  // Polling fallback (4s while pending, 20s otherwise).
-  useEffect(() => {
-    const interval = latest?.status === 'pending' ? 4000 : 20000;
-    if (tickRef.current) clearInterval(tickRef.current);
-    tickRef.current = setInterval(() => { void refresh(); }, interval);
-    return () => {
-      if (tickRef.current) clearInterval(tickRef.current);
-      tickRef.current = null;
-    };
-  }, [latest?.status, refresh]);
-
-  // ── Realtime → both latest pill AND active surface phase ──────────────
-  useEffect(() => {
-    return onInvitationChanged((evt) => {
-      if (evt.conversation_id !== conversationId) return;
-
-      // Update the latest pill summary.
-      setLatest((prev) => {
-        if (prev && prev.id === evt.invitation_id) {
-          return { ...prev, status: evt.status };
-        }
-        return prev;
-      });
-      void refresh();
-
-      // Drive the active surface lifecycle.
-      setSurface((prev) => {
-        if (!prev.invitation) return prev;
-        if (prev.invitation.id !== evt.invitation_id) return prev;
-        // Critical: once we have a live, connected room for this
-        // invitation, ignore *all* further server-side status echoes.
-        // - Re-delivered "joined" events would re-trigger the connect
-        //   effect and orphan the existing Room (CLIENT_REQUEST_LEAVE).
-        // - Late "expired"/"cancelled" can race the join transition and
-        //   would yank us into terminal mid-call.
-        // The only legitimate way out of 'connected' is operator hangup
-        // or true unmount, both of which are local actions.
-        if (
-          connectedInvitationIdRef.current === evt.invitation_id &&
-          (prev.phase === 'connected' || prev.phase === 'connecting')
-        ) {
-          rtDebug('call', 'ignoring stale invitation event', {
-            invitation_id: evt.invitation_id,
-            status: evt.status,
-            phase: prev.phase,
-          });
-          return prev;
-        }
-        const status = evt.status;
-        if (status === 'pending') {
-          return { ...prev, invitation: { ...prev.invitation, status: 'pending' } };
-        }
-        if (status === 'joined') {
-          // Only transition to 'connecting' from 'waiting'. If we are
-          // already 'connecting' or 'connected', this is a re-delivered
-          // event and must be ignored to avoid spinning a second Room.
-          if (prev.phase !== 'waiting') {
-            return prev;
-          }
-          return {
-            ...prev,
-            phase: 'connecting',
-            invitation: { ...prev.invitation, status: 'joined' },
-          };
-        }
-        // expired | cancelled | declined → terminal
-        return {
-          ...prev,
-          phase: 'terminal',
-          invitation: { ...prev.invitation, status },
-          terminalStatus: status as 'expired' | 'cancelled' | 'declined',
-        };
-      });
-    });
-  }, [conversationId, refresh]);
-
-  // Countdown ticker — runs whenever there's a pending invitation OR the
-  // surface is in waiting state.
-  useEffect(() => {
-    const needsTicker =
-      latest?.status === 'pending' ||
-      surface.phase === 'waiting';
-    if (!needsTicker) return;
-    const id = setInterval(() => forceTick((n) => n + 1), 1000);
-    return () => clearInterval(id);
-  }, [latest?.status, surface.phase]);
-
-  // Schedule auto-close of the terminal surface so it briefly shows the
-  // outcome and then reverts to IDLE, exposing the invite buttons again.
-  const scheduleAutoClose = useCallback((delayMs: number) => {
-    if (autoCloseRef.current) clearTimeout(autoCloseRef.current);
-    autoCloseRef.current = setTimeout(() => {
-      rtDebug('call', 'auto-close terminal disconnect');
-      try { void disconnectLive('server_call_ended'); } catch { /* ignore */ }
-      clearActiveCallRefs();
-      setSurface(INITIAL_SURFACE);
-    }, delayMs);
-  }, [clearActiveCallRefs, disconnectLive]);
-
-  useEffect(() => {
-    if (surface.phase !== 'terminal') return;
-    const delay = surface.terminalStatus === 'cancelled' ? 1800 : 3500;
-    scheduleAutoClose(delay);
-  }, [surface.phase, surface.terminalStatus, scheduleAutoClose]);
-
-  // ── On 'connecting' phase → resolve call_session_id then connect media
-  useEffect(() => {
-    if (surface.phase !== 'connecting') return;
-    const inv = surface.invitation;
-    if (!inv) return;
-    // Guard against re-runs for the same invitation. Without this, a
-    // re-delivered realtime 'joined' event (or a re-render that briefly
-    // re-enters 'connecting') would call live.connect a second time on
-    // the same invitation — orphaning the active Room. The hook itself
-    // also has an idempotency guard, but checking here keeps the logs
-    // clean and avoids unnecessary token re-fetches.
-    if (startedConnectInvitationIdRef.current === inv.id) {
-      return;
-    }
-    startedConnectInvitationIdRef.current = inv.id;
-    let cancelled = false;
-    (async () => {
-      try {
-        const fresh = surface.invitation
-          ? await callInvitationsApi.get(surface.invitation.id).then((r) => r.invitation).catch(() => surface.invitation)
-          : null;
-        if (cancelled) return;
-        const callSessionId = fresh?.call_session_id;
-        if (!callSessionId) throw new Error('missing_call_session');
-        activeCallConversationIdRef.current = inv.conversation_id;
-        activeCallSessionIdRef.current = callSessionId;
-        onActiveCallChange?.(inv.conversation_id);
-        const tok = await callsApi.token(callSessionId);
-        if (cancelled) return;
-        if (!tok.ws_url) throw new Error('missing_ws_url');
-        await live.connect({
-          wsUrl: tok.ws_url,
-          token: tok.token,
-          iceServers: tok.turn?.urls?.length
-            ? [{
-                urls: tok.turn.urls,
-                username: tok.turn.username || undefined,
-                credential: tok.turn.credential || undefined,
-              }]
-            : undefined,
-          iceTransportPolicy: tok.ice_policy,
-        });
-        if (cancelled) return;
-        // Latch this invitation as "connected" so subsequent stale
-        // realtime/poll updates for it cannot tear down the active room.
-        connectedInvitationIdRef.current = inv.id;
-        rtDebug('call', 'connected', { invitation_id: inv.id, channel: inv.channel });
-        setSurface((prev) => prev.phase === 'connecting' ? { ...prev, phase: 'connected' } : prev);
-      } catch (err: any) {
-        if (cancelled) return;
-        // Allow a fresh attempt only if this invitation actually failed
-        // to connect. Terminal cleanup will clear the ref next.
-        startedConnectInvitationIdRef.current = null;
-        rtDebug('call', 'connect failed', { invitation_id: inv.id, error: err?.message });
-        setSurface((prev) => ({
-          ...prev,
-          phase: 'terminal',
-          terminalStatus: 'failed',
-          errorMessage: err?.message || String(err),
-        }));
-      }
-    })();
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [surface.phase, surface.invitation?.id]);
-
-  // ── Invite creation ───────────────────────────────────────────────────
+  // ── Invite creation ─────────────────────────────────────────────────
   const openInviteDialog = useCallback((channel: InvitationChannel) => {
     if (creating || latest?.status === 'pending' || surface.phase !== 'idle') return;
     setDialogChannel(channel);
   }, [creating, latest?.status, surface.phase]);
 
-  const sendInvite = useCallback(async (channel: InvitationChannel, ttlSeconds: number) => {
-    if (creating || latest?.status === 'pending' || surface.phase !== 'idle') return;
-    setCreating(channel);
-    setLoading(true);
-    try {
-      const { invitation } = await callInvitationsApi.create({
-        workspace_id: workspaceId,
-        conversation_id: conversationId,
-        channel,
-        ttl_seconds: ttlSeconds,
-      });
-      setLatest(invitation);
+  const handleConfirmWait = useCallback((seconds: number) => {
+    if (!dialogChannel) return;
+    void sendInvite({
+      workspaceId,
+      conversationId,
+      contactName: contactName ?? null,
+      channel: dialogChannel,
+      ttlSeconds: seconds,
+    }).then(() => {
       setDialogChannel(null);
-      // Move the surface into WAITING immediately — no floating dock anymore.
-      setSurface({
-        phase: 'waiting',
-        invitation,
-        terminalStatus: null,
-        errorMessage: null,
-      });
       toast({
-        title: channel === 'video'
+        title: dialogChannel === 'video'
           ? (t('inbox.callInvite.videoSent') || 'Video invite sent')
           : (t('inbox.callInvite.audioSent') || 'Audio invite sent'),
         description: t('inbox.callInvite.sentDesc') || 'Visitor can join from the conversation card.',
       });
-    } catch (e: any) {
-      toast({
-        title: t('inbox.callInvite.sendFailed') || 'Could not send invite',
-        description: e?.message || String(e),
-        variant: 'destructive',
-      });
-    } finally {
-      setCreating(null);
-      setLoading(false);
-    }
-  }, [workspaceId, conversationId, creating, latest?.status, surface.phase, t]);
-
-  const handleConfirmWait = useCallback((seconds: number) => {
-    if (!dialogChannel) return;
-    void sendInvite(dialogChannel, seconds);
-  }, [dialogChannel, sendInvite]);
+    });
+  }, [dialogChannel, workspaceId, conversationId, contactName, sendInvite, t]);
 
   const closeDialog = useCallback(() => {
     if (creating) return;
     setDialogChannel(null);
   }, [creating]);
 
-  // ── Cancel pending invitation (from either pill or surface) ───────────
-  const cancelInvite = useCallback(async () => {
-    const target = surface.invitation ?? (latest && latest.status === 'pending' ? latest : null);
-    if (!target || cancellingRef.current) return;
-    cancellingRef.current = true;
-    setLoading(true);
-    try {
-      const { invitation } = await callInvitationsApi.cancel(target.id);
-      setLatest(invitation);
-      // Optimistically transition the surface to terminal so the operator
-      // sees immediate feedback even when the realtime echo is delayed
-      // (e.g. Centrifugo permission/connection errors). The realtime echo
-      // will harmlessly re-confirm 'cancelled'.
-      setSurface((prev) => {
-        if (!prev.invitation || prev.invitation.id !== target.id) return prev;
-        // Don't yank a live, connected room into terminal.
-        if (prev.phase === 'connected') return prev;
-        return {
-          ...prev,
-          phase: 'terminal',
-          invitation: { ...prev.invitation, status: 'cancelled' },
-          terminalStatus: 'cancelled',
-        };
-      });
-    } catch (err: any) {
-      toast({
-        title: t('inbox.callInvite.cancelFailed') || 'Could not cancel invitation',
-        description: err?.message || String(err),
-        variant: 'destructive',
-      });
-    } finally {
-      cancellingRef.current = false;
-      setLoading(false);
-    }
-  }, [surface.invitation, latest, t]);
-
-  // ── Hangup an active call (or close terminal early) ───────────────────
-  const onHangup = useCallback(async () => {
-    if (autoCloseRef.current) { clearTimeout(autoCloseRef.current); autoCloseRef.current = null; }
-    rtDebug('call', 'operator hangup disconnect');
-    try { await disconnectLive('explicit_hangup'); } catch { /* ignore */ }
-    clearActiveCallRefs();
-    setSurface(INITIAL_SURFACE);
-  }, [clearActiveCallRefs, disconnectLive]);
-
-  // ── Derived state ─────────────────────────────────────────────────────
+  // ── Derived ─────────────────────────────────────────────────────────
   const visual = useMemo(() => latest ? STATUS_VISUAL[latest.status] : null, [latest]);
   const isPending = latest?.status === 'pending';
   const isTerminal = !!latest && !isPending;
   const lastChannel: InvitationChannel = latest?.channel === 'video' ? 'video' : 'audio';
   const disableInvites = loading || creating !== null || isPending || surface.phase !== 'idle';
 
-  // Whether we render the SURFACE vs the IDLE invite UI.
-  const showSurface = surface.phase !== 'idle' && surface.invitation !== null;
-  const isVideo = surfaceChannel === 'video';
+  // Surface belongs to THIS conversation?
+  const surfaceMatches = surface.phase !== 'idle' && surface.conversationId === conversationId;
+  // Active call is for a DIFFERENT conversation.
+  const otherActive = surface.phase !== 'idle' && surface.conversationId && surface.conversationId !== conversationId;
+
+  const isVideo = surface.channel === 'video';
   const ChannelIcon = isVideo ? Video : Phone;
   const accentBg = isVideo ? 'bg-violet-500/5' : 'bg-warning/5';
   const accentText = isVideo ? 'text-violet-600 dark:text-violet-400' : 'text-warning';
@@ -551,7 +199,7 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
     : surface.terminalStatus === 'failed' ? PhoneOff
     : CheckCircle2;
 
-  const remainingLabel = surface.invitation && surface.phase === 'waiting'
+  const remainingLabel = surface.invitation && surface.phase === 'waiting' && surfaceMatches
     ? (() => {
         const ms = new Date(surface.invitation.expires_at).getTime() - Date.now();
         if (ms <= 0) return t('inbox.callSurface.expiringNow') || 'Expiring…';
@@ -565,27 +213,36 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
       })()
     : null;
 
-  // ─────────────────────────────────────────────────────────────────────
-  // Active surface mode — replaces the idle "Call visitor" card.
-  // ─────────────────────────────────────────────────────────────────────
-  if (showSurface) {
+  // ── Active surface for THIS conversation ────────────────────────────
+  if (surfaceMatches && floatingMode === 'docked') {
     return (
       <>
         <Card
-          className={cn(
-            'border-border/70 shadow-sm overflow-hidden ring-1 ring-inset',
-            accentRing,
-          )}
+          className={cn('border-border/70 shadow-sm overflow-hidden ring-1 ring-inset', accentRing)}
           role="region"
           aria-label={surfaceTitle}
         >
           <CardHeader className={cn('pb-2 border-b border-border', accentBg)}>
-            <CardTitle className="text-xs font-semibold flex items-center gap-1.5 text-foreground">
-              <span className={cn('inline-flex items-center justify-center w-5 h-5 rounded-md bg-background', accentText)}>
-                <ChannelIcon className="w-3 h-3" aria-hidden="true" />
-              </span>
-              <span className="truncate">{surfaceTitle}</span>
-            </CardTitle>
+            <div className="flex items-center justify-between gap-2">
+              <CardTitle className="text-xs font-semibold flex items-center gap-1.5 text-foreground min-w-0">
+                <span className={cn('inline-flex items-center justify-center w-5 h-5 rounded-md bg-background shrink-0', accentText)}>
+                  <ChannelIcon className="w-3 h-3" aria-hidden="true" />
+                </span>
+                <span className="truncate">{surfaceTitle}</span>
+              </CardTitle>
+              {surface.phase === 'connected' && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 w-6 p-0 shrink-0"
+                  onClick={() => setFloatingMode('expanded')}
+                  aria-label={t('inbox.callSurface.expand') || 'Expand call window'}
+                  title={t('inbox.callSurface.expand') || 'Expand'}
+                >
+                  <Maximize2 className="w-3.5 h-3.5" />
+                </Button>
+              )}
+            </div>
             {contactName && (
               <p className="text-[10px] text-muted-foreground truncate ms-6.5">{contactName}</p>
             )}
@@ -614,7 +271,6 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
                   className="w-full h-8 text-[11px] font-semibold gap-1.5 hover:bg-destructive/10 hover:border-destructive/30 hover:text-destructive transition-colors"
                   onClick={() => void cancelInvite()}
                   disabled={loading}
-                  aria-label={t('inbox.callSurface.cancel') || 'Cancel invitation'}
                 >
                   {loading
                     ? <Loader2 className="w-3 h-3 animate-spin" aria-hidden="true" />
@@ -647,9 +303,7 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
                       live.micEnabled ? '' : 'bg-destructive/10 border-destructive/30 text-destructive',
                     )}
                     onClick={() => void live.toggleMic()}
-                    aria-label={live.micEnabled
-                      ? (t('inbox.callSurface.muteMic') || 'Mute microphone')
-                      : (t('inbox.callSurface.unmuteMic') || 'Unmute microphone')}
+                    aria-label={live.micEnabled ? 'Mute microphone' : 'Unmute microphone'}
                   >
                     {live.micEnabled ? <Mic className="w-3.5 h-3.5" /> : <MicOff className="w-3.5 h-3.5" />}
                   </Button>
@@ -662,9 +316,7 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
                         live.cameraEnabled ? '' : 'bg-destructive/10 border-destructive/30 text-destructive',
                       )}
                       onClick={() => void live.toggleCamera()}
-                      aria-label={live.cameraEnabled
-                        ? (t('inbox.callSurface.cameraOff') || 'Turn camera off')
-                        : (t('inbox.callSurface.cameraOn') || 'Turn camera on')}
+                      aria-label={live.cameraEnabled ? 'Turn camera off' : 'Turn camera on'}
                     >
                       {live.cameraEnabled ? <Video className="w-3.5 h-3.5" /> : <VideoOff className="w-3.5 h-3.5" />}
                     </Button>
@@ -673,8 +325,8 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
                     size="sm"
                     variant="default"
                     className="h-8 px-3 rounded-full bg-destructive text-destructive-foreground hover:bg-destructive/90 gap-1.5"
-                    onClick={() => void onHangup()}
-                    aria-label={t('inbox.callSurface.hangup') || 'End call'}
+                    onClick={() => void hangup()}
+                    aria-label="End call"
                   >
                     <PhoneOff className="w-3.5 h-3.5" aria-hidden="true" />
                     <span className="text-[11px] font-semibold">{t('inbox.callSurface.hangup') || 'End'}</span>
@@ -700,7 +352,7 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
                   size="sm"
                   variant="ghost"
                   className="h-7 px-2 text-[10px] text-muted-foreground"
-                  onClick={() => void onHangup()}
+                  onClick={() => void hangup()}
                 >
                   {t('common.close') || 'Close'}
                 </Button>
@@ -720,9 +372,66 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
     );
   }
 
-  // ─────────────────────────────────────────────────────────────────────
-  // Idle mode — invite buttons + last-invite pill (existing behavior).
-  // ─────────────────────────────────────────────────────────────────────
+  // ── Active surface is in THIS conversation but operator floated it
+  //    out — show a "return" button so the inbox slot is not empty.
+  if (surfaceMatches && floatingMode !== 'docked') {
+    return (
+      <Card className="border-border/70 shadow-sm">
+        <CardContent className="p-3 flex items-center gap-2">
+          <span className="h-2 w-2 rounded-full bg-success animate-pulse" aria-hidden="true" />
+          <span className="text-[11px] font-medium text-foreground flex-1 truncate">
+            {isVideo ? 'Video call' : 'Audio call'} — open in floating window
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 px-2 text-[10px] gap-1"
+            onClick={() => setFloatingMode('docked')}
+          >
+            {t('inbox.callSurface.returnHere') || 'Return here'}
+          </Button>
+          <Button
+            size="sm"
+            variant="default"
+            className="h-7 w-7 p-0 rounded-full bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            onClick={() => void hangup()}
+            aria-label="End call"
+          >
+            <PhoneOff className="w-3 h-3" />
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // ── Active call is for ANOTHER conversation ────────────────────────
+  if (otherActive) {
+    return (
+      <Card className="border-border/70 shadow-sm">
+        <CardContent className="p-3 flex items-center gap-2">
+          <span className="h-2 w-2 rounded-full bg-warning animate-pulse" aria-hidden="true" />
+          <div className="flex-1 min-w-0">
+            <div className="text-[11px] font-medium text-foreground truncate">
+              Active call in another conversation
+            </div>
+            <div className="text-[10px] text-muted-foreground truncate">
+              End it before starting a new one
+            </div>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 px-2 text-[10px]"
+            onClick={() => setFloatingMode('expanded')}
+          >
+            Open
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // ── IDLE — invite buttons + last-invite pill ────────────────────────
   return (
     <>
       <Card className="border-border/70 shadow-sm">
@@ -733,8 +442,6 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
           </CardTitle>
         </CardHeader>
         <CardContent className="pt-0 space-y-2">
-          {/* Pending invitation pill (only relevant if surface is somehow
-              not yet showing — kept for safety). */}
           {isPending && latest && visual && (
             <div
               className={cn(
@@ -775,7 +482,6 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
             </div>
           )}
 
-          {/* Terminal status pill + resend shortcut */}
           {isTerminal && latest && visual && (
             <div className="flex items-center gap-1.5">
               <Badge
@@ -791,11 +497,6 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
                 className="h-6 px-2 text-[10px] text-muted-foreground hover:text-foreground gap-1 ms-auto"
                 onClick={() => openInviteDialog(lastChannel)}
                 disabled={loading || creating !== null}
-                aria-label={
-                  lastChannel === 'video'
-                    ? (t('inbox.callInvite.resendVideo') || 'Resend video invite')
-                    : (t('inbox.callInvite.resendAudio') || 'Resend audio invite')
-                }
               >
                 {creating === lastChannel
                   ? <Loader2 className="w-3 h-3 animate-spin" aria-hidden="true" />
@@ -805,7 +506,6 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
             </div>
           )}
 
-          {/* Primary CTAs */}
           <div className="grid grid-cols-2 gap-1.5">
             <Button
               size="sm"
@@ -856,7 +556,7 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
   );
 }
 
-// ─── Channel-specific tiles (carried over from OperatorCallSurface) ──────
+// ─── Channel-specific waiting tiles (kept here, sidebar-only) ────────
 
 interface WaitingTileProps {
   previewStream: MediaStream | null;
@@ -864,18 +564,12 @@ interface WaitingTileProps {
 }
 
 function AudioWaitingTile({ previewStream, previewState }: WaitingTileProps) {
-  // Local mic-level meter (best-effort). Falls back to animated bars if
-  // AudioContext / analyser is unavailable. Released in cleanup so we
-  // don't leak audio nodes after the visitor joins.
   const audioCtxRef = useRef<AudioContext | null>(null);
   const rafRef = useRef<number | null>(null);
   const [level, setLevel] = useState(0);
 
   useEffect(() => {
-    if (!previewStream) {
-      setLevel(0);
-      return;
-    }
+    if (!previewStream) { setLevel(0); return; }
     const AudioCtx: typeof AudioContext | undefined =
       (window as any).AudioContext || (window as any).webkitAudioContext;
     if (!AudioCtx) return;
@@ -896,9 +590,7 @@ function AudioWaitingTile({ previewStream, previewState }: WaitingTileProps) {
         rafRef.current = requestAnimationFrame(tick);
       };
       tick();
-    } catch {
-      /* analyser unavailable — bars will animate via CSS */
-    }
+    } catch { /* analyser unavailable */ }
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
@@ -917,14 +609,10 @@ function AudioWaitingTile({ previewStream, previewState }: WaitingTileProps) {
         <div className="w-9 h-9 rounded-full bg-warning/10 flex items-center justify-center text-warning">
           <Phone className="w-4 h-4" aria-hidden="true" />
         </div>
-        <span
-          className="absolute inset-0 rounded-full ring-2 ring-warning/30 animate-ping"
-          aria-hidden="true"
-        />
+        <span className="absolute inset-0 rounded-full ring-2 ring-warning/30 animate-ping" aria-hidden="true" />
       </div>
       <div className="flex-1 flex items-end gap-1 h-6" aria-hidden="true">
         {[0, 1, 2, 3, 4, 5, 6].map((i) => {
-          // Distance from center → louder bars in the middle when speaking.
           const dist = Math.abs(i - 3);
           const target = live
             ? Math.max(4, Math.min(22, level * 24 * (1 - dist * 0.18) + 4))
@@ -959,18 +647,17 @@ function VideoWaitingTile({ previewStream, previewState }: WaitingTileProps) {
   const showVideo = previewState === 'ready' && !!previewStream;
   return (
     <div className="relative aspect-video w-full rounded-lg overflow-hidden border border-violet-500/20 bg-gradient-to-br from-violet-500/10 via-violet-500/5 to-transparent">
-      {/* Local self-view — rendered as soon as getUserMedia resolves.
-          NOT mirrored: per current product rules no video element
-          (local or remote) is ever flipped. */}
       <video
         ref={videoRef}
         autoPlay
         playsInline
         muted
         className={cn(
-          'absolute inset-0 w-full h-full object-cover bg-black transition-opacity duration-200',
+          'call-video call-video-local absolute inset-0 w-full h-full object-cover bg-black transition-opacity duration-200',
           showVideo ? 'opacity-100' : 'opacity-0',
         )}
+        data-call-video
+        data-local-video
         style={{ transform: 'none' }}
       />
       {!showVideo && (
@@ -982,300 +669,11 @@ function VideoWaitingTile({ previewStream, previewState }: WaitingTileProps) {
                 : <Video className="w-5 h-5" aria-hidden="true" />}
             </div>
             {previewState === 'requesting' && (
-              <span
-                className="absolute inset-0 rounded-full ring-2 ring-violet-500/30 animate-ping"
-                aria-hidden="true"
-              />
+              <span className="absolute inset-0 rounded-full ring-2 ring-violet-500/30 animate-ping" aria-hidden="true" />
             )}
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-function AudioCallStage({ remote }: { remote: ReturnType<typeof useLiveKitCall>['remote'] }) {
-  const audioRefs = useRef<Record<string, HTMLAudioElement | null>>({});
-  // Bind audio via LiveKit's RemoteAudioTrack.attach/detach so the SDK
-  // owns srcObject lifecycle. Manual MediaStream wrapping was the source
-  // of frozen-frame bugs on the video path; keep audio symmetric.
-  const boundAudioRef = useRef<Record<string, string>>({});
-  useLayoutEffect(() => {
-    for (const r of remote) {
-      const el = audioRefs.current[r.participantSid];
-      if (!el) continue;
-      const prevSid = boundAudioRef.current[r.participantSid] || '';
-      if (r.audioTrack) {
-        const sid = (r.audioTrack as any).sid || r.audio?.id || '';
-        if (prevSid !== sid) {
-          try { r.audioTrack.attach(el); } catch { /* ignore */ }
-          boundAudioRef.current[r.participantSid] = sid;
-          // eslint-disable-next-line no-console
-          console.debug('[livekit] RemoteAudioTrack.attach', r.participantSid, sid);
-        }
-        const p = el.play();
-        if (p && typeof (p as Promise<void>).catch === 'function') {
-          (p as Promise<void>).catch(() => { /* autoplay — UI recovers on gesture */ });
-        }
-      } else if (prevSid) {
-        try { el.srcObject = null; } catch { /* ignore */ }
-        boundAudioRef.current[r.participantSid] = '';
-      }
-    }
-  }, [remote]);
-  // Cleanup on unmount: detach known audio tracks so we never leak SDK refs.
-  useEffect(() => {
-    const refs = audioRefs.current;
-    return () => {
-      for (const sid of Object.keys(refs)) {
-        const el = refs[sid];
-        if (el) {
-          try { el.srcObject = null; } catch { /* ignore */ }
-        }
-      }
-    };
-  }, []);
-  const hasAudio = remote.some((r) => !!r.audioTrack);
-  return (
-    <div className="rounded-lg bg-success/5 border border-success/20 px-3 py-3 flex items-center gap-3">
-      <div className="w-9 h-9 rounded-full bg-success/10 flex items-center justify-center text-success">
-        <Phone className="w-4 h-4" aria-hidden="true" />
-      </div>
-      <div className="flex-1 text-[11px] text-muted-foreground">
-        {hasAudio ? '🔊' : '…'}
-      </div>
-      {remote.map((r) => (
-        <audio
-          key={r.participantSid}
-          ref={(el) => { audioRefs.current[r.participantSid] = el; }}
-          autoPlay
-          playsInline
-        />
-      ))}
-    </div>
-  );
-}
-
-function VideoCallStage({ remote }: { remote: ReturnType<typeof useLiveKitCall>['remote'] }) {
-  const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
-  // Track currently-attached LiveKit RemoteVideoTrack per participant so
-  // we know exactly when to detach (track replaced, gone, or stalled).
-  const attachedTrackRef = useRef<Record<string, RemoteVideoTrack | null>>({});
-  // Audio mirrors the dedicated <audio> element; LiveKit owns the binding
-  // via attach/detach, kept fully separate from video so a video-only
-  // mute/stall cannot tear down audio.
-  const audioRefs = useRef<Record<string, HTMLAudioElement | null>>({});
-  const attachedAudioRef = useRef<Record<string, RemoteAudioTrack | null>>({});
-
-  // ── Video attach / detach ───────────────────────────────────────────
-  useLayoutEffect(() => {
-    for (const r of remote) {
-      const el = videoRefs.current[r.participantSid];
-      if (!el) continue;
-      const prev = attachedTrackRef.current[r.participantSid] || null;
-      const next = r.videoTrack || null;
-      if (prev === next) continue;
-      if (prev) {
-        try { prev.detach(el); } catch { /* ignore */ }
-        try { el.srcObject = null; } catch { /* ignore */ }
-        // eslint-disable-next-line no-console
-        console.debug('[livekit] RemoteVideoTrack.detach', r.participantSid);
-      }
-      if (next) {
-        try { next.attach(el); } catch { /* ignore */ }
-        // eslint-disable-next-line no-console
-        console.debug('[livekit] RemoteVideoTrack.attach', r.participantSid, (next as any).sid);
-        const p = el.play();
-        if (p && typeof (p as Promise<void>).catch === 'function') {
-          (p as Promise<void>).catch(() => { /* autoplay — recovers on user gesture */ });
-        }
-      }
-      attachedTrackRef.current[r.participantSid] = next;
-    }
-    // Clean up entries for participants that vanished from the snapshot.
-    const liveSids = new Set(remote.map((r) => r.participantSid));
-    for (const sid of Object.keys(attachedTrackRef.current)) {
-      if (liveSids.has(sid)) continue;
-      const tr = attachedTrackRef.current[sid];
-      const el = videoRefs.current[sid];
-      if (tr && el) {
-        try { tr.detach(el); } catch { /* ignore */ }
-        try { el.srcObject = null; } catch { /* ignore */ }
-      }
-      attachedTrackRef.current[sid] = null;
-      delete attachedTrackRef.current[sid];
-    }
-  }, [remote]);
-
-  // ── Diagnostic media events on the <video> element ─────────────────
-  useEffect(() => {
-    const cleanups: Array<() => void> = [];
-    for (const r of remote) {
-      const el = videoRefs.current[r.participantSid];
-      if (!el) continue;
-      const log = (kind: string) => () => {
-        // eslint-disable-next-line no-console
-        console.debug('[livekit] remote video element', kind, r.participantSid, {
-          trackSid: (r.videoTrack as any)?.sid,
-          currentTime: el.currentTime,
-          readyState: el.readyState,
-          videoWidth: el.videoWidth,
-          videoHeight: el.videoHeight,
-        });
-      };
-      const events: Array<keyof HTMLMediaElementEventMap> = [
-        'playing', 'pause', 'stalled', 'waiting', 'emptied', 'error', 'suspend', 'ended',
-      ];
-      const handlers = events.map((ev) => {
-        const h = log(ev);
-        el.addEventListener(ev, h);
-        return [ev, h] as const;
-      });
-      // timeupdate is noisy; throttle its logging.
-      let lastLog = 0;
-      const tu = () => {
-        const now = Date.now();
-        if (now - lastLog < 5000) return;
-        lastLog = now;
-        // eslint-disable-next-line no-console
-        console.debug('[livekit] remote video timeupdate', r.participantSid, {
-          currentTime: el.currentTime,
-          videoWidth: el.videoWidth,
-        });
-      };
-      el.addEventListener('timeupdate', tu);
-      cleanups.push(() => {
-        for (const [ev, h] of handlers) el.removeEventListener(ev, h);
-        el.removeEventListener('timeupdate', tu);
-      });
-    }
-    return () => { for (const c of cleanups) c(); };
-  }, [remote]);
-
-  // ── Real freeze watchdog ────────────────────────────────────────────
-  // Polls each remote <video>'s currentTime. If the LiveKit track is
-  // still 'live' but currentTime hasn't advanced for ≥3s, we detach +
-  // re-attach via the SDK. We never disconnect the room from here.
-  useEffect(() => {
-    if (remote.length === 0) return;
-    const lastTimes: Record<string, { t: number; at: number }> = {};
-    const id = setInterval(() => {
-      for (const r of remote) {
-        const el = videoRefs.current[r.participantSid];
-        const tr = r.videoTrack;
-        if (!el || !tr) continue;
-        // If the track is gone or dead, skip — the attach/detach effect
-        // will handle the cleanup the next time `remote` updates.
-        const ms = (tr as any).mediaStreamTrack as MediaStreamTrack | undefined;
-        if (!ms || ms.readyState !== 'live') continue;
-        const now = Date.now();
-        const prev = lastTimes[r.participantSid];
-        const ct = el.currentTime;
-        if (!prev) {
-          lastTimes[r.participantSid] = { t: ct, at: now };
-          continue;
-        }
-        if (ct > prev.t + 0.05) {
-          // moving — reset baseline
-          lastTimes[r.participantSid] = { t: ct, at: now };
-          continue;
-        }
-        // Frozen for 3s+ → reattach via SDK (no room disconnect).
-        if (now - prev.at >= 3000) {
-          // eslint-disable-next-line no-console
-          console.warn('[livekit] remote video watchdog reattach', r.participantSid, {
-            currentTime: ct,
-            stalledForMs: now - prev.at,
-          });
-          try { tr.detach(el); } catch { /* ignore */ }
-          try { el.srcObject = null; } catch { /* ignore */ }
-          try { tr.attach(el); } catch { /* ignore */ }
-          const p = el.play();
-          if (p && typeof (p as Promise<void>).catch === 'function') {
-            (p as Promise<void>).catch(() => {});
-          }
-          lastTimes[r.participantSid] = { t: el.currentTime, at: now };
-        }
-      }
-    }, 1000);
-    return () => clearInterval(id);
-  }, [remote]);
-
-  // ── Audio attach / detach ───────────────────────────────────────────
-  useLayoutEffect(() => {
-    for (const r of remote) {
-      const el = audioRefs.current[r.participantSid];
-      if (!el) continue;
-      const prev = attachedAudioRef.current[r.participantSid] || null;
-      const next = r.audioTrack || null;
-      if (prev === next) continue;
-      if (prev) {
-        try { prev.detach(el); } catch { /* ignore */ }
-        try { el.srcObject = null; } catch { /* ignore */ }
-      }
-      if (next) {
-        try { next.attach(el); } catch { /* ignore */ }
-        const p = el.play();
-        if (p && typeof (p as Promise<void>).catch === 'function') {
-          (p as Promise<void>).catch(() => { /* autoplay — recovers on gesture */ });
-        }
-      }
-      attachedAudioRef.current[r.participantSid] = next;
-    }
-  }, [remote]);
-
-  // Detach everything on unmount so no SDK refs leak.
-  useEffect(() => {
-    const vRefs = videoRefs.current;
-    const vTracks = attachedTrackRef.current;
-    const aRefs = audioRefs.current;
-    const aTracks = attachedAudioRef.current;
-    return () => {
-      for (const sid of Object.keys(vTracks)) {
-        const tr = vTracks[sid]; const el = vRefs[sid];
-        if (tr && el) { try { tr.detach(el); } catch { /* ignore */ } }
-      }
-      for (const sid of Object.keys(aTracks)) {
-        const tr = aTracks[sid]; const el = aRefs[sid];
-        if (tr && el) { try { tr.detach(el); } catch { /* ignore */ } }
-      }
-    };
-  }, []);
-
-  if (remote.length === 0) {
-    return (
-      <div className="aspect-video w-full rounded-lg border border-border bg-muted flex items-center justify-center">
-        <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" aria-hidden="true" />
-      </div>
-    );
-  }
-  return (
-    <div className="grid gap-2">
-      {remote.map((r) => (
-        <div key={r.participantSid} className="relative aspect-video w-full rounded-lg overflow-hidden border border-border bg-black">
-          <video
-            ref={(el) => { videoRefs.current[r.participantSid] = el; }}
-            autoPlay
-            playsInline
-            muted={false}
-            className="w-full h-full object-cover bg-black"
-            style={{ transform: 'none' }}
-          />
-          {!r.videoTrack && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/70 text-white/80">
-              <WifiOff className="w-5 h-5" aria-hidden="true" />
-              <span className="text-[11px] font-medium">Video paused / reconnecting…</span>
-            </div>
-          )}
-          {/* Dedicated audio element — survives video mute/unmute cycles. */}
-          <audio
-            ref={(el) => { audioRefs.current[r.participantSid] = el; }}
-            autoPlay
-            playsInline
-            className="sr-only"
-          />
-        </div>
-      ))}
     </div>
   );
 }

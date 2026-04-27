@@ -411,14 +411,15 @@
           if (room !== nextRoom) return;
           dlog('room disconnected', {
             reason: reason,
-            connectStarted: connectStarted,
-            connectSucceeded: connectSucceeded,
-            publishStarted: publishStarted,
-            publishSucceeded: publishSucceeded,
+            signalingConnected: signalingConnected,
+            mediaPublishStarted: mediaPublishStarted,
+            mediaPublished: mediaPublished,
+            engineFullyConnected: engineFullyConnected,
             explicitDisconnectRequested: explicitDisconnectRequested,
+            connectPromiseSettled: connectPromiseSettled,
             currentState: state,
           });
-          if (explicitDisconnectRequested || connectSucceeded) {
+          if (explicitDisconnectRequested || engineFullyConnected) {
             teardownInternal('disconnected');
           } else {
             // Stay in 'connecting' — the connect() promise owns the

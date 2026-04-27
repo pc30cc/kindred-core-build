@@ -580,6 +580,11 @@
         ciBodyVideo: 'An operator is inviting you to a video call.',
         ciWaitMinutes: 'The operator will wait up to {m} minutes for you to join.',
         ciWaitOneMinute: 'The operator will wait up to one minute for you to join.',
+        // Pass A — call-ended summary message
+        csEndedByOperator: 'Call ended by operator · Duration {duration}',
+        csEndedByVisitor: 'Call ended by visitor · Duration {duration}',
+        csEndedBySystem: 'Call ended · Duration {duration}',
+        csEndedNotConnected: 'Call did not connect',
         // Pass 2 — In-panel call surface
         csConnecting: 'Connecting to the call\u2026',
         csReconnecting: 'Reconnecting\u2026',

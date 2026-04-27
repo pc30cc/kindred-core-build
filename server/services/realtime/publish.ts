@@ -59,6 +59,27 @@ export async function publishConversationEvent(
         reason: result.reason,
       });
     }
+    // Phase 5b — also fan out `message` envelopes to the workspace inbox
+    // channel so the operator's conversation list updates instantly even
+    // when the affected conversation is not currently open. Without this,
+    // the inbox list only refreshes on the 10s React Query poll. The
+    // widget runtime never subscribes to the inbox channel, so this is
+    // purely operator-facing and safe.
+    if (event.type === 'message') {
+      try {
+        const inboxChannel = buildInboxChannelName(workspaceId);
+        const inboxResult = await publisher.publish(inboxChannel, event);
+        if (!inboxResult.ok) {
+          rtWarn('publish', 'inbox_message_skipped', {
+            vendor: publisher.vendor,
+            channel: inboxChannel,
+            reason: inboxResult.reason,
+          });
+        }
+      } catch (err: any) {
+        rtWarn('publish', 'inbox_message_error', { error: err?.message || String(err) });
+      }
+    }
     return result;
   } catch (err: any) {
     rtWarn('publish', 'error', { error: err?.message || String(err) });

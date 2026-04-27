@@ -1528,10 +1528,13 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
   border: 2px solid rgba(255, 255, 255, 0.6);
   background: #000;
   z-index: 2;
-  /* Local self-preview only — visitor sees themselves mirrored, like
-     a bathroom mirror. Remote video (.gs-call-remote-video) has no
-     transform so the operator's actual orientation is preserved. */
-  transform: scaleX(-1);
+}
+/* Hard product rule: NO video element is ever mirrored. This guard
+   beats any future inline transform regression on either the local
+   self-view or the remote stream. */
+.gs-call-remote-video,
+.gs-call-local-video {
+  transform: none !important;
 }
 .gs-call-audio-orb {
   width: 96px;

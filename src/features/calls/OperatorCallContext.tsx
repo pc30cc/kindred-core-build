@@ -496,6 +496,7 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
     ttlSeconds: number;
   }) => {
     if (creating || surface.phase !== 'idle') return;
+    resetPerCallLifecycleRefs();
     setCreating(args.channel);
     setLoading(true);
     try {
@@ -530,7 +531,7 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
       setCreating(null);
       setLoading(false);
     }
-  }, [creating, surface.phase]);
+  }, [creating, surface.phase, resetPerCallLifecycleRefs]);
 
   const cancelInvite = useCallback(async () => {
     const target = surface.invitation;

@@ -17,6 +17,9 @@ import { useTranslation } from '@/i18n';
 
 const EXPANDED_W = 860;
 const EXPANDED_H = 560;
+// Portrait-shaped window when the remote stream is vertical (mobile visitor).
+const EXPANDED_PORTRAIT_W = 380;
+const EXPANDED_PORTRAIT_H = 640;
 
 export function FloatingOperatorCallWindow() {
   const { surface, live, floatingMode, setFloatingMode, hangup, closeTerminal, lastEnded, videoQuality, setVideoQuality } = useOperatorCall();
@@ -72,6 +75,48 @@ export function FloatingOperatorCallWindow() {
   }, [effectiveMode]);
 
   const hasRemoteVideo = live.remote.some((r) => !!r.videoTrack);
+  // Detect remote orientation from the first published remote video track
+  // so we can resize/restyle the whole floating window to match — no more
+  // black bars next to a portrait phone stream.
+  const [remoteOrientation, setRemoteOrientation] = useState<'portrait' | 'landscape' | 'square' | null>(null);
+  const firstRemoteVideoTrack = live.remote[0]?.videoTrack || null;
+  useEffect(() => {
+    if (!firstRemoteVideoTrack) { setRemoteOrientation(null); return; }
+    const ms: MediaStreamTrack | undefined = (firstRemoteVideoTrack as any).mediaStreamTrack;
+    if (!ms) return;
+    let cancelled = false;
+    const probe = () => {
+      if (cancelled) return;
+      const settings = ms.getSettings ? ms.getSettings() : ({} as MediaTrackSettings);
+      const w = settings.width || 0;
+      const h = settings.height || 0;
+      if (!w || !h) return;
+      const next: 'portrait' | 'landscape' | 'square' =
+        h > w * 1.05 ? 'portrait' : w > h * 1.05 ? 'landscape' : 'square';
+      setRemoteOrientation((prev) => (prev === next ? prev : next));
+    };
+    probe();
+    const id = window.setInterval(probe, 1000);
+    return () => { cancelled = true; window.clearInterval(id); };
+  }, [firstRemoteVideoTrack]);
+  // Also listen at the DOM layer — videoOrientation already toggles the
+  // [data-video-orientation] attribute on the stage element.
+  useEffect(() => {
+    if (!isVideo) return;
+    const root = document.querySelector('[data-call-video-stage]') as HTMLElement | null;
+    if (!root) return;
+    const sync = () => {
+      const v = root.getAttribute('data-video-orientation');
+      if (v === 'portrait' || v === 'landscape' || v === 'square') {
+        setRemoteOrientation((prev) => (prev === v ? prev : v));
+      }
+    };
+    sync();
+    const obs = new MutationObserver(sync);
+    obs.observe(root, { attributes: true, attributeFilter: ['data-video-orientation'] });
+    return () => obs.disconnect();
+  }, [isVideo, firstRemoteVideoTrack]);
+  const isPortraitStage = isVideo && remoteOrientation === 'portrait';
   const status =
     isRemoteEndedTerminal ? safeT('inbox.callSurface.callEnded', 'Call ended') :
     live.state === 'connecting' ? safeT('inbox.callSurface.statusConnecting', 'Connecting') :
@@ -127,7 +172,9 @@ export function FloatingOperatorCallWindow() {
         'fixed z-[70] flex overflow-hidden border border-border bg-card shadow-elevated ring-1 ring-foreground/10',
         isMinimized
           ? 'bottom-4 right-4 h-16 w-[min(92vw,390px)] flex-row items-center gap-3 rounded-full bg-card/95 px-3 py-2 backdrop-blur-xl'
-          : 'h-[min(85vh,560px)] w-[min(85vw,860px)] min-w-[520px] flex-col rounded-xl bg-call-stage max-sm:inset-x-2 max-sm:bottom-2 max-sm:h-[78vh] max-sm:w-auto max-sm:min-w-0',
+          : isPortraitStage
+            ? 'h-[min(88vh,640px)] w-[min(85vw,380px)] min-w-[300px] flex-col rounded-xl bg-call-stage max-sm:inset-x-2 max-sm:bottom-2 max-sm:h-[80vh] max-sm:w-auto max-sm:min-w-0'
+            : 'h-[min(85vh,560px)] w-[min(85vw,860px)] min-w-[520px] flex-col rounded-xl bg-call-stage max-sm:inset-x-2 max-sm:bottom-2 max-sm:h-[78vh] max-sm:w-auto max-sm:min-w-0',
       )}
       style={isMinimized ? undefined : expandedStyle}
     >
@@ -178,7 +225,9 @@ export function FloatingOperatorCallWindow() {
         isMinimized
           ? 'pointer-events-none absolute -left-[10000px] top-0 h-px w-px overflow-hidden opacity-0'
           : 'relative min-h-0 flex-1 overflow-hidden',
-      )}>
+      )}
+        data-portrait-stage={isPortraitStage ? 'true' : 'false'}
+      >
         {isRemoteEndedTerminal ? (
           <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-call-stage px-6 text-center text-call-stage-foreground">
             <div className="flex h-14 w-14 items-center justify-center rounded-full bg-call-stage-foreground/10 ring-1 ring-call-stage-foreground/20">
@@ -218,7 +267,12 @@ export function FloatingOperatorCallWindow() {
           <LocalVideoPiP
             track={live.localVideoTrack}
             cameraEnabled={live.cameraEnabled}
-            className="absolute bottom-24 right-5 z-20 h-[160px] w-[120px] overflow-hidden rounded-lg border border-call-stage-foreground/30 bg-call-stage shadow-elevated ring-1 ring-call-stage-foreground/15 max-sm:bottom-24 max-sm:right-3 max-sm:h-[124px] max-sm:w-[92px]"
+            className={cn(
+              'absolute z-20 overflow-hidden rounded-lg border border-call-stage-foreground/30 bg-call-stage shadow-elevated ring-1 ring-call-stage-foreground/15',
+              isPortraitStage
+                ? 'bottom-24 right-3 h-[120px] w-[88px] max-sm:bottom-24 max-sm:right-2 max-sm:h-[104px] max-sm:w-[78px]'
+                : 'bottom-24 right-5 h-[160px] w-[120px] max-sm:bottom-24 max-sm:right-3 max-sm:h-[124px] max-sm:w-[92px]',
+            )}
           />
         )}
 

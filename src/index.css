@@ -469,3 +469,14 @@ video.call-video {
 .call-video-stage[data-video-orientation="square"] .call-video-remote {
   object-fit: contain !important;
 }
+
+/* When the floating operator window itself adopts a portrait shape
+   (because the visitor's stream is portrait), the stage already matches
+   the stream's aspect ratio. Fill it edge-to-edge and hide the blurred
+   side-bar backdrop — no more black bars left/right of the visitor. */
+[data-portrait-stage="true"] .call-video-stage[data-video-orientation="portrait"] .call-video-remote {
+  object-fit: cover !important;
+}
+[data-portrait-stage="true"] .call-video-stage[data-video-orientation="portrait"] > video[aria-hidden="true"] {
+  display: none !important;
+}

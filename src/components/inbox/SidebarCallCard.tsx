@@ -29,7 +29,7 @@ import {
 import { InviteWaitDialog } from './InviteWaitDialog';
 import { useLocalMediaPreview, type LocalPreviewState } from '@/hooks/useLocalMediaPreview';
 import { useOperatorCall } from '@/features/calls/OperatorCallContext';
-import { VideoCallStage, AudioCallStage } from '@/features/calls/CallStage';
+import { VideoCallStage, AudioCallStage, CALL_VIDEO_STYLE } from '@/features/calls/CallStage';
 
 interface SidebarCallCardProps {
   workspaceId: string;
@@ -658,7 +658,7 @@ function VideoWaitingTile({ previewStream, previewState }: WaitingTileProps) {
         )}
         data-call-video
         data-local-video
-        style={{ transform: 'none' }}
+        style={CALL_VIDEO_STYLE}
       />
       {!showVideo && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">

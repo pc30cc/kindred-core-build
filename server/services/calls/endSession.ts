@@ -22,9 +22,7 @@
  * any subsequent retry from the same client.
  */
 import type { ServerConfig } from '../../config.js';
-import { getServiceClient } from '../supabase.js' assert { 'ignore-missing': 'true' } as any;
-// NOTE: tsc will resolve the real path; the assertion above is a no-op
-// hint so the file shape mirrors the surrounding codebase.
+import { getServiceClient } from '../../supabase.js';
 import { resolveCallProvider } from './providerResolver.js';
 import { publishOperatorEvent } from '../realtime/publish.js';
 import { clearInCall } from './availability.js';
@@ -86,11 +84,7 @@ export async function endCallSession(
   config: ServerConfig,
   input: EndCallInput,
 ): Promise<EndCallResult> {
-  // Defer the supabase import so this file's path-only assertion above
-  // does not break the type-check pipeline; real resolution happens
-  // through the same client every other route uses.
-  const { getServiceClient: realGetServiceClient } = await import('../../supabase.js');
-  const sb = realGetServiceClient(config);
+  const sb = getServiceClient(config);
 
   const { data: row } = await sb
     .from('call_sessions')

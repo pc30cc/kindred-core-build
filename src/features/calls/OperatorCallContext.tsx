@@ -423,6 +423,28 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
 
   const clearLastEnded = useCallback(() => setLastEnded(null), []);
 
+  // Auto-fade the "Call ended · mm:ss" surface so it never lingers
+  // forever. The toast (below) carries the same info if the operator
+  // navigates away in the meantime.
+  useEffect(() => {
+    if (!lastEnded) return;
+    const handle = setTimeout(() => setLastEnded(null), 6000);
+    return () => clearTimeout(handle);
+  }, [lastEnded]);
+
+  // Toast on every newly-arrived ended summary so the operator gets a
+  // consistent confirmation regardless of which side ended the call.
+  useEffect(() => {
+    if (!lastEnded) return;
+    const mm = Math.floor(lastEnded.duration_seconds / 60).toString().padStart(2, '0');
+    const ss = (lastEnded.duration_seconds % 60).toString().padStart(2, '0');
+    const who =
+      lastEnded.ended_by === 'visitor' ? 'Visitor ended the call' :
+      lastEnded.ended_by === 'operator' ? 'You ended the call' :
+      'Call ended';
+    toast({ title: who, description: `${mm}:${ss}` });
+  }, [lastEnded]);
+
   // Pass A — react to server-published call:ended events. When the
   // visitor ends the call (or any other actor) the operator must
   // immediately leave the call surface and surface a duration message

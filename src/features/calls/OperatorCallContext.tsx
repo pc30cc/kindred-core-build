@@ -195,6 +195,16 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
   // remote stream.
   const remoteLeftFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previousRemoteCountRef = useRef<number>(0);
+  // Pass A.3 — record when we entered 'connected' so we can compute a
+  // best-effort local duration for the immediate visitor-ended terminal
+  // state, before the server's /end response arrives with the canonical
+  // duration_seconds.
+  const connectedAtRef = useRef<number>(0);
+  // True once we've already shown the immediate "Visitor ended" terminal
+  // state for the current session, so the call:ended event that arrives
+  // 100–1500ms later updates the existing surface (with duration) instead
+  // of re-opening anything.
+  const remoteEndedShownRef = useRef<boolean>(false);
 
   useEffect(() => {
     surfaceRef.current = surface;

@@ -22,6 +22,7 @@ import {
   type RemoteTrack,
   type RemoteTrackPublication,
   type LocalTrackPublication,
+  type LocalVideoTrack,
   type RemoteAudioTrack,
   type RemoteVideoTrack,
 } from 'livekit-client';
@@ -104,6 +105,7 @@ export interface UseLiveKitCallApi {
   state: CallConnState;
   error: string | null;
   remote: RemoteMediaEntry[];
+  localVideoTrack: LocalVideoTrack | null;
   micEnabled: boolean;
   cameraEnabled: boolean;
   /** Connect to a room. URL/token come from the backend token endpoint. */
@@ -130,8 +132,23 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
   const [state, setState] = useState<CallConnState>('idle');
   const [error, setError] = useState<string | null>(null);
   const [remote, setRemote] = useState<RemoteMediaEntry[]>([]);
+  const [localVideoTrack, setLocalVideoTrack] = useState<LocalVideoTrack | null>(null);
   const [micEnabled, setMicEnabled] = useState(publishMic);
   const [cameraEnabled, setCameraEnabled] = useState(publishCamera);
+
+  const refreshLocalVideo = useCallback(() => {
+    const room = roomRef.current;
+    if (!room) {
+      setLocalVideoTrack(null);
+      return;
+    }
+    let next: LocalVideoTrack | null = null;
+    room.localParticipant.videoTrackPublications.forEach((pub: LocalTrackPublication) => {
+      const t = pub.track;
+      if (t && (t as any).mediaStreamTrack?.readyState === 'live') next = t as LocalVideoTrack;
+    });
+    setLocalVideoTrack(next);
+  }, []);
 
   const refreshRemotes = useCallback(() => {
     const room = roomRef.current;
@@ -215,11 +232,11 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
       })
       .on(RoomEvent.LocalTrackPublished, (pub: LocalTrackPublication) => {
         if (pub.kind === Track.Kind.Audio) setMicEnabled(true);
-        if (pub.kind === Track.Kind.Video) setCameraEnabled(true);
+        if (pub.kind === Track.Kind.Video) { setCameraEnabled(true); refreshLocalVideo(); }
       })
       .on(RoomEvent.LocalTrackUnpublished, (pub: LocalTrackPublication) => {
         if (pub.kind === Track.Kind.Audio) setMicEnabled(false);
-        if (pub.kind === Track.Kind.Video) setCameraEnabled(false);
+        if (pub.kind === Track.Kind.Video) { setCameraEnabled(false); refreshLocalVideo(); }
       })
       .on(RoomEvent.Reconnecting, () => {
         // eslint-disable-next-line no-console
@@ -247,7 +264,7 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
       // eslint-disable-next-line no-console
       console.warn('[livekit] room emitted Disconnected', { reason });
     });
-  }, [refreshRemotes]);
+  }, [refreshRemotes, refreshLocalVideo]);
 
   const connect = useCallback(async (input: {
     wsUrl: string;

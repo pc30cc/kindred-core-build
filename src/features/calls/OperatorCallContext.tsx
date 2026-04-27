@@ -670,6 +670,77 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
     [latestMap],
   );
 
+  // Pass A.2 — visitor-leave fallback. When LiveKit reports the remote
+  // participant gone (or the room transitioned to disconnected) but the
+  // server has not yet published a `call:ended` envelope, hit the
+  // canonical /api/calls/:id/end endpoint ourselves so the operator UI
+  // never hangs at "in call" with no remote stream. The endpoint is
+  // idempotent — if call:ended arrives first the second invocation just
+  // returns the existing summary.
+  useEffect(() => {
+    const cur = surfaceRef.current;
+    const sessionId = activeCallSessionIdRef.current;
+    if (!sessionId) return;
+    if (cur.phase !== 'connected' && cur.phase !== 'connecting') return;
+    const remoteCount = live.remote.length;
+    const wasPresent = previousRemoteCountRef.current > 0;
+    previousRemoteCountRef.current = remoteCount;
+
+    // Two triggers: remote disappeared OR room disconnected entirely.
+    const remoteVanished = wasPresent && remoteCount === 0;
+    const roomDown = live.state === 'disconnected' || live.state === 'failed';
+    if (!remoteVanished && !roomDown) return;
+
+    if (remoteLeftFallbackRef.current) return; // already armed
+    callLog('remote participant disconnected fallback armed', {
+      sessionId,
+      remoteCount,
+      liveState: live.state,
+    });
+    const armedSessionId = sessionId;
+    remoteLeftFallbackRef.current = setTimeout(() => {
+      remoteLeftFallbackRef.current = null;
+      // If the active session changed (cleared by call:ended in the
+      // meantime) we have nothing to do.
+      if (activeCallSessionIdRef.current !== armedSessionId) {
+        callLog('remote disconnected fallback skipped', { reason: 'session_changed' });
+        return;
+      }
+      callLog('remote participant disconnected fallback firing /end', {
+        sessionId: armedSessionId,
+      });
+      void callsApi.end(armedSessionId, 'system_ended').then((summary) => {
+        // The realtime fan-out from endCallSession will deliver call:ended
+        // back to us, which sets lastEnded. But because the publish is
+        // best-effort, also set it locally so the UI is guaranteed to
+        // surface the terminal toast.
+        setLastEnded({
+          ended_by: summary.ended_by,
+          reason: summary.end_reason,
+          duration_seconds: summary.duration_seconds,
+          ended_at: summary.ended_at,
+          conversation_id: summary.conversation_id ?? activeCallConversationIdRef.current,
+        });
+      }).catch((err) => {
+        callWarn('remote disconnected fallback /end failed', { error: (err as any)?.message });
+      }).finally(() => {
+        if (activeCallSessionIdRef.current === armedSessionId) {
+          try { void disconnectLive('visitor_left'); } catch { /* ignore */ }
+          clearActiveCallRefs();
+          setSurface(INITIAL_SURFACE);
+          setFloatingMode('docked');
+        }
+      });
+    }, 1500);
+
+    return () => {
+      if (remoteLeftFallbackRef.current) {
+        clearTimeout(remoteLeftFallbackRef.current);
+        remoteLeftFallbackRef.current = null;
+      }
+    };
+  }, [live.remote.length, live.state, surface.phase, disconnectLive, clearActiveCallRefs]);
+
   // Hard cleanup ONLY on full provider unmount (sign-out / shutdown).
   useEffect(() => {
     return () => {

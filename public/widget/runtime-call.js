@@ -229,7 +229,7 @@
     connecting = false;
     micEnabled = false;
     cameraEnabled = false;
-    lastRemote = { audio: null, video: null };
+    lastRemote = { audio: null, video: null, audioTrack: null, videoTrack: null };
     lastLocalVideo = null;
     connectedAt = 0;
     emitter.emit('remote', lastRemote);

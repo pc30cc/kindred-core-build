@@ -4726,7 +4726,10 @@
     var uiPrefsStore = createStore({
       position: config.position === 'bottom-left' ? 'bottom-left' : 'bottom-right',
       // Sound is OFF by default. Toggle via window.__gs.push(['setSoundEnabled', true]).
-      soundEnabled: !!(config.features && config.features.notificationSound) || false,
+      // Default ON — message chime + incoming-call ringtone are core widget
+      // UX. Hosts can override via window.__gs.push(['setSoundEnabled', false]).
+      soundEnabled: (config.features && config.features.notificationSound === false)
+        ? false : true,
     });
     // Phase 5 — presence/availability store. Separate from transport + notify stores.
     var presenceStore = createStore({

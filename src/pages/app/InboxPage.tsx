@@ -617,12 +617,25 @@ export default function InboxPage() {
 
   const filteredConvos = useMemo(() => {
     if (!conversations) return [];
-    return conversations.filter(c => {
+    const filtered = conversations.filter(c => {
       if (!search) return true;
       const name = c.contacts?.name || c.contacts?.email || c.subject || '';
       return name.toLowerCase().includes(search.toLowerCase());
     });
+    // Float unread conversations to the top — within each group keep the
+    // existing updated_at descending order (already applied server-side).
+    return [...filtered].sort((a: any, b: any) => {
+      const ua = (a.unread_count ?? 0) > 0 ? 1 : 0;
+      const ub = (b.unread_count ?? 0) > 0 ? 1 : 0;
+      if (ua !== ub) return ub - ua;
+      return 0;
+    });
   }, [conversations, search]);
+
+  const totalUnread = useMemo(() => {
+    if (!conversations) return 0;
+    return (conversations as any[]).reduce((n, c) => n + (c.unread_count ?? 0), 0);
+  }, [conversations]);
 
   const statusLabels: Record<string, string> = {
     open: t('inbox.open') || 'Open',

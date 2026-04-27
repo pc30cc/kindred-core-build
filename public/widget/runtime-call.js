@@ -190,6 +190,11 @@
   }
 
   function refreshAvailableCameras() {
+    if (!engineFullyConnected) {
+      availableCameras = [];
+      emitter.emit('cameras', { cameras: [], currentDeviceId: currentCameraDeviceId });
+      return Promise.resolve(availableCameras);
+    }
     if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
       availableCameras = [];
       emitter.emit('cameras', { cameras: [], currentDeviceId: currentCameraDeviceId });
@@ -243,7 +248,14 @@
       return;
     }
     alreadyTornDown = true;
-    dlog('teardown', { reasonState: reasonState, connectStarted: connectStarted, connectSucceeded: connectSucceeded, explicitDisconnectRequested: explicitDisconnectRequested });
+    dlog('teardown', {
+      reasonState: reasonState,
+      signalingConnectStarted: signalingConnectStarted,
+      signalingConnected: signalingConnected,
+      mediaPublished: mediaPublished,
+      engineFullyConnected: engineFullyConnected,
+      explicitDisconnectRequested: explicitDisconnectRequested,
+    });
     if (room) {
       try { room.disconnect(); } catch (_) { /* ignore */ }
     }
@@ -255,8 +267,8 @@
     lastLocalVideo = null;
     connectedAt = 0;
     currentCameraDeviceId = '';
-    // NB: do NOT clear connectStarted / connectSucceeded here — the
-    // caller's connect()-promise catch needs to inspect them. They are
+    // NB: do NOT clear lifecycle flags here — the caller's connect()
+    // promise catch may inspect them. They are
     // reset at the start of the next connect() call instead.
     emitter.emit('remote', lastRemote);
     emitter.emit('local', { video: null });

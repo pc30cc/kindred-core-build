@@ -3,6 +3,7 @@ import App from "./App.tsx";
 import "./index.css";
 import { loadFontsForLocale } from "./lib/fonts";
 import { getStoredLocale, loadLocaleMessages } from "./i18n";
+import { CALL_VIDEO_ORIENTATION_CORRECTION_MODE } from "./features/calls/videoOrientation";
 
 function logCallUiBuildVersion() {
   try {
@@ -16,16 +17,25 @@ function logCallUiBuildVersion() {
       .find((href) => /\/assets\/index-[^/]+\.css(?:$|\?)/.test(href))
       ?.split('/')
       .pop() || 'unknown';
-    console.info('[call-ui] build version', { appBundle, appCss, noMirror: true });
+    console.info('[call-ui] orientation correction', {
+      appBundle,
+      appCss,
+      widgetCss: 'pending',
+      correction: CALL_VIDEO_ORIENTATION_CORRECTION_MODE,
+      verifiedVisually: false,
+    });
     fetch('/widget/widget-manifest.json', { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
       .then((manifest) => {
         if (!manifest) return;
-        console.info('[call-ui] widget version', {
+        console.info('[call-ui] orientation correction', {
+          appBundle,
+          appCss,
           widgetCss: manifest['runtime.css'] || 'unknown',
           widgetRuntime: manifest['runtime.js'] || 'unknown',
           widgetRuntimeCall: manifest['runtime-call.js'] || 'unknown',
-          noMirror: true,
+          correction: CALL_VIDEO_ORIENTATION_CORRECTION_MODE,
+          verifiedVisually: false,
         });
       })
       .catch(() => {});

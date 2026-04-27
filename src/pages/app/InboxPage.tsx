@@ -131,8 +131,10 @@ export default function InboxPage() {
   const [showSidebar, setShowSidebar] = useState(true);
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('info');
   const [showMobileList, setShowMobileList] = useState(true);
+  const [activeCallConversationId, setActiveCallConversationId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const selectedSnapshotRef = useRef<any>(null);
 
   const { data: conversations, isLoading } = useConversations(workspace?.id, filter === 'all' ? undefined : filter);
   const { data: rawMessages } = useConversationMessages(selectedId ?? undefined);
@@ -250,7 +252,13 @@ export default function InboxPage() {
     }
   };
 
-  const selected = conversations?.find(c => c.id === selectedId);
+  const rawSelected = conversations?.find(c => c.id === selectedId);
+  if (rawSelected) selectedSnapshotRef.current = rawSelected;
+  const selected = rawSelected ?? (
+    selectedId && activeCallConversationId === selectedId && selectedSnapshotRef.current?.id === selectedId
+      ? selectedSnapshotRef.current
+      : undefined
+  );
 
   // Auto-scroll
   useEffect(() => {
@@ -921,7 +929,7 @@ export default function InboxPage() {
                   </Button>
                 )}
                 <button
-                  onClick={() => setShowSidebar(!showSidebar)}
+                  onClick={() => activeCallConversationId === selectedId ? setShowSidebar(true) : setShowSidebar(!showSidebar)}
                   className={cn(
                     'p-1.5 rounded-md transition-colors',
                     showSidebar ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
@@ -976,7 +984,7 @@ export default function InboxPage() {
                 <button
                   aria-label={showSidebar ? 'Hide details' : 'Show details'}
                   aria-expanded={showSidebar}
-                  onClick={() => setShowSidebar(!showSidebar)}
+                  onClick={() => activeCallConversationId === selectedId ? setShowSidebar(true) : setShowSidebar(!showSidebar)}
                   className="p-2 rounded-xl text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <Eye className="w-5 h-5" />
@@ -1270,13 +1278,13 @@ export default function InboxPage() {
       {/* ═══════ RIGHT: Contact Sidebar ═══════
           Desktop ≥lg: inline panel (280px)
           Tablet/mobile: drawer overlay (slides from inline-end), backdrop tap closes */}
-      {selected && showSidebar && (
+      {selected && (showSidebar || activeCallConversationId === selectedId) && (
         <>
           {/* Mobile/tablet backdrop — only below lg */}
           <button
             type="button"
             aria-label="Close panel"
-            onClick={() => setShowSidebar(false)}
+            onClick={() => activeCallConversationId === selectedId ? setShowSidebar(true) : setShowSidebar(false)}
             className="lg:hidden fixed inset-0 z-40 bg-foreground/30 backdrop-blur-[2px] animate-in fade-in"
           />
           <div className={cn(
@@ -1294,6 +1302,7 @@ export default function InboxPage() {
                 workspaceId={workspace.id}
                 conversationId={selectedId}
                 contactName={selected?.contacts?.name ?? null}
+                onActiveCallChange={setActiveCallConversationId}
               />
             </div>
           )}

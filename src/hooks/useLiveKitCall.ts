@@ -71,6 +71,21 @@ export interface RemoteMediaEntry {
   video?: MediaStreamTrack | null;
 }
 
+export type LiveKitDisconnectReason =
+  | 'explicit_hangup'
+  | 'server_call_ended'
+  | 'visitor_left'
+  | 'operator_left_conversation'
+  | 'component_unmount_no_active_call'
+  | 'conversation_switch_active_call'
+  | 'app_shutdown';
+
+export interface LiveKitDisconnectContext {
+  activeCallSessionId?: string | null;
+  activeCallConversationId?: string | null;
+  currentConversationId?: string | null;
+}
+
 export interface UseLiveKitCallOptions {
   /** Whether to publish local microphone on connect. Default true. */
   publishMic?: boolean;
@@ -91,7 +106,7 @@ export interface UseLiveKitCallApi {
     iceServers?: RTCIceServer[];
     iceTransportPolicy?: 'all' | 'relay';
   }): Promise<void>;
-  disconnect(): Promise<void>;
+  disconnect(reason: LiveKitDisconnectReason, context?: LiveKitDisconnectContext): Promise<void>;
   toggleMic(): Promise<void>;
   toggleCamera(): Promise<void>;
 }
@@ -307,15 +322,29 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
     }
   }, [publishMic, publishCamera, wireRoom, refreshRemotes]);
 
-  const disconnect = useCallback(async () => {
+  const disconnect = useCallback(async (reason: LiveKitDisconnectReason, context: LiveKitDisconnectContext = {}) => {
     const room = roomRef.current;
-    if (!room) return;
+    if (!room) {
+      // eslint-disable-next-line no-console
+      console.warn('[livekit] disconnect requested', {
+        reason,
+        activeCallSessionId: context.activeCallSessionId ?? null,
+        activeCallConversationId: context.activeCallConversationId ?? null,
+        currentConversationId: context.currentConversationId ?? null,
+        stack: new Error('disconnect-trace').stack,
+      });
+      return;
+    }
     // Forensic: every operator-side disconnect must be traceable. The
     // operator freeze bug had multiple candidate triggers (conversation
     // switch, unmount, race after toggle). Logging the stack pinpoints
     // the exact React effect/handler that pulled the room down.
     // eslint-disable-next-line no-console
-    console.warn('[livekit] disconnect() requested', {
+    console.warn('[livekit] disconnect requested', {
+      reason,
+      activeCallSessionId: context.activeCallSessionId ?? null,
+      activeCallConversationId: context.activeCallConversationId ?? null,
+      currentConversationId: context.currentConversationId ?? null,
       stack: new Error('disconnect-trace').stack,
     });
     // Clear the ref BEFORE awaiting so any concurrent disconnect/connect
@@ -342,18 +371,19 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
     setCameraEnabled(next);
   }, []);
 
-  // Cleanup on unmount.
+  // Cleanup on unmount. Do not blindly disconnect an active room here: the
+  // operator call surface can temporarily unmount during inbox/sidebar data
+  // refreshes. Intentional leaves must go through `disconnect(reason, ctx)`
+  // from the owning component so the console always shows who requested it.
   useEffect(() => {
     return () => {
       const room = roomRef.current;
       if (room) {
         // eslint-disable-next-line no-console
-        console.warn('[livekit] disconnect on hook unmount', {
+        console.warn('[livekit] hook unmounted with active room; preserving connection for owner-managed shutdown', {
           stack: new Error('unmount-trace').stack,
         });
-        try { room.disconnect(); } catch { /* ignore */ }
       }
-      roomRef.current = null;
     };
   }, []);
 

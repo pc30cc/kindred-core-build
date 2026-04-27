@@ -388,6 +388,10 @@
         });
       }).catch(function (err) {
         roomConnectSettled = true;
+        if (explicitDisconnectRequested || alreadyTornDown) {
+          if (!alreadyTornDown) teardownInternal('disconnected');
+          throw makeErr('call_cancelled', 'Call cancelled by visitor.');
+        }
         if (!roomConnectSucceeded) {
           roomConnectFinalRejectLogged = true;
           dlog('room.connect final reject', describeError(err));
@@ -401,6 +405,10 @@
     }).catch(function (err) {
       var code = (err && err.code) || 'livekit_connect_failed';
       var message = (err && err.message) || 'Failed to connect.';
+      if (explicitDisconnectRequested || code === 'call_cancelled') {
+        if (!alreadyTornDown) teardownInternal('disconnected');
+        throw makeErr('call_cancelled', 'Call cancelled by visitor.');
+      }
       if (roomConnectStarted && !roomConnectSucceeded && !roomConnectFinalRejectLogged) {
         roomConnectFinalRejectLogged = true;
         dlog('room.connect final reject', describeError(err));

@@ -1632,26 +1632,96 @@
       window.addEventListener('keydown', markUserInteracted, once);
       window.addEventListener('touchstart', markUserInteracted, once);
     }
+    function ensureAudioCtx() {
+      try {
+        var Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return null;
+        if (!audioCtx) audioCtx = new Ctx();
+        if (audioCtx.state === 'suspended' && audioCtx.resume) {
+          try { audioCtx.resume(); } catch (_) {}
+        }
+        return audioCtx;
+      } catch (_) { return null; }
+    }
+    /**
+     * Soft two-note chime for incoming operator messages.
+     * E5 → A5, sine, gentle envelope. Pleasant, non-aggressive.
+     */
     function playBeep() {
       if (!uiPrefsStore.get().soundEnabled) return;
       if (!userInteracted) return;
+      var ctx = ensureAudioCtx();
+      if (!ctx) return;
       try {
-        var Ctx = window.AudioContext || window.webkitAudioContext;
-        if (!Ctx) return;
-        if (!audioCtx) audioCtx = new Ctx();
-        var t0 = audioCtx.currentTime;
-        var osc = audioCtx.createOscillator();
-        var gain = audioCtx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(880, t0);
-        osc.frequency.exponentialRampToValueAtTime(660, t0 + 0.12);
-        gain.gain.setValueAtTime(0.0001, t0);
-        gain.gain.exponentialRampToValueAtTime(0.18, t0 + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.18);
-        osc.connect(gain).connect(audioCtx.destination);
-        osc.start(t0);
-        osc.stop(t0 + 0.2);
+        var t0 = ctx.currentTime;
+        var notes = [
+          { f: 659.25, at: 0.00, dur: 0.22 }, // E5
+          { f: 880.00, at: 0.14, dur: 0.30 }, // A5
+        ];
+        for (var i = 0; i < notes.length; i++) {
+          var n = notes[i];
+          var osc = ctx.createOscillator();
+          var gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(n.f, t0 + n.at);
+          gain.gain.setValueAtTime(0.0001, t0 + n.at);
+          gain.gain.exponentialRampToValueAtTime(0.16, t0 + n.at + 0.025);
+          gain.gain.exponentialRampToValueAtTime(0.0001, t0 + n.at + n.dur);
+          osc.connect(gain).connect(ctx.destination);
+          osc.start(t0 + n.at);
+          osc.stop(t0 + n.at + n.dur + 0.02);
+        }
       } catch (_) { /* never break on audio */ }
+    }
+
+    /**
+     * Ringtone for incoming call invitations. Loops a short two-tone
+     * cadence (classic phone-style: ~1s ring, ~1s rest) until stopped.
+     * Honors the same user-interaction + soundEnabled gates as playBeep.
+     */
+    var ringNodes = null; // { interval, stop() }
+    function playRingtone() {
+      if (ringNodes) return; // already ringing
+      if (!uiPrefsStore.get().soundEnabled) return;
+      if (!userInteracted) return;
+      var ctx = ensureAudioCtx();
+      if (!ctx) return;
+      function ringOnce() {
+        try {
+          var t0 = ctx.currentTime;
+          // Two-tone alternation A4↔E5 over ~0.9s, gentle warble.
+          var pattern = [
+            { f: 440.00, at: 0.00, dur: 0.22 },
+            { f: 659.25, at: 0.22, dur: 0.22 },
+            { f: 440.00, at: 0.46, dur: 0.22 },
+            { f: 659.25, at: 0.68, dur: 0.22 },
+          ];
+          for (var i = 0; i < pattern.length; i++) {
+            var n = pattern[i];
+            var osc = ctx.createOscillator();
+            var gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(n.f, t0 + n.at);
+            gain.gain.setValueAtTime(0.0001, t0 + n.at);
+            gain.gain.exponentialRampToValueAtTime(0.14, t0 + n.at + 0.03);
+            gain.gain.exponentialRampToValueAtTime(0.0001, t0 + n.at + n.dur);
+            osc.connect(gain).connect(ctx.destination);
+            osc.start(t0 + n.at);
+            osc.stop(t0 + n.at + n.dur + 0.02);
+          }
+        } catch (_) { /* swallow */ }
+      }
+      ringOnce();
+      var interval = setInterval(ringOnce, 1900);
+      ringNodes = {
+        stop: function () {
+          try { clearInterval(interval); } catch (_) {}
+          ringNodes = null;
+        },
+      };
+    }
+    function stopRingtone() {
+      if (ringNodes) ringNodes.stop();
     }
 
     // ─── Toast (Shadow DOM only, lives next to launcher) ───
@@ -1834,6 +1904,8 @@
       showToast: showToast,
       hideToast: hideToast,
       playBeep: playBeep,
+      playRingtone: playRingtone,
+      stopRingtone: stopRingtone,
       // Legacy API kept for the public runtime.setUnread bridge — sets the
       // global counter directly. UI redraws via notifyStore subscription.
       setUnread: function (count) {
@@ -2453,6 +2525,12 @@
         ? (t('ciJoining') || 'Joining…')
         : (t('ciDeclining') || 'Declining…');
       btn.setAttribute('aria-busy', 'true');
+      // Either action ends the "ringing" phase from the visitor's POV.
+      try {
+        if (deps.callBridge && typeof deps.callBridge.stopRingtone === 'function') {
+          deps.callBridge.stopRingtone();
+        }
+      } catch (_) {}
 
       if (action === 'decline') {
         postCallInvitationAction(invitationId, 'decline')
@@ -4664,6 +4742,12 @@
         subscribeToEngineOnce: function () { return subscribeToEngineOnce(); },
         openCallSurface: function (opts) { return openCallSurface(opts); },
         renderBody: function () { return renderBody(); },
+        // Forwarded lazily because `notify` is constructed below this
+        // call. By the time the visitor clicks a Join/Decline button,
+        // notify is fully wired.
+        stopRingtone: function () {
+          try { if (notify && notify.stopRingtone) notify.stopRingtone(); } catch (_) {}
+        },
       },
     });
     var kbUI = createKbUI({
@@ -5368,6 +5452,26 @@
       var total = 0;
       for (var ck in per) if (Object.prototype.hasOwnProperty.call(per, ck)) total += per[ck];
       notifyStore.set({ perConversation: per, totalUnread: total, lastMessageIds: seenNext });
+
+      // ─── Call invitation ringtone ───────────────────────────────
+      // Scan EVERY incoming message (not just newly-counted ones) for
+      // system call_invitation events. Status === 'pending' starts the
+      // ringtone; any other status stops it. This stays in sync whether
+      // the invitation arrives fresh or as a status patch (joined /
+      // expired / cancelled / declined).
+      try {
+        for (var ri = 0; ri < incoming.length; ri++) {
+          var rm = incoming[ri] || {};
+          var rmSender = rm.role || rm.sender || rm.sender_type || '';
+          var rmMeta = rm.metadata || (rm.message && rm.message.metadata) || null;
+          if (rmSender !== 'system' || !rmMeta || rmMeta.kind !== 'call_invitation') continue;
+          if (rmMeta.status === 'pending') {
+            if (notify.playRingtone) notify.playRingtone();
+          } else if (notify.stopRingtone) {
+            notify.stopRingtone();
+          }
+        }
+      } catch (_) { /* never break on audio */ }
 
       if (newCount > 0 && lastIncoming) {
         // Toast only when the user can't see the message (panel closed or KB tab).

@@ -85,6 +85,15 @@ function computeDuration(row: any, endedAtMs: number): number {
   return Math.max(0, Math.round((endedAtMs - anchor) / 1000));
 }
 
+function formatDuration(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds || 0));
+  const hh = Math.floor(s / 3600);
+  const mm = Math.floor((s % 3600) / 60);
+  const ss = s % 60;
+  const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
+  return hh > 0 ? `${pad(hh)}:${pad(mm)}:${pad(ss)}` : `${pad(mm)}:${pad(ss)}`;
+}
+
 export async function endCallSession(
   config: ServerConfig,
   input: EndCallInput,

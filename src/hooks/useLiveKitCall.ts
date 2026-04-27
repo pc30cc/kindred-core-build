@@ -22,6 +22,8 @@ import {
   type RemoteTrack,
   type RemoteTrackPublication,
   type LocalTrackPublication,
+  type RemoteAudioTrack,
+  type RemoteVideoTrack,
 } from 'livekit-client';
 
 /**
@@ -67,6 +69,11 @@ export type CallConnState =
 export interface RemoteMediaEntry {
   participantSid: string;
   identity: string;
+  /** LiveKit track objects — use track.attach(el) / track.detach(el). */
+  audioTrack?: RemoteAudioTrack | null;
+  videoTrack?: RemoteVideoTrack | null;
+  /** Diagnostics only — DO NOT use these to attach to <video> elements.
+   *  Use audioTrack/videoTrack with the LiveKit attach/detach API instead. */
   audio?: MediaStreamTrack | null;
   video?: MediaStreamTrack | null;
 }
@@ -137,14 +144,22 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
       const entry: RemoteMediaEntry = {
         participantSid: p.sid,
         identity: p.identity,
+        audioTrack: null,
+        videoTrack: null,
         audio: null,
         video: null,
       };
       p.trackPublications.forEach((pub: RemoteTrackPublication) => {
         const t = pub.track as RemoteTrack | undefined;
         if (!t || !t.mediaStreamTrack) return;
-        if (pub.kind === Track.Kind.Audio) entry.audio = t.mediaStreamTrack;
-        if (pub.kind === Track.Kind.Video) entry.video = t.mediaStreamTrack;
+        if (pub.kind === Track.Kind.Audio) {
+          entry.audioTrack = t as RemoteAudioTrack;
+          entry.audio = t.mediaStreamTrack;
+        }
+        if (pub.kind === Track.Kind.Video) {
+          entry.videoTrack = t as RemoteVideoTrack;
+          entry.video = t.mediaStreamTrack;
+        }
       });
       list.push(entry);
     });

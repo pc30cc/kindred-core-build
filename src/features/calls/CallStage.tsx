@@ -188,23 +188,40 @@ export function VideoCallStage({ remote, size = 'small' }: VideoStageProps) {
         <div
           key={r.participantSid}
           className={size === 'large'
-            ? 'relative h-full w-full overflow-hidden bg-call-stage'
-            : 'relative aspect-video w-full rounded-xl overflow-hidden border border-border bg-call-stage'}
+            ? 'relative h-full w-full overflow-hidden bg-call-stage call-video-stage'
+            : 'relative aspect-video w-full rounded-xl overflow-hidden border border-border bg-call-stage call-video-stage'}
+          data-call-video-stage
         >
+          {/* Blurred backdrop fill — visible behind portrait remote video
+              on a landscape stage. Same media, scaled + blurred. */}
+          <video
+            ref={(el) => { blurBgRefs.current[r.participantSid] = el; }}
+            autoPlay
+            playsInline
+            muted
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 h-full w-full object-cover scale-110 blur-2xl opacity-50"
+            style={{ transform: 'scaleX(-1) scale(1.1)' }}
+          />
           <video
             ref={(el) => {
               videoRefs.current[r.participantSid] = el;
-              if (el) logCallVideoOrientation('operator-remote', el);
+              if (el) {
+                logCallVideoOrientation('operator-remote', el);
+                applyVideoOrientationClass(el, 'operator-remote', 'call-video');
+              }
             }}
             autoPlay
             playsInline
             muted={false}
-            className="call-video call-video-remote w-full h-full object-cover bg-call-stage"
+            className="call-video call-video-remote relative z-[1] w-full h-full object-contain bg-transparent"
             data-call-video
             data-remote-video
             data-call-video-role="operator-remote"
             data-orientation-correction={CALL_VIDEO_ORIENTATION_CORRECTION_MODE}
             style={CALL_VIDEO_STYLE}
+            onLoadedMetadata={(e) => applyVideoOrientationClass(e.currentTarget, 'operator-remote', 'call-video')}
+            onResize={(e) => applyVideoOrientationClass(e.currentTarget, 'operator-remote', 'call-video')}
           />
           <OrientationDebugOverlay role="operator-remote" videoRef={{ current: videoRefs.current[r.participantSid] }} />
           {!r.videoTrack && (

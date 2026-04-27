@@ -8,26 +8,42 @@
  *     down audio
  *   - 1Hz freeze watchdog that detach+attach on currentTime stagnation
  *   - per-element diagnostic events (timeupdate / stalled / waiting)
- *   - inline `transform: none` so no future CSS regression mirrors
- *     the operator video
+ *   - central real-world orientation correction on every camera video
  */
-import { useEffect, useLayoutEffect, useRef, type CSSProperties } from 'react';
+import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react';
 import type { LocalVideoTrack, RemoteAudioTrack, RemoteVideoTrack } from 'livekit-client';
 import { Loader2, WifiOff } from 'lucide-react';
 import type { useLiveKitCall } from '@/hooks/useLiveKitCall';
+import {
+  CALL_VIDEO_ORIENTATION_CORRECTION_MODE,
+  CALL_VIDEO_STYLE,
+  isCallOrientationDebugEnabled,
+  logCallVideoOrientation,
+} from './videoOrientation';
 
 type Remote = ReturnType<typeof useLiveKitCall>['remote'];
-
-export const CALL_VIDEO_STYLE: CSSProperties & { scale: number; rotate: string } = {
-  transform: 'none',
-  scale: 1,
-  rotate: '0deg',
-};
 
 interface VideoStageProps {
   remote: Remote;
   /** Visual size variant. Floating window uses `large`. */
   size?: 'small' | 'large';
+  debugOrientation?: boolean;
+}
+
+function OrientationDebugOverlay({ role, videoRef }: { role: string; videoRef: RefObject<HTMLVideoElement> }) {
+  if (!isCallOrientationDebugEnabled()) return null;
+  const computed = videoRef.current ? window.getComputedStyle(videoRef.current).transform : 'pending';
+  return (
+    <div className="pointer-events-none absolute inset-0 z-30 text-call-stage-foreground">
+      <div className="absolute left-2 top-1/2 -translate-y-1/2 rounded bg-call-stage/70 px-2 py-1 text-[10px] font-bold">LEFT</div>
+      <div className="absolute right-2 top-1/2 -translate-y-1/2 rounded bg-call-stage/70 px-2 py-1 text-[10px] font-bold">RIGHT</div>
+      <div className="absolute left-2 top-2 max-w-[calc(100%-16px)] rounded bg-call-stage/80 px-2 py-1 text-[10px] leading-tight">
+        <div className="font-bold">REAL ORIENTATION TEST</div>
+        <div>{role} · {CALL_VIDEO_ORIENTATION_CORRECTION_MODE}</div>
+        <div className="truncate">computed: {computed}</div>
+      </div>
+    </div>
+  );
 }
 
 export function VideoCallStage({ remote, size = 'small' }: VideoStageProps) {
@@ -50,6 +66,7 @@ export function VideoCallStage({ remote, size = 'small' }: VideoStageProps) {
       }
       if (next) {
         try { next.attach(el); } catch { /* ignore */ }
+        logCallVideoOrientation('operator-remote', el);
         const p = el.play();
         if (p && typeof (p as Promise<void>).catch === 'function') {
           (p as Promise<void>).catch(() => {});
@@ -96,6 +113,7 @@ export function VideoCallStage({ remote, size = 'small' }: VideoStageProps) {
           try { tr.detach(el); } catch { /* ignore */ }
           try { el.srcObject = null; } catch { /* ignore */ }
           try { tr.attach(el); } catch { /* ignore */ }
+          logCallVideoOrientation('operator-remote', el);
           const p = el.play();
           if (p && typeof (p as Promise<void>).catch === 'function') {
             (p as Promise<void>).catch(() => {});
@@ -167,15 +185,21 @@ export function VideoCallStage({ remote, size = 'small' }: VideoStageProps) {
             : 'relative aspect-video w-full rounded-xl overflow-hidden border border-border bg-call-stage'}
         >
           <video
-            ref={(el) => { videoRefs.current[r.participantSid] = el; }}
+            ref={(el) => {
+              videoRefs.current[r.participantSid] = el;
+              if (el) logCallVideoOrientation('operator-remote', el);
+            }}
             autoPlay
             playsInline
             muted={false}
             className="call-video call-video-remote w-full h-full object-cover bg-call-stage"
             data-call-video
             data-remote-video
+            data-call-video-role="operator-remote"
+            data-orientation-correction={CALL_VIDEO_ORIENTATION_CORRECTION_MODE}
             style={CALL_VIDEO_STYLE}
           />
+          <OrientationDebugOverlay role="operator-remote" videoRef={{ current: videoRefs.current[r.participantSid] }} />
           {!r.videoTrack && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-call-stage/70 text-call-stage-foreground/80">
               <WifiOff className="w-5 h-5" aria-hidden="true" />
@@ -218,6 +242,7 @@ export function LocalVideoPiP({
     }
     if (next) {
       try { next.attach(el); } catch { /* ignore */ }
+      logCallVideoOrientation('operator-local', el);
       const p = el.play();
       if (p && typeof (p as Promise<void>).catch === 'function') {
         (p as Promise<void>).catch(() => {});
@@ -247,8 +272,11 @@ export function LocalVideoPiP({
         className="call-video call-video-local h-full w-full object-cover bg-call-stage"
         data-call-video
         data-local-video
+        data-call-video-role="operator-local"
+        data-orientation-correction={CALL_VIDEO_ORIENTATION_CORRECTION_MODE}
         style={CALL_VIDEO_STYLE}
       />
+      <OrientationDebugOverlay role="operator-local" videoRef={videoRef} />
       {(!track || !cameraEnabled) && (
         <div className="absolute inset-0 flex items-center justify-center bg-call-stage text-call-stage-foreground/70 text-[11px] font-medium">
           Camera off

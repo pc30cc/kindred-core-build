@@ -3809,8 +3809,11 @@
       html += '<div class="gs-call-status" data-call-status>' + Util.escapeHtml(statusText) + '</div>';
       html += '<div class="gs-call-stage" data-call-stage>';
       if (isVideo) {
-        html += '<video class="gs-call-remote-video" data-call-remote-video autoplay playsinline style="transform:none;scale:1;rotate:0deg"></video>';
-        html += '<video class="gs-call-local-video" data-call-local-video autoplay playsinline muted style="transform:none;scale:1;rotate:0deg"></video>';
+        html += '<video class="gs-call-remote-video" data-call-remote-video data-call-video-role="visitor-remote" data-orientation-correction="scaleX(-1)" autoplay playsinline style="transform:scaleX(-1);scale:1;rotate:0deg"></video>';
+        html += '<video class="gs-call-local-video" data-call-local-video data-call-video-role="visitor-local" data-orientation-correction="scaleX(-1)" autoplay playsinline muted style="transform:scaleX(-1);scale:1;rotate:0deg"></video>';
+        if (isCallOrientationDebugEnabled()) {
+          html += '<div class="gs-call-orientation-debug"><strong>REAL ORIENTATION TEST</strong><span class="left">LEFT</span><span class="right">RIGHT</span><small>visitor · scaleX(-1)</small></div>';
+        }
       } else {
         html += '<div class="gs-call-audio-orb" aria-hidden="true">' +
           '<svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.37 1.9.72 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.35 1.85.59 2.81.72A2 2 0 0 1 22 16.92z"/></svg>' +
@@ -3873,11 +3876,36 @@
         if (lvEl) bindTrack(lvEl, s.localVideo);
       } catch (_) { /* noop */ }
     }
+    function isCallOrientationDebugEnabled() {
+      try {
+        return /(?:^|[?&])callOrientationDebug=1(?:&|$)/.test(window.location.search || '') ||
+          window.localStorage.getItem('call_orientation_debug') === '1';
+      } catch (_) { return false; }
+    }
+    function logCallVideoOrientation(el) {
+      try {
+        var dataAttrs = {};
+        for (var i = 0; i < el.attributes.length; i++) {
+          var attr = el.attributes[i];
+          if (attr.name.indexOf('data-') === 0) dataAttrs[attr.name] = attr.value || 'true';
+        }
+        var cs = window.getComputedStyle(el);
+        console.info('[call-ui] video orientation', {
+          role: el.getAttribute('data-call-video-role') || 'visitor-video',
+          computedTransform: cs.transform,
+          inlineTransform: el.style.transform || '',
+          correctionMode: 'scaleX(-1)',
+          className: el.className,
+          dataAttrs: dataAttrs,
+        });
+      } catch (_) { /* diagnostic only */ }
+    }
     function bindTrack(el, track) {
       if (el && el.tagName === 'VIDEO') {
-        try { el.style.transform = 'none'; } catch (_) {}
+        try { el.style.transform = 'scaleX(-1)'; } catch (_) {}
         try { el.style.scale = '1'; } catch (_) {}
         try { el.style.rotate = '0deg'; } catch (_) {}
+        logCallVideoOrientation(el);
       }
       var prevId = el.__gsBoundTrackId || '';
       if (!track) {

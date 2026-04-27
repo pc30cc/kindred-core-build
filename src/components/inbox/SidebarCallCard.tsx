@@ -29,7 +29,13 @@ import {
 import { InviteWaitDialog } from './InviteWaitDialog';
 import { useLocalMediaPreview, type LocalPreviewState } from '@/hooks/useLocalMediaPreview';
 import { useOperatorCall } from '@/features/calls/OperatorCallContext';
-import { VideoCallStage, AudioCallStage, CALL_VIDEO_STYLE } from '@/features/calls/CallStage';
+import { VideoCallStage, AudioCallStage } from '@/features/calls/CallStage';
+import {
+  CALL_VIDEO_ORIENTATION_CORRECTION_MODE,
+  CALL_VIDEO_STYLE,
+  isCallOrientationDebugEnabled,
+  logCallVideoOrientation,
+} from '@/features/calls/videoOrientation';
 
 interface SidebarCallCardProps {
   workspaceId: string;
@@ -233,13 +239,13 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
               {surface.phase === 'connected' && (
                 <Button
                   size="sm"
-                  variant="ghost"
-                  className="h-7 px-2 shrink-0 gap-1 text-[10px] font-semibold"
+                  variant="default"
+                  className="h-8 shrink-0 gap-1.5 rounded-full px-3 text-[11px] font-bold shadow-sm"
                   onClick={(e) => { e.preventDefault(); e.stopPropagation(); setFloatingMode('expanded'); }}
                   aria-label={t('inbox.callSurface.expand') || 'Expand call window'}
-                  title={t('inbox.callSurface.expand') || 'Expand'}
+                  title={t('inbox.callSurface.expand') || 'Expand call window'}
                 >
-                  <Maximize2 className="w-3.5 h-3.5" />
+                  <Maximize2 className="w-4 h-4" />
                   <span>{t('inbox.callSurface.expand') || 'Expand'}</span>
                 </Button>
               )}
@@ -641,6 +647,7 @@ function VideoWaitingTile({ previewStream, previewState }: WaitingTileProps) {
     if (!el) return;
     if (previewStream) {
       if (el.srcObject !== previewStream) el.srcObject = previewStream;
+      logCallVideoOrientation('operator-local-waiting', el);
     } else {
       el.srcObject = null;
     }
@@ -659,8 +666,20 @@ function VideoWaitingTile({ previewStream, previewState }: WaitingTileProps) {
         )}
         data-call-video
         data-local-video
+        data-call-video-role="operator-local-waiting"
+        data-orientation-correction={CALL_VIDEO_ORIENTATION_CORRECTION_MODE}
         style={CALL_VIDEO_STYLE}
       />
+      {isCallOrientationDebugEnabled() && (
+        <div className="pointer-events-none absolute inset-0 z-20 text-call-stage-foreground">
+          <div className="absolute left-2 top-1/2 -translate-y-1/2 rounded bg-call-stage/70 px-2 py-1 text-[10px] font-bold">LEFT</div>
+          <div className="absolute right-2 top-1/2 -translate-y-1/2 rounded bg-call-stage/70 px-2 py-1 text-[10px] font-bold">RIGHT</div>
+          <div className="absolute left-2 top-2 rounded bg-call-stage/80 px-2 py-1 text-[10px] leading-tight">
+            <div className="font-bold">REAL ORIENTATION TEST</div>
+            <div>operator-local-waiting · {CALL_VIDEO_ORIENTATION_CORRECTION_MODE}</div>
+          </div>
+        </div>
+      )}
       {!showVideo && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
           <div className="relative">

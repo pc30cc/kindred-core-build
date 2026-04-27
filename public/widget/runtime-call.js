@@ -749,8 +749,9 @@
           micEnabled: micEnabled,
           cameraEnabled: cameraEnabled,
           connectedAt: connectedAt,
-          cameras: [],
-          currentCameraDeviceId: '',
+          cameras: availableCameras.slice(),
+          currentCameraDeviceId: currentCameraDeviceId,
+          currentCameraFacing: currentCameraFacing,
           videoQuality: 'auto',
         };
       },

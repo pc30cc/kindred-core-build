@@ -7,8 +7,9 @@
  */
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { Mic, MicOff, Video, VideoOff, PhoneOff, Maximize2, Minimize2, PanelRightOpen, Loader2, GripHorizontal, Signal, UserMinus } from 'lucide-react';
+import { Mic, MicOff, Video, VideoOff, PhoneOff, Maximize2, Minimize2, PanelRightOpen, Loader2, GripHorizontal, Signal, UserMinus, Settings2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { useOperatorCall } from './OperatorCallContext';
 import { VideoCallStage, AudioCallStage, LocalVideoPiP } from './CallStage';
@@ -18,7 +19,7 @@ const EXPANDED_W = 860;
 const EXPANDED_H = 560;
 
 export function FloatingOperatorCallWindow() {
-  const { surface, live, floatingMode, setFloatingMode, hangup, closeTerminal, lastEnded } = useOperatorCall();
+  const { surface, live, floatingMode, setFloatingMode, hangup, closeTerminal, lastEnded, videoQuality, setVideoQuality } = useOperatorCall();
   const i18n = useTranslation();
   const safeT = (key: string, fallback: string): string => {
     const value = (i18n.t as unknown as (k: string) => string)(key);
@@ -221,6 +222,21 @@ export function FloatingOperatorCallWindow() {
             <Button size="sm" variant="outline" className={cn('h-12 w-12 rounded-full border-call-stage-foreground/20 bg-card/75 p-0 text-foreground shadow-elevated backdrop-blur-xl hover:bg-card', !live.cameraEnabled && 'border-destructive/40 bg-destructive/15 text-destructive')} onClick={stop(live.toggleCamera)} aria-label={live.cameraEnabled ? safeT('inbox.callSurface.cameraOff', 'Turn camera off') : safeT('inbox.callSurface.cameraOn', 'Turn camera on')} title={live.cameraEnabled ? safeT('inbox.callSurface.cameraOff', 'Turn camera off') : safeT('inbox.callSurface.cameraOn', 'Turn camera on')}>
               {live.cameraEnabled ? <Video className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}
             </Button>
+          )}
+          {!isRemoteEndedTerminal && isVideo && surface.phase === 'connected' && (
+            <Select value={videoQuality} onValueChange={(v) => void setVideoQuality(v as any)}>
+              <SelectTrigger className="h-12 w-auto gap-2 rounded-full border-call-stage-foreground/20 bg-card/75 px-3 text-foreground shadow-elevated backdrop-blur-xl hover:bg-card">
+                <Settings2 className="h-4 w-4" />
+                <span className="text-[12px] font-bold uppercase">{videoQuality}</span>
+              </SelectTrigger>
+              <SelectContent align="end">
+                <SelectItem value="auto">{safeT('inbox.callSurface.qualityAuto', 'Auto')}</SelectItem>
+                <SelectItem value="low">{safeT('inbox.callSurface.qualityLow', 'Low (360p)')}</SelectItem>
+                <SelectItem value="medium">{safeT('inbox.callSurface.qualityMedium', 'Medium (540p)')}</SelectItem>
+                <SelectItem value="high">{safeT('inbox.callSurface.qualityHigh', 'High (720p)')}</SelectItem>
+                <SelectItem value="hd">{safeT('inbox.callSurface.qualityHd', 'HD (1080p)')}</SelectItem>
+              </SelectContent>
+            </Select>
           )}
           <Button size="sm" variant="default" className="h-12 rounded-full bg-destructive px-6 text-destructive-foreground shadow-elevated hover:bg-destructive/90" onClick={stop(isRemoteEndedTerminal ? closeTerminal : hangup)} aria-label={isRemoteEndedTerminal ? safeT('inbox.callSurface.close', 'Close') : safeT('inbox.callSurface.hangup', 'End call')} title={isRemoteEndedTerminal ? safeT('inbox.callSurface.close', 'Close') : safeT('inbox.callSurface.hangup', 'End call')}>
             <PhoneOff className="h-5 w-5" />

@@ -3728,6 +3728,10 @@
       remote: { audio: null, video: null }, // MediaStreamTracks (live)
       localVideo: null,
       error: null,          // { code, message }
+      connectedAt: 0,       // ms epoch — timer baseline
+      endedDuration: 0,     // seconds — sticky after call ends
+      cameras: [],          // [{ deviceId, label }]
+      switchingCamera: false,
     });
 
     // Wire engine events ONCE the global engine appears. The engine is
@@ -3742,7 +3746,11 @@
       engine.on('state', function (state) {
         var cur = callSurfaceStore.get();
         if (cur.phase === 'idle') return; // surface already closed
-        if (state === 'connected') callSurfaceStore.set({ phase: 'connected' });
+        if (state === 'connected') {
+          var patch = { phase: 'connected' };
+          if (!cur.connectedAt) patch.connectedAt = Date.now();
+          callSurfaceStore.set(patch);
+        }
         else if (state === 'reconnecting') callSurfaceStore.set({ phase: 'reconnecting' });
         else if (state === 'connecting') callSurfaceStore.set({ phase: 'connecting' });
         else if (state === 'failed') {
@@ -3751,13 +3759,16 @@
           // the message and click Close.
           callSurfaceStore.set({ phase: 'failed' });
         } else if (state === 'disconnected') {
-          if (cur.phase !== 'failed') callSurfaceStore.set({ phase: 'ended' });
+          if (cur.phase !== 'failed') {
+            var dur = cur.connectedAt ? Math.max(0, Math.floor((Date.now() - cur.connectedAt) / 1000)) : 0;
+            callSurfaceStore.set({ phase: 'ended', endedDuration: dur });
+          }
           // Auto-close the surface a moment later so the visitor sees
           // "Call ended" briefly. Closing restores the previous tab.
           setTimeout(function () {
             var s = callSurfaceStore.get();
             if (s.phase === 'ended') closeCallSurface(false);
-          }, 1200);
+          }, 2400);
         }
       });
       engine.on('remote', function (tracks) {
@@ -3768,6 +3779,9 @@
       });
       engine.on('micEnabled', function (v) { callSurfaceStore.set({ micEnabled: !!v }); });
       engine.on('cameraEnabled', function (v) { callSurfaceStore.set({ cameraEnabled: !!v }); });
+      engine.on('cameras', function (info) {
+        callSurfaceStore.set({ cameras: (info && info.cameras) || [] });
+      });
       engine.on('error', function (err) {
         // Normalize into a stable { code, message } shape for the UI.
         callSurfaceStore.set({ error: { code: (err && err.code) || 'livekit_connect_failed', message: (err && err.message) || 'Call failed.' } });

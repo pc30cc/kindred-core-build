@@ -62,13 +62,16 @@ const STATUS_VISUAL: Record<InvitationStatus, StatusVisual> = {
 
 export function SidebarCallCard({ workspaceId, conversationId, contactName, onActiveCallChange }: SidebarCallCardProps) {
   const i18n = useTranslation();
-  const t = (key: string, vars?: Record<string, string>): string =>
-    (i18n.t as unknown as (k: string, v?: Record<string, string>) => string)(key, vars) || '';
+  const safeT = (key: string, fallback = '', vars?: Record<string, string>): string => {
+    const value = (i18n.t as unknown as (k: string, v?: Record<string, string>) => string)(key, vars);
+    return value && value !== key ? value : fallback;
+  };
+  const t = (key: string, vars?: Record<string, string>): string => safeT(key, '', vars);
 
   const {
     surface, creating, loading, live, preview,
     floatingMode, setFloatingMode,
-    latestForConversation, sendInvite, cancelInvite, hangup, refreshLatest,
+    latestForConversation, sendInvite, cancelInvite, hangup, closeTerminal, refreshLatest,
   } = useOperatorCall();
 
   const latest = latestForConversation(conversationId);
@@ -191,7 +194,7 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
       case 'expired':   return t('inbox.callSurface.terminalExpired')   || 'The visitor did not join in time.';
       case 'declined':  return t('inbox.callSurface.terminalDeclined')  || 'The visitor declined the call.';
       case 'cancelled': return t('inbox.callSurface.terminalCancelled') || 'Invitation cancelled.';
-      case 'remote_ended': return t('inbox.callSurface.terminalRemoteEnded') || 'Visitor ended the call.';
+      case 'remote_ended': return safeT('inbox.callSurface.terminalRemoteEnded', 'Visitor ended the call.');
       case 'failed':    return surface.errorMessage
         ? `${t('inbox.callSurface.terminalFailed') || 'Could not connect.'} ${surface.errorMessage}`
         : (t('inbox.callSurface.terminalFailed') || 'Could not connect.');
@@ -360,9 +363,9 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
                   size="sm"
                   variant="ghost"
                   className="h-7 px-2 text-[10px] text-muted-foreground"
-                  onClick={() => void hangup()}
+                  onClick={() => closeTerminal()}
                 >
-                  {t('common.close') || 'Close'}
+                  {safeT('inbox.callSurface.close', 'Close')}
                 </Button>
               </div>
             )}

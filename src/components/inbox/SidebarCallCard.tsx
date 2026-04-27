@@ -42,6 +42,7 @@ import {
 } from '@/lib/call-invitations-api';
 import { onInvitationChanged } from '@/lib/call-invitations-events';
 import { useLiveKitCall } from '@/hooks/useLiveKitCall';
+import type { RemoteAudioTrack, RemoteVideoTrack } from 'livekit-client';
 import { callsApi } from '@/lib/calls-api';
 import { InviteWaitDialog } from './InviteWaitDialog';
 import { rtDebug } from '@/realtime/debug';
@@ -959,7 +960,8 @@ function VideoWaitingTile({ previewStream, previewState }: WaitingTileProps) {
   return (
     <div className="relative aspect-video w-full rounded-lg overflow-hidden border border-violet-500/20 bg-gradient-to-br from-violet-500/10 via-violet-500/5 to-transparent">
       {/* Local self-view — rendered as soon as getUserMedia resolves.
-          Mirrored so the operator sees a natural reflection. */}
+          NOT mirrored: per current product rules no video element
+          (local or remote) is ever flipped. */}
       <video
         ref={videoRef}
         autoPlay
@@ -969,7 +971,7 @@ function VideoWaitingTile({ previewStream, previewState }: WaitingTileProps) {
           'absolute inset-0 w-full h-full object-cover bg-black transition-opacity duration-200',
           showVideo ? 'opacity-100' : 'opacity-0',
         )}
-        style={{ transform: 'scaleX(-1)' }}
+        style={{ transform: 'none' }}
       />
       {!showVideo && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
@@ -994,30 +996,46 @@ function VideoWaitingTile({ previewStream, previewState }: WaitingTileProps) {
 
 function AudioCallStage({ remote }: { remote: ReturnType<typeof useLiveKitCall>['remote'] }) {
   const audioRefs = useRef<Record<string, HTMLAudioElement | null>>({});
-  // useLayoutEffect: attach srcObject before paint so audio playback starts
-  // immediately on every track identity change. React re-renders alone do
-  // NOT guarantee MediaStream attachment.
+  // Bind audio via LiveKit's RemoteAudioTrack.attach/detach so the SDK
+  // owns srcObject lifecycle. Manual MediaStream wrapping was the source
+  // of frozen-frame bugs on the video path; keep audio symmetric.
+  const boundAudioRef = useRef<Record<string, string>>({});
   useLayoutEffect(() => {
     for (const r of remote) {
       const el = audioRefs.current[r.participantSid];
       if (!el) continue;
-      if (r.audio) {
-        const stream = new MediaStream([r.audio]);
-        // Always replace — `stream` is a fresh object; identity check
-        // would always pass anyway, but be explicit for clarity.
-        el.srcObject = stream;
-        // eslint-disable-next-line no-console
-        console.debug('[livekit] attach remote audio', r.participantSid, r.audio.id);
-        const playP = el.play();
-        if (playP && typeof (playP as Promise<void>).catch === 'function') {
-          (playP as Promise<void>).catch(() => { /* autoplay policy — UI will recover on user gesture */ });
+      const prevSid = boundAudioRef.current[r.participantSid] || '';
+      if (r.audioTrack) {
+        const sid = (r.audioTrack as any).sid || r.audio?.id || '';
+        if (prevSid !== sid) {
+          try { r.audioTrack.attach(el); } catch { /* ignore */ }
+          boundAudioRef.current[r.participantSid] = sid;
+          // eslint-disable-next-line no-console
+          console.debug('[livekit] RemoteAudioTrack.attach', r.participantSid, sid);
         }
-      } else if (el.srcObject) {
-        el.srcObject = null;
+        const p = el.play();
+        if (p && typeof (p as Promise<void>).catch === 'function') {
+          (p as Promise<void>).catch(() => { /* autoplay — UI recovers on gesture */ });
+        }
+      } else if (prevSid) {
+        try { el.srcObject = null; } catch { /* ignore */ }
+        boundAudioRef.current[r.participantSid] = '';
       }
     }
   }, [remote]);
-  const hasAudio = remote.some((r) => !!r.audio);
+  // Cleanup on unmount: detach known audio tracks so we never leak SDK refs.
+  useEffect(() => {
+    const refs = audioRefs.current;
+    return () => {
+      for (const sid of Object.keys(refs)) {
+        const el = refs[sid];
+        if (el) {
+          try { el.srcObject = null; } catch { /* ignore */ }
+        }
+      }
+    };
+  }, []);
+  const hasAudio = remote.some((r) => !!r.audioTrack);
   return (
     <div className="rounded-lg bg-success/5 border border-success/20 px-3 py-3 flex items-center gap-3">
       <div className="w-9 h-9 rounded-full bg-success/10 flex items-center justify-center text-success">
@@ -1040,57 +1058,56 @@ function AudioCallStage({ remote }: { remote: ReturnType<typeof useLiveKitCall>[
 
 function VideoCallStage({ remote }: { remote: ReturnType<typeof useLiveKitCall>['remote'] }) {
   const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
-  // Track which MediaStreamTrack id is currently bound to each <video>
-  // so we can detect "same track id but stalled" cases and force a
-  // fresh srcObject swap as the safety refresh ticks.
-  const boundTrackIdRef = useRef<Record<string, string>>({});
-  // useLayoutEffect re-attaches srcObject on every change to the `remote`
-  // snapshot — including when a track is muted/unmuted, paused/resumed,
-  // or swapped after a simulcast layer change. Without this the operator
-  // sees the last decoded frame as a freeze. We never trust React's render
-  // cycle alone to manage <video>.srcObject — MediaStream is not reactive.
+  // Track currently-attached LiveKit RemoteVideoTrack per participant so
+  // we know exactly when to detach (track replaced, gone, or stalled).
+  const attachedTrackRef = useRef<Record<string, RemoteVideoTrack | null>>({});
+  // Audio mirrors the dedicated <audio> element; LiveKit owns the binding
+  // via attach/detach, kept fully separate from video so a video-only
+  // mute/stall cannot tear down audio.
+  const audioRefs = useRef<Record<string, HTMLAudioElement | null>>({});
+  const attachedAudioRef = useRef<Record<string, RemoteAudioTrack | null>>({});
+
+  // ── Video attach / detach ───────────────────────────────────────────
   useLayoutEffect(() => {
     for (const r of remote) {
       const el = videoRefs.current[r.participantSid];
       if (!el) continue;
-      if (!r.video) {
-        // Clear so the overlay below ("Video paused…") becomes visible
-        // instead of letting the old frame freeze on screen.
-        if (el.srcObject) {
-          el.srcObject = null;
-          // eslint-disable-next-line no-console
-          console.debug('[livekit] clear remote video', r.participantSid);
-          boundTrackIdRef.current[r.participantSid] = '';
-        }
-        continue;
-      }
-      // Decide whether to re-attach. We re-attach when:
-      //   - the bound track id differs (new track), OR
-      //   - the bound id matches but the element is stalled (readyState
-      //     === HAVE_NOTHING / HAVE_METADATA after the first frame), OR
-      //   - the underlying MediaStreamTrack is no longer 'live'.
-      const prevId = boundTrackIdRef.current[r.participantSid] || '';
-      const stalled = el.readyState < 2 && prevId === r.video.id;
-      const trackDead = r.video.readyState !== 'live';
-      if (prevId !== r.video.id || stalled || trackDead) {
-        const stream = new MediaStream([r.video]);
-        el.srcObject = stream;
-        boundTrackIdRef.current[r.participantSid] = r.video.id;
+      const prev = attachedTrackRef.current[r.participantSid] || null;
+      const next = r.videoTrack || null;
+      if (prev === next) continue;
+      if (prev) {
+        try { prev.detach(el); } catch { /* ignore */ }
+        try { el.srcObject = null; } catch { /* ignore */ }
         // eslint-disable-next-line no-console
-        console.debug('[livekit] attach remote video', r.participantSid, r.video.id, {
-          stalled, trackDead, trackReadyState: r.video.readyState,
-        });
+        console.debug('[livekit] RemoteVideoTrack.detach', r.participantSid);
       }
-      const playP = el.play();
-      if (playP && typeof (playP as Promise<void>).catch === 'function') {
-        (playP as Promise<void>).catch(() => { /* autoplay — recovers on user gesture */ });
+      if (next) {
+        try { next.attach(el); } catch { /* ignore */ }
+        // eslint-disable-next-line no-console
+        console.debug('[livekit] RemoteVideoTrack.attach', r.participantSid, (next as any).sid);
+        const p = el.play();
+        if (p && typeof (p as Promise<void>).catch === 'function') {
+          (p as Promise<void>).catch(() => { /* autoplay — recovers on user gesture */ });
+        }
       }
+      attachedTrackRef.current[r.participantSid] = next;
+    }
+    // Clean up entries for participants that vanished from the snapshot.
+    const liveSids = new Set(remote.map((r) => r.participantSid));
+    for (const sid of Object.keys(attachedTrackRef.current)) {
+      if (liveSids.has(sid)) continue;
+      const tr = attachedTrackRef.current[sid];
+      const el = videoRefs.current[sid];
+      if (tr && el) {
+        try { tr.detach(el); } catch { /* ignore */ }
+        try { el.srcObject = null; } catch { /* ignore */ }
+      }
+      attachedTrackRef.current[sid] = null;
+      delete attachedTrackRef.current[sid];
     }
   }, [remote]);
 
-  // Wire <video> element media events so a freeze is loud in the console
-  // and the operator sees the "Video paused / reconnecting…" overlay
-  // when the element actually stalls.
+  // ── Diagnostic media events on the <video> element ─────────────────
   useEffect(() => {
     const cleanups: Array<() => void> = [];
     for (const r of remote) {
@@ -1098,7 +1115,13 @@ function VideoCallStage({ remote }: { remote: ReturnType<typeof useLiveKitCall>[
       if (!el) continue;
       const log = (kind: string) => () => {
         // eslint-disable-next-line no-console
-        console.debug('[livekit] <video>', kind, r.participantSid, r.video?.id);
+        console.debug('[livekit] remote video element', kind, r.participantSid, {
+          trackSid: (r.videoTrack as any)?.sid,
+          currentTime: el.currentTime,
+          readyState: el.readyState,
+          videoWidth: el.videoWidth,
+          videoHeight: el.videoHeight,
+        });
       };
       const events: Array<keyof HTMLMediaElementEventMap> = [
         'playing', 'pause', 'stalled', 'waiting', 'emptied', 'error', 'suspend', 'ended',
@@ -1108,32 +1131,117 @@ function VideoCallStage({ remote }: { remote: ReturnType<typeof useLiveKitCall>[
         el.addEventListener(ev, h);
         return [ev, h] as const;
       });
+      // timeupdate is noisy; throttle its logging.
+      let lastLog = 0;
+      const tu = () => {
+        const now = Date.now();
+        if (now - lastLog < 5000) return;
+        lastLog = now;
+        // eslint-disable-next-line no-console
+        console.debug('[livekit] remote video timeupdate', r.participantSid, {
+          currentTime: el.currentTime,
+          videoWidth: el.videoWidth,
+        });
+      };
+      el.addEventListener('timeupdate', tu);
       cleanups.push(() => {
         for (const [ev, h] of handlers) el.removeEventListener(ev, h);
+        el.removeEventListener('timeupdate', tu);
       });
     }
     return () => { for (const c of cleanups) c(); };
   }, [remote]);
 
-  // Separate audio attachment so video pause/unmute cycles never break
-  // audio playback (the prior implementation rebuilt one MediaStream that
-  // included both, so any video event tore down audio too).
-  const audioRefs = useRef<Record<string, HTMLAudioElement | null>>({});
+  // ── Real freeze watchdog ────────────────────────────────────────────
+  // Polls each remote <video>'s currentTime. If the LiveKit track is
+  // still 'live' but currentTime hasn't advanced for ≥3s, we detach +
+  // re-attach via the SDK. We never disconnect the room from here.
+  useEffect(() => {
+    if (remote.length === 0) return;
+    const lastTimes: Record<string, { t: number; at: number }> = {};
+    const id = setInterval(() => {
+      for (const r of remote) {
+        const el = videoRefs.current[r.participantSid];
+        const tr = r.videoTrack;
+        if (!el || !tr) continue;
+        // If the track is gone or dead, skip — the attach/detach effect
+        // will handle the cleanup the next time `remote` updates.
+        const ms = (tr as any).mediaStreamTrack as MediaStreamTrack | undefined;
+        if (!ms || ms.readyState !== 'live') continue;
+        const now = Date.now();
+        const prev = lastTimes[r.participantSid];
+        const ct = el.currentTime;
+        if (!prev) {
+          lastTimes[r.participantSid] = { t: ct, at: now };
+          continue;
+        }
+        if (ct > prev.t + 0.05) {
+          // moving — reset baseline
+          lastTimes[r.participantSid] = { t: ct, at: now };
+          continue;
+        }
+        // Frozen for 3s+ → reattach via SDK (no room disconnect).
+        if (now - prev.at >= 3000) {
+          // eslint-disable-next-line no-console
+          console.warn('[livekit] remote video watchdog reattach', r.participantSid, {
+            currentTime: ct,
+            stalledForMs: now - prev.at,
+          });
+          try { tr.detach(el); } catch { /* ignore */ }
+          try { el.srcObject = null; } catch { /* ignore */ }
+          try { tr.attach(el); } catch { /* ignore */ }
+          const p = el.play();
+          if (p && typeof (p as Promise<void>).catch === 'function') {
+            (p as Promise<void>).catch(() => {});
+          }
+          lastTimes[r.participantSid] = { t: el.currentTime, at: now };
+        }
+      }
+    }, 1000);
+    return () => clearInterval(id);
+  }, [remote]);
+
+  // ── Audio attach / detach ───────────────────────────────────────────
   useLayoutEffect(() => {
     for (const r of remote) {
       const el = audioRefs.current[r.participantSid];
       if (!el) continue;
-      if (r.audio) {
-        el.srcObject = new MediaStream([r.audio]);
-        const playP = el.play();
-        if (playP && typeof (playP as Promise<void>).catch === 'function') {
-          (playP as Promise<void>).catch(() => { /* ignore */ });
-        }
-      } else if (el.srcObject) {
-        el.srcObject = null;
+      const prev = attachedAudioRef.current[r.participantSid] || null;
+      const next = r.audioTrack || null;
+      if (prev === next) continue;
+      if (prev) {
+        try { prev.detach(el); } catch { /* ignore */ }
+        try { el.srcObject = null; } catch { /* ignore */ }
       }
+      if (next) {
+        try { next.attach(el); } catch { /* ignore */ }
+        const p = el.play();
+        if (p && typeof (p as Promise<void>).catch === 'function') {
+          (p as Promise<void>).catch(() => { /* autoplay — recovers on gesture */ });
+        }
+      }
+      attachedAudioRef.current[r.participantSid] = next;
     }
   }, [remote]);
+
+  // Detach everything on unmount so no SDK refs leak.
+  useEffect(() => {
+    const vRefs = videoRefs.current;
+    const vTracks = attachedTrackRef.current;
+    const aRefs = audioRefs.current;
+    const aTracks = attachedAudioRef.current;
+    return () => {
+      for (const sid of Object.keys(vTracks)) {
+        const tr = vTracks[sid]; const el = vRefs[sid];
+        if (tr && el) { try { tr.detach(el); } catch { /* ignore */ } }
+      }
+      for (const sid of Object.keys(aTracks)) {
+        const tr = aTracks[sid]; const el = aRefs[sid];
+        if (tr && el) { try { tr.detach(el); } catch { /* ignore */ } }
+      }
+    };
+  }, []);
+
   if (remote.length === 0) {
     return (
       <div className="aspect-video w-full rounded-lg border border-border bg-muted flex items-center justify-center">
@@ -1151,8 +1259,9 @@ function VideoCallStage({ remote }: { remote: ReturnType<typeof useLiveKitCall>[
             playsInline
             muted={false}
             className="w-full h-full object-cover bg-black"
+            style={{ transform: 'none' }}
           />
-          {!r.video && (
+          {!r.videoTrack && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/70 text-white/80">
               <WifiOff className="w-5 h-5" aria-hidden="true" />
               <span className="text-[11px] font-medium">Video paused / reconnecting…</span>

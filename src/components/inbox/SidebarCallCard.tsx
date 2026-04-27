@@ -62,13 +62,16 @@ const STATUS_VISUAL: Record<InvitationStatus, StatusVisual> = {
 
 export function SidebarCallCard({ workspaceId, conversationId, contactName, onActiveCallChange }: SidebarCallCardProps) {
   const i18n = useTranslation();
-  const t = (key: string, vars?: Record<string, string>): string =>
-    (i18n.t as unknown as (k: string, v?: Record<string, string>) => string)(key, vars) || '';
+  const safeT = (key: string, fallback = '', vars?: Record<string, string>): string => {
+    const value = (i18n.t as unknown as (k: string, v?: Record<string, string>) => string)(key, vars);
+    return value && value !== key ? value : fallback;
+  };
+  const t = (key: string, vars?: Record<string, string>): string => safeT(key, '', vars);
 
   const {
     surface, creating, loading, live, preview,
     floatingMode, setFloatingMode,
-    latestForConversation, sendInvite, cancelInvite, hangup, refreshLatest,
+    latestForConversation, sendInvite, cancelInvite, hangup, closeTerminal, refreshLatest, lastEnded,
   } = useOperatorCall();
 
   const latest = latestForConversation(conversationId);
@@ -191,7 +194,15 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
       case 'expired':   return t('inbox.callSurface.terminalExpired')   || 'The visitor did not join in time.';
       case 'declined':  return t('inbox.callSurface.terminalDeclined')  || 'The visitor declined the call.';
       case 'cancelled': return t('inbox.callSurface.terminalCancelled') || 'Invitation cancelled.';
-      case 'remote_ended': return t('inbox.callSurface.terminalRemoteEnded') || 'Visitor ended the call.';
+      case 'remote_ended': {
+        const base = lastEnded?.ended_by === 'visitor'
+          ? safeT('inbox.callSurface.visitorEndedCall', 'Visitor ended the call')
+          : safeT('inbox.callSurface.visitorLeft', 'Visitor left the call');
+        if (!lastEnded || lastEnded.duration_seconds <= 0) return base;
+        const mm = String(Math.floor(lastEnded.duration_seconds / 60)).padStart(2, '0');
+        const ss = String(lastEnded.duration_seconds % 60).padStart(2, '0');
+        return `${base} · ${mm}:${ss}`;
+      }
       case 'failed':    return surface.errorMessage
         ? `${t('inbox.callSurface.terminalFailed') || 'Could not connect.'} ${surface.errorMessage}`
         : (t('inbox.callSurface.terminalFailed') || 'Could not connect.');
@@ -334,7 +345,7 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
                     variant="default"
                     className="h-8 px-3 rounded-full bg-destructive text-destructive-foreground hover:bg-destructive/90 gap-1.5"
                     onClick={() => void hangup()}
-                    aria-label="End call"
+                    aria-label={safeT('inbox.callSurface.hangup', 'End call')}
                   >
                     <PhoneOff className="w-3.5 h-3.5" aria-hidden="true" />
                     <span className="text-[11px] font-semibold">{t('inbox.callSurface.hangup') || 'End'}</span>
@@ -360,9 +371,9 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
                   size="sm"
                   variant="ghost"
                   className="h-7 px-2 text-[10px] text-muted-foreground"
-                  onClick={() => void hangup()}
+                  onClick={() => closeTerminal()}
                 >
-                  {t('common.close') || 'Close'}
+                  {safeT('inbox.callSurface.close', 'Close')}
                 </Button>
               </div>
             )}
@@ -388,7 +399,7 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
         <CardContent className="p-3 flex items-center gap-2">
           <span className="h-2 w-2 rounded-full bg-success animate-pulse" aria-hidden="true" />
           <span className="text-[11px] font-medium text-foreground flex-1 truncate">
-            {isVideo ? 'Video call' : 'Audio call'} — open in floating window
+            {isVideo ? safeT('inbox.callSurface.videoCall', 'Video call') : safeT('inbox.callSurface.audioCall', 'Audio call')} — {safeT('inbox.callSurface.openInFloating', 'open in floating window')}
           </span>
           <Button
             size="sm"
@@ -403,7 +414,7 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
             variant="default"
             className="h-7 w-7 p-0 rounded-full bg-destructive text-destructive-foreground hover:bg-destructive/90"
             onClick={() => void hangup()}
-            aria-label="End call"
+            aria-label={safeT('inbox.callSurface.hangup', 'End call')}
           >
             <PhoneOff className="w-3 h-3" />
           </Button>
@@ -420,10 +431,10 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
           <span className="h-2 w-2 rounded-full bg-warning animate-pulse" aria-hidden="true" />
           <div className="flex-1 min-w-0">
             <div className="text-[11px] font-medium text-foreground truncate">
-              Active call in another conversation
+              {safeT('inbox.callSurface.activeOtherConv', 'Active call in another conversation')}
             </div>
             <div className="text-[10px] text-muted-foreground truncate">
-              End it before starting a new one
+              {safeT('inbox.callSurface.activeOtherConvHint', 'End it before starting a new one')}
             </div>
           </div>
           <Button
@@ -432,7 +443,7 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
             className="h-7 px-2 text-[10px]"
             onClick={() => setFloatingMode('expanded')}
           >
-            Open
+            {safeT('inbox.callSurface.activeOpen', 'Open')}
           </Button>
         </CardContent>
       </Card>

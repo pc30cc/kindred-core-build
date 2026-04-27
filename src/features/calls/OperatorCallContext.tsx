@@ -138,6 +138,8 @@ export interface OperatorCallContextValue {
   cancelInvite(): Promise<void>;
   /** Operator hangup (or close terminal early). */
   hangup(): Promise<void>;
+  /** Close a terminal call UI without calling the hangup/end endpoint. */
+  closeTerminal(): void;
   /** Force-refresh the latest invitation for a conversation (sidebar polling). */
   refreshLatest(conversationId: string): Promise<void>;
   /** Pass A — last ended summary for "Call ended · mm:ss" UI. */
@@ -205,6 +207,37 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
   // 100–1500ms later updates the existing surface (with duration) instead
   // of re-opening anything.
   const remoteEndedShownRef = useRef<boolean>(false);
+  const hasLiveConnectSucceededRef = useRef<boolean>(false);
+  const hasRemoteParticipantEverConnectedRef = useRef<boolean>(false);
+  const hasRemoteTrackEverSubscribedRef = useRef<boolean>(false);
+  const remoteParticipantSeenAtRef = useRef<number>(0);
+  const connectStartedAtRef = useRef<number>(0);
+  const liveConnectPendingRef = useRef<boolean>(false);
+  const realVisitorDisconnectedRef = useRef<boolean>(false);
+
+  const markRemoteParticipantSeen = useCallback((source: 'participant_connected' | 'track_subscribed' | 'snapshot', detail?: Record<string, unknown>) => {
+    if (!hasRemoteParticipantEverConnectedRef.current) {
+      hasRemoteParticipantEverConnectedRef.current = true;
+      remoteParticipantSeenAtRef.current = Date.now();
+      callLog('remote participant seen', { source, ...detail });
+    }
+  }, []);
+
+  const resetPerCallLifecycleRefs = useCallback(() => {
+    if (remoteLeftFallbackRef.current) {
+      clearTimeout(remoteLeftFallbackRef.current);
+      remoteLeftFallbackRef.current = null;
+    }
+    remoteEndedShownRef.current = false;
+    previousRemoteCountRef.current = 0;
+    hasLiveConnectSucceededRef.current = false;
+    hasRemoteParticipantEverConnectedRef.current = false;
+    hasRemoteTrackEverSubscribedRef.current = false;
+    remoteParticipantSeenAtRef.current = 0;
+    connectStartedAtRef.current = 0;
+    liveConnectPendingRef.current = false;
+    realVisitorDisconnectedRef.current = false;
+  }, []);
 
   useEffect(() => {
     surfaceRef.current = surface;
@@ -213,6 +246,20 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
   const live = useLiveKitCall({
     publishMic: true,
     publishCamera: surface.channel === 'video',
+    onRemoteParticipantSeen: ({ identity, source }) => {
+      markRemoteParticipantSeen(source, { identity });
+    },
+    onRemoteParticipantDisconnected: ({ identity }) => {
+      if (hasRemoteParticipantEverConnectedRef.current) {
+        realVisitorDisconnectedRef.current = true;
+        callLog('remote participant disconnected', { identity });
+      }
+    },
+    onRemoteTrackSubscribed: ({ identity, kind, trackSid }) => {
+      hasRemoteTrackEverSubscribedRef.current = true;
+      markRemoteParticipantSeen('track_subscribed', { identity, kind, trackSid });
+      callLog('remote track subscribed', { identity, kind, trackSid });
+    },
   });
 
   const preview = useLocalMediaPreview({
@@ -255,14 +302,9 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
     activeCallSessionIdRef.current = null;
     connectedInvitationIdRef.current = null;
     startedConnectInvitationIdRef.current = null;
-    if (remoteLeftFallbackRef.current) {
-      clearTimeout(remoteLeftFallbackRef.current);
-      remoteLeftFallbackRef.current = null;
-    }
-    previousRemoteCountRef.current = 0;
+    resetPerCallLifecycleRefs();
     connectedAtRef.current = 0;
-    remoteEndedShownRef.current = false;
-  }, []);
+  }, [resetPerCallLifecycleRefs]);
 
   // Auto-close terminal surface after a short delay so it briefly shows
   // the outcome and then reverts to IDLE, exposing the invite buttons.
@@ -288,7 +330,7 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
       setSurface(INITIAL_SURFACE);
       setFloatingMode('docked');
     }, delayMs);
-  }, [clearActiveCallRefs, disconnectLive]);
+  }, [clearActiveCallRefs]);
 
   useEffect(() => {
     if (surface.phase !== 'terminal') return;
@@ -359,7 +401,10 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
     const inv = surface.invitation;
     if (!inv) return;
     if (startedConnectInvitationIdRef.current === inv.id) return;
+    resetPerCallLifecycleRefs();
     startedConnectInvitationIdRef.current = inv.id;
+    connectStartedAtRef.current = Date.now();
+    liveConnectPendingRef.current = true;
     let cancelled = false;
     (async () => {
       try {
@@ -407,6 +452,8 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
           iceTransportPolicy: tok.ice_policy,
         });
         if (cancelled) return;
+        liveConnectPendingRef.current = false;
+        hasLiveConnectSucceededRef.current = true;
         connectedInvitationIdRef.current = inv.id;
         callLog('live.connect success', {
           invitation_id: inv.id,
@@ -417,6 +464,7 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
         setSurface((prev) => prev.phase === 'connecting' ? { ...prev, phase: 'connected' } : prev);
       } catch (err: any) {
         if (cancelled) return;
+        liveConnectPendingRef.current = false;
         startedConnectInvitationIdRef.current = null;
         rtDebug('call', 'connect failed', { invitation_id: inv.id, error: err?.message });
         setSurface((prev) => ({
@@ -427,9 +475,9 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
         }));
       }
     })();
-    return () => { cancelled = true; };
+    return () => { cancelled = true; liveConnectPendingRef.current = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [surface.phase, surface.invitation?.id]);
+  }, [surface.phase, surface.invitation?.id, resetPerCallLifecycleRefs]);
 
   const refreshLatest = useCallback(async (conversationId: string) => {
     try {
@@ -448,6 +496,10 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
     ttlSeconds: number;
   }) => {
     if (creating || surface.phase !== 'idle') return;
+    resetPerCallLifecycleRefs();
+    lastActiveCallSessionIdRef.current = null;
+    lastActiveCallConversationIdRef.current = null;
+    lastActiveCallEndedAtRef.current = 0;
     setCreating(args.channel);
     setLoading(true);
     try {
@@ -482,7 +534,7 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
       setCreating(null);
       setLoading(false);
     }
-  }, [creating, surface.phase]);
+  }, [creating, surface.phase, resetPerCallLifecycleRefs]);
 
   const cancelInvite = useCallback(async () => {
     const target = surface.invitation;
@@ -546,6 +598,19 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
   }, [clearActiveCallRefs, disconnectLive]);
 
   const clearLastEnded = useCallback(() => setLastEnded(null), []);
+
+  const closeTerminal = useCallback(() => {
+    callLog('close terminal only', {
+      phase: surfaceRef.current.phase,
+      terminalStatus: surfaceRef.current.terminalStatus,
+      activeCallSessionId: activeCallSessionIdRef.current,
+    });
+    if (autoCloseRef.current) { clearTimeout(autoCloseRef.current); autoCloseRef.current = null; }
+    clearActiveCallRefs();
+    setLastEnded(null);
+    setSurface(INITIAL_SURFACE);
+    setFloatingMode('docked');
+  }, [clearActiveCallRefs]);
 
   // Auto-fade the "Call ended · mm:ss" surface so it never lingers
   // forever. The toast (below) carries the same info if the operator
@@ -721,22 +786,63 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
     const cur = surfaceRef.current;
     const sessionId = activeCallSessionIdRef.current;
     if (!sessionId) return;
-    if (cur.phase !== 'connected' && cur.phase !== 'connecting') return;
     const remoteCount = live.remote.length;
     const wasPresent = previousRemoteCountRef.current > 0;
+    if (remoteCount > 0) {
+      markRemoteParticipantSeen('snapshot', { remoteCount });
+    }
     previousRemoteCountRef.current = remoteCount;
 
-    // Two triggers: remote disappeared OR room disconnected entirely.
+    if (cur.phase !== 'connected') {
+      if (live.state === 'disconnected' || live.state === 'failed' || remoteCount === 0) {
+        callLog('visitor-ended fallback ignored: not connected yet', {
+          sessionId,
+          phase: cur.phase,
+          liveState: live.state,
+          liveConnectPending: liveConnectPendingRef.current,
+          remoteCount,
+        });
+      }
+      return;
+    }
+    if (!hasLiveConnectSucceededRef.current || liveConnectPendingRef.current) {
+      callLog('visitor-ended fallback ignored: not connected yet', {
+        sessionId,
+        phase: cur.phase,
+        liveState: live.state,
+        hasLiveConnectSucceeded: hasLiveConnectSucceededRef.current,
+        liveConnectPending: liveConnectPendingRef.current,
+        remoteCount,
+      });
+      return;
+    }
+    if (!hasRemoteParticipantEverConnectedRef.current) {
+      if (remoteCount === 0 || live.state === 'disconnected' || live.state === 'failed') {
+        callLog('visitor-ended fallback ignored: no remote ever seen', {
+          sessionId,
+          phase: cur.phase,
+          liveState: live.state,
+          remoteCount,
+        });
+      }
+      return;
+    }
+
+    // Trigger only after a real visitor participant was seen and then vanished.
     const remoteVanished = wasPresent && remoteCount === 0;
-    const roomDown = live.state === 'disconnected' || live.state === 'failed';
-    if (!remoteVanished && !roomDown) return;
+    const participantDisconnected = realVisitorDisconnectedRef.current && remoteCount === 0;
+    if (!remoteVanished && !participantDisconnected) return;
 
     if (remoteLeftFallbackRef.current) return; // already armed
-    callLog('visitor remote disappeared', {
+    callLog('visitor-ended fallback armed', {
       sessionId,
       remoteCount,
       liveState: live.state,
       phase: cur.phase,
+      remoteVanished,
+      participantDisconnected,
+      remoteParticipantSeenAt: remoteParticipantSeenAtRef.current,
+      hasRemoteTrackEverSubscribed: hasRemoteTrackEverSubscribedRef.current,
     });
     const armedSessionId = sessionId;
     const armedConversationId = activeCallConversationIdRef.current;
@@ -749,13 +855,13 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
       const localDur = connectedAtRef.current
         ? Math.max(0, Math.round((Date.now() - connectedAtRef.current) / 1000))
         : 0;
-      callLog('showing visitor-ended terminal state', {
+      callLog('visitor-ended terminal shown', {
         sessionId: armedSessionId,
         localDurationSeconds: localDur,
       });
       setLastEnded({
-        ended_by: 'visitor',
-        reason: 'visitor_ended',
+        ended_by: 'system',
+        reason: 'system_ended',
         duration_seconds: localDur,
         ended_at: new Date().toISOString(),
         conversation_id: armedConversationId,
@@ -778,6 +884,13 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
     });
     remoteLeftFallbackRef.current = setTimeout(() => {
       remoteLeftFallbackRef.current = null;
+      if (activeCallSessionIdRef.current !== armedSessionId) {
+        callLog('ignored stale visitor-left fallback', {
+          armedSessionId,
+          activeCallSessionId: activeCallSessionIdRef.current,
+        });
+        return;
+      }
       // Always poll /end — even if active refs were already cleared by
       // disconnectLive above, the server still owes us the canonical
       // duration for the terminal toast.
@@ -804,13 +917,8 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
         });
     }, 1500);
 
-    return () => {
-      if (remoteLeftFallbackRef.current) {
-        clearTimeout(remoteLeftFallbackRef.current);
-        remoteLeftFallbackRef.current = null;
-      }
-    };
-  }, [live.remote.length, live.state, surface.phase, disconnectLive, clearActiveCallRefs]);
+    return undefined;
+  }, [live.remote.length, live.state, surface.phase, disconnectLive, markRemoteParticipantSeen]);
 
   // Hard cleanup ONLY on full provider unmount (sign-out / shutdown).
   useEffect(() => {
@@ -840,12 +948,13 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
     sendInvite,
     cancelInvite,
     hangup,
+    closeTerminal,
     refreshLatest,
     lastEnded,
     clearLastEnded,
   }), [
     surface, creating, loading, live, preview.stream, preview.state,
-    floatingMode, latestForConversation, sendInvite, cancelInvite, hangup, refreshLatest,
+    floatingMode, latestForConversation, sendInvite, cancelInvite, hangup, closeTerminal, refreshLatest,
     lastEnded, clearLastEnded,
   ]);
 

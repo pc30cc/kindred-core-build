@@ -45,6 +45,13 @@ import { useTrackCannedResponseUse } from '@/hooks/useCannedResponses';
 import type { CannedLocale, CannedResponse } from '@/lib/canned-responses-api';
 import { useProfile } from '@/hooks/useProfile';
 import { Sparkles } from 'lucide-react';
+import { ContactAvatar } from '@/components/inbox/ContactAvatar';
+import {
+  useOperatorMessageChime,
+  getOperatorMessageSoundEnabled,
+  setOperatorMessageSoundEnabled,
+} from '@/features/notifications/operatorMessageSound';
+import { Volume2, VolumeX } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 const ALLOWED_OPERATOR_MIMES = new Set([

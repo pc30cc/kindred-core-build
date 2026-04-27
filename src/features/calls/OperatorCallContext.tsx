@@ -664,6 +664,12 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
         eventCallSessionId: eventSessionId,
         endedBy: evt.ended_by,
       });
+      callLog('received visitor call:ended event', {
+        eventCallSessionId: eventSessionId,
+        endedBy: evt.ended_by,
+        reason: evt.reason,
+        durationSeconds: evt.duration_seconds,
+      });
       setLastEnded({
         ended_by: evt.ended_by,
         reason: evt.reason,
@@ -674,9 +680,15 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
       // Tear down our local room idempotently — the server already
       // closed the provider room.
       try { void disconnectLive('server_call_ended', conversationId); } catch { /* ignore */ }
-      clearActiveCallRefs();
-      setSurface(INITIAL_SURFACE);
-      setFloatingMode('docked');
+      // Show terminal 'remote_ended' state instead of jumping straight
+      // to idle. The auto-close effect (3500ms) will return us to idle
+      // and the toast already surfaces the duration.
+      remoteEndedShownRef.current = true;
+      setSurface((prev) => ({
+        ...prev,
+        phase: 'terminal',
+        terminalStatus: 'remote_ended',
+      }));
       callLog('visitor ended call terminal shown', {
         eventCallSessionId: eventSessionId,
       });

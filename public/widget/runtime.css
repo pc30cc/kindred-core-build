@@ -1483,6 +1483,114 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
   text-decoration: underline;
 }
 
+/* ─── Pass 2 — In-panel call surface (lives inside .body) ─── */
+.gs-call-surface {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  background: #0f172a;
+  color: #f1f5f9;
+  position: relative;
+  overflow: hidden;
+}
+.gs-call-status {
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: center;
+  background: rgba(0, 0, 0, 0.35);
+  min-height: 18px;
+}
+.gs-call-stage {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+  overflow: hidden;
+}
+.gs-call-remote-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #000;
+}
+.gs-call-local-video {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  width: 96px;
+  height: 128px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 2px solid rgba(255, 255, 255, 0.6);
+  background: #000;
+  z-index: 2;
+}
+.gs-call-audio-orb {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--gs-primary, #3B82F6);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.gs-call-waiting {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+  background: rgba(0, 0, 0, 0.45);
+  padding: 6px 12px;
+  border-radius: 999px;
+}
+.gs-call-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 14px 16px;
+  background: rgba(0, 0, 0, 0.45);
+}
+.gs-call-btn {
+  appearance: none;
+  border: 0;
+  cursor: pointer;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font-size: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s ease, transform 0.12s ease;
+}
+.gs-call-btn:hover { background: rgba(255, 255, 255, 0.2); transform: translateY(-1px); }
+.gs-call-btn.off { background: rgba(220, 38, 38, 0.25); }
+.gs-call-btn-hangup { background: #dc2626; }
+.gs-call-btn-hangup:hover { background: #b91c1c; }
+.gs-call-btn-close {
+  width: auto;
+  height: 38px;
+  padding: 0 18px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 13px;
+  background: rgba(255, 255, 255, 0.12);
+}
+.gs-call-surface[data-phase="failed"] .gs-call-status,
+.gs-call-surface[data-phase="ended"] .gs-call-status {
+  background: rgba(220, 38, 38, 0.4);
+}
+
 /* ──────────────────────────────────────────────────────────
    Phase 8H — Department selector (multi mode)
    Lightweight, mobile-first, intentionally minimal.

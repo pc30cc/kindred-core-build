@@ -267,6 +267,7 @@ export function LocalVideoPiP({
     if (next) {
       try { next.attach(el); } catch { /* ignore */ }
       logCallVideoOrientation('operator-local', el);
+      applyVideoOrientationClass(el, 'operator-local', 'call-video');
       const p = el.play();
       if (p && typeof (p as Promise<void>).catch === 'function') {
         (p as Promise<void>).catch(() => {});
@@ -299,6 +300,8 @@ export function LocalVideoPiP({
         data-call-video-role="operator-local"
         data-orientation-correction={CALL_VIDEO_ORIENTATION_CORRECTION_MODE}
         style={CALL_VIDEO_STYLE}
+        onLoadedMetadata={(e) => applyVideoOrientationClass(e.currentTarget, 'operator-local', 'call-video')}
+        onResize={(e) => applyVideoOrientationClass(e.currentTarget, 'operator-local', 'call-video')}
       />
       <OrientationDebugOverlay role="operator-local" videoRef={videoRef} />
       {(!track || !cameraEnabled) && (

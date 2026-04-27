@@ -113,11 +113,29 @@ export function startRingback(): void {
   if (ringbackActive) return;
   ringbackActive = true;
   callDebug('call-sound', 'operator ringback start');
-  if (!userInteracted) {
-    callDebug('call-sound', 'operator ringback blocked (awaiting user gesture)');
+  // The click that started the call is itself a valid user gesture.
+  // Try to create/resume the AudioContext now — if it ends up in the
+  // 'running' state, audio is unlocked and we can ring immediately.
+  // This is the common path for operator-initiated calls (the operator
+  // clicked the Call button in the same task tick).
+  const ctx = ensureAudioCtx();
+  if (ctx && ctx.state === 'running') {
+    userInteracted = true;
+    startRingbackInternal();
     return;
   }
-  startRingbackInternal();
+  // Fallback: AudioContext is suspended (rare for operator flow, e.g.
+  // tab restored without interaction). Wait for the next gesture.
+  if (ctx && ctx.resume) {
+    ctx.resume().then(() => {
+      if (!ringbackActive) return;
+      if (ctx.state === 'running') {
+        userInteracted = true;
+        startRingbackInternal();
+      }
+    }).catch(() => { /* swallow — unlock handler will retry */ });
+  }
+  callDebug('call-sound', 'operator ringback waiting for audio unlock', { state: ctx?.state ?? 'no-ctx' });
 }
 
 /**

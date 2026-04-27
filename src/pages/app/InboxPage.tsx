@@ -660,6 +660,14 @@ export default function InboxPage() {
               <span className="text-[10px] bg-primary/15 text-primary px-1.5 py-0.5 rounded-full font-semibold">
                 {conversations?.length || 0}
               </span>
+              {totalUnread > 0 && (
+                <span
+                  className="text-[10px] bg-primary text-primary-foreground px-1.5 py-0.5 rounded-full font-bold shadow-sm animate-fade-in"
+                  title={`${totalUnread} unread`}
+                >
+                  {totalUnread > 99 ? '99+' : totalUnread} new
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-1">
               <button

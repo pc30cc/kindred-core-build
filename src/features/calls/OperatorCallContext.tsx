@@ -52,7 +52,13 @@ import { rtDebug } from '@/realtime/debug';
 import { toast } from '@/hooks/use-toast';
 
 export type SurfacePhase = 'idle' | 'waiting' | 'connecting' | 'connected' | 'terminal';
-export type TerminalStatus = 'expired' | 'cancelled' | 'declined' | 'failed' | null;
+export type TerminalStatus =
+  | 'expired'
+  | 'cancelled'
+  | 'declined'
+  | 'failed'
+  | 'remote_ended'
+  | null;
 
 export interface LastEndedSummary {
   ended_by: 'operator' | 'visitor' | 'system';

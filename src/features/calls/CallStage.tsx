@@ -10,7 +10,7 @@
  *   - per-element diagnostic events (timeupdate / stalled / waiting)
  *   - central real-world orientation correction on every camera video
  */
-import { useEffect, useLayoutEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react';
 import type { LocalVideoTrack, RemoteAudioTrack, RemoteVideoTrack } from 'livekit-client';
 import { Loader2, WifiOff } from 'lucide-react';
 import type { useLiveKitCall } from '@/hooks/useLiveKitCall';
@@ -30,7 +30,7 @@ interface VideoStageProps {
   debugOrientation?: boolean;
 }
 
-function OrientationDebugOverlay({ role, videoRef }: { role: string; videoRef: React.RefObject<HTMLVideoElement> }) {
+function OrientationDebugOverlay({ role, videoRef }: { role: string; videoRef: RefObject<HTMLVideoElement> }) {
   if (!isCallOrientationDebugEnabled()) return null;
   const computed = videoRef.current ? window.getComputedStyle(videoRef.current).transform : 'pending';
   return (
@@ -66,6 +66,7 @@ export function VideoCallStage({ remote, size = 'small' }: VideoStageProps) {
       }
       if (next) {
         try { next.attach(el); } catch { /* ignore */ }
+        logCallVideoOrientation('operator-remote', el);
         const p = el.play();
         if (p && typeof (p as Promise<void>).catch === 'function') {
           (p as Promise<void>).catch(() => {});
@@ -112,6 +113,7 @@ export function VideoCallStage({ remote, size = 'small' }: VideoStageProps) {
           try { tr.detach(el); } catch { /* ignore */ }
           try { el.srcObject = null; } catch { /* ignore */ }
           try { tr.attach(el); } catch { /* ignore */ }
+          logCallVideoOrientation('operator-remote', el);
           const p = el.play();
           if (p && typeof (p as Promise<void>).catch === 'function') {
             (p as Promise<void>).catch(() => {});

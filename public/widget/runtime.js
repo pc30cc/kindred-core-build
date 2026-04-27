@@ -4820,14 +4820,11 @@
         '<span class="presence-label" data-presence-label></span>' +
       '</div>' +
       '</div>';
-    // Phase 8C — Tabs include voice/video when the effective policy says
-    // visitor-initiated calls are enabled. Hidden cleanly when off.
-    var _cp = callPolicy();
+    // Visitor-initiated voice/video tabs were removed — calls are now only
+    // initiated from the operator side. Keep chat + help tabs only.
     var tabDefs = [];
     if (chatEnabled) tabDefs.push({ key: 'chat', label: t('chat') });
     if (kbEnabled) tabDefs.push({ key: 'help', label: t('help') });
-    if (_cp.voice) tabDefs.push({ key: 'voice', label: t('voiceCall') });
-    if (_cp.video) tabDefs.push({ key: 'video', label: t('videoCall') });
     var tabsHtml = '';
     if (tabDefs.length > 1) {
       var act = shellStore.get().activeTab;

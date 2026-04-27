@@ -32,6 +32,7 @@ import {
   Mail, Phone, Globe, User, Eye, ChevronLeft, ChevronRight,
   Loader2, Bot, Copy, Paperclip, RefreshCw,
   MessageCircle, Hash, FileText, Download, ImageIcon,
+  PhoneOff,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';

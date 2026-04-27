@@ -210,6 +210,13 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
         setState('disconnected');
         refreshRemotes();
       });
+    // Capture LiveKit's own disconnect reason in addition to the basic
+    // event. Helps distinguish CLIENT_INITIATED (we called disconnect) vs
+    // server/peer-driven leaves.
+    room.on(RoomEvent.Disconnected, (reason?: unknown) => {
+      // eslint-disable-next-line no-console
+      console.warn('[livekit] room emitted Disconnected', { reason });
+    });
   }, [refreshRemotes]);
 
   const connect = useCallback(async (input: {
@@ -303,6 +310,14 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
   const disconnect = useCallback(async () => {
     const room = roomRef.current;
     if (!room) return;
+    // Forensic: every operator-side disconnect must be traceable. The
+    // operator freeze bug had multiple candidate triggers (conversation
+    // switch, unmount, race after toggle). Logging the stack pinpoints
+    // the exact React effect/handler that pulled the room down.
+    // eslint-disable-next-line no-console
+    console.warn('[livekit] disconnect() requested', {
+      stack: new Error('disconnect-trace').stack,
+    });
     // Clear the ref BEFORE awaiting so any concurrent disconnect/connect
     // call sees a clean slate and does not double-fire.
     roomRef.current = null;

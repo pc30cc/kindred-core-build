@@ -1033,6 +1033,50 @@ export default function InboxPage() {
                 // avatar/header to declutter the thread.
                 const showAvatar = !sameSenderAsPrev;
                 const showMeta = !sameSenderAsPrev;
+                // Pass A — system call_ended summary renders as a centered
+                // pill, not as an operator/visitor bubble.
+                const meta = (msg as { metadata?: Record<string, unknown> | null }).metadata || {};
+                if (msg.sender_type === 'system' && (meta as any).kind === 'call_ended') {
+                  const endedBy = String((meta as any).ended_by || 'system');
+                  const endReason = String((meta as any).end_reason || '');
+                  const dur = Number((meta as any).duration_seconds || 0);
+                  const fmtDur = (() => {
+                    const s = Math.max(0, Math.floor(dur));
+                    const hh = Math.floor(s / 3600);
+                    const mm = Math.floor((s % 3600) / 60);
+                    const ss = s % 60;
+                    const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
+                    return hh > 0 ? `${pad(hh)}:${pad(mm)}:${pad(ss)}` : `${pad(mm)}:${pad(ss)}`;
+                  })();
+                  const isMissed = endReason === 'failed' || dur <= 0;
+                  const key =
+                    isMissed
+                      ? 'callEnded.summary.notConnected'
+                      : endedBy === 'operator'
+                        ? 'callEnded.summary.byOperator'
+                        : endedBy === 'visitor'
+                          ? 'callEnded.summary.byVisitor'
+                          : 'callEnded.summary.bySystem';
+                  const fallback = isMissed
+                    ? 'Call did not connect'
+                    : endedBy === 'operator'
+                      ? `Call ended by operator · Duration ${fmtDur}`
+                      : endedBy === 'visitor'
+                        ? `Call ended by visitor · Duration ${fmtDur}`
+                        : `Call ended · Duration ${fmtDur}`;
+                  const raw = t(key);
+                  const text = raw && raw !== key
+                    ? raw.replace('{duration}', fmtDur)
+                    : fallback;
+                  return (
+                    <div key={msg.id} className="flex justify-center my-1">
+                      <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-muted/60 text-muted-foreground text-[11px] border border-border/60">
+                        <PhoneOff className="w-3 h-3" />
+                        <span>{text}</span>
+                      </div>
+                    </div>
+                  );
+                }
                 return (
                   <div
                     key={msg.id}

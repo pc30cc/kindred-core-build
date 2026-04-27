@@ -435,10 +435,17 @@ html[lang="en"] * {
    public/widget/runtime.css for the visitor surface.
    ───────────────────────────────────────────────────────────────────── */
 .call-video,
+.call-video video,
 .call-video-local,
 .call-video-remote,
 [data-call-video],
 [data-local-video],
-[data-remote-video] {
+[data-remote-video],
+[data-call-video] video,
+[data-local-video] video,
+[data-remote-video] video,
+video.call-video {
   transform: none !important;
+  scale: 1 !important;
+  rotate: 0deg !important;
 }

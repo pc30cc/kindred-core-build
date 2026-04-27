@@ -3801,6 +3801,10 @@
         localVideo: null,
         micEnabled: false,
         cameraEnabled: false,
+        connectedAt: 0,
+        endedDuration: 0,
+        cameras: [],
+        switchingCamera: false,
       });
     }
 

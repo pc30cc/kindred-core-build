@@ -115,17 +115,16 @@
   var currentFacingMode = 'user';
   var availableCameras = [];
   // ── Connect-lifecycle flags (visitor-side regression fix) ──
-  // We MUST distinguish a transient SDK Disconnected during the initial
-  // /rtc/v1 handshake from a real teardown. Without this, the engine
-  // tears down the moment LiveKit closes the signal socket once (which
-  // routinely happens on retry), the visitor browser is removed from
-  // the room with `connectionType: unknown`, and the operator side
-  // mis-classifies it as `visitor_left`.
-  var connectStarted = false;
-  var connectSucceeded = false;
-  var publishStarted = false;
-  var publishSucceeded = false;
+  // Keep signaling, publishing, and "usable call" separate. LiveKit can
+  // emit Disconnected while the initial signal/media path is still settling;
+  // tearing down there closes the visitor before ICE/media establishes.
+  var signalingConnectStarted = false;
+  var signalingConnected = false;
+  var mediaPublishStarted = false;
+  var mediaPublished = false;
+  var engineFullyConnected = false;
   var explicitDisconnectRequested = false;
+  var connectPromiseSettled = false;
   var alreadyTornDown = false;
   // Diagnostics — visitor browser logs we always want when debugging
   // a failed-to-connect scenario.

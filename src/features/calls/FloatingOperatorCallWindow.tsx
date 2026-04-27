@@ -127,35 +127,35 @@ export function FloatingOperatorCallWindow() {
       style={expandedStyle}
     >
       <div
-        className="absolute inset-x-0 top-0 z-20 flex cursor-move select-none items-center justify-between gap-3 px-4 py-3 text-primary-foreground touch-none"
+        className="absolute inset-x-0 top-0 z-20 flex cursor-move select-none items-center justify-between gap-3 px-4 py-3 text-call-stage-foreground touch-none"
         onPointerDown={startDrag}
       >
         <div className="flex min-w-0 items-center gap-3">
-          <GripHorizontal className="h-4 w-4 shrink-0 text-primary-foreground/55" aria-hidden="true" />
+          <GripHorizontal className="h-4 w-4 shrink-0 text-call-stage-foreground/55" aria-hidden="true" />
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold drop-shadow-sm">{title}</div>
             <div className="mt-1 flex items-center gap-2">
               <span className={cn('rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase leading-none backdrop-blur-md', statusTone)}>
                 {status}
               </span>
-              <span className="text-[11px] font-medium text-primary-foreground/70">{isVideo ? 'Video call' : 'Audio call'}</span>
+              <span className="text-[11px] font-medium text-call-stage-foreground/70">{isVideo ? 'Video call' : 'Audio call'}</span>
             </div>
           </div>
         </div>
         <div className="flex items-center gap-1">
-          <Button size="sm" variant="ghost" className="h-8 w-8 rounded-full bg-background/10 p-0 text-primary-foreground hover:bg-background/20 hover:text-primary-foreground" onClick={stop(() => setFloatingMode('minimized'))} aria-label="Minimize call window" title="Minimize">
+          <Button size="sm" variant="ghost" className="h-8 w-8 rounded-full bg-call-stage-foreground/10 p-0 text-call-stage-foreground hover:bg-call-stage-foreground/20 hover:text-call-stage-foreground" onClick={stop(() => setFloatingMode('minimized'))} aria-label="Minimize call window" title="Minimize">
             <Minimize2 className="h-4 w-4" />
           </Button>
-          <Button size="sm" variant="ghost" className="h-8 w-8 rounded-full bg-background/10 p-0 text-primary-foreground hover:bg-background/20 hover:text-primary-foreground" onClick={stop(dockToInbox)} aria-label="Return to inbox dock" title="Return to inbox">
+          <Button size="sm" variant="ghost" className="h-8 w-8 rounded-full bg-call-stage-foreground/10 p-0 text-call-stage-foreground hover:bg-call-stage-foreground/20 hover:text-call-stage-foreground" onClick={stop(dockToInbox)} aria-label="Return to inbox dock" title="Return to inbox">
             <PanelRightOpen className="h-4 w-4" />
           </Button>
         </div>
       </div>
 
-      <div className="relative min-h-0 flex-1 overflow-hidden bg-black">
+      <div className="relative min-h-0 flex-1 overflow-hidden bg-call-stage">
         {surface.phase === 'connecting' ? (
-          <div className="flex h-full w-full items-center justify-center bg-black">
-            <Loader2 className="h-8 w-8 animate-spin text-primary-foreground/70" aria-hidden="true" />
+          <div className="flex h-full w-full items-center justify-center bg-call-stage">
+            <Loader2 className="h-8 w-8 animate-spin text-call-stage-foreground/70" aria-hidden="true" />
           </div>
         ) : isVideo ? (
           <VideoCallStage remote={live.remote} size="large" />
@@ -167,17 +167,17 @@ export function FloatingOperatorCallWindow() {
           <LocalVideoPiP
             track={live.localVideoTrack}
             cameraEnabled={live.cameraEnabled}
-            className="absolute bottom-24 right-5 z-20 aspect-[3/4] w-[128px] overflow-hidden rounded-xl border border-primary-foreground/25 bg-black shadow-elevated ring-1 ring-primary-foreground/10 max-sm:bottom-24 max-sm:right-3 max-sm:w-[96px]"
+            className="absolute bottom-24 right-5 z-20 aspect-[3/4] w-[128px] overflow-hidden rounded-xl border border-call-stage-foreground/25 bg-call-stage shadow-elevated ring-1 ring-call-stage-foreground/10 max-sm:bottom-24 max-sm:right-3 max-sm:w-[96px]"
           />
         )}
 
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-40 bg-gradient-to-t from-background/95 via-background/55 to-transparent" aria-hidden="true" />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-40 bg-gradient-to-t from-call-stage/95 via-call-stage/55 to-transparent" aria-hidden="true" />
         <div className="absolute inset-x-0 bottom-0 z-30 flex items-center justify-center gap-3 px-4 pb-5 pt-8">
-          <Button size="sm" variant="outline" className={cn('h-12 w-12 rounded-full border-primary-foreground/20 bg-background/70 p-0 text-foreground shadow-elevated backdrop-blur-md hover:bg-background/90', !live.micEnabled && 'border-destructive/40 bg-destructive/15 text-destructive')} onClick={stop(live.toggleMic)} aria-label={live.micEnabled ? 'Mute microphone' : 'Unmute microphone'} title={live.micEnabled ? 'Mute microphone' : 'Unmute microphone'}>
+          <Button size="sm" variant="outline" className={cn('h-12 w-12 rounded-full border-call-stage-foreground/20 bg-card/70 p-0 text-foreground shadow-elevated backdrop-blur-md hover:bg-card/90', !live.micEnabled && 'border-destructive/40 bg-destructive/15 text-destructive')} onClick={stop(live.toggleMic)} aria-label={live.micEnabled ? 'Mute microphone' : 'Unmute microphone'} title={live.micEnabled ? 'Mute microphone' : 'Unmute microphone'}>
             {live.micEnabled ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}
           </Button>
           {isVideo && (
-            <Button size="sm" variant="outline" className={cn('h-12 w-12 rounded-full border-primary-foreground/20 bg-background/70 p-0 text-foreground shadow-elevated backdrop-blur-md hover:bg-background/90', !live.cameraEnabled && 'border-destructive/40 bg-destructive/15 text-destructive')} onClick={stop(live.toggleCamera)} aria-label={live.cameraEnabled ? 'Turn camera off' : 'Turn camera on'} title={live.cameraEnabled ? 'Turn camera off' : 'Turn camera on'}>
+            <Button size="sm" variant="outline" className={cn('h-12 w-12 rounded-full border-call-stage-foreground/20 bg-card/70 p-0 text-foreground shadow-elevated backdrop-blur-md hover:bg-card/90', !live.cameraEnabled && 'border-destructive/40 bg-destructive/15 text-destructive')} onClick={stop(live.toggleCamera)} aria-label={live.cameraEnabled ? 'Turn camera off' : 'Turn camera on'} title={live.cameraEnabled ? 'Turn camera off' : 'Turn camera on'}>
               {live.cameraEnabled ? <Video className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}
             </Button>
           )}

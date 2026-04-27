@@ -3723,6 +3723,117 @@
       shellStore.set({ activeTab: prev });
     }
 
+    // Map a canonical engine error code → translated message. Falls back
+    // to the engine's raw message when no i18n key matches the code.
+    function callErrorMessage(err) {
+      if (!err) return t('csErrUnknown') || 'Something went wrong.';
+      var code = err.code || '';
+      var map = {
+        sdk_url_missing: 'csErrSdkMissing',
+        sdk_load_failed: 'csErrSdkLoad',
+        livekit_connect_failed: 'csErrConnect',
+        token_mint_failed: 'csErrTokenMint',
+        provider_not_ready: 'csErrProviderNotReady',
+        turn_missing: 'csErrTurnMissing',
+        permission_denied_microphone: 'csErrPermMic',
+        permission_denied_camera: 'csErrPermCam',
+        invitation_expired: 'csErrInvitationExpired',
+        invitation_already_joined: 'csErrInvitationJoined',
+        invitation_access_denied: 'csErrAccessDenied',
+        origin_denied: 'csErrOriginDenied',
+      };
+      var key = map[code];
+      var msg = key ? t(key) : '';
+      return msg || err.message || (t('csErrUnknown') || 'Something went wrong.');
+    }
+
+    /**
+     * Render the in-panel call surface. Owns the .body container while
+     * a call is active. Mounts <audio>/<video> elements directly inside
+     * the widget Shadow DOM and binds their srcObject to the live
+     * MediaStreamTracks the engine emits via callSurfaceStore.
+     */
+    function renderCallSurface(container, s) {
+      if (!container) return;
+      var phase = s.phase;
+      var isVideo = s.channel === 'video';
+      var statusText = phase === 'connecting' ? (t('csConnecting') || 'Connecting…')
+        : phase === 'reconnecting' ? (t('csReconnecting') || 'Reconnecting…')
+        : phase === 'connected' ? (t('csInCall') || 'In call')
+        : phase === 'ended' ? (t('csEnded') || 'Call ended')
+        : phase === 'failed' ? callErrorMessage(s.error)
+        : '';
+      var hasRemoteVideo = !!(s.remote && s.remote.video);
+      var showWaiting = phase === 'connected' && isVideo && !hasRemoteVideo;
+      var html = '<div class="gs-call-surface" data-call-surface data-phase="' + phase + '">';
+      html += '<div class="gs-call-status" data-call-status>' + Util.escapeHtml(statusText) + '</div>';
+      html += '<div class="gs-call-stage" data-call-stage>';
+      if (isVideo) {
+        html += '<video class="gs-call-remote-video" data-call-remote-video autoplay playsinline></video>';
+        html += '<video class="gs-call-local-video" data-call-local-video autoplay playsinline muted></video>';
+      } else {
+        html += '<div class="gs-call-audio-orb" aria-hidden="true">' +
+          '<svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.37 1.9.72 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.35 1.85.59 2.81.72A2 2 0 0 1 22 16.92z"/></svg>' +
+          '</div>';
+      }
+      html += '<audio data-call-remote-audio autoplay></audio>';
+      if (showWaiting) {
+        html += '<div class="gs-call-waiting">' + Util.escapeHtml(t('csWaitingPeer') || 'Waiting…') + '</div>';
+      }
+      html += '</div>';
+      html += '<div class="gs-call-controls" data-call-controls>';
+      if (phase === 'failed' || phase === 'ended') {
+        html += '<button type="button" class="gs-call-btn gs-call-btn-close" data-call-action="close">' + Util.escapeHtml(t('csClose') || 'Close') + '</button>';
+      } else {
+        html += '<button type="button" class="gs-call-btn gs-call-btn-toggle' + (s.micEnabled ? '' : ' off') + '" data-call-action="mic" aria-label="' + Util.escapeHtml(s.micEnabled ? (t('csMicMute') || 'Mute') : (t('csMicUnmute') || 'Unmute')) + '">' +
+          (s.micEnabled ? '🎙' : '🔇') +
+          '</button>';
+        if (isVideo) {
+          html += '<button type="button" class="gs-call-btn gs-call-btn-toggle' + (s.cameraEnabled ? '' : ' off') + '" data-call-action="cam" aria-label="' + Util.escapeHtml(s.cameraEnabled ? (t('csCamOff') || 'Stop camera') : (t('csCamOn') || 'Start camera')) + '">' +
+            (s.cameraEnabled ? '📹' : '📷') +
+            '</button>';
+        }
+        html += '<button type="button" class="gs-call-btn gs-call-btn-hangup" data-call-action="hangup" aria-label="' + Util.escapeHtml(t('csHangup') || 'End call') + '">✕</button>';
+      }
+      html += '</div>';
+      html += '</div>';
+      container.innerHTML = html;
+
+      // Bind live media tracks (the store carries MediaStreamTracks).
+      try {
+        var aEl = container.querySelector('[data-call-remote-audio]');
+        if (aEl) {
+          aEl.srcObject = (s.remote && s.remote.audio) ? new MediaStream([s.remote.audio]) : null;
+          if (s.remote && s.remote.audio) { try { aEl.play(); } catch (_) {} }
+        }
+        var rvEl = container.querySelector('[data-call-remote-video]');
+        if (rvEl) {
+          rvEl.srcObject = (s.remote && s.remote.video) ? new MediaStream([s.remote.video]) : null;
+          if (s.remote && s.remote.video) { try { rvEl.play(); } catch (_) {} }
+        }
+        var lvEl = container.querySelector('[data-call-local-video]');
+        if (lvEl) {
+          lvEl.srcObject = s.localVideo ? new MediaStream([s.localVideo]) : null;
+          if (s.localVideo) { try { lvEl.play(); } catch (_) {} }
+        }
+      } catch (_) { /* noop */ }
+
+      // Wire controls.
+      var ctrls = container.querySelector('[data-call-controls]');
+      if (ctrls) {
+        ctrls.addEventListener('click', function (ev) {
+          var btn = ev.target && ev.target.closest && ev.target.closest('[data-call-action]');
+          if (!btn) return;
+          var action = btn.getAttribute('data-call-action');
+          var engine = window.__gs_call && window.__gs_call.engine;
+          if (action === 'mic' && engine) { engine.toggleMic(); }
+          else if (action === 'cam' && engine) { engine.toggleCamera(); }
+          else if (action === 'hangup') { closeCallSurface(); }
+          else if (action === 'close') { closeCallSurface(); }
+        });
+      }
+    }
+
     // ─── Phase 8H — Department resolver + state (additive) ────────────
     // Optional, lightweight department layer. Default behavior (general
     // mode / no departments configured) is identical to pre-8H.

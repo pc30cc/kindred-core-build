@@ -580,6 +580,11 @@
         ciBodyVideo: 'An operator is inviting you to a video call.',
         ciWaitMinutes: 'The operator will wait up to {m} minutes for you to join.',
         ciWaitOneMinute: 'The operator will wait up to one minute for you to join.',
+        // Pass A — call-ended summary message
+        csEndedByOperator: 'Call ended by operator · Duration {duration}',
+        csEndedByVisitor: 'Call ended by visitor · Duration {duration}',
+        csEndedBySystem: 'Call ended · Duration {duration}',
+        csEndedNotConnected: 'Call did not connect',
         // Pass 2 — In-panel call surface
         csConnecting: 'Connecting to the call\u2026',
         csReconnecting: 'Reconnecting\u2026',
@@ -711,6 +716,10 @@
         ciBodyVideo: 'یک اپراتور شما را به تماس تصویری دعوت می‌کند.',
         ciWaitMinutes: 'اپراتور حداکثر {m} دقیقه منتظر پیوستن شما می‌ماند.',
         ciWaitOneMinute: 'اپراتور حداکثر یک دقیقه منتظر پیوستن شما می‌ماند.',
+        csEndedByOperator: 'تماس از طرف اپراتور پایان یافت · مدت مکالمه {duration}',
+        csEndedByVisitor: 'تماس از طرف کاربر پایان یافت · مدت مکالمه {duration}',
+        csEndedBySystem: 'تماس پایان یافت · مدت مکالمه {duration}',
+        csEndedNotConnected: 'تماس برقرار نشد',
       },
       tr: {
         chat: 'Sohbet', help: 'Yardım',
@@ -816,6 +825,10 @@
         ciBodyVideo: 'Bir operatör sizi görüntülü aramaya davet ediyor.',
         ciWaitMinutes: 'Operatör katılmanız için en fazla {m} dakika bekleyecek.',
         ciWaitOneMinute: 'Operatör katılmanız için en fazla bir dakika bekleyecek.',
+        csEndedByOperator: 'Görüşme operatör tarafından sonlandırıldı · Süre {duration}',
+        csEndedByVisitor: 'Görüşme ziyaretçi tarafından sonlandırıldı · Süre {duration}',
+        csEndedBySystem: 'Görüşme sona erdi · Süre {duration}',
+        csEndedNotConnected: 'Görüşme bağlanamadı',
       },
     };
     return {
@@ -2183,6 +2196,55 @@
       return (t('ciTimeLeft') || '{time} left').replace('{time}', timeStr);
     }
 
+    // Pass A — Format duration_seconds as mm:ss / hh:mm:ss.
+    function fmtCallDuration(seconds) {
+      var s = Math.max(0, Math.floor(Number(seconds) || 0));
+      var hh = Math.floor(s / 3600);
+      var mm = Math.floor((s % 3600) / 60);
+      var ss = s % 60;
+      function pad(n) { return n < 10 ? '0' + n : '' + n; }
+      return hh > 0 ? pad(hh) + ':' + pad(mm) + ':' + pad(ss) : pad(mm) + ':' + pad(ss);
+    }
+
+    // Pass A — Render the system "call ended" summary row in chat.
+    function renderCallEndedRow(msg) {
+      var meta = msg.metadata || {};
+      var endedBy = String(meta.ended_by || 'system');
+      var endReason = String(meta.end_reason || '');
+      var dur = Number(meta.duration_seconds) || 0;
+      var isMissed = endReason === 'failed' || dur <= 0;
+      var key;
+      if (isMissed) {
+        key = 'csEndedNotConnected';
+      } else if (endedBy === 'operator') {
+        key = 'csEndedByOperator';
+      } else if (endedBy === 'visitor') {
+        key = 'csEndedByVisitor';
+      } else {
+        key = 'csEndedBySystem';
+      }
+      var fallback;
+      if (isMissed) {
+        fallback = 'Call did not connect';
+      } else if (endedBy === 'operator') {
+        fallback = 'Call ended by operator · Duration ' + fmtCallDuration(dur);
+      } else if (endedBy === 'visitor') {
+        fallback = 'Call ended by visitor · Duration ' + fmtCallDuration(dur);
+      } else {
+        fallback = 'Call ended · Duration ' + fmtCallDuration(dur);
+      }
+      var raw = t(key);
+      var text = (raw && raw !== key)
+        ? String(raw).replace('{duration}', fmtCallDuration(dur))
+        : fallback;
+      var icon = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+        + '<path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92v3a2 2 0 0 1-2.18 2A19.79 19.79 0 0 1 8.63 18.5"/>'
+        + '<line x1="23" y1="1" x2="1" y2="23"/></svg>';
+      return '<div class="msg-row system"><div class="msg-system-pill">'
+        + icon + '<span>' + Util.escapeHtml(text) + '</span>'
+        + '</div></div>';
+    }
+
     function renderCallInvitationCard(msg) {
       var meta = msg.metadata || {};
       var channel = meta.channel === 'video' ? 'video' : 'audio';
@@ -2553,6 +2615,13 @@
         // card (Join / state) instead of a normal chat bubble.
         if (m.senderType === 'system' && m.metadata && m.metadata.kind === 'call_invitation') {
           html += renderCallInvitationCard(m);
+          return;
+        }
+        // Pass A — Call-ended summary. System message with
+        // metadata.kind === 'call_ended' renders as a centered system row
+        // ("Call ended by operator · Duration 00:34"). Localized.
+        if (m.senderType === 'system' && m.metadata && m.metadata.kind === 'call_ended') {
+          html += renderCallEndedRow(m);
           return;
         }
         var bg = m.sender === 'visitor' ? 'style="background:' + ctx.primaryColor + '"' : '';

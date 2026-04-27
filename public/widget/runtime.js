@@ -2568,6 +2568,13 @@
           html += renderCallInvitationCard(m);
           return;
         }
+        // Pass A — Call-ended summary. System message with
+        // metadata.kind === 'call_ended' renders as a centered system row
+        // ("Call ended by operator · Duration 00:34"). Localized.
+        if (m.senderType === 'system' && m.metadata && m.metadata.kind === 'call_ended') {
+          html += renderCallEndedRow(m);
+          return;
+        }
         var bg = m.sender === 'visitor' ? 'style="background:' + ctx.primaryColor + '"' : '';
         var cls = m.sender === 'visitor' ? 'visitor' : 'operator';
         var hasText = m.body && String(m.body).trim().length > 0;

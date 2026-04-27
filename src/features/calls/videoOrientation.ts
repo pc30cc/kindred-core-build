@@ -51,29 +51,33 @@ export function applyVideoOrientationClass(
     stage.classList.add(`${stagePrefix}--${orientation}`);
     stage.setAttribute('data-video-orientation', orientation);
   }
-  try {
-    // eslint-disable-next-line no-console
-    console.info('[call-ui] video dimensions', {
-      role,
-      videoWidth: el.videoWidth,
-      videoHeight: el.videoHeight,
-      orientation,
-    });
-    // eslint-disable-next-line no-console
-    console.info('[call-ui] orientation class applied', {
-      role,
-      orientation,
-      cls: `${stagePrefix}--${orientation}`,
-    });
-  } catch { /* diagnostic only */ }
+  if (isCallOrientationDebugEnabled()) {
+    try {
+      // eslint-disable-next-line no-console
+      console.info('[call-ui] video dimensions', {
+        role,
+        videoWidth: el.videoWidth,
+        videoHeight: el.videoHeight,
+        orientation,
+      });
+      // eslint-disable-next-line no-console
+      console.info('[call-ui] orientation class applied', {
+        role,
+        orientation,
+        cls: `${stagePrefix}--${orientation}`,
+      });
+    } catch { /* diagnostic only */ }
+  }
   return orientation;
 }
 
 export function isCallOrientationDebugEnabled(): boolean {
   try {
     const params = new URLSearchParams(window.location.search);
-    return import.meta.env.DEV ||
-      params.get('callOrientationDebug') === '1' ||
+    // Off by default (even in DEV) to avoid log spam. Opt in per tab via:
+    //   ?callOrientationDebug=1
+    //   localStorage.setItem('call_orientation_debug', '1')
+    return params.get('callOrientationDebug') === '1' ||
       window.localStorage.getItem('call_orientation_debug') === '1';
   } catch {
     return false;
@@ -82,6 +86,7 @@ export function isCallOrientationDebugEnabled(): boolean {
 
 export function logCallVideoOrientation(role: CallVideoRole, el: HTMLVideoElement | null): void {
   if (!el) return;
+  if (!isCallOrientationDebugEnabled()) return;
   try {
     const computed = window.getComputedStyle(el);
     const dataAttrs: Record<string, string> = {};

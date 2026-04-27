@@ -44,6 +44,12 @@ import {
   loadCallControlPlane,
   loadWorkspaceCallOverrides,
 } from '../services/calls/controlPlane.js';
+import {
+  CALL_ERROR_CODES,
+  CALL_ERROR_HTTP_STATUS,
+  callErrorBody,
+  callErrorFromUnknown,
+} from '../services/calls/errorCodes.js';
 
 export const widgetCallInvitationsRouter = Router();
 
@@ -68,11 +74,21 @@ async function loadOwnedInvitation(
 
   const inv = await getInvitationById(config, invitationId);
   if (!inv) {
-    res.status(404).json({ error: 'invitation_not_found' });
+    res.status(404).json(
+      callErrorBody(
+        CALL_ERROR_CODES.INVITATION_ACCESS_DENIED,
+        'Invitation not found.',
+      ),
+    );
     return null;
   }
   if (inv.workspace_id !== workspaceId) {
-    res.status(403).json({ error: 'workspace_mismatch' });
+    res.status(CALL_ERROR_HTTP_STATUS.invitation_access_denied).json(
+      callErrorBody(
+        CALL_ERROR_CODES.INVITATION_ACCESS_DENIED,
+        'Invitation does not belong to this workspace.',
+      ),
+    );
     return null;
   }
 
@@ -88,7 +104,12 @@ async function loadOwnedInvitation(
     req,
   );
   if (!ownership.valid) {
-    res.status(403).json({ error: 'invitation_access_denied' });
+    res.status(CALL_ERROR_HTTP_STATUS.invitation_access_denied).json(
+      callErrorBody(
+        CALL_ERROR_CODES.INVITATION_ACCESS_DENIED,
+        'Visitor does not own this conversation.',
+      ),
+    );
     return null;
   }
 
@@ -131,7 +152,33 @@ widgetCallInvitationsRouter.post(
     // Validate invitation lifecycle (also flips to 'expired' if past TTL).
     const v = await validateInvitationForJoin(config, owned.invitationId);
     if (!v.ok) {
-      return res.status(409).json({ error: (v as { ok: false; reason: string }).reason });
+      const reason = (v as { ok: false; reason: string }).reason;
+      if (reason === 'expired') {
+        return res.status(CALL_ERROR_HTTP_STATUS.invitation_expired).json(
+          callErrorBody(
+            CALL_ERROR_CODES.INVITATION_EXPIRED,
+            'Invitation has expired.',
+          ),
+        );
+      }
+      if (reason === 'already_joined') {
+        return res.status(CALL_ERROR_HTTP_STATUS.invitation_already_joined).json(
+          callErrorBody(
+            CALL_ERROR_CODES.INVITATION_ALREADY_JOINED,
+            'Invitation has already been joined.',
+          ),
+        );
+      }
+      // cancelled / declined / not_found / unknown — treat as access denied
+      // so the widget always shows the same "this invitation is no longer
+      // valid" UI without leaking lifecycle internals.
+      return res.status(CALL_ERROR_HTTP_STATUS.invitation_access_denied).json(
+        callErrorBody(
+          CALL_ERROR_CODES.INVITATION_ACCESS_DENIED,
+          'Invitation is no longer valid: ' + reason,
+          { details: { reason } },
+        ),
+      );
     }
     const invitation = v.invitation;
 
@@ -139,14 +186,31 @@ widgetCallInvitationsRouter.post(
     try {
       const cp = await loadCallControlPlane(config);
       if (!cp.enabled) {
-        return res.status(409).json({ error: 'calls_disabled' });
+        return res.status(CALL_ERROR_HTTP_STATUS.provider_not_ready).json(
+          callErrorBody(
+            CALL_ERROR_CODES.PROVIDER_NOT_READY,
+            'Voice/Video calls are disabled.',
+          ),
+        );
       }
       const overrides = await loadWorkspaceCallOverrides(config, invitation.workspace_id);
       if (invitation.channel === 'video' && !overrides.allow_video) {
-        return res.status(409).json({ error: 'video_disabled_for_workspace' });
+        return res.status(CALL_ERROR_HTTP_STATUS.provider_not_ready).json(
+          callErrorBody(
+            CALL_ERROR_CODES.PROVIDER_NOT_READY,
+            'Video calls are disabled for this workspace.',
+            { details: { kind: 'video_disabled_for_workspace' } },
+          ),
+        );
       }
       if (invitation.channel === 'audio' && !overrides.allow_voice) {
-        return res.status(409).json({ error: 'voice_disabled_for_workspace' });
+        return res.status(CALL_ERROR_HTTP_STATUS.provider_not_ready).json(
+          callErrorBody(
+            CALL_ERROR_CODES.PROVIDER_NOT_READY,
+            'Voice calls are disabled for this workspace.',
+            { details: { kind: 'voice_disabled_for_workspace' } },
+          ),
+        );
       }
 
       // Resolve the configured call provider for this workspace.
@@ -177,17 +241,33 @@ widgetCallInvitationsRouter.post(
         .single();
       if (insErr || !inserted) {
         console.warn('[widget-invitations/join] insert call_session failed:', insErr?.message);
-        return res.status(500).json({ error: 'call_session_create_failed' });
+        return res.status(CALL_ERROR_HTTP_STATUS.room_create_failed).json(
+          callErrorBody(
+            CALL_ERROR_CODES.ROOM_CREATE_FAILED,
+            'Failed to create call session.',
+            { provider: providerId, details: { kind: 'call_session_create_failed' } },
+          ),
+        );
       }
 
       // Provision the provider room.
-      const room = await provider.createRoom(config, {
-        workspaceId: invitation.workspace_id,
-        callSessionId: inserted.id,
-        callType: invitation.channel,
-        maxParticipants: cp.max_participants,
-        recordingEnabled: false,
-      });
+      let room;
+      try {
+        room = await provider.createRoom(config, {
+          workspaceId: invitation.workspace_id,
+          callSessionId: inserted.id,
+          callType: invitation.channel,
+          maxParticipants: cp.max_participants,
+          recordingEnabled: false,
+        });
+      } catch (roomErr) {
+        const mapped = callErrorFromUnknown(roomErr, {
+          code: CALL_ERROR_CODES.ROOM_CREATE_FAILED,
+          message: 'Provider room creation failed.',
+          provider: providerId,
+        });
+        return res.status(mapped.status).json(mapped.body);
+      }
       await sb
         .from('call_sessions')
         .update({ provider_room_id: room.providerRoomId })
@@ -207,17 +287,27 @@ widgetCallInvitationsRouter.post(
       } catch { /* fall through */ }
 
       // Mint the visitor participant token.
-      const minted = await provider.createParticipantToken(config, {
-        callSessionId: inserted.id,
-        providerRoomId: room.providerRoomId,
-        participantId: visitorIdentity,
-        participantType: 'visitor',
-        displayName: 'Visitor',
-        canPublish: true,
-        canSubscribe: true,
-        canPublishData: true,
-        ttlSeconds: 600,
-      });
+      let minted;
+      try {
+        minted = await provider.createParticipantToken(config, {
+          callSessionId: inserted.id,
+          providerRoomId: room.providerRoomId,
+          participantId: visitorIdentity,
+          participantType: 'visitor',
+          displayName: 'Visitor',
+          canPublish: true,
+          canSubscribe: true,
+          canPublishData: true,
+          ttlSeconds: 600,
+        });
+      } catch (mintErr) {
+        const mapped = callErrorFromUnknown(mintErr, {
+          code: CALL_ERROR_CODES.TOKEN_MINT_FAILED,
+          message: 'Failed to mint participant token.',
+          provider: providerId,
+        });
+        return res.status(mapped.status).json(mapped.body);
+      }
 
       // Network bundle (URLs from resolver) + dynamic TURN creds.
       const network = await getCallNetworkBundle(config);
@@ -256,14 +346,19 @@ widgetCallInvitationsRouter.post(
         rtc_url: network.rtc_url,
         turn: { urls: turn.urls, username: turn.username, credential: turn.credential },
         ice_policy: network.ice_policy,
+        warnings: [
+          ...(turn.urls.length === 0 ? [CALL_ERROR_CODES.TURN_MISSING] : []),
+        ],
       });
     } catch (err: any) {
       if (err instanceof CallProviderNotReadyError) {
-        return res.status(503).json({
-          error: 'call_provider_not_ready',
-          provider: err.providerId,
-          message: err.message,
-        });
+        return res.status(CALL_ERROR_HTTP_STATUS.provider_not_ready).json(
+          callErrorBody(
+            CALL_ERROR_CODES.PROVIDER_NOT_READY,
+            err.message,
+            { provider: err.providerId },
+          ),
+        );
       }
       console.error('[widget-invitations/join] error:', err?.message || err);
       return res.status(500).json({ error: 'internal_error' });

@@ -99,6 +99,9 @@ export interface UseLiveKitCallOptions {
   publishMic?: boolean;
   /** Whether to publish local camera on connect. Default false (audio-first). */
   publishCamera?: boolean;
+  /** Optional owner lifecycle diagnostics; does not affect media attach. */
+  onRemoteParticipantSeen?: (info: { identity: string; source: 'participant_connected' | 'track_subscribed' | 'snapshot' }) => void;
+  onRemoteTrackSubscribed?: (info: { identity: string; kind: string; trackSid?: string }) => void;
 }
 
 export interface UseLiveKitCallApi {
@@ -121,7 +124,7 @@ export interface UseLiveKitCallApi {
 }
 
 export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCallApi {
-  const { publishMic = true, publishCamera = false } = opts;
+  const { publishMic = true, publishCamera = false, onRemoteParticipantSeen, onRemoteTrackSubscribed } = opts;
   const roomRef = useRef<Room | null>(null);
   // Re-entrancy guard. While a connect attempt is in flight OR a room is
   // already active, a second connect() call must NOT spin up a second Room
@@ -188,6 +191,7 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
       .on(RoomEvent.ParticipantConnected, (p: RemoteParticipant) => {
         // eslint-disable-next-line no-console
         console.debug('[livekit] ParticipantConnected', p.identity);
+        onRemoteParticipantSeen?.({ identity: p.identity, source: 'participant_connected' });
         refreshRemotes();
       })
       .on(RoomEvent.ParticipantDisconnected, (p: RemoteParticipant) => {
@@ -198,6 +202,8 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
       .on(RoomEvent.TrackSubscribed, (track: RemoteTrack, _pub, p: RemoteParticipant) => {
         // eslint-disable-next-line no-console
         console.debug('[livekit] TrackSubscribed', track.kind, p.identity, track.sid);
+        onRemoteParticipantSeen?.({ identity: p.identity, source: 'track_subscribed' });
+        onRemoteTrackSubscribed?.({ identity: p.identity, kind: track.kind, trackSid: track.sid });
         refreshRemotes();
       })
       .on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack, _pub, p: RemoteParticipant) => {
@@ -264,7 +270,7 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
       // eslint-disable-next-line no-console
       console.warn('[livekit] room emitted Disconnected', { reason });
     });
-  }, [refreshRemotes, refreshLocalVideo]);
+  }, [refreshRemotes, refreshLocalVideo, onRemoteParticipantSeen, onRemoteTrackSubscribed]);
 
   const connect = useCallback(async (input: {
     wsUrl: string;

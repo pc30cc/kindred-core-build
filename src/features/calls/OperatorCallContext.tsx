@@ -174,6 +174,21 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
   // Active call refs (used for disconnect ctx logging).
   const activeCallSessionIdRef = useRef<string | null>(null);
   const activeCallConversationIdRef = useRef<string | null>(null);
+  // Pass A.2 — Keep the last-active session id around for 30s after we
+  // clear the live refs. This lets us still semantically handle a
+  // `call:ended` event that arrives slightly AFTER LiveKit emitted
+  // Disconnected and we tore the local room down (visitor hangup race).
+  const lastActiveCallSessionIdRef = useRef<string | null>(null);
+  const lastActiveCallConversationIdRef = useRef<string | null>(null);
+  const lastActiveCallEndedAtRef = useRef<number>(0);
+  const RECENT_ENDED_WINDOW_MS = 30_000;
+  // Pass A.2 — Per-participant fallback timers. If the visitor's LiveKit
+  // participant disappears but the server hasn't published call:ended
+  // within 1500ms we POST /api/calls/:id/end ourselves with reason
+  // 'system_ended' so the operator UI never hangs at "in call" with no
+  // remote stream.
+  const remoteLeftFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previousRemoteCountRef = useRef<number>(0);
 
   useEffect(() => {
     surfaceRef.current = surface;
@@ -212,10 +227,23 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
   }, [live, surface.conversationId]);
 
   const clearActiveCallRefs = useCallback(() => {
+    // Snapshot the last active session before clearing — UI may still
+    // need it if a server-published call:ended event arrives a moment
+    // late (visitor hangup → LK Disconnected → call:ended ordering race).
+    if (activeCallSessionIdRef.current) {
+      lastActiveCallSessionIdRef.current = activeCallSessionIdRef.current;
+      lastActiveCallConversationIdRef.current = activeCallConversationIdRef.current;
+      lastActiveCallEndedAtRef.current = Date.now();
+    }
     activeCallConversationIdRef.current = null;
     activeCallSessionIdRef.current = null;
     connectedInvitationIdRef.current = null;
     startedConnectInvitationIdRef.current = null;
+    if (remoteLeftFallbackRef.current) {
+      clearTimeout(remoteLeftFallbackRef.current);
+      remoteLeftFallbackRef.current = null;
+    }
+    previousRemoteCountRef.current = 0;
   }, []);
 
   // Auto-close terminal surface after a short delay so it briefly shows

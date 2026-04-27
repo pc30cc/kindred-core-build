@@ -501,7 +501,16 @@
     }).catch(function (err) {
       var code = (err && err.code) || 'livekit_connect_failed';
       var message = (err && err.message) || 'Failed to connect.';
-      dwarn('connect failed', { code: code, message: message, connectSucceeded: connectSucceeded, publishStarted: publishStarted });
+      connectPromiseSettled = true;
+      dwarn('connect failed', {
+        code: code,
+        message: message,
+        stack: err && err.stack,
+        signalingConnected: signalingConnected,
+        mediaPublishStarted: mediaPublishStarted,
+        mediaPublished: mediaPublished,
+        engineFullyConnected: engineFullyConnected,
+      });
       emitter.emit('error', { code: code, message: message });
       teardownInternal('failed');
       // Re-throw a normalized error so the caller's promise chain sees it.

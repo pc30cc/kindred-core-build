@@ -483,7 +483,6 @@
         callJoinQueue: 'Join the queue',
         callQueued: 'You\u2019re in the queue. We\u2019ll connect you as soon as an operator is free.',
         callQueueCancel: 'Cancel request',
-        callQueueLeftFallback: 'Request cancelled. You can also start a chat instead.',
         callConnecting: 'Connecting\u2026',
         callRecording: 'Recording may apply',
         callSwitchToChat: 'Start a chat instead',

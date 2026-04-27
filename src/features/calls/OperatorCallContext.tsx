@@ -413,6 +413,7 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
           call_session_id: callSessionId,
         });
         rtDebug('call', 'connected', { invitation_id: inv.id, channel: inv.channel });
+        connectedAtRef.current = Date.now();
         setSurface((prev) => prev.phase === 'connecting' ? { ...prev, phase: 'connected' } : prev);
       } catch (err: any) {
         if (cancelled) return;

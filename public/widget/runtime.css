@@ -1717,6 +1717,32 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 
 /* ─── Phase 9 — Call invitation card (system message) ─── */
 .msg-row.system { justify-content: center; padding: 6px 0; }
+/* Pass A — Call ended summary pill (system row). */
+.msg-system-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+  font-size: 12px;
+  line-height: 1.2;
+  max-width: 90%;
+  text-align: center;
+}
+.msg-system-pill svg {
+  flex: 0 0 auto;
+  opacity: 0.75;
+}
+@media (prefers-color-scheme: dark) {
+  .msg-system-pill {
+    background: #1e293b;
+    color: #cbd5e1;
+    border-color: #334155;
+  }
+}
 .ci-card {
   width: 100%;
   max-width: 320px;

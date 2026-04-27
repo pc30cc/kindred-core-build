@@ -825,6 +825,10 @@
         ciBodyVideo: 'Bir operatör sizi görüntülü aramaya davet ediyor.',
         ciWaitMinutes: 'Operatör katılmanız için en fazla {m} dakika bekleyecek.',
         ciWaitOneMinute: 'Operatör katılmanız için en fazla bir dakika bekleyecek.',
+        csEndedByOperator: 'Görüşme operatör tarafından sonlandırıldı · Süre {duration}',
+        csEndedByVisitor: 'Görüşme ziyaretçi tarafından sonlandırıldı · Süre {duration}',
+        csEndedBySystem: 'Görüşme sona erdi · Süre {duration}',
+        csEndedNotConnected: 'Görüşme bağlanamadı',
       },
     };
     return {

@@ -880,7 +880,7 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
     });
     remoteLeftFallbackRef.current = setTimeout(() => {
       remoteLeftFallbackRef.current = null;
-      if (activeCallSessionIdRef.current && activeCallSessionIdRef.current !== armedSessionId) {
+      if (activeCallSessionIdRef.current !== armedSessionId) {
         callLog('ignored stale visitor-left fallback', {
           armedSessionId,
           activeCallSessionId: activeCallSessionIdRef.current,

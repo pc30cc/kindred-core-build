@@ -353,7 +353,7 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
     } finally {
       connectingRef.current = false;
     }
-  }, [publishMic, publishCamera, wireRoom, refreshRemotes]);
+  }, [publishMic, publishCamera, wireRoom, refreshRemotes, refreshLocalVideo]);
 
   const disconnect = useCallback(async (reason: LiveKitDisconnectReason, context: LiveKitDisconnectContext = {}) => {
     const room = roomRef.current;

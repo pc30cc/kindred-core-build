@@ -497,6 +497,9 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
   }) => {
     if (creating || surface.phase !== 'idle') return;
     resetPerCallLifecycleRefs();
+    lastActiveCallSessionIdRef.current = null;
+    lastActiveCallConversationIdRef.current = null;
+    lastActiveCallEndedAtRef.current = 0;
     setCreating(args.channel);
     setLoading(true);
     try {

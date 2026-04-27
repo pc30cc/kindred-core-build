@@ -12,6 +12,8 @@ import { resendVerificationEmail } from '@/lib/auth-email-api';
 import { toast } from 'sonner';
 import { useState, useEffect } from 'react';
 import DegradedModeBanner from '@/components/realtime/DegradedModeBanner';
+import { OperatorCallProvider } from '@/features/calls/OperatorCallContext';
+import { FloatingOperatorCallWindow } from '@/features/calls/FloatingOperatorCallWindow';
 
 const RESEND_COOLDOWN_MS = 60 * 60 * 1000;
 const RESEND_LS_KEY = 'verification_resend_at';
@@ -89,14 +91,19 @@ export function AppLayout() {
 
   return (
     <div dir={dir} className="app-scope flex h-screen overflow-hidden bg-background text-foreground">
-      <AppSidebar />
-      <div className="flex flex-1 flex-col overflow-hidden">
-        {showVerificationBanner && <EmailVerificationBanner />}
-        <DegradedModeBanner />
-        <main className="flex-1 overflow-y-auto">
-          <Outlet />
-        </main>
-      </div>
+      <OperatorCallProvider>
+        <AppSidebar />
+        <div className="flex flex-1 flex-col overflow-hidden">
+          {showVerificationBanner && <EmailVerificationBanner />}
+          <DegradedModeBanner />
+          <main className="flex-1 overflow-y-auto">
+            <Outlet />
+          </main>
+        </div>
+        {/* Survives route changes — reads the same LiveKit room as the
+            sidebar surface so navigation never disconnects the call. */}
+        <FloatingOperatorCallWindow />
+      </OperatorCallProvider>
     </div>
   );
 }

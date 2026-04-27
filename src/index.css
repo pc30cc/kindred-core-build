@@ -427,3 +427,18 @@ html[lang="en"] * {
   color: hsl(var(--warning, 38 92% 50%));
   font-size: 10px; font-style: italic;
 }
+
+/* ─────────────────────────────────────────────────────────────────────
+   Hard product rule: NO video element in the operator UI is ever
+   mirrored. This guard wins over any utility/inline transform that
+   may sneak in via future refactors. Mirrors the equivalent guard in
+   public/widget/runtime.css for the visitor surface.
+   ───────────────────────────────────────────────────────────────────── */
+.call-video,
+.call-video-local,
+.call-video-remote,
+[data-call-video],
+[data-local-video],
+[data-remote-video] {
+  transform: none !important;
+}

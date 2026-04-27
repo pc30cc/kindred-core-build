@@ -131,8 +131,10 @@ export default function InboxPage() {
   const [showSidebar, setShowSidebar] = useState(true);
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('info');
   const [showMobileList, setShowMobileList] = useState(true);
+  const [activeCallConversationId, setActiveCallConversationId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const selectedSnapshotRef = useRef<any>(null);
 
   const { data: conversations, isLoading } = useConversations(workspace?.id, filter === 'all' ? undefined : filter);
   const { data: rawMessages } = useConversationMessages(selectedId ?? undefined);
@@ -250,7 +252,13 @@ export default function InboxPage() {
     }
   };
 
-  const selected = conversations?.find(c => c.id === selectedId);
+  const rawSelected = conversations?.find(c => c.id === selectedId);
+  if (rawSelected) selectedSnapshotRef.current = rawSelected;
+  const selected = rawSelected ?? (
+    selectedId && activeCallConversationId === selectedId && selectedSnapshotRef.current?.id === selectedId
+      ? selectedSnapshotRef.current
+      : undefined
+  );
 
   // Auto-scroll
   useEffect(() => {

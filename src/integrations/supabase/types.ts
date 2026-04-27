@@ -1113,11 +1113,15 @@ export type Database = {
       call_sessions: {
         Row: {
           call_type: Database["public"]["Enums"]["call_type"]
+          connected_at: string | null
           context_id: string | null
           context_type: Database["public"]["Enums"]["call_context_type"]
           created_at: string
           duration_seconds: number | null
+          end_reason: string | null
           ended_at: string | null
+          ended_by: string | null
+          ended_by_user_id: string | null
           id: string
           initiated_by: string | null
           initiated_by_type: Database["public"]["Enums"]["call_participant_type"]
@@ -1133,11 +1137,15 @@ export type Database = {
         }
         Insert: {
           call_type: Database["public"]["Enums"]["call_type"]
+          connected_at?: string | null
           context_id?: string | null
           context_type: Database["public"]["Enums"]["call_context_type"]
           created_at?: string
           duration_seconds?: number | null
+          end_reason?: string | null
           ended_at?: string | null
+          ended_by?: string | null
+          ended_by_user_id?: string | null
           id?: string
           initiated_by?: string | null
           initiated_by_type?: Database["public"]["Enums"]["call_participant_type"]
@@ -1153,11 +1161,15 @@ export type Database = {
         }
         Update: {
           call_type?: Database["public"]["Enums"]["call_type"]
+          connected_at?: string | null
           context_id?: string | null
           context_type?: Database["public"]["Enums"]["call_context_type"]
           created_at?: string
           duration_seconds?: number | null
+          end_reason?: string | null
           ended_at?: string | null
+          ended_by?: string | null
+          ended_by_user_id?: string | null
           id?: string
           initiated_by?: string | null
           initiated_by_type?: Database["public"]["Enums"]["call_participant_type"]

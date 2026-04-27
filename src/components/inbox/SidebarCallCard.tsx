@@ -51,6 +51,7 @@ interface SidebarCallCardProps {
   workspaceId: string;
   conversationId: string;
   contactName?: string | null;
+  onActiveCallChange?: (conversationId: string | null) => void;
 }
 
 // ─── Surface phases (mirror previous OperatorCallSurface) ────────────────
@@ -84,7 +85,7 @@ const STATUS_VISUAL: Record<InvitationStatus, StatusVisual> = {
   declined:  { Icon: PhoneOff,     className: 'bg-destructive/10 border-destructive/30 text-destructive',     labelKey: 'inbox.callInvite.statusDeclined' },
 };
 
-export function SidebarCallCard({ workspaceId, conversationId, contactName }: SidebarCallCardProps) {
+export function SidebarCallCard({ workspaceId, conversationId, contactName, onActiveCallChange }: SidebarCallCardProps) {
   const i18n = useTranslation();
   // Loose-typed translator so newer keys (callSurface.*, callInvite.*) that
   // are not yet in the static KnownKeys union still resolve at runtime.
@@ -112,6 +113,9 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
   // the connecting effect cannot re-fire and double-mount the LiveKit
   // Room when the surface state transiently re-enters 'connecting'.
   const startedConnectInvitationIdRef = useRef<string | null>(null);
+  const activeCallConversationIdRef = useRef<string | null>(null);
+  const activeCallSessionIdRef = useRef<string | null>(null);
+  const previousConversationIdRef = useRef<string>(conversationId);
 
   const surfaceChannel: InvitationChannel = surface.invitation?.channel ?? 'audio';
   const live = useLiveKitCall({
@@ -145,30 +149,74 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
     return t('inbox.callInvite.timeLeft', { time: timeStr }) || `${timeStr} left`;
   }, [t]);
 
-  // Reset everything when switching conversations.
+  const disconnectLive = useCallback((reason: Parameters<typeof live.disconnect>[0], currentConversationId = conversationId) => {
+    return live.disconnect(reason, {
+      activeCallSessionId: activeCallSessionIdRef.current,
+      activeCallConversationId: activeCallConversationIdRef.current,
+      currentConversationId,
+    });
+  }, [conversationId, live]);
+
+  const clearActiveCallRefs = useCallback(() => {
+    activeCallConversationIdRef.current = null;
+    activeCallSessionIdRef.current = null;
+    connectedInvitationIdRef.current = null;
+    startedConnectInvitationIdRef.current = null;
+    onActiveCallChange?.(null);
+  }, [onActiveCallChange]);
+
+  // Reset conversation-scoped UI only when the selected conversation id truly
+  // changes. Realtime object refreshes and same-id re-renders must never tear
+  // down the LiveKit Room.
   useEffect(() => {
+    const previousConversationId = previousConversationIdRef.current;
+    if (previousConversationId === conversationId) return;
+    const activeConversationId = activeCallConversationIdRef.current;
+    const activeSessionId = activeCallSessionIdRef.current;
+    previousConversationIdRef.current = conversationId;
+
+    if (activeSessionId && activeConversationId && conversationId !== activeConversationId) {
+      console.warn('[livekit] conversation switch while active call is being left intentionally', {
+        activeCallSessionId: activeSessionId,
+        activeCallConversationId: activeConversationId,
+        currentConversationId: conversationId,
+      });
+      rtDebug('call', 'conversation switch active-call disconnect', {
+        activeCallSessionId: activeSessionId,
+        activeCallConversationId: activeConversationId,
+        currentConversationId: conversationId,
+      });
+      try { void disconnectLive('conversation_switch_active_call', conversationId); } catch { /* ignore */ }
+      clearActiveCallRefs();
+    }
+
     setLatest(null);
     setCreating(null);
     setLoading(false);
     if (autoCloseRef.current) { clearTimeout(autoCloseRef.current); autoCloseRef.current = null; }
-    // eslint-disable-next-line no-console
-    console.warn('[livekit] disconnect via conversation-switch effect', { conversationId });
-    rtDebug('call', 'conversation-switch disconnect', { conversationId });
-    try { void live.disconnect(); } catch { /* ignore */ }
-    connectedInvitationIdRef.current = null;
-    startedConnectInvitationIdRef.current = null;
+    if (!activeSessionId) clearActiveCallRefs();
     setSurface(INITIAL_SURFACE);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversationId]);
+  }, [conversationId, clearActiveCallRefs, disconnectLive]);
 
   // Cleanup on unmount.
   useEffect(() => {
     return () => {
       if (autoCloseRef.current) clearTimeout(autoCloseRef.current);
-      // eslint-disable-next-line no-console
-      console.warn('[livekit] disconnect via SidebarCallCard unmount');
-      rtDebug('call', 'unmount disconnect');
-      try { live.disconnect(); } catch { /* ignore */ }
+      if (activeCallSessionIdRef.current) {
+        console.warn('[livekit] SidebarCallCard unmounted with active call; LiveKit room is not disconnected here', {
+          activeCallSessionId: activeCallSessionIdRef.current,
+          activeCallConversationId: activeCallConversationIdRef.current,
+          currentConversationId: conversationId,
+        });
+        rtDebug('call', 'active unmount preserved');
+        return;
+      }
+      rtDebug('call', 'unmount no-active-call disconnect');
+      try { live.disconnect('component_unmount_no_active_call', {
+        activeCallSessionId: activeCallSessionIdRef.current,
+        activeCallConversationId: activeCallConversationIdRef.current,
+        currentConversationId: conversationId,
+      }); } catch { /* ignore */ }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

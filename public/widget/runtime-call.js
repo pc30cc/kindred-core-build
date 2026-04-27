@@ -176,6 +176,25 @@
     }
     if (!opts.wsUrl) return Promise.reject(makeErr('livekit_connect_failed', 'Missing wsUrl.'));
     if (!opts.token) return Promise.reject(makeErr('token_mint_failed', 'Missing token.'));
+    // Defensive client-side normalization. Backend already runs
+    // normalizeClientWsUrl(), but a stale frontend bundle paired with a
+    // stale backend (or an admin-saved value like `wss://host/rtc/v1`)
+    // would otherwise hand the SDK a path-bearing URL and trigger
+    // `/rtc/v1/validate 404`. Strip everything but `wss://host[:port]`.
+    var wsUrl = opts.wsUrl;
+    try {
+      var parsed = new URL(String(wsUrl).trim().replace(/\/+$/, ''));
+      var proto = parsed.protocol;
+      if (proto === 'http:') proto = 'ws:';
+      else if (proto === 'https:') proto = 'wss:';
+      if ((proto === 'ws:' || proto === 'wss:') && parsed.host) {
+        var rebuilt = proto + '//' + parsed.host;
+        if (rebuilt !== wsUrl) {
+          try { console.warn('[gs-call] ws_url normalized client-side:', wsUrl, '→', rebuilt); } catch (_) {}
+          wsUrl = rebuilt;
+        }
+      }
+    } catch (_) { /* leave wsUrl as-is; SDK will surface the error */ }
     var publishMic = opts.publishMic !== false;
     var publishCamera = !!opts.publishCamera;
     connecting = true;
@@ -231,7 +250,7 @@
           }
         });
 
-      return nextRoom.connect(opts.wsUrl, opts.token, connectOptions).then(function () {
+      return nextRoom.connect(wsUrl, opts.token, connectOptions).then(function () {
         // Race guard: caller may have invoked disconnect() while we were
         // awaiting the WS handshake.
         if (room !== nextRoom) {

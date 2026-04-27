@@ -24,6 +24,38 @@ import {
   type LocalTrackPublication,
 } from 'livekit-client';
 
+/**
+ * Client-side defensive re-normalization of the LiveKit ws_url.
+ *
+ * The backend already runs `normalizeClientWsUrl()` (see
+ * server/services/calls/rtcResolver.ts) but if a stale frontend bundle
+ * is paired with a stale backend, or an admin saves a malformed value
+ * (`https://host/rtc/v1`, `wss://host/rtc/`), we still hand the SDK a
+ * clean `wss://host[:port]` origin. LiveKit's JS SDK appends `/rtc`
+ * and `/rtc/validate` itself; including any path here produces
+ * `/rtc/v1/validate 404` symptoms in the operator network log.
+ *
+ * Returns the input unchanged when it cannot be parsed so the original
+ * "Missing RTC ws_url" / SDK error surfaces with the bad value visible.
+ */
+function normalizeWsUrlForSdk(raw: string): string {
+  if (!raw) return raw;
+  const trimmed = String(raw).trim().replace(/\/+$/, '');
+  if (!trimmed) return raw;
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return raw;
+  }
+  let protocol = parsed.protocol;
+  if (protocol === 'http:') protocol = 'ws:';
+  else if (protocol === 'https:') protocol = 'wss:';
+  if (protocol !== 'ws:' && protocol !== 'wss:') return raw;
+  if (!parsed.host) return raw;
+  return `${protocol}//${parsed.host}`;
+}
+
 export type CallConnState =
   | 'idle'
   | 'connecting'
@@ -133,6 +165,18 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
     iceTransportPolicy?: 'all' | 'relay';
   }) => {
     if (!input.wsUrl) throw new Error('Missing RTC ws_url from backend resolver');
+    // Belt-and-suspenders: re-normalize on the client so a stale bundle
+    // paired with a misconfigured backend cannot poison the SDK with a
+    // path-bearing URL like `wss://host/rtc/v1`.
+    const wsUrl = normalizeWsUrlForSdk(input.wsUrl);
+    if (wsUrl !== input.wsUrl) {
+      // Visible in the operator console so the misconfig is obvious
+      // without needing the diagnostics endpoint.
+      console.warn(
+        '[livekit] ws_url normalized client-side:',
+        input.wsUrl, '→', wsUrl,
+      );
+    }
     // Idempotency: if a room is already live or a connect is mid-flight,
     // skip silently. The caller (SidebarCallCard) already drives lifecycle
     // via surface.phase — re-entrant calls are bugs we want to swallow,
@@ -161,7 +205,7 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
     roomRef.current = room;
     wireRoom(room);
     try {
-      await room.connect(input.wsUrl, input.token, connectOptions);
+      await room.connect(wsUrl, input.token, connectOptions);
       // Race guard: if someone called disconnect() while we were awaiting
       // the WS handshake, roomRef was cleared. The Room we just joined is
       // now orphaned — tear it down immediately or LiveKit will mark it

@@ -18,6 +18,9 @@ import {
   Room,
   RoomEvent,
   Track,
+  VideoPresets,
+  createLocalVideoTrack,
+  type VideoPreset,
   type RemoteParticipant,
   type RemoteTrack,
   type RemoteTrackPublication,
@@ -66,6 +69,21 @@ export type CallConnState =
   | 'reconnecting'
   | 'disconnected'
   | 'failed';
+
+/** Video quality preset selectable by operator UI / workspace default. */
+export type CallVideoQuality = 'auto' | 'low' | 'medium' | 'high' | 'hd';
+
+function presetForQuality(q: CallVideoQuality): VideoPreset {
+  switch (q) {
+    case 'low': return VideoPresets.h360;
+    case 'medium': return VideoPresets.h540;
+    case 'high': return VideoPresets.h720;
+    case 'hd': return VideoPresets.h1080;
+    case 'auto':
+    default:
+      return VideoPresets.h720;
+  }
+}
 
 export interface RemoteMediaEntry {
   participantSid: string;
@@ -122,6 +140,9 @@ export interface UseLiveKitCallApi {
   disconnect(reason: LiveKitDisconnectReason, context?: LiveKitDisconnectContext): Promise<void>;
   toggleMic(): Promise<void>;
   toggleCamera(): Promise<void>;
+  /** Replace the published camera track with a new preset. Best-effort. */
+  setVideoQuality(q: CallVideoQuality): Promise<void>;
+  videoQuality: CallVideoQuality;
 }
 
 export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCallApi {
@@ -139,6 +160,8 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
   const [localVideoTrack, setLocalVideoTrack] = useState<LocalVideoTrack | null>(null);
   const [micEnabled, setMicEnabled] = useState(publishMic);
   const [cameraEnabled, setCameraEnabled] = useState(publishCamera);
+  const [videoQuality, setVideoQualityState] = useState<CallVideoQuality>('auto');
+  const videoQualityRef = useRef<CallVideoQuality>('auto');
 
   const refreshLocalVideo = useCallback(() => {
     const room = roomRef.current;
@@ -409,9 +432,54 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
     const room = roomRef.current;
     if (!room) return;
     const next = !room.localParticipant.isCameraEnabled;
-    await room.localParticipant.setCameraEnabled(next);
+    if (next) {
+      const preset = presetForQuality(videoQualityRef.current);
+      await room.localParticipant.setCameraEnabled(true, {
+        resolution: preset.resolution,
+      });
+    } else {
+      await room.localParticipant.setCameraEnabled(false);
+    }
     setCameraEnabled(next);
     refreshLocalVideo();
+  }, [refreshLocalVideo]);
+
+  const setVideoQuality = useCallback(async (q: CallVideoQuality) => {
+    videoQualityRef.current = q;
+    setVideoQualityState(q);
+    const room = roomRef.current;
+    if (!room) return;
+    if (!room.localParticipant.isCameraEnabled) return;
+    const preset = presetForQuality(q);
+    try {
+      // Best-effort: republish camera with new resolution. LiveKit
+      // handles renegotiation under the hood. We do not block on errors —
+      // the call must keep flowing even if a layer change fails.
+      const newTrack = await createLocalVideoTrack({ resolution: preset.resolution });
+      // Find existing camera publication and replace its underlying track.
+      let replaced = false;
+      const pubs = Array.from(room.localParticipant.videoTrackPublications.values());
+      for (const pub of pubs) {
+        if (pub.source !== Track.Source.Camera) continue;
+        const existing = pub.track as LocalVideoTrack | undefined;
+        if (existing && typeof (existing as any).replaceTrack === 'function') {
+          await (existing as any).replaceTrack(newTrack.mediaStreamTrack);
+          replaced = true;
+          break;
+        }
+      }
+      if (!replaced) {
+        // Fallback: republish entirely.
+        await room.localParticipant.setCameraEnabled(false);
+        await room.localParticipant.setCameraEnabled(true, { resolution: preset.resolution });
+        try { newTrack.stop(); } catch { /* ignore */ }
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('[livekit] setVideoQuality failed', err);
+    } finally {
+      refreshLocalVideo();
+    }
   }, [refreshLocalVideo]);
 
   // Cleanup on unmount. Do not blindly disconnect an active room here: the
@@ -442,5 +510,5 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
     return () => clearInterval(id);
   }, [state, refreshRemotes]);
 
-  return { state, error, remote, localVideoTrack, micEnabled, cameraEnabled, connect, disconnect, toggleMic, toggleCamera };
+  return { state, error, remote, localVideoTrack, micEnabled, cameraEnabled, connect, disconnect, toggleMic, toggleCamera, setVideoQuality, videoQuality };
 }

@@ -2525,6 +2525,12 @@
         ? (t('ciJoining') || 'Joining…')
         : (t('ciDeclining') || 'Declining…');
       btn.setAttribute('aria-busy', 'true');
+      // Either action ends the "ringing" phase from the visitor's POV.
+      try {
+        if (deps.callBridge && typeof deps.callBridge.stopRingtone === 'function') {
+          deps.callBridge.stopRingtone();
+        }
+      } catch (_) {}
 
       if (action === 'decline') {
         postCallInvitationAction(invitationId, 'decline')

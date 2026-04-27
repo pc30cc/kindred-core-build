@@ -2364,27 +2364,29 @@
           return postCallInvitationAction(invitationId, 'join');
         })
         .then(function (bundle) {
-          // Defensive — readiness resolved but the global was somehow
-          // wiped between then and now. Treat as runtime failure.
-          if (!window.__gs_call || typeof window.__gs_call.incoming !== 'function') {
+          // Pass 2 — drive the headless engine directly. No popup, no
+          // legacy `incoming(...)` shim. The in-panel call surface
+          // (renderCallSurface) is wired up via callSurfaceStore.
+          var engine = window.__gs_call && window.__gs_call.engine;
+          if (!engine || typeof engine.connect !== 'function') {
             throw new Error('call_runtime_unavailable');
           }
-          window.__gs_call.incoming({
-            call_id: bundle.call_id,
-            call_type: bundle.call_type || channel,
-            ws_url: bundle.ws_url,
+          subscribeToEngineOnce();
+          openCallSurface({
+            invitationId: invitationId,
+            callId: bundle.call_id,
+            channel: bundle.call_type || channel,
+          });
+          patchInvitationStatusLocally(invitationId, 'joined');
+          renderBody();
+          return engine.connect({
+            wsUrl: bundle.ws_url,
             token: bundle.token,
             turn: bundle.turn || { urls: [] },
             ice_policy: bundle.ice_policy || 'all',
-            recording: false,
-            operator_name: null,
-            // signal to runtime-call that we want to auto-accept on render.
-            auto_accept: true,
+            publishMic: true,
+            publishCamera: (bundle.call_type || channel) === 'video',
           });
-          // Patch local status only after the call surface actually opens —
-          // prevents a false "joined" pill if window.__gs_call.incoming
-          // throws synchronously.
-          patchInvitationStatusLocally(invitationId, 'joined');
         })
         .catch(function (err) {
           btn.disabled = false;

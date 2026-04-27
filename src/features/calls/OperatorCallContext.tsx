@@ -260,6 +260,8 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
       remoteLeftFallbackRef.current = null;
     }
     previousRemoteCountRef.current = 0;
+    connectedAtRef.current = 0;
+    remoteEndedShownRef.current = false;
   }, []);
 
   // Auto-close terminal surface after a short delay so it briefly shows

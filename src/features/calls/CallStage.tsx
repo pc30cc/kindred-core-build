@@ -150,9 +150,9 @@ export function VideoCallStage({ remote, size = 'small' }: VideoStageProps) {
   if (remote.length === 0) {
     return (
       <div className={size === 'large'
-        ? 'h-full w-full bg-black flex items-center justify-center'
-        : 'aspect-video w-full rounded-xl border border-border bg-black flex items-center justify-center'}>
-        <Loader2 className="w-6 h-6 animate-spin text-white/60" aria-hidden="true" />
+        ? 'h-full w-full bg-call-stage flex items-center justify-center'
+        : 'aspect-video w-full rounded-xl border border-border bg-call-stage flex items-center justify-center'}>
+        <Loader2 className="w-6 h-6 animate-spin text-call-stage-foreground/60" aria-hidden="true" />
       </div>
     );
   }
@@ -163,21 +163,21 @@ export function VideoCallStage({ remote, size = 'small' }: VideoStageProps) {
         <div
           key={r.participantSid}
           className={size === 'large'
-            ? 'relative h-full w-full overflow-hidden bg-black'
-            : 'relative aspect-video w-full rounded-xl overflow-hidden border border-border bg-black'}
+            ? 'relative h-full w-full overflow-hidden bg-call-stage'
+            : 'relative aspect-video w-full rounded-xl overflow-hidden border border-border bg-call-stage'}
         >
           <video
             ref={(el) => { videoRefs.current[r.participantSid] = el; }}
             autoPlay
             playsInline
             muted={false}
-            className="call-video call-video-remote w-full h-full object-cover bg-black"
+            className="call-video call-video-remote w-full h-full object-cover bg-call-stage"
             data-call-video
             data-remote-video
             style={CALL_VIDEO_STYLE}
           />
           {!r.videoTrack && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/70 text-white/80">
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-call-stage/70 text-call-stage-foreground/80">
               <WifiOff className="w-5 h-5" aria-hidden="true" />
               <span className="text-[11px] font-medium">Video paused / reconnecting…</span>
             </div>
@@ -244,13 +244,13 @@ export function LocalVideoPiP({
         autoPlay
         playsInline
         muted
-        className="call-video call-video-local h-full w-full object-cover bg-black"
+        className="call-video call-video-local h-full w-full object-cover bg-call-stage"
         data-call-video
         data-local-video
         style={CALL_VIDEO_STYLE}
       />
       {(!track || !cameraEnabled) && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black text-white/70 text-[11px] font-medium">
+        <div className="absolute inset-0 flex items-center justify-center bg-call-stage text-call-stage-foreground/70 text-[11px] font-medium">
           Camera off
         </div>
       )}
@@ -284,8 +284,8 @@ export function AudioCallStage({ remote }: { remote: Remote }) {
     }
   }, [remote]);
   return (
-    <div className="relative aspect-video w-full rounded-xl overflow-hidden border border-border bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center">
-      <div className="w-20 h-20 rounded-full bg-white/5 ring-1 ring-white/10 flex items-center justify-center">
+    <div className="relative aspect-video w-full rounded-xl overflow-hidden border border-border bg-call-stage flex items-center justify-center">
+      <div className="w-20 h-20 rounded-full bg-call-stage-foreground/5 ring-1 ring-call-stage-foreground/10 flex items-center justify-center">
         <div className="w-12 h-12 rounded-full bg-primary/30 animate-pulse" aria-hidden="true" />
       </div>
       {remote.map((r) => (

@@ -105,11 +105,55 @@
   var lastLocalVideo = null;
   var micEnabled = false;
   var cameraEnabled = false;
+  var connectedAt = 0;
+  // Visitor-side preferred video capture preset. Mirrors the operator
+  // VoiceVideoPage presets so workspace defaults can be honored.
+  var videoQuality = 'auto';
+  // Track current camera deviceId + facingMode hint so switchCamera can
+  // pick a different one without re-prompting the user.
+  var currentCameraDeviceId = '';
+  var currentFacingMode = 'user';
+  var availableCameras = [];
 
   function setState(next) {
     if (state === next) return;
     state = next;
     emitter.emit('state', state);
+  }
+
+  // Map a quality preset name → getUserMedia constraints. Auto/High
+  // target 720p which is the SDK's canonical "good default". We do not
+  // force low quality.
+  function videoConstraintsForQuality(q) {
+    var preset = (q || 'auto').toLowerCase();
+    if (preset === 'low') {
+      return { width: { ideal: 320 }, height: { ideal: 180 }, frameRate: { ideal: 15, max: 20 } };
+    }
+    if (preset === 'medium') {
+      return { width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { ideal: 24, max: 30 } };
+    }
+    if (preset === 'hd' || preset === 'high' || preset === 'auto') {
+      return { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 } };
+    }
+    return { width: { ideal: 1280 }, height: { ideal: 720 } };
+  }
+
+  function refreshAvailableCameras() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+      availableCameras = [];
+      emitter.emit('cameras', { cameras: [], currentDeviceId: currentCameraDeviceId });
+      return Promise.resolve(availableCameras);
+    }
+    return navigator.mediaDevices.enumerateDevices().then(function (devices) {
+      availableCameras = devices.filter(function (d) { return d.kind === 'videoinput'; }).map(function (d) {
+        return { deviceId: d.deviceId, label: d.label || '' };
+      });
+      emitter.emit('cameras', { cameras: availableCameras.slice(), currentDeviceId: currentCameraDeviceId });
+      return availableCameras;
+    }).catch(function () {
+      availableCameras = [];
+      return availableCameras;
+    });
   }
 
   function emitRemote(LK) {
@@ -150,6 +194,8 @@
     cameraEnabled = false;
     lastRemote = { audio: null, video: null };
     lastLocalVideo = null;
+    connectedAt = 0;
+    currentCameraDeviceId = '';
     emitter.emit('remote', lastRemote);
     emitter.emit('local', { video: null });
     emitter.emit('micEnabled', false);
@@ -197,6 +243,7 @@
     } catch (_) { /* leave wsUrl as-is; SDK will surface the error */ }
     var publishMic = opts.publishMic !== false;
     var publishCamera = !!opts.publishCamera;
+    if (opts.videoQuality) videoQuality = opts.videoQuality;
     connecting = true;
     setState('connecting');
 
@@ -285,9 +332,13 @@
             throw makeErr('livekit_connect_failed', 'Connection cancelled during publish.');
           }
           connecting = false;
+          connectedAt = Date.now();
           setState('connected');
           emitRemote(LK);
           emitLocalVideo(LK);
+          // Best-effort: enumerate cameras AFTER permission so labels
+          // become available. Never blocks the connect resolution.
+          try { refreshAvailableCameras(); } catch (_) {}
         });
       });
     }).catch(function (err) {
@@ -324,12 +375,15 @@
     if (!room) return Promise.resolve(false);
     var lp = room.localParticipant;
     var next = !lp.isCameraEnabled;
-    return lp.setCameraEnabled(next).then(function () {
+    var opts = next ? {
+      videoCaptureDefaults: undefined,
+      // Pass current preset constraints when re-enabling so we don't
+      // get a tiny default frame.
+    } : undefined;
+    var captureOptions = next ? { resolution: undefined, deviceId: currentCameraDeviceId || undefined } : undefined;
+    return lp.setCameraEnabled(next, captureOptions).then(function () {
       cameraEnabled = next;
       emitter.emit('cameraEnabled', next);
-      // Local preview track changes when camera flips — re-emit so the UI
-      // can clear/refresh the <video> srcObject without polling.
-      // LiveKit fires LocalTrackPublished/Unpublished too; this is belt+braces.
       try {
         var LK = window.LivekitClient;
         if (LK) emitLocalVideo(LK);
@@ -341,6 +395,107 @@
     });
   }
 
+  /**
+   * Switch front/back camera. Picks the next videoinput device in the
+   * enumerated list. If only one camera exists, resolves with the
+   * existing deviceId (UI can hide the button by inspecting cameras list).
+   *
+   * Strategy:
+   *   1. Enumerate devices (labels exist post-permission).
+   *   2. Pick the next deviceId different from the current one.
+   *   3. Acquire a new MediaStreamTrack with that deviceId + the active
+   *      quality preset.
+   *   4. Replace the published video track in place so the call stays alive.
+   *   5. Update local preview emission.
+   */
+  function switchCamera() {
+    if (!room) return Promise.resolve(null);
+    var LK = window.LivekitClient;
+    if (!LK) return Promise.resolve(null);
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      return Promise.resolve(null);
+    }
+    return refreshAvailableCameras().then(function (cams) {
+      if (!cams || cams.length < 2) return null;
+      var nextDev = null;
+      for (var i = 0; i < cams.length; i++) {
+        if (cams[i].deviceId && cams[i].deviceId !== currentCameraDeviceId) {
+          nextDev = cams[i];
+          break;
+        }
+      }
+      if (!nextDev) nextDev = cams[0];
+      var quality = videoConstraintsForQuality(videoQuality);
+      var videoConstraints = Object.assign({}, quality, { deviceId: { exact: nextDev.deviceId } });
+      // If we have no current track yet (camera off), we still want to
+      // enable + publish using this deviceId.
+      var lp = room.localParticipant;
+      // Find current video publication.
+      var currentPub = null;
+      lp.trackPublications.forEach(function (pub) {
+        if (pub.kind === LK.Track.Kind.Video && pub.track) currentPub = pub;
+      });
+      // Create a new local video track using the LiveKit helper if
+      // available, fall back to raw getUserMedia.
+      function createTrack() {
+        if (LK.createLocalVideoTrack) {
+          return LK.createLocalVideoTrack({
+            deviceId: nextDev.deviceId,
+            resolution: undefined,
+            // pass through raw constraints so quality preset is honored
+            // — LiveKit forwards video constraints to getUserMedia.
+          }).then(function (lkTrack) { return { lkTrack: lkTrack, mediaTrack: lkTrack.mediaStreamTrack }; });
+        }
+        return navigator.mediaDevices.getUserMedia({ video: videoConstraints, audio: false })
+          .then(function (stream) {
+            var t0 = stream.getVideoTracks()[0];
+            return { lkTrack: null, mediaTrack: t0 };
+          });
+      }
+      return createTrack().then(function (made) {
+        currentCameraDeviceId = nextDev.deviceId;
+        if (currentPub && currentPub.track && typeof currentPub.track.replaceTrack === 'function') {
+          return currentPub.track.replaceTrack(made.mediaTrack).then(function () {
+            cameraEnabled = true;
+            emitter.emit('cameraEnabled', true);
+            try { emitLocalVideo(LK); } catch (_) {}
+            try { refreshAvailableCameras(); } catch (_) {}
+            return { deviceId: currentCameraDeviceId };
+          });
+        }
+        // No existing video track — publish fresh.
+        if (made.lkTrack) {
+          return lp.publishTrack(made.lkTrack).then(function () {
+            cameraEnabled = true;
+            emitter.emit('cameraEnabled', true);
+            try { emitLocalVideo(LK); } catch (_) {}
+            return { deviceId: currentCameraDeviceId };
+          });
+        }
+        // raw track path — wrap with LiveKit and publish.
+        if (LK.LocalVideoTrack) {
+          var lkLocal = new LK.LocalVideoTrack(made.mediaTrack);
+          return lp.publishTrack(lkLocal).then(function () {
+            cameraEnabled = true;
+            emitter.emit('cameraEnabled', true);
+            try { emitLocalVideo(LK); } catch (_) {}
+            return { deviceId: currentCameraDeviceId };
+          });
+        }
+        return null;
+      });
+    }).catch(function (e) {
+      try { console.warn('[gs-call] switchCamera failed', e && e.message); } catch (_) {}
+      // Never break the call.
+      return null;
+    });
+  }
+
+  function setVideoQuality(q) {
+    videoQuality = q || 'auto';
+    return Promise.resolve(videoQuality);
+  }
+
   // ───── Public API ─────
   window.__gs_call = {
     engine: {
@@ -348,6 +503,9 @@
       disconnect: disconnect,
       toggleMic: toggleMic,
       toggleCamera: toggleCamera,
+      switchCamera: switchCamera,
+      setVideoQuality: setVideoQuality,
+      listCameras: function () { return refreshAvailableCameras(); },
       on: emitter.on,
       getState: function () {
         return {
@@ -356,6 +514,10 @@
           localVideo: lastLocalVideo,
           micEnabled: micEnabled,
           cameraEnabled: cameraEnabled,
+          connectedAt: connectedAt,
+          cameras: availableCameras.slice(),
+          currentCameraDeviceId: currentCameraDeviceId,
+          videoQuality: videoQuality,
         };
       },
     },

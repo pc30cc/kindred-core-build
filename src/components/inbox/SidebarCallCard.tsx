@@ -654,7 +654,7 @@ function VideoWaitingTile({ previewStream, previewState }: WaitingTileProps) {
         playsInline
         muted
         className={cn(
-          'call-video call-video-local absolute inset-0 w-full h-full object-cover bg-black transition-opacity duration-200',
+          'call-video call-video-local absolute inset-0 w-full h-full object-cover bg-call-stage transition-opacity duration-200',
           showVideo ? 'opacity-100' : 'opacity-0',
         )}
         data-call-video

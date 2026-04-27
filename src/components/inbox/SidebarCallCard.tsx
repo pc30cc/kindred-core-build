@@ -345,7 +345,7 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
                     variant="default"
                     className="h-8 px-3 rounded-full bg-destructive text-destructive-foreground hover:bg-destructive/90 gap-1.5"
                     onClick={() => void hangup()}
-                    aria-label="End call"
+                    aria-label={safeT('inbox.callSurface.hangup', 'End call')}
                   >
                     <PhoneOff className="w-3.5 h-3.5" aria-hidden="true" />
                     <span className="text-[11px] font-semibold">{t('inbox.callSurface.hangup') || 'End'}</span>
@@ -399,7 +399,7 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
         <CardContent className="p-3 flex items-center gap-2">
           <span className="h-2 w-2 rounded-full bg-success animate-pulse" aria-hidden="true" />
           <span className="text-[11px] font-medium text-foreground flex-1 truncate">
-            {isVideo ? 'Video call' : 'Audio call'} — open in floating window
+            {isVideo ? safeT('inbox.callSurface.videoCall', 'Video call') : safeT('inbox.callSurface.audioCall', 'Audio call')} — {safeT('inbox.callSurface.openInFloating', 'open in floating window')}
           </span>
           <Button
             size="sm"
@@ -414,7 +414,7 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
             variant="default"
             className="h-7 w-7 p-0 rounded-full bg-destructive text-destructive-foreground hover:bg-destructive/90"
             onClick={() => void hangup()}
-            aria-label="End call"
+            aria-label={safeT('inbox.callSurface.hangup', 'End call')}
           >
             <PhoneOff className="w-3 h-3" />
           </Button>
@@ -431,10 +431,10 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
           <span className="h-2 w-2 rounded-full bg-warning animate-pulse" aria-hidden="true" />
           <div className="flex-1 min-w-0">
             <div className="text-[11px] font-medium text-foreground truncate">
-              Active call in another conversation
+              {safeT('inbox.callSurface.activeOtherConv', 'Active call in another conversation')}
             </div>
             <div className="text-[10px] text-muted-foreground truncate">
-              End it before starting a new one
+              {safeT('inbox.callSurface.activeOtherConvHint', 'End it before starting a new one')}
             </div>
           </div>
           <Button
@@ -443,7 +443,7 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
             className="h-7 px-2 text-[10px]"
             onClick={() => setFloatingMode('expanded')}
           >
-            Open
+            {safeT('inbox.callSurface.activeOpen', 'Open')}
           </Button>
         </CardContent>
       </Card>

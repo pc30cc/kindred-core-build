@@ -87,6 +87,22 @@ const INITIAL_SURFACE: OperatorCallSurface = {
   workspaceId: null,
 };
 
+interface AutoCloseTarget {
+  invitationId: string | null;
+  callSessionId: string | null;
+  conversationId: string | null;
+}
+
+function callLog(message: string, data?: Record<string, unknown>): void {
+  // eslint-disable-next-line no-console
+  console.debug(`[call] ${message}`, data ?? {});
+}
+
+function callWarn(message: string, data?: Record<string, unknown>): void {
+  // eslint-disable-next-line no-console
+  console.warn(`[call] ${message}`, data ?? {});
+}
+
 export type FloatingMode = 'docked' | 'expanded' | 'minimized';
 
 export interface OperatorCallContextValue {
@@ -151,12 +167,17 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
   const [latestMap, setLatestMap] = useState<Record<string, CallInvitation | null>>({});
 
   const autoCloseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const surfaceRef = useRef<OperatorCallSurface>(surface);
   const cancellingRef = useRef(false);
   const connectedInvitationIdRef = useRef<string | null>(null);
   const startedConnectInvitationIdRef = useRef<string | null>(null);
   // Active call refs (used for disconnect ctx logging).
   const activeCallSessionIdRef = useRef<string | null>(null);
   const activeCallConversationIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    surfaceRef.current = surface;
+  }, [surface]);
 
   const live = useLiveKitCall({
     publishMic: true,
@@ -172,6 +193,17 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
     reason: Parameters<typeof live.disconnect>[0],
     currentConversationId: string | null = surface.conversationId,
   ) => {
+    if (
+      reason === 'server_call_ended' &&
+      (!activeCallSessionIdRef.current || !activeCallConversationIdRef.current)
+    ) {
+      callWarn('ignored call:ended without active session', {
+        activeCallSessionId: activeCallSessionIdRef.current,
+        activeCallConversationId: activeCallConversationIdRef.current,
+        currentConversationId,
+      });
+      return Promise.resolve();
+    }
     return live.disconnect(reason, {
       activeCallSessionId: activeCallSessionIdRef.current,
       activeCallConversationId: activeCallConversationIdRef.current,

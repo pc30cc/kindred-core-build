@@ -4742,6 +4742,12 @@
         subscribeToEngineOnce: function () { return subscribeToEngineOnce(); },
         openCallSurface: function (opts) { return openCallSurface(opts); },
         renderBody: function () { return renderBody(); },
+        // Forwarded lazily because `notify` is constructed below this
+        // call. By the time the visitor clicks a Join/Decline button,
+        // notify is fully wired.
+        stopRingtone: function () {
+          try { if (notify && notify.stopRingtone) notify.stopRingtone(); } catch (_) {}
+        },
       },
     });
     var kbUI = createKbUI({

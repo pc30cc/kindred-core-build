@@ -531,6 +531,14 @@
     var runtimeCss = configData.styleUrl || "";
     var runtimeJs = configData.runtimeUrl || "";
     var callRuntimeJs = configData.callRuntimeUrl || "";
+    // Pass 2 — vendor LiveKit SDK URL (hashed, self-hosted). Set BEFORE
+    // any runtime-call.js script runs so its strict loadSdk() never has
+    // to fall back to anything. When this is missing the call surface
+    // surfaces a `sdk_url_missing` error at Join time — never silently.
+    var livekitSdkUrl = configData.livekitSdkUrl || "";
+    if (livekitSdkUrl) {
+      try { window.__gs_call_sdk_url = livekitSdkUrl; } catch (_) { /* noop */ }
+    }
     if (!runtimeJs || !runtimeCss) {
       warn("No runtime URL");
       runtimeLoading = false;

@@ -437,10 +437,10 @@ html[lang="en"] * {
 }
 
 /* ─────────────────────────────────────────────────────────────────────
-   Hard product rule: NO video element in the operator UI is ever
-   mirrored. This guard wins over any utility/inline transform that
-   may sneak in via future refactors. Mirrors the equivalent guard in
-   public/widget/runtime.css for the visitor surface.
+   Real-world call orientation correction. Browser/WebRTC raw camera output
+   was visually flipped in production, so every displayed camera video gets
+   the same correction. This intentionally fixes the human-visible result;
+   do not replace with transform:none unless verified with a physical test.
    ───────────────────────────────────────────────────────────────────── */
 .call-video,
 .call-video video,
@@ -453,7 +453,7 @@ html[lang="en"] * {
 [data-local-video] video,
 [data-remote-video] video,
 video.call-video {
-  transform: none !important;
+  transform: scaleX(-1) !important;
   scale: 1 !important;
   rotate: 0deg !important;
 }

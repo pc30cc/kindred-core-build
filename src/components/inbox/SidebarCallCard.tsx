@@ -239,13 +239,13 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
               {surface.phase === 'connected' && (
                 <Button
                   size="sm"
-                  variant="ghost"
-                  className="h-7 px-2 shrink-0 gap-1 text-[10px] font-semibold"
+                  variant="default"
+                  className="h-8 shrink-0 gap-1.5 rounded-full px-3 text-[11px] font-bold shadow-sm"
                   onClick={(e) => { e.preventDefault(); e.stopPropagation(); setFloatingMode('expanded'); }}
                   aria-label={t('inbox.callSurface.expand') || 'Expand call window'}
-                  title={t('inbox.callSurface.expand') || 'Expand'}
+                  title={t('inbox.callSurface.expand') || 'Expand call window'}
                 >
-                  <Maximize2 className="w-3.5 h-3.5" />
+                  <Maximize2 className="w-4 h-4" />
                   <span>{t('inbox.callSurface.expand') || 'Expand'}</span>
                 </Button>
               )}

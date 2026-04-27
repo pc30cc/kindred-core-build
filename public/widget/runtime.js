@@ -4354,7 +4354,7 @@
       if (el.tagName === 'VIDEO' && !el.__gsCallEventsBound) {
         el.__gsCallEventsBound = true;
         var roleTag = role || 'video';
-        ['loadedmetadata', 'playing', 'waiting', 'stalled', 'error'].forEach(function (evt) {
+        ['loadedmetadata', 'playing', 'waiting', 'stalled', 'error', 'resize'].forEach(function (evt) {
           el.addEventListener(evt, function () {
             try {
               console.info('[gs-call-ui] remote video event', {
@@ -4366,6 +4366,9 @@
                 paused: el.paused,
               });
             } catch (_) {}
+            if (evt === 'loadedmetadata' || evt === 'resize' || evt === 'playing') {
+              try { applyCallVideoOrientation(el, roleTag); } catch (_) {}
+            }
           });
         });
       }

@@ -527,7 +527,7 @@
   }
 
   function toggleMic() {
-    if (!room) return Promise.resolve(false);
+    if (!room || !engineFullyConnected) return Promise.resolve(micEnabled);
     var lp = room.localParticipant;
     var next = !lp.isMicrophoneEnabled;
     return lp.setMicrophoneEnabled(next).then(function () {
@@ -541,7 +541,7 @@
   }
 
   function toggleCamera() {
-    if (!room) return Promise.resolve(false);
+    if (!room || !engineFullyConnected) return Promise.resolve(cameraEnabled);
     var lp = room.localParticipant;
     var next = !lp.isCameraEnabled;
     var opts = next ? {
@@ -578,7 +578,7 @@
    *   5. Update local preview emission.
    */
   function switchCamera() {
-    if (!room) return Promise.resolve(null);
+    if (!room || !engineFullyConnected) return Promise.resolve(null);
     var LK = window.LivekitClient;
     if (!LK) return Promise.resolve(null);
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -674,7 +674,7 @@
       toggleCamera: toggleCamera,
       switchCamera: switchCamera,
       setVideoQuality: setVideoQuality,
-      listCameras: function () { return refreshAvailableCameras(); },
+      listCameras: function () { return engineFullyConnected ? refreshAvailableCameras() : Promise.resolve([]); },
       on: emitter.on,
       getState: function () {
         return {

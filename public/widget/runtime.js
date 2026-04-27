@@ -477,8 +477,6 @@
         chat: 'Chat', help: 'Help',
         voiceCall: 'Voice', videoCall: 'Video',
         callStart: 'Start call',
-        callStartAudio: 'Start a voice call',
-        callStartVideo: 'Start a video call',
         callRequiresPrechat: 'Please share your details to start a call.',
         callUnavailable: 'Calls are unavailable right now.',
         callQueueIntro: 'No operator is free right now. We can hold your place in the call queue.',
@@ -626,8 +624,6 @@
         chat: 'گفتگو', help: 'راهنما',
         voiceCall: 'تماس صوتی', videoCall: 'تماس تصویری',
         callStart: 'شروع تماس',
-        callStartAudio: 'یک تماس صوتی برقرار کنید',
-        callStartVideo: 'یک تماس تصویری برقرار کنید',
         callRequiresPrechat: 'برای شروع تماس لطفاً اطلاعات خود را وارد کنید.',
         callUnavailable: 'تماس در حال حاضر در دسترس نیست.',
         callQueueIntro: 'اپراتوری در دسترس نیست. می‌توانید در صف تماس قرار بگیرید.',
@@ -768,8 +764,6 @@
         chat: 'Sohbet', help: 'Yardım',
         voiceCall: 'Sesli', videoCall: 'Görüntülü',
         callStart: 'Aramayı başlat',
-        callStartAudio: 'Sesli arama başlat',
-        callStartVideo: 'Görüntülü arama başlat',
         callRequiresPrechat: 'Aramayı başlatmak için lütfen bilgilerinizi paylaşın.',
         callUnavailable: 'Aramalar şu anda kullanılamıyor.',
         callQueueIntro: 'Şu an müsait operatör yok. Sıraya alabiliriz.',
@@ -3760,28 +3754,6 @@
     // Single source of truth: window.__gs_policy injected by handshakes.
     // No hardcoded defaults — when the policy is missing or call channels
     // are off the buttons are hidden so visitors see no broken UI.
-    function callPolicy() {
-      try {
-        var p = (typeof window !== 'undefined' && window.__gs_policy) || {};
-        return {
-          voice: !!p.voice_enabled && !!p.visitor_initiated_audio,
-          video: !!p.video_enabled && !!p.visitor_initiated_video,
-          queue: !!p.queue_enabled,
-          recording: !!p.recording_enabled,
-          preChat: !!p.pre_chat_required,
-        };
-      } catch (_) {
-        return { voice: false, video: false, queue: false, recording: false, preChat: false };
-      }
-    }
-    // Local store: queue entry for the current visitor (in-memory only).
-    var callStore = createStore({
-      activeChannel: null,    // 'audio' | 'video' | null
-      phase: 'idle',          // idle | enqueueing | queued | unavailable | error
-      entryId: null,
-      error: '',
-    });
-
     // ─── Pass 2 — In-panel call surface store ───
     // Drives the call view that lives INSIDE the widget panel Shadow DOM
     // (see renderCallSurface below). Replaces the legacy out-of-panel

@@ -4291,12 +4291,50 @@
         });
       } catch (_) { /* diagnostic only */ }
     }
+    function getCallVideoOrientation(el) {
+      if (!el) return null;
+      var w = el.videoWidth || 0;
+      var h = el.videoHeight || 0;
+      if (!w || !h) return null;
+      if (h > w * 1.05) return 'portrait';
+      if (w > h * 1.05) return 'landscape';
+      return 'square';
+    }
+    function applyCallVideoOrientation(el, role) {
+      if (!el) return null;
+      var orientation = getCallVideoOrientation(el);
+      if (!orientation) return null;
+      var classes = ['gs-call-video--portrait', 'gs-call-video--landscape', 'gs-call-video--square'];
+      classes.forEach(function (c) { el.classList.remove(c); });
+      el.classList.add('gs-call-video--' + orientation);
+      var stage = el.closest('[data-call-stage], [data-call-surface]');
+      if (stage) {
+        classes.forEach(function (c) { stage.classList.remove(c); });
+        stage.classList.add('gs-call-video--' + orientation);
+        stage.setAttribute('data-video-orientation', orientation);
+      }
+      try {
+        console.info('[call-ui] video dimensions', {
+          role: role,
+          videoWidth: el.videoWidth,
+          videoHeight: el.videoHeight,
+          orientation: orientation,
+        });
+        console.info('[call-ui] orientation class applied', {
+          role: role,
+          orientation: orientation,
+          cls: 'gs-call-video--' + orientation,
+        });
+      } catch (_) {}
+      return orientation;
+    }
     function bindTrack(el, track, lkTrack, role) {
       if (el && el.tagName === 'VIDEO') {
         try { el.style.transform = 'scaleX(-1)'; } catch (_) {}
         try { el.style.scale = '1'; } catch (_) {}
         try { el.style.rotate = '0deg'; } catch (_) {}
         logCallVideoOrientation(el);
+        applyCallVideoOrientation(el, role);
       }
       var prevId = el.__gsBoundTrackId || '';
       var prevAttachedLkTrack = el.__gsAttachedLkTrack || null;

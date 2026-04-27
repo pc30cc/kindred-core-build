@@ -225,7 +225,9 @@ export function FloatingOperatorCallWindow() {
         isMinimized
           ? 'pointer-events-none absolute -left-[10000px] top-0 h-px w-px overflow-hidden opacity-0'
           : 'relative min-h-0 flex-1 overflow-hidden',
-      )}>
+      )}
+        data-portrait-stage={isPortraitStage ? 'true' : 'false'}
+      >
         {isRemoteEndedTerminal ? (
           <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-call-stage px-6 text-center text-call-stage-foreground">
             <div className="flex h-14 w-14 items-center justify-center rounded-full bg-call-stage-foreground/10 ring-1 ring-call-stage-foreground/20">

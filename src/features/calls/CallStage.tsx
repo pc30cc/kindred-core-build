@@ -52,6 +52,7 @@ export function VideoCallStage({ remote, size = 'small' }: VideoStageProps) {
   const attachedTrackRef = useRef<Record<string, RemoteVideoTrack | null>>({});
   const audioRefs = useRef<Record<string, HTMLAudioElement | null>>({});
   const attachedAudioRef = useRef<Record<string, RemoteAudioTrack | null>>({});
+  const blurBgRefs = useRef<Record<string, HTMLVideoElement | null>>({});
 
   // Video attach / detach.
   useLayoutEffect(() => {

@@ -3854,6 +3854,10 @@
         localVideo: null,
         micEnabled: false,
         cameraEnabled: false,
+        connectedAt: 0,
+        endedDuration: 0,
+        cameras: [],
+        switchingCamera: false,
       });
       // Restore the previous tab + re-render so the chat view comes back.
       shellStore.set({ activeTab: prev });

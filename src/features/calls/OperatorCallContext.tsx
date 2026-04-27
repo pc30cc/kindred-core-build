@@ -138,6 +138,8 @@ export interface OperatorCallContextValue {
   cancelInvite(): Promise<void>;
   /** Operator hangup (or close terminal early). */
   hangup(): Promise<void>;
+  /** Close a terminal call UI without calling the hangup/end endpoint. */
+  closeTerminal(): void;
   /** Force-refresh the latest invitation for a conversation (sidebar polling). */
   refreshLatest(conversationId: string): Promise<void>;
   /** Pass A — last ended summary for "Call ended · mm:ss" UI. */
@@ -205,6 +207,37 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
   // 100–1500ms later updates the existing surface (with duration) instead
   // of re-opening anything.
   const remoteEndedShownRef = useRef<boolean>(false);
+  const hasLiveConnectSucceededRef = useRef<boolean>(false);
+  const hasRemoteParticipantEverConnectedRef = useRef<boolean>(false);
+  const hasRemoteTrackEverSubscribedRef = useRef<boolean>(false);
+  const remoteParticipantSeenAtRef = useRef<number>(0);
+  const connectStartedAtRef = useRef<number>(0);
+  const liveConnectPendingRef = useRef<boolean>(false);
+  const realVisitorDisconnectedRef = useRef<boolean>(false);
+
+  const markRemoteParticipantSeen = useCallback((source: 'participant_connected' | 'track_subscribed' | 'snapshot', detail?: Record<string, unknown>) => {
+    if (!hasRemoteParticipantEverConnectedRef.current) {
+      hasRemoteParticipantEverConnectedRef.current = true;
+      remoteParticipantSeenAtRef.current = Date.now();
+      callLog('remote participant seen', { source, ...detail });
+    }
+  }, []);
+
+  const resetPerCallLifecycleRefs = useCallback(() => {
+    if (remoteLeftFallbackRef.current) {
+      clearTimeout(remoteLeftFallbackRef.current);
+      remoteLeftFallbackRef.current = null;
+    }
+    remoteEndedShownRef.current = false;
+    previousRemoteCountRef.current = 0;
+    hasLiveConnectSucceededRef.current = false;
+    hasRemoteParticipantEverConnectedRef.current = false;
+    hasRemoteTrackEverSubscribedRef.current = false;
+    remoteParticipantSeenAtRef.current = 0;
+    connectStartedAtRef.current = 0;
+    liveConnectPendingRef.current = false;
+    realVisitorDisconnectedRef.current = false;
+  }, []);
 
   useEffect(() => {
     surfaceRef.current = surface;
@@ -213,6 +246,20 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
   const live = useLiveKitCall({
     publishMic: true,
     publishCamera: surface.channel === 'video',
+    onRemoteParticipantSeen: ({ identity, source }) => {
+      markRemoteParticipantSeen(source, { identity });
+    },
+    onRemoteParticipantDisconnected: ({ identity }) => {
+      if (hasRemoteParticipantEverConnectedRef.current) {
+        realVisitorDisconnectedRef.current = true;
+        callLog('remote participant disconnected', { identity });
+      }
+    },
+    onRemoteTrackSubscribed: ({ identity, kind, trackSid }) => {
+      hasRemoteTrackEverSubscribedRef.current = true;
+      markRemoteParticipantSeen('track_subscribed', { identity, kind, trackSid });
+      callLog('remote track subscribed', { identity, kind, trackSid });
+    },
   });
 
   const preview = useLocalMediaPreview({

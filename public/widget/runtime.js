@@ -1962,6 +1962,26 @@
     var openImageLightbox = typeof deps.openImageLightbox === 'function'
       ? deps.openImageLightbox
       : function () {};
+    // Pass 2 fix — the in-panel call surface helpers live in
+    // __gs_runtime.init's closure (callSurfaceStore + subscribeToEngineOnce
+    // + openCallSurface + renderBody). They were previously referenced
+    // directly from handleCallInvitationClick, which is defined inside this
+    // outer function and therefore had no visibility into them — causing
+    // `subscribeToEngineOnce is not defined` at click time.
+    //
+    // We now require the shell to inject them via deps. All four are
+    // defensively wrapped so a partial wiring still degrades gracefully
+    // instead of throwing inside an event handler.
+    var callBridge = (deps && deps.callBridge) || {};
+    var subscribeToEngineOnce = typeof callBridge.subscribeToEngineOnce === 'function'
+      ? callBridge.subscribeToEngineOnce
+      : function () { try { console.warn('[gs-call] subscribeToEngineOnce missing — build wiring bug'); } catch (_) {} return false; };
+    var openCallSurface = typeof callBridge.openCallSurface === 'function'
+      ? callBridge.openCallSurface
+      : function () { try { console.warn('[gs-call] openCallSurface missing'); } catch (_) {} };
+    var renderBody = typeof callBridge.renderBody === 'function'
+      ? callBridge.renderBody
+      : function () {};
 
     function mergeIncoming(incoming) {
       if (!incoming || !incoming.length) return false;
@@ -4119,6 +4139,16 @@
       transportStore: transportStore,
       transport: transport,
       openImageLightbox: function (id) { lightboxOpener(id); },
+      // Pass 2 fix — bridge the in-panel call-surface helpers defined later
+      // in this same init() closure into createChatUI so its invitation
+      // Join handler can drive the headless engine without relying on
+      // module-global lookups (which previously threw
+      // `subscribeToEngineOnce is not defined`).
+      callBridge: {
+        subscribeToEngineOnce: function () { return subscribeToEngineOnce(); },
+        openCallSurface: function (opts) { return openCallSurface(opts); },
+        renderBody: function () { return renderBody(); },
+      },
     });
     var kbUI = createKbUI({
       ctx: ctx,

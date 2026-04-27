@@ -3921,6 +3921,8 @@
 
     function openCallSurface(opts) {
       var prev = shellStore.get().activeTab || 'chat';
+      // Joining/connecting a call ends any incoming-call ringing UX.
+      try { if (notify && notify.stopRingtone) notify.stopRingtone('call_surface_open'); } catch (_) {}
       callSurfaceStore.set({
         phase: 'connecting',
         invitationId: opts.invitationId || null,
@@ -3942,6 +3944,7 @@
     function closeCallSurface(manualHangup) {
       var prev = callSurfaceStore.get().previousTab || 'chat';
       var snap = callSurfaceStore.get();
+      try { if (notify && notify.stopRingtone) notify.stopRingtone('call_surface_close'); } catch (_) {}
       // Pass A — best-effort tell the server the visitor ended the call
       // BEFORE we tear down LiveKit locally, so the operator inbox sees
       // a `call:ended` event with reason='visitor_ended' and a duration.
@@ -4000,6 +4003,7 @@
     // overwrite with the canonical server message if there is one.
     function handleServerCallEnded(payload) {
       try {
+        try { if (notify && notify.stopRingtone) notify.stopRingtone('server_call_ended'); } catch (_) {}
         var snap = callSurfaceStore.get();
         var matchesActive = snap && snap.callId && payload &&
           (payload.call_session_id === snap.callId || payload.call_id === snap.callId);

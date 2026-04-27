@@ -1614,10 +1614,16 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 .gs-call-local-video {
   width: 100%;
   height: 100%;
+  /* Cover keeps the face centered in the small PiP tile without
+     distortion. Aspect ratio of the tile itself follows the camera
+     orientation via JS-applied classes. */
   object-fit: cover;
   background: #0b1220;
   display: block;
 }
+/* PiP tile aspect adapts to local camera orientation. */
+.gs-call-pip.gs-call-video--portrait { aspect-ratio: 3 / 4; height: auto; }
+.gs-call-pip.gs-call-video--landscape { aspect-ratio: 16 / 9; height: auto; }
 .gs-call-local-video[hidden] { display: none; }
 .gs-call-pip-off {
   position: absolute;

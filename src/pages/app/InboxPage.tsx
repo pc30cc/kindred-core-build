@@ -1051,12 +1051,12 @@ export default function InboxPage() {
                   const isMissed = endReason === 'failed' || dur <= 0;
                   const key =
                     isMissed
-                      ? 'callEnded.summary.notConnected'
+                      ? 'inbox.callEnded.summary.notConnected'
                       : endedBy === 'operator'
-                        ? 'callEnded.summary.byOperator'
+                        ? 'inbox.callEnded.summary.byOperator'
                         : endedBy === 'visitor'
-                          ? 'callEnded.summary.byVisitor'
-                          : 'callEnded.summary.bySystem';
+                          ? 'inbox.callEnded.summary.byVisitor'
+                          : 'inbox.callEnded.summary.bySystem';
                   const fallback = isMissed
                     ? 'Call did not connect'
                     : endedBy === 'operator'

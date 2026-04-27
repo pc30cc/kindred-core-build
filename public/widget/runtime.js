@@ -4912,6 +4912,9 @@
       var t1 = shellStore.get().activeTab;
       if (t1 === 'voice' || t1 === 'video') renderBody();
     });
+    // Pass 2 — re-render whenever the in-panel call surface changes so
+    // status text, mic/cam state, and remote tracks paint immediately.
+    callSurfaceStore.subscribe(function () { renderBody(); });
     // Re-render body when presence flips so fallback/normal swap takes effect.
     presenceStore.subscribe(function () {
       if (shellStore.get().activeTab === 'chat') renderBody();

@@ -50,6 +50,7 @@ import {
   callErrorBody,
   callErrorFromUnknown,
 } from '../services/calls/errorCodes.js';
+import { endCallSession } from '../services/calls/endSession.js';
 
 export const widgetCallInvitationsRouter = Router();
 
@@ -133,6 +134,40 @@ widgetCallInvitationsRouter.post(
       invitation: result.invitation,
       status: result.invitation?.status,
     });
+  },
+);
+
+// ─── POST /:id/end ──────────────────────────────────────────────────────
+//
+// Pass A — Visitor-side end-call endpoint. Looks up the active call_session
+// associated with the invitation, verifies the visitor owns the conversation
+// (already done by loadOwnedInvitation), and delegates to the same
+// idempotent endCallSession helper used by the operator. Realtime fan-out
+// is performed inside the helper so the operator inbox immediately
+// surfaces a 'call:ended' event with reason='visitor_ended'.
+widgetCallInvitationsRouter.post(
+  '/:id/end',
+  widgetRateLimit('default'),
+  async (req: Request, res: Response) => {
+    const config = (req as any).serverConfig as ServerConfig;
+    const owned = await loadOwnedInvitation(config, req, res);
+    if (!owned) return;
+    // Resolve the call_session_id linked to this invitation.
+    const inv = await getInvitationById(config, owned.invitationId);
+    if (!inv) return res.status(404).json({ error: 'invitation_not_found' });
+    if (!inv.call_session_id) {
+      // Visitor never actually joined a session — nothing to end on the
+      // call_sessions table. Treat as success so client UI returns to chat.
+      return res.json({ ok: true, was_active: false });
+    }
+    const summary = await endCallSession(config, {
+      callId: inv.call_session_id,
+      reason: 'visitor_ended',
+      endedBy: 'visitor',
+      endedByUserId: null,
+    });
+    if (!summary.ok) return res.status(404).json({ error: 'not_found' });
+    return res.json({ ok: true, ...summary });
   },
 );
 

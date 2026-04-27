@@ -3723,6 +3723,16 @@
 
     function closeCallSurface() {
       var prev = callSurfaceStore.get().previousTab || 'chat';
+      var snap = callSurfaceStore.get();
+      // Pass A — best-effort tell the server the visitor ended the call
+      // BEFORE we tear down LiveKit locally, so the operator inbox sees
+      // a `call:ended` event with reason='visitor_ended' and a duration.
+      // Idempotent server-side; we never block the local teardown.
+      try {
+        if (snap && snap.invitationId) {
+          postCallInvitationAction(snap.invitationId, 'end').catch(function () {});
+        }
+      } catch (_) {}
       // Best-effort: ensure the engine is torn down. Idempotent.
       try {
         var engine = window.__gs_call && window.__gs_call.engine;
@@ -3742,6 +3752,53 @@
       // Restore the previous tab + re-render so the chat view comes back.
       shellStore.set({ activeTab: prev });
     }
+
+    // Pass A — handle a server-published `call:ended` envelope. Closes the
+    // call surface immediately, returns to chat, and appends a local
+    // system message reflecting who ended it + the duration. Polling will
+    // overwrite with the canonical server message if there is one.
+    function handleServerCallEnded(payload) {
+      try {
+        var snap = callSurfaceStore.get();
+        var matchesActive = snap && snap.callId && payload &&
+          (payload.call_session_id === snap.callId || payload.call_id === snap.callId);
+        if (snap && snap.phase !== 'idle' && (matchesActive || !snap.callId)) {
+          var prev = snap.previousTab || 'chat';
+          try {
+            var engine = window.__gs_call && window.__gs_call.engine;
+            if (engine) engine.disconnect();
+          } catch (_) {}
+          callSurfaceStore.set({
+            phase: 'idle', invitationId: null, callId: null, channel: null,
+            error: null, remote: { audio: null, video: null }, localVideo: null,
+            micEnabled: false, cameraEnabled: false,
+          });
+          shellStore.set({ activeTab: prev });
+        }
+        // Append a local system message so the visitor sees the outcome.
+        var dur = (payload && typeof payload.duration_seconds === 'number') ? payload.duration_seconds : 0;
+        var mm = String(Math.floor(dur / 60)); if (mm.length < 2) mm = '0' + mm;
+        var ss = String(dur % 60); if (ss.length < 2) ss = '0' + ss;
+        var who = (payload && payload.ended_by) || 'system';
+        var headline = who === 'operator' ? (t('csOperatorEnded') || 'Operator ended the call')
+          : who === 'visitor' ? (t('csVisitorEnded') || 'You ended the call')
+          : (t('csCallEnded') || 'Call ended');
+        var body = headline + ' · ' + mm + ':' + ss;
+        var s = chatStore.get();
+        var msgs = (s.messages || []).slice();
+        msgs.push({
+          id: 'call-ended-' + (payload && (payload.call_session_id || payload.call_id) || Date.now()),
+          sender: 'system', senderType: 'system', text: body, body: body,
+          time: (payload && payload.ended_at) || new Date().toISOString(),
+          metadata: { kind: 'call_ended_local' },
+        });
+        chatStore.set({ messages: msgs });
+      } catch (_) {}
+    }
+    // Expose so the realtime drivers (centrifugo/supabase) can dispatch
+    // without importing this scope. Idempotent guard.
+    if (!window.__gs_call) window.__gs_call = {};
+    window.__gs_call.ended = handleServerCallEnded;
 
     // Map a canonical engine error code → translated message. Falls back
     // to the engine's raw message when no i18n key matches the code.

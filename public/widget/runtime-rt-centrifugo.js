@@ -230,6 +230,12 @@
                 // Module not yet loaded — queue via the loader's command bus.
                 window.__gs.push(['call:incoming', p]);
               }
+              // Pass A — server-pushed call:ended → close the visitor's
+              // call surface and append a local "Operator ended the call"
+              // system message. Sidecar dispatch only.
+              if (p && p.kind === 'call:ended' && window.__gs_call && typeof window.__gs_call.ended === 'function') {
+                window.__gs_call.ended(p);
+              }
             } catch (_) {}
           } else if (data && data.type === 'message' && hooks.onMessage) {
             hooks.onMessage({ channel: ch, messages: [data.payload] });

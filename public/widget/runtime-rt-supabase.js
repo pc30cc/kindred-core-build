@@ -187,12 +187,19 @@
       // no widget UI surface. Sidecar dispatch only; FSM untouched.
       ch.on('broadcast', { event: 'event' }, function (msg) {
         var p = unwrapPayload(msg);
-        if (!p || p.kind !== 'call:incoming') return;
+        if (!p) return;
         try {
-          if (window.__gs_call && typeof window.__gs_call.incoming === 'function') {
-            window.__gs_call.incoming(p);
-          } else if (window.__gs && typeof window.__gs.push === 'function') {
-            window.__gs.push(['call:incoming', p]);
+          if (p.kind === 'call:incoming') {
+            if (window.__gs_call && typeof window.__gs_call.incoming === 'function') {
+              window.__gs_call.incoming(p);
+            } else if (window.__gs && typeof window.__gs.push === 'function') {
+              window.__gs.push(['call:incoming', p]);
+            }
+          } else if (p.kind === 'call:ended') {
+            // Pass A — server fan-out of operator/visitor hangup.
+            if (window.__gs_call && typeof window.__gs_call.ended === 'function') {
+              window.__gs_call.ended(p);
+            }
           }
         } catch (_) {}
       });

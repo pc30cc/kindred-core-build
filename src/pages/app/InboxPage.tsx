@@ -5,6 +5,7 @@ import { useConversations, useConversationMessages, useSendMessage, useUpdateCon
 import type { MessageAttachment } from '@/hooks/useConversations';
 import { useInboxRealtime } from '@/hooks/useInboxRealtime';
 import { emitInvitationChanged } from '@/lib/call-invitations-events';
+import { emitCallEnded } from '@/lib/call-end-events';
 import { useInboxListRealtime } from '@/hooks/useInboxListRealtime';
 import { useVisitorPresenceForConversation } from '@/hooks/useVisitorPresence';
 import { conversationsApi } from '@/lib/conversations-api';
@@ -206,6 +207,24 @@ export default function InboxPage() {
           expires_at: (p.expires_at as string | null) ?? null,
         });
         // also refresh timeline so the lifecycle row appears immediately
+        qc.invalidateQueries({ queryKey: ['conversation-timeline', convId, workspace?.id] });
+        return;
+      }
+      // Pass A — server fan-out of call:ended events. Forwards to the
+      // OperatorCallProvider so the floating window collapses to its
+      // terminal state with a duration the moment either side ends the
+      // call (visitor hangup, operator hangup, room webhook, …).
+      if (kind === 'call:ended') {
+        const p = payload as Record<string, unknown>;
+        emitCallEnded({
+          workspace_id: String(p.workspace_id ?? workspace?.id ?? ''),
+          conversation_id: String(p.conversation_id ?? convId),
+          call_session_id: String(p.call_session_id ?? ''),
+          ended_by: (p.ended_by as 'operator' | 'visitor' | 'system') ?? 'system',
+          reason: (p.reason as 'operator_ended' | 'visitor_ended' | 'system_ended' | 'failed') ?? 'system_ended',
+          duration_seconds: typeof p.duration_seconds === 'number' ? p.duration_seconds : 0,
+          ended_at: String(p.ended_at ?? new Date().toISOString()),
+        });
         qc.invalidateQueries({ queryKey: ['conversation-timeline', convId, workspace?.id] });
         return;
       }

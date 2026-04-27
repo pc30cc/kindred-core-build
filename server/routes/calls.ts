@@ -47,6 +47,7 @@ import {
 import { getLiveKitReadinessState } from '../services/calls/providers/livekitProvider.js';
 import { getManifestDiagnostics } from '../services/widget/manifest.js';
 import { loadLiveKitConfig, isMinimallyConfigured } from '../services/calls/livekitConfig.js';
+import { endCallSession, type EndCallReason } from '../services/calls/endSession.js';
 
 export const callsRouter = Router();
 
@@ -457,25 +458,47 @@ callsRouter.post('/:id/reject', async (req, res) => {
 callsRouter.post('/:id/hangup', async (req, res) => {
   const ctx = await loadSessionWithMembership(req, res, (req as any).serverConfig, req.params.id);
   if (!ctx) return;
-  try {
-    if (ctx.session.provider_room_id) {
-      const provider = resolveCallProvider(ctx.session.provider);
-      try { await provider.closeRoom((req as any).serverConfig, ctx.session.provider_room_id); } catch { /* idempotent */ }
-    }
-    const startedAt = ctx.session.started_at ? new Date(ctx.session.started_at).getTime() : null;
-    const duration = startedAt ? Math.round((Date.now() - startedAt) / 1000) : null;
-    await ctx.sb
-      .from('call_sessions')
-      .update({ state: 'ended', ended_at: new Date().toISOString(), duration_seconds: duration })
-      .eq('id', ctx.session.id);
-    await recordEvent(ctx.sb, ctx.session.id, 'hangup', 'operator', ctx.userId);
-    // Phase 8D — release the operator's busy lock.
-    void clearInCall((req as any).serverConfig, ctx.session.workspace_id, ctx.userId)
-      .catch(() => {/* never block hangup */});
-    res.json({ ok: true });
-  } catch (err) {
-    return handleProviderError(res, err);
-  }
+  // Pass A — delegate to the centralized idempotent end helper. Existing
+  // callers expecting `{ ok: true }` keep working; new callers can read
+  // duration_seconds + ended_by from the same response shape returned by
+  // /end below.
+  const summary = await endCallSession((req as any).serverConfig, {
+    callId: ctx.session.id,
+    reason: 'operator_ended',
+    endedBy: 'operator',
+    endedByUserId: ctx.userId,
+  });
+  if (!summary.ok) return res.status(404).json({ error: 'not_found' });
+  res.json({ ok: true, ...summary });
+});
+
+// ─── POST /api/calls/:id/end ──────────────────────────────────────────────
+// Pass A — Operator-side canonical end endpoint. Idempotent. Body is
+// optional; default reason = 'operator_ended'. Returns the full ended
+// summary so the client can render duration immediately without polling.
+const endSchema = z.object({
+  reason: z
+    .enum(['operator_ended', 'visitor_ended', 'system_ended', 'failed'])
+    .optional(),
+});
+callsRouter.post('/:id/end', async (req, res) => {
+  const ctx = await loadSessionWithMembership(req, res, (req as any).serverConfig, req.params.id);
+  if (!ctx) return;
+  const parsed = endSchema.safeParse(req.body ?? {});
+  const reason: EndCallReason = parsed.success && parsed.data.reason
+    ? parsed.data.reason
+    : 'operator_ended';
+  // Operators may only attribute themselves or 'system_ended'/'failed'.
+  const endedBy = reason === 'visitor_ended' ? 'visitor' :
+    (reason === 'system_ended' || reason === 'failed') ? 'system' : 'operator';
+  const summary = await endCallSession((req as any).serverConfig, {
+    callId: ctx.session.id,
+    reason,
+    endedBy,
+    endedByUserId: endedBy === 'operator' ? ctx.userId : null,
+  });
+  if (!summary.ok) return res.status(404).json({ error: 'not_found' });
+  res.json({ ok: true, ...summary });
 });
 
 // ─── POST /api/calls/:id/token ────────────────────────────────────────────

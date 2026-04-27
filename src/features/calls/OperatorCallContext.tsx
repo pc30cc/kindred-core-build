@@ -44,6 +44,7 @@ import {
   type InvitationChannel,
 } from '@/lib/call-invitations-api';
 import { onInvitationChanged } from '@/lib/call-invitations-events';
+import { onCallEnded, type CallEndedEvent } from '@/lib/call-end-events';
 import { callsApi } from '@/lib/calls-api';
 import { useLiveKitCall } from '@/hooks/useLiveKitCall';
 import { useLocalMediaPreview, type LocalPreviewState } from '@/hooks/useLocalMediaPreview';
@@ -52,6 +53,14 @@ import { toast } from '@/hooks/use-toast';
 
 export type SurfacePhase = 'idle' | 'waiting' | 'connecting' | 'connected' | 'terminal';
 export type TerminalStatus = 'expired' | 'cancelled' | 'declined' | 'failed' | null;
+
+export interface LastEndedSummary {
+  ended_by: 'operator' | 'visitor' | 'system';
+  reason: 'operator_ended' | 'visitor_ended' | 'system_ended' | 'failed';
+  duration_seconds: number;
+  ended_at: string;
+  conversation_id: string | null;
+}
 
 export interface OperatorCallSurface {
   phase: SurfacePhase;
@@ -109,6 +118,9 @@ export interface OperatorCallContextValue {
   hangup(): Promise<void>;
   /** Force-refresh the latest invitation for a conversation (sidebar polling). */
   refreshLatest(conversationId: string): Promise<void>;
+  /** Pass A — last ended summary for "Call ended · mm:ss" UI. */
+  lastEnded: LastEndedSummary | null;
+  clearLastEnded(): void;
 }
 
 const OperatorCallContext = createContext<OperatorCallContextValue | null>(null);
@@ -132,6 +144,7 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
   const [creating, setCreating] = useState<InvitationChannel | null>(null);
   const [loading, setLoading] = useState(false);
   const [floatingMode, setFloatingMode] = useState<FloatingMode>('docked');
+  const [lastEnded, setLastEnded] = useState<LastEndedSummary | null>(null);
   // Latest invitation per conversation — for the sidebar pill. Kept in
   // a ref+state pair so reads are cheap and writes still trigger the
   // sidebar consumers to re-render.
@@ -382,11 +395,81 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
   const hangup = useCallback(async () => {
     if (autoCloseRef.current) { clearTimeout(autoCloseRef.current); autoCloseRef.current = null; }
     rtDebug('call', 'operator hangup disconnect');
+    // Pass A — POST /api/calls/:id/end FIRST so the server publishes
+    // call:ended to the visitor before we tear down our local LiveKit
+    // room. Best-effort: never block the local disconnect on a server
+    // error; server is the source of truth for duration/ended_by.
+    const sessionId = activeCallSessionIdRef.current;
+    const conversationId = activeCallConversationIdRef.current;
+    if (sessionId) {
+      try {
+        const summary = await callsApi.end(sessionId, 'operator_ended');
+        setLastEnded({
+          ended_by: summary.ended_by,
+          reason: summary.end_reason,
+          duration_seconds: summary.duration_seconds,
+          ended_at: summary.ended_at,
+          conversation_id: conversationId,
+        });
+      } catch (err) {
+        rtDebug('call', 'operator end api failed', { error: (err as any)?.message });
+      }
+    }
     try { await disconnectLive('explicit_hangup'); } catch { /* ignore */ }
     clearActiveCallRefs();
     setSurface(INITIAL_SURFACE);
     setFloatingMode('docked');
   }, [clearActiveCallRefs, disconnectLive]);
+
+  const clearLastEnded = useCallback(() => setLastEnded(null), []);
+
+  // Auto-fade the "Call ended · mm:ss" surface so it never lingers
+  // forever. The toast (below) carries the same info if the operator
+  // navigates away in the meantime.
+  useEffect(() => {
+    if (!lastEnded) return;
+    const handle = setTimeout(() => setLastEnded(null), 6000);
+    return () => clearTimeout(handle);
+  }, [lastEnded]);
+
+  // Toast on every newly-arrived ended summary so the operator gets a
+  // consistent confirmation regardless of which side ended the call.
+  useEffect(() => {
+    if (!lastEnded) return;
+    const mm = Math.floor(lastEnded.duration_seconds / 60).toString().padStart(2, '0');
+    const ss = (lastEnded.duration_seconds % 60).toString().padStart(2, '0');
+    const who =
+      lastEnded.ended_by === 'visitor' ? 'Visitor ended the call' :
+      lastEnded.ended_by === 'operator' ? 'You ended the call' :
+      'Call ended';
+    toast({ title: who, description: `${mm}:${ss}` });
+  }, [lastEnded]);
+
+  // Pass A — react to server-published call:ended events. When the
+  // visitor ends the call (or any other actor) the operator must
+  // immediately leave the call surface and surface a duration message
+  // without waiting for the LiveKit Disconnected event.
+  useEffect(() => {
+    return onCallEnded((evt: CallEndedEvent) => {
+      const sessionId = activeCallSessionIdRef.current;
+      // Ignore unrelated calls (e.g. another tab / earlier call).
+      if (sessionId && evt.call_session_id && sessionId !== evt.call_session_id) return;
+      setLastEnded({
+        ended_by: evt.ended_by,
+        reason: evt.reason,
+        duration_seconds: evt.duration_seconds,
+        ended_at: evt.ended_at,
+        conversation_id: evt.conversation_id || activeCallConversationIdRef.current,
+      });
+      // Tear down our local room idempotently — the server already
+      // closed the provider room.
+      try { void disconnectLive('server_call_ended'); } catch { /* ignore */ }
+      clearActiveCallRefs();
+      setSurface(INITIAL_SURFACE);
+      setFloatingMode('docked');
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const latestForConversation = useCallback(
     (conversationId: string) => latestMap[conversationId] ?? null,
@@ -422,9 +505,12 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
     cancelInvite,
     hangup,
     refreshLatest,
+    lastEnded,
+    clearLastEnded,
   }), [
     surface, creating, loading, live, preview.stream, preview.state,
     floatingMode, latestForConversation, sendInvite, cancelInvite, hangup, refreshLatest,
+    lastEnded, clearLastEnded,
   ]);
 
   return (

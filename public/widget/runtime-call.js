@@ -151,6 +151,11 @@
   var roomConnectFinalRejectLogged = false;
   var engineFullyConnected = false;
   var alreadyTornDown = false;
+  var currentCameraFacing = ''; // 'user' | 'environment' | ''
+  var currentCameraDeviceId = '';
+  var availableCameras = [];     // [{ deviceId, label, facing? }]
+  var enumerateInFlight = false;
+  var switchInFlight = false;
 
   function setState(next) {
     if (state === next) return;

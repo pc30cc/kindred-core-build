@@ -1680,10 +1680,19 @@
      * Honors the same user-interaction + soundEnabled gates as playBeep.
      */
     var ringNodes = null; // { interval, stop() }
+    // Tracks whether a ringtone was requested but blocked by the autoplay
+    // policy (no user gesture yet). Surfaces a "Tap to enable sound" hint
+    // and starts the audio as soon as the visitor interacts with the page.
+    var ringPendingUnlock = false;
     function playRingtone() {
       if (ringNodes) return; // already ringing
       if (!uiPrefsStore.get().soundEnabled) return;
-      if (!userInteracted) return;
+      if (!userInteracted) {
+        ringPendingUnlock = true;
+        try { notifyStore.set({ ringPendingUnlock: true }); } catch (_) {}
+        try { console.debug('[gs-widget] ringtone blocked: awaiting user gesture'); } catch (_) {}
+        return;
+      }
       var ctx = ensureAudioCtx();
       if (!ctx) return;
       function ringOnce() {
@@ -1719,9 +1728,30 @@
           ringNodes = null;
         },
       };
+      ringPendingUnlock = false;
+      try { notifyStore.set({ ringPendingUnlock: false }); } catch (_) {}
     }
-    function stopRingtone() {
+    function stopRingtone(reason) {
       if (ringNodes) ringNodes.stop();
+      ringPendingUnlock = false;
+      try { notifyStore.set({ ringPendingUnlock: false }); } catch (_) {}
+      try { console.debug('[gs-widget] ringtone stop', reason || 'unspecified'); } catch (_) {}
+    }
+    // When the visitor finally interacts with the page after a blocked
+    // ringtone request, start it immediately if the call is still pending.
+    function tryStartPendingRing() {
+      if (!ringPendingUnlock) return;
+      ringPendingUnlock = false;
+      try { notifyStore.set({ ringPendingUnlock: false }); } catch (_) {}
+      // Re-enter playRingtone now that userInteracted is true.
+      playRingtone();
+    }
+    if (typeof window !== 'undefined') {
+      var unlockOpts = { capture: true };
+      var onAnyInteraction = function () { tryStartPendingRing(); };
+      window.addEventListener('pointerdown', onAnyInteraction, unlockOpts);
+      window.addEventListener('keydown', onAnyInteraction, unlockOpts);
+      window.addEventListener('touchstart', onAnyInteraction, unlockOpts);
     }
 
     // ─── Toast (Shadow DOM only, lives next to launcher) ───

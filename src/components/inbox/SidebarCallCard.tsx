@@ -71,7 +71,7 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
   const {
     surface, creating, loading, live, preview,
     floatingMode, setFloatingMode,
-    latestForConversation, sendInvite, cancelInvite, hangup, closeTerminal, refreshLatest,
+    latestForConversation, sendInvite, cancelInvite, hangup, closeTerminal, refreshLatest, lastEnded,
   } = useOperatorCall();
 
   const latest = latestForConversation(conversationId);
@@ -194,7 +194,15 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
       case 'expired':   return t('inbox.callSurface.terminalExpired')   || 'The visitor did not join in time.';
       case 'declined':  return t('inbox.callSurface.terminalDeclined')  || 'The visitor declined the call.';
       case 'cancelled': return t('inbox.callSurface.terminalCancelled') || 'Invitation cancelled.';
-      case 'remote_ended': return safeT('inbox.callSurface.terminalRemoteEnded', 'Visitor ended the call.');
+      case 'remote_ended': {
+        const base = lastEnded?.ended_by === 'visitor'
+          ? safeT('inbox.callSurface.visitorEndedCall', 'Visitor ended the call')
+          : safeT('inbox.callSurface.visitorLeft', 'Visitor left the call');
+        if (!lastEnded || lastEnded.duration_seconds <= 0) return base;
+        const mm = String(Math.floor(lastEnded.duration_seconds / 60)).padStart(2, '0');
+        const ss = String(lastEnded.duration_seconds % 60).padStart(2, '0');
+        return `${base} · ${mm}:${ss}`;
+      }
       case 'failed':    return surface.errorMessage
         ? `${t('inbox.callSurface.terminalFailed') || 'Could not connect.'} ${surface.errorMessage}`
         : (t('inbox.callSurface.terminalFailed') || 'Could not connect.');

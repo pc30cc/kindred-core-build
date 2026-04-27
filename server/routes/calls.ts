@@ -23,17 +23,30 @@ import { getServiceClient } from '../supabase.js';
 import {
   resolveEffectiveCallProvider,
   resolveCallProvider,
+  resolveCallProviderOrder,
 } from '../services/calls/providerResolver.js';
 import {
   loadCallControlPlane,
   loadWorkspaceCallOverrides,
 } from '../services/calls/controlPlane.js';
-import { getCallNetworkBundle } from '../services/calls/rtcResolver.js';
+import {
+  getCallNetworkBundle,
+  normalizeClientWsUrl,
+} from '../services/calls/rtcResolver.js';
 import { CallProviderNotReadyError } from '../services/calls/providers/types.js';
 import { mintTurnCreds } from '../services/calls/turnAuth.js';
 import { emitCallMetric } from '../services/calls/metrics.js';
 import { publishConversationEvent } from '../services/realtime/publish.js';
 import { markInCall, clearInCall } from '../services/calls/availability.js';
+import {
+  CALL_ERROR_CODES,
+  CALL_ERROR_HTTP_STATUS,
+  callErrorBody,
+  callErrorFromUnknown,
+} from '../services/calls/errorCodes.js';
+import { getLiveKitReadinessState } from '../services/calls/providers/livekitProvider.js';
+import { getManifestDiagnostics } from '../services/widget/manifest.js';
+import { loadLiveKitConfig, isMinimallyConfigured } from '../services/calls/livekitConfig.js';
 
 export const callsRouter = Router();
 
@@ -111,11 +124,13 @@ function recordEvent(
 
 function handleProviderError(res: any, err: unknown) {
   if (err instanceof CallProviderNotReadyError) {
-    return res.status(503).json({
-      error: 'call_provider_not_ready',
-      provider: err.providerId,
-      message: err.message,
-    });
+    return res.status(CALL_ERROR_HTTP_STATUS.provider_not_ready).json(
+      callErrorBody(
+        CALL_ERROR_CODES.PROVIDER_NOT_READY,
+        err.message,
+        { provider: err.providerId },
+      ),
+    );
   }
   console.error('[calls] provider error:', (err as any)?.message || err);
   return res.status(500).json({ error: 'internal_error' });

@@ -337,6 +337,10 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
           call_session_id: callSessionId,
           conversation_id: inv.conversation_id,
         });
+        setSurface((prev) => {
+          if (!prev.invitation || prev.invitation.id !== inv.id) return prev;
+          return { ...prev, invitation: { ...prev.invitation, call_session_id: callSessionId } };
+        });
         callLog('requesting operator token', { call_session_id: callSessionId });
         const tok = await callsApi.token(callSessionId);
         if (cancelled) return;

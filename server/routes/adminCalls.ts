@@ -28,10 +28,19 @@ import {
   saveLiveKitConfig,
   toPublicView as toLiveKitPublicView,
 } from '../services/calls/livekitConfig.js';
-import { probeLiveKitProvisioning } from '../services/calls/providers/livekitProvider.js';
+import {
+  probeLiveKitProvisioning,
+  getLiveKitReadinessState,
+  invalidateLiveKitReadinessCache,
+} from '../services/calls/providers/livekitProvider.js';
 import { CallProviderNotReadyError } from '../services/calls/providers/types.js';
 import { CALL_PROVIDER_CLASSIFICATION } from '../services/calls/providers/types.js';
 import { getPlatformCallbackCounts } from '../services/calls/callbacks.js';
+import {
+  getWidgetAssetName,
+  getManifestDiagnostics,
+} from '../services/widget/manifest.js';
+import { resolveCallProvider } from '../services/calls/providerResolver.js';
 
 export const adminCallsRouter = Router();
 
@@ -48,10 +57,20 @@ adminCallsRouter.get('/control-plane', async (req, res) => {
     const p = getCallProvider(id);
     readiness[id] = p ? await p.isReady(config).catch(() => false) : false;
   }
+  // Pass 1 — real LiveKit readiness backed by the live probe (cached 30s)
+  // so the admin UI shows the truth, not just config presence.
+  let livekitReadiness: Awaited<ReturnType<typeof getLiveKitReadinessState>> | null = null;
+  try {
+    livekitReadiness = await getLiveKitReadinessState(config);
+    // Override the lightweight readiness flag with the real result so the
+    // admin UI cannot show a green dot for an SFU that's actually down.
+    readiness['livekit'] = livekitReadiness.ready;
+  } catch { /* fail-open: keep config-based flag */ }
   res.json({
     control_plane: cp,
     network,
     readiness,
+    livekit_readiness: livekitReadiness,
     classification: CALL_PROVIDER_CLASSIFICATION,
   });
 });
@@ -258,6 +277,9 @@ adminCallsRouter.put('/livekit', async (req, res) => {
       patch.recording_storage = s;
     }
     const merged = await saveLiveKitConfig(config, patch as any);
+    // Pass 1 — kill the cached real-readiness state so the next admin probe
+    // reflects the freshly-saved credentials immediately.
+    invalidateLiveKitReadinessCache();
     res.json({ livekit: toLiveKitPublicView(merged) });
   } catch (err: any) {
     // Surface zod issues so the UI can show the offending field.

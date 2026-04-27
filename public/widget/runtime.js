@@ -3469,6 +3469,11 @@
       if (config && config.livekitSdkUrl && !window.__gs_call_sdk_url) {
         window.__gs_call_sdk_url = config.livekitSdkUrl;
       }
+      // Visitor-side video quality preset surfaced via widget config so
+      // workspace defaults reach the engine before the call starts.
+      if (config && config.callDefaultVideoQuality && !window.__gs_call_video_quality) {
+        window.__gs_call_video_quality = String(config.callDefaultVideoQuality);
+      }
     } catch (_) { /* noop */ }
 
     var shadowRoot = (shell && shell.shadowRoot) || (shell && shell.shellEl && shell.shellEl.shadowRoot) || null;

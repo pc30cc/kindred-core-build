@@ -430,34 +430,53 @@
 
       return nextRoom.connect(wsUrl, opts.token, connectOptions).then(function () {
         dlog('room.connect success');
+        signalingConnected = true;
         // Race guard: caller may have invoked disconnect() while we were
         // awaiting the WS handshake.
         if (room !== nextRoom) {
           try { nextRoom.disconnect(); } catch (_) {}
           throw makeErr('livekit_connect_failed', 'Connection cancelled before establishment.');
         }
-        // Mark the room as connected from a signaling point of view.
-        // From this point onwards, a Disconnected event IS a real teardown.
-        connectSucceeded = true;
         var publishChain = Promise.resolve();
         if (publishMic) {
           publishChain = publishChain.then(function () {
-            publishStarted = true;
+            mediaPublishStarted = true;
             dlog('publish mic start');
             return nextRoom.localParticipant.setMicrophoneEnabled(true).catch(function (e) {
-              dwarn('publish mic failed', { message: e && e.message });
-              throw makeErr('permission_denied_microphone', (e && e.message) || 'Microphone permission denied.');
-            }).then(function () { dlog('publish mic success'); });
+              var msg = (e && e.message) || 'Microphone permission denied.';
+              dwarn('publish mic fail', { code: e && e.code, message: msg });
+              micEnabled = false;
+              emitter.emit('micEnabled', false);
+              emitter.emit('error', { code: 'permission_denied_microphone', message: msg });
+              return null;
+            }).then(function () {
+              if (nextRoom.localParticipant && nextRoom.localParticipant.isMicrophoneEnabled) {
+                micEnabled = true;
+                emitter.emit('micEnabled', true);
+                dlog('publish mic success');
+              }
+            });
           });
         }
         if (publishCamera) {
           publishChain = publishChain.then(function () {
-            publishStarted = true;
+            mediaPublishStarted = true;
             dlog('publish camera start');
             return nextRoom.localParticipant.setCameraEnabled(true).catch(function (e) {
-              dwarn('publish camera failed', { message: e && e.message });
-              throw makeErr('permission_denied_camera', (e && e.message) || 'Camera permission denied.');
-            }).then(function () { dlog('publish camera success'); });
+              var msg = (e && e.message) || 'Camera permission denied.';
+              dwarn('publish camera fail', { code: e && e.code, message: msg });
+              cameraEnabled = false;
+              emitter.emit('cameraEnabled', false);
+              emitter.emit('local', { video: null });
+              emitter.emit('error', { code: 'permission_denied_camera', message: msg });
+              return null;
+            }).then(function () {
+              if (nextRoom.localParticipant && nextRoom.localParticipant.isCameraEnabled) {
+                cameraEnabled = true;
+                emitter.emit('cameraEnabled', true);
+                dlog('publish camera success');
+              }
+            });
           });
         }
         return publishChain.then(function () {
@@ -465,11 +484,13 @@
             try { nextRoom.disconnect(); } catch (_) {}
             throw makeErr('livekit_connect_failed', 'Connection cancelled during publish.');
           }
-          publishSucceeded = true;
+          mediaPublished = true;
           connecting = false;
           connectedAt = Date.now();
           setState('connected');
-          dlog('engine connected');
+          engineFullyConnected = true;
+          connectPromiseSettled = true;
+          dlog('engine fully connected');
           emitRemote(LK);
           emitLocalVideo(LK);
           // Best-effort: enumerate cameras AFTER permission so labels

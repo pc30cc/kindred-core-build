@@ -218,7 +218,7 @@ export function FloatingOperatorCallWindow() {
           <LocalVideoPiP
             track={live.localVideoTrack}
             cameraEnabled={live.cameraEnabled}
-            className="absolute bottom-24 right-5 z-20 aspect-[3/4] w-[136px] overflow-hidden rounded-lg border border-call-stage-foreground/30 bg-call-stage shadow-elevated ring-1 ring-call-stage-foreground/15 max-sm:bottom-24 max-sm:right-3 max-sm:w-[98px]"
+            className="absolute bottom-24 right-5 z-20 h-[160px] w-[120px] overflow-hidden rounded-lg border border-call-stage-foreground/30 bg-call-stage shadow-elevated ring-1 ring-call-stage-foreground/15 max-sm:bottom-24 max-sm:right-3 max-sm:h-[124px] max-sm:w-[92px]"
           />
         )}
 

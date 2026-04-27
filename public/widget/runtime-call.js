@@ -441,11 +441,31 @@
         if (publishCamera) {
           publishChain = publishChain.then(function () {
             dlog('publish camera start');
-            return nextRoom.localParticipant.setCameraEnabled(true).then(function () {
+            // Prefer the user-facing camera by default. Use ideal (not
+            // exact) so desktops without a front camera still work, and
+            // so we don't force portrait/landscape constraints that
+            // would fight the device's natural capture orientation.
+            return nextRoom.localParticipant.setCameraEnabled(true, {
+              facingMode: 'user',
+              resolution: { width: 1280, height: 720, frameRate: 30 },
+            }).then(function () {
               cameraEnabled = !!nextRoom.localParticipant.isCameraEnabled;
               emitter.emit('cameraEnabled', cameraEnabled);
               dlog('publish camera success');
               emitLocalVideo(LK);
+              // Best-effort detect facing so the UI knows whether to
+              // show "switch to back" or "switch to front". Safe to fail.
+              try {
+                var ms = nextRoom.localParticipant.trackPublications;
+                ms.forEach(function (pub) {
+                  if (pub.kind !== LK.Track.Kind.Video || !pub.track) return;
+                  var settings = pub.track.mediaStreamTrack && pub.track.mediaStreamTrack.getSettings && pub.track.mediaStreamTrack.getSettings();
+                  if (settings) {
+                    if (settings.facingMode) currentCameraFacing = settings.facingMode;
+                    if (settings.deviceId) currentCameraDeviceId = settings.deviceId;
+                  }
+                });
+              } catch (_) {}
             }).catch(function (e) {
               cameraEnabled = false;
               emitter.emit('cameraEnabled', false);

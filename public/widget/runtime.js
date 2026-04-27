@@ -3583,6 +3583,118 @@
       error: '',
     });
 
+    // ─── Pass 2 — In-panel call surface store ───
+    // Drives the call view that lives INSIDE the widget panel Shadow DOM
+    // (see renderCallSurface below). Replaces the legacy out-of-panel
+    // popup that runtime-call.js used to mount on document.body. The
+    // surface is open whenever phase !== 'idle'; while open the panel
+    // hides tabs + composer and renders the call view full-bleed inside
+    // the .body container.
+    //
+    // Phases:
+    //   'idle'        — no call active.
+    //   'connecting'  — engine.connect() in flight.
+    //   'connected'   — at least one media track flowing.
+    //   'reconnecting'— transient SDK reconnect.
+    //   'failed'      — connect rejected; `error` carries { code, message }.
+    //   'ended'       — engine disconnected normally; surface lingers
+    //                   briefly so visitor sees "Call ended" before we
+    //                   restore the previous view.
+    var callSurfaceStore = createStore({
+      phase: 'idle',
+      invitationId: null,
+      callId: null,
+      channel: null,        // 'audio' | 'video'
+      previousTab: 'chat',  // restored when the surface closes
+      micEnabled: false,
+      cameraEnabled: false,
+      remote: { audio: null, video: null }, // MediaStreamTracks (live)
+      localVideo: null,
+      error: null,          // { code, message }
+    });
+
+    // Wire engine events ONCE the global engine appears. The engine is
+    // loaded asynchronously (runtime-call.js) — we set up subscriptions
+    // lazily the first time we need them.
+    var __engineSubscribed = false;
+    function subscribeToEngineOnce() {
+      if (__engineSubscribed) return;
+      var engine = window.__gs_call && window.__gs_call.engine;
+      if (!engine) return; // try again later when caller invokes us
+      __engineSubscribed = true;
+      engine.on('state', function (state) {
+        var cur = callSurfaceStore.get();
+        if (cur.phase === 'idle') return; // surface already closed
+        if (state === 'connected') callSurfaceStore.set({ phase: 'connected' });
+        else if (state === 'reconnecting') callSurfaceStore.set({ phase: 'reconnecting' });
+        else if (state === 'connecting') callSurfaceStore.set({ phase: 'connecting' });
+        else if (state === 'failed') {
+          // 'error' event already populated callSurfaceStore.error;
+          // just flip the phase. Don't auto-close — visitor needs to see
+          // the message and click Close.
+          callSurfaceStore.set({ phase: 'failed' });
+        } else if (state === 'disconnected') {
+          if (cur.phase !== 'failed') callSurfaceStore.set({ phase: 'ended' });
+          // Auto-close the surface a moment later so the visitor sees
+          // "Call ended" briefly. Closing restores the previous tab.
+          setTimeout(function () {
+            var s = callSurfaceStore.get();
+            if (s.phase === 'ended') closeCallSurface();
+          }, 1200);
+        }
+      });
+      engine.on('remote', function (tracks) {
+        callSurfaceStore.set({ remote: tracks || { audio: null, video: null } });
+      });
+      engine.on('local', function (payload) {
+        callSurfaceStore.set({ localVideo: (payload && payload.video) || null });
+      });
+      engine.on('micEnabled', function (v) { callSurfaceStore.set({ micEnabled: !!v }); });
+      engine.on('cameraEnabled', function (v) { callSurfaceStore.set({ cameraEnabled: !!v }); });
+      engine.on('error', function (err) {
+        // Normalize into a stable { code, message } shape for the UI.
+        callSurfaceStore.set({ error: { code: (err && err.code) || 'livekit_connect_failed', message: (err && err.message) || 'Call failed.' } });
+      });
+    }
+
+    function openCallSurface(opts) {
+      var prev = shellStore.get().activeTab || 'chat';
+      callSurfaceStore.set({
+        phase: 'connecting',
+        invitationId: opts.invitationId || null,
+        callId: opts.callId || null,
+        channel: opts.channel || 'audio',
+        previousTab: prev,
+        error: null,
+        remote: { audio: null, video: null },
+        localVideo: null,
+        micEnabled: false,
+        cameraEnabled: false,
+      });
+    }
+
+    function closeCallSurface() {
+      var prev = callSurfaceStore.get().previousTab || 'chat';
+      // Best-effort: ensure the engine is torn down. Idempotent.
+      try {
+        var engine = window.__gs_call && window.__gs_call.engine;
+        if (engine) engine.disconnect();
+      } catch (_) {}
+      callSurfaceStore.set({
+        phase: 'idle',
+        invitationId: null,
+        callId: null,
+        channel: null,
+        error: null,
+        remote: { audio: null, video: null },
+        localVideo: null,
+        micEnabled: false,
+        cameraEnabled: false,
+      });
+      // Restore the previous tab + re-render so the chat view comes back.
+      shellStore.set({ activeTab: prev });
+    }
+
     // ─── Phase 8H — Department resolver + state (additive) ────────────
     // Optional, lightweight department layer. Default behavior (general
     // mode / no departments configured) is identical to pre-8H.

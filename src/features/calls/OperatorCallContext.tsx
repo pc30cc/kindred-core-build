@@ -52,6 +52,7 @@ import { fetchWorkspaceCallSettings } from '@/lib/workspace-calls-api';
 import { useLocalMediaPreview, type LocalPreviewState } from '@/hooks/useLocalMediaPreview';
 import { rtDebug } from '@/realtime/debug';
 import { toast } from '@/hooks/use-toast';
+import { startRingback, stopRingback } from './callSound';
 
 export type SurfacePhase = 'idle' | 'waiting' | 'connecting' | 'connected' | 'terminal';
 export type TerminalStatus =
@@ -373,6 +374,29 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
       conversationId: surface.conversationId,
     });
   }, [surface.phase, surface.terminalStatus, surface.invitation?.id, surface.invitation?.call_session_id, surface.conversationId, scheduleAutoClose]);
+
+  // ── Operator ringback ─────────────────────────────────────────────────
+  // Plays a soft Web Audio ringback while we're waiting for the visitor to
+  // answer. Stops on every other phase or when this component unmounts so
+  // the operator never hears a phantom ring after a call has connected,
+  // failed, been cancelled, or the visitor declined.
+  useEffect(() => {
+    if (surface.phase === 'waiting') {
+      startRingback();
+      return () => { stopRingback('phase_change'); };
+    }
+    // Any non-waiting phase (connecting / connected / terminal / idle)
+    // immediately silences ringback. We pass the phase as the reason for
+    // diagnostic clarity.
+    stopRingback(`phase:${surface.phase}`);
+    return undefined;
+  }, [surface.phase]);
+
+  // Final safety net — guarantee silence on provider unmount even if a
+  // terminal/idle transition got skipped (e.g. hard sign-out / route swap).
+  useEffect(() => {
+    return () => { stopRingback('provider_unmount'); };
+  }, []);
 
   // ── Realtime subscription drives surface lifecycle for the active
   //    invitation and updates the latestMap for every conversation.

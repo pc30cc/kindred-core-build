@@ -151,6 +151,8 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
     setCreating(null);
     setLoading(false);
     if (autoCloseRef.current) { clearTimeout(autoCloseRef.current); autoCloseRef.current = null; }
+    // eslint-disable-next-line no-console
+    console.warn('[livekit] disconnect via conversation-switch effect', { conversationId });
     rtDebug('call', 'conversation-switch disconnect', { conversationId });
     try { void live.disconnect(); } catch { /* ignore */ }
     connectedInvitationIdRef.current = null;
@@ -163,6 +165,8 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
   useEffect(() => {
     return () => {
       if (autoCloseRef.current) clearTimeout(autoCloseRef.current);
+      // eslint-disable-next-line no-console
+      console.warn('[livekit] disconnect via SidebarCallCard unmount');
       rtDebug('call', 'unmount disconnect');
       try { live.disconnect(); } catch { /* ignore */ }
     };

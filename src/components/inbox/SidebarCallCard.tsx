@@ -23,10 +23,10 @@
  *   - Disconnect is fired on every terminal/close path so the operator is
  *     never stuck "Busy" client-side.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Phone, Video, Loader2, X, CheckCircle2, Clock, Ban, PhoneOff, RotateCw,
-  Mic, MicOff, VideoOff,
+  Mic, MicOff, VideoOff, WifiOff,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -941,13 +941,26 @@ function VideoWaitingTile({ previewStream, previewState }: WaitingTileProps) {
 
 function AudioCallStage({ remote }: { remote: ReturnType<typeof useLiveKitCall>['remote'] }) {
   const audioRefs = useRef<Record<string, HTMLAudioElement | null>>({});
-  useEffect(() => {
+  // useLayoutEffect: attach srcObject before paint so audio playback starts
+  // immediately on every track identity change. React re-renders alone do
+  // NOT guarantee MediaStream attachment.
+  useLayoutEffect(() => {
     for (const r of remote) {
       const el = audioRefs.current[r.participantSid];
       if (!el) continue;
       if (r.audio) {
         const stream = new MediaStream([r.audio]);
-        if (el.srcObject !== stream) el.srcObject = stream;
+        // Always replace — `stream` is a fresh object; identity check
+        // would always pass anyway, but be explicit for clarity.
+        el.srcObject = stream;
+        // eslint-disable-next-line no-console
+        console.debug('[livekit] attach remote audio', r.participantSid, r.audio.id);
+        const playP = el.play();
+        if (playP && typeof (playP as Promise<void>).catch === 'function') {
+          (playP as Promise<void>).catch(() => { /* autoplay policy — UI will recover on user gesture */ });
+        }
+      } else if (el.srcObject) {
+        el.srcObject = null;
       }
     }
   }, [remote]);
@@ -974,19 +987,56 @@ function AudioCallStage({ remote }: { remote: ReturnType<typeof useLiveKitCall>[
 
 function VideoCallStage({ remote }: { remote: ReturnType<typeof useLiveKitCall>['remote'] }) {
   const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
-  useEffect(() => {
+  // useLayoutEffect re-attaches srcObject on every change to the `remote`
+  // snapshot — including when a track is muted/unmuted, paused/resumed,
+  // or swapped after a simulcast layer change. Without this the operator
+  // sees the last decoded frame as a freeze. We never trust React's render
+  // cycle alone to manage <video>.srcObject — MediaStream is not reactive.
+  useLayoutEffect(() => {
     for (const r of remote) {
       const el = videoRefs.current[r.participantSid];
       if (!el) continue;
-      const tracks: MediaStreamTrack[] = [];
-      if (r.video) tracks.push(r.video);
-      if (r.audio) tracks.push(r.audio);
-      if (tracks.length === 0) {
-        el.srcObject = null;
-        return;
+      if (!r.video) {
+        // Clear so the overlay below ("Video paused…") becomes visible
+        // instead of letting the old frame freeze on screen.
+        if (el.srcObject) {
+          el.srcObject = null;
+          // eslint-disable-next-line no-console
+          console.debug('[livekit] clear remote video', r.participantSid);
+        }
+        continue;
       }
-      const stream = new MediaStream(tracks);
-      if (el.srcObject !== stream) el.srcObject = stream;
+      // Build a fresh MediaStream containing only the current video track.
+      // Audio is attached via the dedicated <audio> below so muting the
+      // remote video doesn't take the audio path with it.
+      const stream = new MediaStream([r.video]);
+      el.srcObject = stream;
+      // eslint-disable-next-line no-console
+      console.debug('[livekit] attach remote video', r.participantSid, r.video.id);
+      const playP = el.play();
+      if (playP && typeof (playP as Promise<void>).catch === 'function') {
+        (playP as Promise<void>).catch(() => { /* autoplay — recovers on user gesture */ });
+      }
+    }
+  }, [remote]);
+
+  // Separate audio attachment so video pause/unmute cycles never break
+  // audio playback (the prior implementation rebuilt one MediaStream that
+  // included both, so any video event tore down audio too).
+  const audioRefs = useRef<Record<string, HTMLAudioElement | null>>({});
+  useLayoutEffect(() => {
+    for (const r of remote) {
+      const el = audioRefs.current[r.participantSid];
+      if (!el) continue;
+      if (r.audio) {
+        el.srcObject = new MediaStream([r.audio]);
+        const playP = el.play();
+        if (playP && typeof (playP as Promise<void>).catch === 'function') {
+          (playP as Promise<void>).catch(() => { /* ignore */ });
+        }
+      } else if (el.srcObject) {
+        el.srcObject = null;
+      }
     }
   }, [remote]);
   if (remote.length === 0) {
@@ -999,13 +1049,26 @@ function VideoCallStage({ remote }: { remote: ReturnType<typeof useLiveKitCall>[
   return (
     <div className="grid gap-2">
       {remote.map((r) => (
-        <div key={r.participantSid} className="aspect-video w-full rounded-lg overflow-hidden border border-border bg-black">
+        <div key={r.participantSid} className="relative aspect-video w-full rounded-lg overflow-hidden border border-border bg-black">
           <video
             ref={(el) => { videoRefs.current[r.participantSid] = el; }}
             autoPlay
             playsInline
             muted={false}
-            className="w-full h-full object-cover"
+            className="w-full h-full object-cover bg-black"
+          />
+          {!r.video && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/70 text-white/80">
+              <WifiOff className="w-5 h-5" aria-hidden="true" />
+              <span className="text-[11px] font-medium">Video paused / reconnecting…</span>
+            </div>
+          )}
+          {/* Dedicated audio element — survives video mute/unmute cycles. */}
+          <audio
+            ref={(el) => { audioRefs.current[r.participantSid] = el; }}
+            autoPlay
+            playsInline
+            className="sr-only"
           />
         </div>
       ))}

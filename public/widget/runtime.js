@@ -4139,6 +4139,16 @@
       transportStore: transportStore,
       transport: transport,
       openImageLightbox: function (id) { lightboxOpener(id); },
+      // Pass 2 fix — bridge the in-panel call-surface helpers defined later
+      // in this same init() closure into createChatUI so its invitation
+      // Join handler can drive the headless engine without relying on
+      // module-global lookups (which previously threw
+      // `subscribeToEngineOnce is not defined`).
+      callBridge: {
+        subscribeToEngineOnce: function () { return subscribeToEngineOnce(); },
+        openCallSurface: function (opts) { return openCallSurface(opts); },
+        renderBody: function () { return renderBody(); },
+      },
     });
     var kbUI = createKbUI({
       ctx: ctx,

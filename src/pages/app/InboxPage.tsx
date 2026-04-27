@@ -258,6 +258,22 @@ export default function InboxPage() {
   // in the workspace, without needing a per-conversation subscription.
   useInboxListRealtime(workspace?.id);
 
+  // Phase 5b — chime on incoming visitor messages (anywhere in the
+  // workspace). Honors per-device localStorage override + server
+  // notification prefs (disable_all / play_sound / quiet hours).
+  useOperatorMessageChime(workspace?.id);
+
+  // Header mute toggle (per-device).
+  const [soundOn, setSoundOn] = useState<boolean>(() => getOperatorMessageSoundEnabled());
+  useEffect(() => {
+    const onChange = (e: Event) => {
+      const detail = (e as CustomEvent<{ enabled: boolean }>).detail;
+      if (detail) setSoundOn(detail.enabled);
+    };
+    window.addEventListener('operator-message-sound-changed', onChange as EventListener);
+    return () => window.removeEventListener('operator-message-sound-changed', onChange as EventListener);
+  }, []);
+
   // Visitor presence (online/idle/offline + current page) — polling-safe via 10s refetch.
   const { data: presence } = useVisitorPresenceForConversation(workspace?.id, selectedId ?? undefined);
 

@@ -3346,6 +3346,12 @@
         window.__gs_call_config = window.__gs_call_config || {};
         window.__gs_call_config.url = config.callRuntimeUrl;
       }
+      // Pass 2 — vendor LiveKit SDK URL (hashed, self-hosted). Mirror it
+      // onto the global so the runtime-call.js engine's strict loadSdk()
+      // can find it whether the loader pre-set it or not.
+      if (config && config.livekitSdkUrl && !window.__gs_call_sdk_url) {
+        window.__gs_call_sdk_url = config.livekitSdkUrl;
+      }
     } catch (_) { /* noop */ }
 
     var shadowRoot = (shell && shell.shadowRoot) || (shell && shell.shellEl && shell.shellEl.shadowRoot) || null;

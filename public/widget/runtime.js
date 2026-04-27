@@ -3687,7 +3687,7 @@
           // "Call ended" briefly. Closing restores the previous tab.
           setTimeout(function () {
             var s = callSurfaceStore.get();
-            if (s.phase === 'ended') closeCallSurface();
+            if (s.phase === 'ended') closeCallSurface(false);
           }, 1200);
         }
       });
@@ -3721,7 +3721,7 @@
       });
     }
 
-    function closeCallSurface() {
+    function closeCallSurface(manualHangup) {
       var prev = callSurfaceStore.get().previousTab || 'chat';
       var snap = callSurfaceStore.get();
       // Pass A — best-effort tell the server the visitor ended the call
@@ -3729,7 +3729,7 @@
       // a `call:ended` event with reason='visitor_ended' and a duration.
       // Idempotent server-side; we never block the local teardown.
       try {
-        if (snap && snap.invitationId) {
+        if (manualHangup && snap && snap.invitationId) {
           try {
             console.info('[gs-call] visitor ending call', {
               call_session_id: snap.callId || null,
@@ -3930,8 +3930,8 @@
           var engine = window.__gs_call && window.__gs_call.engine;
           if (action === 'mic' && engine) { engine.toggleMic(); }
           else if (action === 'cam' && engine) { engine.toggleCamera(); }
-          else if (action === 'hangup') { closeCallSurface(); }
-          else if (action === 'close') { closeCallSurface(); }
+          else if (action === 'hangup') { closeCallSurface(true); }
+          else if (action === 'close') { closeCallSurface(false); }
         });
       }
     }

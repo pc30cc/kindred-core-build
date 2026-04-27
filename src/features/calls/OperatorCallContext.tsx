@@ -60,11 +60,17 @@ export type TerminalStatus =
   | 'declined'
   | 'failed'
   | 'remote_ended'
+  | 'connect_failed_remote'
   | null;
 
 export interface LastEndedSummary {
   ended_by: 'operator' | 'visitor' | 'system';
-  reason: 'operator_ended' | 'visitor_ended' | 'system_ended' | 'failed';
+  reason:
+    | 'operator_ended'
+    | 'visitor_ended'
+    | 'system_ended'
+    | 'failed'
+    | 'visitor_connect_failed';
   duration_seconds: number;
   ended_at: string;
   conversation_id: string | null;

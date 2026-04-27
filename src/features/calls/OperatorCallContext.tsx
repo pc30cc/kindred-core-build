@@ -532,18 +532,60 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     return onCallEnded((evt: CallEndedEvent) => {
       const sessionId = activeCallSessionIdRef.current;
-      // Ignore unrelated calls (e.g. another tab / earlier call).
-      if (sessionId && evt.call_session_id && sessionId !== evt.call_session_id) return;
+      const conversationId = activeCallConversationIdRef.current;
+      const eventSessionId = evt.call_session_id || '';
+      const cur = surfaceRef.current;
+      const surfaceSessionId = cur.invitation?.call_session_id ?? null;
+
+      if (!eventSessionId) {
+        callLog('ignored stale call ended', { reason: 'missing_call_session_id', event: evt });
+        return;
+      }
+      if (!sessionId || !conversationId) {
+        callWarn('ignored call:ended without active session', {
+          eventCallSessionId: eventSessionId,
+          activeCallSessionId: sessionId,
+          activeCallConversationId: conversationId,
+          phase: cur.phase,
+          invitationId: cur.invitation?.id ?? null,
+        });
+        return;
+      }
+      if (sessionId !== eventSessionId) {
+        callLog('ignored stale call ended', {
+          eventCallSessionId: eventSessionId,
+          activeCallSessionId: sessionId,
+          phase: cur.phase,
+        });
+        return;
+      }
+      if ((cur.phase === 'waiting' || cur.phase === 'connecting') && surfaceSessionId !== eventSessionId) {
+        callLog('ignored stale call ended', {
+          reason: 'surface_session_mismatch',
+          eventCallSessionId: eventSessionId,
+          surfaceSessionId,
+          phase: cur.phase,
+        });
+        return;
+      }
+      if (cur.phase !== 'connecting' && cur.phase !== 'connected') {
+        callLog('ignored stale call ended', {
+          reason: 'surface_not_active_media_phase',
+          eventCallSessionId: eventSessionId,
+          phase: cur.phase,
+        });
+        return;
+      }
       setLastEnded({
         ended_by: evt.ended_by,
         reason: evt.reason,
         duration_seconds: evt.duration_seconds,
         ended_at: evt.ended_at,
-        conversation_id: evt.conversation_id || activeCallConversationIdRef.current,
+        conversation_id: evt.conversation_id || conversationId,
       });
       // Tear down our local room idempotently — the server already
       // closed the provider room.
-      try { void disconnectLive('server_call_ended'); } catch { /* ignore */ }
+      try { void disconnectLive('server_call_ended', conversationId); } catch { /* ignore */ }
       clearActiveCallRefs();
       setSurface(INITIAL_SURFACE);
       setFloatingMode('docked');

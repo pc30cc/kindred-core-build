@@ -2468,6 +2468,7 @@
             ice_policy: bundle.ice_policy || 'all',
             publishMic: true,
             publishCamera: (bundle.call_type || channel) === 'video',
+            videoQuality: window.__gs_call_video_quality || (bundle && bundle.video_quality) || 'auto',
           });
         })
         .catch(function (err) {

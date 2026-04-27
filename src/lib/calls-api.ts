@@ -106,6 +106,31 @@ export const callsApi = {
   hangup(callId: string) {
     return jsonFetch<{ ok: true }>('/api/calls/' + callId + '/hangup', { method: 'POST' });
   },
+  /**
+   * Pass A — Canonical end-call endpoint. Idempotent on the server side.
+   * Returns the final ended summary (duration, ended_by, end_reason) so
+   * the operator UI can render "Call ended · mm:ss" without polling.
+   */
+  end(
+    callId: string,
+    reason: 'operator_ended' | 'visitor_ended' | 'system_ended' | 'failed' = 'operator_ended',
+  ) {
+    return jsonFetch<{
+      ok: true;
+      call_session_id: string;
+      conversation_id: string | null;
+      workspace_id: string;
+      state: 'ended';
+      ended_at: string;
+      ended_by: 'operator' | 'visitor' | 'system';
+      end_reason: 'operator_ended' | 'visitor_ended' | 'system_ended' | 'failed';
+      duration_seconds: number;
+      was_active: boolean;
+    }>('/api/calls/' + callId + '/end', {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
   accept(callId: string) {
     return jsonFetch<{ ok: true }>('/api/calls/' + callId + '/accept', { method: 'POST' });
   },

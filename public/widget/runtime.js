@@ -3730,7 +3730,26 @@
       // Idempotent server-side; we never block the local teardown.
       try {
         if (snap && snap.invitationId) {
-          postCallInvitationAction(snap.invitationId, 'end').catch(function () {});
+          try {
+            console.info('[gs-call] visitor ending call', {
+              call_session_id: snap.callId || null,
+              invitation_id: snap.invitationId,
+            });
+          } catch (_) {}
+          postCallInvitationAction(snap.invitationId, 'end')
+            .then(function (resp) {
+              try {
+                console.info('[gs-call] visitor end endpoint success', {
+                  duration_seconds: resp && resp.duration_seconds,
+                  call_session_id: resp && resp.call_session_id,
+                });
+              } catch (_) {}
+            })
+            .catch(function (err) {
+              try {
+                console.warn('[gs-call] visitor end endpoint failed', err && (err.message || err));
+              } catch (_) {}
+            });
         }
       } catch (_) {}
       // Best-effort: ensure the engine is torn down. Idempotent.

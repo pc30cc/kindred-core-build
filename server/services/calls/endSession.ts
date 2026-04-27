@@ -85,6 +85,14 @@ export async function endCallSession(
   input: EndCallInput,
 ): Promise<EndCallResult> {
   const sb = getServiceClient(config);
+  try {
+    // eslint-disable-next-line no-console
+    console.info('[call:end] request', {
+      call_id: input.callId,
+      ended_by: input.endedBy,
+      reason: input.reason,
+    });
+  } catch { /* noop */ }
 
   const { data: row } = await sb
     .from('call_sessions')
@@ -95,6 +103,14 @@ export async function endCallSession(
 
   // Idempotent path — already ended.
   if (row.state === 'ended' && row.ended_at) {
+    try {
+      // eslint-disable-next-line no-console
+      console.info('[call:end] idempotent already ended', {
+        call_id: input.callId,
+        ended_by: row.ended_by,
+        end_reason: row.end_reason,
+      });
+    } catch { /* noop */ }
     return {
       ok: true,
       call_session_id: row.id,
@@ -175,6 +191,16 @@ export async function endCallSession(
 
   // 5. Realtime fan-out — operator inbox + per-conversation channel.
   if (finalRow.context_id) {
+    try {
+      // eslint-disable-next-line no-console
+      console.info('[call:end] published call:ended', {
+        inbox_channel: `ws:${finalRow.workspace_id}:inbox`,
+        conv_channel: `ws:${finalRow.workspace_id}:conv:${finalRow.context_id}`,
+        call_session_id: finalRow.id,
+        ended_by: input.endedBy,
+        duration_seconds: finalRow.duration_seconds ?? duration,
+      });
+    } catch { /* noop */ }
     void publishOperatorEvent(config, {
       kind: 'call:ended',
       conversation_id: finalRow.context_id,

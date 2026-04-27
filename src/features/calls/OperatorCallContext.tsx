@@ -913,12 +913,7 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
         });
     }, 1500);
 
-    return () => {
-      if (remoteLeftFallbackRef.current) {
-        clearTimeout(remoteLeftFallbackRef.current);
-        remoteLeftFallbackRef.current = null;
-      }
-    };
+    return undefined;
   }, [live.remote.length, live.state, surface.phase, disconnectLive, markRemoteParticipantSeen]);
 
   // Hard cleanup ONLY on full provider unmount (sign-out / shutdown).

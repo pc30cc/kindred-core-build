@@ -5441,6 +5441,26 @@
       for (var ck in per) if (Object.prototype.hasOwnProperty.call(per, ck)) total += per[ck];
       notifyStore.set({ perConversation: per, totalUnread: total, lastMessageIds: seenNext });
 
+      // ─── Call invitation ringtone ───────────────────────────────
+      // Scan EVERY incoming message (not just newly-counted ones) for
+      // system call_invitation events. Status === 'pending' starts the
+      // ringtone; any other status stops it. This stays in sync whether
+      // the invitation arrives fresh or as a status patch (joined /
+      // expired / cancelled / declined).
+      try {
+        for (var ri = 0; ri < incoming.length; ri++) {
+          var rm = incoming[ri] || {};
+          var rmSender = rm.role || rm.sender || rm.sender_type || '';
+          var rmMeta = rm.metadata || (rm.message && rm.message.metadata) || null;
+          if (rmSender !== 'system' || !rmMeta || rmMeta.kind !== 'call_invitation') continue;
+          if (rmMeta.status === 'pending') {
+            if (notify.playRingtone) notify.playRingtone();
+          } else if (notify.stopRingtone) {
+            notify.stopRingtone();
+          }
+        }
+      } catch (_) { /* never break on audio */ }
+
       if (newCount > 0 && lastIncoming) {
         // Toast only when the user can't see the message (panel closed or KB tab).
         var canToast = !panelOpen || (activeTab !== 'chat');

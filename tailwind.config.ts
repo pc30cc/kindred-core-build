@@ -78,6 +78,11 @@ export default {
           elevated: "hsl(var(--surface-elevated))",
           sunken: "hsl(var(--surface-sunken))",
         },
+        call: {
+          stage: "hsl(var(--call-stage))",
+          "stage-foreground": "hsl(var(--call-stage-foreground))",
+          "stage-muted": "hsl(var(--call-stage-muted))",
+        },
         admin: {
           DEFAULT: "hsl(var(--admin-background))",
           foreground: "hsl(var(--admin-foreground))",

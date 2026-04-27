@@ -1533,8 +1533,15 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
    beats any future inline transform regression on either the local
    self-view or the remote stream. */
 .gs-call-remote-video,
-.gs-call-local-video {
+.gs-call-local-video,
+.gs-call-surface video,
+[data-call-remote-video],
+[data-call-local-video],
+[data-call-remote-video] video,
+[data-call-local-video] video {
   transform: none !important;
+  scale: 1 !important;
+  rotate: 0deg !important;
 }
 .gs-call-audio-orb {
   width: 96px;

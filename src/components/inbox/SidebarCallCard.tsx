@@ -29,7 +29,7 @@ import {
 import { InviteWaitDialog } from './InviteWaitDialog';
 import { useLocalMediaPreview, type LocalPreviewState } from '@/hooks/useLocalMediaPreview';
 import { useOperatorCall } from '@/features/calls/OperatorCallContext';
-import { VideoCallStage, AudioCallStage } from '@/features/calls/CallStage';
+import { VideoCallStage, AudioCallStage, CALL_VIDEO_STYLE } from '@/features/calls/CallStage';
 
 interface SidebarCallCardProps {
   workspaceId: string;
@@ -234,12 +234,13 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
                 <Button
                   size="sm"
                   variant="ghost"
-                  className="h-6 w-6 p-0 shrink-0"
-                  onClick={() => setFloatingMode('expanded')}
+                  className="h-7 px-2 shrink-0 gap-1 text-[10px] font-semibold"
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setFloatingMode('expanded'); }}
                   aria-label={t('inbox.callSurface.expand') || 'Expand call window'}
                   title={t('inbox.callSurface.expand') || 'Expand'}
                 >
                   <Maximize2 className="w-3.5 h-3.5" />
+                  <span>{t('inbox.callSurface.expand') || 'Expand'}</span>
                 </Button>
               )}
             </div>
@@ -653,12 +654,12 @@ function VideoWaitingTile({ previewStream, previewState }: WaitingTileProps) {
         playsInline
         muted
         className={cn(
-          'call-video call-video-local absolute inset-0 w-full h-full object-cover bg-black transition-opacity duration-200',
+          'call-video call-video-local absolute inset-0 w-full h-full object-cover bg-call-stage transition-opacity duration-200',
           showVideo ? 'opacity-100' : 'opacity-0',
         )}
         data-call-video
         data-local-video
-        style={{ transform: 'none' }}
+        style={CALL_VIDEO_STYLE}
       />
       {!showVideo && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">

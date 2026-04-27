@@ -4,6 +4,36 @@ import "./index.css";
 import { loadFontsForLocale } from "./lib/fonts";
 import { getStoredLocale, loadLocaleMessages } from "./i18n";
 
+function logCallUiBuildVersion() {
+  try {
+    const appBundle = Array.from(document.scripts)
+      .map((s) => s.src)
+      .find((src) => /\/assets\/index-[^/]+\.js(?:$|\?)/.test(src))
+      ?.split('/')
+      .pop() || 'unknown';
+    const appCss = Array.from(document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]'))
+      .map((l) => l.href)
+      .find((href) => /\/assets\/index-[^/]+\.css(?:$|\?)/.test(href))
+      ?.split('/')
+      .pop() || 'unknown';
+    console.info('[call-ui] build version', { appBundle, appCss, noMirror: true });
+    fetch('/widget/widget-manifest.json', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((manifest) => {
+        if (!manifest) return;
+        console.info('[call-ui] widget version', {
+          widgetCss: manifest['runtime.css'] || 'unknown',
+          widgetRuntime: manifest['runtime.js'] || 'unknown',
+          widgetRuntimeCall: manifest['runtime-call.js'] || 'unknown',
+          noMirror: true,
+        });
+      })
+      .catch(() => {});
+  } catch {
+    /* diagnostic only */
+  }
+}
+
 // Set dir/lang immediately to prevent layout flash
 const storedLocale = getStoredLocale();
 loadFontsForLocale(storedLocale);
@@ -17,6 +47,7 @@ async function bootstrap() {
   createRoot(root).render(
     <App initialLocale={storedLocale} initialTranslations={initialTranslations} />
   );
+  logCallUiBuildVersion();
   // Reveal UI only after React has mounted with correct translations
   requestAnimationFrame(() => { root.style.opacity = '1'; });
 }

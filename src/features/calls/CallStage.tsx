@@ -11,12 +11,18 @@
  *   - inline `transform: none` so no future CSS regression mirrors
  *     the operator video
  */
-import { useEffect, useLayoutEffect, useRef } from 'react';
-import type { RemoteAudioTrack, RemoteVideoTrack } from 'livekit-client';
+import { useEffect, useLayoutEffect, useRef, type CSSProperties } from 'react';
+import type { LocalVideoTrack, RemoteAudioTrack, RemoteVideoTrack } from 'livekit-client';
 import { Loader2, WifiOff } from 'lucide-react';
 import type { useLiveKitCall } from '@/hooks/useLiveKitCall';
 
 type Remote = ReturnType<typeof useLiveKitCall>['remote'];
+
+export const CALL_VIDEO_STYLE: CSSProperties & { scale: number; rotate: string } = {
+  transform: 'none',
+  scale: 1,
+  rotate: '0deg',
+};
 
 interface VideoStageProps {
   remote: Remote;
@@ -143,33 +149,35 @@ export function VideoCallStage({ remote, size = 'small' }: VideoStageProps) {
 
   if (remote.length === 0) {
     return (
-      <div className="aspect-video w-full rounded-xl border border-border bg-black flex items-center justify-center">
-        <Loader2 className="w-6 h-6 animate-spin text-white/60" aria-hidden="true" />
+      <div className={size === 'large'
+        ? 'h-full w-full bg-call-stage flex items-center justify-center'
+        : 'aspect-video w-full rounded-xl border border-border bg-call-stage flex items-center justify-center'}>
+        <Loader2 className="w-6 h-6 animate-spin text-call-stage-foreground/60" aria-hidden="true" />
       </div>
     );
   }
 
   return (
-    <div className="grid gap-2">
+    <div className={size === 'large' ? 'h-full w-full' : 'grid gap-2'}>
       {remote.map((r) => (
         <div
           key={r.participantSid}
-          className={`relative w-full rounded-xl overflow-hidden border border-border bg-black ${
-            size === 'large' ? 'aspect-video' : 'aspect-video'
-          }`}
+          className={size === 'large'
+            ? 'relative h-full w-full overflow-hidden bg-call-stage'
+            : 'relative aspect-video w-full rounded-xl overflow-hidden border border-border bg-call-stage'}
         >
           <video
             ref={(el) => { videoRefs.current[r.participantSid] = el; }}
             autoPlay
             playsInline
             muted={false}
-            className="call-video call-video-remote w-full h-full object-cover bg-black"
+            className="call-video call-video-remote w-full h-full object-cover bg-call-stage"
             data-call-video
             data-remote-video
-            style={{ transform: 'none' }}
+            style={CALL_VIDEO_STYLE}
           />
           {!r.videoTrack && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/70 text-white/80">
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-call-stage/70 text-call-stage-foreground/80">
               <WifiOff className="w-5 h-5" aria-hidden="true" />
               <span className="text-[11px] font-medium">Video paused / reconnecting…</span>
             </div>
@@ -182,6 +190,70 @@ export function VideoCallStage({ remote, size = 'small' }: VideoStageProps) {
           />
         </div>
       ))}
+    </div>
+  );
+}
+
+export function LocalVideoPiP({
+  track,
+  cameraEnabled,
+  className,
+}: {
+  track: LocalVideoTrack | null | undefined;
+  cameraEnabled: boolean;
+  className?: string;
+}) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const attachedRef = useRef<LocalVideoTrack | null>(null);
+
+  useLayoutEffect(() => {
+    const el = videoRef.current;
+    if (!el) return;
+    const prev = attachedRef.current;
+    const next = track || null;
+    if (prev === next) return;
+    if (prev) {
+      try { prev.detach(el); } catch { /* ignore */ }
+      try { el.srcObject = null; } catch { /* ignore */ }
+    }
+    if (next) {
+      try { next.attach(el); } catch { /* ignore */ }
+      const p = el.play();
+      if (p && typeof (p as Promise<void>).catch === 'function') {
+        (p as Promise<void>).catch(() => {});
+      }
+    }
+    attachedRef.current = next;
+  }, [track]);
+
+  useEffect(() => {
+    const el = videoRef.current;
+    const tr = attachedRef.current;
+    return () => {
+      if (tr && el) {
+        try { tr.detach(el); } catch { /* ignore */ }
+        try { el.srcObject = null; } catch { /* ignore */ }
+      }
+    };
+  }, []);
+
+  return (
+    <div className={className}>
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted
+        className="call-video call-video-local h-full w-full object-cover bg-call-stage"
+        data-call-video
+        data-local-video
+        style={CALL_VIDEO_STYLE}
+      />
+      {(!track || !cameraEnabled) && (
+        <div className="absolute inset-0 flex items-center justify-center bg-call-stage text-call-stage-foreground/70 text-[11px] font-medium">
+          Camera off
+        </div>
+      )}
     </div>
   );
 }
@@ -212,8 +284,8 @@ export function AudioCallStage({ remote }: { remote: Remote }) {
     }
   }, [remote]);
   return (
-    <div className="relative aspect-video w-full rounded-xl overflow-hidden border border-border bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center">
-      <div className="w-20 h-20 rounded-full bg-white/5 ring-1 ring-white/10 flex items-center justify-center">
+    <div className="relative aspect-video w-full rounded-xl overflow-hidden border border-border bg-call-stage flex items-center justify-center">
+      <div className="w-20 h-20 rounded-full bg-call-stage-foreground/5 ring-1 ring-call-stage-foreground/10 flex items-center justify-center">
         <div className="w-12 h-12 rounded-full bg-primary/30 animate-pulse" aria-hidden="true" />
       </div>
       {remote.map((r) => (

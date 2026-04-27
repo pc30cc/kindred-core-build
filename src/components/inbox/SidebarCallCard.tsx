@@ -234,12 +234,13 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
                 <Button
                   size="sm"
                   variant="ghost"
-                  className="h-6 w-6 p-0 shrink-0"
-                  onClick={() => setFloatingMode('expanded')}
+                  className="h-7 px-2 shrink-0 gap-1 text-[10px] font-semibold"
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setFloatingMode('expanded'); }}
                   aria-label={t('inbox.callSurface.expand') || 'Expand call window'}
                   title={t('inbox.callSurface.expand') || 'Expand'}
                 >
                   <Maximize2 className="w-3.5 h-3.5" />
+                  <span>{t('inbox.callSurface.expand') || 'Expand'}</span>
                 </Button>
               )}
             </div>

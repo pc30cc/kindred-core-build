@@ -492,20 +492,45 @@ callsRouter.post('/:id/token', async (req, res) => {
   try {
     const body = tokenSchema.parse(req.body ?? {});
     if (!ctx.session.provider_room_id) {
-      return res.status(409).json({ error: 'room_not_ready' });
+      return res.status(409).json(
+        callErrorBody(
+          CALL_ERROR_CODES.ROOM_CREATE_FAILED,
+          'Provider room is not ready for this call session.',
+          { provider: ctx.session.provider },
+        ),
+      );
     }
     const provider = resolveCallProvider(ctx.session.provider);
-    const token = await provider.createParticipantToken((req as any).serverConfig, {
-      callSessionId: ctx.session.id,
-      providerRoomId: ctx.session.provider_room_id,
-      participantId: body.participant_id ?? ctx.userId,
-      participantType: body.participant_type,
-      displayName: body.display_name,
-      canPublish: true,
-      canSubscribe: true,
-      canPublishData: true,
-      ttlSeconds: body.ttl_seconds,
-    });
+    let token;
+    try {
+      token = await provider.createParticipantToken((req as any).serverConfig, {
+        callSessionId: ctx.session.id,
+        providerRoomId: ctx.session.provider_room_id,
+        participantId: body.participant_id ?? ctx.userId,
+        participantType: body.participant_type,
+        displayName: body.display_name,
+        canPublish: true,
+        canSubscribe: true,
+        canPublishData: true,
+        ttlSeconds: body.ttl_seconds,
+      });
+    } catch (mintErr) {
+      const mapped = callErrorFromUnknown(mintErr, {
+        code: CALL_ERROR_CODES.TOKEN_MINT_FAILED,
+        message: 'Failed to mint participant token.',
+        provider: ctx.session.provider,
+      });
+      try {
+        emitCallMetric((req as any).serverConfig, {
+          metric: 'call.token.failure',
+          workspaceId: ctx.session.workspace_id,
+          provider: ctx.session.provider,
+          callId: ctx.session.id,
+          reason: mapped.body.error,
+        });
+      } catch { /* */ }
+      return res.status(mapped.status).json(mapped.body);
+    }
     const config: ServerConfig = (req as any).serverConfig;
     const { network, turn } = await buildTokenNetworkBundle(
       config,
@@ -548,6 +573,11 @@ callsRouter.post('/:id/token', async (req, res) => {
       },
       ice_policy: network.ice_policy,
       network,
+      // Pass 1 — surface non-fatal warnings the widget can show as a hint
+      // before the LiveKit SDK actually tries to connect.
+      warnings: [
+        ...(turn.urls.length === 0 ? [CALL_ERROR_CODES.TURN_MISSING] : []),
+      ],
     });
   } catch (err) {
     try {

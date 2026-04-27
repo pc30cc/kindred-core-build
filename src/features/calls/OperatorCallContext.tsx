@@ -238,9 +238,6 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
         return;
       }
       rtDebug('call', 'auto-close terminal matched', { target });
-      if (activeCallSessionIdRef.current && activeCallConversationIdRef.current && target.callSessionId === activeCallSessionIdRef.current) {
-        try { void disconnectLive('server_call_ended', target.conversationId); } catch { /* ignore */ }
-      }
       clearActiveCallRefs();
       setSurface(INITIAL_SURFACE);
       setFloatingMode('docked');

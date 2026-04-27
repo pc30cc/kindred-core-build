@@ -302,14 +302,9 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
     activeCallSessionIdRef.current = null;
     connectedInvitationIdRef.current = null;
     startedConnectInvitationIdRef.current = null;
-    if (remoteLeftFallbackRef.current) {
-      clearTimeout(remoteLeftFallbackRef.current);
-      remoteLeftFallbackRef.current = null;
-    }
-    previousRemoteCountRef.current = 0;
+    resetPerCallLifecycleRefs();
     connectedAtRef.current = 0;
-    remoteEndedShownRef.current = false;
-  }, []);
+  }, [resetPerCallLifecycleRefs]);
 
   // Auto-close terminal surface after a short delay so it briefly shows
   // the outcome and then reverts to IDLE, exposing the invite buttons.
@@ -335,7 +330,7 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
       setSurface(INITIAL_SURFACE);
       setFloatingMode('docked');
     }, delayMs);
-  }, [clearActiveCallRefs, disconnectLive]);
+  }, [clearActiveCallRefs]);
 
   useEffect(() => {
     if (surface.phase !== 'terminal') return;

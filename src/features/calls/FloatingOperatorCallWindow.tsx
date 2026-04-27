@@ -98,43 +98,34 @@ export function FloatingOperatorCallWindow() {
 
   if (!showWindow) return null;
 
-  if (effectiveMode === 'minimized') {
-    return (
-      <div
-        role="dialog"
-        aria-label="Call in progress"
-        className="fixed bottom-4 right-4 z-[60] flex items-center gap-2 rounded-full border border-border bg-card/95 px-3 py-2 shadow-elevated backdrop-blur-md"
-      >
-        <span className={cn('h-2.5 w-2.5 rounded-full', live.state === 'connected' ? 'bg-success animate-pulse' : 'bg-warning')} aria-hidden="true" />
-        <span className="max-w-[220px] truncate text-[12px] font-semibold text-foreground">
-          {title} · {status}
-        </span>
-        <Button size="sm" variant="ghost" className="h-7 w-7 rounded-full p-0" onClick={stop(() => setFloatingMode('expanded'))} aria-label="Expand call window" title="Expand">
-          <Maximize2 className="h-3.5 w-3.5" />
-        </Button>
-        <Button size="sm" variant="default" className="h-7 w-7 rounded-full bg-destructive p-0 text-destructive-foreground hover:bg-destructive/90" onClick={stop(hangup)} aria-label="End call" title="End call">
-          <PhoneOff className="h-3.5 w-3.5" />
-        </Button>
-      </div>
-    );
-  }
+  const isMinimized = effectiveMode === 'minimized';
 
   return (
     <div
       role="dialog"
       aria-label="Active call"
-      className="fixed z-[60] flex h-[min(85vh,560px)] w-[min(85vw,860px)] min-w-[520px] flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-elevated max-sm:inset-x-2 max-sm:bottom-2 max-sm:h-[78vh] max-sm:w-auto max-sm:min-w-0"
-      style={expandedStyle}
+      className={cn(
+        'fixed z-[60] flex overflow-hidden border border-border bg-card shadow-elevated',
+        isMinimized
+          ? 'bottom-4 right-4 h-14 w-[min(92vw,360px)] flex-row items-center gap-2 rounded-full px-3 py-2 backdrop-blur-md'
+          : 'h-[min(85vh,560px)] w-[min(85vw,860px)] min-w-[520px] flex-col rounded-2xl max-sm:inset-x-2 max-sm:bottom-2 max-sm:h-[78vh] max-sm:w-auto max-sm:min-w-0',
+      )}
+      style={isMinimized ? undefined : expandedStyle}
     >
       <div
-        className="absolute inset-x-0 top-0 z-20 flex cursor-move select-none items-center justify-between gap-3 px-4 py-3 text-call-stage-foreground touch-none"
-        onPointerDown={startDrag}
+        className={cn(
+          isMinimized
+            ? 'relative z-20 flex min-w-0 flex-1 select-none items-center justify-between gap-2 text-foreground'
+            : 'absolute inset-x-0 top-0 z-20 flex cursor-move select-none items-center justify-between gap-3 px-4 py-3 text-call-stage-foreground touch-none',
+        )}
+        onPointerDown={isMinimized ? undefined : startDrag}
       >
         <div className="flex min-w-0 items-center gap-3">
-          <GripHorizontal className="h-4 w-4 shrink-0 text-call-stage-foreground/55" aria-hidden="true" />
+          {!isMinimized && <GripHorizontal className="h-4 w-4 shrink-0 text-call-stage-foreground/55" aria-hidden="true" />}
+          {isMinimized && <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', live.state === 'connected' ? 'bg-success animate-pulse' : 'bg-warning')} aria-hidden="true" />}
           <div className="min-w-0">
-            <div className="truncate text-sm font-semibold drop-shadow-sm">{title}</div>
-            <div className="mt-1 flex items-center gap-2">
+            <div className={cn('truncate font-semibold drop-shadow-sm', isMinimized ? 'text-[12px]' : 'text-sm')}>{title}{isMinimized ? ` · ${status}` : ''}</div>
+            <div className={cn('mt-1 flex items-center gap-2', isMinimized && 'hidden')}>
               <span className={cn('rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase leading-none backdrop-blur-md', statusTone)}>
                 {status}
               </span>
@@ -143,16 +134,28 @@ export function FloatingOperatorCallWindow() {
           </div>
         </div>
         <div className="flex items-center gap-1">
-          <Button size="sm" variant="ghost" className="h-8 w-8 rounded-full bg-call-stage-foreground/10 p-0 text-call-stage-foreground hover:bg-call-stage-foreground/20 hover:text-call-stage-foreground" onClick={stop(() => setFloatingMode('minimized'))} aria-label="Minimize call window" title="Minimize">
-            <Minimize2 className="h-4 w-4" />
+          <Button size="sm" variant="ghost" className={cn('h-8 w-8 rounded-full p-0', isMinimized ? 'text-foreground hover:bg-accent' : 'bg-call-stage-foreground/10 text-call-stage-foreground hover:bg-call-stage-foreground/20 hover:text-call-stage-foreground')} onClick={stop(() => setFloatingMode(isMinimized ? 'expanded' : 'minimized'))} aria-label={isMinimized ? 'Expand call window' : 'Minimize call window'} title={isMinimized ? 'Expand' : 'Minimize'}>
+            {isMinimized ? <Maximize2 className="h-4 w-4" /> : <Minimize2 className="h-4 w-4" />}
           </Button>
-          <Button size="sm" variant="ghost" className="h-8 w-8 rounded-full bg-call-stage-foreground/10 p-0 text-call-stage-foreground hover:bg-call-stage-foreground/20 hover:text-call-stage-foreground" onClick={stop(dockToInbox)} aria-label="Return to inbox dock" title="Return to inbox">
-            <PanelRightOpen className="h-4 w-4" />
-          </Button>
+          {!isMinimized && (
+            <Button size="sm" variant="ghost" className="h-8 w-8 rounded-full bg-call-stage-foreground/10 p-0 text-call-stage-foreground hover:bg-call-stage-foreground/20 hover:text-call-stage-foreground" onClick={stop(dockToInbox)} aria-label="Return to inbox dock" title="Return to inbox">
+              <PanelRightOpen className="h-4 w-4" />
+            </Button>
+          )}
+          {isMinimized && (
+            <Button size="sm" variant="default" className="h-8 w-8 rounded-full bg-destructive p-0 text-destructive-foreground hover:bg-destructive/90" onClick={stop(hangup)} aria-label="End call" title="End call">
+              <PhoneOff className="h-4 w-4" />
+            </Button>
+          )}
         </div>
       </div>
 
-      <div className="relative min-h-0 flex-1 overflow-hidden bg-call-stage">
+      <div className={cn(
+        'bg-call-stage',
+        isMinimized
+          ? 'pointer-events-none absolute -left-[10000px] top-0 h-px w-px overflow-hidden opacity-0'
+          : 'relative min-h-0 flex-1 overflow-hidden',
+      )}>
         {surface.phase === 'connecting' ? (
           <div className="flex h-full w-full items-center justify-center bg-call-stage">
             <Loader2 className="h-8 w-8 animate-spin text-call-stage-foreground/70" aria-hidden="true" />

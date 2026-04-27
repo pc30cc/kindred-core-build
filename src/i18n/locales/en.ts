@@ -367,6 +367,12 @@ const en = {
     'callSurface.close': 'Close',
     'callSurface.callEnded': 'Call ended',
     'callSurface.visitorEndedCall': 'Visitor ended the call',
+    // Pass A — system message printed in the chat thread when a call ends.
+    // {duration} is mm:ss (or hh:mm:ss for long calls).
+    'callEnded.summary.byOperator': 'Call ended by operator · Duration {duration}',
+    'callEnded.summary.byVisitor': 'Call ended by visitor · Duration {duration}',
+    'callEnded.summary.bySystem': 'Call ended · Duration {duration}',
+    'callEnded.summary.notConnected': 'Call did not connect',
     'callSurface.expand': 'Expand',
     'callSurface.expandAria': 'Expand call window',
     'callSurface.minimize': 'Minimize',

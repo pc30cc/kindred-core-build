@@ -203,6 +203,11 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
         const ss = String(lastEnded.duration_seconds % 60).padStart(2, '0');
         return `${base} · ${mm}:${ss}`;
       }
+      case 'connect_failed_remote':
+        return safeT(
+          'inbox.callSurface.visitorConnectFailed',
+          'Visitor failed to connect',
+        );
       case 'failed':    return surface.errorMessage
         ? `${t('inbox.callSurface.terminalFailed') || 'Could not connect.'} ${surface.errorMessage}`
         : (t('inbox.callSurface.terminalFailed') || 'Could not connect.');

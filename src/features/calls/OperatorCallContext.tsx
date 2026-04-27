@@ -60,11 +60,17 @@ export type TerminalStatus =
   | 'declined'
   | 'failed'
   | 'remote_ended'
+  | 'connect_failed_remote'
   | null;
 
 export interface LastEndedSummary {
   ended_by: 'operator' | 'visitor' | 'system';
-  reason: 'operator_ended' | 'visitor_ended' | 'system_ended' | 'failed';
+  reason:
+    | 'operator_ended'
+    | 'visitor_ended'
+    | 'system_ended'
+    | 'failed'
+    | 'visitor_connect_failed';
   duration_seconds: number;
   ended_at: string;
   conversation_id: string | null;
@@ -881,21 +887,34 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
       const localDur = connectedAtRef.current
         ? Math.max(0, Math.round((Date.now() - connectedAtRef.current) / 1000))
         : 0;
+      // Distinguish a failed visitor connect from a true visitor hangup.
+      // If the remote participant appeared but we never received a
+      // single TrackSubscribed AND the disconnect happened within the
+      // first 10s of operator-connected, the visitor's WebRTC connection
+      // never actually established — LiveKit logs this as
+      // `removing participant without connection` /
+      // `connectionType: unknown`. In that case we must NOT label it
+      // "Visitor ended the call".
+      const within10s = connectedAtRef.current > 0 && Date.now() - connectedAtRef.current < 10_000;
+      const visitorConnectFailed = !hasRemoteTrackEverSubscribedRef.current && within10s;
+      const terminalKind: TerminalStatus = visitorConnectFailed ? 'connect_failed_remote' : 'remote_ended';
       callLog('visitor-ended terminal shown', {
         sessionId: armedSessionId,
         localDurationSeconds: localDur,
+        visitorConnectFailed,
+        hasRemoteTrackEverSubscribed: hasRemoteTrackEverSubscribedRef.current,
       });
       setLastEnded({
         ended_by: 'system',
-        reason: 'system_ended',
-        duration_seconds: localDur,
+        reason: visitorConnectFailed ? 'visitor_connect_failed' : 'system_ended',
+        duration_seconds: visitorConnectFailed ? 0 : localDur,
         ended_at: new Date().toISOString(),
         conversation_id: armedConversationId,
       });
       setSurface((prev) => ({
         ...prev,
         phase: 'terminal',
-        terminalStatus: 'remote_ended',
+        terminalStatus: terminalKind,
       }));
       // Tear down our local LiveKit room now — remote is gone, no
       // reason to keep it spinning. Snapshot active refs into "recent"

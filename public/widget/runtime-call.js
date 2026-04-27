@@ -114,6 +114,58 @@
   var currentCameraDeviceId = '';
   var currentFacingMode = 'user';
   var availableCameras = [];
+  // ── Connect-lifecycle flags (visitor-side regression fix) ──
+  // We MUST distinguish a transient SDK Disconnected during the initial
+  // /rtc/v1 handshake from a real teardown. Without this, the engine
+  // tears down the moment LiveKit closes the signal socket once (which
+  // routinely happens on retry), the visitor browser is removed from
+  // the room with `connectionType: unknown`, and the operator side
+  // mis-classifies it as `visitor_left`.
+  var connectStarted = false;
+  var connectSucceeded = false;
+  var publishStarted = false;
+  var publishSucceeded = false;
+  var explicitDisconnectRequested = false;
+  var alreadyTornDown = false;
+  // Diagnostics — visitor browser logs we always want when debugging
+  // a failed-to-connect scenario.
+  function dlog() {
+    try {
+      var args = Array.prototype.slice.call(arguments);
+      args.unshift('[gs-call]');
+      console.log.apply(console, args);
+    } catch (_) {}
+  }
+  function dwarn() {
+    try {
+      var args = Array.prototype.slice.call(arguments);
+      args.unshift('[gs-call]');
+      console.warn.apply(console, args);
+    } catch (_) {}
+  }
+  // Active-call window listeners for unhandled errors. Installed only
+  // while a call is in progress so we don't pollute global error reporting.
+  var __activeErrHandler = null;
+  var __activeRejHandler = null;
+  function installActiveCallDiagnostics() {
+    if (__activeErrHandler || typeof window === 'undefined') return;
+    __activeErrHandler = function (ev) {
+      dwarn('window error during call', { message: ev && ev.message, filename: ev && ev.filename, lineno: ev && ev.lineno });
+    };
+    __activeRejHandler = function (ev) {
+      var r = ev && ev.reason;
+      dwarn('unhandledrejection during call', { message: (r && r.message) || String(r) });
+    };
+    try { window.addEventListener('error', __activeErrHandler); } catch (_) {}
+    try { window.addEventListener('unhandledrejection', __activeRejHandler); } catch (_) {}
+  }
+  function removeActiveCallDiagnostics() {
+    if (typeof window === 'undefined') return;
+    try { if (__activeErrHandler) window.removeEventListener('error', __activeErrHandler); } catch (_) {}
+    try { if (__activeRejHandler) window.removeEventListener('unhandledrejection', __activeRejHandler); } catch (_) {}
+    __activeErrHandler = null;
+    __activeRejHandler = null;
+  }
 
   function setState(next) {
     if (state === next) return;
@@ -185,6 +237,14 @@
   }
 
   function teardownInternal(reasonState) {
+    if (alreadyTornDown) {
+      // Idempotent — but still flip state so callers waiting on
+      // `disconnected` see the final state.
+      setState(reasonState || 'disconnected');
+      return;
+    }
+    alreadyTornDown = true;
+    dlog('teardown', { reasonState: reasonState, connectStarted: connectStarted, connectSucceeded: connectSucceeded, explicitDisconnectRequested: explicitDisconnectRequested });
     if (room) {
       try { room.disconnect(); } catch (_) { /* ignore */ }
     }
@@ -196,11 +256,15 @@
     lastLocalVideo = null;
     connectedAt = 0;
     currentCameraDeviceId = '';
+    // NB: do NOT clear connectStarted / connectSucceeded here — the
+    // caller's connect()-promise catch needs to inspect them. They are
+    // reset at the start of the next connect() call instead.
     emitter.emit('remote', lastRemote);
     emitter.emit('local', { video: null });
     emitter.emit('micEnabled', false);
     emitter.emit('cameraEnabled', false);
     setState(reasonState || 'disconnected');
+    removeActiveCallDiagnostics();
   }
 
   /**
@@ -244,10 +308,28 @@
     var publishMic = opts.publishMic !== false;
     var publishCamera = !!opts.publishCamera;
     if (opts.videoQuality) videoQuality = opts.videoQuality;
+    // Reset all per-call flags at the start of a new connect.
+    connectStarted = true;
+    connectSucceeded = false;
+    publishStarted = false;
+    publishSucceeded = false;
+    explicitDisconnectRequested = false;
+    alreadyTornDown = false;
     connecting = true;
     setState('connecting');
+    installActiveCallDiagnostics();
+    dlog('connect start', {
+      callId: opts.callId || null,
+      channel: opts.channel || null,
+      publishMic: publishMic,
+      publishCamera: publishCamera,
+      videoQuality: videoQuality,
+      hasTurn: !!(opts.turn && opts.turn.urls && opts.turn.urls.length),
+      icePolicy: opts.ice_policy || 'all',
+    });
 
     return loadSdk().then(function (LK) {
+      dlog('sdk loaded');
       var iceServers = [];
       if (opts.turn && Array.isArray(opts.turn.urls) && opts.turn.urls.length) {
         iceServers.push({
@@ -298,32 +380,70 @@
         })
         .on(LK.RoomEvent.Reconnecting, function () { setState('reconnecting'); })
         .on(LK.RoomEvent.Reconnected, function () { setState('connected'); })
-        .on(LK.RoomEvent.Disconnected, function () {
-          if (room === nextRoom) {
+        .on(LK.RoomEvent.Disconnected, function (reason) {
+          // CRITICAL: a Disconnected event during the initial signaling
+          // handshake is NOT a user hangup. The SDK occasionally drops
+          // the WS once during /rtc/v1 retry — if we tear down here the
+          // visitor browser closes the signal socket and LiveKit reports
+          // `removing participant without connection`, which the operator
+          // side then mis-classifies as `visitor_left`.
+          //
+          // Rule:
+          //   - explicitDisconnectRequested → real hangup → teardown
+          //   - connectSucceeded → real session ended → teardown
+          //   - otherwise (still in /rtc/v1 handshake or publish) →
+          //     log only. The connect() promise will reject in its own
+          //     `.catch` if the SDK actually fails, and that path tears
+          //     down with reasonState='failed'.
+          if (room !== nextRoom) return;
+          dlog('room disconnected', {
+            reason: reason,
+            connectStarted: connectStarted,
+            connectSucceeded: connectSucceeded,
+            publishStarted: publishStarted,
+            publishSucceeded: publishSucceeded,
+            explicitDisconnectRequested: explicitDisconnectRequested,
+            currentState: state,
+          });
+          if (explicitDisconnectRequested || connectSucceeded) {
             teardownInternal('disconnected');
+          } else {
+            // Stay in 'connecting' — the connect() promise owns the
+            // success/failure decision. Do NOT teardown here.
+            dlog('disconnected ignored: connect still pending');
           }
         });
 
       return nextRoom.connect(wsUrl, opts.token, connectOptions).then(function () {
+        dlog('room.connect success');
         // Race guard: caller may have invoked disconnect() while we were
         // awaiting the WS handshake.
         if (room !== nextRoom) {
           try { nextRoom.disconnect(); } catch (_) {}
           throw makeErr('livekit_connect_failed', 'Connection cancelled before establishment.');
         }
+        // Mark the room as connected from a signaling point of view.
+        // From this point onwards, a Disconnected event IS a real teardown.
+        connectSucceeded = true;
         var publishChain = Promise.resolve();
         if (publishMic) {
           publishChain = publishChain.then(function () {
+            publishStarted = true;
+            dlog('publish mic start');
             return nextRoom.localParticipant.setMicrophoneEnabled(true).catch(function (e) {
+              dwarn('publish mic failed', { message: e && e.message });
               throw makeErr('permission_denied_microphone', (e && e.message) || 'Microphone permission denied.');
-            });
+            }).then(function () { dlog('publish mic success'); });
           });
         }
         if (publishCamera) {
           publishChain = publishChain.then(function () {
+            publishStarted = true;
+            dlog('publish camera start');
             return nextRoom.localParticipant.setCameraEnabled(true).catch(function (e) {
+              dwarn('publish camera failed', { message: e && e.message });
               throw makeErr('permission_denied_camera', (e && e.message) || 'Camera permission denied.');
-            });
+            }).then(function () { dlog('publish camera success'); });
           });
         }
         return publishChain.then(function () {
@@ -331,9 +451,11 @@
             try { nextRoom.disconnect(); } catch (_) {}
             throw makeErr('livekit_connect_failed', 'Connection cancelled during publish.');
           }
+          publishSucceeded = true;
           connecting = false;
           connectedAt = Date.now();
           setState('connected');
+          dlog('engine connected');
           emitRemote(LK);
           emitLocalVideo(LK);
           // Best-effort: enumerate cameras AFTER permission so labels
@@ -344,6 +466,7 @@
     }).catch(function (err) {
       var code = (err && err.code) || 'livekit_connect_failed';
       var message = (err && err.message) || 'Failed to connect.';
+      dwarn('connect failed', { code: code, message: message, connectSucceeded: connectSucceeded, publishStarted: publishStarted });
       emitter.emit('error', { code: code, message: message });
       teardownInternal('failed');
       // Re-throw a normalized error so the caller's promise chain sees it.
@@ -353,6 +476,8 @@
 
   function disconnect() {
     if (!room && !connecting) return Promise.resolve();
+    dlog('explicit disconnect requested');
+    explicitDisconnectRequested = true;
     teardownInternal('disconnected');
     return Promise.resolve();
   }

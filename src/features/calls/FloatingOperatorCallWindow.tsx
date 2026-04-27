@@ -35,7 +35,10 @@ export function FloatingOperatorCallWindow() {
   // state so the operator gets a clear "Visitor ended the call" message
   // instead of the floating window vanishing into thin air.
   const isRemoteEndedTerminal =
-    surface.phase === 'terminal' && surface.terminalStatus === 'remote_ended';
+    surface.phase === 'terminal' &&
+    (surface.terminalStatus === 'remote_ended' || surface.terminalStatus === 'connect_failed_remote');
+  const isConnectFailedRemoteTerminal =
+    surface.phase === 'terminal' && surface.terminalStatus === 'connect_failed_remote';
   const showWindow =
     surface.phase !== 'idle' &&
     surface.phase !== 'waiting' &&
@@ -182,15 +185,23 @@ export function FloatingOperatorCallWindow() {
               <UserMinus className="h-7 w-7 text-call-stage-foreground/85" aria-hidden="true" />
             </div>
             <div className="text-base font-semibold">
-              {lastEnded?.ended_by === 'visitor' ? safeT('inbox.callSurface.visitorEndedCall', 'Visitor ended the call') : safeT('inbox.callSurface.visitorLeft', 'Visitor left the call')}
+              {isConnectFailedRemoteTerminal
+                ? safeT('inbox.callSurface.visitorConnectFailed', 'Visitor failed to connect')
+                : (lastEnded?.ended_by === 'visitor'
+                    ? safeT('inbox.callSurface.visitorEndedCall', 'Visitor ended the call')
+                    : safeT('inbox.callSurface.visitorLeft', 'Visitor left the call'))}
             </div>
-            {lastEnded && lastEnded.duration_seconds > 0 && (
+            {isConnectFailedRemoteTerminal ? (
+              <div className="text-[13px] font-medium text-call-stage-foreground/70">
+                {safeT('inbox.callSurface.visitorConnectFailedHint', 'Call could not be established')}
+              </div>
+            ) : (lastEnded && lastEnded.duration_seconds > 0 && (
               <div className="text-[13px] font-medium text-call-stage-foreground/70">
                 {String(Math.floor(lastEnded.duration_seconds / 60)).padStart(2, '0')}
                 {':'}
                 {String(lastEnded.duration_seconds % 60).padStart(2, '0')}
               </div>
-            )}
+            ))}
           </div>
         ) : surface.phase === 'connecting' ? (
           <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-call-stage text-call-stage-foreground/75">

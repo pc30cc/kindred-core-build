@@ -18,7 +18,8 @@ export function useConversations(workspaceId: string | undefined, status?: strin
       if (error) throw error;
       const convos = (data || []) as (Conversation & {
         contacts: { name: string; email: string; avatar_url: string } | null;
-        last_visitor_message?: { body: string; created_at: string } | null;
+        last_visitor_message?: { body: string; created_at: string; seen_at: string | null } | null;
+        unread_count?: number;
       })[];
 
       // Enrich each conversation with the latest visitor (sender_type='contact')
@@ -29,23 +30,31 @@ export function useConversations(workspaceId: string | undefined, status?: strin
       if (ids.length > 0) {
         const { data: msgs } = await supabase
           .from('conversation_messages')
-          .select('conversation_id, body, created_at, sender_type')
+          .select('conversation_id, body, created_at, sender_type, seen_at')
           .in('conversation_id', ids)
           .eq('sender_type', 'contact')
           .order('created_at', { ascending: false })
           .limit(500);
-        const byConv: Record<string, { body: string; created_at: string }> = {};
+        const byConv: Record<string, { body: string; created_at: string; seen_at: string | null }> = {};
+        const unreadByConv: Record<string, number> = {};
         for (const m of (msgs || []) as Array<{
-          conversation_id: string; body: string | null; created_at: string;
+          conversation_id: string; body: string | null; created_at: string; seen_at: string | null;
         }>) {
-          if (!m.conversation_id || byConv[m.conversation_id]) continue;
-          byConv[m.conversation_id] = {
-            body: m.body ?? '',
-            created_at: m.created_at,
-          };
+          if (!m.conversation_id) continue;
+          if (!byConv[m.conversation_id]) {
+            byConv[m.conversation_id] = {
+              body: m.body ?? '',
+              created_at: m.created_at,
+              seen_at: m.seen_at ?? null,
+            };
+          }
+          if (!m.seen_at) {
+            unreadByConv[m.conversation_id] = (unreadByConv[m.conversation_id] ?? 0) + 1;
+          }
         }
         for (const c of convos) {
           c.last_visitor_message = byConv[c.id] ?? null;
+          c.unread_count = unreadByConv[c.id] ?? 0;
         }
       }
       return convos;

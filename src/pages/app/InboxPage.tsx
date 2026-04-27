@@ -617,12 +617,25 @@ export default function InboxPage() {
 
   const filteredConvos = useMemo(() => {
     if (!conversations) return [];
-    return conversations.filter(c => {
+    const filtered = conversations.filter(c => {
       if (!search) return true;
       const name = c.contacts?.name || c.contacts?.email || c.subject || '';
       return name.toLowerCase().includes(search.toLowerCase());
     });
+    // Float unread conversations to the top — within each group keep the
+    // existing updated_at descending order (already applied server-side).
+    return [...filtered].sort((a: any, b: any) => {
+      const ua = (a.unread_count ?? 0) > 0 ? 1 : 0;
+      const ub = (b.unread_count ?? 0) > 0 ? 1 : 0;
+      if (ua !== ub) return ub - ua;
+      return 0;
+    });
   }, [conversations, search]);
+
+  const totalUnread = useMemo(() => {
+    if (!conversations) return 0;
+    return (conversations as any[]).reduce((n, c) => n + (c.unread_count ?? 0), 0);
+  }, [conversations]);
 
   const statusLabels: Record<string, string> = {
     open: t('inbox.open') || 'Open',
@@ -647,6 +660,14 @@ export default function InboxPage() {
               <span className="text-[10px] bg-primary/15 text-primary px-1.5 py-0.5 rounded-full font-semibold">
                 {conversations?.length || 0}
               </span>
+              {totalUnread > 0 && (
+                <span
+                  className="text-[10px] bg-primary text-primary-foreground px-1.5 py-0.5 rounded-full font-bold shadow-sm animate-fade-in"
+                  title={`${totalUnread} unread`}
+                >
+                  {totalUnread > 99 ? '99+' : totalUnread} new
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-1">
               <button
@@ -794,7 +815,8 @@ export default function InboxPage() {
             filteredConvos.map(conv => {
               const isActive = selectedId === conv.id;
               const name = conv.contacts?.name || conv.contacts?.email || conv.subject || `#${conv.id.slice(0, 8)}`;
-              const hasUnread = conv.status === 'open';
+              const unreadCount = (conv as any).unread_count ?? 0;
+              const hasUnread = unreadCount > 0 && !isActive;
 
               return (
                 <div
@@ -805,15 +827,16 @@ export default function InboxPage() {
                     isActive
                       ? 'bg-primary/[0.07]'
                       : hasUnread
-                        ? 'bg-card hover:bg-secondary/40'
+                        ? 'bg-primary/[0.04] hover:bg-primary/[0.08]'
                         : 'hover:bg-secondary/40'
                   )}
                   dir={dir}
                 >
-                  {/* Active indicator rail (LTR/RTL aware) */}
-                  {isActive && (
+                  {/* Active / unread indicator rail (LTR/RTL aware) */}
+                  {(isActive || hasUnread) && (
                     <div className={cn(
-                      'absolute top-0 bottom-0 w-[3px] bg-primary rounded-full',
+                      'absolute top-0 bottom-0 w-[3px] rounded-full',
+                      isActive ? 'bg-primary' : 'bg-primary/70',
                       dir === 'rtl' ? 'right-0' : 'left-0',
                     )} />
                   )}
@@ -825,7 +848,11 @@ export default function InboxPage() {
                         email={conv.contacts?.email}
                         avatarUrl={conv.contacts?.avatar_url}
                         size="md"
-                        ringClassName={isActive ? 'ring-primary/40' : 'ring-border/50'}
+                        ringClassName={
+                          isActive ? 'ring-primary/40'
+                          : hasUnread ? 'ring-primary/50'
+                          : 'ring-border/50'
+                        }
                       />
                       {/* Status dot — small, neutral; uses semantic status color */}
                       <span className={cn(
@@ -839,10 +866,16 @@ export default function InboxPage() {
                       {/* Row 1: Name + time */}
                       <div className="flex items-baseline justify-between gap-2 mb-0.5">
                         <span className={cn(
-                          'text-[13px] truncate leading-tight',
-                          hasUnread ? 'font-semibold text-foreground' : 'font-medium text-foreground/85',
+                          'truncate leading-tight flex items-center gap-1.5 min-w-0',
+                          hasUnread ? 'text-[13.5px] font-bold text-foreground' : 'text-[13px] font-medium text-foreground/85',
                         )}>
-                          {name}
+                          {hasUnread && (
+                            <span
+                              className="w-2 h-2 rounded-full bg-primary shrink-0 shadow-[0_0_0_3px_hsl(var(--primary)/0.18)] animate-pulse"
+                              aria-label="unread"
+                            />
+                          )}
+                          <span className="truncate">{name}</span>
                         </span>
                         <span className={cn(
                           'text-[10.5px] shrink-0 tabular-nums',
@@ -852,14 +885,24 @@ export default function InboxPage() {
                         </span>
                       </div>
                       {/* Row 2: Subject / preview */}
-                      <p className={cn(
-                        'text-[12px] truncate mb-1.5 leading-snug',
-                        hasUnread ? 'text-foreground/90' : 'text-muted-foreground',
-                      )}>
-                        {(conv as any).last_visitor_message?.body
-                          || conv.subject
-                          || (t('inbox.noMessages') || 'No messages yet')}
-                      </p>
+                      <div className="flex items-start justify-between gap-2 mb-1.5">
+                        <p className={cn(
+                          'text-[12px] truncate leading-snug flex-1 min-w-0',
+                          hasUnread ? 'text-foreground font-medium' : 'text-muted-foreground',
+                        )}>
+                          {(conv as any).last_visitor_message?.body
+                            || conv.subject
+                            || (t('inbox.noMessages') || 'No messages yet')}
+                        </p>
+                        {hasUnread && unreadCount > 0 && (
+                          <span
+                            className="shrink-0 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold tabular-nums shadow-sm"
+                            aria-label={`${unreadCount} unread messages`}
+                          >
+                            {unreadCount > 99 ? '99+' : unreadCount}
+                          </span>
+                        )}
+                      </div>
                       {/* Row 3: Status + meta */}
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <span className={cn(

@@ -888,15 +888,11 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
         ? Math.max(0, Math.round((Date.now() - connectedAtRef.current) / 1000))
         : 0;
       // Distinguish a failed visitor connect from a true visitor hangup.
-      // If the remote participant appeared but we never received a
-      // single TrackSubscribed AND the disconnect happened within the
-      // first 10s of operator-connected, the visitor's WebRTC connection
-      // never actually established — LiveKit logs this as
-      // `removing participant without connection` /
-      // `connectionType: unknown`. In that case we must NOT label it
-      // "Visitor ended the call".
-      const within10s = connectedAtRef.current > 0 && Date.now() - connectedAtRef.current < 10_000;
-      const visitorConnectFailed = !hasRemoteTrackEverSubscribedRef.current && within10s;
+      // If the remote participant appeared but we never received a single
+      // TrackSubscribed event, the visitor's WebRTC/media connection never
+      // actually established — regardless of elapsed time. Do not label
+      // that as "Visitor ended the call".
+      const visitorConnectFailed = !hasRemoteTrackEverSubscribedRef.current;
       const terminalKind: TerminalStatus = visitorConnectFailed ? 'connect_failed_remote' : 'remote_ended';
       callLog('visitor-ended terminal shown', {
         sessionId: armedSessionId,

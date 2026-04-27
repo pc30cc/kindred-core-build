@@ -20,6 +20,7 @@ import {
   isCallOrientationDebugEnabled,
   logCallVideoOrientation,
 } from './videoOrientation';
+import { applyVideoOrientationClass } from './videoOrientation';
 
 type Remote = ReturnType<typeof useLiveKitCall>['remote'];
 

@@ -401,7 +401,10 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
     const inv = surface.invitation;
     if (!inv) return;
     if (startedConnectInvitationIdRef.current === inv.id) return;
+    resetPerCallLifecycleRefs();
     startedConnectInvitationIdRef.current = inv.id;
+    connectStartedAtRef.current = Date.now();
+    liveConnectPendingRef.current = true;
     let cancelled = false;
     (async () => {
       try {
@@ -449,6 +452,8 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
           iceTransportPolicy: tok.ice_policy,
         });
         if (cancelled) return;
+        liveConnectPendingRef.current = false;
+        hasLiveConnectSucceededRef.current = true;
         connectedInvitationIdRef.current = inv.id;
         callLog('live.connect success', {
           invitation_id: inv.id,
@@ -459,6 +464,7 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
         setSurface((prev) => prev.phase === 'connecting' ? { ...prev, phase: 'connected' } : prev);
       } catch (err: any) {
         if (cancelled) return;
+        liveConnectPendingRef.current = false;
         startedConnectInvitationIdRef.current = null;
         rtDebug('call', 'connect failed', { invitation_id: inv.id, error: err?.message });
         setSurface((prev) => ({
@@ -469,9 +475,9 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
         }));
       }
     })();
-    return () => { cancelled = true; };
+    return () => { cancelled = true; liveConnectPendingRef.current = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [surface.phase, surface.invitation?.id]);
+  }, [surface.phase, surface.invitation?.id, resetPerCallLifecycleRefs]);
 
   const refreshLatest = useCallback(async (conversationId: string) => {
     try {

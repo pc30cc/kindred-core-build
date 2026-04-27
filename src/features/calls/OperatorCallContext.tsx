@@ -47,6 +47,8 @@ import { onInvitationChanged } from '@/lib/call-invitations-events';
 import { onCallEnded, type CallEndedEvent } from '@/lib/call-end-events';
 import { callsApi } from '@/lib/calls-api';
 import { useLiveKitCall } from '@/hooks/useLiveKitCall';
+import type { CallVideoQuality } from '@/hooks/useLiveKitCall';
+import { fetchWorkspaceCallSettings } from '@/lib/workspace-calls-api';
 import { useLocalMediaPreview, type LocalPreviewState } from '@/hooks/useLocalMediaPreview';
 import { rtDebug } from '@/realtime/debug';
 import { toast } from '@/hooks/use-toast';
@@ -145,6 +147,9 @@ export interface OperatorCallContextValue {
   /** Pass A — last ended summary for "Call ended · mm:ss" UI. */
   lastEnded: LastEndedSummary | null;
   clearLastEnded(): void;
+  /** In-call video quality preset (operator selectable). */
+  videoQuality: CallVideoQuality;
+  setVideoQuality(q: CallVideoQuality): Promise<void>;
 }
 
 const OperatorCallContext = createContext<OperatorCallContextValue | null>(null);
@@ -169,6 +174,7 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(false);
   const [floatingMode, setFloatingMode] = useState<FloatingMode>('docked');
   const [lastEnded, setLastEnded] = useState<LastEndedSummary | null>(null);
+  const [workspaceDefaultQuality, setWorkspaceDefaultQuality] = useState<CallVideoQuality>('auto');
   // Latest invitation per conversation — for the sidebar pill. Kept in
   // a ref+state pair so reads are cheap and writes still trigger the
   // sidebar consumers to re-render.
@@ -261,6 +267,26 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
       callLog('remote track subscribed', { identity, kind, trackSid });
     },
   });
+
+  // Pass B — load workspace default video quality once we know the
+  // workspace id (when the operator opens an invite). Falls back to
+  // 'auto' on any error so the call never fails over a settings fetch.
+  useEffect(() => {
+    const wsId = surface.workspaceId;
+    if (!wsId) return;
+    let cancelled = false;
+    fetchWorkspaceCallSettings(wsId)
+      .then((r) => {
+        if (cancelled) return;
+        const q = (r.overrides?.default_video_quality || 'auto') as CallVideoQuality;
+        setWorkspaceDefaultQuality(q);
+        // Push into the live hook before the connect phase publishes.
+        void live.setVideoQuality(q);
+      })
+      .catch(() => { /* ignore */ });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [surface.workspaceId]);
 
   const preview = useLocalMediaPreview({
     enabled: surface.phase === 'waiting',
@@ -952,6 +978,8 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
     refreshLatest,
     lastEnded,
     clearLastEnded,
+    videoQuality: live.videoQuality,
+    setVideoQuality: live.setVideoQuality,
   }), [
     surface, creating, loading, live, preview.stream, preview.state,
     floatingMode, latestForConversation, sendInvite, cancelInvite, hangup, closeTerminal, refreshLatest,

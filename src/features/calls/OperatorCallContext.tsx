@@ -782,22 +782,63 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
     const cur = surfaceRef.current;
     const sessionId = activeCallSessionIdRef.current;
     if (!sessionId) return;
-    if (cur.phase !== 'connected' && cur.phase !== 'connecting') return;
     const remoteCount = live.remote.length;
     const wasPresent = previousRemoteCountRef.current > 0;
+    if (remoteCount > 0) {
+      markRemoteParticipantSeen('snapshot', { remoteCount });
+    }
     previousRemoteCountRef.current = remoteCount;
 
-    // Two triggers: remote disappeared OR room disconnected entirely.
+    if (cur.phase !== 'connected') {
+      if (live.state === 'disconnected' || live.state === 'failed' || remoteCount === 0) {
+        callLog('visitor-ended fallback ignored: not connected yet', {
+          sessionId,
+          phase: cur.phase,
+          liveState: live.state,
+          liveConnectPending: liveConnectPendingRef.current,
+          remoteCount,
+        });
+      }
+      return;
+    }
+    if (!hasLiveConnectSucceededRef.current || liveConnectPendingRef.current) {
+      callLog('visitor-ended fallback ignored: not connected yet', {
+        sessionId,
+        phase: cur.phase,
+        liveState: live.state,
+        hasLiveConnectSucceeded: hasLiveConnectSucceededRef.current,
+        liveConnectPending: liveConnectPendingRef.current,
+        remoteCount,
+      });
+      return;
+    }
+    if (!hasRemoteParticipantEverConnectedRef.current) {
+      if (remoteCount === 0 || live.state === 'disconnected' || live.state === 'failed') {
+        callLog('visitor-ended fallback ignored: no remote ever seen', {
+          sessionId,
+          phase: cur.phase,
+          liveState: live.state,
+          remoteCount,
+        });
+      }
+      return;
+    }
+
+    // Trigger only after a real visitor participant was seen and then vanished.
     const remoteVanished = wasPresent && remoteCount === 0;
-    const roomDown = live.state === 'disconnected' || live.state === 'failed';
-    if (!remoteVanished && !roomDown) return;
+    const participantDisconnected = realVisitorDisconnectedRef.current && remoteCount === 0;
+    if (!remoteVanished && !participantDisconnected) return;
 
     if (remoteLeftFallbackRef.current) return; // already armed
-    callLog('visitor remote disappeared', {
+    callLog('visitor-ended fallback armed', {
       sessionId,
       remoteCount,
       liveState: live.state,
       phase: cur.phase,
+      remoteVanished,
+      participantDisconnected,
+      remoteParticipantSeenAt: remoteParticipantSeenAtRef.current,
+      hasRemoteTrackEverSubscribed: hasRemoteTrackEverSubscribedRef.current,
     });
     const armedSessionId = sessionId;
     const armedConversationId = activeCallConversationIdRef.current;
@@ -810,13 +851,13 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
       const localDur = connectedAtRef.current
         ? Math.max(0, Math.round((Date.now() - connectedAtRef.current) / 1000))
         : 0;
-      callLog('showing visitor-ended terminal state', {
+      callLog('visitor-ended terminal shown', {
         sessionId: armedSessionId,
         localDurationSeconds: localDur,
       });
       setLastEnded({
-        ended_by: 'visitor',
-        reason: 'visitor_ended',
+        ended_by: 'system',
+        reason: 'system_ended',
         duration_seconds: localDur,
         ended_at: new Date().toISOString(),
         conversation_id: armedConversationId,
@@ -839,6 +880,13 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
     });
     remoteLeftFallbackRef.current = setTimeout(() => {
       remoteLeftFallbackRef.current = null;
+      if (activeCallSessionIdRef.current && activeCallSessionIdRef.current !== armedSessionId) {
+        callLog('ignored stale visitor-left fallback', {
+          armedSessionId,
+          activeCallSessionId: activeCallSessionIdRef.current,
+        });
+        return;
+      }
       // Always poll /end — even if active refs were already cleared by
       // disconnectLive above, the server still owes us the canonical
       // duration for the terminal toast.
@@ -871,7 +919,7 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
         remoteLeftFallbackRef.current = null;
       }
     };
-  }, [live.remote.length, live.state, surface.phase, disconnectLive, clearActiveCallRefs]);
+  }, [live.remote.length, live.state, surface.phase, disconnectLive, markRemoteParticipantSeen]);
 
   // Hard cleanup ONLY on full provider unmount (sign-out / shutdown).
   useEffect(() => {

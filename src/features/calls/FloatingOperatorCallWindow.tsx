@@ -7,7 +7,7 @@
  */
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { Mic, MicOff, Video, VideoOff, PhoneOff, Maximize2, Minimize2, PanelRightOpen, Loader2, GripHorizontal, Signal } from 'lucide-react';
+import { Mic, MicOff, Video, VideoOff, PhoneOff, Maximize2, Minimize2, PanelRightOpen, Loader2, GripHorizontal, Signal, UserMinus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useOperatorCall } from './OperatorCallContext';
@@ -17,17 +17,22 @@ const EXPANDED_W = 860;
 const EXPANDED_H = 560;
 
 export function FloatingOperatorCallWindow() {
-  const { surface, live, floatingMode, setFloatingMode, hangup } = useOperatorCall();
+  const { surface, live, floatingMode, setFloatingMode, hangup, lastEnded } = useOperatorCall();
   const isVideo = surface.channel === 'video';
   const navigate = useNavigate();
   const location = useLocation();
   const { slug } = useParams<{ slug: string }>();
   const isInboxRoute = /\/inbox\/?$/.test(location.pathname);
   const effectiveMode = floatingMode === 'docked' && !isInboxRoute ? 'expanded' : floatingMode;
+  // Keep the window visible briefly during the 'remote_ended' terminal
+  // state so the operator gets a clear "Visitor ended the call" message
+  // instead of the floating window vanishing into thin air.
+  const isRemoteEndedTerminal =
+    surface.phase === 'terminal' && surface.terminalStatus === 'remote_ended';
   const showWindow =
     surface.phase !== 'idle' &&
     surface.phase !== 'waiting' &&
-    surface.phase !== 'terminal' &&
+    (surface.phase !== 'terminal' || isRemoteEndedTerminal) &&
     effectiveMode !== 'docked';
 
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);

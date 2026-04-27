@@ -12,12 +12,18 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useOperatorCall } from './OperatorCallContext';
 import { VideoCallStage, AudioCallStage, LocalVideoPiP } from './CallStage';
+import { useTranslation } from '@/i18n';
 
 const EXPANDED_W = 860;
 const EXPANDED_H = 560;
 
 export function FloatingOperatorCallWindow() {
-  const { surface, live, floatingMode, setFloatingMode, hangup, lastEnded } = useOperatorCall();
+  const { surface, live, floatingMode, setFloatingMode, hangup, closeTerminal, lastEnded } = useOperatorCall();
+  const i18n = useTranslation();
+  const safeT = (key: string, fallback: string): string => {
+    const value = (i18n.t as unknown as (k: string) => string)(key);
+    return value && value !== key ? value : fallback;
+  };
   const isVideo = surface.channel === 'video';
   const navigate = useNavigate();
   const location = useLocation();
@@ -63,14 +69,14 @@ export function FloatingOperatorCallWindow() {
 
   const hasRemoteVideo = live.remote.some((r) => !!r.videoTrack);
   const status =
-    isRemoteEndedTerminal ? 'Call ended' :
-    live.state === 'connecting' ? 'Connecting' :
-    live.state === 'reconnecting' ? 'Reconnecting' :
-    isVideo && surface.phase === 'connected' && !hasRemoteVideo ? 'Camera off' :
-    live.state === 'connected' ? 'Live' :
-    live.state === 'failed' ? 'Connection failed' :
-    surface.phase === 'connecting' ? 'Connecting' :
-    'Live';
+    isRemoteEndedTerminal ? safeT('inbox.callSurface.callEnded', 'Call ended') :
+    live.state === 'connecting' ? safeT('inbox.callSurface.statusConnecting', 'Connecting') :
+    live.state === 'reconnecting' ? safeT('inbox.callSurface.statusReconnecting', 'Reconnecting') :
+    isVideo && surface.phase === 'connected' && !hasRemoteVideo ? safeT('inbox.callSurface.cameraOffStatus', 'Camera off') :
+    live.state === 'connected' ? safeT('inbox.callSurface.statusLive', 'Live') :
+    live.state === 'failed' ? safeT('inbox.callSurface.statusFailed', 'Connection failed') :
+    surface.phase === 'connecting' ? safeT('inbox.callSurface.statusConnecting', 'Connecting') :
+    safeT('inbox.callSurface.statusLive', 'Live');
 
   const statusTone =
     isRemoteEndedTerminal ? 'bg-muted/70 text-muted-foreground border-border' :
@@ -139,9 +145,9 @@ export function FloatingOperatorCallWindow() {
                 {status}
               </span>
               <span className="inline-flex items-center gap-1 text-[11px] font-medium text-call-stage-foreground/70">
-                <Signal className="h-3 w-3" aria-hidden="true" /> Stable media
+                <Signal className="h-3 w-3" aria-hidden="true" /> {safeT('inbox.callSurface.stableMedia', 'Stable media')}
               </span>
-              <span className="text-[11px] font-medium text-call-stage-foreground/70">{isVideo ? 'Video call' : 'Audio call'}</span>
+              <span className="text-[11px] font-medium text-call-stage-foreground/70">{isVideo ? safeT('inbox.callSurface.videoCall', 'Video call') : safeT('inbox.callSurface.audioCall', 'Audio call')}</span>
             </div>
           </div>
         </div>
@@ -175,7 +181,7 @@ export function FloatingOperatorCallWindow() {
               <UserMinus className="h-7 w-7 text-call-stage-foreground/85" aria-hidden="true" />
             </div>
             <div className="text-base font-semibold">
-              {lastEnded?.ended_by === 'visitor' ? 'Visitor ended the call' : 'Visitor left the call'}
+              {lastEnded?.ended_by === 'visitor' ? safeT('inbox.callSurface.visitorEndedCall', 'Visitor ended the call') : safeT('inbox.callSurface.visitorLeft', 'Visitor left the call')}
             </div>
             {lastEnded && lastEnded.duration_seconds > 0 && (
               <div className="text-[13px] font-medium text-call-stage-foreground/70">
@@ -188,7 +194,7 @@ export function FloatingOperatorCallWindow() {
         ) : surface.phase === 'connecting' ? (
           <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-call-stage text-call-stage-foreground/75">
             <Loader2 className="h-8 w-8 animate-spin" aria-hidden="true" />
-            <span className="text-sm font-medium">Connecting media…</span>
+            <span className="text-sm font-medium">{safeT('inbox.callSurface.establishing', 'Connecting media…')}</span>
           </div>
         ) : isVideo ? (
           <VideoCallStage remote={live.remote} size="large" />
@@ -216,9 +222,9 @@ export function FloatingOperatorCallWindow() {
               {live.cameraEnabled ? <Video className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}
             </Button>
           )}
-          <Button size="sm" variant="default" className="h-12 rounded-full bg-destructive px-6 text-destructive-foreground shadow-elevated hover:bg-destructive/90" onClick={stop(hangup)} aria-label={isRemoteEndedTerminal ? 'Close' : 'End call'} title={isRemoteEndedTerminal ? 'Close' : 'End call'}>
+          <Button size="sm" variant="default" className="h-12 rounded-full bg-destructive px-6 text-destructive-foreground shadow-elevated hover:bg-destructive/90" onClick={stop(isRemoteEndedTerminal ? closeTerminal : hangup)} aria-label={isRemoteEndedTerminal ? safeT('inbox.callSurface.close', 'Close') : safeT('inbox.callSurface.hangup', 'End call')} title={isRemoteEndedTerminal ? safeT('inbox.callSurface.close', 'Close') : safeT('inbox.callSurface.hangup', 'End call')}>
             <PhoneOff className="h-5 w-5" />
-            <span className="text-[13px] font-bold">{isRemoteEndedTerminal ? 'Close' : 'End'}</span>
+            <span className="text-[13px] font-bold">{isRemoteEndedTerminal ? safeT('inbox.callSurface.close', 'Close') : safeT('inbox.callSurface.hangup', 'End')}</span>
           </Button>
         </div>
       </div>

@@ -17,6 +17,9 @@ import { useTranslation } from '@/i18n';
 
 const EXPANDED_W = 860;
 const EXPANDED_H = 560;
+// Portrait-shaped window when the remote stream is vertical (mobile visitor).
+const EXPANDED_PORTRAIT_W = 380;
+const EXPANDED_PORTRAIT_H = 640;
 
 export function FloatingOperatorCallWindow() {
   const { surface, live, floatingMode, setFloatingMode, hangup, closeTerminal, lastEnded, videoQuality, setVideoQuality } = useOperatorCall();
@@ -72,6 +75,48 @@ export function FloatingOperatorCallWindow() {
   }, [effectiveMode]);
 
   const hasRemoteVideo = live.remote.some((r) => !!r.videoTrack);
+  // Detect remote orientation from the first published remote video track
+  // so we can resize/restyle the whole floating window to match — no more
+  // black bars next to a portrait phone stream.
+  const [remoteOrientation, setRemoteOrientation] = useState<'portrait' | 'landscape' | 'square' | null>(null);
+  const firstRemoteVideoTrack = live.remote[0]?.videoTrack || null;
+  useEffect(() => {
+    if (!firstRemoteVideoTrack) { setRemoteOrientation(null); return; }
+    const ms: MediaStreamTrack | undefined = (firstRemoteVideoTrack as any).mediaStreamTrack;
+    if (!ms) return;
+    let cancelled = false;
+    const probe = () => {
+      if (cancelled) return;
+      const settings = ms.getSettings ? ms.getSettings() : ({} as MediaTrackSettings);
+      const w = settings.width || 0;
+      const h = settings.height || 0;
+      if (!w || !h) return;
+      const next: 'portrait' | 'landscape' | 'square' =
+        h > w * 1.05 ? 'portrait' : w > h * 1.05 ? 'landscape' : 'square';
+      setRemoteOrientation((prev) => (prev === next ? prev : next));
+    };
+    probe();
+    const id = window.setInterval(probe, 1000);
+    return () => { cancelled = true; window.clearInterval(id); };
+  }, [firstRemoteVideoTrack]);
+  // Also listen at the DOM layer — videoOrientation already toggles the
+  // [data-video-orientation] attribute on the stage element.
+  useEffect(() => {
+    if (!isVideo) return;
+    const root = document.querySelector('[data-call-video-stage]') as HTMLElement | null;
+    if (!root) return;
+    const sync = () => {
+      const v = root.getAttribute('data-video-orientation');
+      if (v === 'portrait' || v === 'landscape' || v === 'square') {
+        setRemoteOrientation((prev) => (prev === v ? prev : v));
+      }
+    };
+    sync();
+    const obs = new MutationObserver(sync);
+    obs.observe(root, { attributes: true, attributeFilter: ['data-video-orientation'] });
+    return () => obs.disconnect();
+  }, [isVideo, firstRemoteVideoTrack]);
+  const isPortraitStage = isVideo && remoteOrientation === 'portrait';
   const status =
     isRemoteEndedTerminal ? safeT('inbox.callSurface.callEnded', 'Call ended') :
     live.state === 'connecting' ? safeT('inbox.callSurface.statusConnecting', 'Connecting') :

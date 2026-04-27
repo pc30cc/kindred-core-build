@@ -326,12 +326,11 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
     if (autoCloseRef.current) clearTimeout(autoCloseRef.current);
     autoCloseRef.current = setTimeout(() => {
       rtDebug('call', 'auto-close terminal disconnect');
-      try { void live.disconnect(); } catch { /* ignore */ }
-      connectedInvitationIdRef.current = null;
-      startedConnectInvitationIdRef.current = null;
+      try { void disconnectLive('server_call_ended'); } catch { /* ignore */ }
+      clearActiveCallRefs();
       setSurface(INITIAL_SURFACE);
     }, delayMs);
-  }, [live]);
+  }, [clearActiveCallRefs, disconnectLive]);
 
   useEffect(() => {
     if (surface.phase !== 'terminal') return;
@@ -363,6 +362,9 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
         if (cancelled) return;
         const callSessionId = fresh?.call_session_id;
         if (!callSessionId) throw new Error('missing_call_session');
+        activeCallConversationIdRef.current = inv.conversation_id;
+        activeCallSessionIdRef.current = callSessionId;
+        onActiveCallChange?.(inv.conversation_id);
         const tok = await callsApi.token(callSessionId);
         if (cancelled) return;
         if (!tok.ws_url) throw new Error('missing_ws_url');
@@ -496,11 +498,10 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
   const onHangup = useCallback(async () => {
     if (autoCloseRef.current) { clearTimeout(autoCloseRef.current); autoCloseRef.current = null; }
     rtDebug('call', 'operator hangup disconnect');
-    try { await live.disconnect(); } catch { /* ignore */ }
-    connectedInvitationIdRef.current = null;
-    startedConnectInvitationIdRef.current = null;
+    try { await disconnectLive('explicit_hangup'); } catch { /* ignore */ }
+    clearActiveCallRefs();
     setSurface(INITIAL_SURFACE);
-  }, [live]);
+  }, [clearActiveCallRefs, disconnectLive]);
 
   // ── Derived state ─────────────────────────────────────────────────────
   const visual = useMemo(() => latest ? STATUS_VISUAL[latest.status] : null, [latest]);

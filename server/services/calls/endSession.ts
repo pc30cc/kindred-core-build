@@ -24,7 +24,12 @@
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { resolveCallProvider } from './providerResolver.js';
-import { publishOperatorEvent } from '../realtime/publish.js';
+import {
+  publishOperatorEvent,
+  publishConversationEvent,
+  buildMessageEnvelope,
+} from '../realtime/publish.js';
+import { recordConversationEvent } from '../conversationEvents.js';
 import { clearInCall } from './availability.js';
 
 export type EndCallReason =
@@ -187,6 +192,94 @@ export async function endCallSession(
   if (input.endedBy === 'operator' && input.endedByUserId) {
     void clearInCall(config, finalRow.workspace_id, input.endedByUserId)
       .catch(() => { /* never block */ });
+  }
+
+  // 4b. Pass A — Persist a `call_ended` system summary message into the
+  //     conversation thread so BOTH operator chat and visitor chat history
+  //     show "Call ended by … · Duration mm:ss". Idempotent at two levels:
+  //       1. We only insert when `updated` is non-null (i.e. THIS request
+  //          performed the state→ended flip — parallel callers see no row).
+  //       2. A partial unique index on
+  //          (conversation_id, metadata->>'call_session_id')
+  //          where kind='call_ended' makes a second insert raise 23505,
+  //          which we swallow.
+  //     The actual user-visible text is rendered client-side from
+  //     metadata so each side can localize it (en/tr/fa).
+  if (updated && finalRow.context_id) {
+    const fallbackBody =
+      input.endedBy === 'operator'
+        ? `Call ended by operator · ${formatDuration(finalRow.duration_seconds ?? duration)}`
+        : input.endedBy === 'visitor'
+          ? `Call ended by visitor · ${formatDuration(finalRow.duration_seconds ?? duration)}`
+          : `Call ended · ${formatDuration(finalRow.duration_seconds ?? duration)}`;
+    const msgMeta = {
+      kind: 'call_ended' as const,
+      call_session_id: finalRow.id,
+      call_type: finalRow.call_type ?? null,
+      ended_by: input.endedBy,
+      end_reason: input.reason,
+      duration_seconds: finalRow.duration_seconds ?? duration,
+      ended_at: finalRow.ended_at,
+    };
+    try {
+      const { data: msgRow, error: msgErr } = await sb
+        .from('conversation_messages')
+        .insert({
+          conversation_id: finalRow.context_id,
+          sender_type: 'system',
+          sender_id: input.endedByUserId ?? null,
+          body: fallbackBody,
+          metadata: msgMeta,
+        })
+        .select('id, conversation_id, sender_type, body, created_at, metadata, seen_at')
+        .single();
+      if (msgErr) {
+        // 23505 = unique_violation → another worker already wrote the
+        // summary; that's the desired idempotent outcome.
+        if ((msgErr as any).code !== '23505') {
+          // eslint-disable-next-line no-console
+          console.warn('[call:end] system message insert failed:', msgErr.message);
+        }
+      } else if (msgRow) {
+        // Realtime push so the widget renders the summary without polling.
+        void publishConversationEvent(
+          config,
+          finalRow.workspace_id,
+          finalRow.context_id,
+          buildMessageEnvelope({
+            id: msgRow.id as string,
+            conversation_id: msgRow.conversation_id as string,
+            sender_type: 'system',
+            body: msgRow.body as string,
+            created_at: msgRow.created_at as string | null,
+            metadata:
+              ((msgRow.metadata as Record<string, unknown>) ??
+                (msgMeta as unknown as Record<string, unknown>)),
+            seen_at: (msgRow as any).seen_at ?? null,
+          }),
+        );
+      }
+    } catch (err: any) {
+      if (err?.code !== '23505') {
+        // eslint-disable-next-line no-console
+        console.warn('[call:end] system message threw:', err?.message || err);
+      }
+    }
+
+    // Operator-only timeline row. `recordConversationEvent` is fail-safe.
+    void recordConversationEvent(config, {
+      workspaceId: finalRow.workspace_id,
+      conversationId: finalRow.context_id,
+      eventType: 'call_ended',
+      actorType:
+        input.endedBy === 'operator'
+          ? 'agent'
+          : input.endedBy === 'visitor'
+            ? 'visitor'
+            : 'system',
+      actorId: input.endedByUserId ?? null,
+      payload: msgMeta,
+    });
   }
 
   // 5. Realtime fan-out — operator inbox + per-conversation channel.

@@ -191,6 +191,7 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
       case 'expired':   return t('inbox.callSurface.terminalExpired')   || 'The visitor did not join in time.';
       case 'declined':  return t('inbox.callSurface.terminalDeclined')  || 'The visitor declined the call.';
       case 'cancelled': return t('inbox.callSurface.terminalCancelled') || 'Invitation cancelled.';
+      case 'remote_ended': return t('inbox.callSurface.terminalRemoteEnded') || 'Visitor ended the call.';
       case 'failed':    return surface.errorMessage
         ? `${t('inbox.callSurface.terminalFailed') || 'Could not connect.'} ${surface.errorMessage}`
         : (t('inbox.callSurface.terminalFailed') || 'Could not connect.');

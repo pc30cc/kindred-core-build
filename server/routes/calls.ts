@@ -23,17 +23,30 @@ import { getServiceClient } from '../supabase.js';
 import {
   resolveEffectiveCallProvider,
   resolveCallProvider,
+  resolveCallProviderOrder,
 } from '../services/calls/providerResolver.js';
 import {
   loadCallControlPlane,
   loadWorkspaceCallOverrides,
 } from '../services/calls/controlPlane.js';
-import { getCallNetworkBundle } from '../services/calls/rtcResolver.js';
+import {
+  getCallNetworkBundle,
+  normalizeClientWsUrl,
+} from '../services/calls/rtcResolver.js';
 import { CallProviderNotReadyError } from '../services/calls/providers/types.js';
 import { mintTurnCreds } from '../services/calls/turnAuth.js';
 import { emitCallMetric } from '../services/calls/metrics.js';
 import { publishConversationEvent } from '../services/realtime/publish.js';
 import { markInCall, clearInCall } from '../services/calls/availability.js';
+import {
+  CALL_ERROR_CODES,
+  CALL_ERROR_HTTP_STATUS,
+  callErrorBody,
+  callErrorFromUnknown,
+} from '../services/calls/errorCodes.js';
+import { getLiveKitReadinessState } from '../services/calls/providers/livekitProvider.js';
+import { getManifestDiagnostics } from '../services/widget/manifest.js';
+import { loadLiveKitConfig, isMinimallyConfigured } from '../services/calls/livekitConfig.js';
 
 export const callsRouter = Router();
 
@@ -111,11 +124,13 @@ function recordEvent(
 
 function handleProviderError(res: any, err: unknown) {
   if (err instanceof CallProviderNotReadyError) {
-    return res.status(503).json({
-      error: 'call_provider_not_ready',
-      provider: err.providerId,
-      message: err.message,
-    });
+    return res.status(CALL_ERROR_HTTP_STATUS.provider_not_ready).json(
+      callErrorBody(
+        CALL_ERROR_CODES.PROVIDER_NOT_READY,
+        err.message,
+        { provider: err.providerId },
+      ),
+    );
   }
   console.error('[calls] provider error:', (err as any)?.message || err);
   return res.status(500).json({ error: 'internal_error' });
@@ -477,20 +492,45 @@ callsRouter.post('/:id/token', async (req, res) => {
   try {
     const body = tokenSchema.parse(req.body ?? {});
     if (!ctx.session.provider_room_id) {
-      return res.status(409).json({ error: 'room_not_ready' });
+      return res.status(409).json(
+        callErrorBody(
+          CALL_ERROR_CODES.ROOM_CREATE_FAILED,
+          'Provider room is not ready for this call session.',
+          { provider: ctx.session.provider },
+        ),
+      );
     }
     const provider = resolveCallProvider(ctx.session.provider);
-    const token = await provider.createParticipantToken((req as any).serverConfig, {
-      callSessionId: ctx.session.id,
-      providerRoomId: ctx.session.provider_room_id,
-      participantId: body.participant_id ?? ctx.userId,
-      participantType: body.participant_type,
-      displayName: body.display_name,
-      canPublish: true,
-      canSubscribe: true,
-      canPublishData: true,
-      ttlSeconds: body.ttl_seconds,
-    });
+    let token;
+    try {
+      token = await provider.createParticipantToken((req as any).serverConfig, {
+        callSessionId: ctx.session.id,
+        providerRoomId: ctx.session.provider_room_id,
+        participantId: body.participant_id ?? ctx.userId,
+        participantType: body.participant_type,
+        displayName: body.display_name,
+        canPublish: true,
+        canSubscribe: true,
+        canPublishData: true,
+        ttlSeconds: body.ttl_seconds,
+      });
+    } catch (mintErr) {
+      const mapped = callErrorFromUnknown(mintErr, {
+        code: CALL_ERROR_CODES.TOKEN_MINT_FAILED,
+        message: 'Failed to mint participant token.',
+        provider: ctx.session.provider,
+      });
+      try {
+        emitCallMetric((req as any).serverConfig, {
+          metric: 'call.token.failure',
+          workspaceId: ctx.session.workspace_id,
+          provider: ctx.session.provider,
+          callId: ctx.session.id,
+          reason: mapped.body.error,
+        });
+      } catch { /* */ }
+      return res.status(mapped.status).json(mapped.body);
+    }
     const config: ServerConfig = (req as any).serverConfig;
     const { network, turn } = await buildTokenNetworkBundle(
       config,
@@ -533,6 +573,11 @@ callsRouter.post('/:id/token', async (req, res) => {
       },
       ice_policy: network.ice_policy,
       network,
+      // Pass 1 — surface non-fatal warnings the widget can show as a hint
+      // before the LiveKit SDK actually tries to connect.
+      warnings: [
+        ...(turn.urls.length === 0 ? [CALL_ERROR_CODES.TURN_MISSING] : []),
+      ],
     });
   } catch (err) {
     try {
@@ -643,4 +688,154 @@ callsRouter.post('/:id/recording/stop', async (req, res) => {
     } catch { /* */ }
     return handleProviderError(res, err);
   }
+});
+
+// ─── GET /api/calls/diagnostics ───────────────────────────────────────────
+//
+// Pass 1 — operator/admin readable end-to-end diagnostics for the call
+// stack. Returns:
+//   - selected provider order (workspace-scoped if workspace_id is given,
+//     else global control-plane order)
+//   - real LiveKit readiness from the cached probe (getLiveKitReadinessState)
+//   - normalized rtc_url / ws_url
+//   - turn presence + count (NEVER returns the credential)
+//   - ice_policy
+//   - livekitSdkUrl (manifest entry) + manifest source/version
+//   - last LiveKit probe latency + error code (if any)
+//
+// Auth model: requires a valid Supabase user JWT. If `workspace_id` is
+// passed via query string, we additionally enforce membership so a
+// workspace-scoped diagnostic can't leak another workspace's provider
+// override. Without `workspace_id` the response only reflects the global
+// control plane state.
+//
+// Secrets are NEVER included. We only expose presence flags.
+callsRouter.get('/diagnostics', async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
+  const sb = getServiceClient(config);
+
+  // Verify the caller is at least a signed-in user.
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Missing authorization' });
+  }
+  const token = authHeader.replace('Bearer ', '');
+  const { data: { user }, error: authErr } = await sb.auth.getUser(token);
+  if (authErr || !user) {
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+
+  const workspaceId = (req.query.workspace_id as string | undefined)?.trim() || null;
+  if (workspaceId) {
+    const { data: isMember } = await sb.rpc('is_workspace_member', {
+      _workspace_id: workspaceId,
+      _user_id: user.id,
+    });
+    if (!isMember) {
+      return res.status(403).json({ error: 'Not a workspace member' });
+    }
+  }
+
+  // Selected provider order — global if no workspace, else workspace-scoped.
+  const cp = await loadCallControlPlane(config);
+  let providerOrder: string[] = [];
+  let selectedProvider: string | null = null;
+  if (workspaceId) {
+    providerOrder = await resolveCallProviderOrder(config, workspaceId);
+    selectedProvider = providerOrder[0] || null;
+  } else {
+    providerOrder = [cp.primary_provider];
+    if (
+      cp.fallback_policy === 'lenient' &&
+      cp.secondary_provider !== 'disabled' &&
+      !providerOrder.includes(cp.secondary_provider)
+    ) {
+      providerOrder.push(cp.secondary_provider);
+    }
+    providerOrder = providerOrder.filter((p) => p !== 'disabled');
+    selectedProvider = providerOrder[0] || null;
+  }
+
+  // Network bundle (URLs from resolver) — strictly normalized for the
+  // client. Never include credentials.
+  const network = await getCallNetworkBundle(config);
+  const wsNormalized = normalizeClientWsUrl(network.ws_url);
+
+  // LiveKit real readiness — uses 30s cache so polling is cheap.
+  let livekitReadiness: any = null;
+  let livekitConfigured = false;
+  try {
+    const lk = await loadLiveKitConfig(config);
+    livekitConfigured = isMinimallyConfigured(lk);
+  } catch { livekitConfigured = false; }
+  try {
+    livekitReadiness = await getLiveKitReadinessState(config);
+  } catch (err: any) {
+    livekitReadiness = {
+      ready: false,
+      configured: livekitConfigured,
+      errorCode: 'probe_failed',
+      errorMessage: err?.message || 'Probe failed',
+    };
+  }
+
+  // Manifest + SDK URL.
+  const manifest = getManifestDiagnostics();
+  const sdkAssetName = manifest.livekitSdk;
+  const sdkUrlMissing = !sdkAssetName;
+
+  // Aggregate config status without leaking secrets.
+  const turnUrlsCount = network.turn?.urls?.length || 0;
+  const turnMissing = turnUrlsCount === 0;
+
+  // Surface canonical error codes the caller may want to react to.
+  const errors: string[] = [];
+  if (!cp.enabled) errors.push('calls_disabled');
+  if (selectedProvider === 'livekit' && !livekitReadiness?.ready) {
+    errors.push(CALL_ERROR_CODES.PROVIDER_NOT_READY);
+  }
+  if (turnMissing) errors.push(CALL_ERROR_CODES.TURN_MISSING);
+  if (sdkUrlMissing) errors.push(CALL_ERROR_CODES.SDK_URL_MISSING);
+
+  return res.json({
+    workspace_id: workspaceId,
+    control_plane: {
+      enabled: cp.enabled,
+      primary_provider: cp.primary_provider,
+      secondary_provider: cp.secondary_provider,
+      fallback_policy: cp.fallback_policy,
+    },
+    selected_provider: selectedProvider,
+    provider_order: providerOrder,
+    rtc_url: network.rtc_url,
+    ws_url_raw: network.ws_url,
+    ws_url_normalized: wsNormalized,
+    ice_policy: network.ice_policy,
+    region: network.region,
+    turn: {
+      urls_count: turnUrlsCount,
+      present: !turnMissing,
+      static_secret_present: !!network.turn?.static_secret_present,
+      credential_type: network.turn?.credential_type ?? 'password',
+    },
+    livekit: {
+      configured: livekitConfigured,
+      ready: !!livekitReadiness?.ready,
+      rtc_url: livekitReadiness?.rtcUrl ?? null,
+      last_probe_at: livekitReadiness?.lastProbeAt
+        ? new Date(livekitReadiness.lastProbeAt).toISOString()
+        : null,
+      latency_ms: livekitReadiness?.latencyMs ?? null,
+      error_code: livekitReadiness?.errorCode ?? null,
+      error_message: livekitReadiness?.errorMessage ?? null,
+    },
+    sdk: {
+      livekit_sdk_url: sdkAssetName,
+      manifest_source: manifest.source,
+      manifest_loader_version: manifest.loaderVersion,
+      manifest_is_fallback: manifest.isFallback,
+      manifest_remote_status: manifest.remoteStatus,
+    },
+    errors,
+  });
 });

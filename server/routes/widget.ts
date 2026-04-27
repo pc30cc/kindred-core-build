@@ -1684,9 +1684,26 @@ widgetRouter.post('/calls/:id/visitor-token', widgetRateLimit('default'), async 
     .maybeSingle();
   if (error || !session) return res.status(404).json({ error: 'call_not_found' });
   if (session.context_type !== 'conversation' || !session.context_id) {
-    return res.status(403).json({ error: 'call_context_not_widget' });
+    const { CALL_ERROR_CODES, CALL_ERROR_HTTP_STATUS, callErrorBody } =
+      await import('../services/calls/errorCodes.js');
+    return res.status(CALL_ERROR_HTTP_STATUS.invitation_access_denied).json(
+      callErrorBody(
+        CALL_ERROR_CODES.INVITATION_ACCESS_DENIED,
+        'Call is not associated with a widget conversation.',
+      ),
+    );
   }
-  if (!session.provider_room_id) return res.status(409).json({ error: 'room_not_ready' });
+  if (!session.provider_room_id) {
+    const { CALL_ERROR_CODES, CALL_ERROR_HTTP_STATUS, callErrorBody } =
+      await import('../services/calls/errorCodes.js');
+    return res.status(CALL_ERROR_HTTP_STATUS.room_create_failed).json(
+      callErrorBody(
+        CALL_ERROR_CODES.ROOM_CREATE_FAILED,
+        'Provider room is not ready.',
+        { provider: session.provider },
+      ),
+    );
+  }
 
   const visitorId = (req.body?.visitor_id as string) || null;
   const sessionId = (req.body?.session_id as string) || null;
@@ -1698,7 +1715,16 @@ widgetRouter.post('/calls/:id/visitor-token', widgetRateLimit('default'), async 
     sessionId,
     req,
   );
-  if (!ownership.valid) return res.status(403).json({ error: 'call_access_denied' });
+  if (!ownership.valid) {
+    const { CALL_ERROR_CODES, CALL_ERROR_HTTP_STATUS, callErrorBody } =
+      await import('../services/calls/errorCodes.js');
+    return res.status(CALL_ERROR_HTTP_STATUS.invitation_access_denied).json(
+      callErrorBody(
+        CALL_ERROR_CODES.INVITATION_ACCESS_DENIED,
+        'Visitor does not own this call.',
+      ),
+    );
+  }
 
   try {
     // Lazy import to avoid pulling provider modules into the widget request
@@ -1706,6 +1732,8 @@ widgetRouter.post('/calls/:id/visitor-token', widgetRateLimit('default'), async 
     const { resolveCallProvider } = await import('../services/calls/providerResolver.js');
     const { getCallNetworkBundle } = await import('../services/calls/rtcResolver.js');
     const { mintTurnCreds } = await import('../services/calls/turnAuth.js');
+    const { CALL_ERROR_CODES, CALL_ERROR_HTTP_STATUS, callErrorBody, callErrorFromUnknown } =
+      await import('../services/calls/errorCodes.js');
 
     const provider = resolveCallProvider(session.provider);
     let visitorIdentity = 'visitor:' + session.context_id;
@@ -1718,17 +1746,27 @@ widgetRouter.post('/calls/:id/visitor-token', widgetRateLimit('default'), async 
       if (vs?.visitor_id) visitorIdentity = 'visitor:' + vs.visitor_id;
     } catch { /* */ }
 
-    const minted = await provider.createParticipantToken(config, {
-      callSessionId: session.id,
-      providerRoomId: session.provider_room_id,
-      participantId: visitorIdentity,
-      participantType: 'visitor',
-      displayName: 'Visitor',
-      canPublish: true,
-      canSubscribe: true,
-      canPublishData: true,
-      ttlSeconds: 600,
-    });
+    let minted;
+    try {
+      minted = await provider.createParticipantToken(config, {
+        callSessionId: session.id,
+        providerRoomId: session.provider_room_id,
+        participantId: visitorIdentity,
+        participantType: 'visitor',
+        displayName: 'Visitor',
+        canPublish: true,
+        canSubscribe: true,
+        canPublishData: true,
+        ttlSeconds: 600,
+      });
+    } catch (mintErr) {
+      const mapped = callErrorFromUnknown(mintErr, {
+        code: CALL_ERROR_CODES.TOKEN_MINT_FAILED,
+        message: 'Failed to mint visitor token.',
+        provider: session.provider,
+      });
+      return res.status(mapped.status).json(mapped.body);
+    }
 
     const network = await getCallNetworkBundle(config);
     const turn = { ...network.turn };
@@ -1757,14 +1795,21 @@ widgetRouter.post('/calls/:id/visitor-token', widgetRateLimit('default'), async 
       ice_policy: network.ice_policy,
       call_type: session.call_type,
       recording: !!session.recording_enabled,
+      warnings: [
+        ...(turn.urls.length === 0 ? [CALL_ERROR_CODES.TURN_MISSING] : []),
+      ],
     });
   } catch (err: any) {
+    const { CALL_ERROR_CODES, CALL_ERROR_HTTP_STATUS, callErrorBody } =
+      await import('../services/calls/errorCodes.js');
     if (err?.providerId) {
-      return res.status(503).json({
-        error: 'call_provider_not_ready',
-        provider: err.providerId,
-        message: err.message,
-      });
+      return res.status(CALL_ERROR_HTTP_STATUS.provider_not_ready).json(
+        callErrorBody(
+          CALL_ERROR_CODES.PROVIDER_NOT_READY,
+          err.message || 'Call provider is not ready.',
+          { provider: err.providerId },
+        ),
+      );
     }
     console.error('[widget-calls/visitor-token] error:', err?.message || err);
     return res.status(500).json({ error: 'internal_error' });

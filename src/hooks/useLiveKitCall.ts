@@ -347,11 +347,27 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
     return () => {
       const room = roomRef.current;
       if (room) {
+        // eslint-disable-next-line no-console
+        console.warn('[livekit] disconnect on hook unmount', {
+          stack: new Error('unmount-trace').stack,
+        });
         try { room.disconnect(); } catch { /* ignore */ }
       }
       roomRef.current = null;
     };
   }, []);
+
+  // Periodic safety refresh while connected. Some SFU paths swap the
+  // underlying MediaStreamTrack (simulcast layer change, ICE restart)
+  // without firing a full TrackSubscribed/Unsubscribed cycle — the only
+  // signal is `pub.track.mediaStreamTrack` returning a new identity. A
+  // 1Hz recompute keeps the consumer in sync without leaning on render
+  // timing. Cheap (one Map walk per second) and gated to active calls.
+  useEffect(() => {
+    if (state !== 'connected' && state !== 'reconnecting') return;
+    const id = setInterval(() => refreshRemotes(), 1000);
+    return () => clearInterval(id);
+  }, [state, refreshRemotes]);
 
   return { state, error, remote, micEnabled, cameraEnabled, connect, disconnect, toggleMic, toggleCamera };
 }

@@ -929,7 +929,7 @@ export default function InboxPage() {
                   </Button>
                 )}
                 <button
-                  onClick={() => setShowSidebar(!showSidebar)}
+                  onClick={() => activeCallConversationId === selectedId ? setShowSidebar(true) : setShowSidebar(!showSidebar)}
                   className={cn(
                     'p-1.5 rounded-md transition-colors',
                     showSidebar ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
@@ -984,7 +984,7 @@ export default function InboxPage() {
                 <button
                   aria-label={showSidebar ? 'Hide details' : 'Show details'}
                   aria-expanded={showSidebar}
-                  onClick={() => setShowSidebar(!showSidebar)}
+                  onClick={() => activeCallConversationId === selectedId ? setShowSidebar(true) : setShowSidebar(!showSidebar)}
                   className="p-2 rounded-xl text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <Eye className="w-5 h-5" />
@@ -1278,13 +1278,13 @@ export default function InboxPage() {
       {/* ═══════ RIGHT: Contact Sidebar ═══════
           Desktop ≥lg: inline panel (280px)
           Tablet/mobile: drawer overlay (slides from inline-end), backdrop tap closes */}
-      {selected && showSidebar && (
+      {selected && (showSidebar || activeCallConversationId === selectedId) && (
         <>
           {/* Mobile/tablet backdrop — only below lg */}
           <button
             type="button"
             aria-label="Close panel"
-            onClick={() => setShowSidebar(false)}
+            onClick={() => activeCallConversationId === selectedId ? setShowSidebar(true) : setShowSidebar(false)}
             className="lg:hidden fixed inset-0 z-40 bg-foreground/30 backdrop-blur-[2px] animate-in fade-in"
           />
           <div className={cn(

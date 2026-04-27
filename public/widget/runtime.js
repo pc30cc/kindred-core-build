@@ -4307,7 +4307,10 @@
       var classes = ['gs-call-video--portrait', 'gs-call-video--landscape', 'gs-call-video--square'];
       classes.forEach(function (c) { el.classList.remove(c); });
       el.classList.add('gs-call-video--' + orientation);
-      var stage = el.closest('[data-call-stage], [data-call-surface]');
+      // Local PiP video lives inside .gs-call-pip; remote video lives
+      // inside [data-call-stage]. Propagate the orientation class to the
+      // nearest meaningful wrapper so CSS can react.
+      var stage = el.closest('.gs-call-pip, [data-call-stage], [data-call-surface]');
       if (stage) {
         classes.forEach(function (c) { stage.classList.remove(c); });
         stage.classList.add('gs-call-video--' + orientation);

@@ -332,6 +332,7 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
       if (publishCamera) {
         await room.localParticipant.setCameraEnabled(true);
         setCameraEnabled(true);
+        refreshLocalVideo();
       }
       // Re-check after the (potentially long) device-publish phase too —
       // device prompts can take seconds on first call.
@@ -384,6 +385,7 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
     roomRef.current = null;
     try { await room.disconnect(); } catch { /* ignore */ }
     setRemote([]);
+    setLocalVideoTrack(null);
     setState('disconnected');
   }, []);
 
@@ -401,7 +403,8 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
     const next = !room.localParticipant.isCameraEnabled;
     await room.localParticipant.setCameraEnabled(next);
     setCameraEnabled(next);
-  }, []);
+    refreshLocalVideo();
+  }, [refreshLocalVideo]);
 
   // Cleanup on unmount. Do not blindly disconnect an active room here: the
   // operator call surface can temporarily unmount during inbox/sidebar data
@@ -431,5 +434,5 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
     return () => clearInterval(id);
   }, [state, refreshRemotes]);
 
-  return { state, error, remote, micEnabled, cameraEnabled, connect, disconnect, toggleMic, toggleCamera };
+  return { state, error, remote, localVideoTrack, micEnabled, cameraEnabled, connect, disconnect, toggleMic, toggleCamera };
 }

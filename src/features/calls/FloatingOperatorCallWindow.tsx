@@ -172,7 +172,9 @@ export function FloatingOperatorCallWindow() {
         'fixed z-[70] flex overflow-hidden border border-border bg-card shadow-elevated ring-1 ring-foreground/10',
         isMinimized
           ? 'bottom-4 right-4 h-16 w-[min(92vw,390px)] flex-row items-center gap-3 rounded-full bg-card/95 px-3 py-2 backdrop-blur-xl'
-          : 'h-[min(85vh,560px)] w-[min(85vw,860px)] min-w-[520px] flex-col rounded-xl bg-call-stage max-sm:inset-x-2 max-sm:bottom-2 max-sm:h-[78vh] max-sm:w-auto max-sm:min-w-0',
+          : isPortraitStage
+            ? 'h-[min(88vh,640px)] w-[min(85vw,380px)] min-w-[300px] flex-col rounded-xl bg-call-stage max-sm:inset-x-2 max-sm:bottom-2 max-sm:h-[80vh] max-sm:w-auto max-sm:min-w-0'
+            : 'h-[min(85vh,560px)] w-[min(85vw,860px)] min-w-[520px] flex-col rounded-xl bg-call-stage max-sm:inset-x-2 max-sm:bottom-2 max-sm:h-[78vh] max-sm:w-auto max-sm:min-w-0',
       )}
       style={isMinimized ? undefined : expandedStyle}
     >

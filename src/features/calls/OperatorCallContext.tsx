@@ -566,11 +566,51 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
         callLog('ignored stale call ended', { reason: 'missing_call_session_id', event: evt });
         return;
       }
+      callLog('received call:ended', {
+        eventCallSessionId: eventSessionId,
+        endedBy: evt.ended_by,
+        reason: evt.reason,
+        durationSeconds: evt.duration_seconds,
+      });
+      // Pass A.2 — recent-ended fallback. If LiveKit Disconnected fired
+      // BEFORE the server's call:ended event arrived, the active refs are
+      // already null but we still want to render a terminal toast for the
+      // operator with the canonical duration.
       if (!sessionId || !conversationId) {
+        const recentId = lastActiveCallSessionIdRef.current;
+        const recentConv = lastActiveCallConversationIdRef.current;
+        const recentAge = Date.now() - lastActiveCallEndedAtRef.current;
+        if (
+          recentId &&
+          recentId === eventSessionId &&
+          recentAge >= 0 &&
+          recentAge <= RECENT_ENDED_WINDOW_MS
+        ) {
+          callLog('handling visitor_ended recent session', {
+            eventCallSessionId: eventSessionId,
+            recentAgeMs: recentAge,
+          });
+          setLastEnded({
+            ended_by: evt.ended_by,
+            reason: evt.reason,
+            duration_seconds: evt.duration_seconds,
+            ended_at: evt.ended_at,
+            conversation_id: evt.conversation_id || recentConv,
+          });
+          // Make sure UI is reset (idempotent) and floating window collapses.
+          setSurface(INITIAL_SURFACE);
+          setFloatingMode('docked');
+          // Clear the recent ref so the same envelope replayed by polling
+          // does not double-fire.
+          lastActiveCallSessionIdRef.current = null;
+          return;
+        }
         callWarn('ignored call:ended without active session', {
           eventCallSessionId: eventSessionId,
           activeCallSessionId: sessionId,
           activeCallConversationId: conversationId,
+          recentSessionId: recentId,
+          recentAgeMs: recentAge,
           phase: cur.phase,
           invitationId: cur.invitation?.id ?? null,
         });
@@ -601,6 +641,10 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
         });
         return;
       }
+      callLog('handling visitor_ended active session', {
+        eventCallSessionId: eventSessionId,
+        endedBy: evt.ended_by,
+      });
       setLastEnded({
         ended_by: evt.ended_by,
         reason: evt.reason,
@@ -614,6 +658,9 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
       clearActiveCallRefs();
       setSurface(INITIAL_SURFACE);
       setFloatingMode('docked');
+      callLog('visitor ended call terminal shown', {
+        eventCallSessionId: eventSessionId,
+      });
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

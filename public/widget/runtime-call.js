@@ -540,11 +540,195 @@
     });
   }
 
-  // Optional media features are intentionally disabled while basic visitor
-  // connection stability is being re-established. Re-enable one at a time.
-  function switchCamera() { return Promise.resolve(null); }
+  // ─── Camera enumeration / switching ────────────────────────────────
+  // Re-enabled now that the base connection is stable. All operations
+  // are gated on engineFullyConnected and use track replacement (not
+  // room reconnect) so the call stays alive across switches.
+
+  function inferFacingFromLabel(label) {
+    if (!label) return '';
+    var s = String(label).toLowerCase();
+    if (s.indexOf('back') !== -1 || s.indexOf('rear') !== -1 || s.indexOf('environment') !== -1) return 'environment';
+    if (s.indexOf('front') !== -1 || s.indexOf('user') !== -1 || s.indexOf('face') !== -1 || s.indexOf('selfie') !== -1) return 'user';
+    return '';
+  }
+
+  function enumerateCameras() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+      return Promise.resolve([]);
+    }
+    if (enumerateInFlight) return Promise.resolve(availableCameras);
+    enumerateInFlight = true;
+    return navigator.mediaDevices.enumerateDevices().then(function (devices) {
+      var cams = (devices || [])
+        .filter(function (d) { return d.kind === 'videoinput'; })
+        .map(function (d) {
+          return {
+            deviceId: d.deviceId || '',
+            label: d.label || '',
+            facing: inferFacingFromLabel(d.label || ''),
+          };
+        });
+      availableCameras = cams;
+      try {
+        dlog('available cameras', { count: cams.length, cameras: cams.map(function (c) { return { id: c.deviceId.slice(0, 8), label: c.label, facing: c.facing }; }) });
+      } catch (_) {}
+      emitter.emit('cameras', { cameras: cams.slice(), facing: currentCameraFacing, deviceId: currentCameraDeviceId });
+      enumerateInFlight = false;
+      return cams;
+    }).catch(function (e) {
+      enumerateInFlight = false;
+      try { dlog('enumerate cameras failed', describeError(e)); } catch (_) {}
+      return [];
+    });
+  }
+
+  function getCurrentCameraTrack() {
+    if (!room || !room.localParticipant) return null;
+    var current = null;
+    try {
+      room.localParticipant.trackPublications.forEach(function (pub) {
+        if (pub.kind === 'video' && pub.track && !current) current = pub.track;
+      });
+    } catch (_) {}
+    return current;
+  }
+
+  function detectCurrentFacing() {
+    var t = getCurrentCameraTrack();
+    if (!t) return '';
+    try {
+      var ms = t.mediaStreamTrack;
+      if (ms && typeof ms.getSettings === 'function') {
+        var s = ms.getSettings() || {};
+        if (s.facingMode === 'environment' || s.facingMode === 'user') return s.facingMode;
+        if (s.deviceId) {
+          for (var i = 0; i < availableCameras.length; i++) {
+            if (availableCameras[i].deviceId === s.deviceId) {
+              currentCameraDeviceId = s.deviceId;
+              return availableCameras[i].facing || '';
+            }
+          }
+          currentCameraDeviceId = s.deviceId;
+        }
+      }
+    } catch (_) {}
+    return '';
+  }
+
+  function switchCamera() {
+    if (!room || !engineFullyConnected) {
+      dlog('switch camera ignored: not fully connected');
+      return Promise.resolve(null);
+    }
+    if (switchInFlight) {
+      dlog('switch camera ignored: already switching');
+      return Promise.resolve(currentCameraFacing);
+    }
+    if (!cameraEnabled) {
+      dlog('switch camera ignored: camera off');
+      return Promise.resolve(currentCameraFacing);
+    }
+    switchInFlight = true;
+    dlog('switch camera requested', { from: currentCameraFacing || 'unknown' });
+
+    return enumerateCameras().then(function () {
+      var currentFacing = currentCameraFacing || detectCurrentFacing() || 'user';
+      var nextFacing = currentFacing === 'environment' ? 'user' : 'environment';
+      var lp = room.localParticipant;
+
+      // Strategy 1 — facingMode exact via setCameraEnabled toggle.
+      // LiveKit will release the prior camera track and create a new one
+      // with the requested facingMode without renegotiating the room.
+      function tryFacing(mode, exact) {
+        var constraints = exact
+          ? { facingMode: { exact: mode } }
+          : { facingMode: mode };
+        return lp.setCameraEnabled(false).then(function () {
+          return lp.setCameraEnabled(true, constraints);
+        });
+      }
+
+      // Strategy 2 — explicit deviceId from enumerated cameras.
+      function tryDeviceId(deviceId) {
+        return lp.setCameraEnabled(false).then(function () {
+          return lp.setCameraEnabled(true, { deviceId: { exact: deviceId } });
+        });
+      }
+
+      return tryFacing(nextFacing, true)
+        .catch(function (e1) {
+          dlog('switch camera facing exact failed; retrying ideal', describeError(e1));
+          return tryFacing(nextFacing, false);
+        })
+        .catch(function (e2) {
+          dlog('switch camera facing ideal failed; trying deviceId', describeError(e2));
+          // Pick a different camera than currentDeviceId, prefer matching facing.
+          var candidate = null;
+          for (var i = 0; i < availableCameras.length; i++) {
+            var c = availableCameras[i];
+            if (c.deviceId === currentCameraDeviceId) continue;
+            if (c.facing === nextFacing) { candidate = c; break; }
+            if (!candidate) candidate = c;
+          }
+          if (!candidate) throw e2;
+          return tryDeviceId(candidate.deviceId);
+        })
+        .then(function () {
+          currentCameraFacing = nextFacing;
+          cameraEnabled = !!room.localParticipant.isCameraEnabled;
+          emitter.emit('cameraEnabled', cameraEnabled);
+          var LK = window.LivekitClient;
+          if (LK) emitLocalVideo(LK);
+          dlog('switch camera success', { facing: nextFacing });
+          dlog('camera facing changed', { facing: nextFacing });
+          // Refresh enumeration (labels become available after permission).
+          enumerateInFlight = false;
+          enumerateCameras();
+          switchInFlight = false;
+          return nextFacing;
+        })
+        .catch(function (err) {
+          switchInFlight = false;
+          dlog('switch camera failed', describeError(err));
+          // Best-effort: re-enable original camera so the call doesn't go dark.
+          try {
+            room.localParticipant.setCameraEnabled(true).then(function () {
+              cameraEnabled = !!room.localParticipant.isCameraEnabled;
+              emitter.emit('cameraEnabled', cameraEnabled);
+              var LK = window.LivekitClient;
+              if (LK) emitLocalVideo(LK);
+            }, function () { /* swallow */ });
+          } catch (_) {}
+          emitter.emit('error', { code: 'camera_switch_failed', message: (err && err.message) || 'Camera switch failed.' });
+          return currentCameraFacing;
+        });
+    });
+  }
+
+  function listCameras() {
+    return enumerateCameras();
+  }
+
+  // Quality control intentionally remains a no-op until separately
+  // re-enabled. Operator-side already exposes an in-call quality selector.
   function setVideoQuality(q) { return Promise.resolve(q || 'auto'); }
-  function listCameras() { return Promise.resolve([]); }
+
+  // Auto-enumerate after the engine is fully connected so the UI can
+  // show / hide the switch-camera button. Uses the 'state' event already
+  // emitted by setState(). We hook this via a one-shot subscription.
+  emitter.on('state', function (s) {
+    if (s === 'connected' && engineFullyConnected) {
+      enumerateCameras();
+    }
+    if (s === 'disconnected' || s === 'failed') {
+      availableCameras = [];
+      currentCameraFacing = '';
+      currentCameraDeviceId = '';
+      switchInFlight = false;
+      enumerateInFlight = false;
+    }
+  });
 
   // ───── Public API ─────
   window.__gs_call = {

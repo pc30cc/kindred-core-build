@@ -7,7 +7,7 @@
  */
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { Mic, MicOff, Video, VideoOff, PhoneOff, Maximize2, Minimize2, PanelRightOpen, Loader2, GripHorizontal, Signal } from 'lucide-react';
+import { Mic, MicOff, Video, VideoOff, PhoneOff, Maximize2, Minimize2, PanelRightOpen, Loader2, GripHorizontal, Signal, UserMinus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useOperatorCall } from './OperatorCallContext';
@@ -17,17 +17,22 @@ const EXPANDED_W = 860;
 const EXPANDED_H = 560;
 
 export function FloatingOperatorCallWindow() {
-  const { surface, live, floatingMode, setFloatingMode, hangup } = useOperatorCall();
+  const { surface, live, floatingMode, setFloatingMode, hangup, lastEnded } = useOperatorCall();
   const isVideo = surface.channel === 'video';
   const navigate = useNavigate();
   const location = useLocation();
   const { slug } = useParams<{ slug: string }>();
   const isInboxRoute = /\/inbox\/?$/.test(location.pathname);
   const effectiveMode = floatingMode === 'docked' && !isInboxRoute ? 'expanded' : floatingMode;
+  // Keep the window visible briefly during the 'remote_ended' terminal
+  // state so the operator gets a clear "Visitor ended the call" message
+  // instead of the floating window vanishing into thin air.
+  const isRemoteEndedTerminal =
+    surface.phase === 'terminal' && surface.terminalStatus === 'remote_ended';
   const showWindow =
     surface.phase !== 'idle' &&
     surface.phase !== 'waiting' &&
-    surface.phase !== 'terminal' &&
+    (surface.phase !== 'terminal' || isRemoteEndedTerminal) &&
     effectiveMode !== 'docked';
 
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
@@ -58,6 +63,7 @@ export function FloatingOperatorCallWindow() {
 
   const hasRemoteVideo = live.remote.some((r) => !!r.videoTrack);
   const status =
+    isRemoteEndedTerminal ? 'Call ended' :
     live.state === 'connecting' ? 'Connecting' :
     live.state === 'reconnecting' ? 'Reconnecting' :
     isVideo && surface.phase === 'connected' && !hasRemoteVideo ? 'Camera off' :
@@ -67,6 +73,7 @@ export function FloatingOperatorCallWindow() {
     'Live';
 
   const statusTone =
+    isRemoteEndedTerminal ? 'bg-muted/70 text-muted-foreground border-border' :
     live.state === 'connected' ? 'bg-success/20 text-success border-success/40' :
     live.state === 'reconnecting' || live.state === 'connecting' ? 'bg-warning/20 text-warning border-warning/40' :
     live.state === 'failed' ? 'bg-destructive/20 text-destructive border-destructive/40' :
@@ -162,7 +169,23 @@ export function FloatingOperatorCallWindow() {
           ? 'pointer-events-none absolute -left-[10000px] top-0 h-px w-px overflow-hidden opacity-0'
           : 'relative min-h-0 flex-1 overflow-hidden',
       )}>
-        {surface.phase === 'connecting' ? (
+        {isRemoteEndedTerminal ? (
+          <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-call-stage px-6 text-center text-call-stage-foreground">
+            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-call-stage-foreground/10 ring-1 ring-call-stage-foreground/20">
+              <UserMinus className="h-7 w-7 text-call-stage-foreground/85" aria-hidden="true" />
+            </div>
+            <div className="text-base font-semibold">
+              {lastEnded?.ended_by === 'visitor' ? 'Visitor ended the call' : 'Visitor left the call'}
+            </div>
+            {lastEnded && lastEnded.duration_seconds > 0 && (
+              <div className="text-[13px] font-medium text-call-stage-foreground/70">
+                {String(Math.floor(lastEnded.duration_seconds / 60)).padStart(2, '0')}
+                {':'}
+                {String(lastEnded.duration_seconds % 60).padStart(2, '0')}
+              </div>
+            )}
+          </div>
+        ) : surface.phase === 'connecting' ? (
           <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-call-stage text-call-stage-foreground/75">
             <Loader2 className="h-8 w-8 animate-spin" aria-hidden="true" />
             <span className="text-sm font-medium">Connecting media…</span>
@@ -173,7 +196,7 @@ export function FloatingOperatorCallWindow() {
           <AudioCallStage remote={live.remote} />
         )}
 
-        {isVideo && surface.phase === 'connected' && (
+        {isVideo && surface.phase === 'connected' && !isRemoteEndedTerminal && (
           <LocalVideoPiP
             track={live.localVideoTrack}
             cameraEnabled={live.cameraEnabled}
@@ -183,17 +206,19 @@ export function FloatingOperatorCallWindow() {
 
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-44 bg-gradient-to-t from-call-stage via-call-stage/70 to-transparent" aria-hidden="true" />
         <div className="absolute inset-x-0 bottom-0 z-30 flex items-center justify-center gap-3 px-4 pb-5 pt-10">
-          <Button size="sm" variant="outline" className={cn('h-12 w-12 rounded-full border-call-stage-foreground/20 bg-card/75 p-0 text-foreground shadow-elevated backdrop-blur-xl hover:bg-card', !live.micEnabled && 'border-destructive/40 bg-destructive/15 text-destructive')} onClick={stop(live.toggleMic)} aria-label={live.micEnabled ? 'Mute microphone' : 'Unmute microphone'} title={live.micEnabled ? 'Mute microphone' : 'Unmute microphone'}>
-            {live.micEnabled ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}
-          </Button>
-          {isVideo && (
+          {!isRemoteEndedTerminal && (
+            <Button size="sm" variant="outline" className={cn('h-12 w-12 rounded-full border-call-stage-foreground/20 bg-card/75 p-0 text-foreground shadow-elevated backdrop-blur-xl hover:bg-card', !live.micEnabled && 'border-destructive/40 bg-destructive/15 text-destructive')} onClick={stop(live.toggleMic)} aria-label={live.micEnabled ? 'Mute microphone' : 'Unmute microphone'} title={live.micEnabled ? 'Mute microphone' : 'Unmute microphone'}>
+              {live.micEnabled ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}
+            </Button>
+          )}
+          {!isRemoteEndedTerminal && isVideo && (
             <Button size="sm" variant="outline" className={cn('h-12 w-12 rounded-full border-call-stage-foreground/20 bg-card/75 p-0 text-foreground shadow-elevated backdrop-blur-xl hover:bg-card', !live.cameraEnabled && 'border-destructive/40 bg-destructive/15 text-destructive')} onClick={stop(live.toggleCamera)} aria-label={live.cameraEnabled ? 'Turn camera off' : 'Turn camera on'} title={live.cameraEnabled ? 'Turn camera off' : 'Turn camera on'}>
               {live.cameraEnabled ? <Video className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}
             </Button>
           )}
-          <Button size="sm" variant="default" className="h-12 rounded-full bg-destructive px-6 text-destructive-foreground shadow-elevated hover:bg-destructive/90" onClick={stop(hangup)} aria-label="End call" title="End call">
+          <Button size="sm" variant="default" className="h-12 rounded-full bg-destructive px-6 text-destructive-foreground shadow-elevated hover:bg-destructive/90" onClick={stop(hangup)} aria-label={isRemoteEndedTerminal ? 'Close' : 'End call'} title={isRemoteEndedTerminal ? 'Close' : 'End call'}>
             <PhoneOff className="h-5 w-5" />
-            <span className="text-[13px] font-bold">End</span>
+            <span className="text-[13px] font-bold">{isRemoteEndedTerminal ? 'Close' : 'End'}</span>
           </Button>
         </div>
       </div>

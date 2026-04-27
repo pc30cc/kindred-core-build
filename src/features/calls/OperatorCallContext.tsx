@@ -52,7 +52,13 @@ import { rtDebug } from '@/realtime/debug';
 import { toast } from '@/hooks/use-toast';
 
 export type SurfacePhase = 'idle' | 'waiting' | 'connecting' | 'connected' | 'terminal';
-export type TerminalStatus = 'expired' | 'cancelled' | 'declined' | 'failed' | null;
+export type TerminalStatus =
+  | 'expired'
+  | 'cancelled'
+  | 'declined'
+  | 'failed'
+  | 'remote_ended'
+  | null;
 
 export interface LastEndedSummary {
   ended_by: 'operator' | 'visitor' | 'system';
@@ -189,6 +195,16 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
   // remote stream.
   const remoteLeftFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previousRemoteCountRef = useRef<number>(0);
+  // Pass A.3 — record when we entered 'connected' so we can compute a
+  // best-effort local duration for the immediate visitor-ended terminal
+  // state, before the server's /end response arrives with the canonical
+  // duration_seconds.
+  const connectedAtRef = useRef<number>(0);
+  // True once we've already shown the immediate "Visitor ended" terminal
+  // state for the current session, so the call:ended event that arrives
+  // 100–1500ms later updates the existing surface (with duration) instead
+  // of re-opening anything.
+  const remoteEndedShownRef = useRef<boolean>(false);
 
   useEffect(() => {
     surfaceRef.current = surface;
@@ -244,6 +260,8 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
       remoteLeftFallbackRef.current = null;
     }
     previousRemoteCountRef.current = 0;
+    connectedAtRef.current = 0;
+    remoteEndedShownRef.current = false;
   }, []);
 
   // Auto-close terminal surface after a short delay so it briefly shows
@@ -395,6 +413,7 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
           call_session_id: callSessionId,
         });
         rtDebug('call', 'connected', { invitation_id: inv.id, channel: inv.channel });
+        connectedAtRef.current = Date.now();
         setSurface((prev) => prev.phase === 'connecting' ? { ...prev, phase: 'connected' } : prev);
       } catch (err: any) {
         if (cancelled) return;
@@ -597,9 +616,18 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
             ended_at: evt.ended_at,
             conversation_id: evt.conversation_id || recentConv,
           });
-          // Make sure UI is reset (idempotent) and floating window collapses.
-          setSurface(INITIAL_SURFACE);
-          setFloatingMode('docked');
+          // The remote-vanished effect has already flipped us to terminal
+          // 'remote_ended' (or we're already in idle if the auto-close
+          // already fired). The toast effect handles surfacing the
+          // canonical duration; we only update the surface if we never
+          // showed terminal yet.
+          if (surfaceRef.current.phase !== 'terminal' && surfaceRef.current.phase !== 'idle') {
+            setSurface((prev) => ({
+              ...prev,
+              phase: 'terminal',
+              terminalStatus: 'remote_ended',
+            }));
+          }
           // Clear the recent ref so the same envelope replayed by polling
           // does not double-fire.
           lastActiveCallSessionIdRef.current = null;
@@ -645,6 +673,12 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
         eventCallSessionId: eventSessionId,
         endedBy: evt.ended_by,
       });
+      callLog('received visitor call:ended event', {
+        eventCallSessionId: eventSessionId,
+        endedBy: evt.ended_by,
+        reason: evt.reason,
+        durationSeconds: evt.duration_seconds,
+      });
       setLastEnded({
         ended_by: evt.ended_by,
         reason: evt.reason,
@@ -655,9 +689,15 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
       // Tear down our local room idempotently — the server already
       // closed the provider room.
       try { void disconnectLive('server_call_ended', conversationId); } catch { /* ignore */ }
-      clearActiveCallRefs();
-      setSurface(INITIAL_SURFACE);
-      setFloatingMode('docked');
+      // Show terminal 'remote_ended' state instead of jumping straight
+      // to idle. The auto-close effect (3500ms) will return us to idle
+      // and the toast already surfaces the duration.
+      remoteEndedShownRef.current = true;
+      setSurface((prev) => ({
+        ...prev,
+        phase: 'terminal',
+        terminalStatus: 'remote_ended',
+      }));
       callLog('visitor ended call terminal shown', {
         eventCallSessionId: eventSessionId,
       });
@@ -692,45 +732,76 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
     if (!remoteVanished && !roomDown) return;
 
     if (remoteLeftFallbackRef.current) return; // already armed
-    callLog('remote participant disconnected fallback armed', {
+    callLog('visitor remote disappeared', {
       sessionId,
       remoteCount,
       liveState: live.state,
+      phase: cur.phase,
     });
     const armedSessionId = sessionId;
+    const armedConversationId = activeCallConversationIdRef.current;
+    // 1) IMMEDIATELY flip to terminal 'remote_ended' so the operator no
+    //    longer stares at a black/loading video stage. Show a placeholder
+    //    duration computed from local connected_at; we'll update it once
+    //    /end (or call:ended) returns the canonical value.
+    if (!remoteEndedShownRef.current) {
+      remoteEndedShownRef.current = true;
+      const localDur = connectedAtRef.current
+        ? Math.max(0, Math.round((Date.now() - connectedAtRef.current) / 1000))
+        : 0;
+      callLog('showing visitor-ended terminal state', {
+        sessionId: armedSessionId,
+        localDurationSeconds: localDur,
+      });
+      setLastEnded({
+        ended_by: 'visitor',
+        reason: 'visitor_ended',
+        duration_seconds: localDur,
+        ended_at: new Date().toISOString(),
+        conversation_id: armedConversationId,
+      });
+      setSurface((prev) => ({
+        ...prev,
+        phase: 'terminal',
+        terminalStatus: 'remote_ended',
+      }));
+      // Tear down our local LiveKit room now — remote is gone, no
+      // reason to keep it spinning. Snapshot active refs into "recent"
+      // so a late call:ended can still match.
+      try { void disconnectLive('visitor_left', armedConversationId); } catch { /* ignore */ }
+    }
+    // 2) Arm the server reconciliation in the background. /end is
+    //    idempotent — if the server already published call:ended this
+    //    just returns the existing summary with the canonical duration.
+    callLog('visitor-ended fallback /end armed', {
+      sessionId: armedSessionId,
+    });
     remoteLeftFallbackRef.current = setTimeout(() => {
       remoteLeftFallbackRef.current = null;
-      // If the active session changed (cleared by call:ended in the
-      // meantime) we have nothing to do.
-      if (activeCallSessionIdRef.current !== armedSessionId) {
-        callLog('remote disconnected fallback skipped', { reason: 'session_changed' });
-        return;
-      }
-      callLog('remote participant disconnected fallback firing /end', {
-        sessionId: armedSessionId,
-      });
-      void callsApi.end(armedSessionId, 'system_ended').then((summary) => {
-        // The realtime fan-out from endCallSession will deliver call:ended
-        // back to us, which sets lastEnded. But because the publish is
-        // best-effort, also set it locally so the UI is guaranteed to
-        // surface the terminal toast.
-        setLastEnded({
-          ended_by: summary.ended_by,
-          reason: summary.end_reason,
-          duration_seconds: summary.duration_seconds,
-          ended_at: summary.ended_at,
-          conversation_id: summary.conversation_id ?? activeCallConversationIdRef.current,
+      // Always poll /end — even if active refs were already cleared by
+      // disconnectLive above, the server still owes us the canonical
+      // duration for the terminal toast.
+      callsApi
+        .end(armedSessionId, 'system_ended')
+        .then((summary) => {
+          callLog('visitor-ended fallback /end success', {
+            sessionId: armedSessionId,
+            endedBy: summary.ended_by,
+            durationSeconds: summary.duration_seconds,
+          });
+          setLastEnded({
+            ended_by: summary.ended_by,
+            reason: summary.end_reason,
+            duration_seconds: summary.duration_seconds,
+            ended_at: summary.ended_at,
+            conversation_id: summary.conversation_id ?? armedConversationId,
+          });
+        })
+        .catch((err) => {
+          callWarn('visitor-ended fallback /end failed', {
+            error: (err as any)?.message,
+          });
         });
-      }).catch((err) => {
-        callWarn('remote disconnected fallback /end failed', { error: (err as any)?.message });
-      }).finally(() => {
-        if (activeCallSessionIdRef.current === armedSessionId) {
-          try { void disconnectLive('visitor_left'); } catch { /* ignore */ }
-          clearActiveCallRefs();
-          setSurface(INITIAL_SURFACE);
-          setFloatingMode('docked');
-        }
-      });
     }, 1500);
 
     return () => {

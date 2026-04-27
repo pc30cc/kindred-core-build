@@ -210,6 +210,13 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
         setState('disconnected');
         refreshRemotes();
       });
+    // Capture LiveKit's own disconnect reason in addition to the basic
+    // event. Helps distinguish CLIENT_INITIATED (we called disconnect) vs
+    // server/peer-driven leaves.
+    room.on(RoomEvent.Disconnected, (reason?: unknown) => {
+      // eslint-disable-next-line no-console
+      console.warn('[livekit] room emitted Disconnected', { reason });
+    });
   }, [refreshRemotes]);
 
   const connect = useCallback(async (input: {
@@ -303,6 +310,14 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
   const disconnect = useCallback(async () => {
     const room = roomRef.current;
     if (!room) return;
+    // Forensic: every operator-side disconnect must be traceable. The
+    // operator freeze bug had multiple candidate triggers (conversation
+    // switch, unmount, race after toggle). Logging the stack pinpoints
+    // the exact React effect/handler that pulled the room down.
+    // eslint-disable-next-line no-console
+    console.warn('[livekit] disconnect() requested', {
+      stack: new Error('disconnect-trace').stack,
+    });
     // Clear the ref BEFORE awaiting so any concurrent disconnect/connect
     // call sees a clean slate and does not double-fire.
     roomRef.current = null;
@@ -332,11 +347,27 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
     return () => {
       const room = roomRef.current;
       if (room) {
+        // eslint-disable-next-line no-console
+        console.warn('[livekit] disconnect on hook unmount', {
+          stack: new Error('unmount-trace').stack,
+        });
         try { room.disconnect(); } catch { /* ignore */ }
       }
       roomRef.current = null;
     };
   }, []);
+
+  // Periodic safety refresh while connected. Some SFU paths swap the
+  // underlying MediaStreamTrack (simulcast layer change, ICE restart)
+  // without firing a full TrackSubscribed/Unsubscribed cycle — the only
+  // signal is `pub.track.mediaStreamTrack` returning a new identity. A
+  // 1Hz recompute keeps the consumer in sync without leaning on render
+  // timing. Cheap (one Map walk per second) and gated to active calls.
+  useEffect(() => {
+    if (state !== 'connected' && state !== 'reconnecting') return;
+    const id = setInterval(() => refreshRemotes(), 1000);
+    return () => clearInterval(id);
+  }, [state, refreshRemotes]);
 
   return { state, error, remote, micEnabled, cameraEnabled, connect, disconnect, toggleMic, toggleCamera };
 }

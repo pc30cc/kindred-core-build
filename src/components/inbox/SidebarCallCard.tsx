@@ -151,6 +151,8 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
     setCreating(null);
     setLoading(false);
     if (autoCloseRef.current) { clearTimeout(autoCloseRef.current); autoCloseRef.current = null; }
+    // eslint-disable-next-line no-console
+    console.warn('[livekit] disconnect via conversation-switch effect', { conversationId });
     rtDebug('call', 'conversation-switch disconnect', { conversationId });
     try { void live.disconnect(); } catch { /* ignore */ }
     connectedInvitationIdRef.current = null;
@@ -163,6 +165,8 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName }: Si
   useEffect(() => {
     return () => {
       if (autoCloseRef.current) clearTimeout(autoCloseRef.current);
+      // eslint-disable-next-line no-console
+      console.warn('[livekit] disconnect via SidebarCallCard unmount');
       rtDebug('call', 'unmount disconnect');
       try { live.disconnect(); } catch { /* ignore */ }
     };
@@ -987,6 +991,10 @@ function AudioCallStage({ remote }: { remote: ReturnType<typeof useLiveKitCall>[
 
 function VideoCallStage({ remote }: { remote: ReturnType<typeof useLiveKitCall>['remote'] }) {
   const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
+  // Track which MediaStreamTrack id is currently bound to each <video>
+  // so we can detect "same track id but stalled" cases and force a
+  // fresh srcObject swap as the safety refresh ticks.
+  const boundTrackIdRef = useRef<Record<string, string>>({});
   // useLayoutEffect re-attaches srcObject on every change to the `remote`
   // snapshot — including when a track is muted/unmuted, paused/resumed,
   // or swapped after a simulcast layer change. Without this the operator
@@ -1003,21 +1011,59 @@ function VideoCallStage({ remote }: { remote: ReturnType<typeof useLiveKitCall>[
           el.srcObject = null;
           // eslint-disable-next-line no-console
           console.debug('[livekit] clear remote video', r.participantSid);
+          boundTrackIdRef.current[r.participantSid] = '';
         }
         continue;
       }
-      // Build a fresh MediaStream containing only the current video track.
-      // Audio is attached via the dedicated <audio> below so muting the
-      // remote video doesn't take the audio path with it.
-      const stream = new MediaStream([r.video]);
-      el.srcObject = stream;
-      // eslint-disable-next-line no-console
-      console.debug('[livekit] attach remote video', r.participantSid, r.video.id);
+      // Decide whether to re-attach. We re-attach when:
+      //   - the bound track id differs (new track), OR
+      //   - the bound id matches but the element is stalled (readyState
+      //     === HAVE_NOTHING / HAVE_METADATA after the first frame), OR
+      //   - the underlying MediaStreamTrack is no longer 'live'.
+      const prevId = boundTrackIdRef.current[r.participantSid] || '';
+      const stalled = el.readyState < 2 && prevId === r.video.id;
+      const trackDead = r.video.readyState !== 'live';
+      if (prevId !== r.video.id || stalled || trackDead) {
+        const stream = new MediaStream([r.video]);
+        el.srcObject = stream;
+        boundTrackIdRef.current[r.participantSid] = r.video.id;
+        // eslint-disable-next-line no-console
+        console.debug('[livekit] attach remote video', r.participantSid, r.video.id, {
+          stalled, trackDead, trackReadyState: r.video.readyState,
+        });
+      }
       const playP = el.play();
       if (playP && typeof (playP as Promise<void>).catch === 'function') {
         (playP as Promise<void>).catch(() => { /* autoplay — recovers on user gesture */ });
       }
     }
+  }, [remote]);
+
+  // Wire <video> element media events so a freeze is loud in the console
+  // and the operator sees the "Video paused / reconnecting…" overlay
+  // when the element actually stalls.
+  useEffect(() => {
+    const cleanups: Array<() => void> = [];
+    for (const r of remote) {
+      const el = videoRefs.current[r.participantSid];
+      if (!el) continue;
+      const log = (kind: string) => () => {
+        // eslint-disable-next-line no-console
+        console.debug('[livekit] <video>', kind, r.participantSid, r.video?.id);
+      };
+      const events: Array<keyof HTMLMediaElementEventMap> = [
+        'playing', 'pause', 'stalled', 'waiting', 'emptied', 'error', 'suspend', 'ended',
+      ];
+      const handlers = events.map((ev) => {
+        const h = log(ev);
+        el.addEventListener(ev, h);
+        return [ev, h] as const;
+      });
+      cleanups.push(() => {
+        for (const [ev, h] of handlers) el.removeEventListener(ev, h);
+      });
+    }
+    return () => { for (const c of cleanups) c(); };
   }, [remote]);
 
   // Separate audio attachment so video pause/unmute cycles never break

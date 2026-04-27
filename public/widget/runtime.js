@@ -3785,7 +3785,27 @@
         : '';
       var hasRemoteVideo = !!(s.remote && s.remote.video);
       var showWaiting = phase === 'connected' && isVideo && !hasRemoteVideo;
-      var html = '<div class="gs-call-surface" data-call-surface data-phase="' + phase + '">';
+      // Skeleton signature — only rebuild innerHTML when something other
+      // than the live media tracks changes. Without this guard every
+      // remote-track event (TrackMuted, simulcast layer change, periodic
+      // safety refresh) would destroy and recreate the <video> elements
+      // mid-playback, producing a one-frame "freeze" symptom on the
+      // visitor side that mirrors the operator bug.
+      var sig = [
+        phase, isVideo ? 'v' : 'a',
+        s.micEnabled ? '1' : '0',
+        s.cameraEnabled ? '1' : '0',
+        showWaiting ? 'w' : '-',
+        statusText,
+      ].join('|');
+      var existing = container.querySelector('[data-call-surface]');
+      var sigChanged = !existing || existing.getAttribute('data-call-sig') !== sig;
+      if (!sigChanged) {
+        // Skeleton unchanged — just refresh srcObjects + status text.
+        bindCallTracks(container, s);
+        return;
+      }
+      var html = '<div class="gs-call-surface" data-call-surface data-phase="' + phase + '" data-call-sig="' + Util.escapeHtml(sig) + '">';
       html += '<div class="gs-call-status" data-call-status>' + Util.escapeHtml(statusText) + '</div>';
       html += '<div class="gs-call-stage" data-call-stage>';
       if (isVideo) {
@@ -3819,24 +3839,7 @@
       html += '</div>';
       container.innerHTML = html;
 
-      // Bind live media tracks (the store carries MediaStreamTracks).
-      try {
-        var aEl = container.querySelector('[data-call-remote-audio]');
-        if (aEl) {
-          aEl.srcObject = (s.remote && s.remote.audio) ? new MediaStream([s.remote.audio]) : null;
-          if (s.remote && s.remote.audio) { try { aEl.play(); } catch (_) {} }
-        }
-        var rvEl = container.querySelector('[data-call-remote-video]');
-        if (rvEl) {
-          rvEl.srcObject = (s.remote && s.remote.video) ? new MediaStream([s.remote.video]) : null;
-          if (s.remote && s.remote.video) { try { rvEl.play(); } catch (_) {} }
-        }
-        var lvEl = container.querySelector('[data-call-local-video]');
-        if (lvEl) {
-          lvEl.srcObject = s.localVideo ? new MediaStream([s.localVideo]) : null;
-          if (s.localVideo) { try { lvEl.play(); } catch (_) {} }
-        }
-      } catch (_) { /* noop */ }
+      bindCallTracks(container, s);
 
       // Wire controls.
       var ctrls = container.querySelector('[data-call-controls]');
@@ -3852,6 +3855,44 @@
           else if (action === 'close') { closeCallSurface(); }
         });
       }
+    }
+
+    // Track binding helper — re-attaches MediaStreamTracks to <video> /
+    // <audio> elements without rebuilding them. We track the bound track
+    // id per element so we only swap srcObject when the underlying track
+    // changes (or when the track id is the same but the element has
+    // stalled — a sign of a simulcast layer switch the SDK didn't
+    // surface as TrackUnsubscribed).
+    function bindCallTracks(container, s) {
+      try {
+        var aEl = container.querySelector('[data-call-remote-audio]');
+        if (aEl) bindTrack(aEl, s.remote && s.remote.audio);
+        var rvEl = container.querySelector('[data-call-remote-video]');
+        if (rvEl) bindTrack(rvEl, s.remote && s.remote.video);
+        var lvEl = container.querySelector('[data-call-local-video]');
+        if (lvEl) bindTrack(lvEl, s.localVideo);
+      } catch (_) { /* noop */ }
+    }
+    function bindTrack(el, track) {
+      var prevId = el.__gsBoundTrackId || '';
+      if (!track) {
+        if (prevId) {
+          try { el.srcObject = null; } catch (_) {}
+          el.__gsBoundTrackId = '';
+        }
+        return;
+      }
+      var stalled = el.tagName === 'VIDEO' && el.readyState < 2 && prevId === track.id;
+      var dead = track.readyState !== 'live';
+      if (prevId !== track.id || stalled || dead) {
+        try {
+          el.srcObject = new MediaStream([track]);
+          el.__gsBoundTrackId = track.id;
+        } catch (_) {}
+      }
+      var p;
+      try { p = el.play(); } catch (_) {}
+      if (p && typeof p.catch === 'function') p.catch(function () {});
     }
 
     // ─── Phase 8H — Department resolver + state (additive) ────────────

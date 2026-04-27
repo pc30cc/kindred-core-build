@@ -224,6 +224,13 @@
         .on(LK.RoomEvent.ParticipantDisconnected, function () { emitRemote(LK); })
         .on(LK.RoomEvent.TrackSubscribed, function () { emitRemote(LK); })
         .on(LK.RoomEvent.TrackUnsubscribed, function () { emitRemote(LK); })
+        // Track pause/resume / stream-state events: re-emit the snapshot
+        // so the panel UI clears stale frames and re-attaches when the
+        // SFU swaps simulcast layers without unsubscribing.
+        .on(LK.RoomEvent.TrackMuted, function () { emitRemote(LK); })
+        .on(LK.RoomEvent.TrackUnmuted, function () { emitRemote(LK); })
+        .on(LK.RoomEvent.TrackStreamStateChanged, function () { emitRemote(LK); })
+        .on(LK.RoomEvent.TrackSubscriptionStatusChanged, function () { emitRemote(LK); })
         .on(LK.RoomEvent.LocalTrackPublished, function (pub) {
           if (pub.kind === LK.Track.Kind.Audio) {
             micEnabled = true; emitter.emit('micEnabled', true);

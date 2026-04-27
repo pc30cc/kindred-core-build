@@ -12,6 +12,7 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Loader2, Phone, Video } from 'lucide-react';
 import {
   fetchWorkspaceCallSettings,
@@ -119,6 +120,41 @@ export function WorkspaceCallSettingsCard({ workspaceId }: { workspaceId: string
               </div>
             );
           })}
+
+          <Separator className="my-3" />
+
+          <div className="flex items-center justify-between gap-3 py-2">
+            <div className="flex-1 min-w-0">
+              <Label className="text-sm">Default video quality</Label>
+              <p className="text-xs text-muted-foreground">
+                Operators start every video call at this quality. They can change it during the call.
+              </p>
+            </div>
+            <Select
+              value={data.overrides.default_video_quality || 'auto'}
+              onValueChange={(v) => {
+                setSaving('default_video_quality');
+                const prev = data.overrides.default_video_quality;
+                setData({ ...data, overrides: { ...data.overrides, default_video_quality: v as any } });
+                updateWorkspaceCallSettings(workspaceId, { default_video_quality: v as any })
+                  .then((r) => setData(p => p ? { ...p, overrides: r.overrides, effective: r.effective } : p))
+                  .catch((e) => {
+                    setData(d => d && ({ ...d, overrides: { ...d.overrides, default_video_quality: prev } }));
+                    toast({ title: 'Save failed', description: e.message, variant: 'destructive' });
+                  })
+                  .finally(() => setSaving(null));
+              }}
+            >
+              <SelectTrigger className="w-[140px]"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">Auto</SelectItem>
+                <SelectItem value="low">Low (360p)</SelectItem>
+                <SelectItem value="medium">Medium (540p)</SelectItem>
+                <SelectItem value="high">High (720p)</SelectItem>
+                <SelectItem value="hd">HD (1080p)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
           <Separator className="my-3" />
 

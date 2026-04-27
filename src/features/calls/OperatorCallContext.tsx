@@ -290,6 +290,10 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
         }
         if (status === 'joined') {
           if (prev.phase !== 'waiting') return prev;
+          callLog('invitation joined', {
+            invitation_id: evt.invitation_id,
+            conversation_id: evt.conversation_id,
+          });
           return {
             ...prev,
             phase: 'connecting',
@@ -322,11 +326,27 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
         if (cancelled) return;
         const callSessionId = fresh?.call_session_id;
         if (!callSessionId) throw new Error('missing_call_session');
+        callLog('resolved call_session_id', {
+          invitation_id: inv.id,
+          call_session_id: callSessionId,
+        });
         activeCallConversationIdRef.current = inv.conversation_id;
         activeCallSessionIdRef.current = callSessionId;
+        callLog('active refs set', {
+          invitation_id: inv.id,
+          call_session_id: callSessionId,
+          conversation_id: inv.conversation_id,
+        });
+        callLog('requesting operator token', { call_session_id: callSessionId });
         const tok = await callsApi.token(callSessionId);
         if (cancelled) return;
+        callLog('callsApi.token success', { call_session_id: callSessionId });
         if (!tok.ws_url) throw new Error('missing_ws_url');
+        callLog('live.connect start', {
+          invitation_id: inv.id,
+          call_session_id: callSessionId,
+          channel: inv.channel,
+        });
         await live.connect({
           wsUrl: tok.ws_url,
           token: tok.token,
@@ -341,6 +361,10 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
         });
         if (cancelled) return;
         connectedInvitationIdRef.current = inv.id;
+        callLog('live.connect success', {
+          invitation_id: inv.id,
+          call_session_id: callSessionId,
+        });
         rtDebug('call', 'connected', { invitation_id: inv.id, channel: inv.channel });
         setSurface((prev) => prev.phase === 'connecting' ? { ...prev, phase: 'connected' } : prev);
       } catch (err: any) {

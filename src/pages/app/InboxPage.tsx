@@ -818,22 +818,17 @@ export default function InboxPage() {
                     )} />
                   )}
                   <div className="flex items-start gap-3">
-                    {/* Avatar */}
+                    {/* Avatar — gradient initials, online dot driven by status */}
                     <div className="relative shrink-0">
-                      <div className={cn(
-                        'w-10 h-10 rounded-full flex items-center justify-center text-[13px] font-semibold overflow-hidden ring-1',
-                        isActive
-                          ? 'bg-primary text-primary-foreground ring-primary/30'
-                          : 'bg-primary/10 text-primary ring-primary/15'
-                      )}>
-                        {conv.contacts?.avatar_url ? (
-                          <img src={conv.contacts.avatar_url} className="w-full h-full object-cover" alt="" />
-                        ) : (
-                          getInitials(conv.contacts?.name, conv.contacts?.email)
-                        )}
-                      </div>
-                      {/* Status dot — replaces noisy "unread" pulse */}
-                      <div className={cn(
+                      <ContactAvatar
+                        name={conv.contacts?.name}
+                        email={conv.contacts?.email}
+                        avatarUrl={conv.contacts?.avatar_url}
+                        size="md"
+                        ringClassName={isActive ? 'ring-primary/40' : 'ring-border/50'}
+                      />
+                      {/* Status dot — small, neutral; uses semantic status color */}
+                      <span className={cn(
                         'absolute -bottom-0.5 -end-0.5 w-3 h-3 rounded-full border-2 border-card',
                         statusDots[conv.status ?? 'open'],
                       )} />
@@ -885,6 +880,16 @@ export default function InboxPage() {
                         {conv.assigned_to && (
                           <span className="text-[10px] text-muted-foreground/60 flex items-center" title="Assigned">
                             <UserCheck className="w-3 h-3" />
+                          </span>
+                        )}
+                        {/* Selected-conversation typing indicator (live) */}
+                        {isActive && visitorTypingActive && (
+                          <span className="ml-auto inline-flex items-center gap-1 text-[10px] text-primary font-medium" aria-label="typing">
+                            <span className="flex gap-0.5">
+                              <span className="w-1 h-1 rounded-full bg-primary animate-bounce" style={{ animationDelay: '0ms' }} />
+                              <span className="w-1 h-1 rounded-full bg-primary animate-bounce" style={{ animationDelay: '120ms' }} />
+                              <span className="w-1 h-1 rounded-full bg-primary animate-bounce" style={{ animationDelay: '240ms' }} />
+                            </span>
                           </span>
                         )}
                       </div>

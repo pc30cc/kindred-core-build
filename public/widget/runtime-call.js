@@ -390,7 +390,7 @@
         roomConnectSettled = true;
         if (explicitDisconnectRequested || alreadyTornDown) {
           if (!alreadyTornDown) teardownInternal('disconnected');
-          throw makeErr('call_cancelled', 'Call cancelled by visitor.');
+          return undefined;
         }
         if (!roomConnectSucceeded) {
           roomConnectFinalRejectLogged = true;
@@ -407,7 +407,7 @@
       var message = (err && err.message) || 'Failed to connect.';
       if (explicitDisconnectRequested || code === 'call_cancelled') {
         if (!alreadyTornDown) teardownInternal('disconnected');
-        throw makeErr('call_cancelled', 'Call cancelled by visitor.');
+        return undefined;
       }
       if (roomConnectStarted && !roomConnectSucceeded && !roomConnectFinalRejectLogged) {
         roomConnectFinalRejectLogged = true;

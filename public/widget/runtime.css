@@ -1529,9 +1529,10 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
   background: #000;
   z-index: 2;
 }
-/* Hard product rule: NO video element is ever mirrored. This guard
-   beats any future inline transform regression on either the local
-   self-view or the remote stream. */
+/* Real-world call orientation correction. Browser/WebRTC raw camera output
+   was visually flipped in production, so every displayed camera video gets
+   the same correction. Do not reset to transform:none without a physical
+   left/right verification test. */
 .gs-call-remote-video,
 .gs-call-local-video,
 .gs-call-surface video,
@@ -1539,7 +1540,7 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 [data-call-local-video],
 [data-call-remote-video] video,
 [data-call-local-video] video {
-  transform: none !important;
+  transform: scaleX(-1) !important;
   scale: 1 !important;
   rotate: 0deg !important;
 }

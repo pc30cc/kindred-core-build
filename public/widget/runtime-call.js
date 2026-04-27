@@ -320,11 +320,13 @@
     var publishCamera = !!opts.publishCamera;
     if (opts.videoQuality) videoQuality = opts.videoQuality;
     // Reset all per-call flags at the start of a new connect.
-    connectStarted = true;
-    connectSucceeded = false;
-    publishStarted = false;
-    publishSucceeded = false;
+    signalingConnectStarted = true;
+    signalingConnected = false;
+    mediaPublishStarted = false;
+    mediaPublished = false;
+    engineFullyConnected = false;
     explicitDisconnectRequested = false;
+    connectPromiseSettled = false;
     alreadyTornDown = false;
     connecting = true;
     setState('connecting');

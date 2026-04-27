@@ -4260,11 +4260,11 @@
     function bindCallTracks(container, s) {
       try {
         var aEl = container.querySelector('[data-call-remote-audio]');
-        if (aEl) bindTrack(aEl, s.remote && s.remote.audio);
+        if (aEl) bindTrack(aEl, s.remote && s.remote.audio, s.remote && s.remote.audioTrack, 'remote-audio');
         var rvEl = container.querySelector('[data-call-remote-video]');
-        if (rvEl) bindTrack(rvEl, s.remote && s.remote.video);
+        if (rvEl) bindTrack(rvEl, s.remote && s.remote.video, s.remote && s.remote.videoTrack, 'remote-video');
         var lvEl = container.querySelector('[data-call-local-video]');
-        if (lvEl) bindTrack(lvEl, s.localVideo);
+        if (lvEl) bindTrack(lvEl, s.localVideo, null, 'local-video');
       } catch (_) { /* noop */ }
     }
     function isCallOrientationDebugEnabled() {
@@ -4291,7 +4291,7 @@
         });
       } catch (_) { /* diagnostic only */ }
     }
-    function bindTrack(el, track) {
+    function bindTrack(el, track, lkTrack, role) {
       if (el && el.tagName === 'VIDEO') {
         try { el.style.transform = 'scaleX(-1)'; } catch (_) {}
         try { el.style.scale = '1'; } catch (_) {}
@@ -4299,24 +4299,90 @@
         logCallVideoOrientation(el);
       }
       var prevId = el.__gsBoundTrackId || '';
-      if (!track) {
+      var prevAttachedLkTrack = el.__gsAttachedLkTrack || null;
+      // No track? Detach and clear.
+      if (!track && !lkTrack) {
+        if (prevAttachedLkTrack && typeof prevAttachedLkTrack.detach === 'function') {
+          try { prevAttachedLkTrack.detach(el); } catch (_) {}
+        }
         if (prevId) {
           try { el.srcObject = null; } catch (_) {}
-          el.__gsBoundTrackId = '';
         }
+        el.__gsBoundTrackId = '';
+        el.__gsAttachedLkTrack = null;
         return;
       }
-      var stalled = el.tagName === 'VIDEO' && el.readyState < 2 && prevId === track.id;
-      var dead = track.readyState !== 'live';
-      if (prevId !== track.id || stalled || dead) {
-        try {
-          el.srcObject = new MediaStream([track]);
-          el.__gsBoundTrackId = track.id;
-        } catch (_) {}
+      // Attach video media event listeners once for diagnostics.
+      if (el.tagName === 'VIDEO' && !el.__gsCallEventsBound) {
+        el.__gsCallEventsBound = true;
+        var roleTag = role || 'video';
+        ['loadedmetadata', 'playing', 'waiting', 'stalled', 'error'].forEach(function (evt) {
+          el.addEventListener(evt, function () {
+            try {
+              console.info('[gs-call-ui] remote video event', {
+                role: roleTag,
+                event: evt,
+                width: el.videoWidth,
+                height: el.videoHeight,
+                readyState: el.readyState,
+                paused: el.paused,
+              });
+            } catch (_) {}
+          });
+        });
+      }
+      // Prefer LiveKit RemoteTrack.attach() — mirrors the operator-side
+      // flow that proved stable. attach() handles srcObject creation and
+      // re-attachment across simulcast layer changes for us.
+      var newTrackId = (track && track.id) || (lkTrack && lkTrack.sid) || '';
+      if (lkTrack && typeof lkTrack.attach === 'function') {
+        if (prevAttachedLkTrack !== lkTrack) {
+          try {
+            console.info('[gs-call-ui] bind remote video start', { role: role, via: 'lk-attach', sid: lkTrack.sid });
+          } catch (_) {}
+          if (prevAttachedLkTrack && typeof prevAttachedLkTrack.detach === 'function') {
+            try { prevAttachedLkTrack.detach(el); } catch (_) {}
+          }
+          try {
+            lkTrack.attach(el);
+            el.__gsAttachedLkTrack = lkTrack;
+            el.__gsBoundTrackId = newTrackId;
+            try {
+              console.info('[gs-call-ui] bind remote video success', {
+                role: role,
+                width: el.videoWidth,
+                height: el.videoHeight,
+                readyState: el.readyState,
+              });
+            } catch (_) {}
+          } catch (e) {
+            try { console.warn('[gs-call-ui] lk attach failed; fallback to srcObject', e && e.message); } catch (_) {}
+            if (track) {
+              try { el.srcObject = new MediaStream([track]); el.__gsBoundTrackId = track.id; } catch (_) {}
+            }
+          }
+        }
+      } else if (track) {
+        var stalled = el.tagName === 'VIDEO' && el.readyState < 2 && prevId === track.id;
+        var dead = track.readyState !== 'live';
+        if (prevId !== track.id || stalled || dead) {
+          try {
+            console.info('[gs-call-ui] bind remote video start', { role: role, via: 'srcObject', trackId: track.id });
+          } catch (_) {}
+          try {
+            el.srcObject = new MediaStream([track]);
+            el.__gsBoundTrackId = track.id;
+            el.__gsAttachedLkTrack = null;
+          } catch (_) {}
+        }
       }
       var p;
       try { p = el.play(); } catch (_) {}
-      if (p && typeof p.catch === 'function') p.catch(function () {});
+      if (p && typeof p.catch === 'function') {
+        p.catch(function (err) {
+          try { console.warn('[gs-call-ui] remote video play failed', { role: role, error: err && err.message }); } catch (_) {}
+        });
+      }
     }
 
     // ─── Phase 8H — Department resolver + state (additive) ────────────

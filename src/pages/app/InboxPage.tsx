@@ -658,7 +658,7 @@ export default function InboxPage() {
               </button>
               <button
                 aria-label={soundOn ? 'Mute message sound' : 'Unmute message sound'}
-                title={soundOn ? (t('inbox.muteSound') || 'Mute message sound') : (t('inbox.unmuteSound') || 'Unmute message sound')}
+                title={soundOn ? 'Mute message sound' : 'Unmute message sound'}
                 onClick={() => {
                   const next = !soundOn;
                   setOperatorMessageSoundEnabled(next);

@@ -52,6 +52,7 @@ import { fetchWorkspaceCallSettings } from '@/lib/workspace-calls-api';
 import { useLocalMediaPreview, type LocalPreviewState } from '@/hooks/useLocalMediaPreview';
 import { rtDebug } from '@/realtime/debug';
 import { toast } from '@/hooks/use-toast';
+import { startRingback, stopRingback } from './callSound';
 
 export type SurfacePhase = 'idle' | 'waiting' | 'connecting' | 'connected' | 'terminal';
 export type TerminalStatus =

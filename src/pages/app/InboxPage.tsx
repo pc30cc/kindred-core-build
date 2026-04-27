@@ -657,6 +657,21 @@ export default function InboxPage() {
                 <RefreshCw className="w-3.5 h-3.5" />
               </button>
               <button
+                aria-label={soundOn ? 'Mute message sound' : 'Unmute message sound'}
+                title={soundOn ? (t('inbox.muteSound') || 'Mute message sound') : (t('inbox.unmuteSound') || 'Unmute message sound')}
+                onClick={() => {
+                  const next = !soundOn;
+                  setOperatorMessageSoundEnabled(next);
+                  setSoundOn(next);
+                }}
+                className={cn(
+                  'p-2 rounded-md hover:bg-secondary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  soundOn ? 'text-muted-foreground hover:text-foreground' : 'text-destructive hover:text-destructive'
+                )}
+              >
+                {soundOn ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
+              </button>
+              <button
                 aria-label="New conversation"
                 className="p-2 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >

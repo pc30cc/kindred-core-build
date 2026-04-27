@@ -84,6 +84,24 @@ export function useInboxListRealtime(workspaceId: string | undefined) {
         rtDebug('inbox-list', 'subscribing', { vendor: provider.vendor, channel });
 
         const subscription = await provider.subscribe(channel, {
+          onMessage: (payload) => {
+            // Phase 5b — visitor (or AI/agent) message arrived on some
+            // conversation in this workspace. We don't know which list
+            // filter it belongs to without re-reading the row, so just
+            // invalidate every cached `['conversations', workspaceId, …]`
+            // query. Cheap because the list endpoint is already paged and
+            // React Query dedupes concurrent refetches.
+            const convId = (payload as { conversation_id?: string })?.conversation_id;
+            const senderType = (payload as { sender_type?: string })?.sender_type;
+            rtDebug('inbox-list', 'event:message', { conv: convId, sender_type: senderType });
+            qc.invalidateQueries({ queryKey: ['conversations', workspaceId] });
+            // Surface to subscribers (e.g. notification chime).
+            try {
+              window.dispatchEvent(new CustomEvent('inbox:new-message', {
+                detail: { workspaceId, conversation_id: convId, sender_type: senderType, payload },
+              }));
+            } catch { /* noop */ }
+          },
           onEvent: (payload) => {
             if (!payload || typeof payload !== 'object') return;
             if (payload.workspace_id && payload.workspace_id !== workspaceId) return;

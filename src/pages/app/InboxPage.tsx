@@ -45,6 +45,13 @@ import { useTrackCannedResponseUse } from '@/hooks/useCannedResponses';
 import type { CannedLocale, CannedResponse } from '@/lib/canned-responses-api';
 import { useProfile } from '@/hooks/useProfile';
 import { Sparkles } from 'lucide-react';
+import { ContactAvatar } from '@/components/inbox/ContactAvatar';
+import {
+  useOperatorMessageChime,
+  getOperatorMessageSoundEnabled,
+  setOperatorMessageSoundEnabled,
+} from '@/features/notifications/operatorMessageSound';
+import { Volume2, VolumeX } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 const ALLOWED_OPERATOR_MIMES = new Set([
@@ -250,6 +257,22 @@ export default function InboxPage() {
   // conversation list when status/priority/assignee/tags change anywhere
   // in the workspace, without needing a per-conversation subscription.
   useInboxListRealtime(workspace?.id);
+
+  // Phase 5b — chime on incoming visitor messages (anywhere in the
+  // workspace). Honors per-device localStorage override + server
+  // notification prefs (disable_all / play_sound / quiet hours).
+  useOperatorMessageChime(workspace?.id);
+
+  // Header mute toggle (per-device).
+  const [soundOn, setSoundOn] = useState<boolean>(() => getOperatorMessageSoundEnabled());
+  useEffect(() => {
+    const onChange = (e: Event) => {
+      const detail = (e as CustomEvent<{ enabled: boolean }>).detail;
+      if (detail) setSoundOn(detail.enabled);
+    };
+    window.addEventListener('operator-message-sound-changed', onChange as EventListener);
+    return () => window.removeEventListener('operator-message-sound-changed', onChange as EventListener);
+  }, []);
 
   // Visitor presence (online/idle/offline + current page) — polling-safe via 10s refetch.
   const { data: presence } = useVisitorPresenceForConversation(workspace?.id, selectedId ?? undefined);
@@ -634,6 +657,21 @@ export default function InboxPage() {
                 <RefreshCw className="w-3.5 h-3.5" />
               </button>
               <button
+                aria-label={soundOn ? 'Mute message sound' : 'Unmute message sound'}
+                title={soundOn ? 'Mute message sound' : 'Unmute message sound'}
+                onClick={() => {
+                  const next = !soundOn;
+                  setOperatorMessageSoundEnabled(next);
+                  setSoundOn(next);
+                }}
+                className={cn(
+                  'p-2 rounded-md hover:bg-secondary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  soundOn ? 'text-muted-foreground hover:text-foreground' : 'text-destructive hover:text-destructive'
+                )}
+              >
+                {soundOn ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
+              </button>
+              <button
                 aria-label="New conversation"
                 className="p-2 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
@@ -780,22 +818,17 @@ export default function InboxPage() {
                     )} />
                   )}
                   <div className="flex items-start gap-3">
-                    {/* Avatar */}
+                    {/* Avatar — gradient initials, online dot driven by status */}
                     <div className="relative shrink-0">
-                      <div className={cn(
-                        'w-10 h-10 rounded-full flex items-center justify-center text-[13px] font-semibold overflow-hidden ring-1',
-                        isActive
-                          ? 'bg-primary text-primary-foreground ring-primary/30'
-                          : 'bg-primary/10 text-primary ring-primary/15'
-                      )}>
-                        {conv.contacts?.avatar_url ? (
-                          <img src={conv.contacts.avatar_url} className="w-full h-full object-cover" alt="" />
-                        ) : (
-                          getInitials(conv.contacts?.name, conv.contacts?.email)
-                        )}
-                      </div>
-                      {/* Status dot — replaces noisy "unread" pulse */}
-                      <div className={cn(
+                      <ContactAvatar
+                        name={conv.contacts?.name}
+                        email={conv.contacts?.email}
+                        avatarUrl={conv.contacts?.avatar_url}
+                        size="md"
+                        ringClassName={isActive ? 'ring-primary/40' : 'ring-border/50'}
+                      />
+                      {/* Status dot — small, neutral; uses semantic status color */}
+                      <span className={cn(
                         'absolute -bottom-0.5 -end-0.5 w-3 h-3 rounded-full border-2 border-card',
                         statusDots[conv.status ?? 'open'],
                       )} />
@@ -847,6 +880,16 @@ export default function InboxPage() {
                         {conv.assigned_to && (
                           <span className="text-[10px] text-muted-foreground/60 flex items-center" title="Assigned">
                             <UserCheck className="w-3 h-3" />
+                          </span>
+                        )}
+                        {/* Selected-conversation typing indicator (live) */}
+                        {isActive && visitorTypingActive && (
+                          <span className="ml-auto inline-flex items-center gap-1 text-[10px] text-primary font-medium" aria-label="typing">
+                            <span className="flex gap-0.5">
+                              <span className="w-1 h-1 rounded-full bg-primary animate-bounce" style={{ animationDelay: '0ms' }} />
+                              <span className="w-1 h-1 rounded-full bg-primary animate-bounce" style={{ animationDelay: '120ms' }} />
+                              <span className="w-1 h-1 rounded-full bg-primary animate-bounce" style={{ animationDelay: '240ms' }} />
+                            </span>
                           </span>
                         )}
                       </div>

@@ -361,7 +361,8 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
         setMicEnabled(true);
       }
       if (publishCamera) {
-        await room.localParticipant.setCameraEnabled(true);
+        const preset = presetForQuality(videoQualityRef.current);
+        await room.localParticipant.setCameraEnabled(true, { resolution: preset.resolution });
         setCameraEnabled(true);
         refreshLocalVideo();
       }

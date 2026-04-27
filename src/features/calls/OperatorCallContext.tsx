@@ -220,11 +220,27 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
 
   // Auto-close terminal surface after a short delay so it briefly shows
   // the outcome and then reverts to IDLE, exposing the invite buttons.
-  const scheduleAutoClose = useCallback((delayMs: number) => {
+  const scheduleAutoClose = useCallback((delayMs: number, target: AutoCloseTarget) => {
     if (autoCloseRef.current) clearTimeout(autoCloseRef.current);
     autoCloseRef.current = setTimeout(() => {
-      rtDebug('call', 'auto-close terminal disconnect');
-      try { void disconnectLive('server_call_ended'); } catch { /* ignore */ }
+      const cur = surfaceRef.current;
+      const currentInvitationId = cur.invitation?.id ?? null;
+      const currentCallSessionId = activeCallSessionIdRef.current ?? cur.invitation?.call_session_id ?? null;
+      const invitationMatches = target.invitationId === currentInvitationId;
+      const sessionMatches = !target.callSessionId || target.callSessionId === currentCallSessionId;
+      if (cur.phase !== 'terminal' || !invitationMatches || !sessionMatches) {
+        callLog('ignored stale terminal auto-close', {
+          target,
+          currentPhase: cur.phase,
+          currentInvitationId,
+          currentCallSessionId,
+        });
+        return;
+      }
+      rtDebug('call', 'auto-close terminal matched', { target });
+      if (activeCallSessionIdRef.current && activeCallConversationIdRef.current && target.callSessionId === activeCallSessionIdRef.current) {
+        try { void disconnectLive('server_call_ended', target.conversationId); } catch { /* ignore */ }
+      }
       clearActiveCallRefs();
       setSurface(INITIAL_SURFACE);
       setFloatingMode('docked');
@@ -234,8 +250,12 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (surface.phase !== 'terminal') return;
     const delay = surface.terminalStatus === 'cancelled' ? 1800 : 3500;
-    scheduleAutoClose(delay);
-  }, [surface.phase, surface.terminalStatus, scheduleAutoClose]);
+    scheduleAutoClose(delay, {
+      invitationId: surface.invitation?.id ?? null,
+      callSessionId: activeCallSessionIdRef.current ?? surface.invitation?.call_session_id ?? null,
+      conversationId: surface.conversationId,
+    });
+  }, [surface.phase, surface.terminalStatus, surface.invitation?.id, surface.invitation?.call_session_id, surface.conversationId, scheduleAutoClose]);
 
   // ── Realtime subscription drives surface lifecycle for the active
   //    invitation and updates the latestMap for every conversation.

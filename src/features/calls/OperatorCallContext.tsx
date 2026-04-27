@@ -711,45 +711,76 @@ export function OperatorCallProvider({ children }: { children: ReactNode }) {
     if (!remoteVanished && !roomDown) return;
 
     if (remoteLeftFallbackRef.current) return; // already armed
-    callLog('remote participant disconnected fallback armed', {
+    callLog('visitor remote disappeared', {
       sessionId,
       remoteCount,
       liveState: live.state,
+      phase: cur.phase,
     });
     const armedSessionId = sessionId;
+    const armedConversationId = activeCallConversationIdRef.current;
+    // 1) IMMEDIATELY flip to terminal 'remote_ended' so the operator no
+    //    longer stares at a black/loading video stage. Show a placeholder
+    //    duration computed from local connected_at; we'll update it once
+    //    /end (or call:ended) returns the canonical value.
+    if (!remoteEndedShownRef.current) {
+      remoteEndedShownRef.current = true;
+      const localDur = connectedAtRef.current
+        ? Math.max(0, Math.round((Date.now() - connectedAtRef.current) / 1000))
+        : 0;
+      callLog('showing visitor-ended terminal state', {
+        sessionId: armedSessionId,
+        localDurationSeconds: localDur,
+      });
+      setLastEnded({
+        ended_by: 'visitor',
+        reason: 'visitor_ended',
+        duration_seconds: localDur,
+        ended_at: new Date().toISOString(),
+        conversation_id: armedConversationId,
+      });
+      setSurface((prev) => ({
+        ...prev,
+        phase: 'terminal',
+        terminalStatus: 'remote_ended',
+      }));
+      // Tear down our local LiveKit room now — remote is gone, no
+      // reason to keep it spinning. Snapshot active refs into "recent"
+      // so a late call:ended can still match.
+      try { void disconnectLive('visitor_left', armedConversationId); } catch { /* ignore */ }
+    }
+    // 2) Arm the server reconciliation in the background. /end is
+    //    idempotent — if the server already published call:ended this
+    //    just returns the existing summary with the canonical duration.
+    callLog('visitor-ended fallback /end armed', {
+      sessionId: armedSessionId,
+    });
     remoteLeftFallbackRef.current = setTimeout(() => {
       remoteLeftFallbackRef.current = null;
-      // If the active session changed (cleared by call:ended in the
-      // meantime) we have nothing to do.
-      if (activeCallSessionIdRef.current !== armedSessionId) {
-        callLog('remote disconnected fallback skipped', { reason: 'session_changed' });
-        return;
-      }
-      callLog('remote participant disconnected fallback firing /end', {
-        sessionId: armedSessionId,
-      });
-      void callsApi.end(armedSessionId, 'system_ended').then((summary) => {
-        // The realtime fan-out from endCallSession will deliver call:ended
-        // back to us, which sets lastEnded. But because the publish is
-        // best-effort, also set it locally so the UI is guaranteed to
-        // surface the terminal toast.
-        setLastEnded({
-          ended_by: summary.ended_by,
-          reason: summary.end_reason,
-          duration_seconds: summary.duration_seconds,
-          ended_at: summary.ended_at,
-          conversation_id: summary.conversation_id ?? activeCallConversationIdRef.current,
+      // Always poll /end — even if active refs were already cleared by
+      // disconnectLive above, the server still owes us the canonical
+      // duration for the terminal toast.
+      callsApi
+        .end(armedSessionId, 'system_ended')
+        .then((summary) => {
+          callLog('visitor-ended fallback /end success', {
+            sessionId: armedSessionId,
+            endedBy: summary.ended_by,
+            durationSeconds: summary.duration_seconds,
+          });
+          setLastEnded({
+            ended_by: summary.ended_by,
+            reason: summary.end_reason,
+            duration_seconds: summary.duration_seconds,
+            ended_at: summary.ended_at,
+            conversation_id: summary.conversation_id ?? armedConversationId,
+          });
+        })
+        .catch((err) => {
+          callWarn('visitor-ended fallback /end failed', {
+            error: (err as any)?.message,
+          });
         });
-      }).catch((err) => {
-        callWarn('remote disconnected fallback /end failed', { error: (err as any)?.message });
-      }).finally(() => {
-        if (activeCallSessionIdRef.current === armedSessionId) {
-          try { void disconnectLive('visitor_left'); } catch { /* ignore */ }
-          clearActiveCallRefs();
-          setSurface(INITIAL_SURFACE);
-          setFloatingMode('docked');
-        }
-      });
     }, 1500);
 
     return () => {

@@ -1,0 +1,351 @@
+/**
+ * Pass 2 — Headless LiveKit call adapter (visitor side).
+ *
+ * This file used to own its own shadow root, mount a card on document.body,
+ * handle a legacy `call:incoming` push bus, and even render an unrelated
+ * "callback request" form. All of that violated the strict architecture
+ * rule that "no call UI should ever render outside the main widget panel".
+ *
+ * Pass 2 deletes the entire UI layer of this module. What remains is a
+ * tiny headless engine — a thin wrapper over the LiveKit JS SDK — that
+ * runtime.js drives directly from the in-panel call surface.
+ *
+ * Public API (window.__gs_call):
+ *   engine.connect({ wsUrl, token, turn, ice_policy, publishMic, publishCamera })
+ *     → Promise<void> resolved when the LiveKit room reaches 'connected'.
+ *   engine.disconnect()        → tears the room down idempotently.
+ *   engine.toggleMic()         → Promise<boolean> next state.
+ *   engine.toggleCamera()      → Promise<boolean> next state.
+ *   engine.on(event, handler)  → subscribe; events:
+ *       'state'           (state: 'idle'|'connecting'|'connected'|'reconnecting'|'disconnected'|'failed')
+ *       'remote'          ({ audio: MediaStreamTrack|null, video: MediaStreamTrack|null })
+ *       'local'           ({ video: MediaStreamTrack|null })  // local preview
+ *       'micEnabled'      (bool)
+ *       'cameraEnabled'   (bool)
+ *       'error'           ({ code, message })
+ *   engine.getState()          → snapshot.
+ *
+ * Strict rules:
+ *   - SDK URL ALWAYS comes from window.__gs_call_sdk_url, which the
+ *     loader sets from /api/widget/config → livekitSdkUrl. NO CDN
+ *     fallback. If the global is missing we fail with code='sdk_url_missing'.
+ *   - This module renders NOTHING. No shadow root, no document.body
+ *     mount, no styles. The widget panel owns presentation entirely.
+ *   - No legacy `call:incoming` / `call:ringing-poll` push handlers.
+ *     The invitation flow drives connect() directly with a token bundle
+ *     returned by /api/widget/call-invitations/:id/join.
+ */
+(function () {
+  'use strict';
+  if (window.__gs_call_loaded) return;
+  window.__gs_call_loaded = true;
+
+  // ───── SDK loader (strict — no CDN) ─────
+  var sdkPromise = null;
+  function loadSdk() {
+    if (window.LivekitClient) return Promise.resolve(window.LivekitClient);
+    if (sdkPromise) return sdkPromise;
+    var url = window.__gs_call_sdk_url || '';
+    if (!url) {
+      return Promise.reject(makeErr('sdk_url_missing', 'LiveKit SDK URL not provided by widget config.'));
+    }
+    sdkPromise = new Promise(function (resolve, reject) {
+      var s = document.createElement('script');
+      s.src = url;
+      s.async = true;
+      // crossOrigin is required so the browser sets CORS-mode for the
+      // request — the asset host serves the vendor file with the right
+      // CORP/Access-Control headers (see Pass 1).
+      s.crossOrigin = 'anonymous';
+      s.setAttribute('data-gs-livekit-sdk', 'true');
+      s.onload = function () {
+        if (window.LivekitClient) resolve(window.LivekitClient);
+        else reject(makeErr('sdk_load_failed', 'LiveKit SDK loaded but global missing.'));
+      };
+      s.onerror = function () { reject(makeErr('sdk_load_failed', 'Failed to load LiveKit SDK.')); };
+      document.head.appendChild(s);
+    });
+    return sdkPromise;
+  }
+
+  function makeErr(code, message) {
+    var e = new Error(message || code);
+    e.code = code;
+    return e;
+  }
+
+  // ───── Event bus (per-engine) ─────
+  function createEmitter() {
+    var listeners = {};
+    return {
+      on: function (evt, fn) {
+        (listeners[evt] = listeners[evt] || []).push(fn);
+        return function () {
+          listeners[evt] = (listeners[evt] || []).filter(function (h) { return h !== fn; });
+        };
+      },
+      emit: function (evt, payload) {
+        var arr = listeners[evt] || [];
+        for (var i = 0; i < arr.length; i++) {
+          try { arr[i](payload); } catch (_) { /* swallow */ }
+        }
+      },
+      clear: function () { listeners = {}; },
+    };
+  }
+
+  // ───── Singleton engine state ─────
+  // Only one active call at a time. Re-entrant connect() calls are
+  // rejected — the caller must disconnect() first.
+  var room = null;
+  var connecting = false;
+  var emitter = createEmitter();
+  var state = 'idle';
+  var lastRemote = { audio: null, video: null };
+  var lastLocalVideo = null;
+  var micEnabled = false;
+  var cameraEnabled = false;
+
+  function setState(next) {
+    if (state === next) return;
+    state = next;
+    emitter.emit('state', state);
+  }
+
+  function emitRemote(LK) {
+    var firstAudio = null, firstVideo = null;
+    if (room) {
+      room.remoteParticipants.forEach(function (p) {
+        p.trackPublications.forEach(function (pub) {
+          if (!pub.track || !pub.track.mediaStreamTrack) return;
+          if (pub.kind === LK.Track.Kind.Audio && !firstAudio) firstAudio = pub.track.mediaStreamTrack;
+          if (pub.kind === LK.Track.Kind.Video && !firstVideo) firstVideo = pub.track.mediaStreamTrack;
+        });
+      });
+    }
+    lastRemote = { audio: firstAudio, video: firstVideo };
+    emitter.emit('remote', lastRemote);
+  }
+
+  function emitLocalVideo(LK) {
+    var v = null;
+    if (room && room.localParticipant) {
+      room.localParticipant.trackPublications.forEach(function (pub) {
+        if (pub.kind === LK.Track.Kind.Video && pub.track && pub.track.mediaStreamTrack && !v) {
+          v = pub.track.mediaStreamTrack;
+        }
+      });
+    }
+    lastLocalVideo = v;
+    emitter.emit('local', { video: v });
+  }
+
+  function teardownInternal(reasonState) {
+    if (room) {
+      try { room.disconnect(); } catch (_) { /* ignore */ }
+    }
+    room = null;
+    connecting = false;
+    micEnabled = false;
+    cameraEnabled = false;
+    lastRemote = { audio: null, video: null };
+    lastLocalVideo = null;
+    emitter.emit('remote', lastRemote);
+    emitter.emit('local', { video: null });
+    emitter.emit('micEnabled', false);
+    emitter.emit('cameraEnabled', false);
+    setState(reasonState || 'disconnected');
+  }
+
+  /**
+   * Connect to a LiveKit room.
+   *
+   * Required: wsUrl (origin-only wss://), token.
+   * Optional: turn { urls: string[], username, credential }, ice_policy,
+   *           publishMic (default true), publishCamera (default false).
+   *
+   * Resolves once the SDK reports 'connected' AND the requested local
+   * tracks were published (or rejected with a permission error). Rejects
+   * with err.code from the canonical error vocabulary so the panel UI
+   * can render a stable message + i18n key.
+   */
+  function connect(opts) {
+    opts = opts || {};
+    if (room || connecting) {
+      return Promise.reject(makeErr('already_connected', 'Engine already has an active call.'));
+    }
+    if (!opts.wsUrl) return Promise.reject(makeErr('livekit_connect_failed', 'Missing wsUrl.'));
+    if (!opts.token) return Promise.reject(makeErr('token_mint_failed', 'Missing token.'));
+    var publishMic = opts.publishMic !== false;
+    var publishCamera = !!opts.publishCamera;
+    connecting = true;
+    setState('connecting');
+
+    return loadSdk().then(function (LK) {
+      var iceServers = [];
+      if (opts.turn && Array.isArray(opts.turn.urls) && opts.turn.urls.length) {
+        iceServers.push({
+          urls: opts.turn.urls,
+          username: opts.turn.username || undefined,
+          credential: opts.turn.credential || undefined,
+        });
+      }
+      var connectOptions = iceServers.length ? {
+        rtcConfig: {
+          iceServers: iceServers,
+          iceTransportPolicy: opts.ice_policy === 'relay' ? 'relay' : 'all',
+        },
+      } : undefined;
+
+      var nextRoom = new LK.Room({ adaptiveStream: true, dynacast: true });
+      room = nextRoom;
+
+      nextRoom
+        .on(LK.RoomEvent.ParticipantConnected, function () { emitRemote(LK); })
+        .on(LK.RoomEvent.ParticipantDisconnected, function () { emitRemote(LK); })
+        .on(LK.RoomEvent.TrackSubscribed, function () { emitRemote(LK); })
+        .on(LK.RoomEvent.TrackUnsubscribed, function () { emitRemote(LK); })
+        .on(LK.RoomEvent.LocalTrackPublished, function (pub) {
+          if (pub.kind === LK.Track.Kind.Audio) {
+            micEnabled = true; emitter.emit('micEnabled', true);
+          }
+          if (pub.kind === LK.Track.Kind.Video) {
+            cameraEnabled = true; emitter.emit('cameraEnabled', true);
+            emitLocalVideo(LK);
+          }
+        })
+        .on(LK.RoomEvent.LocalTrackUnpublished, function (pub) {
+          if (pub.kind === LK.Track.Kind.Audio) {
+            micEnabled = false; emitter.emit('micEnabled', false);
+          }
+          if (pub.kind === LK.Track.Kind.Video) {
+            cameraEnabled = false; emitter.emit('cameraEnabled', false);
+            emitLocalVideo(LK);
+          }
+        })
+        .on(LK.RoomEvent.Reconnecting, function () { setState('reconnecting'); })
+        .on(LK.RoomEvent.Reconnected, function () { setState('connected'); })
+        .on(LK.RoomEvent.Disconnected, function () {
+          if (room === nextRoom) {
+            teardownInternal('disconnected');
+          }
+        });
+
+      return nextRoom.connect(opts.wsUrl, opts.token, connectOptions).then(function () {
+        // Race guard: caller may have invoked disconnect() while we were
+        // awaiting the WS handshake.
+        if (room !== nextRoom) {
+          try { nextRoom.disconnect(); } catch (_) {}
+          throw makeErr('livekit_connect_failed', 'Connection cancelled before establishment.');
+        }
+        var publishChain = Promise.resolve();
+        if (publishMic) {
+          publishChain = publishChain.then(function () {
+            return nextRoom.localParticipant.setMicrophoneEnabled(true).catch(function (e) {
+              throw makeErr('permission_denied_microphone', (e && e.message) || 'Microphone permission denied.');
+            });
+          });
+        }
+        if (publishCamera) {
+          publishChain = publishChain.then(function () {
+            return nextRoom.localParticipant.setCameraEnabled(true).catch(function (e) {
+              throw makeErr('permission_denied_camera', (e && e.message) || 'Camera permission denied.');
+            });
+          });
+        }
+        return publishChain.then(function () {
+          if (room !== nextRoom) {
+            try { nextRoom.disconnect(); } catch (_) {}
+            throw makeErr('livekit_connect_failed', 'Connection cancelled during publish.');
+          }
+          connecting = false;
+          setState('connected');
+          emitRemote(LK);
+          emitLocalVideo(LK);
+        });
+      });
+    }).catch(function (err) {
+      var code = (err && err.code) || 'livekit_connect_failed';
+      var message = (err && err.message) || 'Failed to connect.';
+      emitter.emit('error', { code: code, message: message });
+      teardownInternal('failed');
+      // Re-throw a normalized error so the caller's promise chain sees it.
+      throw makeErr(code, message);
+    });
+  }
+
+  function disconnect() {
+    if (!room && !connecting) return Promise.resolve();
+    teardownInternal('disconnected');
+    return Promise.resolve();
+  }
+
+  function toggleMic() {
+    if (!room) return Promise.resolve(false);
+    var lp = room.localParticipant;
+    var next = !lp.isMicrophoneEnabled;
+    return lp.setMicrophoneEnabled(next).then(function () {
+      micEnabled = next;
+      emitter.emit('micEnabled', next);
+      return next;
+    }).catch(function (e) {
+      emitter.emit('error', { code: 'permission_denied_microphone', message: (e && e.message) || 'Mic toggle failed.' });
+      return micEnabled;
+    });
+  }
+
+  function toggleCamera() {
+    if (!room) return Promise.resolve(false);
+    var lp = room.localParticipant;
+    var next = !lp.isCameraEnabled;
+    return lp.setCameraEnabled(next).then(function () {
+      cameraEnabled = next;
+      emitter.emit('cameraEnabled', next);
+      // Local preview track changes when camera flips — re-emit so the UI
+      // can clear/refresh the <video> srcObject without polling.
+      // LiveKit fires LocalTrackPublished/Unpublished too; this is belt+braces.
+      try {
+        var LK = window.LivekitClient;
+        if (LK) emitLocalVideo(LK);
+      } catch (_) {}
+      return next;
+    }).catch(function (e) {
+      emitter.emit('error', { code: 'permission_denied_camera', message: (e && e.message) || 'Camera toggle failed.' });
+      return cameraEnabled;
+    });
+  }
+
+  // ───── Public API ─────
+  window.__gs_call = {
+    engine: {
+      connect: connect,
+      disconnect: disconnect,
+      toggleMic: toggleMic,
+      toggleCamera: toggleCamera,
+      on: emitter.on,
+      getState: function () {
+        return {
+          state: state,
+          remote: lastRemote,
+          localVideo: lastLocalVideo,
+          micEnabled: micEnabled,
+          cameraEnabled: cameraEnabled,
+        };
+      },
+    },
+    /** Convenience: load + warm the SDK before the visitor clicks Join. */
+    preload: function () {
+      return loadSdk().then(function () { return true; }, function () { return false; });
+    },
+    isActive: function () { return !!room; },
+  };
+
+  // Resolve the deferred readiness promise the loader created so anyone
+  // awaiting `window.__gs_call_ready` (legacy chat handler in runtime.js)
+  // can proceed without further script injection.
+  try {
+    if (typeof window.__gs_call_resolveReady === 'function') {
+      window.__gs_call_resolveReady(window.__gs_call);
+    }
+  } catch (_) { /* noop */ }
+})();

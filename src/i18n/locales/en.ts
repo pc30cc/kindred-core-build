@@ -367,6 +367,8 @@ const en = {
     'callSurface.close': 'Close',
     'callSurface.callEnded': 'Call ended',
     'callSurface.visitorEndedCall': 'Visitor ended the call',
+    'callSurface.visitorConnectFailed': 'Visitor failed to connect',
+    'callSurface.visitorConnectFailedHint': 'Call could not be established',
     // Pass A — system message printed in the chat thread when a call ends.
     // {duration} is mm:ss (or hh:mm:ss for long calls).
     'callEnded.summary.byOperator': 'Call ended by operator · Duration {duration}',

@@ -368,6 +368,8 @@ const fa: TranslationKeys = {
     'callSurface.close': 'بستن',
     'callSurface.callEnded': 'تماس پایان یافت',
     'callSurface.visitorEndedCall': 'بازدیدکننده تماس را پایان داد',
+    'callSurface.visitorConnectFailed': 'بازدیدکننده نتوانست متصل شود',
+    'callSurface.visitorConnectFailedHint': 'تماس برقرار نشد',
     // Pass A — call summary written into chat thread.
     'callEnded.summary.byOperator': 'تماس از طرف اپراتور پایان یافت · مدت مکالمه {duration}',
     'callEnded.summary.byVisitor': 'تماس از طرف کاربر پایان یافت · مدت مکالمه {duration}',

@@ -959,7 +959,8 @@ function VideoWaitingTile({ previewStream, previewState }: WaitingTileProps) {
   return (
     <div className="relative aspect-video w-full rounded-lg overflow-hidden border border-violet-500/20 bg-gradient-to-br from-violet-500/10 via-violet-500/5 to-transparent">
       {/* Local self-view — rendered as soon as getUserMedia resolves.
-          Mirrored so the operator sees a natural reflection. */}
+          NOT mirrored: per current product rules no video element
+          (local or remote) is ever flipped. */}
       <video
         ref={videoRef}
         autoPlay
@@ -969,7 +970,7 @@ function VideoWaitingTile({ previewStream, previewState }: WaitingTileProps) {
           'absolute inset-0 w-full h-full object-cover bg-black transition-opacity duration-200',
           showVideo ? 'opacity-100' : 'opacity-0',
         )}
-        style={{ transform: 'scaleX(-1)' }}
+        style={{ transform: 'none' }}
       />
       {!showVideo && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">

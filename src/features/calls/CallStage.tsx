@@ -69,6 +69,9 @@ export function VideoCallStage({ remote, size = 'small' }: VideoStageProps) {
       if (next) {
         try { next.attach(el); } catch { /* ignore */ }
         logCallVideoOrientation('operator-remote', el);
+        applyVideoOrientationClass(el, 'operator-remote', 'call-video');
+        const bg = blurBgRefs.current[r.participantSid];
+        if (bg) { try { next.attach(bg); } catch { /* ignore */ } }
         const p = el.play();
         if (p && typeof (p as Promise<void>).catch === 'function') {
           (p as Promise<void>).catch(() => {});
@@ -85,6 +88,8 @@ export function VideoCallStage({ remote, size = 'small' }: VideoStageProps) {
         try { tr.detach(el); } catch { /* ignore */ }
         try { el.srcObject = null; } catch { /* ignore */ }
       }
+      const bg = blurBgRefs.current[sid];
+      if (tr && bg) { try { tr.detach(bg); } catch { /* ignore */ } }
       attachedTrackRef.current[sid] = null;
       delete attachedTrackRef.current[sid];
     }

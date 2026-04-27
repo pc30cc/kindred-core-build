@@ -1483,24 +1483,17 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
   text-decoration: underline;
 }
 
-/* ─── Pass 2 — In-panel call surface (lives inside .body) ─── */
+/* ─── Widget call surface (lives inside .body) ─── */
 .gs-call-surface {
   display: flex;
   flex-direction: column;
   height: 100%;
   width: 100%;
-  background: #0f172a;
+  background: #0b1220;
   color: #f1f5f9;
   position: relative;
   overflow: hidden;
-}
-.gs-call-status {
-  padding: 10px 14px;
-  font-size: 13px;
-  font-weight: 500;
-  text-align: center;
-  background: rgba(0, 0, 0, 0.35);
-  min-height: 18px;
+  font-family: inherit;
 }
 .gs-call-stage {
   flex: 1;
@@ -1517,22 +1510,165 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
   object-fit: cover;
   background: #000;
 }
-.gs-call-local-video {
+/* Remote-side placeholder shown when no remote video has arrived yet.
+   Replaces the legacy black rectangle so visitor never stares into the void. */
+.gs-call-stage-placeholder {
   position: absolute;
-  bottom: 12px;
-  right: 12px;
-  width: 96px;
-  height: 128px;
-  object-fit: cover;
-  border-radius: 8px;
-  border: 2px solid rgba(255, 255, 255, 0.6);
-  background: #000;
-  z-index: 2;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: linear-gradient(160deg, #1e293b 0%, #0f172a 60%, #0b1220 100%);
+  color: rgba(241,245,249,0.85);
+  z-index: 1;
 }
-/* Real-world call orientation correction. Browser/WebRTC raw camera output
-   was visually flipped in production, so every displayed camera video gets
-   the same correction. Do not reset to transform:none without a physical
-   left/right verification test. */
+.gs-call-stage-placeholder[hidden] { display: none; }
+.gs-call-stage-orb {
+  width: 86px;
+  height: 86px;
+  border-radius: 50%;
+  background: rgba(59, 130, 246, 0.18);
+  color: var(--gs-primary, #3B82F6);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 10px 35px -8px rgba(59,130,246,.45), inset 0 0 0 1px rgba(255,255,255,.06);
+}
+.gs-call-stage-msg {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: .01em;
+  opacity: .85;
+}
+/* Top translucent bar with status + live timer */
+.gs-call-topbar {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  right: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: rgba(2,6,23,0.55);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border-radius: 999px;
+  z-index: 5;
+  font-size: 12px;
+  color: #e2e8f0;
+}
+.gs-call-topbar-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 0 0 rgba(34,197,94,.6);
+  animation: gs-call-dot 1.6s ease-in-out infinite;
+}
+@keyframes gs-call-dot {
+  0% { box-shadow: 0 0 0 0 rgba(34,197,94,.55); }
+  70% { box-shadow: 0 0 0 8px rgba(34,197,94,0); }
+  100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
+}
+.gs-call-topbar-status { font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gs-call-topbar-timer { font-variant-numeric: tabular-nums; opacity: .85; }
+/* Local PiP — polished tile */
+.gs-call-pip {
+  position: absolute;
+  bottom: 14px;
+  right: 14px;
+  width: 92px;
+  height: 124px;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 2px solid rgba(255,255,255,0.85);
+  background: #0b1220;
+  z-index: 4;
+  box-shadow: 0 6px 20px -6px rgba(0,0,0,.55);
+}
+@media (min-width: 480px) {
+  .gs-call-pip { width: 110px; height: 148px; }
+}
+.gs-call-local-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #0b1220;
+  display: block;
+}
+.gs-call-local-video[hidden] { display: none; }
+.gs-call-pip-off {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(160deg, #334155 0%, #1e293b 100%);
+  color: rgba(241,245,249,.7);
+}
+.gs-call-pip-off[hidden] { display: none; }
+/* Audio (voice-call) layout */
+.gs-call-voice-stage {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 28px 20px;
+  background: linear-gradient(160deg, #1e293b 0%, #0f172a 70%);
+}
+.gs-call-voice-orb {
+  position: relative;
+  width: 124px; height: 124px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.gs-call-voice-pulse {
+  position: absolute; inset: 0;
+  border-radius: 50%;
+  background: rgba(59, 130, 246, 0.22);
+  animation: gs-call-pulse 1.8s ease-out infinite;
+}
+.gs-call-voice-icon {
+  position: relative;
+  width: 86px; height: 86px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--gs-primary, #3B82F6), #6366f1);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 12px 32px -10px rgba(59,130,246,.55), inset 0 0 0 1px rgba(255,255,255,.08);
+}
+@keyframes gs-call-pulse {
+  0% { transform: scale(0.85); opacity: .9; }
+  100% { transform: scale(1.5); opacity: 0; }
+}
+.gs-call-voice-status { font-size: 13px; font-weight: 600; opacity: .85; }
+.gs-call-voice-timer { font-size: 28px; font-weight: 700; letter-spacing: .04em; font-variant-numeric: tabular-nums; }
+.gs-call-eq {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 5px;
+  height: 28px;
+}
+.gs-call-eq-bar {
+  display: inline-block;
+  width: 4px;
+  height: 30%;
+  border-radius: 4px;
+  background: linear-gradient(180deg, #6366f1 0%, var(--gs-primary, #3B82F6) 100%);
+  animation: gs-call-eq 900ms ease-in-out infinite alternate;
+  opacity: .85;
+}
+@keyframes gs-call-eq {
+  0% { height: 18%; opacity: .55; }
+  100% { height: 100%; opacity: 1; }
+}
+/* Camera orientation correction (preserved from prior pass). */
 .gs-call-remote-video,
 .gs-call-local-video,
 .gs-call-surface video,
@@ -1544,10 +1680,75 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
   scale: 1 !important;
   rotate: 0deg !important;
 }
+/* Control bar */
+.gs-call-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  background: rgba(2,6,23,0.78);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.gs-call-btn {
+  appearance: none;
+  border: 0;
+  cursor: pointer;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.10);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background .14s ease, transform .14s ease, box-shadow .14s ease;
+}
+.gs-call-btn:hover { background: rgba(255,255,255,0.18); transform: translateY(-1px); }
+.gs-call-btn:active { transform: translateY(0); }
+.gs-call-btn:focus-visible { outline: 2px solid var(--gs-primary, #3B82F6); outline-offset: 2px; }
+.gs-call-btn[disabled] { opacity: .55; cursor: progress; }
+.gs-call-btn.off { background: rgba(220,38,38,0.28); color: #fecaca; }
+.gs-call-btn-hangup {
+  background: #dc2626;
+  width: 60px;
+  height: 60px;
+  box-shadow: 0 10px 24px -8px rgba(220,38,38,.55);
+}
+.gs-call-btn-hangup:hover { background: #b91c1c; }
+/* Terminal "back to chat" card */
+.gs-call-terminal-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 8px;
+  width: 100%;
+}
+.gs-call-terminal-label { font-size: 13px; opacity: .85; text-align: center; }
+.gs-call-btn-back {
+  appearance: none;
+  border: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 18px;
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 13px;
+  background: rgba(255,255,255,0.14);
+  color: #fff;
+  transition: background .14s ease;
+}
+.gs-call-btn-back:hover { background: rgba(255,255,255,0.22); }
+/* Orientation debug overlay (unchanged) */
 .gs-call-orientation-debug {
   position: absolute;
   inset: 0;
-  z-index: 4;
+  z-index: 6;
   pointer-events: none;
   color: #f8fafc;
   font-size: 10px;
@@ -1566,67 +1767,9 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 .gs-call-orientation-debug small { top: 30px; left: 8px; }
 .gs-call-orientation-debug .left { left: 8px; top: 50%; transform: translateY(-50%); }
 .gs-call-orientation-debug .right { right: 8px; top: 50%; transform: translateY(-50%); }
-.gs-call-audio-orb {
-  width: 96px;
-  height: 96px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--gs-primary, #3B82F6);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-.gs-call-waiting {
-  position: absolute;
-  bottom: 16px;
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.7);
-  background: rgba(0, 0, 0, 0.45);
-  padding: 6px 12px;
-  border-radius: 999px;
-}
-.gs-call-controls {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 14px 16px;
-  background: rgba(0, 0, 0, 0.45);
-}
-.gs-call-btn {
-  appearance: none;
-  border: 0;
-  cursor: pointer;
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.12);
-  color: #fff;
-  font-size: 16px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.12s ease, transform 0.12s ease;
-}
-.gs-call-btn:hover { background: rgba(255, 255, 255, 0.2); transform: translateY(-1px); }
-.gs-call-btn.off { background: rgba(220, 38, 38, 0.25); }
-.gs-call-btn-hangup { background: #dc2626; }
-.gs-call-btn-hangup:hover { background: #b91c1c; }
-.gs-call-btn-close {
-  width: auto;
-  height: 38px;
-  padding: 0 18px;
-  border-radius: 8px;
-  font-weight: 600;
-  font-size: 13px;
-  background: rgba(255, 255, 255, 0.12);
-}
-.gs-call-surface[data-phase="failed"] .gs-call-status,
-.gs-call-surface[data-phase="ended"] .gs-call-status {
-  background: rgba(220, 38, 38, 0.4);
-}
+.gs-call-surface[data-phase="failed"] .gs-call-topbar,
+.gs-call-surface[data-phase="failed"] .gs-call-topbar-dot { background: rgba(220,38,38,.6); }
+.gs-call-surface[data-phase="ended"] .gs-call-topbar-dot { background: #94a3b8; animation: none; box-shadow: none; }
 
 /* ──────────────────────────────────────────────────────────
    Phase 8H — Department selector (multi mode)

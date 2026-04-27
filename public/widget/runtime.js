@@ -611,6 +611,16 @@
         csErrAccessDenied: 'You do not have access to this call.',
         csErrOriginDenied: 'This site is not allowed to start a call.',
         csErrUnknown: 'Something went wrong. Please retry.',
+        // Pass — Widget Call UX
+        csAudioCall: 'Voice call',
+        csVideoCall: 'Video call',
+        csSwitchCamera: 'Switch camera',
+        csCameraUnavailable: 'Camera unavailable',
+        csBackToChat: 'Back to chat',
+        csDuration: 'Duration',
+        csOperatorEnded: 'Operator ended the call',
+        csVisitorEnded: 'You ended the call',
+        csCallEnded: 'Call ended',
       },
       fa: {
         chat: 'گفتگو', help: 'راهنما',
@@ -720,6 +730,39 @@
         csEndedByVisitor: 'تماس از طرف کاربر پایان یافت · مدت مکالمه {duration}',
         csEndedBySystem: 'تماس پایان یافت · مدت مکالمه {duration}',
         csEndedNotConnected: 'تماس برقرار نشد',
+        csConnecting: 'در حال اتصال به تماس…',
+        csReconnecting: 'در حال اتصال مجدد…',
+        csInCall: 'در حال مکالمه',
+        csEnded: 'تماس پایان یافت',
+        csMicMute: 'بی‌صدا کردن میکروفون',
+        csMicUnmute: 'فعال کردن میکروفون',
+        csCamOn: 'روشن کردن دوربین',
+        csCamOff: 'خاموش کردن دوربین',
+        csHangup: 'پایان تماس',
+        csClose: 'بستن',
+        csWaitingPeer: 'در انتظار طرف مقابل…',
+        csAudioCall: 'تماس صوتی',
+        csVideoCall: 'تماس تصویری',
+        csSwitchCamera: 'تعویض دوربین',
+        csCameraUnavailable: 'دوربین در دسترس نیست',
+        csBackToChat: 'بازگشت به گفتگو',
+        csDuration: 'مدت',
+        csOperatorEnded: 'اپراتور تماس را پایان داد',
+        csVisitorEnded: 'شما تماس را پایان دادید',
+        csCallEnded: 'تماس پایان یافت',
+        csErrSdkMissing: 'سرویس تماس در دسترس نیست. لطفاً صفحه را تازه کنید.',
+        csErrSdkLoad: 'بارگذاری سرویس تماس ممکن نشد. لطفاً دوباره تلاش کنید.',
+        csErrConnect: 'اتصال به تماس ممکن نشد. لطفاً دوباره تلاش کنید.',
+        csErrTokenMint: 'دریافت توکن تماس ممکن نشد. لطفاً دوباره تلاش کنید.',
+        csErrProviderNotReady: 'سرویس تماس آماده نیست. لطفاً کمی بعد تلاش کنید.',
+        csErrTurnMissing: 'تنظیمات شبکه ناقص است. با پشتیبانی تماس بگیرید.',
+        csErrPermMic: 'دسترسی به میکروفون مسدود است. در تنظیمات مرورگر اجازه دهید.',
+        csErrPermCam: 'دسترسی به دوربین مسدود است. در تنظیمات مرورگر اجازه دهید.',
+        csErrInvitationExpired: 'این دعوت منقضی شده است.',
+        csErrInvitationJoined: 'این دعوت قبلاً استفاده شده است.',
+        csErrAccessDenied: 'به این تماس دسترسی ندارید.',
+        csErrOriginDenied: 'این سایت مجاز به برقراری تماس نیست.',
+        csErrUnknown: 'مشکلی پیش آمد. لطفاً دوباره تلاش کنید.',
       },
       tr: {
         chat: 'Sohbet', help: 'Yardım',
@@ -829,6 +872,39 @@
         csEndedByVisitor: 'Görüşme ziyaretçi tarafından sonlandırıldı · Süre {duration}',
         csEndedBySystem: 'Görüşme sona erdi · Süre {duration}',
         csEndedNotConnected: 'Görüşme bağlanamadı',
+        csConnecting: 'Aramaya bağlanılıyor…',
+        csReconnecting: 'Yeniden bağlanılıyor…',
+        csInCall: 'Görüşmede',
+        csEnded: 'Arama sona erdi',
+        csMicMute: 'Mikrofonu kapat',
+        csMicUnmute: 'Mikrofonu aç',
+        csCamOn: 'Kamerayı aç',
+        csCamOff: 'Kamerayı kapat',
+        csHangup: 'Aramayı sonlandır',
+        csClose: 'Kapat',
+        csWaitingPeer: 'Karşı taraf bekleniyor…',
+        csAudioCall: 'Sesli arama',
+        csVideoCall: 'Görüntülü arama',
+        csSwitchCamera: 'Kamerayı değiştir',
+        csCameraUnavailable: 'Kamera kullanılamıyor',
+        csBackToChat: 'Sohbete dön',
+        csDuration: 'Süre',
+        csOperatorEnded: 'Operatör aramayı sonlandırdı',
+        csVisitorEnded: 'Aramayı siz sonlandırdınız',
+        csCallEnded: 'Arama sona erdi',
+        csErrSdkMissing: 'Arama hizmeti kullanılamıyor. Sayfayı yenileyip tekrar deneyin.',
+        csErrSdkLoad: 'Arama hizmeti yüklenemedi. Lütfen tekrar deneyin.',
+        csErrConnect: 'Aramaya bağlanılamadı. Lütfen tekrar deneyin.',
+        csErrTokenMint: 'Arama jetonu alınamadı. Lütfen tekrar deneyin.',
+        csErrProviderNotReady: 'Arama hizmeti hazır değil. Biraz sonra tekrar deneyin.',
+        csErrTurnMissing: 'Ağ yapılandırması eksik. Lütfen destekle iletişime geçin.',
+        csErrPermMic: 'Mikrofon erişimi engellendi. Tarayıcı ayarlarından izin verin.',
+        csErrPermCam: 'Kamera erişimi engellendi. Tarayıcı ayarlarından izin verin.',
+        csErrInvitationExpired: 'Bu davet süresi dolmuş.',
+        csErrInvitationJoined: 'Bu davet zaten kullanılmış.',
+        csErrAccessDenied: 'Bu aramaya erişiminiz yok.',
+        csErrOriginDenied: 'Bu site arama başlatamaz.',
+        csErrUnknown: 'Bir şeyler ters gitti. Lütfen tekrar deneyin.',
       },
     };
     return {
@@ -2468,6 +2544,7 @@
             ice_policy: bundle.ice_policy || 'all',
             publishMic: true,
             publishCamera: (bundle.call_type || channel) === 'video',
+            videoQuality: window.__gs_call_video_quality || (bundle && bundle.video_quality) || 'auto',
           });
         })
         .catch(function (err) {
@@ -3469,6 +3546,11 @@
       if (config && config.livekitSdkUrl && !window.__gs_call_sdk_url) {
         window.__gs_call_sdk_url = config.livekitSdkUrl;
       }
+      // Visitor-side video quality preset surfaced via widget config so
+      // workspace defaults reach the engine before the call starts.
+      if (config && config.callDefaultVideoQuality && !window.__gs_call_video_quality) {
+        window.__gs_call_video_quality = String(config.callDefaultVideoQuality);
+      }
     } catch (_) { /* noop */ }
 
     var shadowRoot = (shell && shell.shadowRoot) || (shell && shell.shellEl && shell.shellEl.shadowRoot) || null;
@@ -3728,6 +3810,10 @@
       remote: { audio: null, video: null }, // MediaStreamTracks (live)
       localVideo: null,
       error: null,          // { code, message }
+      connectedAt: 0,       // ms epoch — timer baseline
+      endedDuration: 0,     // seconds — sticky after call ends
+      cameras: [],          // [{ deviceId, label }]
+      switchingCamera: false,
     });
 
     // Wire engine events ONCE the global engine appears. The engine is
@@ -3742,7 +3828,11 @@
       engine.on('state', function (state) {
         var cur = callSurfaceStore.get();
         if (cur.phase === 'idle') return; // surface already closed
-        if (state === 'connected') callSurfaceStore.set({ phase: 'connected' });
+        if (state === 'connected') {
+          var patch = { phase: 'connected' };
+          if (!cur.connectedAt) patch.connectedAt = Date.now();
+          callSurfaceStore.set(patch);
+        }
         else if (state === 'reconnecting') callSurfaceStore.set({ phase: 'reconnecting' });
         else if (state === 'connecting') callSurfaceStore.set({ phase: 'connecting' });
         else if (state === 'failed') {
@@ -3751,13 +3841,16 @@
           // the message and click Close.
           callSurfaceStore.set({ phase: 'failed' });
         } else if (state === 'disconnected') {
-          if (cur.phase !== 'failed') callSurfaceStore.set({ phase: 'ended' });
+          if (cur.phase !== 'failed') {
+            var dur = cur.connectedAt ? Math.max(0, Math.floor((Date.now() - cur.connectedAt) / 1000)) : 0;
+            callSurfaceStore.set({ phase: 'ended', endedDuration: dur });
+          }
           // Auto-close the surface a moment later so the visitor sees
           // "Call ended" briefly. Closing restores the previous tab.
           setTimeout(function () {
             var s = callSurfaceStore.get();
             if (s.phase === 'ended') closeCallSurface(false);
-          }, 1200);
+          }, 2400);
         }
       });
       engine.on('remote', function (tracks) {
@@ -3768,6 +3861,9 @@
       });
       engine.on('micEnabled', function (v) { callSurfaceStore.set({ micEnabled: !!v }); });
       engine.on('cameraEnabled', function (v) { callSurfaceStore.set({ cameraEnabled: !!v }); });
+      engine.on('cameras', function (info) {
+        callSurfaceStore.set({ cameras: (info && info.cameras) || [] });
+      });
       engine.on('error', function (err) {
         // Normalize into a stable { code, message } shape for the UI.
         callSurfaceStore.set({ error: { code: (err && err.code) || 'livekit_connect_failed', message: (err && err.message) || 'Call failed.' } });
@@ -3787,6 +3883,10 @@
         localVideo: null,
         micEnabled: false,
         cameraEnabled: false,
+        connectedAt: 0,
+        endedDuration: 0,
+        cameras: [],
+        switchingCamera: false,
       });
     }
 
@@ -3836,6 +3936,10 @@
         localVideo: null,
         micEnabled: false,
         cameraEnabled: false,
+        connectedAt: 0,
+        endedDuration: 0,
+        cameras: [],
+        switchingCamera: false,
       });
       // Restore the previous tab + re-render so the chat view comes back.
       shellStore.set({ activeTab: prev });
@@ -3912,84 +4016,145 @@
       return msg || err.message || (t('csErrUnknown') || 'Something went wrong.');
     }
 
+    /** Format seconds → mm:ss. */
+    function csFormatDuration(sec) {
+      var s = Math.max(0, Math.floor(sec || 0));
+      var mm = String(Math.floor(s / 60)); if (mm.length < 2) mm = '0' + mm;
+      var ss = String(s % 60); if (ss.length < 2) ss = '0' + ss;
+      return mm + ':' + ss;
+    }
+
+    // Inline SVG icon set — Shadow-DOM safe, no external font dependency.
+    var GS_ICON = {
+      micOn: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>',
+      micOff: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>',
+      camOn: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>',
+      camOff: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 16v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2m5.66 0H14a2 2 0 0 1 2 2v3.34l1 1L23 7v10"/><line x1="1" y1="1" x2="23" y2="23"/></svg>',
+      switchCam: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>',
+      hangup: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91" transform="rotate(135 12 12)"/></svg>',
+      phone: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.37 1.9.72 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.35 1.85.59 2.81.72A2 2 0 0 1 22 16.92z"/></svg>',
+      back: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>',
+    };
+
     /**
      * Render the in-panel call surface. Owns the .body container while
      * a call is active. Mounts <audio>/<video> elements directly inside
      * the widget Shadow DOM and binds their srcObject to the live
      * MediaStreamTracks the engine emits via callSurfaceStore.
+     *
+     * Layouts:
+     *   - Video call: remote video full-bleed, polished local PiP, control
+     *     bar with mic/cam/switch/hangup. Camera-off shows a tile, never a
+     *     frozen frame.
+     *   - Audio call: dedicated voice screen — avatar orb, animated
+     *     equalizer, live timer, mic + speaker(future) + hangup. No
+     *     <video> element so there is no black rectangle.
      */
     function renderCallSurface(container, s) {
       if (!container) return;
       var phase = s.phase;
       var isVideo = s.channel === 'video';
-      var statusText = phase === 'connecting' ? (t('csConnecting') || 'Connecting…')
-        : phase === 'reconnecting' ? (t('csReconnecting') || 'Reconnecting…')
-        : phase === 'connected' ? (t('csInCall') || 'In call')
-        : phase === 'ended' ? (t('csEnded') || 'Call ended')
-        : phase === 'failed' ? callErrorMessage(s.error)
-        : '';
       var hasRemoteVideo = !!(s.remote && s.remote.video);
+      var hasMultiCam = isVideo && Array.isArray(s.cameras) && s.cameras.length >= 2;
+      var statusKey = phase === 'connecting' ? 'csConnecting'
+        : phase === 'reconnecting' ? 'csReconnecting'
+        : phase === 'connected' ? (isVideo ? 'csVideoCall' : 'csAudioCall')
+        : phase === 'ended' ? 'csEnded'
+        : '';
+      var statusText = phase === 'failed' ? callErrorMessage(s.error)
+        : statusKey ? (t(statusKey) || statusKey)
+        : '';
       var showWaiting = phase === 'connected' && isVideo && !hasRemoteVideo;
-      // Skeleton signature — only rebuild innerHTML when something other
-      // than the live media tracks changes. Without this guard every
-      // remote-track event (TrackMuted, simulcast layer change, periodic
-      // safety refresh) would destroy and recreate the <video> elements
-      // mid-playback, producing a one-frame "freeze" symptom on the
-      // visitor side that mirrors the operator bug.
+      // Build a skeleton signature — only rebuild innerHTML when the
+      // structural shape changes. Live data (timer, srcObject) updates
+      // in place to avoid tearing down <video> mid-playback.
       var sig = [
         phase, isVideo ? 'v' : 'a',
         s.micEnabled ? '1' : '0',
         s.cameraEnabled ? '1' : '0',
+        hasMultiCam ? 'm' : 's',
         showWaiting ? 'w' : '-',
-        statusText,
       ].join('|');
       var existing = container.querySelector('[data-call-surface]');
       var sigChanged = !existing || existing.getAttribute('data-call-sig') !== sig;
+
       if (!sigChanged) {
-        // Skeleton unchanged — just refresh srcObjects + status text.
         bindCallTracks(container, s);
+        updateCallSurfaceLive(container, s, statusText);
         return;
       }
-      var html = '<div class="gs-call-surface" data-call-surface data-phase="' + phase + '" data-call-sig="' + Util.escapeHtml(sig) + '">';
-      html += '<div class="gs-call-status" data-call-status>' + Util.escapeHtml(statusText) + '</div>';
-      html += '<div class="gs-call-stage" data-call-stage>';
+
+      var html = '';
       if (isVideo) {
-        html += '<video class="gs-call-remote-video" data-call-remote-video data-call-video-role="visitor-remote" data-orientation-correction="scaleX(-1)" autoplay playsinline style="transform:scaleX(-1);scale:1;rotate:0deg"></video>';
-        html += '<video class="gs-call-local-video" data-call-local-video data-call-video-role="visitor-local" data-orientation-correction="scaleX(-1)" autoplay playsinline muted style="transform:scaleX(-1);scale:1;rotate:0deg"></video>';
+        html += '<div class="gs-call-surface gs-call-video" data-call-surface data-phase="' + phase + '" data-call-sig="' + Util.escapeHtml(sig) + '" data-channel="video">';
+        html += '  <div class="gs-call-stage" data-call-stage>';
+        html += '    <video class="gs-call-remote-video" data-call-remote-video data-call-video-role="visitor-remote" data-orientation-correction="scaleX(-1)" autoplay playsinline style="transform:scaleX(-1);scale:1;rotate:0deg"></video>';
+        html += '    <audio data-call-remote-audio autoplay></audio>';
+        // Remote placeholder (no remote video yet)
+        html += '    <div class="gs-call-stage-placeholder" data-call-remote-placeholder' + (hasRemoteVideo ? ' hidden' : '') + '>';
+        html += '      <div class="gs-call-stage-orb" aria-hidden="true">' + GS_ICON.phone + '</div>';
+        html += '      <div class="gs-call-stage-msg" data-call-remote-msg>' + Util.escapeHtml(showWaiting ? (t('csWaitingPeer') || 'Waiting…') : (t('csConnecting') || 'Connecting…')) + '</div>';
+        html += '    </div>';
+        // Top bar — status + live timer
+        html += '    <div class="gs-call-topbar">';
+        html += '      <span class="gs-call-topbar-dot" data-call-phase-dot></span>';
+        html += '      <span class="gs-call-topbar-status" data-call-status>' + Util.escapeHtml(statusText) + '</span>';
+        html += '      <span class="gs-call-topbar-timer" data-call-timer>00:00</span>';
+        html += '    </div>';
+        // Local PiP
+        html += '    <div class="gs-call-pip" data-call-local-pip>';
+        html += '      <video class="gs-call-local-video" data-call-local-video data-call-video-role="visitor-local" data-orientation-correction="scaleX(-1)" autoplay playsinline muted style="transform:scaleX(-1);scale:1;rotate:0deg"' + (s.cameraEnabled ? '' : ' hidden') + '></video>';
+        html += '      <div class="gs-call-pip-off"' + (s.cameraEnabled ? ' hidden' : '') + ' aria-hidden="true">' + GS_ICON.camOff + '</div>';
+        html += '    </div>';
         if (isCallOrientationDebugEnabled()) {
-          html += '<div class="gs-call-orientation-debug"><strong>REAL ORIENTATION TEST</strong><span class="left">LEFT</span><span class="right">RIGHT</span><small>visitor · scaleX(-1)</small></div>';
+          html += '    <div class="gs-call-orientation-debug"><strong>REAL ORIENTATION TEST</strong><span class="left">LEFT</span><span class="right">RIGHT</span><small>visitor · scaleX(-1)</small></div>';
         }
-      } else {
-        html += '<div class="gs-call-audio-orb" aria-hidden="true">' +
-          '<svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.37 1.9.72 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.35 1.85.59 2.81.72A2 2 0 0 1 22 16.92z"/></svg>' +
-          '</div>';
-      }
-      html += '<audio data-call-remote-audio autoplay></audio>';
-      if (showWaiting) {
-        html += '<div class="gs-call-waiting">' + Util.escapeHtml(t('csWaitingPeer') || 'Waiting…') + '</div>';
-      }
-      html += '</div>';
-      html += '<div class="gs-call-controls" data-call-controls>';
-      if (phase === 'failed' || phase === 'ended') {
-        html += '<button type="button" class="gs-call-btn gs-call-btn-close" data-call-action="close">' + Util.escapeHtml(t('csClose') || 'Close') + '</button>';
-      } else {
-        html += '<button type="button" class="gs-call-btn gs-call-btn-toggle' + (s.micEnabled ? '' : ' off') + '" data-call-action="mic" aria-label="' + Util.escapeHtml(s.micEnabled ? (t('csMicMute') || 'Mute') : (t('csMicUnmute') || 'Unmute')) + '">' +
-          (s.micEnabled ? '🎙' : '🔇') +
-          '</button>';
-        if (isVideo) {
-          html += '<button type="button" class="gs-call-btn gs-call-btn-toggle' + (s.cameraEnabled ? '' : ' off') + '" data-call-action="cam" aria-label="' + Util.escapeHtml(s.cameraEnabled ? (t('csCamOff') || 'Stop camera') : (t('csCamOn') || 'Start camera')) + '">' +
-            (s.cameraEnabled ? '📹' : '📷') +
-            '</button>';
+        html += '  </div>';
+        // Control bar
+        html += '  <div class="gs-call-controls" data-call-controls>';
+        if (phase === 'failed' || phase === 'ended') {
+          html += renderTerminalControls(s);
+        } else {
+          html += renderControlButton('mic', s.micEnabled ? GS_ICON.micOn : GS_ICON.micOff, s.micEnabled ? 'csMicMute' : 'csMicUnmute', !s.micEnabled);
+          html += renderControlButton('cam', s.cameraEnabled ? GS_ICON.camOn : GS_ICON.camOff, s.cameraEnabled ? 'csCamOff' : 'csCamOn', !s.cameraEnabled);
+          if (hasMultiCam) {
+            html += renderControlButton('switch-cam', GS_ICON.switchCam, 'csSwitchCamera', false);
+          }
+          html += '<button type="button" class="gs-call-btn gs-call-btn-hangup" data-call-action="hangup" aria-label="' + Util.escapeHtml(t('csHangup') || 'End call') + '">' + GS_ICON.hangup + '</button>';
         }
-        html += '<button type="button" class="gs-call-btn gs-call-btn-hangup" data-call-action="hangup" aria-label="' + Util.escapeHtml(t('csHangup') || 'End call') + '">✕</button>';
+        html += '  </div>';
+        html += '</div>';
+      } else {
+        // Audio-only voice call screen
+        html += '<div class="gs-call-surface gs-call-audio" data-call-surface data-phase="' + phase + '" data-call-sig="' + Util.escapeHtml(sig) + '" data-channel="audio">';
+        html += '  <audio data-call-remote-audio autoplay></audio>';
+        html += '  <div class="gs-call-voice-stage">';
+        html += '    <div class="gs-call-voice-orb" aria-hidden="true">';
+        html += '      <span class="gs-call-voice-pulse"></span>';
+        html += '      <span class="gs-call-voice-icon">' + GS_ICON.phone + '</span>';
+        html += '    </div>';
+        html += '    <div class="gs-call-voice-status" data-call-status>' + Util.escapeHtml(statusText) + '</div>';
+        html += '    <div class="gs-call-voice-timer" data-call-timer>00:00</div>';
+        html += '    <div class="gs-call-eq" aria-hidden="true">';
+        for (var bi = 0; bi < 7; bi++) {
+          html += '<span class="gs-call-eq-bar" style="animation-delay:' + (bi * 80) + 'ms"></span>';
+        }
+        html += '    </div>';
+        html += '  </div>';
+        html += '  <div class="gs-call-controls" data-call-controls>';
+        if (phase === 'failed' || phase === 'ended') {
+          html += renderTerminalControls(s);
+        } else {
+          html += renderControlButton('mic', s.micEnabled ? GS_ICON.micOn : GS_ICON.micOff, s.micEnabled ? 'csMicMute' : 'csMicUnmute', !s.micEnabled);
+          html += '<button type="button" class="gs-call-btn gs-call-btn-hangup" data-call-action="hangup" aria-label="' + Util.escapeHtml(t('csHangup') || 'End call') + '">' + GS_ICON.hangup + '</button>';
+        }
+        html += '  </div>';
+        html += '</div>';
       }
-      html += '</div>';
-      html += '</div>';
       container.innerHTML = html;
-
       bindCallTracks(container, s);
+      updateCallSurfaceLive(container, s, statusText);
 
-      // Wire controls.
       var ctrls = container.querySelector('[data-call-controls]');
       if (ctrls) {
         ctrls.addEventListener('click', function (ev) {
@@ -3999,11 +4164,92 @@
           var engine = window.__gs_call && window.__gs_call.engine;
           if (action === 'mic' && engine) { engine.toggleMic(); }
           else if (action === 'cam' && engine) { engine.toggleCamera(); }
+          else if (action === 'switch-cam' && engine && typeof engine.switchCamera === 'function') {
+            btn.setAttribute('disabled', 'disabled');
+            engine.switchCamera().then(function () {
+              try { btn.removeAttribute('disabled'); } catch (_) {}
+            }, function () { try { btn.removeAttribute('disabled'); } catch (_) {} });
+          }
           else if (action === 'hangup') { closeCallSurface(true); }
           else if (action === 'close') { closeCallSurface(false); }
         });
       }
     }
+
+    function renderControlButton(action, icon, labelKey, isOff) {
+      var label = t(labelKey) || labelKey;
+      return '<button type="button" class="gs-call-btn gs-call-btn-toggle' + (isOff ? ' off' : '') + '" data-call-action="' + Util.escapeHtml(action) + '" aria-label="' + Util.escapeHtml(label) + '" title="' + Util.escapeHtml(label) + '">' + icon + '</button>';
+    }
+
+    function renderTerminalControls(s) {
+      var dur = (s.endedDuration || (s.connectedAt ? Math.floor((Date.now() - s.connectedAt) / 1000) : 0));
+      var label = (t('csCallEnded') || 'Call ended') + (dur > 0 ? ' · ' + (t('csDuration') || 'Duration') + ' ' + csFormatDuration(dur) : '');
+      var html = '<div class="gs-call-terminal-card">';
+      html += '<span class="gs-call-terminal-label">' + Util.escapeHtml(label) + '</span>';
+      html += '<button type="button" class="gs-call-btn-back" data-call-action="close" aria-label="' + Util.escapeHtml(t('csBackToChat') || 'Back to chat') + '">' + GS_ICON.back + '<span>' + Util.escapeHtml(t('csBackToChat') || 'Back to chat') + '</span></button>';
+      html += '</div>';
+      return html;
+    }
+
+    /**
+     * Update only the dynamic bits inside an already-rendered surface:
+     * status text, live timer, local PiP visibility, remote placeholder.
+     * Avoids destroying the <video> element while a call is alive.
+     */
+    function updateCallSurfaceLive(container, s, statusText) {
+      try {
+        var statusEl = container.querySelector('[data-call-status]');
+        if (statusEl && statusEl.textContent !== statusText) statusEl.textContent = statusText || '';
+        var timerEl = container.querySelector('[data-call-timer]');
+        if (timerEl) {
+          var dur = 0;
+          if (s.phase === 'connected' || s.phase === 'reconnecting') {
+            if (s.connectedAt) dur = Math.floor((Date.now() - s.connectedAt) / 1000);
+          } else if (s.phase === 'ended') {
+            dur = s.endedDuration || 0;
+          }
+          timerEl.textContent = csFormatDuration(dur);
+          timerEl.style.visibility = (dur > 0 || s.phase === 'connected' || s.phase === 'reconnecting') ? 'visible' : 'hidden';
+        }
+        // Camera-off tile vs. local video visibility
+        var pipVid = container.querySelector('[data-call-local-video]');
+        var pipOff = container.querySelector('.gs-call-pip-off');
+        if (pipVid) {
+          if (s.cameraEnabled) pipVid.removeAttribute('hidden');
+          else pipVid.setAttribute('hidden', 'hidden');
+        }
+        if (pipOff) {
+          if (s.cameraEnabled) pipOff.setAttribute('hidden', 'hidden');
+          else pipOff.removeAttribute('hidden');
+        }
+        // Remote placeholder vs. live video
+        var rmEl = container.querySelector('[data-call-remote-placeholder]');
+        var hasRemote = !!(s.remote && s.remote.video);
+        if (rmEl) {
+          if (hasRemote) rmEl.setAttribute('hidden', 'hidden');
+          else rmEl.removeAttribute('hidden');
+          var rmMsg = container.querySelector('[data-call-remote-msg]');
+          if (rmMsg) rmMsg.textContent = (s.phase === 'connected') ? (t('csWaitingPeer') || 'Waiting…') : (t('csConnecting') || 'Connecting…');
+        }
+      } catch (_) { /* noop */ }
+    }
+
+    // 1Hz timer ticker — re-renders the surface only when the call is
+    // active so the visible mm:ss advances. Defensive: only queues a
+    // re-render if the body is actually showing the call surface.
+    setInterval(function () {
+      try {
+        var s = callSurfaceStore.get();
+        if (s && s.phase !== 'idle') {
+          // Just trigger a subscriber notification by re-setting same
+          // values — no-op store changes would be dropped, so update a
+          // dedicated tick counter via the body refresh hook instead.
+          var b = (typeof body !== 'undefined') ? body : null;
+          var surf = b && b.querySelector && b.querySelector('[data-call-surface]');
+          if (surf) updateCallSurfaceLive(surf, s, surf.querySelector('[data-call-status]') ? surf.querySelector('[data-call-status]').textContent : '');
+        }
+      } catch (_) {}
+    }, 1000);
 
     // Track binding helper — re-attaches MediaStreamTracks to <video> /
     // <audio> elements without rebuilding them. We track the bound track

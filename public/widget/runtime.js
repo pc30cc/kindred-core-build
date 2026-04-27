@@ -716,6 +716,10 @@
         ciBodyVideo: 'یک اپراتور شما را به تماس تصویری دعوت می‌کند.',
         ciWaitMinutes: 'اپراتور حداکثر {m} دقیقه منتظر پیوستن شما می‌ماند.',
         ciWaitOneMinute: 'اپراتور حداکثر یک دقیقه منتظر پیوستن شما می‌ماند.',
+        csEndedByOperator: 'تماس از طرف اپراتور پایان یافت · مدت مکالمه {duration}',
+        csEndedByVisitor: 'تماس از طرف کاربر پایان یافت · مدت مکالمه {duration}',
+        csEndedBySystem: 'تماس پایان یافت · مدت مکالمه {duration}',
+        csEndedNotConnected: 'تماس برقرار نشد',
       },
       tr: {
         chat: 'Sohbet', help: 'Yardım',

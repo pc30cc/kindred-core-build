@@ -1302,6 +1302,7 @@ export default function InboxPage() {
                 workspaceId={workspace.id}
                 conversationId={selectedId}
                 contactName={selected?.contacts?.name ?? null}
+                onActiveCallChange={setActiveCallConversationId}
               />
             </div>
           )}

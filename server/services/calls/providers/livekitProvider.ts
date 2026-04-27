@@ -26,6 +26,7 @@ import {
   CallProviderNotReadyError,
 } from './types.js';
 import { getRtcBaseUrl, getTurnConfig } from '../rtcResolver.js';
+import { normalizeRtcBaseUrl } from '../rtcResolver.js';
 import { loadLiveKitConfig, isMinimallyConfigured } from '../livekitConfig.js';
 import {
   twirp,
@@ -49,7 +50,11 @@ async function resolveLk(config: ServerConfig, forceRefresh = false): Promise<Re
   }
   // Prefer the explicit livekit_config.rtc_url; fall back to the centralised
   // RTC resolver (which itself reads app_runtime_config / env).
-  const baseUrl = cfg.rtc_url || (await getRtcBaseUrl(config));
+  // The Twirp REST client requires http(s):// — normalize aggressively so a
+  // misconfigured wss://host or trailing /rtc doesn't break the call hot
+  // path. See normalizeRtcBaseUrl() in rtcResolver.ts.
+  const rawBase = cfg.rtc_url || (await getRtcBaseUrl(config));
+  const baseUrl = normalizeRtcBaseUrl(rawBase);
   if (!baseUrl) {
     throw new CallProviderNotReadyError(
       'livekit',
@@ -114,6 +119,109 @@ export async function probeLiveKitProvisioning(config: ServerConfig): Promise<{
     latencyMs: Date.now() - startedAt,
     rtcUrl: baseUrl,
   };
+}
+
+// ─── Pass 1: Cached real readiness ───────────────────────────────────────
+// `isReady()` is hit on every call setup, so it must remain cheap. But the
+// admin readiness endpoint and the call diagnostics endpoint need a TRUE
+// answer — i.e. "can LiveKit actually mint and tear down a probe room
+// right now?". This wrapper caches the live-probe result for 30s so admin
+// pages can poll it without DDoSing the SFU, while keeping the call hot
+// path on the lightweight config-presence check.
+
+export interface LiveKitReadinessState {
+  ready: boolean;
+  configured: boolean;
+  rtcUrl: string | null;
+  /** Last probe timestamp (ms) — null if no probe ever ran. */
+  lastProbeAt: number | null;
+  /** Probe latency in ms when ready === true. */
+  latencyMs: number | null;
+  /** Error code surfaced by the provider when ready === false. */
+  errorCode: string | null;
+  errorMessage: string | null;
+}
+
+const READINESS_TTL_MS = 30_000;
+let cachedReadiness: { value: LiveKitReadinessState; loadedAt: number } | null = null;
+let inflightProbe: Promise<LiveKitReadinessState> | null = null;
+
+export function invalidateLiveKitReadinessCache(): void {
+  cachedReadiness = null;
+}
+
+export async function getLiveKitReadinessState(
+  config: ServerConfig,
+  opts: { forceRefresh?: boolean } = {},
+): Promise<LiveKitReadinessState> {
+  if (
+    !opts.forceRefresh &&
+    cachedReadiness &&
+    Date.now() - cachedReadiness.loadedAt < READINESS_TTL_MS
+  ) {
+    return cachedReadiness.value;
+  }
+  if (inflightProbe) return inflightProbe;
+  inflightProbe = (async () => {
+    let cfg;
+    try {
+      cfg = await loadLiveKitConfig(config, true);
+    } catch (err: any) {
+      const v: LiveKitReadinessState = {
+        ready: false,
+        configured: false,
+        rtcUrl: null,
+        lastProbeAt: Date.now(),
+        latencyMs: null,
+        errorCode: 'config_load_failed',
+        errorMessage: err?.message || 'Failed to load LiveKit config',
+      };
+      cachedReadiness = { value: v, loadedAt: Date.now() };
+      return v;
+    }
+    if (!isMinimallyConfigured(cfg)) {
+      const v: LiveKitReadinessState = {
+        ready: false,
+        configured: false,
+        rtcUrl: cfg.rtc_url ?? null,
+        lastProbeAt: Date.now(),
+        latencyMs: null,
+        errorCode: 'not_configured',
+        errorMessage:
+          'LiveKit is not configured (enabled / api_key / api_secret / rtc_url all required).',
+      };
+      cachedReadiness = { value: v, loadedAt: Date.now() };
+      return v;
+    }
+    try {
+      const probe = await probeLiveKitProvisioning(config);
+      const v: LiveKitReadinessState = {
+        ready: true,
+        configured: true,
+        rtcUrl: probe.rtcUrl,
+        lastProbeAt: Date.now(),
+        latencyMs: probe.latencyMs,
+        errorCode: null,
+        errorMessage: null,
+      };
+      cachedReadiness = { value: v, loadedAt: Date.now() };
+      return v;
+    } catch (err: any) {
+      const code = err instanceof CallProviderNotReadyError ? 'provider_not_ready' : 'probe_failed';
+      const v: LiveKitReadinessState = {
+        ready: false,
+        configured: true,
+        rtcUrl: cfg.rtc_url ?? null,
+        lastProbeAt: Date.now(),
+        latencyMs: null,
+        errorCode: code,
+        errorMessage: err?.message || 'LiveKit probe failed',
+      };
+      cachedReadiness = { value: v, loadedAt: Date.now() };
+      return v;
+    }
+  })().finally(() => { inflightProbe = null; });
+  return inflightProbe;
 }
 
 export const livekitProvider: CallProvider = {

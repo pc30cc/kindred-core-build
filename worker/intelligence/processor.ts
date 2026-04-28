@@ -22,6 +22,7 @@ import { createHash } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
 import type { WorkerEnv } from './index.js';
 import { executeAICompletion, resolveAIConfig } from '../../server/services/ai/index.js';
+import { logGateBypass } from '../../server/middleware/adminBypass.js';
 import { consumeAiCredits } from '../../server/services/ai-kb/credits.js';
 import { DbJobQueueProvider } from '../../server/services/ai-kb/queue.js';
 import type { ServerConfig } from '../../server/config.js';
@@ -179,24 +180,47 @@ function tryParseDraftJson(raw: string): { ok: true; value: any } | { ok: false;
   let s = (raw || '').trim();
   // Strip ``` or ```json fences.
   s = s.replace(/^```(?:json)?\s*/i, '').replace(/```$/i, '').trim();
-  // First attempt: parse as-is.
-  try { return { ok: true, value: JSON.parse(s) }; } catch (e: any) {
-    // Second attempt: extract first balanced JSON object.
-    const start = s.indexOf('{');
-    const end = s.lastIndexOf('}');
-    if (start >= 0 && end > start) {
-      const sub = s.slice(start, end + 1);
-      try { return { ok: true, value: JSON.parse(sub) }; } catch (e2: any) {
-        // Third attempt: truncated JSON — close any open string + braces.
-        const repaired = repairTruncatedJson(s.slice(start));
-        if (repaired) {
-          try { return { ok: true, value: JSON.parse(repaired) }; } catch { /* fall through */ }
-        }
-        return { ok: false, error: e2?.message || 'parse_failed' };
-      }
-    }
-    return { ok: false, error: e?.message || 'parse_failed' };
+
+  const candidates = [s];
+  const firstObject = extractFirstCompleteJsonObject(s);
+  if (firstObject && firstObject !== s) candidates.push(firstObject);
+
+  const start = s.indexOf('{');
+  if (start >= 0) {
+    const repaired = repairTruncatedJson(s.slice(start));
+    if (repaired) candidates.push(repaired);
   }
+
+  let lastError = 'parse_failed';
+  for (const candidate of candidates) {
+    try {
+      return { ok: true, value: JSON.parse(candidate) };
+    } catch (e: any) {
+      lastError = e?.message || lastError;
+    }
+  }
+  return { ok: false, error: lastError };
+}
+
+function extractFirstCompleteJsonObject(s: string): string | null {
+  const start = s.indexOf('{');
+  if (start < 0) return null;
+  let inStr = false;
+  let escape = false;
+  let depth = 0;
+  for (let i = start; i < s.length; i++) {
+    const ch = s[i];
+    if (escape) { escape = false; continue; }
+    if (ch === '\\') { escape = true; continue; }
+    if (ch === '"') { inStr = !inStr; continue; }
+    if (inStr) continue;
+    if (ch === '{') depth++;
+    if (ch === '}') {
+      depth--;
+      if (depth === 0) return s.slice(start, i + 1);
+    }
+  }
+  return null;
 }
 
 /**
@@ -245,8 +269,8 @@ async function generateArticle(
       workspaceId,
       systemPrompt: sys,
       prompt: user,
-      maxTokens: 3000,
-      temperature: 0.4,
+      maxTokens: 4096,
+      temperature: 0.2,
       jsonMode: true,
     });
   } catch (err: any) {
@@ -440,6 +464,18 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
   workerLog('generation started', { jobId: job.id, candidatePages: fetched.length });
 
   let creditExhausted = false;
+  const adminOverride = job.admin_override === true || job.plan_snapshot?.admin_override === true;
+  if (adminOverride) {
+    await jobQueue.recordEvent(job.id, job.workspace_id, 'info',
+      'Global admin credit bypass active', { reason: 'admin_override' });
+    await logGateBypass(serverConfig, {
+      userId: job.created_by_global_admin || job.requested_by,
+      workspaceId: job.workspace_id,
+      moduleKey: 'ai_credits',
+      route: 'worker/intelligence/processJob',
+      reason: 'ai_kb_admin_override',
+    });
+  }
 
   for (const page of fetched) {
     if (articlesGenerated >= maxArticles) break;
@@ -515,7 +551,7 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
     // Global Admin override (job.admin_override) bypasses credit gating
     // for diagnostic / platform-owner runs. Bypass is implicit via the
     // job flag set at creation time and was already audit-logged then.
-    const ded = job.admin_override
+    const ded = adminOverride
       ? { success: true, reason: 'admin_override' as const }
       : await consumeAiCredits(serverConfig, job.workspace_id, 1);
     if (!ded.success) {
@@ -523,7 +559,12 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
       lastGenerationReason = 'credits_exhausted';
       lastGenerationError = ded.reason || 'AI credits exhausted';
       await jobQueue.recordEvent(job.id, job.workspace_id, 'warn',
-        'AI credits exhausted; dropping generated draft', { reason: ded.reason });
+        'AI credits exhausted; dropping generated draft', {
+          reason: ded.reason,
+          admin_override: adminOverride,
+          job_admin_override: job.admin_override,
+          snapshot_admin_override: job.plan_snapshot?.admin_override,
+        });
       workerLog('credits exhausted', { jobId: job.id, reason: ded.reason });
       break;
     }
@@ -539,11 +580,11 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
       confidence: draft.confidence,
       source_urls: [page.url],
       model: draft.model,
-      credits_used: 1,
+      credits_used: adminOverride ? 0 : 1,
     }).select('id').single();
 
     articlesGenerated += 1;
-    creditsUsed += 1;
+    creditsUsed += adminOverride ? 0 : 1;
     workerLog('draft generated', {
       jobId: job.id,
       generatedArticleId: ins?.id,
@@ -560,7 +601,12 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
     } as any);
     await sb.from('ai_kb_usage').insert({
       workspace_id: job.workspace_id, job_id: job.id, generated_article_id: ins?.id || null,
-      event_type: 'article_generated', credits: 1, metadata: { url: page.url, model: draft.model, provider: draft.provider },
+      event_type: 'article_generated', credits: adminOverride ? 0 : 1, metadata: {
+        url: page.url,
+        model: draft.model,
+        provider: draft.provider,
+        admin_override: adminOverride || undefined,
+      },
     });
   }
 

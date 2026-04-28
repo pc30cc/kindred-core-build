@@ -1,0 +1,41 @@
+# ── AI KB Builder Worker ───────────────────────────────────────────
+# Standalone worker process. Polls public.ai_kb_jobs and runs the
+# crawl → extract → AI-generate pipeline. Reuses the shared backend
+# AI provider abstraction (server/services/ai/index.ts) — never
+# instantiates its own OpenAI/Anthropic/Gemini client.
+#
+# Required env:
+#   SUPABASE_URL
+#   SUPABASE_SERVICE_ROLE_KEY
+#
+# Optional env:
+#   WORKER_ID                  unique id for this worker (defaults to ai-kb-<pid>)
+#   AI_KB_WORKER_POLL_MS       claim poll interval, default 5000
+#   CRAWLER_TIMEOUT_MS         per-page fetch timeout, default 15000
+#   CRAWLER_MAX_BYTES          per-page max body bytes, default 2_000_000
+#   CRAWLER_USER_AGENT         outgoing User-Agent string
+#
+# Build from repo root:
+#   docker build -f Dockerfile.worker -t growth-suite-ai-kb-worker .
+# Run:
+#   docker run --rm --env-file .env growth-suite-ai-kb-worker
+
+FROM node:20-alpine
+WORKDIR /app
+
+# Install root deps so server/services/ai/index.ts and shared utils are
+# available to the worker's TypeScript imports.
+COPY package.json package-lock.json* ./
+RUN npm install --omit=dev || npm install
+
+# Worker code + the small slice of server code it imports.
+COPY worker ./worker
+COPY server ./server
+COPY tsconfig.json ./
+COPY tsconfig.server.json ./
+
+# tsx runs TypeScript directly — same approach as Dockerfile.server.
+ENV NODE_ENV=production
+ENV AI_KB_WORKER_STANDALONE=1
+
+CMD ["npx", "tsx", "worker/intelligence/index.ts"]

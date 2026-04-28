@@ -151,7 +151,10 @@ aiKbRouter.post('/jobs', async (req: Request, res: Response) => {
   if (!auth) return;
 
   const gate = await ensureModulesEnabled(config, workspaceId);
-  if (!gate.ok) return res.status(gate.status).json(gate.body);
+  if (!gate.ok) {
+    const blocked = gate as { ok: false; status: number; body: any };
+    return res.status(blocked.status).json(blocked.body);
+  }
 
   const source = await resolveSourceDomain(config, workspaceId, domain_id);
   if (!source.can_scan || !source.domain) {

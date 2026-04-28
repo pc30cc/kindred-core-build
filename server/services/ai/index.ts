@@ -237,14 +237,27 @@ export async function resolveAIConfig(serverConfig: ServerConfig, workspaceId: s
     .single();
 
   if (globalConfig?.value) {
-    const c = globalConfig.value as any;
+    const raw = globalConfig.value as any;
+    // Support two shapes:
+    //  A) flat: { provider, api_key, model, ... }
+    //  B) nested: { provider_name, config: { api_key, model, ... } }
+    const provider = raw.provider || raw.provider_name || 'openai';
+    const c = raw.config && typeof raw.config === 'object' ? raw.config : raw;
+    if (!c.api_key) {
+      console.error('[ai] default_ai_provider missing api_key', {
+        provider,
+        hasConfigWrapper: !!raw.config,
+        keys: Object.keys(raw),
+      });
+      return null;
+    }
     return {
-      provider: c.provider || 'openai',
+      provider,
       apiKey: c.api_key,
       model: c.model || 'gpt-4o-mini',
       maxTokens: c.max_tokens ? parseInt(c.max_tokens) : undefined,
       temperature: c.temperature ? parseFloat(c.temperature) : undefined,
-      baseUrl: c.base_url || providerBaseUrls[c.provider],
+      baseUrl: c.base_url || c.endpoint || providerBaseUrls[provider],
       orgId: c.org_id,
     };
   }

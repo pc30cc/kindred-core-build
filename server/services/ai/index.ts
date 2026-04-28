@@ -6,6 +6,9 @@
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 
+const AI_HTTP_TIMEOUT_MS = parseInt(process.env.AI_HTTP_TIMEOUT_MS || '45000', 10);
+const AI_RETRY_ATTEMPTS = parseInt(process.env.AI_RETRY_ATTEMPTS || '3', 10);
+
 export interface AIConfig {
   provider: string;
   apiKey: string;
@@ -25,6 +28,9 @@ export interface AIRequest {
   temperature?: number;
   /** Force JSON object response (OpenAI/compatible: response_format json_object). */
   jsonMode?: boolean;
+  /** Optional OpenAI-compatible function tools for structured output. */
+  tools?: any[];
+  toolChoice?: any;
 }
 
 export interface AIResponse {
@@ -62,6 +68,10 @@ async function callOpenAI(config: AIConfig, req: AIRequest): Promise<AIResponse>
   if (req.jsonMode) {
     body.response_format = { type: 'json_object' };
   }
+  if (req.tools?.length) {
+    body.tools = req.tools;
+    body.tool_choice = req.toolChoice || 'auto';
+  }
 
   // Network resilience: retry transient fetch failures (DNS flake, TLS reset,
   // ECONNRESET) up to 2 extra times with exponential backoff. Real API errors
@@ -70,7 +80,7 @@ async function callOpenAI(config: AIConfig, req: AIRequest): Promise<AIResponse>
     method: 'POST',
     headers,
     body: JSON.stringify(body),
-  });
+  }, AI_RETRY_ATTEMPTS, AI_HTTP_TIMEOUT_MS);
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: { message: res.statusText } }));
@@ -79,9 +89,11 @@ async function callOpenAI(config: AIConfig, req: AIRequest): Promise<AIResponse>
 
   const data = await res.json();
   const latencyMs = Date.now() - start;
+  const message = data.choices?.[0]?.message;
+  const toolArgs = message?.tool_calls?.[0]?.function?.arguments;
 
   return {
-    text: data.choices?.[0]?.message?.content || '',
+    text: toolArgs || message?.content || '',
     model,
     provider: 'openai',
     promptTokens: data.usage?.prompt_tokens || 0,
@@ -98,28 +110,35 @@ async function fetchWithRetry(
   url: string,
   init: RequestInit,
   maxAttempts = 3,
+  timeoutMs = AI_HTTP_TIMEOUT_MS,
 ): Promise<Response> {
   let lastErr: any;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
-      return await fetch(url, init);
+      return await fetch(url, { ...init, signal: ctrl.signal });
     } catch (err: any) {
       lastErr = err;
+      const detail = String(
+        err?.message || err?.cause?.message || err?.code || err?.cause?.code || '',
+      );
       const transient =
+        err?.name === 'AbortError' ||
         err?.name === 'TypeError' ||
-        /fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|socket hang up/i.test(
-          String(err?.message || err?.cause?.message || err?.code || ''),
-        );
+        /fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|UND_ERR|socket hang up/i.test(detail);
       if (!transient || attempt === maxAttempts) {
-        throw err;
+        throw new Error(`AI network error after ${attempt} attempt(s): ${detail || err?.name || 'unknown'}`);
       }
-      const delay = 500 * Math.pow(2, attempt - 1); // 500ms, 1s
+      const delay = 750 * Math.pow(2, attempt - 1); // 750ms, 1.5s
       console.warn(`[ai] transient fetch failure, retrying in ${delay}ms`, {
         attempt,
         error: err?.message,
         code: err?.code || err?.cause?.code,
       });
       await new Promise((r) => setTimeout(r, delay));
+    } finally {
+      clearTimeout(timer);
     }
   }
   throw lastErr;
@@ -146,7 +165,7 @@ async function callAnthropic(config: AIConfig, req: AIRequest): Promise<AIRespon
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),
-  });
+  }, AI_RETRY_ATTEMPTS, AI_HTTP_TIMEOUT_MS);
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: { message: res.statusText } }));
@@ -178,6 +197,7 @@ async function callGemini(config: AIConfig, req: AIRequest): Promise<AIResponse>
     generationConfig: {
       maxOutputTokens: req.maxTokens || config.maxTokens || 4096,
       temperature: req.temperature ?? config.temperature ?? 0.7,
+      ...(req.jsonMode ? { responseMimeType: 'application/json' } : {}),
     },
   };
   if (req.systemPrompt) {
@@ -190,7 +210,9 @@ async function callGemini(config: AIConfig, req: AIRequest): Promise<AIResponse>
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-    }
+    },
+    AI_RETRY_ATTEMPTS,
+    AI_HTTP_TIMEOUT_MS,
   );
 
   if (!res.ok) {

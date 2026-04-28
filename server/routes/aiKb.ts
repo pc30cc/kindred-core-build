@@ -279,12 +279,13 @@ aiKbRouter.get('/jobs/:id', async (req: Request, res: Response) => {
   const auth = await authorizeMember(req, res, config, job.workspace_id);
   if (!auth) return;
 
-  const [{ data: pages }, { data: generated }] = await Promise.all([
+  const [{ data: pages }, { data: generated }, { data: events }] = await Promise.all([
     sb.from('ai_kb_job_pages').select('*').eq('job_id', job.id).order('created_at', { ascending: true }).limit(500),
     sb.from('ai_kb_generated_articles').select('*').eq('job_id', job.id).order('created_at', { ascending: true }),
+    sb.from('ai_kb_job_events').select('*').eq('job_id', job.id).order('created_at', { ascending: false }).limit(50),
   ]);
 
-  return res.json({ job, pages: pages || [], generated: generated || [] });
+  return res.json({ job, pages: pages || [], generated: generated || [], events: events || [] });
 });
 
 // ──────────────────────────────────────────────────────────────

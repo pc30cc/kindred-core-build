@@ -30,6 +30,11 @@ import { workerLog } from './index.js';
 const TIMEOUT_MS = parseInt(process.env.CRAWLER_TIMEOUT_MS || '15000', 10);
 const MAX_BYTES = parseInt(process.env.CRAWLER_MAX_BYTES || '2000000', 10); // 2 MB
 const USER_AGENT = process.env.CRAWLER_USER_AGENT || 'AiKbBuilder/1.0 (+self-hosted)';
+// SSRF guard policy: when DNS resolution fails (e.g. transient resolver error,
+// IPv6 stack issue, NXDOMAIN flake), default to ALLOW so a flaky resolver
+// doesn't permanently block public hosts. The actual fetch() will still fail
+// safely on its own. Set CRAWLER_STRICT_DNS=1 to revert to deny-on-failure.
+const STRICT_DNS = process.env.CRAWLER_STRICT_DNS === '1';
 
 function isPrivateIp(ip: string): boolean {
   // IPv4 ranges + IPv6 loopback/link-local/unique-local
@@ -43,12 +48,24 @@ function isPrivateIp(ip: string): boolean {
   return false;
 }
 
-async function isHostSafe(host: string): Promise<boolean> {
+async function isHostSafe(host: string): Promise<{ ok: boolean; reason?: string; addrs?: string[] }> {
   try {
     const addrs = await lookup(host, { all: true });
-    return addrs.every((a) => !isPrivateIp(a.address));
-  } catch {
-    return false;
+    const list = addrs.map((a) => a.address);
+    const bad = list.filter((ip) => isPrivateIp(ip));
+    if (bad.length > 0) {
+      return { ok: false, reason: `private_ip:${bad.join(',')}`, addrs: list };
+    }
+    if (list.length === 0) {
+      return STRICT_DNS
+        ? { ok: false, reason: 'no_dns_addresses' }
+        : { ok: true, reason: 'no_dns_addresses_allowed', addrs: [] };
+    }
+    return { ok: true, addrs: list };
+  } catch (err: any) {
+    const reason = `dns_error:${err?.code || err?.message || 'unknown'}`;
+    if (STRICT_DNS) return { ok: false, reason };
+    return { ok: true, reason };
   }
 }
 
@@ -77,13 +94,14 @@ function stripHtml(html: string): { text: string; title: string; links: string[]
 }
 
 async function fetchPage(url: string, allowedRoot: string): Promise<{
-  ok: boolean; status?: number; html?: string; bytes?: number; reason?: string;
+  ok: boolean; status?: number; html?: string; bytes?: number; reason?: string; detail?: string;
 }> {
   let parsed: URL;
   try { parsed = new URL(url); } catch { return { ok: false, reason: 'invalid_url' }; }
   if (!/^https?:$/.test(parsed.protocol)) return { ok: false, reason: 'bad_protocol' };
   if (!sameOrSubdomain(parsed.hostname, allowedRoot)) return { ok: false, reason: 'off_domain' };
-  if (!(await isHostSafe(parsed.hostname))) return { ok: false, reason: 'unsafe_host' };
+  const safe = await isHostSafe(parsed.hostname);
+  if (!safe.ok) return { ok: false, reason: 'unsafe_host', detail: safe.reason };
 
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
@@ -98,7 +116,8 @@ async function fetchPage(url: string, allowedRoot: string): Promise<{
     try {
       const finalHost = new URL(res.url).hostname;
       if (!sameOrSubdomain(finalHost, allowedRoot)) return { ok: false, status: res.status, reason: 'redirect_off_domain' };
-      if (!(await isHostSafe(finalHost))) return { ok: false, status: res.status, reason: 'redirect_unsafe' };
+      const fSafe = await isHostSafe(finalHost);
+      if (!fSafe.ok) return { ok: false, status: res.status, reason: 'redirect_unsafe', detail: fSafe.reason };
     } catch { return { ok: false, reason: 'bad_redirect_url' }; }
 
     const ct = res.headers.get('content-type') || '';
@@ -118,7 +137,11 @@ async function fetchPage(url: string, allowedRoot: string): Promise<{
     const buf = Buffer.concat(chunks.map((c) => Buffer.from(c)));
     return { ok: true, status: res.status, html: buf.toString('utf8'), bytes: total };
   } catch (err: any) {
-    return { ok: false, reason: err?.name === 'AbortError' ? 'timeout' : 'fetch_error' };
+    return {
+      ok: false,
+      reason: err?.name === 'AbortError' ? 'timeout' : 'fetch_error',
+      detail: `${err?.name || ''}:${err?.message || err?.code || 'unknown'}`,
+    };
   } finally {
     clearTimeout(t);
   }
@@ -289,11 +312,18 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
     const r = await fetchPage(url, root);
     if (!r.ok || !r.html) {
       await sb.from('ai_kb_job_pages')
-        .update({ status: 'failed', http_status: r.status, error_message: r.reason })
+        .update({
+          status: 'failed',
+          http_status: r.status,
+          error_message: r.detail ? `${r.reason}: ${r.detail}`.slice(0, 500) : r.reason,
+        })
         .eq('job_id', job.id).eq('url_hash', urlHash);
       await sb.from('ai_kb_jobs').update({ pages_failed: (job.pages_failed || 0) + 1 }).eq('id', job.id);
       pagesBlocked += 1;
-      workerLog('page blocked', { jobId: job.id, url, reason: r.reason, status: r.status });
+      workerLog('page blocked', { jobId: job.id, url, reason: r.reason, detail: r.detail, status: r.status });
+      await jobQueue.recordEvent(job.id, job.workspace_id, 'warn', 'Page blocked', {
+        url, reason: r.reason, detail: r.detail, status: r.status,
+      });
       continue;
     }
     const { text, title, links } = stripHtml(r.html);

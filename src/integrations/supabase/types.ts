@@ -73,6 +73,356 @@ export type Database = {
         }
         Relationships: []
       }
+      ai_kb_generated_articles: {
+        Row: {
+          confidence: number | null
+          content_md: string
+          created_at: string
+          credits_used: number
+          excerpt: string | null
+          id: string
+          job_id: string
+          kb_article_id: string | null
+          locale: string
+          model: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          slug: string
+          source_urls: Json
+          status: Database["public"]["Enums"]["ai_kb_generated_status"]
+          suggested_category: string | null
+          title: string
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          confidence?: number | null
+          content_md?: string
+          created_at?: string
+          credits_used?: number
+          excerpt?: string | null
+          id?: string
+          job_id: string
+          kb_article_id?: string | null
+          locale?: string
+          model?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          slug: string
+          source_urls?: Json
+          status?: Database["public"]["Enums"]["ai_kb_generated_status"]
+          suggested_category?: string | null
+          title: string
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          confidence?: number | null
+          content_md?: string
+          created_at?: string
+          credits_used?: number
+          excerpt?: string | null
+          id?: string
+          job_id?: string
+          kb_article_id?: string | null
+          locale?: string
+          model?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          slug?: string
+          source_urls?: Json
+          status?: Database["public"]["Enums"]["ai_kb_generated_status"]
+          suggested_category?: string | null
+          title?: string
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_kb_generated_articles_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "ai_kb_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_kb_generated_articles_kb_article_id_fkey"
+            columns: ["kb_article_id"]
+            isOneToOne: false
+            referencedRelation: "knowledge_base_articles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_kb_generated_articles_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_kb_job_events: {
+        Row: {
+          created_at: string
+          id: string
+          job_id: string
+          level: string
+          message: string
+          metadata: Json
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          job_id: string
+          level?: string
+          message: string
+          metadata?: Json
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          job_id?: string
+          level?: string
+          message?: string
+          metadata?: Json
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_kb_job_events_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "ai_kb_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_kb_job_events_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_kb_job_pages: {
+        Row: {
+          bytes: number | null
+          content_hash: string | null
+          created_at: string
+          depth: number
+          error_message: string | null
+          fetched_at: string | null
+          http_status: number | null
+          id: string
+          job_id: string
+          status: Database["public"]["Enums"]["ai_kb_page_status"]
+          text_length: number | null
+          title: string | null
+          url: string
+          url_hash: string
+          workspace_id: string
+        }
+        Insert: {
+          bytes?: number | null
+          content_hash?: string | null
+          created_at?: string
+          depth?: number
+          error_message?: string | null
+          fetched_at?: string | null
+          http_status?: number | null
+          id?: string
+          job_id: string
+          status?: Database["public"]["Enums"]["ai_kb_page_status"]
+          text_length?: number | null
+          title?: string | null
+          url: string
+          url_hash: string
+          workspace_id: string
+        }
+        Update: {
+          bytes?: number | null
+          content_hash?: string | null
+          created_at?: string
+          depth?: number
+          error_message?: string | null
+          fetched_at?: string | null
+          http_status?: number | null
+          id?: string
+          job_id?: string
+          status?: Database["public"]["Enums"]["ai_kb_page_status"]
+          text_length?: number | null
+          title?: string | null
+          url?: string
+          url_hash?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_kb_job_pages_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "ai_kb_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_kb_job_pages_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_kb_jobs: {
+        Row: {
+          articles_generated: number
+          claimed_at: string | null
+          completed_at: string | null
+          created_at: string
+          credits_used: number
+          error_message: string | null
+          id: string
+          locale: string
+          pages_crawled: number
+          pages_discovered: number
+          pages_failed: number
+          plan_snapshot: Json
+          progress: number
+          requested_by: string | null
+          source_domain: string
+          source_kind: Database["public"]["Enums"]["ai_kb_source_kind"]
+          source_verified: boolean
+          source_workspace_domain_id: string | null
+          started_at: string | null
+          status: Database["public"]["Enums"]["ai_kb_job_status"]
+          updated_at: string
+          worker_id: string | null
+          workspace_id: string
+        }
+        Insert: {
+          articles_generated?: number
+          claimed_at?: string | null
+          completed_at?: string | null
+          created_at?: string
+          credits_used?: number
+          error_message?: string | null
+          id?: string
+          locale?: string
+          pages_crawled?: number
+          pages_discovered?: number
+          pages_failed?: number
+          plan_snapshot?: Json
+          progress?: number
+          requested_by?: string | null
+          source_domain: string
+          source_kind: Database["public"]["Enums"]["ai_kb_source_kind"]
+          source_verified?: boolean
+          source_workspace_domain_id?: string | null
+          started_at?: string | null
+          status?: Database["public"]["Enums"]["ai_kb_job_status"]
+          updated_at?: string
+          worker_id?: string | null
+          workspace_id: string
+        }
+        Update: {
+          articles_generated?: number
+          claimed_at?: string | null
+          completed_at?: string | null
+          created_at?: string
+          credits_used?: number
+          error_message?: string | null
+          id?: string
+          locale?: string
+          pages_crawled?: number
+          pages_discovered?: number
+          pages_failed?: number
+          plan_snapshot?: Json
+          progress?: number
+          requested_by?: string | null
+          source_domain?: string
+          source_kind?: Database["public"]["Enums"]["ai_kb_source_kind"]
+          source_verified?: boolean
+          source_workspace_domain_id?: string | null
+          started_at?: string | null
+          status?: Database["public"]["Enums"]["ai_kb_job_status"]
+          updated_at?: string
+          worker_id?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_kb_jobs_source_workspace_domain_id_fkey"
+            columns: ["source_workspace_domain_id"]
+            isOneToOne: false
+            referencedRelation: "workspace_domains"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_kb_jobs_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_kb_usage: {
+        Row: {
+          created_at: string
+          credits: number
+          event_type: string
+          generated_article_id: string | null
+          id: string
+          job_id: string | null
+          metadata: Json
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          credits?: number
+          event_type: string
+          generated_article_id?: string | null
+          id?: string
+          job_id?: string | null
+          metadata?: Json
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          credits?: number
+          event_type?: string
+          generated_article_id?: string | null
+          id?: string
+          job_id?: string | null
+          metadata?: Json
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_kb_usage_generated_article_id_fkey"
+            columns: ["generated_article_id"]
+            isOneToOne: false
+            referencedRelation: "ai_kb_generated_articles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_kb_usage_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "ai_kb_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_kb_usage_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ai_usage_logs: {
         Row: {
           completion_tokens: number | null
@@ -5173,6 +5523,24 @@ export type Database = {
       workspace_health_snapshot_compute: { Args: never; Returns: Json }
     }
     Enums: {
+      ai_kb_generated_status: "pending" | "accepted" | "rejected" | "published"
+      ai_kb_job_status:
+        | "queued"
+        | "running"
+        | "crawling"
+        | "extracting"
+        | "generating"
+        | "completed"
+        | "partial"
+        | "failed"
+        | "canceled"
+      ai_kb_page_status:
+        | "pending"
+        | "fetched"
+        | "extracted"
+        | "skipped"
+        | "failed"
+      ai_kb_source_kind: "workspace_domain" | "profile_domain"
       app_role: "admin" | "moderator" | "user"
       article_status: "draft" | "published" | "archived"
       call_context_type: "conversation" | "internal" | "verification"
@@ -5354,6 +5722,26 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      ai_kb_generated_status: ["pending", "accepted", "rejected", "published"],
+      ai_kb_job_status: [
+        "queued",
+        "running",
+        "crawling",
+        "extracting",
+        "generating",
+        "completed",
+        "partial",
+        "failed",
+        "canceled",
+      ],
+      ai_kb_page_status: [
+        "pending",
+        "fetched",
+        "extracted",
+        "skipped",
+        "failed",
+      ],
+      ai_kb_source_kind: ["workspace_domain", "profile_domain"],
       app_role: ["admin", "moderator", "user"],
       article_status: ["draft", "published", "archived"],
       call_context_type: ["conversation", "internal", "verification"],

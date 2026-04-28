@@ -26,6 +26,7 @@ import { resolveSourceDomain } from '../services/ai-kb/sourceDomain.js';
 import { resolveAiKbLimits, countJobsThisMonth } from '../services/ai-kb/limits.js';
 import { readAiCreditState, logAiKbUsage } from '../services/ai-kb/credits.js';
 import { slugifyTitle, type PlanSnapshot } from '../services/ai-kb/types.js';
+import { normalizeArticleHtml } from '../services/ai-kb/htmlNormalize.js';
 
 export const aiKbRouter: Router = express.Router();
 
@@ -329,7 +330,7 @@ async function upsertKbArticleFromGenerated(sb: any, gen: any, status: 'draft' |
       .from('knowledge_base_articles')
       .update({
         title: gen.title,
-        content: gen.content_md,
+        content: normalizeArticleHtml(gen.content_md),
         excerpt: gen.excerpt,
         locale: gen.locale,
         status,
@@ -363,7 +364,7 @@ async function upsertKbArticleFromGenerated(sb: any, gen: any, status: 'draft' |
       slug,
       locale: gen.locale,
       title: gen.title,
-      content: gen.content_md,
+      content: normalizeArticleHtml(gen.content_md),
       excerpt: gen.excerpt,
       status,
     })

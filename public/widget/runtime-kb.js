@@ -48,8 +48,8 @@
         locale: opts.locale || 'en',
       });
       doFetch(url, opts)
-        .then(function (data) { opts.onResult({ ok: true, categories: data.categories || [] }); })
-        .catch(function () { opts.onResult({ ok: false, categories: [] }); });
+        .then(function (data) { opts.onResult({ ok: true, categories: data.categories || [], articles: data.articles || [] }); })
+        .catch(function () { opts.onResult({ ok: false, categories: [], articles: [] }); });
     },
 
     loadArticle: function (opts) {

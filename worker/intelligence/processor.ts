@@ -343,7 +343,7 @@ If the source is thin, still produce a useful article from what is there — nev
       title: String(v.title).slice(0, 200),
       slug: String(v.slug || '').slice(0, 80),
       excerpt: String(v.excerpt || '').slice(0, 300),
-      content_md: normalizeToHtml(rawContent),
+      content_md: normalizeArticleHtml(rawContent),
       confidence: Number(v.confidence) || 0.7,
       model: res.model,
       provider: res.provider,

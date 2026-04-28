@@ -138,7 +138,7 @@ async function callAnthropic(config: AIConfig, req: AIRequest): Promise<AIRespon
   };
   if (req.systemPrompt) body.system = req.systemPrompt;
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
+  const res = await fetchWithRetry('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'x-api-key': config.apiKey,
@@ -184,7 +184,7 @@ async function callGemini(config: AIConfig, req: AIRequest): Promise<AIResponse>
     body.systemInstruction = { parts: [{ text: req.systemPrompt }] };
   }
 
-  const res = await fetch(
+  const res = await fetchWithRetry(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${config.apiKey}`,
     {
       method: 'POST',

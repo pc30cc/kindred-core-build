@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { aiKbApi, type AiKbSourceResponse } from '@/lib/ai-kb-api';
+import { useTranslation } from '@/i18n';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
@@ -24,6 +25,7 @@ function friendlyError(raw: string | undefined): string {
 
 export default function AiKbBuilderTab() {
   const workspace = useCurrentWorkspace();
+  const { lang } = useTranslation();
   const [src, setSrc] = useState<AiKbSourceResponse | null>(null);
   const [jobs, setJobs] = useState<any[]>([]);
   const [activeJob, setActiveJob] = useState<any | null>(null);
@@ -66,7 +68,8 @@ export default function AiKbBuilderTab() {
     if (!workspace?.id) return;
     setBusy(true);
     try {
-      const r = await aiKbApi.createJob(workspace.id);
+      const uiLocale = (['en', 'fa', 'tr'].includes(lang as string) ? lang : 'en') as 'en' | 'fa' | 'tr';
+      const r = await aiKbApi.createJob(workspace.id, { locale: uiLocale });
       const id = r?.job?.id;
       toast.success(id ? `Scan queued (job ${id.slice(0, 8)}). Waiting for worker…` : 'Scan queued.');
       setStuckQueued(false);

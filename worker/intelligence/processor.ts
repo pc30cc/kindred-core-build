@@ -21,7 +21,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { createHash } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
 import type { WorkerEnv } from './index.js';
-import { executeAICompletion } from '../../server/services/ai/index.js';
+import { executeAICompletion, resolveAIConfig } from '../../server/services/ai/index.js';
 import { consumeAiCredits } from '../../server/services/ai-kb/credits.js';
 import { DbJobQueueProvider } from '../../server/services/ai-kb/queue.js';
 import type { ServerConfig } from '../../server/config.js';
@@ -130,6 +130,47 @@ async function fetchPage(url: string, allowedRoot: string): Promise<{
  * (workspace AI config → global default → provider-specific call) lives in
  * server/services/ai/index.ts. The worker only crafts the prompt.
  */
+type GenerateDraftResult =
+  | {
+      ok: true;
+      draft: {
+        title: string; slug: string; excerpt: string; content_md: string;
+        confidence: number; model: string; provider: string;
+      };
+    }
+  | {
+      ok: false;
+      reason: 'ai_call_failed' | 'empty_response' | 'parse_failed' | 'invalid_schema';
+      errorMessage?: string;
+      errorName?: string;
+      stackPreview?: string;
+      rawPreview?: string;
+      parsedKeys?: string[];
+    };
+
+function safePreview(s: string, max = 500): string {
+  return (s || '').slice(0, max).replace(/\s+/g, ' ').trim();
+}
+
+function tryParseDraftJson(raw: string): { ok: true; value: any } | { ok: false; error: string } {
+  let s = (raw || '').trim();
+  // Strip ``` or ```json fences.
+  s = s.replace(/^```(?:json)?\s*/i, '').replace(/```$/i, '').trim();
+  // First attempt: parse as-is.
+  try { return { ok: true, value: JSON.parse(s) }; } catch (e: any) {
+    // Second attempt: extract first balanced JSON object.
+    const start = s.indexOf('{');
+    const end = s.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      const sub = s.slice(start, end + 1);
+      try { return { ok: true, value: JSON.parse(sub) }; } catch (e2: any) {
+        return { ok: false, error: e2?.message || 'parse_failed' };
+      }
+    }
+    return { ok: false, error: e?.message || 'parse_failed' };
+  }
+}
+
 async function generateArticle(
   serverConfig: ServerConfig,
   workspaceId: string,
@@ -137,39 +178,65 @@ async function generateArticle(
   pageText: string,
   pageUrl: string,
   pageTitle: string,
-): Promise<{
-  title: string; slug: string; excerpt: string; content_md: string;
-  confidence: number; model: string; provider: string;
-} | null> {
+): Promise<GenerateDraftResult> {
   const sys = `You are a help-center writer. Output STRICT JSON only with this exact shape: {"title":"","slug":"","excerpt":"","content_md":"","confidence":0.0}. Locale: ${locale}. Keep markdown clean, helpful, and free of marketing fluff. No commentary outside the JSON.`;
   const user = `Source URL: ${pageUrl}\nPage title: ${pageTitle}\n---\n${pageText.slice(0, 6000)}`;
+  let res: Awaited<ReturnType<typeof executeAICompletion>>;
   try {
-    const res = await executeAICompletion(serverConfig, {
+    res = await executeAICompletion(serverConfig, {
       workspaceId,
       systemPrompt: sys,
       prompt: user,
       maxTokens: 1500,
       temperature: 0.4,
     });
-    // Tolerate models that wrap JSON in code fences.
-    const raw = (res.text || '').trim()
-      .replace(/^```(?:json)?\s*/i, '')
-      .replace(/```$/i, '')
-      .trim();
-    const parsed = JSON.parse(raw);
-    if (!parsed.title || !parsed.content_md) return null;
+  } catch (err: any) {
     return {
-      title: String(parsed.title).slice(0, 200),
-      slug: String(parsed.slug || '').slice(0, 80),
-      excerpt: String(parsed.excerpt || '').slice(0, 300),
-      content_md: String(parsed.content_md),
-      confidence: Number(parsed.confidence) || 0.7,
+      ok: false,
+      reason: 'ai_call_failed',
+      errorMessage: err?.message || String(err),
+      errorName: err?.name,
+      stackPreview: safePreview(err?.stack || '', 500),
+    };
+  }
+
+  const text = (res.text || '').trim();
+  if (!text) {
+    return { ok: false, reason: 'empty_response' };
+  }
+
+  const parsed = tryParseDraftJson(text);
+  if (!parsed.ok) {
+    return {
+      ok: false,
+      reason: 'parse_failed',
+      errorMessage: parsed.error,
+      rawPreview: safePreview(text, 500),
+    };
+  }
+
+  const v = parsed.value || {};
+  if (!v.title || !v.content_md) {
+    return {
+      ok: false,
+      reason: 'invalid_schema',
+      parsedKeys: Object.keys(v),
+      rawPreview: safePreview(text, 500),
+    };
+  }
+
+  return {
+    ok: true,
+    draft: {
+      title: String(v.title).slice(0, 200),
+      slug: String(v.slug || '').slice(0, 80),
+      excerpt: String(v.excerpt || '').slice(0, 300),
+      content_md: String(v.content_md),
+      confidence: Number(v.confidence) || 0.7,
       model: res.model,
       provider: res.provider,
-    };
-  } catch {
-    return null;
-  }
+    },
+  };
 }
 
 export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): Promise<void> {
@@ -186,6 +253,15 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
   const snap = job.plan_snapshot || {};
   const root = String(job.source_domain).toLowerCase();
   const seedUrl = `https://${root}/`;
+
+  // Local counters (authoritative — DB row may be stale by the time we log).
+  let pagesFetched = 0;
+  let pagesBlocked = 0;
+  let articlesGenerated = 0;
+  let generationFailed = 0;
+  let creditsUsed = 0;
+  let lastGenerationError: string | null = null;
+  let lastGenerationReason: string | null = null;
 
   await jobQueue.updateJob(job.id, { status: 'crawling', progress: 5 } as any);
   await jobQueue.recordEvent(job.id, job.workspace_id, 'info', 'Crawl started', { domain: root });
@@ -216,11 +292,13 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
         .update({ status: 'failed', http_status: r.status, error_message: r.reason })
         .eq('job_id', job.id).eq('url_hash', urlHash);
       await sb.from('ai_kb_jobs').update({ pages_failed: (job.pages_failed || 0) + 1 }).eq('id', job.id);
+      pagesBlocked += 1;
       workerLog('page blocked', { jobId: job.id, url, reason: r.reason, status: r.status });
       continue;
     }
     const { text, title, links } = stripHtml(r.html);
     fetched.push({ url, html: r.html, title, text });
+    pagesFetched += 1;
     workerLog('page fetched', { jobId: job.id, url, status: r.status, textLength: text.length });
     await sb.from('ai_kb_job_pages').update({
       status: 'extracted', http_status: r.status, bytes: r.bytes, text_length: text.length,
@@ -246,47 +324,133 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
     } as any);
   }
 
+  // ── Crawl-only test job: maxArticles explicitly 0 → no generation. ──
+  // Preserve explicit zero (Math.max(1, 0||3) was wrong).
+  const maxArticles = typeof snap.maxArticles === 'number' ? snap.maxArticles : 3;
+
+  if (maxArticles === 0) {
+    await jobQueue.updateJob(job.id, {
+      status: 'completed',
+      progress: 100,
+      pages_crawled: pagesFetched,
+      pages_failed: pagesBlocked,
+      articles_generated: 0,
+      credits_used: 0,
+      completed_at: new Date().toISOString(),
+    } as any);
+    await jobQueue.recordEvent(job.id, job.workspace_id, 'info',
+      'Crawl-only test completed', { reason: 'crawl_only_test', pagesCrawled: pagesFetched });
+    await sb.from('ai_kb_usage').insert({
+      workspace_id: job.workspace_id, job_id: job.id,
+      event_type: 'job_completed', credits: 0,
+      metadata: { completion_reason: 'crawl_only_test', pages_crawled: pagesFetched },
+    });
+    workerLog('crawl-only test completed', { jobId: job.id, pagesCrawled: pagesFetched });
+    return;
+  }
+
+  // ── AI provider preflight ── (fail fast with a clear reason)
+  const aiCfg = await resolveAIConfig(serverConfig, job.workspace_id).catch(() => null);
+  if (!aiCfg) {
+    const msg = 'AI provider is not configured';
+    await jobQueue.recordEvent(job.id, job.workspace_id, 'error', msg, {});
+    await jobQueue.failJob(job.id, msg);
+    await sb.from('ai_kb_usage').insert({
+      workspace_id: job.workspace_id, job_id: job.id,
+      event_type: 'job_failed', credits: 0,
+      metadata: {
+        reason: 'provider_missing',
+        pages_crawled: pagesFetched,
+      },
+    });
+    workerLog('generation failed - ai provider missing', {
+      jobId: job.id, workspaceId: job.workspace_id,
+    });
+    return;
+  }
+
   // Generate
   await jobQueue.updateJob(job.id, { status: 'generating', progress: 55 } as any);
   workerLog('generation started', { jobId: job.id, candidatePages: fetched.length });
 
-  const maxArticles = Math.max(1, snap.maxArticles || 3);
-  let generated = 0;
-  let creditsUsed = 0;
   let creditExhausted = false;
 
   for (const page of fetched) {
-    if (generated >= maxArticles) break;
+    if (articlesGenerated >= maxArticles) break;
 
-    // Credit policy v1: 1 credit per SUCCESSFULLY generated draft.
-    // We try generation first, then deduct only on success — this avoids
-    // a separate refund/reversal path. Infrastructure failures (timeouts,
-    // bad JSON, no AI provider configured) cost nothing.
-    let draft: Awaited<ReturnType<typeof generateArticle>> = null;
-    try {
-      draft = await generateArticle(
-        serverConfig,
-        job.workspace_id,
-        job.locale || 'en',
-        page.text,
-        page.url,
-        page.title,
-      );
-    } catch (err: any) {
-      await jobQueue.recordEvent(job.id, job.workspace_id, 'warn',
-        'AI generation failed', { url: page.url, error: err?.message });
-    }
-    if (!draft) {
-      await jobQueue.recordEvent(job.id, job.workspace_id, 'warn',
-        'AI returned no usable draft', { url: page.url });
+    workerLog('draft generation attempt', {
+      jobId: job.id,
+      pageUrl: page.url,
+      textLength: page.text.length,
+      locale: job.locale || 'en',
+    });
+
+    const result = await generateArticle(
+      serverConfig,
+      job.workspace_id,
+      job.locale || 'en',
+      page.text,
+      page.url,
+      page.title,
+    );
+
+    if (!result.ok) {
+      generationFailed += 1;
+      lastGenerationReason = result.reason;
+      lastGenerationError = result.errorMessage || result.reason;
+
+      if (result.reason === 'ai_call_failed') {
+        workerLog('draft generation failed', {
+          jobId: job.id, pageUrl: page.url,
+          errorMessage: result.errorMessage,
+          errorName: result.errorName,
+          stackPreview: result.stackPreview,
+        });
+        await jobQueue.recordEvent(job.id, job.workspace_id, 'error',
+          'AI call failed', {
+            url: page.url,
+            error: result.errorMessage,
+            errorName: result.errorName,
+          });
+      } else if (result.reason === 'empty_response') {
+        workerLog('draft empty response', { jobId: job.id, pageUrl: page.url });
+        await jobQueue.recordEvent(job.id, job.workspace_id, 'warn',
+          'AI returned empty response', { url: page.url });
+      } else if (result.reason === 'parse_failed') {
+        workerLog('draft parse failed', {
+          jobId: job.id, pageUrl: page.url,
+          rawPreview: result.rawPreview,
+          errorMessage: result.errorMessage,
+        });
+        await jobQueue.recordEvent(job.id, job.workspace_id, 'warn',
+          'AI response was not valid JSON', {
+            url: page.url,
+            error: result.errorMessage,
+            rawPreview: result.rawPreview,
+          });
+      } else if (result.reason === 'invalid_schema') {
+        workerLog('draft invalid', {
+          jobId: job.id, pageUrl: page.url,
+          parsedKeys: result.parsedKeys,
+        });
+        await jobQueue.recordEvent(job.id, job.workspace_id, 'warn',
+          'AI JSON missing title/content_md', {
+            url: page.url,
+            parsedKeys: result.parsedKeys,
+            rawPreview: result.rawPreview,
+          });
+      }
       continue;
     }
 
-    // Deduct 1 credit for the successful draft. If credits are exhausted
-    // at this point, we drop the draft and stop generating further.
+    const draft = result.draft;
+
+    // Deduct 1 credit only on a valid draft. Failed AI/parse cost 0.
     const ded = await consumeAiCredits(serverConfig, job.workspace_id, 1);
     if (!ded.success) {
       creditExhausted = true;
+      lastGenerationReason = 'credits_exhausted';
+      lastGenerationError = ded.reason || 'AI credits exhausted';
       await jobQueue.recordEvent(job.id, job.workspace_id, 'warn',
         'AI credits exhausted; dropping generated draft', { reason: ded.reason });
       workerLog('credits exhausted', { jobId: job.id, reason: ded.reason });
@@ -307,17 +471,21 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
       credits_used: 1,
     }).select('id').single();
 
-    generated += 1;
+    articlesGenerated += 1;
     creditsUsed += 1;
     workerLog('draft generated', {
       jobId: job.id,
       generatedArticleId: ins?.id,
+      title: draft.title,
       creditsUsed,
     });
+    await jobQueue.recordEvent(job.id, job.workspace_id, 'info', 'Draft generated', {
+      url: page.url, generatedArticleId: ins?.id, title: draft.title,
+    });
     await jobQueue.updateJob(job.id, {
-      articles_generated: generated,
+      articles_generated: articlesGenerated,
       credits_used: creditsUsed,
-      progress: Math.min(95, 55 + Math.floor((generated / maxArticles) * 40)),
+      progress: Math.min(95, 55 + Math.floor((articlesGenerated / maxArticles) * 40)),
     } as any);
     await sb.from('ai_kb_usage').insert({
       workspace_id: job.workspace_id, job_id: job.id, generated_article_id: ins?.id || null,
@@ -325,13 +493,60 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
     });
   }
 
-  const finalStatus = creditExhausted && generated > 0 ? 'partial' : 'completed';
+  // ── Final status decision ──
+  let finalStatus: 'completed' | 'partial' | 'failed';
+  let finalError: string | null = null;
+  let completionReason: string;
+
+  if (articlesGenerated === 0) {
+    // No drafts produced — never report this as a successful completion.
+    finalStatus = 'failed';
+    finalError = lastGenerationError
+      || (pagesFetched === 0 ? 'No pages were crawled successfully' : 'No AI drafts were generated');
+    completionReason = lastGenerationReason || (pagesFetched === 0 ? 'no_pages_crawled' : 'no_drafts');
+  } else if (creditExhausted || articlesGenerated < Math.min(maxArticles, pagesFetched)) {
+    finalStatus = 'partial';
+    completionReason = creditExhausted ? 'credits_exhausted' : 'partial_generation';
+  } else {
+    finalStatus = 'completed';
+    completionReason = 'completed';
+  }
+
   await jobQueue.updateJob(job.id, {
-    status: finalStatus, progress: 100, completed_at: new Date().toISOString(),
+    status: finalStatus,
+    progress: 100,
+    pages_crawled: pagesFetched,
+    pages_failed: pagesBlocked,
+    articles_generated: articlesGenerated,
+    credits_used: creditsUsed,
+    completed_at: new Date().toISOString(),
+    ...(finalError ? { error_message: finalError.slice(0, 1000) } : {}),
   } as any);
+
   await sb.from('ai_kb_usage').insert({
     workspace_id: job.workspace_id, job_id: job.id,
-    event_type: 'job_completed', credits: 0,
-    metadata: { articles_generated: generated, credits_used: creditsUsed, status: finalStatus },
+    event_type: finalStatus === 'failed' ? 'job_failed' : 'job_completed', credits: 0,
+    metadata: {
+      articles_generated: articlesGenerated,
+      pages_crawled: pagesFetched,
+      pages_blocked: pagesBlocked,
+      generation_failed: generationFailed,
+      credits_used: creditsUsed,
+      status: finalStatus,
+      completion_reason: completionReason,
+      ...(finalError ? { error_message: finalError } : {}),
+    },
+  });
+
+  workerLog('job finished', {
+    jobId: job.id,
+    status: finalStatus,
+    pagesCrawled: pagesFetched,
+    pagesBlocked,
+    articlesGenerated,
+    generationFailed,
+    creditsUsed,
+    reason: completionReason,
+    ...(finalError ? { error: finalError } : {}),
   });
 }

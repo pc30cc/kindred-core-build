@@ -314,8 +314,8 @@ export default function KnowledgeBasePage() {
             {/* Actions */}
             <div className="flex items-center justify-end gap-3 pt-2 border-t border-border">
               <Button variant="outline" onClick={() => { setShowEditor(false); setEditId(null); }}>{t('common.cancel')}</Button>
-              <Button onClick={handleCreate} disabled={createArticle.isPending || !form.title}>
-                {createArticle.isPending ? t('common.loading') : t('common.create')}
+              <Button onClick={handleSave} disabled={createArticle.isPending || updateArticle.isPending || !form.title}>
+                {createArticle.isPending || updateArticle.isPending ? t('common.loading') : editId ? t('common.save') : t('common.create')}
               </Button>
             </div>
           </div>

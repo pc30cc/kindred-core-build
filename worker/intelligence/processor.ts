@@ -21,6 +21,10 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { createHash } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
 import type { WorkerEnv } from './index.js';
+import { executeAICompletion } from '../../server/services/ai/index.js';
+import { consumeAiCredits } from '../../server/services/ai-kb/credits.js';
+import { DbJobQueueProvider } from '../../server/services/ai-kb/queue.js';
+import type { ServerConfig } from '../../server/config.js';
 
 const TIMEOUT_MS = parseInt(process.env.CRAWLER_TIMEOUT_MS || '15000', 10);
 const MAX_BYTES = parseInt(process.env.CRAWLER_MAX_BYTES || '2000000', 10); // 2 MB
@@ -119,51 +123,38 @@ async function fetchPage(url: string, allowedRoot: string): Promise<{
   }
 }
 
-/** Resolve workspace AI config (workspace-level then global). Mirrors server/services/ai/index.ts. */
-async function resolveAiConfig(sb: SupabaseClient, workspaceId: string) {
-  const { data: ws } = await sb
-    .from('provider_configs')
-    .select('*')
-    .eq('workspace_id', workspaceId)
-    .eq('provider_type', 'ai')
-    .eq('is_active', true)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (ws?.config) {
-    const c = ws.config as any;
-    return { provider: ws.provider_name, apiKey: c.api_key, model: c.model || 'gpt-4o-mini', baseUrl: c.base_url || c.endpoint };
-  }
-  const { data: g } = await sb.from('app_runtime_config').select('value').eq('key', 'default_ai_provider').maybeSingle();
-  if (g?.value) {
-    const c = g.value as any;
-    return { provider: c.provider || 'openai', apiKey: c.api_key, model: c.model || 'gpt-4o-mini', baseUrl: c.base_url };
-  }
-  return null;
-}
-
-async function generateArticle(aiCfg: any, locale: string, pageText: string, pageUrl: string, pageTitle: string): Promise<{
-  title: string; slug: string; excerpt: string; content_md: string; confidence: number;
+/**
+ * Generate one draft via the existing shared AI provider abstraction.
+ * NEVER instantiates its own OpenAI/Anthropic/Gemini client — all routing
+ * (workspace AI config → global default → provider-specific call) lives in
+ * server/services/ai/index.ts. The worker only crafts the prompt.
+ */
+async function generateArticle(
+  serverConfig: ServerConfig,
+  workspaceId: string,
+  locale: string,
+  pageText: string,
+  pageUrl: string,
+  pageTitle: string,
+): Promise<{
+  title: string; slug: string; excerpt: string; content_md: string;
+  confidence: number; model: string; provider: string;
 } | null> {
-  if (!aiCfg?.apiKey) return null;
-  const baseUrl = aiCfg.baseUrl || 'https://api.openai.com/v1';
-  const sys = `You are a help-center writer. Output JSON: {"title":"","slug":"","excerpt":"","content_md":"","confidence":0.0}. Locale: ${locale}. Keep markdown clean, helpful, and free of marketing fluff.`;
+  const sys = `You are a help-center writer. Output STRICT JSON only with this exact shape: {"title":"","slug":"","excerpt":"","content_md":"","confidence":0.0}. Locale: ${locale}. Keep markdown clean, helpful, and free of marketing fluff. No commentary outside the JSON.`;
   const user = `Source URL: ${pageUrl}\nPage title: ${pageTitle}\n---\n${pageText.slice(0, 6000)}`;
   try {
-    const res = await fetch(`${baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${aiCfg.apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: aiCfg.model,
-        response_format: { type: 'json_object' },
-        messages: [{ role: 'system', content: sys }, { role: 'user', content: user }],
-        temperature: 0.4,
-        max_tokens: 1500,
-      }),
+    const res = await executeAICompletion(serverConfig, {
+      workspaceId,
+      systemPrompt: sys,
+      prompt: user,
+      maxTokens: 1500,
+      temperature: 0.4,
     });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const raw = data.choices?.[0]?.message?.content || '{}';
+    // Tolerate models that wrap JSON in code fences.
+    const raw = (res.text || '').trim()
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/```$/i, '')
+      .trim();
     const parsed = JSON.parse(raw);
     if (!parsed.title || !parsed.content_md) return null;
     return {
@@ -172,6 +163,8 @@ async function generateArticle(aiCfg: any, locale: string, pageText: string, pag
       excerpt: String(parsed.excerpt || '').slice(0, 300),
       content_md: String(parsed.content_md),
       confidence: Number(parsed.confidence) || 0.7,
+      model: res.model,
+      provider: res.provider,
     };
   } catch {
     return null;
@@ -179,12 +172,22 @@ async function generateArticle(aiCfg: any, locale: string, pageText: string, pag
 }
 
 export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): Promise<void> {
+  const serverConfig: ServerConfig = {
+    port: 0,
+    supabaseUrl: env.supabaseUrl,
+    supabaseAnonKey: env.supabaseUrl, // unused by AI service
+    supabaseServiceRoleKey: env.supabaseServiceRoleKey,
+    corsOrigins: ['*'],
+    rateLimitWindowMs: 60000,
+    rateLimitMax: 100,
+  };
+  const queue = new DbJobQueueProvider(sb);
   const snap = job.plan_snapshot || {};
   const root = String(job.source_domain).toLowerCase();
   const seedUrl = `https://${root}/`;
 
-  await sb.from('ai_kb_jobs').update({ status: 'crawling', progress: 5 }).eq('id', job.id);
-  await sb.from('ai_kb_job_events').insert({ job_id: job.id, workspace_id: job.workspace_id, level: 'info', message: 'Crawl started', metadata: { domain: root } });
+  await queue.updateJob(job.id, { status: 'crawling', progress: 5 } as any);
+  await queue.recordEvent(job.id, job.workspace_id, 'info', 'Crawl started', { domain: root });
 
   // BFS crawl
   const queue: Array<{ url: string; depth: number }> = [{ url: seedUrl, depth: 0 }];
@@ -230,20 +233,15 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
       }
     }
 
-    await sb.from('ai_kb_jobs').update({
+    await queue.updateJob(job.id, {
       pages_discovered: seen.size,
       pages_crawled: fetched.length,
       progress: Math.min(50, 5 + Math.floor((fetched.length / maxPages) * 45)),
-    }).eq('id', job.id);
+    } as any);
   }
 
   // Generate
-  await sb.from('ai_kb_jobs').update({ status: 'generating', progress: 55 }).eq('id', job.id);
-  const aiCfg = await resolveAiConfig(sb, job.workspace_id);
-  if (!aiCfg) {
-    await sb.from('ai_kb_jobs').update({ status: 'failed', error_message: 'No AI provider configured', completed_at: new Date().toISOString() }).eq('id', job.id);
-    return;
-  }
+  await queue.updateJob(job.id, { status: 'generating', progress: 55 } as any);
 
   const maxArticles = Math.max(1, snap.maxArticles || 3);
   let generated = 0;
@@ -253,26 +251,38 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
   for (const page of fetched) {
     if (generated >= maxArticles) break;
 
-    // Atomic credit deduction (1 per draft).
-    const { data: dedRes } = await sb.rpc('deduct_ai_credits', { _workspace_id: job.workspace_id, _credits: 1 });
-    if (!dedRes?.success) {
-      creditExhausted = true;
-      await sb.from('ai_kb_job_events').insert({
-        job_id: job.id, workspace_id: job.workspace_id, level: 'warn',
-        message: 'AI credits exhausted; stopping generation', metadata: { reason: dedRes?.reason },
-      });
-      break;
+    // Credit policy v1: 1 credit per SUCCESSFULLY generated draft.
+    // We try generation first, then deduct only on success — this avoids
+    // a separate refund/reversal path. Infrastructure failures (timeouts,
+    // bad JSON, no AI provider configured) cost nothing.
+    let draft: Awaited<ReturnType<typeof generateArticle>> = null;
+    try {
+      draft = await generateArticle(
+        serverConfig,
+        job.workspace_id,
+        job.locale || 'en',
+        page.text,
+        page.url,
+        page.title,
+      );
+    } catch (err: any) {
+      await queue.recordEvent(job.id, job.workspace_id, 'warn',
+        'AI generation failed', { url: page.url, error: err?.message });
+    }
+    if (!draft) {
+      await queue.recordEvent(job.id, job.workspace_id, 'warn',
+        'AI returned no usable draft', { url: page.url });
+      continue;
     }
 
-    const draft = await generateArticle(aiCfg, job.locale || 'en', page.text, page.url, page.title);
-    if (!draft) {
-      // Skip — no charge already happened; but we cannot refund cleanly in v1. Log and continue.
-      await sb.from('ai_kb_job_events').insert({
-        job_id: job.id, workspace_id: job.workspace_id, level: 'warn',
-        message: 'AI returned no usable draft', metadata: { url: page.url },
-      });
-      creditsUsed += 1;
-      continue;
+    // Deduct 1 credit for the successful draft. If credits are exhausted
+    // at this point, we drop the draft and stop generating further.
+    const ded = await consumeAiCredits(serverConfig, job.workspace_id, 1);
+    if (!ded.success) {
+      creditExhausted = true;
+      await queue.recordEvent(job.id, job.workspace_id, 'warn',
+        'AI credits exhausted; dropping generated draft', { reason: ded.reason });
+      break;
     }
 
     const { data: ins } = await sb.from('ai_kb_generated_articles').insert({
@@ -285,27 +295,27 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
       locale: job.locale || 'en',
       confidence: draft.confidence,
       source_urls: [page.url],
-      model: aiCfg.model,
+      model: draft.model,
       credits_used: 1,
     }).select('id').single();
 
     generated += 1;
     creditsUsed += 1;
-    await sb.from('ai_kb_jobs').update({
+    await queue.updateJob(job.id, {
       articles_generated: generated,
       credits_used: creditsUsed,
       progress: Math.min(95, 55 + Math.floor((generated / maxArticles) * 40)),
-    }).eq('id', job.id);
+    } as any);
     await sb.from('ai_kb_usage').insert({
       workspace_id: job.workspace_id, job_id: job.id, generated_article_id: ins?.id || null,
-      event_type: 'article_generated', credits: 1, metadata: { url: page.url, model: aiCfg.model },
+      event_type: 'article_generated', credits: 1, metadata: { url: page.url, model: draft.model, provider: draft.provider },
     });
   }
 
   const finalStatus = creditExhausted && generated > 0 ? 'partial' : 'completed';
-  await sb.from('ai_kb_jobs').update({
+  await queue.updateJob(job.id, {
     status: finalStatus, progress: 100, completed_at: new Date().toISOString(),
-  }).eq('id', job.id);
+  } as any);
   await sb.from('ai_kb_usage').insert({
     workspace_id: job.workspace_id, job_id: job.id,
     event_type: 'job_completed', credits: 0,

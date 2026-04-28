@@ -5,7 +5,7 @@
     "moduleResolution": "NodeNext",
     "lib": ["ES2022"],
     "types": ["node"],
-    "rootDir": "./server",
+    "rootDir": "./",
     "outDir": "./server/dist",
     "baseUrl": "./server",
     "esModuleInterop": true,
@@ -21,6 +21,6 @@
     "noEmit": true,
     "allowJs": false
   },
-  "include": ["server/**/*.ts"],
+  "include": ["server/**/*.ts", "worker/**/*.ts"],
   "exclude": ["server/node_modules", "server/dist", "node_modules"]
 }

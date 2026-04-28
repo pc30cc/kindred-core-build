@@ -481,8 +481,8 @@ aiKbRouter.get('/worker/diagnostics', async (req: Request, res: Response) => {
       reason_if_blocked: source.reason_if_blocked,
     },
     modules: {
-      knowledge_base: modules[0].allowed,
-      ai_kb_builder: modules[1].allowed,
+      knowledge_base: modules[0].allowed || auth.isAdmin,
+      ai_kb_builder: modules[1].allowed || auth.isAdmin,
     },
     plan: {
       slug: limitsInfo.planSlug,
@@ -490,6 +490,7 @@ aiKbRouter.get('/worker/diagnostics', async (req: Request, res: Response) => {
       jobs_used_this_month: jobsThisMonth,
     },
     credits,
+    is_global_admin: auth.isAdmin,
   });
 });
 

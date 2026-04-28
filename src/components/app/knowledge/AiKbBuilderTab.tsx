@@ -28,6 +28,7 @@ export default function AiKbBuilderTab() {
   const [jobs, setJobs] = useState<any[]>([]);
   const [activeJob, setActiveJob] = useState<any | null>(null);
   const [generated, setGenerated] = useState<any[]>([]);
+  const [jobEvents, setJobEvents] = useState<any[]>([]);
   const [busy, setBusy] = useState(false);
   const [stuckQueued, setStuckQueued] = useState(false);
 
@@ -45,6 +46,7 @@ export default function AiKbBuilderTab() {
         const detail = await aiKbApi.getJob(latest.id);
         setActiveJob(detail.job);
         setGenerated(detail.generated || []);
+        setJobEvents((detail as any).events || []);
       }
     } catch (e: any) {
       toast.error(e?.message || 'Failed to load AI Builder state');
@@ -200,7 +202,24 @@ export default function AiKbBuilderTab() {
             Pages crawled: {activeJob.pages_crawled} · Drafts generated: {activeJob.articles_generated} · Credits used: {activeJob.credits_used}
           </div>
           {activeJob.error_message && (
-            <div className="text-xs text-destructive">{activeJob.error_message}</div>
+            <div className="text-xs text-destructive">
+              {activeJob.error_message}
+              {/AI provider is not configured/i.test(activeJob.error_message) && (
+                <a href="/admin/providers" className="ml-2 underline font-semibold">
+                  Configure AI provider
+                </a>
+              )}
+            </div>
+          )}
+          {activeJob.status === 'failed' && !activeJob.error_message && (
+            <div className="text-xs text-destructive">Job failed without a specific error message — check worker logs.</div>
+          )}
+          {activeJob.status === 'completed' && (activeJob.articles_generated || 0) === 0 && (
+            <div className="text-xs text-warning">
+              No articles were generated. {activeJob.plan_snapshot?.maxArticles === 0
+                ? 'Test crawl completed (crawl-only test).'
+                : 'See worker logs / events below for details.'}
+            </div>
           )}
           {stuckQueued && (
             <div className="flex items-start gap-2 text-xs text-warning bg-warning/5 border border-warning/20 rounded p-2">
@@ -209,6 +228,34 @@ export default function AiKbBuilderTab() {
                 Worker has not picked up this job yet. Check the <code>intelligence-worker</code> service logs.
               </span>
             </div>
+          )}
+          {jobEvents.length > 0 && (
+            <details className="mt-2">
+              <summary className="text-xs text-muted-foreground cursor-pointer select-none">
+                Job events ({jobEvents.length})
+              </summary>
+              <div className="mt-2 space-y-1 max-h-64 overflow-auto">
+                {jobEvents.map((ev) => (
+                  <div key={ev.id} className={
+                    'text-[11px] font-mono rounded px-2 py-1 ' +
+                    (ev.level === 'error'
+                      ? 'bg-destructive/10 text-destructive'
+                      : ev.level === 'warn'
+                        ? 'bg-warning/10 text-warning'
+                        : 'bg-muted text-muted-foreground')
+                  }>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-semibold uppercase">{ev.level}</span>
+                      <span className="opacity-60">{new Date(ev.created_at).toLocaleTimeString()}</span>
+                    </div>
+                    <div>{ev.message}</div>
+                    {ev.metadata && Object.keys(ev.metadata).length > 0 && (
+                      <pre className="mt-1 whitespace-pre-wrap opacity-80">{JSON.stringify(ev.metadata, null, 0)}</pre>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </details>
           )}
         </div>
       )}

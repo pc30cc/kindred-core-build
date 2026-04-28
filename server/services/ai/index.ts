@@ -218,7 +218,13 @@ export async function resolveAIConfig(serverConfig: ServerConfig, workspaceId: s
 
   if (wsConfig?.config) {
     const c = wsConfig.config as any;
-    return {
+    if (!c.api_key) {
+      console.error('[ai] workspace provider_configs missing api_key', {
+        workspaceId,
+        provider: wsConfig.provider_name,
+      });
+    } else {
+      return {
       provider: wsConfig.provider_name,
       apiKey: c.api_key,
       model: c.model || 'gpt-4o-mini',
@@ -226,7 +232,8 @@ export async function resolveAIConfig(serverConfig: ServerConfig, workspaceId: s
       temperature: c.temperature ? parseFloat(c.temperature) : undefined,
       baseUrl: c.base_url || c.endpoint || providerBaseUrls[wsConfig.provider_name],
       orgId: c.org_id,
-    };
+      };
+    }
   }
 
   // 2. Global default from runtime config

@@ -35,6 +35,7 @@ import { callbacksRouter } from './routes/callbacks.js';
 import { workspaceDepartmentsRouter } from './routes/workspaceDepartments.js';
 import { callInvitationsRouter } from './routes/callInvitations.js';
 import { aiKbRouter } from './routes/aiKb.js';
+import { aiAgentRouter } from './routes/aiAgent.js';
 import { startCallQueueTicker } from './services/calls/queueTicker.js';
 import { startInvitationExpirySweeper } from './services/calls/invitations.js';
 import { startAttachmentJanitor } from './services/attachmentJanitor.js';
@@ -244,6 +245,11 @@ app.use('/api/call-invitations', callInvitationsRouter);
 // Worker that actually crawls + generates runs as a separate process; see
 // worker/intelligence/index.ts and Dockerfile.worker.
 app.use('/api/ai-kb', aiKbRouter);
+
+// AI Agent (Phase 1) — workspace-scoped configuration, knowledge status,
+// playground, analytics, Q&A, diagnostics. Auth + membership enforced inside.
+// Phase 2 will wire the engine into widget.ts to replace the primitive auto-reply.
+app.use('/api/ai-agent', aiAgentRouter);
 
 // 404
 app.use((_req, res) => {

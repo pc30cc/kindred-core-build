@@ -103,6 +103,307 @@ export type Database = {
         }
         Relationships: []
       }
+      ai_agent_qna: {
+        Row: {
+          answer: string
+          created_at: string
+          enabled: boolean
+          id: string
+          locale: string
+          question: string
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          answer: string
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          locale?: string
+          question: string
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          answer?: string
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          locale?: string
+          question?: string
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_agent_qna_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_agent_runs: {
+        Row: {
+          completion_tokens: number | null
+          confidence: number | null
+          conversation_id: string | null
+          created_at: string
+          credits_used: number
+          error_message: string | null
+          id: string
+          input_text: string | null
+          kb_article_ids: string[]
+          metadata: Json
+          mode: string | null
+          model: string | null
+          output_text: string | null
+          prompt_tokens: number | null
+          provider: string | null
+          run_type: string
+          skip_reason: string | null
+          status: string
+          visitor_message_id: string | null
+          workspace_id: string
+        }
+        Insert: {
+          completion_tokens?: number | null
+          confidence?: number | null
+          conversation_id?: string | null
+          created_at?: string
+          credits_used?: number
+          error_message?: string | null
+          id?: string
+          input_text?: string | null
+          kb_article_ids?: string[]
+          metadata?: Json
+          mode?: string | null
+          model?: string | null
+          output_text?: string | null
+          prompt_tokens?: number | null
+          provider?: string | null
+          run_type: string
+          skip_reason?: string | null
+          status: string
+          visitor_message_id?: string | null
+          workspace_id: string
+        }
+        Update: {
+          completion_tokens?: number | null
+          confidence?: number | null
+          conversation_id?: string | null
+          created_at?: string
+          credits_used?: number
+          error_message?: string | null
+          id?: string
+          input_text?: string | null
+          kb_article_ids?: string[]
+          metadata?: Json
+          mode?: string | null
+          model?: string | null
+          output_text?: string | null
+          prompt_tokens?: number | null
+          provider?: string | null
+          run_type?: string
+          skip_reason?: string | null
+          status?: string
+          visitor_message_id?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_agent_runs_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_agent_settings: {
+        Row: {
+          agent_logo_url: string | null
+          agent_name: string
+          allowed_locales: string[]
+          answer_guidance: string
+          answer_only_from_kb: boolean
+          business_description: string | null
+          confidence_threshold: number
+          created_at: string
+          enabled: boolean
+          fallback_message: string
+          handoff_keywords: string[]
+          handoff_on_human_request: boolean
+          handoff_on_low_confidence: boolean
+          handoff_when_no_kb_match: boolean
+          id: string
+          instructions: Json
+          max_replies_per_conversation: number
+          max_replies_per_hour: number
+          metadata: Json
+          mode: string
+          show_sources_to_operator: boolean
+          show_sources_to_visitor: boolean
+          updated_at: string
+          welcome_message: string | null
+          workspace_id: string
+        }
+        Insert: {
+          agent_logo_url?: string | null
+          agent_name?: string
+          allowed_locales?: string[]
+          answer_guidance?: string
+          answer_only_from_kb?: boolean
+          business_description?: string | null
+          confidence_threshold?: number
+          created_at?: string
+          enabled?: boolean
+          fallback_message?: string
+          handoff_keywords?: string[]
+          handoff_on_human_request?: boolean
+          handoff_on_low_confidence?: boolean
+          handoff_when_no_kb_match?: boolean
+          id?: string
+          instructions?: Json
+          max_replies_per_conversation?: number
+          max_replies_per_hour?: number
+          metadata?: Json
+          mode?: string
+          show_sources_to_operator?: boolean
+          show_sources_to_visitor?: boolean
+          updated_at?: string
+          welcome_message?: string | null
+          workspace_id: string
+        }
+        Update: {
+          agent_logo_url?: string | null
+          agent_name?: string
+          allowed_locales?: string[]
+          answer_guidance?: string
+          answer_only_from_kb?: boolean
+          business_description?: string | null
+          confidence_threshold?: number
+          created_at?: string
+          enabled?: boolean
+          fallback_message?: string
+          handoff_keywords?: string[]
+          handoff_on_human_request?: boolean
+          handoff_on_low_confidence?: boolean
+          handoff_when_no_kb_match?: boolean
+          id?: string
+          instructions?: Json
+          max_replies_per_conversation?: number
+          max_replies_per_hour?: number
+          metadata?: Json
+          mode?: string
+          show_sources_to_operator?: boolean
+          show_sources_to_visitor?: boolean
+          updated_at?: string
+          welcome_message?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_agent_settings_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: true
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_agent_sources: {
+        Row: {
+          created_at: string
+          enabled: boolean
+          id: string
+          metadata: Json
+          source_type: string
+          status: string
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          metadata?: Json
+          source_type: string
+          status?: string
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          metadata?: Json
+          source_type?: string
+          status?: string
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_agent_sources_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_agent_suggestions: {
+        Row: {
+          confidence: number | null
+          conversation_id: string
+          created_at: string
+          created_by_run_id: string | null
+          id: string
+          source_article_ids: string[]
+          status: string
+          suggested_reply: string
+          updated_at: string
+          visitor_message_id: string | null
+          workspace_id: string
+        }
+        Insert: {
+          confidence?: number | null
+          conversation_id: string
+          created_at?: string
+          created_by_run_id?: string | null
+          id?: string
+          source_article_ids?: string[]
+          status?: string
+          suggested_reply: string
+          updated_at?: string
+          visitor_message_id?: string | null
+          workspace_id: string
+        }
+        Update: {
+          confidence?: number | null
+          conversation_id?: string
+          created_at?: string
+          created_by_run_id?: string | null
+          id?: string
+          source_article_ids?: string[]
+          status?: string
+          suggested_reply?: string
+          updated_at?: string
+          visitor_message_id?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_agent_suggestions_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ai_kb_generated_articles: {
         Row: {
           confidence: number | null

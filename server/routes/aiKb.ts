@@ -413,10 +413,136 @@ aiKbRouter.post('/generated/:id/publish', async (req: Request, res: Response) =>
         reviewed_at: new Date().toISOString(),
       })
       .eq('id', gen.id);
-    return res.json({ ok: true, kb_article_id: article.id });
+    // Post-publish verification — confirm the article is actually visible
+    // to the widget query (workspace + status='published').
+    const { data: verify } = await sb
+      .from('knowledge_base_articles')
+      .select('id, status, locale, slug')
+      .eq('id', article.id)
+      .eq('workspace_id', gen.workspace_id)
+      .eq('status', 'published')
+      .maybeSingle();
+    if (!verify) {
+      return res.status(500).json({ error: 'publish_verification_failed', kb_article_id: article.id });
+    }
+    return res.json({
+      ok: true,
+      kb_article_id: article.id,
+      status: 'published',
+      slug: verify.slug,
+      locale: verify.locale,
+    });
   } catch (err: any) {
     return res.status(500).json({ error: 'publish_failed', details: err?.message });
   }
+});
+
+// ──────────────────────────────────────────────────────────────
+//  POST /api/ai-kb/jobs/:jobId/publish-all
+//  Bulk publish all pending/accepted generated drafts for a job.
+// ──────────────────────────────────────────────────────────────
+aiKbRouter.post('/jobs/:jobId/publish-all', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const sb = getServiceClient(config);
+
+  const { data: job } = await sb
+    .from('ai_kb_jobs')
+    .select('id, workspace_id')
+    .eq('id', req.params.jobId)
+    .maybeSingle();
+  if (!job) return res.status(404).json({ error: 'job_not_found' });
+
+  const auth = await authorizeMember(req, res, config, job.workspace_id);
+  if (!auth) return;
+
+  const { data: drafts } = await sb
+    .from('ai_kb_generated_articles')
+    .select('*')
+    .eq('job_id', job.id)
+    .in('status', ['pending', 'accepted']);
+
+  const published: any[] = [];
+  const failed: any[] = [];
+  for (const gen of drafts || []) {
+    try {
+      const article = await upsertKbArticleFromGenerated(sb, gen, 'published');
+      await sb
+        .from('ai_kb_generated_articles')
+        .update({
+          status: 'published',
+          kb_article_id: article.id,
+          reviewed_by: auth.userId,
+          reviewed_at: new Date().toISOString(),
+        })
+        .eq('id', gen.id);
+      published.push({ generated_id: gen.id, kb_article_id: article.id });
+    } catch (err: any) {
+      failed.push({ generated_id: gen.id, error: err?.message || 'unknown' });
+    }
+  }
+  return res.json({ ok: true, published_count: published.length, failed_count: failed.length, published, failed });
+});
+
+// ──────────────────────────────────────────────────────────────
+//  GET /api/ai-kb/generated/:id/visibility — diagnostics
+// ──────────────────────────────────────────────────────────────
+aiKbRouter.get('/generated/:id/visibility', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const sb = getServiceClient(config);
+  const { data: gen } = await sb
+    .from('ai_kb_generated_articles')
+    .select('*')
+    .eq('id', req.params.id)
+    .maybeSingle();
+  if (!gen) return res.status(404).json({ error: 'not_found' });
+
+  const auth = await authorizeMember(req, res, config, gen.workspace_id);
+  if (!auth) return;
+
+  const result: any = {
+    generated_status: gen.status,
+    kb_article_id: gen.kb_article_id || null,
+    kb_article_status: null,
+    kb_article_locale: null,
+    kb_article_slug: null,
+    kb_article_workspace_id: null,
+    widget_visible: false,
+    reason_if_not_visible: null as string | null,
+  };
+
+  if (!gen.kb_article_id) {
+    result.reason_if_not_visible = 'no_kb_article';
+    return res.json(result);
+  }
+  const { data: art } = await sb
+    .from('knowledge_base_articles')
+    .select('id, status, locale, slug, workspace_id')
+    .eq('id', gen.kb_article_id)
+    .maybeSingle();
+  if (!art) {
+    result.reason_if_not_visible = 'article_missing';
+    return res.json(result);
+  }
+  result.kb_article_status = art.status;
+  result.kb_article_locale = art.locale;
+  result.kb_article_slug = art.slug;
+  result.kb_article_workspace_id = art.workspace_id;
+  if (art.workspace_id !== gen.workspace_id) {
+    result.reason_if_not_visible = 'workspace_mismatch';
+    return res.json(result);
+  }
+  if (art.status !== 'published') {
+    result.reason_if_not_visible = 'not_published';
+    return res.json(result);
+  }
+  if (art.locale !== gen.locale) {
+    // Not fatal — widget falls back across locales — but report it.
+    result.widget_visible = true;
+    result.reason_if_not_visible = 'locale_mismatch';
+    return res.json(result);
+  }
+  result.widget_visible = true;
+  return res.json(result);
 });
 
 // ──────────────────────────────────────────────────────────────

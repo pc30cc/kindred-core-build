@@ -187,11 +187,46 @@ function tryParseDraftJson(raw: string): { ok: true; value: any } | { ok: false;
     if (start >= 0 && end > start) {
       const sub = s.slice(start, end + 1);
       try { return { ok: true, value: JSON.parse(sub) }; } catch (e2: any) {
+        // Third attempt: truncated JSON — close any open string + braces.
+        const repaired = repairTruncatedJson(s.slice(start));
+        if (repaired) {
+          try { return { ok: true, value: JSON.parse(repaired) }; } catch { /* fall through */ }
+        }
         return { ok: false, error: e2?.message || 'parse_failed' };
       }
     }
     return { ok: false, error: e?.message || 'parse_failed' };
   }
+}
+
+/**
+ * Best-effort repair for JSON truncated mid-string (common when the model
+ * hits max_tokens). Closes the dangling string and any unclosed braces.
+ */
+function repairTruncatedJson(s: string): string | null {
+  let inStr = false;
+  let escape = false;
+  let braces = 0;
+  let brackets = 0;
+  let lastSafe = -1;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (escape) { escape = false; continue; }
+    if (ch === '\\') { escape = true; continue; }
+    if (ch === '"') { inStr = !inStr; continue; }
+    if (inStr) continue;
+    if (ch === '{') braces++;
+    else if (ch === '}') { braces--; if (braces >= 0 && brackets === 0) lastSafe = i; }
+    else if (ch === '[') brackets++;
+    else if (ch === ']') brackets--;
+  }
+  let out = s;
+  if (inStr) out += '"';
+  // Drop trailing comma before closing.
+  out = out.replace(/,\s*$/, '');
+  while (brackets-- > 0) out += ']';
+  while (braces-- > 0) out += '}';
+  return out;
 }
 
 async function generateArticle(
@@ -210,8 +245,9 @@ async function generateArticle(
       workspaceId,
       systemPrompt: sys,
       prompt: user,
-      maxTokens: 1500,
+      maxTokens: 3000,
       temperature: 0.4,
+      jsonMode: true,
     });
   } catch (err: any) {
     return {

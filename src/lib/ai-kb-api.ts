@@ -2,8 +2,9 @@
  * AI Knowledge Base Builder — operator-side API client.
  * All work runs through the project's own Express backend (no edge functions).
  */
-import { API_BASE } from './api';
 import { supabase } from '@/integrations/supabase/client';
+
+const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL || '';
 
 async function authHeaders(): Promise<Record<string, string>> {
   const { data } = await supabase.auth.getSession();

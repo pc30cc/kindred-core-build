@@ -28,6 +28,9 @@ export interface AIRequest {
   temperature?: number;
   /** Force JSON object response (OpenAI/compatible: response_format json_object). */
   jsonMode?: boolean;
+  /** Optional OpenAI-compatible function tools for structured output. */
+  tools?: any[];
+  toolChoice?: any;
 }
 
 export interface AIResponse {
@@ -65,6 +68,10 @@ async function callOpenAI(config: AIConfig, req: AIRequest): Promise<AIResponse>
   if (req.jsonMode) {
     body.response_format = { type: 'json_object' };
   }
+  if (req.tools?.length) {
+    body.tools = req.tools;
+    body.tool_choice = req.toolChoice || 'auto';
+  }
 
   // Network resilience: retry transient fetch failures (DNS flake, TLS reset,
   // ECONNRESET) up to 2 extra times with exponential backoff. Real API errors
@@ -82,9 +89,11 @@ async function callOpenAI(config: AIConfig, req: AIRequest): Promise<AIResponse>
 
   const data = await res.json();
   const latencyMs = Date.now() - start;
+  const message = data.choices?.[0]?.message;
+  const toolArgs = message?.tool_calls?.[0]?.function?.arguments;
 
   return {
-    text: data.choices?.[0]?.message?.content || '',
+    text: toolArgs || message?.content || '',
     model,
     provider: 'openai',
     promptTokens: data.usage?.prompt_tokens || 0,

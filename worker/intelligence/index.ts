@@ -19,6 +19,7 @@ import { DbJobQueueProvider, type JobQueueProvider } from '../../server/services
 const POLL_INTERVAL_MS = parseInt(process.env.AI_KB_WORKER_POLL_MS || '5000', 10);
 const WORKER_ID = process.env.WORKER_ID || `ai-kb-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
 const IDLE_LOG_INTERVAL_MS = parseInt(process.env.AI_KB_WORKER_IDLE_LOG_MS || '60000', 10);
+const WORKER_CODE_VERSION = 'ai-kb-admin-json-retry-v2';
 const REQUIRED_TABLES = [
   'ai_kb_jobs',
   'ai_kb_job_pages',
@@ -144,6 +145,7 @@ export function startAiKbWorker(envOverride?: Partial<WorkerEnv>) {
   log('started', {
     workerId: env.workerId,
     interval: POLL_INTERVAL_MS,
+    codeVersion: WORKER_CODE_VERSION,
     standalone,
     inproc,
   });

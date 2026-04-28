@@ -21,6 +21,7 @@ import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { checkModuleAccess } from '../middleware/featureGating.js';
+import { isGlobalAdmin, logGateBypass } from '../middleware/adminBypass.js';
 import { resolveSourceDomain } from '../services/ai-kb/sourceDomain.js';
 import { resolveAiKbLimits, countJobsThisMonth } from '../services/ai-kb/limits.js';
 import { readAiCreditState, logAiKbUsage } from '../services/ai-kb/credits.js';
@@ -34,7 +35,7 @@ async function authorizeMember(
   res: Response,
   config: ServerConfig,
   workspaceId: string,
-): Promise<{ userId: string } | null> {
+): Promise<{ userId: string; isAdmin: boolean } | null> {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) {
     res.status(401).json({ error: 'Missing authorization' });
@@ -47,24 +48,28 @@ async function authorizeMember(
     res.status(401).json({ error: 'Invalid token' });
     return null;
   }
-  const { data: isMember, error: memErr } = await sb.rpc('is_workspace_member', {
-    _workspace_id: workspaceId,
-    _user_id: user.id,
-  });
-  if (memErr) {
-    res.status(500).json({ error: 'Membership check failed' });
-    return null;
+  const isAdmin = await isGlobalAdmin(config, user.id);
+  if (!isAdmin) {
+    const { data: isMember, error: memErr } = await sb.rpc('is_workspace_member', {
+      _workspace_id: workspaceId,
+      _user_id: user.id,
+    });
+    if (memErr) {
+      res.status(500).json({ error: 'Membership check failed' });
+      return null;
+    }
+    if (!isMember) {
+      res.status(403).json({ error: 'Not a workspace member' });
+      return null;
+    }
   }
-  if (!isMember) {
-    res.status(403).json({ error: 'Not a workspace member' });
-    return null;
-  }
-  return { userId: user.id };
+  return { userId: user.id, isAdmin };
 }
 
 async function ensureModulesEnabled(
   config: ServerConfig,
   workspaceId: string,
+  opts?: { isAdmin?: boolean; userId?: string; route?: string },
 ): Promise<{ ok: true } | { ok: false; status: number; body: any }> {
   for (const moduleKey of ['knowledge_base', 'ai_kb_builder']) {
     const r = await checkModuleAccess(
@@ -74,6 +79,17 @@ async function ensureModulesEnabled(
       moduleKey,
     );
     if (!r.allowed) {
+      if (opts?.isAdmin && opts.userId) {
+        // Global admin bypass — log and continue.
+        await logGateBypass(config, {
+          userId: opts.userId,
+          workspaceId,
+          moduleKey,
+          route: opts.route || 'ai-kb',
+          reason: `plan=${r.plan || 'unknown'}`,
+        });
+        continue;
+      }
       return {
         ok: false,
         status: 403,
@@ -120,13 +136,14 @@ aiKbRouter.get('/source', async (req: Request, res: Response) => {
       slug: limitsInfo.planSlug,
       limits: limitsInfo.limits,
       jobs_used_this_month: jobsThisMonth,
-      can_start_job: jobsThisMonth < limitsInfo.limits.jobsPerMonth,
+      can_start_job: auth.isAdmin || jobsThisMonth < limitsInfo.limits.jobsPerMonth,
     },
     credits,
     modules: {
-      knowledge_base: modules[0].allowed,
-      ai_kb_builder: modules[1].allowed,
+      knowledge_base: modules[0].allowed || auth.isAdmin,
+      ai_kb_builder: modules[1].allowed || auth.isAdmin,
     },
+    is_global_admin: auth.isAdmin,
   });
 });
 
@@ -150,7 +167,11 @@ aiKbRouter.post('/jobs', async (req: Request, res: Response) => {
   const auth = await authorizeMember(req, res, config, workspaceId);
   if (!auth) return;
 
-  const gate = await ensureModulesEnabled(config, workspaceId);
+  const gate = await ensureModulesEnabled(config, workspaceId, {
+    isAdmin: auth.isAdmin,
+    userId: auth.userId,
+    route: 'POST /api/ai-kb/jobs',
+  });
   if (!gate.ok) {
     const blocked = gate as { ok: false; status: number; body: any };
     return res.status(blocked.status).json(blocked.body);
@@ -167,7 +188,7 @@ aiKbRouter.post('/jobs', async (req: Request, res: Response) => {
 
   const limitsInfo = await resolveAiKbLimits(config, workspaceId);
   const jobsUsed = await countJobsThisMonth(config, workspaceId);
-  if (jobsUsed >= limitsInfo.limits.jobsPerMonth) {
+  if (!auth.isAdmin && jobsUsed >= limitsInfo.limits.jobsPerMonth) {
     return res.status(403).json({
       error: 'monthly_job_limit_reached',
       plan: limitsInfo.planSlug,
@@ -180,6 +201,7 @@ aiKbRouter.post('/jobs', async (req: Request, res: Response) => {
   const planSnapshot: PlanSnapshot = {
     planSlug: limitsInfo.planSlug,
     ...limitsInfo.limits,
+    admin_override: auth.isAdmin || undefined,
     source: {
       kind: source.kind,
       domain: source.domain,
@@ -201,6 +223,8 @@ aiKbRouter.post('/jobs', async (req: Request, res: Response) => {
       locale: locale || 'en',
       status: 'queued',
       plan_snapshot: planSnapshot,
+      admin_override: auth.isAdmin,
+      created_by_global_admin: auth.isAdmin ? auth.userId : null,
     })
     .select('*')
     .single();
@@ -492,18 +516,24 @@ aiKbRouter.post('/jobs/test', async (req: Request, res: Response) => {
 
   // Require workspace owner/admin role for this admin-only debug path.
   const sb = getServiceClient(config);
-  const { data: roleRow } = await sb
-    .from('workspace_members')
-    .select('role')
-    .eq('workspace_id', workspaceId)
-    .eq('user_id', auth.userId)
-    .maybeSingle();
-  const role = (roleRow as any)?.role;
-  if (role !== 'owner' && role !== 'admin') {
-    return res.status(403).json({ error: 'admin_required' });
+  if (!auth.isAdmin) {
+    const { data: roleRow } = await sb
+      .from('workspace_members')
+      .select('role')
+      .eq('workspace_id', workspaceId)
+      .eq('user_id', auth.userId)
+      .maybeSingle();
+    const role = (roleRow as any)?.role;
+    if (role !== 'owner' && role !== 'admin') {
+      return res.status(403).json({ error: 'admin_required' });
+    }
   }
 
-  const gate = await ensureModulesEnabled(config, workspaceId);
+  const gate = await ensureModulesEnabled(config, workspaceId, {
+    isAdmin: auth.isAdmin,
+    userId: auth.userId,
+    route: 'POST /api/ai-kb/jobs/test',
+  });
   if (!gate.ok) {
     const blocked = gate as { ok: false; status: number; body: any };
     return res.status(blocked.status).json(blocked.body);
@@ -525,6 +555,7 @@ aiKbRouter.post('/jobs/test', async (req: Request, res: Response) => {
     maxPages: 1,
     maxDepth: 0,
     maxArticles: generate ? 1 : 0,
+    admin_override: auth.isAdmin || undefined,
     source: {
       kind: source.kind,
       domain: source.domain,
@@ -545,6 +576,8 @@ aiKbRouter.post('/jobs/test', async (req: Request, res: Response) => {
       locale: 'en',
       status: 'queued',
       plan_snapshot: planSnapshot,
+      admin_override: auth.isAdmin,
+      created_by_global_admin: auth.isAdmin ? auth.userId : null,
     })
     .select('*')
     .single();

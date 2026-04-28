@@ -69,7 +69,29 @@ export function startAiKbWorker(envOverride?: Partial<WorkerEnv>) {
   const run = () => tick(sb, queue, env).catch((e) => console.error('[ai-kb worker]', e));
   run();
   timer = setInterval(run, POLL_INTERVAL_MS);
-  timer.unref?.();
+  // NOTE: do NOT call timer.unref() here. In standalone mode the interval
+  // is the only thing keeping the event loop alive — unref'ing it makes
+  // the process exit immediately, which causes container restart loops.
+  if (process.env.AI_KB_WORKER_INPROC === '1') {
+    // In-process (dev) mode: the Express server keeps the loop alive,
+    // so we can safely unref to avoid blocking shutdown.
+    timer.unref?.();
+  }
+
+  // Keep the process alive cleanly and handle signals.
+  const shutdown = (sig: string) => {
+    console.log(`[ai-kb worker] received ${sig}, shutting down`);
+    if (timer) clearInterval(timer);
+    process.exit(0);
+  };
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('uncaughtException', (e) => {
+    console.error('[ai-kb worker] uncaughtException', e);
+  });
+  process.on('unhandledRejection', (e) => {
+    console.error('[ai-kb worker] unhandledRejection', e);
+  });
 }
 
 // Standalone entry — only runs the loop when this module is the main one.

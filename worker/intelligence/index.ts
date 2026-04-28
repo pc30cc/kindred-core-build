@@ -90,11 +90,8 @@ async function tick(sb: SupabaseClient, queue: JobQueueProvider, env: WorkerEnv)
 
     try {
       await processJob(sb, env, job);
-      log('job completed', {
-        jobId: job.id,
-        articlesGenerated: (job as any).articles_generated,
-        pagesCrawled: (job as any).pages_crawled,
-      });
+      // processJob writes the authoritative final log ("job finished")
+      // with up-to-date local counters, so we don't log stale ones here.
     } catch (err: any) {
       log('job failed', { jobId: job.id, error: err?.message });
       await queue.failJob(job.id, err?.message || 'unknown');

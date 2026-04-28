@@ -298,6 +298,15 @@ app.listen(config.port, () => {
   // 'expired' and patches the system card so the widget UI updates.
   startInvitationExpirySweeper(config);
 
+  // AI KB Builder — optional in-process worker (dev/local only).
+  // Production deploys MUST run worker/intelligence as a separate
+  // process/container. Set AI_KB_WORKER_INPROC=1 to enable here.
+  if (process.env.AI_KB_WORKER_INPROC === '1') {
+    import('../worker/intelligence/index.js')
+      .then((m) => m.startAiKbWorker?.())
+      .catch((e) => console.warn('[ai-kb worker] inproc start failed:', e?.message));
+  }
+
   // ─── Post-deploy widget manifest invalidation ────────────────────
   // The in-memory widget manifest cache is per-process, so a fresh deploy
   // (which restarts this process) starts with an empty cache anyway. BUT:

@@ -14,7 +14,7 @@ export default function AnalyticsPage() {
   }
 
   const runs = runsData?.runs || [];
-  const totals = stats?.totals || { total: 0, replied: 0, suggested: 0, handoff: 0, no_answer: 0, failed: 0, skipped: 0 };
+  const s = stats || { total: 0, replies: 0, handoffs: 0, no_answer: 0 };
 
   return (
     <div className="space-y-6">
@@ -29,10 +29,10 @@ export default function AnalyticsPage() {
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { label: 'Total runs', value: totals.total },
-          { label: 'Replied', value: totals.replied },
-          { label: 'Handoff', value: totals.handoff },
-          { label: 'No answer', value: totals.no_answer },
+          { label: 'Total runs', value: s.total },
+          { label: 'Replied', value: s.replies },
+          { label: 'Handoff', value: s.handoffs },
+          { label: 'No answer', value: s.no_answer },
         ].map((s) => (
           <Card key={s.label}><CardContent className="p-4">
             <p className="text-xs text-muted-foreground">{s.label}</p>

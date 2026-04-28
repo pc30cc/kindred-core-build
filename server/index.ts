@@ -34,6 +34,7 @@ import { callAvailabilityRouter } from './routes/callAvailability.js';
 import { callbacksRouter } from './routes/callbacks.js';
 import { workspaceDepartmentsRouter } from './routes/workspaceDepartments.js';
 import { callInvitationsRouter } from './routes/callInvitations.js';
+import { aiKbRouter } from './routes/aiKb.js';
 import { startCallQueueTicker } from './services/calls/queueTicker.js';
 import { startInvitationExpirySweeper } from './services/calls/invitations.js';
 import { startAttachmentJanitor } from './services/attachmentJanitor.js';
@@ -238,6 +239,11 @@ app.use('/api/workspace-departments', workspaceDepartmentsRouter);
 // Phase 9 — Operator-side Call Invitations (invitation-first calling).
 // Auth + workspace membership enforced inside the router.
 app.use('/api/call-invitations', callInvitationsRouter);
+
+// AI Knowledge Base Builder — auth + workspace membership enforced inside.
+// Worker that actually crawls + generates runs as a separate process; see
+// worker/intelligence/index.ts and Dockerfile.worker.
+app.use('/api/ai-kb', aiKbRouter);
 
 // 404
 app.use((_req, res) => {

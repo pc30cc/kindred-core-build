@@ -53,7 +53,7 @@ import {
   getClientIp,
   getRequestOrigin,
 } from '../services/widget/security.js';
-import { resolveAIConfig, executeAICompletion } from '../services/ai/index.js';
+import { maybeRunAiAssistantAfterVisitorMessage } from '../services/ai-agent/engine.js';
 import { resolveVisitorIdentity, readVisitorCookie } from '../services/widget/visitorIdentity.js';
 import { widgetIdentityRouter } from './widgetIdentity.js';
 import { widgetAttachmentsRouter, attachUploadedFileToMessage, enrichMessagesWithAttachments } from './widgetAttachments.js';

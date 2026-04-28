@@ -73,6 +73,36 @@ export type Database = {
         }
         Relationships: []
       }
+      admin_gate_bypass_log: {
+        Row: {
+          created_at: string
+          id: string
+          module_key: string
+          reason: string | null
+          route: string
+          user_id: string
+          workspace_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          module_key: string
+          reason?: string | null
+          route: string
+          user_id: string
+          workspace_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          module_key?: string
+          reason?: string | null
+          route?: string
+          user_id?: string
+          workspace_id?: string | null
+        }
+        Relationships: []
+      }
       ai_kb_generated_articles: {
         Row: {
           confidence: number | null
@@ -277,10 +307,12 @@ export type Database = {
       }
       ai_kb_jobs: {
         Row: {
+          admin_override: boolean
           articles_generated: number
           claimed_at: string | null
           completed_at: string | null
           created_at: string
+          created_by_global_admin: string | null
           credits_used: number
           error_message: string | null
           id: string
@@ -302,10 +334,12 @@ export type Database = {
           workspace_id: string
         }
         Insert: {
+          admin_override?: boolean
           articles_generated?: number
           claimed_at?: string | null
           completed_at?: string | null
           created_at?: string
+          created_by_global_admin?: string | null
           credits_used?: number
           error_message?: string | null
           id?: string
@@ -327,10 +361,12 @@ export type Database = {
           workspace_id: string
         }
         Update: {
+          admin_override?: boolean
           articles_generated?: number
           claimed_at?: string | null
           completed_at?: string | null
           created_at?: string
+          created_by_global_admin?: string | null
           credits_used?: number
           error_message?: string | null
           id?: string

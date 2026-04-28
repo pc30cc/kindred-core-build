@@ -44,6 +44,8 @@ export interface PlanSnapshot {
   maxArticles: number;
   maxChars: number;
   monthlyCredits: number;
+  /** Job created by global admin — worker may relax monthly-quota gating. */
+  admin_override?: boolean;
   source: {
     kind: 'workspace_domain' | 'profile_domain';
     domain: string;

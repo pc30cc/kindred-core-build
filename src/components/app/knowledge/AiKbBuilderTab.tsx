@@ -100,10 +100,12 @@ export default function AiKbBuilderTab() {
     return <div className="p-6 text-sm text-muted-foreground">Loading…</div>;
   }
 
-  const blocked = !src.modules.knowledge_base || !src.modules.ai_kb_builder;
+  const isAdmin = !!src.is_global_admin;
+  const moduleBlocked = !src.modules.knowledge_base || !src.modules.ai_kb_builder;
+  const blocked = moduleBlocked && !isAdmin;
 
   const noDomain = !src.source.can_scan || !src.source.domain;
-  const limitReached = !src.plan.can_start_job;
+  const limitReached = !src.plan.can_start_job && !isAdmin;
   const disabledReason = blocked
     ? 'AI Knowledge Builder module is disabled on your plan.'
     : noDomain
@@ -151,6 +153,15 @@ export default function AiKbBuilderTab() {
           <div className="text-xs text-foreground">
             AI Knowledge Builder is not enabled on your plan. Upgrade or ask an admin to enable the
             <code className="mx-1">ai_kb_builder</code> module.
+          </div>
+        </div>
+      )}
+
+      {isAdmin && moduleBlocked && (
+        <div className="card-elevated p-4 flex items-start gap-3 border border-primary/30 bg-primary/5">
+          <AlertCircle className="w-4 h-4 text-primary mt-0.5" />
+          <div className="text-xs text-foreground">
+            Global Admin override active — module gating is bypassed for diagnostic use. Bypasses are written to the audit log.
           </div>
         </div>
       )}

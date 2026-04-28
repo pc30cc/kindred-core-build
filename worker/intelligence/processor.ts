@@ -160,6 +160,7 @@ type GenerateDraftResult =
       draft: {
         title: string; slug: string; excerpt: string; content_md: string;
         confidence: number; model: string; provider: string;
+        locale?: 'en' | 'fa' | 'tr';
       };
     }
   | {

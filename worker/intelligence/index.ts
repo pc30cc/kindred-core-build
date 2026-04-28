@@ -33,7 +33,7 @@ export interface WorkerEnv {
   workerId: string;
 }
 
-function log(event: string, data: Record<string, any> = {}) {
+export function workerLog(event: string, data: Record<string, any> = {}) {
   // Single-line structured log so Coolify/Loki can parse easily.
   try {
     console.log(`[ai-kb worker] ${event}`, JSON.stringify(data));
@@ -41,6 +41,7 @@ function log(event: string, data: Record<string, any> = {}) {
     console.log(`[ai-kb worker] ${event}`);
   }
 }
+const log = workerLog;
 
 function loadEnv(): WorkerEnv {
   const supabaseUrl = process.env.SUPABASE_URL;

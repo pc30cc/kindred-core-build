@@ -583,7 +583,7 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
       slug: draft.slug || (draft.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80)),
       excerpt: draft.excerpt,
       content_md: draft.content_md,
-      locale: job.locale || 'en',
+      locale: draft.locale || job.locale || 'en',
       confidence: draft.confidence,
       source_urls: [page.url],
       model: draft.model,

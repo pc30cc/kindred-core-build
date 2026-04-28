@@ -188,6 +188,7 @@ async function callGemini(config: AIConfig, req: AIRequest): Promise<AIResponse>
     generationConfig: {
       maxOutputTokens: req.maxTokens || config.maxTokens || 4096,
       temperature: req.temperature ?? config.temperature ?? 0.7,
+      ...(req.jsonMode ? { responseMimeType: 'application/json' } : {}),
     },
   };
   if (req.systemPrompt) {

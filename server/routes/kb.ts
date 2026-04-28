@@ -235,7 +235,7 @@ widgetKbRouter.get('/article', async (req: Request, res: Response) => {
   const locale = normalizeLocale(parsed.data.locale);
 
   const supabase = getServiceClient(config);
-  const { data: article } = await supabase
+  let { data: article } = await supabase
     .from('knowledge_base_articles')
     .select('id, title, slug, excerpt, content, locale, updated_at, category_id')
     .eq('workspace_id', workspace_id)
@@ -243,6 +243,18 @@ widgetKbRouter.get('/article', async (req: Request, res: Response) => {
     .eq('slug', slug)
     .eq('status', 'published')
     .maybeSingle();
+
+  if (!article) {
+    // Fallback: same slug in any other locale (cross-language content).
+    const { data: anyArticle } = await supabase
+      .from('knowledge_base_articles')
+      .select('id, title, slug, excerpt, content, locale, updated_at, category_id')
+      .eq('workspace_id', workspace_id)
+      .eq('slug', slug)
+      .eq('status', 'published')
+      .maybeSingle();
+    article = anyArticle || null;
+  }
 
   if (!article) return res.status(404).json({ error: 'not_found' });
 

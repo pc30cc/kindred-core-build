@@ -512,7 +512,12 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
     const draft = result.draft;
 
     // Deduct 1 credit only on a valid draft. Failed AI/parse cost 0.
-    const ded = await consumeAiCredits(serverConfig, job.workspace_id, 1);
+    // Global Admin override (job.admin_override) bypasses credit gating
+    // for diagnostic / platform-owner runs. Bypass is implicit via the
+    // job flag set at creation time and was already audit-logged then.
+    const ded = job.admin_override
+      ? { success: true, reason: 'admin_override' as const }
+      : await consumeAiCredits(serverConfig, job.workspace_id, 1);
     if (!ded.success) {
       creditExhausted = true;
       lastGenerationReason = 'credits_exhausted';

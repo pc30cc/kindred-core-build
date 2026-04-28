@@ -173,6 +173,7 @@ const fa: TranslationKeys = {
     knowledgeBase: 'پایگاه دانش',
     widget: 'ویجت',
     ai: 'هوش مصنوعی',
+    aiAgent: 'دستیار هوشمند',
     email: 'ایمیل',
     team: 'تیم',
     billing: 'صورتحساب',

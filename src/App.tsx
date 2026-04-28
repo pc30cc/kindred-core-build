@@ -37,6 +37,22 @@ import VisitorsPage from "@/pages/app/VisitorsPage";
 import KnowledgeBasePage from "@/pages/app/KnowledgeBasePage";
 import WidgetPage from "@/pages/app/WidgetPage";
 import AIPage from "@/pages/app/AIPage";
+// AI Agent (Phase 1 foundation)
+import { AiAgentLayout } from "@/components/layout/AiAgentLayout";
+import AiAgentSettingsPage from "@/pages/app/ai-agent/SettingsPage";
+import AiAgentActivationPage from "@/pages/app/ai-agent/ActivationPage";
+import AiAgentPlaygroundPage from "@/pages/app/ai-agent/PlaygroundPage";
+import AiAgentAnalyticsPage from "@/pages/app/ai-agent/AnalyticsPage";
+import AiAgentBillingPage from "@/pages/app/ai-agent/BillingPage";
+import AiAgentRoutingPage from "@/pages/app/ai-agent/RoutingPage";
+import AiAgentInstructionsPage from "@/pages/app/ai-agent/InstructionsPage";
+import AiAgentQnaPage from "@/pages/app/ai-agent/QnaPage";
+import AiAgentWebPagesPage from "@/pages/app/ai-agent/WebPagesPage";
+import AiAgentFilesPage from "@/pages/app/ai-agent/FilesPage";
+import AiAgentTopicsPage from "@/pages/app/ai-agent/TopicsPage";
+import AiAgentWorkflowPage from "@/pages/app/ai-agent/WorkflowPage";
+import AiAgentTriggersPage from "@/pages/app/ai-agent/TriggersPage";
+import AiAgentIntegrationsPage from "@/pages/app/ai-agent/IntegrationsPage";
 import EmailPage from "@/pages/app/EmailPage";
 import BillingPage from "@/pages/app/BillingPage";
 import SettingsGeneralPage from "@/pages/app/settings/GeneralPage";
@@ -203,6 +219,24 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                   <Route path="privacy-requests" element={<PrivacyRequestsPage />} />
                   <Route path="knowledge-base" element={<KnowledgeBasePage />} />
                   <Route path="ai" element={<AIPage />} />
+                </Route>
+                {/* AI Agent — Phase 1 foundation. Separate layout with its own sidebar. */}
+                <Route path="ai-agent" element={<AiAgentLayout />}>
+                  <Route index element={<Navigate to="playground" replace />} />
+                  <Route path="playground" element={<AiAgentPlaygroundPage />} />
+                  <Route path="analytics" element={<AiAgentAnalyticsPage />} />
+                  <Route path="activation" element={<AiAgentActivationPage />} />
+                  <Route path="settings" element={<AiAgentSettingsPage />} />
+                  <Route path="billing" element={<AiAgentBillingPage />} />
+                  <Route path="routing" element={<AiAgentRoutingPage />} />
+                  <Route path="instructions" element={<AiAgentInstructionsPage />} />
+                  <Route path="qna" element={<AiAgentQnaPage />} />
+                  <Route path="web-pages" element={<AiAgentWebPagesPage />} />
+                  <Route path="files" element={<AiAgentFilesPage />} />
+                  <Route path="topics" element={<AiAgentTopicsPage />} />
+                  <Route path="workflow" element={<AiAgentWorkflowPage />} />
+                  <Route path="triggers" element={<AiAgentTriggersPage />} />
+                  <Route path="integrations" element={<AiAgentIntegrationsPage />} />
                 </Route>
                 {/* Backwards-compat redirects: legacy URLs → settings */}
                 <Route path="team" element={<Navigate to="../settings/team-departments" replace />} />

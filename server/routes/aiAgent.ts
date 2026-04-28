@@ -23,6 +23,24 @@ import { resolveAIConfig } from '../services/ai/index.js';
 
 export const aiAgentRouter: Router = express.Router();
 
+// ─── Phase 1 in-memory rate limit for playground tests ───
+// 30 tests / 5 min per (workspace,user). Documented as temporary safeguard
+// until usage-metering for playground is wired up in Phase 2.
+const playgroundCounters = new Map<string, { count: number; windowStart: number }>();
+const PLAYGROUND_LIMIT = 30;
+const PLAYGROUND_WINDOW = 5 * 60_000;
+function checkPlaygroundRateLimit(workspaceId: string, userId: string): boolean {
+  const key = `${workspaceId}:${userId}`;
+  const now = Date.now();
+  const c = playgroundCounters.get(key);
+  if (!c || now - c.windowStart > PLAYGROUND_WINDOW) {
+    playgroundCounters.set(key, { count: 1, windowStart: now });
+    return true;
+  }
+  c.count += 1;
+  return c.count <= PLAYGROUND_LIMIT;
+}
+
 // ─── Auth: workspace member (or global admin) ───
 async function authorizeMember(
   req: Request,
@@ -132,6 +150,23 @@ aiAgentRouter.put('/settings', async (req: Request, res: Response) => {
 
   // Activation gate: enabling requires AI provider + (if KB-only) at least 1 article.
   if (patch.enabled === true) {
+    // Module gate: ai_assistant must be on the workspace plan
+    // (or the operator must be a global admin — bypass mirrors existing pattern).
+    if (!auth.isAdmin) {
+      const mod = await checkModuleAccess(
+        config.supabaseUrl,
+        config.supabaseServiceRoleKey,
+        workspaceId,
+        'ai_assistant',
+      );
+      if (!mod.allowed) {
+        return res.status(409).json({
+          error: 'module_ai_assistant_not_enabled',
+          plan: mod.plan,
+          upgrade_required: true,
+        });
+      }
+    }
     const ai = await resolveAIConfig(config, workspaceId);
     if (!ai) {
       return res.status(409).json({ error: 'ai_provider_not_configured' });
@@ -216,6 +251,13 @@ aiAgentRouter.post('/playground/test', async (req: Request, res: Response) => {
   const { workspaceId, question, locale, guidanceOverride, modelOverride } = parsed.data;
   const auth = await authorizeMember(req, res, config, workspaceId);
   if (!auth) return;
+
+  if (!checkPlaygroundRateLimit(workspaceId, auth.userId)) {
+    return res.status(429).json({
+      error: 'playground_rate_limited',
+      message: `Limit ${PLAYGROUND_LIMIT} tests per 5 minutes per user.`,
+    });
+  }
 
   try {
     const result = await runPlayground(config, {

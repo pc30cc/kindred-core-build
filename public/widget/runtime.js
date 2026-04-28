@@ -3287,12 +3287,12 @@
             sessionToken: ctx.sessionToken,
             locale: ctx.locale,
             onResult: function (r) {
-              kbStore.set({ loaded: true, categories: r.categories || [] });
+              kbStore.set({ loaded: true, categories: r.categories || [], articles: r.articles || [] });
               cb && cb();
             },
           });
         } else {
-          kbStore.set({ loaded: true, categories: [] });
+          kbStore.set({ loaded: true, categories: [], articles: [] });
           cb && cb();
         }
       });
@@ -3363,9 +3363,10 @@
           html += '</div>';
         }
       } else {
-        // 'list' — categories + (no search)
+        // 'list' — published articles first, then categories.
         var cats = s.categories || [];
-        if (!cats.length) {
+        var articles = s.articles || [];
+        if (!cats.length && !articles.length) {
           html += '<div class="kb-empty kb-empty-centered">' +
             '<div class="kb-empty-icon" aria-hidden="true">' +
               '<svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">' +
@@ -3381,6 +3382,20 @@
             '</button>' +
           '</div>';
         } else {
+          if (articles.length) {
+            html += '<div class="kb-section-h">' + Util.escapeHtml(t('kbAllArticles')) + '</div>';
+            html += '<div class="kb-list">';
+            articles.forEach(function (a) {
+              html +=
+                '<button type="button" class="kb-article" data-kb-action="open" data-kb-slug="' +
+                  Util.escapeHtml(a.slug) + '">' +
+                  '<div class="kb-article-title">' + Util.escapeHtml(a.title) + '</div>' +
+                  (a.excerpt ? '<div class="kb-article-excerpt">' + Util.escapeHtml(a.excerpt) + '</div>' : '') +
+                '</button>';
+            });
+            html += '</div>';
+          }
+          if (cats.length) {
           html += '<div class="kb-section-h">' + Util.escapeHtml(t('kbCategories')) + '</div>';
           html += '<div class="kb-list">';
           cats.forEach(function (c) {
@@ -3392,6 +3407,7 @@
               '</a>';
           });
           html += '</div>';
+          }
         }
       }
 
@@ -4715,6 +4731,7 @@
     var kbStore = createStore({
       loaded: false,
       categories: [],
+      articles: [],
       searchResults: [],
     });
     // notifyStore — Phase 4

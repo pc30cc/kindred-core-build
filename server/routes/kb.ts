@@ -140,14 +140,25 @@ widgetKbRouter.get('/categories', async (req: Request, res: Response) => {
   const locale = normalizeLocale(parsed.data.locale);
 
   const supabase = getServiceClient(config);
-  const { data: cats } = await supabase
-    .from('knowledge_base_categories')
-    .select('id, name, slug, description, icon, sort_order')
-    .eq('workspace_id', workspace_id)
-    .eq('locale', locale)
-    .order('sort_order', { ascending: true });
+  const [{ data: cats }, { data: articles }] = await Promise.all([
+    supabase
+      .from('knowledge_base_categories')
+      .select('id, name, slug, description, icon, sort_order')
+      .eq('workspace_id', workspace_id)
+      .eq('locale', locale)
+      .order('sort_order', { ascending: true }),
+    supabase
+      .from('knowledge_base_articles')
+      .select('id, title, slug, excerpt, category_id, sort_order')
+      .eq('workspace_id', workspace_id)
+      .eq('locale', locale)
+      .eq('status', 'published')
+      .order('sort_order', { ascending: true })
+      .order('updated_at', { ascending: false })
+      .limit(20),
+  ]);
 
-  return res.json({ locale, categories: cats || [] });
+  return res.json({ locale, categories: cats || [], articles: articles || [] });
 });
 
 const categoryArticlesSchema = z.object({

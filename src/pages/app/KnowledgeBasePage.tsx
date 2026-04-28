@@ -393,6 +393,9 @@ export default function KnowledgeBasePage() {
                   </span>
                 </div>
                 <div className="flex items-center gap-1">
+                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(article)} title="Edit article">
+                    <Edit className="h-3.5 w-3.5" />
+                  </Button>
                   <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => deleteArticle.mutate(article.id)}>
                     <Trash2 className="h-3.5 w-3.5 text-destructive" />
                   </Button>

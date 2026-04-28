@@ -23,6 +23,8 @@ export interface AIRequest {
   model?: string;
   maxTokens?: number;
   temperature?: number;
+  /** Force JSON object response (OpenAI/compatible: response_format json_object). */
+  jsonMode?: boolean;
 }
 
 export interface AIResponse {
@@ -57,8 +59,14 @@ async function callOpenAI(config: AIConfig, req: AIRequest): Promise<AIResponse>
     max_tokens: req.maxTokens || config.maxTokens || 4096,
     temperature: req.temperature ?? config.temperature ?? 0.7,
   };
+  if (req.jsonMode) {
+    body.response_format = { type: 'json_object' };
+  }
 
-  const res = await fetch(`${baseUrl}/chat/completions`, {
+  // Network resilience: retry transient fetch failures (DNS flake, TLS reset,
+  // ECONNRESET) up to 2 extra times with exponential backoff. Real API errors
+  // (4xx/5xx) are returned immediately and surfaced to the caller.
+  const res = await fetchWithRetry(`${baseUrl}/chat/completions`, {
     method: 'POST',
     headers,
     body: JSON.stringify(body),
@@ -81,6 +89,40 @@ async function callOpenAI(config: AIConfig, req: AIRequest): Promise<AIResponse>
     totalTokens: data.usage?.total_tokens || 0,
     latencyMs,
   };
+}
+
+// ─── Network retry helper ────────────────────────────────────────
+// Retries only on TypeError / fetch failed / common transient codes.
+// Never retries on HTTP error responses — those are returned to the caller.
+async function fetchWithRetry(
+  url: string,
+  init: RequestInit,
+  maxAttempts = 3,
+): Promise<Response> {
+  let lastErr: any;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fetch(url, init);
+    } catch (err: any) {
+      lastErr = err;
+      const transient =
+        err?.name === 'TypeError' ||
+        /fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|socket hang up/i.test(
+          String(err?.message || err?.cause?.message || err?.code || ''),
+        );
+      if (!transient || attempt === maxAttempts) {
+        throw err;
+      }
+      const delay = 500 * Math.pow(2, attempt - 1); // 500ms, 1s
+      console.warn(`[ai] transient fetch failure, retrying in ${delay}ms`, {
+        attempt,
+        error: err?.message,
+        code: err?.code || err?.cause?.code,
+      });
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  throw lastErr;
 }
 
 // ─── Anthropic ───────────────────────────────────────────────────

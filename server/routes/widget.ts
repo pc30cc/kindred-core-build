@@ -1128,98 +1128,30 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       ).catch(() => {});
     }
 
-    // AI auto-reply attempt
     // ─────────────────────────────────────────────────────────────────────
-    // Phase 2: replace this primitive auto-reply with
-    // maybeRunAiAssistantAfterVisitorMessage from the AI Agent engine
-    // (server/services/ai-agent/*) once the foundation is verified.
-    // Phase 2 will start in suggest_only mode first, and only later
-    // enable real visitor auto-replies based on ai_agent_settings.mode.
-    // Until then, this primitive block remains as the active behavior.
+    // Phase 2 — AI Agent engine, suggest_only.
+    //
+    // The previous primitive inline auto-reply has been removed. The new
+    // engine respects ai_agent_settings.mode:
+    //   - off / disabled → no-op
+    //   - suggest_only   → creates an ai_agent_suggestions row + run
+    //                      (visitor sees nothing)
+    //   - auto_reply_*   → NOT wired in Phase 2 (logged as skipped)
+    //
+    // Fire-and-forget: must never block the widget /message response.
     // ─────────────────────────────────────────────────────────────────────
-    let reply: string | null = null;
-    try {
-      const aiConfig = await resolveAIConfig(config, workspaceId);
-      if (aiConfig) {
-        // Get conversation history for context
-        const { data: history } = await supabase
-          .from('conversation_messages')
-          .select('body, sender_type, created_at')
-          .eq('conversation_id', convId)
-          .order('created_at', { ascending: true })
-          .limit(20);
-
-        // Get KB articles for context
-        const { data: kbArticles } = await supabase
-          .from('knowledge_base_articles')
-          .select('title, content')
-          .eq('workspace_id', workspaceId)
-          .eq('status', 'published')
-          .limit(5);
-
-        const kbContext = kbArticles?.length
-          ? '\n\nKnowledge Base:\n' + kbArticles.map((a: any) => `- ${a.title}: ${(a.content || '').slice(0, 300)}`).join('\n')
-          : '';
-
-        const { data: wsInfo } = await supabase
-          .from('workspaces').select('name').eq('id', workspaceId).maybeSingle();
-
-        const systemPrompt = `You are a helpful support assistant for "${wsInfo?.name || 'this company'}".
-Answer customer questions concisely and helpfully.
-If you cannot answer, say so politely.${kbContext}`;
-
-        const prompt = (history || []).map((m: any) =>
-          `${m.sender_type === 'contact' ? 'Customer' : 'Agent'}: ${m.body}`
-        ).join('\n');
-
-        const aiResponse = await executeAICompletion(config, {
-          workspaceId,
-          prompt,
-          systemPrompt,
-          maxTokens: 300,
-          temperature: 0.7,
-        });
-
-        if (aiResponse.text) {
-          reply = aiResponse.text;
-          const { data: aiMsg } = await supabase.from('conversation_messages').insert({
-            conversation_id: convId,
-            body: reply,
-            // Distinguish AI auto-replies from human agent messages so the
-            // inbox, analytics, and filters can tell them apart. Envelope
-            // shape published to Centrifugo stays identical.
-            sender_type: 'ai',
-            metadata: { source: 'ai_auto_reply', provider: aiResponse.provider, model: aiResponse.model },
-          })
-            .select('id, conversation_id, sender_type, body, created_at, metadata, seen_at')
-            .single();
-          if (aiMsg) {
-            publishConversationEvent(
-              config,
-              workspaceId,
-              convId!,
-              buildMessageEnvelope(aiMsg as any),
-            ).catch(() => {});
-            // Phase 4b — record canonical 'ai_reply' timeline event.
-            // Payload contract: { message_id, provider?, model? }
-            void recordConversationEvent(config, {
-              workspaceId,
-              conversationId: convId!,
-              eventType: 'ai_reply',
-              actorType: 'ai',
-              actorId: null,
-              payload: {
-                message_id: aiMsg.id,
-                provider: aiResponse.provider ?? null,
-                model: aiResponse.model ?? null,
-              },
-            });
-          }
-        }
-      }
-    } catch (aiErr: any) {
-      console.warn('[widget-message] AI auto-reply failed:', aiErr.message);
+    if (insertedMsg?.id && convId) {
+      void maybeRunAiAssistantAfterVisitorMessage(config, {
+        workspaceId,
+        conversationId: convId,
+        visitorMessageId: insertedMsg.id,
+        question: messageBody,
+        locale: (req.body && (req.body.locale as string)) || undefined,
+      }).catch((e: any) =>
+        console.warn('[widget-message] AI Agent engine error:', e?.message || e),
+      );
     }
+    const reply: string | null = null;
 
     return res.json({
       conversation_id: convId,

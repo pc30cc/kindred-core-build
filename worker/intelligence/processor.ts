@@ -312,11 +312,18 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
     const r = await fetchPage(url, root);
     if (!r.ok || !r.html) {
       await sb.from('ai_kb_job_pages')
-        .update({ status: 'failed', http_status: r.status, error_message: r.reason })
+        .update({
+          status: 'failed',
+          http_status: r.status,
+          error_message: r.detail ? `${r.reason}: ${r.detail}`.slice(0, 500) : r.reason,
+        })
         .eq('job_id', job.id).eq('url_hash', urlHash);
       await sb.from('ai_kb_jobs').update({ pages_failed: (job.pages_failed || 0) + 1 }).eq('id', job.id);
       pagesBlocked += 1;
-      workerLog('page blocked', { jobId: job.id, url, reason: r.reason, status: r.status });
+      workerLog('page blocked', { jobId: job.id, url, reason: r.reason, detail: r.detail, status: r.status });
+      await jobQueue.recordEvent(job.id, job.workspace_id, 'warn', 'Page blocked', {
+        url, reason: r.reason, detail: r.detail, status: r.status,
+      });
       continue;
     }
     const { text, title, links } = stripHtml(r.html);

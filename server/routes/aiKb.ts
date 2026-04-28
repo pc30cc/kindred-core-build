@@ -393,3 +393,170 @@ aiKbRouter.post('/generated/:id/publish', async (req: Request, res: Response) =>
     return res.status(500).json({ error: 'publish_failed', details: err?.message });
   }
 });
+
+// ──────────────────────────────────────────────────────────────
+//  GET /api/ai-kb/worker/diagnostics — observability for AI Builder
+// ──────────────────────────────────────────────────────────────
+aiKbRouter.get('/worker/diagnostics', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = String(req.query.workspaceId || req.query.workspace_id || '');
+  if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
+
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+
+  const sb = getServiceClient(config);
+
+  const [
+    queuedRes,
+    runningRes,
+    failedRes,
+    latestRes,
+    source,
+    limitsInfo,
+    credits,
+    jobsThisMonth,
+  ] = await Promise.all([
+    sb.from('ai_kb_jobs').select('id', { count: 'exact', head: true })
+      .eq('workspace_id', workspaceId).eq('status', 'queued'),
+    sb.from('ai_kb_jobs').select('id', { count: 'exact', head: true })
+      .eq('workspace_id', workspaceId).in('status', ['running', 'crawling', 'generating']),
+    sb.from('ai_kb_jobs').select('id', { count: 'exact', head: true })
+      .eq('workspace_id', workspaceId).eq('status', 'failed'),
+    sb.from('ai_kb_jobs').select('*')
+      .eq('workspace_id', workspaceId).order('created_at', { ascending: false }).limit(1).maybeSingle(),
+    resolveSourceDomain(config, workspaceId),
+    resolveAiKbLimits(config, workspaceId),
+    readAiCreditState(config, workspaceId),
+    countJobsThisMonth(config, workspaceId),
+  ]);
+
+  const modules = await Promise.all([
+    checkModuleAccess(config.supabaseUrl, config.supabaseServiceRoleKey, workspaceId, 'knowledge_base'),
+    checkModuleAccess(config.supabaseUrl, config.supabaseServiceRoleKey, workspaceId, 'ai_kb_builder'),
+  ]);
+
+  const latest: any = (latestRes as any).data || null;
+
+  return res.json({
+    counts: {
+      queued_jobs_count: queuedRes.count || 0,
+      running_jobs_count: runningRes.count || 0,
+      failed_jobs_count: failedRes.count || 0,
+    },
+    latest_job: latest,
+    latest_job_status: latest?.status || null,
+    latest_worker_id: latest?.worker_id || null,
+    latest_heartbeat_at: latest?.updated_at || null,
+    latest_error: latest?.error_message || null,
+    source_domain_status: {
+      domain: source.domain,
+      kind: source.kind,
+      verified: source.verified,
+      can_scan: source.can_scan,
+      reason_if_blocked: source.reason_if_blocked,
+    },
+    modules: {
+      knowledge_base: modules[0].allowed,
+      ai_kb_builder: modules[1].allowed,
+    },
+    plan: {
+      slug: limitsInfo.planSlug,
+      limits: limitsInfo.limits,
+      jobs_used_this_month: jobsThisMonth,
+    },
+    credits,
+  });
+});
+
+// ──────────────────────────────────────────────────────────────
+//  POST /api/ai-kb/jobs/test — admin-only dry-run job
+//  Creates a tiny queued job (maxPages=1, maxArticles configurable)
+//  to verify the worker claim & crawl path without burning credits.
+// ──────────────────────────────────────────────────────────────
+const testJobSchema = z.object({
+  workspaceId: z.string().uuid(),
+  generate: z.boolean().optional(),
+});
+
+aiKbRouter.post('/jobs/test', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = testJobSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
+  }
+  const { workspaceId, generate } = parsed.data;
+
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+
+  // Require workspace owner/admin role for this admin-only debug path.
+  const sb = getServiceClient(config);
+  const { data: roleRow } = await sb
+    .from('workspace_members')
+    .select('role')
+    .eq('workspace_id', workspaceId)
+    .eq('user_id', auth.userId)
+    .maybeSingle();
+  const role = (roleRow as any)?.role;
+  if (role !== 'owner' && role !== 'admin') {
+    return res.status(403).json({ error: 'admin_required' });
+  }
+
+  const gate = await ensureModulesEnabled(config, workspaceId);
+  if (!gate.ok) {
+    const blocked = gate as { ok: false; status: number; body: any };
+    return res.status(blocked.status).json(blocked.body);
+  }
+
+  const source = await resolveSourceDomain(config, workspaceId);
+  if (!source.can_scan || !source.domain) {
+    return res.status(409).json({
+      error: 'no_scannable_domain',
+      reason: source.reason_if_blocked || 'missing_domain',
+    });
+  }
+
+  const limitsInfo = await resolveAiKbLimits(config, workspaceId);
+  const planSnapshot: PlanSnapshot = {
+    planSlug: limitsInfo.planSlug,
+    ...limitsInfo.limits,
+    // Force minimal scope for the dry-run.
+    maxPages: 1,
+    maxDepth: 0,
+    maxArticles: generate ? 1 : 0,
+    source: {
+      kind: source.kind,
+      domain: source.domain,
+      verified: source.verified,
+      workspace_domain_id: source.workspace_domain_id,
+    },
+  };
+
+  const { data: job, error } = await sb
+    .from('ai_kb_jobs')
+    .insert({
+      workspace_id: workspaceId,
+      requested_by: auth.userId,
+      source_kind: source.kind,
+      source_domain: source.domain,
+      source_workspace_domain_id: source.workspace_domain_id,
+      source_verified: source.verified,
+      locale: 'en',
+      status: 'queued',
+      plan_snapshot: planSnapshot,
+    })
+    .select('*')
+    .single();
+
+  if (error || !job) {
+    return res.status(500).json({ error: 'job_create_failed', details: error?.message });
+  }
+
+  await logAiKbUsage(config, workspaceId, 'job_created', {
+    jobId: job.id,
+    metadata: { domain: source.domain, test: true, generate: !!generate },
+  });
+
+  return res.status(201).json({ job, test: true });
+});

@@ -77,4 +77,21 @@ export const aiKbApi = {
     const res = await fetch(`${API_BASE}/api/ai-kb/generated/${id}/publish`, { method: 'POST', headers: await authHeaders() });
     return res.json();
   },
+  async getDiagnostics(workspaceId: string) {
+    const res = await fetch(`${API_BASE}/api/ai-kb/worker/diagnostics?workspaceId=${workspaceId}`, {
+      headers: await authHeaders(),
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'failed');
+    return res.json();
+  },
+  async createTestJob(workspaceId: string, generate = false) {
+    const res = await fetch(`${API_BASE}/api/ai-kb/jobs/test`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify({ workspaceId, generate }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'failed');
+    return data;
+  },
 };

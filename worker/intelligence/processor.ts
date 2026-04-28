@@ -25,6 +25,7 @@ import { executeAICompletion } from '../../server/services/ai/index.js';
 import { consumeAiCredits } from '../../server/services/ai-kb/credits.js';
 import { DbJobQueueProvider } from '../../server/services/ai-kb/queue.js';
 import type { ServerConfig } from '../../server/config.js';
+import { workerLog } from './index.js';
 
 const TIMEOUT_MS = parseInt(process.env.CRAWLER_TIMEOUT_MS || '15000', 10);
 const MAX_BYTES = parseInt(process.env.CRAWLER_MAX_BYTES || '2000000', 10); // 2 MB
@@ -188,6 +189,7 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
 
   await jobQueue.updateJob(job.id, { status: 'crawling', progress: 5 } as any);
   await jobQueue.recordEvent(job.id, job.workspace_id, 'info', 'Crawl started', { domain: root });
+  workerLog('crawl started', { jobId: job.id, domain: root });
 
   // BFS crawl
   const crawlQueue: Array<{ url: string; depth: number }> = [{ url: seedUrl, depth: 0 }];
@@ -214,10 +216,12 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
         .update({ status: 'failed', http_status: r.status, error_message: r.reason })
         .eq('job_id', job.id).eq('url_hash', urlHash);
       await sb.from('ai_kb_jobs').update({ pages_failed: (job.pages_failed || 0) + 1 }).eq('id', job.id);
+      workerLog('page blocked', { jobId: job.id, url, reason: r.reason, status: r.status });
       continue;
     }
     const { text, title, links } = stripHtml(r.html);
     fetched.push({ url, html: r.html, title, text });
+    workerLog('page fetched', { jobId: job.id, url, status: r.status, textLength: text.length });
     await sb.from('ai_kb_job_pages').update({
       status: 'extracted', http_status: r.status, bytes: r.bytes, text_length: text.length,
       content_hash: hash(text), title, fetched_at: new Date().toISOString(),
@@ -244,6 +248,7 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
 
   // Generate
   await jobQueue.updateJob(job.id, { status: 'generating', progress: 55 } as any);
+  workerLog('generation started', { jobId: job.id, candidatePages: fetched.length });
 
   const maxArticles = Math.max(1, snap.maxArticles || 3);
   let generated = 0;
@@ -284,6 +289,7 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
       creditExhausted = true;
       await jobQueue.recordEvent(job.id, job.workspace_id, 'warn',
         'AI credits exhausted; dropping generated draft', { reason: ded.reason });
+      workerLog('credits exhausted', { jobId: job.id, reason: ded.reason });
       break;
     }
 
@@ -303,6 +309,11 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
 
     generated += 1;
     creditsUsed += 1;
+    workerLog('draft generated', {
+      jobId: job.id,
+      generatedArticleId: ins?.id,
+      creditsUsed,
+    });
     await jobQueue.updateJob(job.id, {
       articles_generated: generated,
       credits_used: creditsUsed,

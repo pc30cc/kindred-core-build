@@ -3383,7 +3383,7 @@
           '</div>';
         } else {
           if (articles.length) {
-            html += '<div class="kb-section-h">' + Util.escapeHtml(t('kbArticles')) + '</div>';
+            html += '<div class="kb-section-h">' + Util.escapeHtml(t('kbAllArticles')) + '</div>';
             html += '<div class="kb-list">';
             articles.forEach(function (a) {
               html +=

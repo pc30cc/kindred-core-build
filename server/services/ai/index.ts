@@ -218,7 +218,13 @@ export async function resolveAIConfig(serverConfig: ServerConfig, workspaceId: s
 
   if (wsConfig?.config) {
     const c = wsConfig.config as any;
-    return {
+    if (!c.api_key) {
+      console.error('[ai] workspace provider_configs missing api_key', {
+        workspaceId,
+        provider: wsConfig.provider_name,
+      });
+    } else {
+      return {
       provider: wsConfig.provider_name,
       apiKey: c.api_key,
       model: c.model || 'gpt-4o-mini',
@@ -226,7 +232,8 @@ export async function resolveAIConfig(serverConfig: ServerConfig, workspaceId: s
       temperature: c.temperature ? parseFloat(c.temperature) : undefined,
       baseUrl: c.base_url || c.endpoint || providerBaseUrls[wsConfig.provider_name],
       orgId: c.org_id,
-    };
+      };
+    }
   }
 
   // 2. Global default from runtime config
@@ -237,14 +244,27 @@ export async function resolveAIConfig(serverConfig: ServerConfig, workspaceId: s
     .single();
 
   if (globalConfig?.value) {
-    const c = globalConfig.value as any;
+    const raw = globalConfig.value as any;
+    // Support two shapes:
+    //  A) flat: { provider, api_key, model, ... }
+    //  B) nested: { provider_name, config: { api_key, model, ... } }
+    const provider = raw.provider || raw.provider_name || 'openai';
+    const c = raw.config && typeof raw.config === 'object' ? raw.config : raw;
+    if (!c.api_key) {
+      console.error('[ai] default_ai_provider missing api_key', {
+        provider,
+        hasConfigWrapper: !!raw.config,
+        keys: Object.keys(raw),
+      });
+      return null;
+    }
     return {
-      provider: c.provider || 'openai',
+      provider,
       apiKey: c.api_key,
       model: c.model || 'gpt-4o-mini',
       maxTokens: c.max_tokens ? parseInt(c.max_tokens) : undefined,
       temperature: c.temperature ? parseFloat(c.temperature) : undefined,
-      baseUrl: c.base_url || providerBaseUrls[c.provider],
+      baseUrl: c.base_url || c.endpoint || providerBaseUrls[provider],
       orgId: c.org_id,
     };
   }

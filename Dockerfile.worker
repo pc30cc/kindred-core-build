@@ -23,11 +23,11 @@
 FROM node:20-alpine
 WORKDIR /app
 
-# Install root deps INCLUDING devDependencies — the worker runs TypeScript
-# directly via `tsx`, which lives in devDependencies. Without it `npx tsx`
-# would re-download tsx on every container start (slow + flaky on Coolify).
+# Install root deps. `tsx` is a runtime dependency (see package.json) so a
+# normal production install includes it — no devDependencies, no network
+# fetch at container start.
 COPY package.json package-lock.json* ./
-RUN npm ci --include=dev || npm install --include=dev
+RUN npm ci --omit=dev || npm install --omit=dev
 
 # Worker code + the small slice of server code it imports.
 COPY worker ./worker
@@ -40,4 +40,6 @@ ENV NODE_ENV=production
 ENV AI_KB_WORKER_STANDALONE=1
 
 # Use the locally installed tsx binary — no network fetch at startup.
+# Verified at build time so the image fails fast if tsx is missing.
+RUN test -f node_modules/tsx/dist/cli.mjs || (echo "❌ tsx not installed" && ls node_modules/.bin | head && exit 1)
 CMD ["node", "node_modules/tsx/dist/cli.mjs", "worker/intelligence/index.ts"]

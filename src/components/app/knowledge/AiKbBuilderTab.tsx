@@ -4,7 +4,23 @@ import { aiKbApi, type AiKbSourceResponse } from '@/lib/ai-kb-api';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { Globe, Sparkles, AlertCircle, CheckCircle2, RefreshCcw, FileText } from 'lucide-react';
+import { Globe, Sparkles, AlertCircle, CheckCircle2, RefreshCcw, FileText, Clock } from 'lucide-react';
+
+const ERROR_MESSAGES: Record<string, string> = {
+  no_scannable_domain: 'No verified workspace domain. Add and verify a domain first.',
+  monthly_job_limit_reached: 'You have reached this month\u2019s scan limit for your plan.',
+  module_disabled: 'AI Knowledge Builder is not enabled on your plan.',
+  unauthorized: 'You are not authorized to start a scan.',
+  job_create_failed: 'Could not create the job. Please try again.',
+  invalid_params: 'Invalid request. Please refresh and retry.',
+};
+
+function friendlyError(raw: string | undefined): string {
+  if (!raw) return 'Failed to start scan';
+  if (ERROR_MESSAGES[raw]) return ERROR_MESSAGES[raw];
+  if (raw.includes('Module ')) return raw;
+  return raw;
+}
 
 export default function AiKbBuilderTab() {
   const workspace = useCurrentWorkspace();
@@ -13,6 +29,7 @@ export default function AiKbBuilderTab() {
   const [activeJob, setActiveJob] = useState<any | null>(null);
   const [generated, setGenerated] = useState<any[]>([]);
   const [busy, setBusy] = useState(false);
+  const [stuckQueued, setStuckQueued] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!workspace?.id) return;
@@ -47,13 +64,27 @@ export default function AiKbBuilderTab() {
     if (!workspace?.id) return;
     setBusy(true);
     try {
-      await aiKbApi.createJob(workspace.id);
-      toast.success('Scan queued. Worker will pick it up shortly.');
+      const r = await aiKbApi.createJob(workspace.id);
+      const id = r?.job?.id;
+      toast.success(id ? `Scan queued (job ${id.slice(0, 8)}). Waiting for worker…` : 'Scan queued.');
+      setStuckQueued(false);
       await refresh();
     } catch (e: any) {
-      toast.error(e?.message || 'Failed to start scan');
+      toast.error(friendlyError(e?.message));
     } finally { setBusy(false); }
   };
+
+  // Detect "queued > 60s without worker pickup" so we can surface a clear hint.
+  useEffect(() => {
+    if (!activeJob || activeJob.status !== 'queued') { setStuckQueued(false); return; }
+    const created = new Date(activeJob.created_at).getTime();
+    const check = () => {
+      setStuckQueued(Date.now() - created > 60_000 && activeJob.status === 'queued');
+    };
+    check();
+    const id = setInterval(check, 5000);
+    return () => clearInterval(id);
+  }, [activeJob]);
 
   const onAction = async (id: string, action: 'accept' | 'reject' | 'publish') => {
     try {
@@ -129,7 +160,9 @@ export default function AiKbBuilderTab() {
       {activeJob && (
         <div className="card-elevated p-4 space-y-2">
           <div className="flex items-center justify-between">
-            <div className="text-sm font-semibold text-foreground">Latest job</div>
+            <div className="text-sm font-semibold text-foreground">
+              Latest job <span className="text-xs font-mono text-muted-foreground ml-1">{activeJob.id?.slice(0, 8)}</span>
+            </div>
             <Badge variant="outline" className="capitalize">{activeJob.status}</Badge>
           </div>
           <div className="h-2 rounded bg-secondary overflow-hidden">
@@ -140,6 +173,14 @@ export default function AiKbBuilderTab() {
           </div>
           {activeJob.error_message && (
             <div className="text-xs text-destructive">{activeJob.error_message}</div>
+          )}
+          {stuckQueued && (
+            <div className="flex items-start gap-2 text-xs text-warning bg-warning/5 border border-warning/20 rounded p-2">
+              <Clock className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+              <span>
+                Worker has not picked up this job yet. Check the <code>intelligence-worker</code> service logs.
+              </span>
+            </div>
           )}
         </div>
       )}

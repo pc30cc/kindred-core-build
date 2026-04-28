@@ -150,6 +150,23 @@ aiAgentRouter.put('/settings', async (req: Request, res: Response) => {
 
   // Activation gate: enabling requires AI provider + (if KB-only) at least 1 article.
   if (patch.enabled === true) {
+    // Module gate: ai_assistant must be on the workspace plan
+    // (or the operator must be a global admin — bypass mirrors existing pattern).
+    if (!auth.isAdmin) {
+      const mod = await checkModuleAccess(
+        config.supabaseUrl,
+        config.supabaseServiceRoleKey,
+        workspaceId,
+        'ai_assistant',
+      );
+      if (!mod.allowed) {
+        return res.status(409).json({
+          error: 'module_ai_assistant_not_enabled',
+          plan: mod.plan,
+          upgrade_required: true,
+        });
+      }
+    }
     const ai = await resolveAIConfig(config, workspaceId);
     if (!ai) {
       return res.status(409).json({ error: 'ai_provider_not_configured' });

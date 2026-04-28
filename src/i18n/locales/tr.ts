@@ -173,6 +173,7 @@ const tr: TranslationKeys = {
     knowledgeBase: 'Bilgi Bankası',
     widget: 'Widget',
     ai: 'Yapay Zeka',
+    aiAgent: 'AI Asistanı',
     email: 'E-posta',
     team: 'Ekip',
     billing: 'Faturalandırma',

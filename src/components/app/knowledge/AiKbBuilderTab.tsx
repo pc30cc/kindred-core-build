@@ -102,6 +102,16 @@ export default function AiKbBuilderTab() {
 
   const blocked = !src.modules.knowledge_base || !src.modules.ai_kb_builder;
 
+  const noDomain = !src.source.can_scan || !src.source.domain;
+  const limitReached = !src.plan.can_start_job;
+  const disabledReason = blocked
+    ? 'AI Knowledge Builder module is disabled on your plan.'
+    : noDomain
+      ? 'No workspace domain available. Add a domain in workspace settings first.'
+      : limitReached
+        ? `Monthly scan limit reached (${src.plan.jobs_used_this_month}/${src.plan.limits.jobsPerMonth}).`
+        : '';
+
   return (
     <div className="space-y-5">
       {/* Source + plan */}
@@ -145,11 +155,18 @@ export default function AiKbBuilderTab() {
         </div>
       )}
 
-      <div className="flex justify-end">
+      <div className="flex flex-col items-end gap-2">
+        {disabledReason && (
+          <div className="flex items-center gap-2 text-xs text-warning">
+            <AlertCircle className="w-3.5 h-3.5" />
+            <span>{disabledReason}</span>
+          </div>
+        )}
         <Button
           onClick={startScan}
-          disabled={busy || blocked || !src.source.can_scan || !src.plan.can_start_job}
+          disabled={busy || blocked || noDomain || limitReached}
           className="gap-2"
+          title={disabledReason || undefined}
         >
           <Sparkles className="w-4 h-4" />
           {busy ? 'Starting…' : 'Start AI scan of my website'}

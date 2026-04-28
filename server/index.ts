@@ -34,6 +34,7 @@ import { callAvailabilityRouter } from './routes/callAvailability.js';
 import { callbacksRouter } from './routes/callbacks.js';
 import { workspaceDepartmentsRouter } from './routes/workspaceDepartments.js';
 import { callInvitationsRouter } from './routes/callInvitations.js';
+import { aiKbRouter } from './routes/aiKb.js';
 import { startCallQueueTicker } from './services/calls/queueTicker.js';
 import { startInvitationExpirySweeper } from './services/calls/invitations.js';
 import { startAttachmentJanitor } from './services/attachmentJanitor.js';
@@ -239,6 +240,11 @@ app.use('/api/workspace-departments', workspaceDepartmentsRouter);
 // Auth + workspace membership enforced inside the router.
 app.use('/api/call-invitations', callInvitationsRouter);
 
+// AI Knowledge Base Builder — auth + workspace membership enforced inside.
+// Worker that actually crawls + generates runs as a separate process; see
+// worker/intelligence/index.ts and Dockerfile.worker.
+app.use('/api/ai-kb', aiKbRouter);
+
 // 404
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });
@@ -291,6 +297,15 @@ app.listen(config.port, () => {
   // invitations whose CALL_INVITATION_TTL_SECONDS window passed into
   // 'expired' and patches the system card so the widget UI updates.
   startInvitationExpirySweeper(config);
+
+  // AI KB Builder — optional in-process worker (dev/local only).
+  // Production deploys MUST run worker/intelligence as a separate
+  // process/container. Set AI_KB_WORKER_INPROC=1 to enable here.
+  if (process.env.AI_KB_WORKER_INPROC === '1') {
+    import('../worker/intelligence/index.js')
+      .then((m) => m.startAiKbWorker?.())
+      .catch((e) => console.warn('[ai-kb worker] inproc start failed:', e?.message));
+  }
 
   // ─── Post-deploy widget manifest invalidation ────────────────────
   // The in-memory widget manifest cache is per-process, so a fresh deploy

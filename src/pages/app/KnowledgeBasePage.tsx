@@ -12,8 +12,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import {
   Plus, Trash2, BookOpen, Search, Eye, ThumbsUp, Globe,
   FileText, Edit, X, Bold, Italic, Heading2, List, Link2, Code2, Quote, BarChart3,
-  CheckCircle2, AlertCircle
+  CheckCircle2, AlertCircle, Sparkles
 } from 'lucide-react';
+import AiKbBuilderTab from '@/components/app/knowledge/AiKbBuilderTab';
 
 type FormData = {
   title: string; slug: string; content: string; excerpt: string;
@@ -47,6 +48,7 @@ export default function KnowledgeBasePage() {
   const [showEditor, setShowEditor] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [editorTab, setEditorTab] = useState<'editor' | 'preview'>('editor');
+  const [pageTab, setPageTab] = useState<'articles' | 'ai_builder'>('articles');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const { data: articles, isLoading } = useKBArticles(workspace?.id, locale, statusFilter);
@@ -98,11 +100,28 @@ export default function KnowledgeBasePage() {
           <h1 className="page-header">{t('knowledgeBase.title')}</h1>
           <p className="page-subtitle">Create and manage help articles for your customers</p>
         </div>
-        <Button onClick={() => { setShowEditor(true); setEditId(null); setForm(emptyForm); setEditorTab('editor'); }} className="gap-2">
-          <Plus className="w-4 h-4" />
-          <span className="hidden sm:inline">{t('knowledgeBase.newArticle')}</span>
-        </Button>
+        {pageTab === 'articles' && (
+          <Button onClick={() => { setShowEditor(true); setEditId(null); setForm(emptyForm); setEditorTab('editor'); }} className="gap-2">
+            <Plus className="w-4 h-4" />
+            <span className="hidden sm:inline">{t('knowledgeBase.newArticle')}</span>
+          </Button>
+        )}
       </div>
+
+      {/* Page-level tabs */}
+      <div className="inline-flex items-center gap-1 bg-secondary rounded-lg p-0.5">
+        <button onClick={() => setPageTab('articles')}
+          className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${pageTab === 'articles' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground'}`}>
+          Articles
+        </button>
+        <button onClick={() => setPageTab('ai_builder')}
+          className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all flex items-center gap-1.5 ${pageTab === 'ai_builder' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground'}`}>
+          <Sparkles className="w-3.5 h-3.5" /> AI Builder
+        </button>
+      </div>
+
+      {pageTab === 'ai_builder' ? <AiKbBuilderTab /> : (
+      <>
 
       {/* Stats */}
       <div className="grid grid-cols-4 gap-2.5">

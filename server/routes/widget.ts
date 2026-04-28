@@ -1129,6 +1129,14 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
     }
 
     // AI auto-reply attempt
+    // ─────────────────────────────────────────────────────────────────────
+    // Phase 2: replace this primitive auto-reply with
+    // maybeRunAiAssistantAfterVisitorMessage from the AI Agent engine
+    // (server/services/ai-agent/*) once the foundation is verified.
+    // Phase 2 will start in suggest_only mode first, and only later
+    // enable real visitor auto-replies based on ai_agent_settings.mode.
+    // Until then, this primitive block remains as the active behavior.
+    // ─────────────────────────────────────────────────────────────────────
     let reply: string | null = null;
     try {
       const aiConfig = await resolveAIConfig(config, workspaceId);

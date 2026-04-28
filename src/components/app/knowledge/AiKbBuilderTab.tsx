@@ -5,7 +5,7 @@ import { useTranslation } from '@/i18n';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { Globe, Sparkles, AlertCircle, CheckCircle2, RefreshCcw, FileText, Clock } from 'lucide-react';
+import { Globe, Sparkles, AlertCircle, CheckCircle2, RefreshCcw, FileText, Clock, Eye, Info, Rocket } from 'lucide-react';
 
 const ERROR_MESSAGES: Record<string, string> = {
   no_scannable_domain: 'No verified workspace domain. Add and verify a domain first.',
@@ -99,6 +99,35 @@ export default function AiKbBuilderTab() {
     } catch (e: any) {
       toast.error(e?.message || 'Action failed');
     }
+  };
+
+  const publishAll = async () => {
+    if (!activeJob?.id) return;
+    const eligible = generated.filter((g) => g.status === 'pending' || g.status === 'accepted').length;
+    if (!eligible) { toast.info('No drafts to publish'); return; }
+    if (!window.confirm(`Publish ${eligible} draft(s) to the widget Help Center?`)) return;
+    try {
+      const r = await aiKbApi.publishAll(activeJob.id);
+      toast.success(`Published ${r.published_count} draft(s)${r.failed_count ? ` · ${r.failed_count} failed` : ''}`);
+      await refresh();
+    } catch (e: any) {
+      toast.error(e?.message || 'Publish all failed');
+    }
+  };
+
+  const statusBadge = (status: string) => {
+    if (status === 'pending') return <Badge variant="outline" className="text-[10px]">Generated only · not in widget</Badge>;
+    if (status === 'accepted') return <Badge className="bg-amber-500/10 text-amber-600 border-amber-500/20 text-[10px]">Saved as KB draft · not in widget</Badge>;
+    if (status === 'published') return <Badge className="bg-success/10 text-success border-success/20 text-[10px]">Published in Help Center</Badge>;
+    if (status === 'rejected') return <Badge variant="outline" className="text-[10px]">Rejected</Badge>;
+    return <Badge variant="outline" className="text-[10px] capitalize">{status}</Badge>;
+  };
+
+  const publicHelpUrl = (g: any) => {
+    const slug = g.slug || g.kb_article_slug;
+    if (!slug) return null;
+    const loc = g.locale || 'en';
+    return `${window.location.origin}/help/${loc}/a/${slug}`;
   };
 
   if (!src) {
@@ -266,7 +295,22 @@ export default function AiKbBuilderTab() {
       {/* Generated drafts */}
       {generated.length > 0 && (
         <div className="space-y-2">
-          <h3 className="text-sm font-semibold text-foreground">Generated drafts</h3>
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-foreground">Generated drafts</h3>
+            {generated.some((g) => g.status === 'pending' || g.status === 'accepted') && (
+              <Button size="sm" onClick={publishAll} className="gap-1">
+                <Rocket className="w-3.5 h-3.5" /> Publish all to widget
+              </Button>
+            )}
+          </div>
+          <div className="card-elevated p-3 flex items-start gap-2 border border-primary/20 bg-primary/5">
+            <Info className="w-4 h-4 text-primary mt-0.5 shrink-0" />
+            <div className="text-xs text-foreground space-y-1">
+              <div>Generated drafts are <strong>not</strong> visible in the widget yet.</div>
+              <div>“Save as draft” creates a KB draft only — invisible to visitors.</div>
+              <div>“Publish to widget” makes the article visible in the widget Help Center.</div>
+            </div>
+          </div>
           <div className="space-y-2">
             {generated.map((g) => (
               <div key={g.id} className="card-elevated p-4">
@@ -275,7 +319,7 @@ export default function AiKbBuilderTab() {
                     <div className="flex items-center gap-2">
                       <FileText className="w-4 h-4 text-primary shrink-0" />
                       <div className="text-sm font-semibold text-foreground truncate">{g.title}</div>
-                      <Badge variant="outline" className="capitalize text-[10px]">{g.status}</Badge>
+                      {statusBadge(g.status)}
                     </div>
                     {g.excerpt && <div className="text-xs text-muted-foreground mt-1 line-clamp-2">{g.excerpt}</div>}
                     <div className="text-[10px] text-muted-foreground mt-1">
@@ -288,12 +332,24 @@ export default function AiKbBuilderTab() {
                         <Button size="sm" variant="outline" onClick={() => onAction(g.id, 'reject')}>Reject</Button>
                         <Button size="sm" variant="outline" onClick={() => onAction(g.id, 'accept')}>Save as draft</Button>
                         <Button size="sm" onClick={() => onAction(g.id, 'publish')} className="gap-1">
-                          <CheckCircle2 className="w-3.5 h-3.5" /> Publish
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Publish to widget
                         </Button>
                       </>
                     )}
                     {g.status === 'accepted' && (
-                      <Button size="sm" onClick={() => onAction(g.id, 'publish')}>Publish</Button>
+                      <Button size="sm" onClick={() => onAction(g.id, 'publish')} className="gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Publish to widget
+                      </Button>
+                    )}
+                    {g.status === 'published' && publicHelpUrl(g) && (
+                      <a
+                        href={publicHelpUrl(g)!}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                      >
+                        <Eye className="w-3.5 h-3.5" /> Open in Help Center
+                      </a>
                     )}
                   </div>
                 </div>

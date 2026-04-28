@@ -289,7 +289,24 @@ widgetKbRouter.get('/search', async (req: Request, res: Response) => {
     return res.json({ results: [] });
   }
 
-  return res.json({ locale, q, results: rows || [] });
+  // Cross-locale fallback: if no results in requested locale, search across
+  // all locales for this workspace using a simple ilike match. This keeps the
+  // widget useful when content was authored in a different language than the
+  // visitor's UI locale.
+  let results = rows || [];
+  if (!results.length) {
+    const like = `%${q.replace(/[%_]/g, ' ')}%`;
+    const { data: anyRows } = await supabase
+      .from('knowledge_base_articles')
+      .select('id, title, slug, excerpt, locale')
+      .eq('workspace_id', workspace_id)
+      .eq('status', 'published')
+      .or(`title.ilike.${like},excerpt.ilike.${like},content.ilike.${like}`)
+      .limit(limit);
+    results = anyRows || [];
+  }
+
+  return res.json({ locale, q, results });
 });
 
 // ──────────────────────────────────────────────────────────────────────

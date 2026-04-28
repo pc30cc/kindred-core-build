@@ -3277,7 +3277,9 @@
 
     function ensure(cb) {
       var s = kbStore.get();
-      if (s.loaded) return cb && cb();
+      var TTL_MS = 60 * 1000;
+      var fresh = s.loaded && s.loadedAt && (Date.now() - s.loadedAt) < TTL_MS;
+      if (fresh) return cb && cb();
       ModuleLoader.load('kb', moduleUrl(), function () {
         var mod = ModuleLoader.modules.kb;
         if (mod && mod.loadCategories) {
@@ -3287,12 +3289,15 @@
             sessionToken: ctx.sessionToken,
             locale: ctx.locale,
             onResult: function (r) {
-              kbStore.set({ loaded: true, categories: r.categories || [], articles: r.articles || [] });
+              var arts = r.articles || [];
+              var cats = r.categories || [];
+              try { console.info('[Widget KB] loaded articles', { count: arts.length, categories: cats.length, locale: ctx.locale, workspaceId: ctx.workspaceId }); } catch (_) {}
+              kbStore.set({ loaded: true, loadedAt: Date.now(), categories: cats, articles: arts });
               cb && cb();
             },
           });
         } else {
-          kbStore.set({ loaded: true, categories: [], articles: [] });
+          kbStore.set({ loaded: true, loadedAt: Date.now(), categories: [], articles: [] });
           cb && cb();
         }
       });
@@ -4730,6 +4735,7 @@
     }
     var kbStore = createStore({
       loaded: false,
+      loadedAt: 0,
       categories: [],
       articles: [],
       searchResults: [],

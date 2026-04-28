@@ -220,6 +220,24 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                   <Route path="knowledge-base" element={<KnowledgeBasePage />} />
                   <Route path="ai" element={<AIPage />} />
                 </Route>
+                {/* AI Agent — Phase 1 foundation. Separate layout with its own sidebar. */}
+                <Route path="ai-agent" element={<AiAgentLayout />}>
+                  <Route index element={<Navigate to="playground" replace />} />
+                  <Route path="playground" element={<AiAgentPlaygroundPage />} />
+                  <Route path="analytics" element={<AiAgentAnalyticsPage />} />
+                  <Route path="activation" element={<AiAgentActivationPage />} />
+                  <Route path="settings" element={<AiAgentSettingsPage />} />
+                  <Route path="billing" element={<AiAgentBillingPage />} />
+                  <Route path="routing" element={<AiAgentRoutingPage />} />
+                  <Route path="instructions" element={<AiAgentInstructionsPage />} />
+                  <Route path="qna" element={<AiAgentQnaPage />} />
+                  <Route path="web-pages" element={<AiAgentWebPagesPage />} />
+                  <Route path="files" element={<AiAgentFilesPage />} />
+                  <Route path="topics" element={<AiAgentTopicsPage />} />
+                  <Route path="workflow" element={<AiAgentWorkflowPage />} />
+                  <Route path="triggers" element={<AiAgentTriggersPage />} />
+                  <Route path="integrations" element={<AiAgentIntegrationsPage />} />
+                </Route>
                 {/* Backwards-compat redirects: legacy URLs → settings */}
                 <Route path="team" element={<Navigate to="../settings/team-departments" replace />} />
                 <Route path="privacy-requests" element={<Navigate to="../settings/privacy-requests" replace />} />

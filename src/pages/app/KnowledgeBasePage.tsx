@@ -1,13 +1,10 @@
 import { useState, useRef, useCallback, useMemo } from 'react';
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
-import { useKBArticles, useKBCategories, useCreateKBArticle, useDeleteKBArticle } from '@/hooks/useKnowledgeBase';
+import { useKBArticles, useKBCategories, useCreateKBArticle, useUpdateKBArticle, useDeleteKBArticle } from '@/hooks/useKnowledgeBase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Plus, Trash2, BookOpen, Search, Eye, ThumbsUp, Globe,
@@ -54,16 +51,37 @@ export default function KnowledgeBasePage() {
   const { data: articles, isLoading } = useKBArticles(workspace?.id, locale, statusFilter);
   const { data: categories } = useKBCategories(workspace?.id, locale);
   const createArticle = useCreateKBArticle(workspace?.id);
+  const updateArticle = useUpdateKBArticle();
   const deleteArticle = useDeleteKBArticle();
 
   const [form, setForm] = useState<FormData>(emptyForm);
 
-  const handleCreate = async () => {
+  const handleSave = async () => {
     const slug = form.slug || form.title.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-    await createArticle.mutateAsync({ ...form, slug, category_id: form.category_id || undefined } as any);
+    const payload = { ...form, slug, category_id: form.category_id || null } as any;
+    if (editId) {
+      await updateArticle.mutateAsync({ id: editId, ...payload });
+    } else {
+      await createArticle.mutateAsync(payload);
+    }
     setForm(emptyForm);
     setShowEditor(false);
     setEditId(null);
+  };
+
+  const openEdit = (article: any) => {
+    setEditId(article.id);
+    setForm({
+      title: article.title || '',
+      slug: article.slug || '',
+      content: article.content || '',
+      excerpt: article.excerpt || '',
+      locale: article.locale || locale,
+      status: article.status || 'draft',
+      category_id: article.category_id || '',
+    });
+    setEditorTab('editor');
+    setShowEditor(true);
   };
 
   const insertMd = useCallback((before: string, after: string = '', placeholder = '') => {

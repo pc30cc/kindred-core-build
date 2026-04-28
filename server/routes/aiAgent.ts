@@ -252,6 +252,13 @@ aiAgentRouter.post('/playground/test', async (req: Request, res: Response) => {
   const auth = await authorizeMember(req, res, config, workspaceId);
   if (!auth) return;
 
+  if (!checkPlaygroundRateLimit(workspaceId, auth.userId)) {
+    return res.status(429).json({
+      error: 'playground_rate_limited',
+      message: `Limit ${PLAYGROUND_LIMIT} tests per 5 minutes per user.`,
+    });
+  }
+
   try {
     const result = await runPlayground(config, {
       workspaceId,

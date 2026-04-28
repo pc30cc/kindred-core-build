@@ -474,7 +474,7 @@
   var I18n = (function () {
     var dict = {
       en: {
-        chat: 'Chat', help: 'Help',
+        chat: 'Chat', help: 'Help Center',
         voiceCall: 'Voice', videoCall: 'Video',
         typeMsg: 'Type a message...',
         intro: "Send us a message and we'll get back to you shortly.",
@@ -610,7 +610,7 @@
         csCallEnded: 'Call ended',
       },
       fa: {
-        chat: 'گفتگو', help: 'راهنما',
+        chat: 'گفتگو', help: 'مرکز راهنما',
         voiceCall: 'تماس صوتی', videoCall: 'تماس تصویری',
         typeMsg: 'پیام خود را بنویسید...',
         intro: 'سوالی دارید؟ اینجا بنویسید.',
@@ -740,7 +740,7 @@
         csErrUnknown: 'مشکلی پیش آمد. لطفاً دوباره تلاش کنید.',
       },
       tr: {
-        chat: 'Sohbet', help: 'Yardım',
+        chat: 'Sohbet', help: 'Yardım Merkezi',
         voiceCall: 'Sesli', videoCall: 'Görüntülü',
         typeMsg: 'Mesajınızı yazın...',
         intro: 'Bir soru mu var? Buraya yazın.',

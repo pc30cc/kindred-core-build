@@ -171,6 +171,7 @@ const en = {
     knowledgeBase: 'Knowledge Base',
     widget: 'Widget',
     ai: 'AI',
+    aiAgent: 'AI Agent',
     email: 'Email',
     team: 'Team',
     billing: 'Billing',

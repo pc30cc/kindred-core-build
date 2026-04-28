@@ -181,30 +181,32 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
     rateLimitWindowMs: 60000,
     rateLimitMax: 100,
   };
-  const queue = new DbJobQueueProvider(sb);
+  const jobQueue = new DbJobQueueProvider(sb);
   const snap = job.plan_snapshot || {};
   const root = String(job.source_domain).toLowerCase();
   const seedUrl = `https://${root}/`;
 
-  await queue.updateJob(job.id, { status: 'crawling', progress: 5 } as any);
-  await queue.recordEvent(job.id, job.workspace_id, 'info', 'Crawl started', { domain: root });
+  await jobQueue.updateJob(job.id, { status: 'crawling', progress: 5 } as any);
+  await jobQueue.recordEvent(job.id, job.workspace_id, 'info', 'Crawl started', { domain: root });
 
   // BFS crawl
-  const queue: Array<{ url: string; depth: number }> = [{ url: seedUrl, depth: 0 }];
+  const crawlQueue: Array<{ url: string; depth: number }> = [{ url: seedUrl, depth: 0 }];
   const seen = new Set<string>();
   const fetched: Array<{ url: string; html: string; title: string; text: string }> = [];
   const maxPages = Math.max(1, snap.maxPages || 3);
   const maxDepth = Math.max(0, snap.maxDepth || 1);
 
-  while (queue.length && fetched.length < maxPages) {
-    const { url, depth } = queue.shift()!;
+  while (crawlQueue.length && fetched.length < maxPages) {
+    const { url, depth } = crawlQueue.shift()!;
     const urlHash = hash(url);
     if (seen.has(urlHash)) continue;
     seen.add(urlHash);
 
-    await sb.from('ai_kb_job_pages').insert({
-      job_id: job.id, workspace_id: job.workspace_id, url, url_hash: urlHash, depth, status: 'pending',
-    }).select('id').maybeSingle().catch(() => null);
+    try {
+      await sb.from('ai_kb_job_pages').insert({
+        job_id: job.id, workspace_id: job.workspace_id, url, url_hash: urlHash, depth, status: 'pending',
+      });
+    } catch { /* swallow — worker may retry on next page */ }
 
     const r = await fetchPage(url, root);
     if (!r.ok || !r.html) {
@@ -227,13 +229,13 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
           const next = new URL(href, url).toString().split('#')[0];
           const np = new URL(next);
           if (sameOrSubdomain(np.hostname, root) && /^https?:$/.test(np.protocol)) {
-            queue.push({ url: next, depth: depth + 1 });
+            crawlQueue.push({ url: next, depth: depth + 1 });
           }
         } catch { /* skip */ }
       }
     }
 
-    await queue.updateJob(job.id, {
+    await jobQueue.updateJob(job.id, {
       pages_discovered: seen.size,
       pages_crawled: fetched.length,
       progress: Math.min(50, 5 + Math.floor((fetched.length / maxPages) * 45)),
@@ -241,7 +243,7 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
   }
 
   // Generate
-  await queue.updateJob(job.id, { status: 'generating', progress: 55 } as any);
+  await jobQueue.updateJob(job.id, { status: 'generating', progress: 55 } as any);
 
   const maxArticles = Math.max(1, snap.maxArticles || 3);
   let generated = 0;
@@ -266,11 +268,11 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
         page.title,
       );
     } catch (err: any) {
-      await queue.recordEvent(job.id, job.workspace_id, 'warn',
+      await jobQueue.recordEvent(job.id, job.workspace_id, 'warn',
         'AI generation failed', { url: page.url, error: err?.message });
     }
     if (!draft) {
-      await queue.recordEvent(job.id, job.workspace_id, 'warn',
+      await jobQueue.recordEvent(job.id, job.workspace_id, 'warn',
         'AI returned no usable draft', { url: page.url });
       continue;
     }
@@ -280,7 +282,7 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
     const ded = await consumeAiCredits(serverConfig, job.workspace_id, 1);
     if (!ded.success) {
       creditExhausted = true;
-      await queue.recordEvent(job.id, job.workspace_id, 'warn',
+      await jobQueue.recordEvent(job.id, job.workspace_id, 'warn',
         'AI credits exhausted; dropping generated draft', { reason: ded.reason });
       break;
     }
@@ -301,7 +303,7 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
 
     generated += 1;
     creditsUsed += 1;
-    await queue.updateJob(job.id, {
+    await jobQueue.updateJob(job.id, {
       articles_generated: generated,
       credits_used: creditsUsed,
       progress: Math.min(95, 55 + Math.floor((generated / maxArticles) * 40)),
@@ -313,7 +315,7 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
   }
 
   const finalStatus = creditExhausted && generated > 0 ? 'partial' : 'completed';
-  await queue.updateJob(job.id, {
+  await jobQueue.updateJob(job.id, {
     status: finalStatus, progress: 100, completed_at: new Date().toISOString(),
   } as any);
   await sb.from('ai_kb_usage').insert({

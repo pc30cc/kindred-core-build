@@ -261,7 +261,10 @@ async function generateArticle(
   pageUrl: string,
   pageTitle: string,
 ): Promise<GenerateDraftResult> {
-  const sys = `You are a help-center writer. Output STRICT JSON only with this exact shape: {"title":"","slug":"","excerpt":"","content_md":"","confidence":0.0}. Locale: ${locale}. Keep markdown clean, helpful, and free of marketing fluff. No commentary outside the JSON.`;
+  // The model MUST detect the source page's natural language and write the
+  // article in that same language. The `locale` argument is only a fallback
+  // hint when detection is ambiguous. Supported codes: en, fa, tr.
+  const sys = `You are a multilingual help-center writer. FIRST, detect the natural language of the SOURCE page text (one of: en, fa, tr). Write title, excerpt and content_md in THAT SAME language — never translate, never default to English. If the source mixes languages, pick the dominant one. Output STRICT JSON only with this exact shape: {"title":"","slug":"","excerpt":"","content_md":"","confidence":0.0,"locale":"en|fa|tr"}. Hint locale (use only if detection is impossible): ${locale}. Keep markdown clean, helpful, and free of marketing fluff. No commentary outside the JSON.`;
   const user = `Source URL: ${pageUrl}\nPage title: ${pageTitle}\n---\n${pageText.slice(0, 6000)}`;
   let res: Awaited<ReturnType<typeof executeAICompletion>>;
   try {
@@ -308,6 +311,8 @@ async function generateArticle(
     };
   }
 
+  const detectedRaw = String(v.locale || '').toLowerCase().split('-')[0];
+  const detectedLocale = (['en', 'fa', 'tr'].includes(detectedRaw) ? detectedRaw : '') as 'en' | 'fa' | 'tr' | '';
   return {
     ok: true,
     draft: {
@@ -318,6 +323,7 @@ async function generateArticle(
       confidence: Number(v.confidence) || 0.7,
       model: res.model,
       provider: res.provider,
+      locale: detectedLocale || undefined,
     },
   };
 }

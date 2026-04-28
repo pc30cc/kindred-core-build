@@ -20,7 +20,6 @@ import { getKnowledgeStatus } from '../services/ai-agent/retrieval.js';
 import { runPlayground } from '../services/ai-agent/playground.js';
 import { listRuns, summarize } from '../services/ai-agent/logs.js';
 import { resolveAIConfig } from '../services/ai/index.js';
-import { checkModuleAccess } from '../middleware/featureGating.js';
 
 export const aiAgentRouter: Router = express.Router();
 

@@ -34,6 +34,7 @@ export interface AiKbSourceResponse {
   };
   credits: { used: number; limit: number; remaining: number; period: string };
   modules: { knowledge_base: boolean; ai_kb_builder: boolean };
+  is_global_admin?: boolean;
 }
 
 export const aiKbApi = {

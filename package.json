@@ -13,7 +13,8 @@
     "typecheck:server": "tsc -p tsconfig.server.json --noEmit",
     "typecheck:all": "npm run typecheck && npm run typecheck:server",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "worker:intelligence": "tsx worker/intelligence/index.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

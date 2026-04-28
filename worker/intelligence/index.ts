@@ -14,6 +14,7 @@
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { processJob } from './processor.js';
+import { DbJobQueueProvider, type JobQueueProvider } from '../../server/services/ai-kb/queue.js';
 
 const POLL_INTERVAL_MS = parseInt(process.env.AI_KB_WORKER_POLL_MS || '5000', 10);
 const WORKER_ID = process.env.WORKER_ID || `ai-kb-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
@@ -39,54 +40,16 @@ export function createWorkerClient(env: WorkerEnv): SupabaseClient {
   });
 }
 
-async function claimNext(sb: SupabaseClient, env: WorkerEnv) {
-  const { data: candidate } = await sb
-    .from('ai_kb_jobs')
-    .select('id')
-    .eq('status', 'queued')
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle();
-  if (!candidate) return null;
-
-  const { data: claimed } = await sb
-    .from('ai_kb_jobs')
-    .update({
-      status: 'running',
-      worker_id: env.workerId,
-      claimed_at: new Date().toISOString(),
-      started_at: new Date().toISOString(),
-    })
-    .eq('id', candidate.id)
-    .eq('status', 'queued')
-    .select('*')
-    .maybeSingle();
-  return claimed || null;
-}
-
-async function tick(sb: SupabaseClient, env: WorkerEnv) {
+async function tick(sb: SupabaseClient, queue: JobQueueProvider, env: WorkerEnv) {
   try {
-    const job = await claimNext(sb, env);
+    const job = await queue.claimNext(env.workerId);
     if (!job) return;
     try {
       await processJob(sb, env, job);
     } catch (err: any) {
       console.error('[ai-kb worker] job failed', job.id, err?.message);
-      await sb
-        .from('ai_kb_jobs')
-        .update({
-          status: 'failed',
-          error_message: (err?.message || 'unknown').slice(0, 1000),
-          completed_at: new Date().toISOString(),
-        })
-        .eq('id', job.id);
-      await sb.from('ai_kb_job_events').insert({
-        job_id: job.id,
-        workspace_id: job.workspace_id,
-        level: 'error',
-        message: 'Job failed',
-        metadata: { error: err?.message },
-      });
+      await queue.failJob(job.id, err?.message || 'unknown');
+      await queue.recordEvent(job.id, job.workspace_id, 'error', 'Job failed', { error: err?.message });
     }
   } catch (err: any) {
     console.error('[ai-kb worker] tick error:', err?.message);
@@ -101,8 +64,9 @@ export function startAiKbWorker(envOverride?: Partial<WorkerEnv>) {
   started = true;
   const env: WorkerEnv = { ...loadEnv(), ...envOverride };
   const sb = createWorkerClient(env);
+  const queue: JobQueueProvider = new DbJobQueueProvider(sb);
   console.log(`[ai-kb worker] started workerId=${env.workerId} interval=${POLL_INTERVAL_MS}ms`);
-  const run = () => tick(sb, env).catch((e) => console.error('[ai-kb worker]', e));
+  const run = () => tick(sb, queue, env).catch((e) => console.error('[ai-kb worker]', e));
   run();
   timer = setInterval(run, POLL_INTERVAL_MS);
   timer.unref?.();

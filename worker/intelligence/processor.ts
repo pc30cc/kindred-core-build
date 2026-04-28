@@ -26,6 +26,7 @@ import { logGateBypass } from '../../server/middleware/adminBypass.js';
 import { consumeAiCredits } from '../../server/services/ai-kb/credits.js';
 import { DbJobQueueProvider } from '../../server/services/ai-kb/queue.js';
 import type { ServerConfig } from '../../server/config.js';
+import { normalizeArticleHtml } from '../../server/services/ai-kb/htmlNormalize.js';
 import { workerLog } from './index.js';
 
 const TIMEOUT_MS = parseInt(process.env.CRAWLER_TIMEOUT_MS || '15000', 10);
@@ -177,138 +178,6 @@ function safePreview(s: string, max = 500): string {
   return (s || '').slice(0, max).replace(/\s+/g, ' ').trim();
 }
 
-/**
- * Normalize AI-produced article content into clean widget-safe HTML.
- * - If the content already looks like HTML, sanitize the tag set.
- * - Otherwise convert lightweight markdown (#, ##, ###, **, *, -, 1.) to HTML.
- * Always strips disallowed tags, scripts, styles, attributes (except href on <a>).
- */
-function normalizeToHtml(input: string): string {
-  let s = (input || '').trim();
-  if (!s) return '';
-  // Drop code fences if the model leaked them.
-  s = s.replace(/^```(?:html|md|markdown)?\s*/i, '').replace(/```$/i, '').trim();
-
-  const looksHtml = /<\/?(p|h[1-6]|ul|ol|li|strong|em|a|code|pre|blockquote|br)\b/i.test(s);
-  if (!looksHtml) {
-    s = markdownToHtml(s);
-  }
-  return sanitizeWidgetHtml(s);
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-function inlineMd(s: string): string {
-  // bold **x** / __x__
-  s = s.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
-  s = s.replace(/__([^_\n]+)__/g, '<strong>$1</strong>');
-  // italic *x* / _x_
-  s = s.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>');
-  s = s.replace(/(^|[^_])_([^_\n]+)_(?!_)/g, '$1<em>$2</em>');
-  // inline code `x`
-  s = s.replace(/`([^`\n]+)`/g, '<code>$1</code>');
-  // links [text](url)
-  s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2">$1</a>');
-  return s;
-}
-
-function markdownToHtml(src: string): string {
-  const lines = src.replace(/\r\n?/g, '\n').split('\n');
-  const out: string[] = [];
-  let i = 0;
-  let para: string[] = [];
-  const flushPara = () => {
-    if (!para.length) return;
-    const text = inlineMd(escapeHtml(para.join(' ')).replace(/&lt;(\/?(?:strong|em|code|a|br)(?:\s[^&]*?)?)&gt;/gi, '<$1>'));
-    out.push(`<p>${text}</p>`);
-    para = [];
-  };
-  while (i < lines.length) {
-    const line = lines[i];
-    const trimmed = line.trim();
-    if (!trimmed) { flushPara(); i++; continue; }
-
-    const h = /^(#{1,6})\s+(.*)$/.exec(trimmed);
-    if (h) {
-      flushPara();
-      const level = Math.min(Math.max(h[1].length, 2), 3); // h1 → h2
-      out.push(`<h${level}>${inlineMd(escapeHtml(h[2].trim()))}</h${level}>`);
-      i++; continue;
-    }
-
-    if (/^[-*+]\s+/.test(trimmed)) {
-      flushPara();
-      const items: string[] = [];
-      while (i < lines.length && /^[-*+]\s+/.test(lines[i].trim())) {
-        items.push(inlineMd(escapeHtml(lines[i].trim().replace(/^[-*+]\s+/, ''))));
-        i++;
-      }
-      out.push(`<ul>${items.map((it) => `<li>${it}</li>`).join('')}</ul>`);
-      continue;
-    }
-
-    if (/^\d+[.)]\s+/.test(trimmed)) {
-      flushPara();
-      const items: string[] = [];
-      while (i < lines.length && /^\d+[.)]\s+/.test(lines[i].trim())) {
-        items.push(inlineMd(escapeHtml(lines[i].trim().replace(/^\d+[.)]\s+/, ''))));
-        i++;
-      }
-      out.push(`<ol>${items.map((it) => `<li>${it}</li>`).join('')}</ol>`);
-      continue;
-    }
-
-    if (/^>\s?/.test(trimmed)) {
-      flushPara();
-      const buf: string[] = [];
-      while (i < lines.length && /^>\s?/.test(lines[i].trim())) {
-        buf.push(lines[i].trim().replace(/^>\s?/, ''));
-        i++;
-      }
-      out.push(`<blockquote><p>${inlineMd(escapeHtml(buf.join(' ')))}</p></blockquote>`);
-      continue;
-    }
-
-    if (/^([-*_])\1{2,}$/.test(trimmed)) { flushPara(); i++; continue; }
-
-    para.push(trimmed);
-    i++;
-  }
-  flushPara();
-  return out.join('\n');
-}
-
-const ALLOWED_TAGS = new Set([
-  'p','h2','h3','ul','ol','li','strong','em','a','code','pre','blockquote','br',
-]);
-
-function sanitizeWidgetHtml(html: string): string {
-  let s = html
-    .replace(/<script\b[\s\S]*?<\/script>/gi, '')
-    .replace(/<style\b[\s\S]*?<\/style>/gi, '')
-    .replace(/<iframe\b[\s\S]*?<\/iframe>/gi, '')
-    .replace(/<!--[\s\S]*?-->/g, '');
-  // Demote h1 → h2.
-  s = s.replace(/<(\/?)h1\b[^>]*>/gi, '<$1h2>');
-  // Strip any tag not in allow list (keeps inner text).
-  s = s.replace(/<\/?([a-zA-Z][a-zA-Z0-9]*)\b([^>]*)>/g, (_m, tag, attrs) => {
-    const t = tag.toLowerCase();
-    if (!ALLOWED_TAGS.has(t)) return '';
-    if (t === 'a') {
-      const hrefMatch = /\bhref\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(attrs);
-      const href = (hrefMatch?.[2] || hrefMatch?.[3] || hrefMatch?.[4] || '').trim();
-      if (!/^https?:\/\//i.test(href)) return '';
-      return `<a href="${href.replace(/"/g, '&quot;')}" rel="nofollow noopener" target="_blank">`;
-    }
-    // Drop any attributes on other tags.
-    return _m.startsWith('</') ? `</${t}>` : `<${t}>`;
-  });
-  // Collapse excess whitespace between block tags.
-  s = s.replace(/>\s+</g, '><').trim();
-  return s;
-}
 
 function tryParseDraftJson(raw: string): { ok: true; value: any } | { ok: false; error: string } {
   let s = (raw || '').trim();

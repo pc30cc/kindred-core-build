@@ -119,6 +119,7 @@ export function AppSidebar() {
 
   const mainNav = [
     { key: 'ai', path: '/ai', icon: Bot },
+    { key: 'aiAgent', path: '/ai-agent', icon: Sparkles },
     { key: 'visitors', path: '/visitors', icon: Eye },
     { key: 'contacts', path: '/contacts', icon: Users },
     { key: 'knowledgeBase', path: '/knowledge-base', icon: BookOpen },

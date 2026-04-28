@@ -20,8 +20,27 @@ import { getKnowledgeStatus } from '../services/ai-agent/retrieval.js';
 import { runPlayground } from '../services/ai-agent/playground.js';
 import { listRuns, summarize } from '../services/ai-agent/logs.js';
 import { resolveAIConfig } from '../services/ai/index.js';
+import { checkModuleAccess } from '../middleware/featureGating.js';
 
 export const aiAgentRouter: Router = express.Router();
+
+// ─── Phase 1 in-memory rate limit for playground tests ───
+// 30 tests / 5 min per (workspace,user). Documented as temporary safeguard
+// until usage-metering for playground is wired up in Phase 2.
+const playgroundCounters = new Map<string, { count: number; windowStart: number }>();
+const PLAYGROUND_LIMIT = 30;
+const PLAYGROUND_WINDOW = 5 * 60_000;
+function checkPlaygroundRateLimit(workspaceId: string, userId: string): boolean {
+  const key = `${workspaceId}:${userId}`;
+  const now = Date.now();
+  const c = playgroundCounters.get(key);
+  if (!c || now - c.windowStart > PLAYGROUND_WINDOW) {
+    playgroundCounters.set(key, { count: 1, windowStart: now });
+    return true;
+  }
+  c.count += 1;
+  return c.count <= PLAYGROUND_LIMIT;
+}
 
 // ─── Auth: workspace member (or global admin) ───
 async function authorizeMember(

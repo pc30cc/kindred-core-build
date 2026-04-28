@@ -265,7 +265,26 @@ async function generateArticle(
   // The model MUST detect the source page's natural language and write the
   // article in that same language. The `locale` argument is only a fallback
   // hint when detection is ambiguous. Supported codes: en, fa, tr.
-  const sys = `You are a multilingual help-center writer. FIRST, detect the natural language of the SOURCE page text (one of: en, fa, tr). Write title, excerpt and content_md in THAT SAME language — never translate, never default to English. If the source mixes languages, pick the dominant one. Output STRICT JSON only with this exact shape: {"title":"","slug":"","excerpt":"","content_md":"","confidence":0.0,"locale":"en|fa|tr"}. Hint locale (use only if detection is impossible): ${locale}. Keep markdown clean, helpful, and free of marketing fluff. No commentary outside the JSON.`;
+  const sys = `You are a senior multilingual help-center writer producing widget-ready articles.
+
+LANGUAGE: FIRST detect the natural language of the SOURCE page (one of: en, fa, tr) and write title, excerpt and content in THAT SAME language. Never translate. Hint (use only if detection is impossible): ${locale}.
+
+OUTPUT: Return STRICT JSON ONLY, no prose, no code fences. Exact shape:
+{"title":"","slug":"","excerpt":"","content_html":"","confidence":0.0,"locale":"en|fa|tr"}
+
+CONTENT FORMAT — content_html MUST be clean, semantic HTML suitable for direct injection into a help widget:
+- Use ONLY these tags: <h2>, <h3>, <p>, <ul>, <ol>, <li>, <strong>, <em>, <a href="...">, <code>, <pre>, <blockquote>, <br>.
+- DO NOT use markdown syntax. Never output #, ##, ###, **, __, \`\`\`, ---, > , - , * as list/heading/bold markers.
+- DO NOT include <html>, <head>, <body>, <h1>, <style>, <script>, <img>, inline CSS, classes, ids, or data-* attributes.
+- Start with one short intro <p>. Then organize into 2–5 <h2> sections. Use <h3> only if needed inside a section.
+- Prefer concise paragraphs (2–4 sentences) and well-formed <ul>/<ol> lists for steps.
+- Close every tag. No empty tags. No trailing whitespace inside tags.
+- excerpt: 1–2 plain-text sentences, NO HTML, NO markdown.
+- title: plain text, no quotes, no markdown.
+- slug: lowercase ASCII a-z 0-9 and hyphens only.
+- Keep tone helpful and factual. No marketing fluff. No "as an AI" disclaimers.
+
+If the source is thin, still produce a useful article from what is there — never invent product facts that contradict the source.`;
   const user = `Source URL: ${pageUrl}\nPage title: ${pageTitle}\n---\n${pageText.slice(0, 6000)}`;
   let res: Awaited<ReturnType<typeof executeAICompletion>>;
   try {
@@ -303,7 +322,9 @@ async function generateArticle(
   }
 
   const v = parsed.value || {};
-  if (!v.title || !v.content_md) {
+  // Accept either content_html (preferred) or legacy content_md.
+  const rawContent = String(v.content_html || v.content_md || '');
+  if (!v.title || !rawContent) {
     return {
       ok: false,
       reason: 'invalid_schema',
@@ -320,7 +341,7 @@ async function generateArticle(
       title: String(v.title).slice(0, 200),
       slug: String(v.slug || '').slice(0, 80),
       excerpt: String(v.excerpt || '').slice(0, 300),
-      content_md: String(v.content_md),
+      content_md: normalizeToHtml(rawContent),
       confidence: Number(v.confidence) || 0.7,
       model: res.model,
       provider: res.provider,

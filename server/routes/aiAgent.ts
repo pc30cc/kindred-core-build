@@ -1306,3 +1306,386 @@ aiAgentRouter.get('/workspace-domain', async (req: Request, res: Response) => {
     .order('is_primary', { ascending: false });
   return res.json({ domains: data || [] });
 });
+// ============================================================
+// Pass B1 — Automate: Topics, Workflows, Message Triggers
+// ============================================================
+
+// ─── Topics: list ───
+aiAgentRouter.get('/topics', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = requireWorkspace(req);
+  if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  const sb = getServiceClient(config);
+  const { data, error } = await sb
+    .from('ai_agent_topics')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .order('name', { ascending: true });
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ items: data || [] });
+});
+
+const topicCreateSchema = z.object({
+  workspaceId: z.string().uuid(),
+  name: z.string().min(1).max(120),
+  description: z.string().max(1000).nullable().optional(),
+  slug: z.string().min(1).max(120).optional(),
+  keywords: z.array(z.string().max(120)).max(200).optional(),
+  examples: z.array(z.string().max(500)).max(100).optional(),
+  language: z.string().max(8).nullable().optional(),
+  confidence_threshold: z.number().min(0).max(1).optional(),
+  action: z.enum(['label_only','route','trigger_workflow','suggest_reply']).optional(),
+  action_json: z.record(z.any()).optional(),
+  enabled: z.boolean().optional(),
+});
+
+function slugify(s: string): string {
+  return s.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 120) || 'topic';
+}
+
+aiAgentRouter.post('/topics', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = topicCreateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
+  const auth = await authorizeMember(req, res, config, parsed.data.workspaceId);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  const sb = getServiceClient(config);
+  const slug = parsed.data.slug || slugify(parsed.data.name);
+  const { workspaceId, ...rest } = parsed.data;
+  const { data, error } = await sb
+    .from('ai_agent_topics')
+    .insert({ workspace_id: workspaceId, ...rest, slug })
+    .select('*').single();
+  if (error) return res.status(500).json({ error: error.message });
+  return res.status(201).json({ item: data });
+});
+
+const topicPatchSchema = topicCreateSchema.partial().omit({ workspaceId: true });
+aiAgentRouter.patch('/topics/:id', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const sb = getServiceClient(config);
+  const { data: existing } = await sb.from('ai_agent_topics').select('workspace_id').eq('id', req.params.id).maybeSingle();
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, existing.workspace_id);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  const parsed = topicPatchSchema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
+  const { data, error } = await sb.from('ai_agent_topics').update(parsed.data).eq('id', req.params.id).select('*').single();
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ item: data });
+});
+
+aiAgentRouter.delete('/topics/:id', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const sb = getServiceClient(config);
+  const { data: existing } = await sb.from('ai_agent_topics').select('workspace_id, system').eq('id', req.params.id).maybeSingle();
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, existing.workspace_id);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  const { error } = await sb.from('ai_agent_topics').delete().eq('id', req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ ok: true });
+});
+
+aiAgentRouter.post('/topics/seed-defaults', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = requireWorkspace(req);
+  if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  const sb = getServiceClient(config);
+  const { data: existing } = await sb.from('ai_agent_topics').select('slug').eq('workspace_id', workspaceId);
+  const have = new Set((existing || []).map((r: any) => r.slug));
+  const toInsert = DEFAULT_TOPICS.filter((t) => !have.has(t.slug)).map((t) => ({
+    workspace_id: workspaceId,
+    name: t.name,
+    description: t.description,
+    slug: t.slug,
+    keywords: t.keywords,
+    examples: t.examples,
+    action: t.action,
+    confidence_threshold: t.confidence_threshold ?? 0.65,
+    enabled: true,
+    system: true,
+  }));
+  if (toInsert.length === 0) return res.json({ ok: true, created: 0 });
+  const { data, error } = await sb.from('ai_agent_topics').insert(toInsert).select('*');
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ ok: true, created: data?.length ?? 0 });
+});
+
+const topicTestSchema = z.object({
+  workspaceId: z.string().uuid(),
+  text: z.string().min(1).max(4000),
+  language: z.string().max(8).optional(),
+});
+aiAgentRouter.post('/topics/test', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = topicTestSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
+  const auth = await authorizeMember(req, res, config, parsed.data.workspaceId);
+  if (!auth) return;
+  const sb = getServiceClient(config);
+  const { data: topics } = await sb
+    .from('ai_agent_topics')
+    .select('*')
+    .eq('workspace_id', parsed.data.workspaceId)
+    .eq('enabled', true);
+  const result = detectTopics(parsed.data.text, (topics || []) as any);
+  if (parsed.data.language) result.language = parsed.data.language;
+  return res.json(result);
+});
+
+// ─── Workflows ───
+aiAgentRouter.get('/workflows', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = requireWorkspace(req);
+  if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  const sb = getServiceClient(config);
+  const { data, error } = await sb
+    .from('ai_agent_workflows')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .order('updated_at', { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ items: data || [] });
+});
+
+const workflowCreateSchema = z.object({
+  workspaceId: z.string().uuid(),
+  name: z.string().min(1).max(160),
+  description: z.string().max(2000).nullable().optional(),
+  trigger_json: z.record(z.any()).optional(),
+  steps_json: z.array(z.record(z.any())).optional(),
+  enabled: z.boolean().optional(),
+  status: z.enum(['draft','active','paused','archived']).optional(),
+});
+
+aiAgentRouter.post('/workflows', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = workflowCreateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
+  const auth = await authorizeMember(req, res, config, parsed.data.workspaceId);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  const sb = getServiceClient(config);
+  const { workspaceId, ...rest } = parsed.data;
+  const { data, error } = await sb.from('ai_agent_workflows').insert({
+    workspace_id: workspaceId,
+    status: 'draft',
+    enabled: false,
+    ...rest,
+  }).select('*').single();
+  if (error) return res.status(500).json({ error: error.message });
+  return res.status(201).json({ item: data });
+});
+
+const workflowPatchSchema = workflowCreateSchema.partial().omit({ workspaceId: true });
+aiAgentRouter.patch('/workflows/:id', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const sb = getServiceClient(config);
+  const { data: existing } = await sb.from('ai_agent_workflows').select('*').eq('id', req.params.id).maybeSingle();
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, existing.workspace_id);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  const parsed = workflowPatchSchema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
+
+  // Refuse to enable an invalid workflow.
+  const wantsEnable = parsed.data.enabled === true || parsed.data.status === 'active';
+  if (wantsEnable) {
+    const merged = {
+      name: parsed.data.name ?? existing.name,
+      trigger_json: parsed.data.trigger_json ?? existing.trigger_json,
+      steps_json: parsed.data.steps_json ?? existing.steps_json,
+    };
+    const v = validateWorkflow(merged as any);
+    if (!v.valid) return res.status(400).json({ error: 'workflow_invalid', errors: v.errors });
+  }
+
+  const { data, error } = await sb.from('ai_agent_workflows').update(parsed.data).eq('id', req.params.id).select('*').single();
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ item: data });
+});
+
+aiAgentRouter.delete('/workflows/:id', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const sb = getServiceClient(config);
+  const { data: existing } = await sb.from('ai_agent_workflows').select('workspace_id').eq('id', req.params.id).maybeSingle();
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, existing.workspace_id);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  const { error } = await sb.from('ai_agent_workflows').delete().eq('id', req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ ok: true });
+});
+
+aiAgentRouter.post('/workflows/:id/duplicate', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const sb = getServiceClient(config);
+  const { data: src } = await sb.from('ai_agent_workflows').select('*').eq('id', req.params.id).maybeSingle();
+  if (!src) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, src.workspace_id);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  const { data, error } = await sb.from('ai_agent_workflows').insert({
+    workspace_id: src.workspace_id,
+    name: `${src.name} (copy)`,
+    description: src.description,
+    trigger_json: src.trigger_json,
+    steps_json: src.steps_json,
+    status: 'draft',
+    enabled: false,
+    version: 1,
+  }).select('*').single();
+  if (error) return res.status(500).json({ error: error.message });
+  return res.status(201).json({ item: data });
+});
+
+aiAgentRouter.post('/workflows/:id/validate', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const sb = getServiceClient(config);
+  const { data: wf } = await sb.from('ai_agent_workflows').select('*').eq('id', req.params.id).maybeSingle();
+  if (!wf) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, wf.workspace_id);
+  if (!auth) return;
+  return res.json(validateWorkflow(wf as any));
+});
+
+const workflowPreviewSchema = z.object({
+  workspaceId: z.string().uuid(),
+  workflowDraft: z.record(z.any()),
+  sampleMessage: z.string().max(4000).optional(),
+  sampleContext: z.record(z.any()).optional(),
+});
+aiAgentRouter.post('/workflows/preview', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = workflowPreviewSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
+  const auth = await authorizeMember(req, res, config, parsed.data.workspaceId);
+  if (!auth) return;
+  const result = previewWorkflow({
+    workflowDraft: parsed.data.workflowDraft as any,
+    sampleMessage: parsed.data.sampleMessage,
+    sampleContext: parsed.data.sampleContext as any,
+  });
+  return res.json(result);
+});
+
+aiAgentRouter.get('/workflows/_meta', async (_req: Request, res: Response) => {
+  return res.json({
+    triggers: ALLOWED_TRIGGERS,
+    conditions: ALLOWED_CONDITION_TYPES,
+    actions: ALLOWED_ACTION_TYPES,
+  });
+});
+
+// ─── Message triggers ───
+aiAgentRouter.get('/message-triggers', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = requireWorkspace(req);
+  if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  const sb = getServiceClient(config);
+  const { data, error } = await sb
+    .from('ai_agent_message_triggers')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .order('updated_at', { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ items: data || [] });
+});
+
+const messageTriggerCreateSchema = z.object({
+  workspaceId: z.string().uuid(),
+  name: z.string().min(1).max(160),
+  description: z.string().max(1000).nullable().optional(),
+  event_type: z.enum([
+    'visitor_first_message','conversation_started','after_prechat',
+    'no_operator_online','ai_no_answer','topic_detected',
+    'human_requested','business_hours_closed',
+  ]),
+  conditions_json: z.record(z.any()).optional(),
+  action_type: z.enum(['send_message','start_workflow','handoff','assign','tag','internal_note']),
+  action_json: z.record(z.any()).optional(),
+  delay_seconds: z.number().int().min(0).max(86400).optional(),
+  enabled: z.boolean().optional(),
+});
+
+aiAgentRouter.post('/message-triggers', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = messageTriggerCreateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
+  const auth = await authorizeMember(req, res, config, parsed.data.workspaceId);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  const sb = getServiceClient(config);
+  const { workspaceId, ...rest } = parsed.data;
+  const { data, error } = await sb.from('ai_agent_message_triggers').insert({
+    workspace_id: workspaceId, enabled: false, ...rest,
+  }).select('*').single();
+  if (error) return res.status(500).json({ error: error.message });
+  return res.status(201).json({ item: data });
+});
+
+const messageTriggerPatchSchema = messageTriggerCreateSchema.partial().omit({ workspaceId: true });
+aiAgentRouter.patch('/message-triggers/:id', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const sb = getServiceClient(config);
+  const { data: existing } = await sb.from('ai_agent_message_triggers').select('workspace_id').eq('id', req.params.id).maybeSingle();
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, existing.workspace_id);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  const parsed = messageTriggerPatchSchema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
+  const { data, error } = await sb.from('ai_agent_message_triggers').update(parsed.data).eq('id', req.params.id).select('*').single();
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ item: data });
+});
+
+aiAgentRouter.delete('/message-triggers/:id', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const sb = getServiceClient(config);
+  const { data: existing } = await sb.from('ai_agent_message_triggers').select('workspace_id').eq('id', req.params.id).maybeSingle();
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, existing.workspace_id);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  const { error } = await sb.from('ai_agent_message_triggers').delete().eq('id', req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ ok: true });
+});
+
+// Test (dry-run) — returns the planned action without executing anything.
+aiAgentRouter.post('/message-triggers/:id/test', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const sb = getServiceClient(config);
+  const { data: trig } = await sb.from('ai_agent_message_triggers').select('*').eq('id', req.params.id).maybeSingle();
+  if (!trig) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, trig.workspace_id);
+  if (!auth) return;
+  return res.json({
+    ok: true,
+    dryRun: true,
+    runtimeExecutionEnabled: false,
+    planned: {
+      event_type: trig.event_type,
+      action_type: trig.action_type,
+      action_json: trig.action_json,
+      delay_seconds: trig.delay_seconds,
+    },
+    note: 'Saved. Runtime execution will be enabled in the next automation runtime pass.',
+  });
+});

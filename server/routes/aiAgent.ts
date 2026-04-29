@@ -666,3 +666,48 @@ aiAgentRouter.post('/suggestions/:id/dismiss', async (req: Request, res: Respons
 
   return res.json({ ok: true, suggestion: data });
 });
+
+// ─── POST /api/ai-agent/conversations/:conversationId/take-over ─────
+// Manual operator takeover. Removes the conversation from the Automated
+// inbox, marks `ai_state='human_active'`, optionally assigns to caller,
+// and stops further AI auto-replies.
+const takeOverSchema = z.object({
+  workspaceId: z.string().uuid(),
+  assign_to_me: z.boolean().optional().default(true),
+});
+aiAgentRouter.post(
+  '/conversations/:conversationId/take-over',
+  async (req: Request, res: Response) => {
+    const config = (req as any).serverConfig as ServerConfig;
+    const conversationId = req.params.conversationId;
+    const parsed = takeOverSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
+    const { workspaceId, assign_to_me } = parsed.data;
+
+    const sb = getServiceClient(config);
+    const { data: conv } = await sb
+      .from('conversations')
+      .select('id, workspace_id, assigned_to')
+      .eq('id', conversationId)
+      .maybeSingle();
+    if (!conv || conv.workspace_id !== workspaceId) {
+      return res.status(404).json({ error: 'conversation_not_found' });
+    }
+    const auth = await authorizeMember(req, res, config, workspaceId);
+    if (!auth) return;
+
+    if (assign_to_me && !conv.assigned_to) {
+      await sb
+        .from('conversations')
+        .update({ assigned_to: auth.userId })
+        .eq('id', conversationId);
+    }
+    await markHumanTakeover(config, {
+      workspaceId,
+      conversationId,
+      operatorId: auth.userId,
+      reason: 'manual_takeover',
+    });
+    return res.json({ ok: true });
+  },
+);

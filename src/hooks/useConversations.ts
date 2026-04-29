@@ -4,16 +4,39 @@ import type { Conversation, ConversationMessage } from '@/types/models';
 import { conversationsApi } from '@/lib/conversations-api';
 import { dedupeById } from '@/realtime/dedupe';
 
-export function useConversations(workspaceId: string | undefined, status?: string) {
+/**
+ * Inbox queue selector.
+ *   - undefined/'main'   → status-based default inbox (existing behavior)
+ *   - 'automated'        → ai_state='ai_managed' AND status != 'closed' AND
+ *                          assigned_to IS NULL (AI-managed queue)
+ *   - 'needs_human'      → ai_state='needs_human' AND status != 'closed'
+ *                          (handoff queue waiting for an operator)
+ *
+ * Queue mode bypasses the `status` argument so the AI queues are not
+ * accidentally narrowed by the operator's open/pending/resolved chip.
+ */
+export type InboxQueue = 'main' | 'automated' | 'needs_human';
+
+export function useConversations(
+  workspaceId: string | undefined,
+  status?: string,
+  queue: InboxQueue = 'main',
+) {
   return useQuery({
-    queryKey: ['conversations', workspaceId, status],
+    queryKey: ['conversations', workspaceId, queue, status],
     queryFn: async () => {
       let q = supabase
         .from('conversations')
         .select('*, contacts(name, email, avatar_url)')
         .eq('workspace_id', workspaceId!)
         .order('updated_at', { ascending: false });
-      if (status && status !== 'all') q = q.eq('status', status);
+      if (queue === 'automated') {
+        q = q.eq('ai_state', 'ai_managed').neq('status', 'closed').is('assigned_to', null);
+      } else if (queue === 'needs_human') {
+        q = q.eq('ai_state', 'needs_human').neq('status', 'closed');
+      } else if (status && status !== 'all') {
+        q = q.eq('status', status);
+      }
       const { data, error } = await q;
       if (error) throw error;
       const convos = (data || []) as (Conversation & {

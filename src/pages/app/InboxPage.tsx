@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
-import { useConversations, useConversationMessages, useSendMessage, useUpdateConversation, useDeleteAllConversations, useMarkConversationSeen } from '@/hooks/useConversations';
+import { useConversations, useConversationMessages, useSendMessage, useUpdateConversation, useDeleteAllConversations, useMarkConversationSeen, type InboxQueue } from '@/hooks/useConversations';
 import type { MessageAttachment } from '@/hooks/useConversations';
 import { useInboxRealtime } from '@/hooks/useInboxRealtime';
 import { emitInvitationChanged } from '@/lib/call-invitations-events';
@@ -135,6 +136,13 @@ export default function InboxPage() {
   const { user } = useAuth();
   const workspace = useCurrentWorkspace();
   const { platformName } = useBrandingContext();
+  const [searchParams] = useSearchParams();
+  const queueParam = searchParams.get('queue');
+  const queue: InboxQueue =
+    queueParam === 'automated' ? 'automated'
+      : queueParam === 'needs_human' ? 'needs_human'
+      : 'main';
+  const isQueueMode = queue !== 'main';
   const [filter, setFilter] = useState<FilterStatus>('open');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [message, setMessage] = useState('');
@@ -147,7 +155,11 @@ export default function InboxPage() {
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const selectedSnapshotRef = useRef<any>(null);
 
-  const { data: conversations, isLoading } = useConversations(workspace?.id, filter === 'all' ? undefined : filter);
+  const { data: conversations, isLoading } = useConversations(
+    workspace?.id,
+    filter === 'all' ? undefined : filter,
+    queue,
+  );
   const { data: rawMessages } = useConversationMessages(selectedId ?? undefined);
   const sendMessage = useSendMessage(selectedId ?? undefined, workspace?.id);
   const updateConv = useUpdateConversation();
@@ -747,7 +759,28 @@ export default function InboxPage() {
             />
           </div>
 
-          {/* Filter tabs */}
+          {/* Queue header (Automated / Needs human) — replaces status tabs */}
+          {isQueueMode ? (
+            <div className="flex items-center gap-2 px-1 py-1">
+              {queue === 'automated' ? (
+                <>
+                  <Bot className="w-3.5 h-3.5 text-primary" />
+                  <span className="text-[11px] font-semibold text-foreground">Automated</span>
+                  <span className="text-[10px] text-muted-foreground">AI-managed conversations</span>
+                </>
+              ) : (
+                <>
+                  <AlertCircle className="w-3.5 h-3.5 text-destructive" />
+                  <span className="text-[11px] font-semibold text-foreground">Needs human</span>
+                  <span className="text-[10px] text-muted-foreground">Handed off by AI</span>
+                </>
+              )}
+              <span className="ms-auto text-[10px] bg-secondary text-foreground/70 px-1.5 py-0.5 rounded-full font-bold tabular-nums">
+                {conversations?.length || 0}
+              </span>
+            </div>
+          ) : (
+          /* Filter tabs */
           <div
             role="tablist"
             aria-label={t('inbox.title') || 'Inbox'}
@@ -783,6 +816,7 @@ export default function InboxPage() {
               );
             })}
           </div>
+          )}
         </div>
 
         {/* Conversation items */}
@@ -802,14 +836,32 @@ export default function InboxPage() {
           ) : !filteredConvos?.length ? (
             <div className="py-16 px-6 text-center flex flex-col items-center gap-3">
               <div className="w-14 h-14 rounded-2xl bg-secondary/40 flex items-center justify-center">
-                <MessageSquare className="w-7 h-7 text-muted-foreground/40" />
+                {queue === 'automated' ? (
+                  <Bot className="w-7 h-7 text-muted-foreground/40" />
+                ) : queue === 'needs_human' ? (
+                  <AlertCircle className="w-7 h-7 text-muted-foreground/40" />
+                ) : (
+                  <MessageSquare className="w-7 h-7 text-muted-foreground/40" />
+                )}
               </div>
               <div>
                 <p className="text-[13px] font-medium text-foreground">
-                  {search ? 'No matches found' : (t('inbox.noMessages') || 'No conversations')}
+                  {search
+                    ? 'No matches found'
+                    : queue === 'automated'
+                      ? 'No AI-managed conversations'
+                      : queue === 'needs_human'
+                        ? 'No conversations need a human'
+                        : (t('inbox.noMessages') || 'No conversations')}
                 </p>
                 <p className="text-[11px] text-muted-foreground mt-1">
-                  {search ? `"${search}"` : (filter !== 'all' ? statusLabels[filter] : '')}
+                  {search
+                    ? `"${search}"`
+                    : queue === 'automated'
+                      ? 'AI replies will appear here'
+                      : queue === 'needs_human'
+                        ? 'AI handoffs will appear here'
+                        : (filter !== 'all' ? statusLabels[filter] : '')}
                 </p>
               </div>
             </div>
@@ -927,6 +979,69 @@ export default function InboxPage() {
                             <UserCheck className="w-3 h-3" />
                           </span>
                         )}
+                        {/* AI lifecycle badge — Automated / Needs human / Human active */}
+                        {(() => {
+                          const aiState = (conv as any)?.metadata?.ai_state
+                            || (conv as any)?.ai_state;
+                          if (!aiState) return null;
+                          const reason = (conv as any)?.metadata?.ai_handoff_reason as string | undefined;
+                          if (aiState === 'ai_managed') {
+                            return (
+                              <span
+                                className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md font-medium bg-primary/10 text-primary border border-primary/20"
+                                title="AI is currently handling this conversation"
+                              >
+                                <Bot className="w-2.5 h-2.5" /> AI
+                              </span>
+                            );
+                          }
+                          if (aiState === 'needs_human') {
+                            return (
+                              <span
+                                className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md font-medium bg-destructive/10 text-destructive border border-destructive/20"
+                                title={reason ? `Handoff reason: ${reason}` : 'AI handed off — needs human'}
+                              >
+                                <AlertCircle className="w-2.5 h-2.5" /> Needs human
+                              </span>
+                            );
+                          }
+                          if (aiState === 'human_active') {
+                            return (
+                              <span
+                                className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md font-medium bg-secondary text-foreground/70 border border-border"
+                                title="Operator has taken over"
+                              >
+                                <UserCheck className="w-2.5 h-2.5" /> Human
+                              </span>
+                            );
+                          }
+                          return null;
+                        })()}
+                        {/* Inline take-over action on Automated / Needs human rows */}
+                        {(() => {
+                          const aiState = (conv as any)?.metadata?.ai_state
+                            || (conv as any)?.ai_state;
+                          if (aiState !== 'ai_managed' && aiState !== 'needs_human') return null;
+                          return (
+                            <button
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                if (!workspace?.id) return;
+                                try {
+                                  await aiAgentApi.takeOverConversation(workspace.id, conv.id, true);
+                                  toast({ title: 'Taken over', description: 'AI will stop auto-replying.' });
+                                  qc.invalidateQueries({ queryKey: ['conversations', workspace.id] });
+                                } catch (err: any) {
+                                  toast({ title: 'Take-over failed', description: err?.message || 'unknown', variant: 'destructive' });
+                                }
+                              }}
+                              className="text-[10px] px-1.5 py-0.5 rounded-md font-semibold bg-secondary hover:bg-primary hover:text-primary-foreground text-foreground/70 transition-colors"
+                              title="Take over this conversation"
+                            >
+                              Take over
+                            </button>
+                          );
+                        })()}
                         {/* Selected-conversation typing indicator (live) */}
                         {isActive && visitorTypingActive && (
                           <span className="ml-auto inline-flex items-center gap-1 text-[10px] text-primary font-medium" aria-label="typing">
@@ -1046,7 +1161,37 @@ export default function InboxPage() {
                   </>
                 )}
                 {(selected as any)?.metadata?.ai_state === 'needs_human' && (
-                  <Badge variant="destructive" className="text-[10px]">Needs human</Badge>
+                  <>
+                    <Badge
+                      variant="destructive"
+                      className="text-[10px] gap-1"
+                      title={
+                        ((selected as any)?.metadata?.ai_handoff_reason as string)
+                          ? `Handoff reason: ${(selected as any).metadata.ai_handoff_reason}`
+                          : 'AI handed off — needs human'
+                      }
+                    >
+                      <AlertCircle className="w-3 h-3" /> Needs human
+                    </Badge>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2.5 text-[10px] font-semibold"
+                      onClick={async () => {
+                        if (!workspace?.id || !selectedId) return;
+                        try {
+                          await aiAgentApi.takeOverConversation(workspace.id, selectedId, true);
+                          toast({ title: 'Conversation taken over', description: 'Assigned to you.' });
+                          qc.invalidateQueries({ queryKey: ['conversations', workspace.id] });
+                        } catch (e: any) {
+                          toast({ title: 'Take-over failed', description: e?.message || 'unknown', variant: 'destructive' });
+                        }
+                      }}
+                    >
+                      <UserCheck className={cn('w-3 h-3', dir === 'rtl' ? 'ml-1' : 'mr-1')} />
+                      Take over
+                    </Button>
+                  </>
                 )}
                 {(selected as any)?.metadata?.ai_state === 'human_active' && (
                   <Badge variant="outline" className="text-[10px] gap-1">

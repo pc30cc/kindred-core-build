@@ -85,6 +85,26 @@ export interface DiagnosticsResponse {
   knowledge: KnowledgeStatus;
   is_global_admin: boolean;
   role: string | null;
+  auto_modes_supported?: boolean;
+  intro_enabled?: boolean;
+  operator_availability?: {
+    status?: 'online' | 'offline' | 'unavailable' | string;
+    online_count?: number;
+    total_count?: number;
+  } | null;
+  reply_limits?: {
+    per_conversation: number;
+    per_hour: number;
+    fallback_behavior: 'handoff' | 'silent';
+    stop_on_handoff: boolean;
+  };
+  recent_runs?: Array<{
+    id: string;
+    run_type?: string;
+    status?: string;
+    mode?: string;
+    created_at?: string;
+  }>;
 }
 
 export interface PlaygroundResult {

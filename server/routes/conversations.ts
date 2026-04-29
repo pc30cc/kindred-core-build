@@ -40,6 +40,7 @@ import {
 import { isActionActive } from '../services/observability/autoActionsCache.js';
 import { emitLog } from '../services/observability/metrics.js';
 import { markHumanTakeover } from '../services/ai-agent/handoffState.js';
+import { markSpam, unmarkSpam } from '../services/spam/state.js';
 
 export const conversationsRouter = Router();
 

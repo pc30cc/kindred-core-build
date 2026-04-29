@@ -10,6 +10,7 @@ import { getServiceClient } from '../../supabase.js';
 import { getOrCreateSettings, type AgentSettings } from './settings.js';
 import { insertAiMessage, deriveAgentDisplay } from './responder.js';
 import { logRun } from './logs.js';
+import { sanitizeAgentName } from './prompt.js';
 
 export interface IntroInput {
   workspaceId: string;

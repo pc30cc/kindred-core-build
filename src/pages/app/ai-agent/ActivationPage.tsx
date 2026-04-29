@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { Check, X, Loader2, AlertTriangle, Info } from 'lucide-react';
 import { toast } from 'sonner';
-import type { AgentMode, AgentSettings } from '@/lib/ai-agent-api';
+import type { AgentMode, AgentSettings, EscalationStyle } from '@/lib/ai-agent-api';
 
 function CheckRow({ ok, label, hint }: { ok: boolean; label: string; hint?: string }) {
   return (
@@ -284,6 +284,129 @@ export default function ActivationPage() {
                   patch({ max_replies_per_hour: n });
                 }
               }}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Answer behavior — Phase 4 */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Answer behavior</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <Label>Escalation style</Label>
+            <Select
+              value={(settings.escalation_style as EscalationStyle) || 'balanced'}
+              onValueChange={(v) => patch({ escalation_style: v as EscalationStyle })}
+            >
+              <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="conservative">
+                  Conservative — only answer when very confident, escalate sooner
+                </SelectItem>
+                <SelectItem value="balanced">
+                  Balanced (recommended) — answer when grounded, ask one clarifying question if vague
+                </SelectItem>
+                <SelectItem value="helpful_first">
+                  Helpful first — try harder before escalating, prefer answering with a hedge over handoff
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground mt-2">
+              Controls how quickly the AI escalates to a human. The AI never invents facts — even Helpful first stays grounded in your knowledge base.
+            </p>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div>
+              <Label>Allow clarifying questions</Label>
+              <p className="text-xs text-muted-foreground mt-1">When the visitor's question is vague, AI may ask one short clarifying question instead of immediately handing off.</p>
+            </div>
+            <Switch
+              checked={settings.allow_clarifying_questions !== false}
+              onCheckedChange={(v) => patch({ allow_clarifying_questions: v })}
+              disabled={update.isPending}
+            />
+          </div>
+
+          <div>
+            <Label htmlFor="max_clar">Max clarifying questions per conversation</Label>
+            <Input
+              id="max_clar"
+              type="number"
+              min={0}
+              max={5}
+              className="mt-1.5"
+              defaultValue={settings.max_clarification_attempts ?? 1}
+              onBlur={(e) => {
+                const n = parseInt(e.target.value, 10);
+                if (!Number.isNaN(n) && n !== (settings.max_clarification_attempts ?? 1)) {
+                  patch({ max_clarification_attempts: Math.max(0, Math.min(5, n)) });
+                }
+              }}
+            />
+            <p className="text-xs text-muted-foreground mt-1">After this, AI hands off instead of asking again.</p>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div>
+              <Label>Allow answers with caveat</Label>
+              <p className="text-xs text-muted-foreground mt-1">When the knowledge match is partial, AI may answer with a hedge such as "Based on the information I have…" instead of escalating.</p>
+            </div>
+            <Switch
+              checked={settings.allow_answer_with_caveat !== false}
+              onCheckedChange={(v) => patch({ allow_answer_with_caveat: v })}
+              disabled={update.isPending}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Learning — placeholder, feature ships in Phase 2 */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base">Learning from operator replies</CardTitle>
+            <Badge variant="outline" className="text-[10px]">Coming soon</Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            When AI cannot answer and an operator replies with the correct answer, the system will create a pending Q&amp;A suggestion for an admin to review. Workspace-isolated and never auto-published. The pipeline is not active yet — these toggles save your preference for when it ships.
+          </p>
+          <div className="flex items-center justify-between opacity-70">
+            <div>
+              <Label>Enable learning</Label>
+              <p className="text-xs text-muted-foreground mt-1">Allow this workspace to collect learning candidates from real conversations.</p>
+            </div>
+            <Switch
+              checked={settings.learning_enabled !== false}
+              onCheckedChange={(v) => patch({ learning_enabled: v })}
+              disabled={update.isPending}
+            />
+          </div>
+          <div className="flex items-center justify-between opacity-70">
+            <div>
+              <Label>Auto-create learning candidates</Label>
+              <p className="text-xs text-muted-foreground mt-1">Automatically pair a visitor's unanswered question with the operator's reply and queue it for review.</p>
+            </div>
+            <Switch
+              checked={settings.auto_create_learning_candidates !== false}
+              onCheckedChange={(v) => patch({ auto_create_learning_candidates: v })}
+              disabled={update.isPending}
+            />
+          </div>
+          <div className="flex items-center justify-between opacity-70">
+            <div>
+              <Label>Require approval before AI uses new knowledge</Label>
+              <p className="text-xs text-muted-foreground mt-1">Strongly recommended. AI never uses a candidate until an admin approves it.</p>
+            </div>
+            <Switch
+              checked={settings.require_approval_for_learning !== false}
+              onCheckedChange={(v) => patch({ require_approval_for_learning: v })}
+              disabled={update.isPending}
             />
           </div>
         </CardContent>

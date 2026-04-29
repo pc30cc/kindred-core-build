@@ -20,7 +20,8 @@ import { executeAICompletion, resolveAIConfig } from '../ai/index.js';
 import { getOrCreateSettings } from './settings.js';
 import { retrieveSources, type RetrievedSource } from './retrieval.js';
 import { buildSystemPrompt, buildUserPrompt } from './prompt.js';
-import { decide, postValidateAnswer } from './policy.js';
+import { postValidateAnswer } from './policy.js';
+import { decideStrategy, countClarificationAttempts } from './answerStrategy.js';
 import { logRun } from './logs.js';
 import { publishOperatorEvent } from '../realtime/publish.js';
 import { getConversationState, markHandoffRequested } from './conversationState.js';
@@ -178,24 +179,65 @@ async function runInternal(
 
   // From here we either suggest or auto-reply. Both need retrieval.
   const sources = await retrieveSources(config, workspaceId, question, locale, 5);
-  const grounded = decide({ settings, question, sources });
+  const clarificationAttemptCount = await countClarificationAttempts(sb, conversationId);
+  const strategy = decideStrategy({
+    settings,
+    question,
+    sources,
+    clarificationAttemptCount,
+  });
+  console.log('[ai-agent] strategy decision', {
+    conversationId,
+    decisionType: strategy.decisionType,
+    reason: strategy.reason,
+    retrievalStrength: strategy.retrievalStrength,
+    topScore: strategy.topScore,
+    clarificationAttempts: clarificationAttemptCount,
+  });
+  const strategyMeta = {
+    decision_type: strategy.decisionType,
+    reason: strategy.reason,
+    retrieval_strength: strategy.retrievalStrength,
+    top_score: strategy.topScore,
+    clarification_attempt_count: clarificationAttemptCount,
+    source_types_used: strategy.sourceTypesUsed,
+    handoff_required: strategy.handoffRequired,
+    escalation_style: settings.escalation_style || 'balanced',
+  };
 
-  // ─── No KB / answer-only-from-KB blocks the LLM call ──────────────────
-  if (grounded.action !== 'answer') {
+  // ─── Decisions that don't require an LLM call ─────────────────────────
+  if (strategy.decisionType === 'no_answer_silent') {
     const runId = await logRun(config, {
       workspaceId,
       conversationId,
       visitorMessageId,
-      runType: grounded.action === 'handoff' ? 'handoff' : 'skip',
+      runType: 'skip',
       mode: settings.mode,
-      status: grounded.action === 'handoff' ? 'handoff' : 'no_answer',
+      status: 'no_answer',
       inputText: question,
-      skipReason: grounded.reason ?? 'no_kb_match',
+      skipReason: strategy.reason,
       kbArticleIds: sources.filter((s) => s.kind === 'kb_article').map((s) => s.id),
-      confidence: grounded.confidence,
+      confidence: strategy.confidence,
+      metadata: { answer_strategy: strategyMeta, locale },
+    });
+    return { ran: true, action: 'no_answer', reason: strategy.reason, runId };
+  }
+
+  if (strategy.decisionType === 'handoff') {
+    const runId = await logRun(config, {
+      workspaceId,
+      conversationId,
+      visitorMessageId,
+      runType: 'handoff',
+      mode: settings.mode,
+      status: 'handoff',
+      inputText: question,
+      skipReason: strategy.reason,
+      kbArticleIds: sources.filter((s) => s.kind === 'kb_article').map((s) => s.id),
+      confidence: strategy.confidence,
+      metadata: { answer_strategy: strategyMeta, locale },
     });
 
-    // For auto-reply modes, surface the fallback (or stay silent) based on settings.
     if (decision.canAutoReply) {
       const fallbackBehavior = (settings as any).fallback_behavior || 'handoff';
       if (fallbackBehavior === 'handoff') {
@@ -203,7 +245,7 @@ async function runInternal(
         await markNeedsHuman(config, {
           workspaceId,
           conversationId,
-          reason: 'no_kb_match',
+          reason: strategy.reason,
         }).catch(() => {});
         const display = deriveAgentDisplay(settings);
         const body = (settings.fallback_message || pickHandoffAck(locale, display.agentName));
@@ -218,10 +260,10 @@ async function runInternal(
           agentName: display.agentName,
           agentLogoUrl: display.agentLogoUrl,
         });
-        return { ran: true, action: 'handoff', reason: grounded.reason, runId, messageId: inserted.id };
+        return { ran: true, action: 'handoff', reason: strategy.reason, runId, messageId: inserted.id };
       }
     }
-    return { ran: true, action: 'no_answer', reason: grounded.reason, runId };
+    return { ran: true, action: 'no_answer', reason: strategy.reason, runId };
   }
 
   // ─── LLM call ─────────────────────────────────────────────────────────
@@ -237,7 +279,8 @@ async function runInternal(
       inputText: question,
       errorMessage: 'no_ai_provider_configured',
       kbArticleIds: sources.filter((s) => s.kind === 'kb_article').map((s) => s.id),
-      confidence: grounded.confidence,
+      confidence: strategy.confidence,
+      metadata: { answer_strategy: strategyMeta, locale },
     });
     return { ran: true, action: 'failed', reason: 'no_ai_provider_configured', runId };
   }
@@ -258,7 +301,7 @@ async function runInternal(
   }
 
   const systemPrompt = buildSystemPrompt(settings, locale);
-  const userPrompt = buildUserPrompt(question, sources);
+  const userPrompt = buildUserPrompt(question, sources, strategy);
 
   let aiResult;
   try {
@@ -284,12 +327,18 @@ async function runInternal(
       provider: aiConfig.provider,
       model: aiConfig.model,
       kbArticleIds: sources.filter((s) => s.kind === 'kb_article').map((s) => s.id),
-      confidence: grounded.confidence,
+      confidence: strategy.confidence,
+      metadata: { answer_strategy: strategyMeta, locale },
     });
     return { ran: true, action: 'failed', reason: err?.message || 'ai_call_failed', runId };
   }
 
-  const valid = postValidateAnswer(aiResult.text || '');
+  // Clarifying questions can legitimately be short / "I'm not sure".
+  // Only post-validate when we expected a confident answer.
+  const valid =
+    strategy.decisionType === 'ask_clarifying_question'
+      ? { ok: true as const }
+      : postValidateAnswer(aiResult.text || '');
   if (!valid.ok) {
     // Treat as handoff when AI itself bailed out.
     const runId = await logRun(config, {
@@ -307,7 +356,8 @@ async function runInternal(
       promptTokens: aiResult.promptTokens,
       completionTokens: aiResult.completionTokens,
       kbArticleIds: sources.filter((s) => s.kind === 'kb_article').map((s) => s.id),
-      confidence: grounded.confidence,
+      confidence: strategy.confidence,
+      metadata: { answer_strategy: strategyMeta, locale },
     });
     if (decision.canAutoReply) {
       await markHandoffRequested(config, conversationId).catch(() => {});
@@ -353,8 +403,13 @@ async function runInternal(
       completionTokens: aiResult.completionTokens,
       creditsUsed: 1,
       kbArticleIds: kbIds,
-      confidence: grounded.confidence,
-      metadata: { latencyMs: aiResult.latencyMs, locale, qnaIds },
+      confidence: strategy.confidence,
+      metadata: {
+        latencyMs: aiResult.latencyMs,
+        locale,
+        qnaIds,
+        answer_strategy: strategyMeta,
+      },
     });
     const display = deriveAgentDisplay(settings);
     const inserted = await insertAiMessage(config, {
@@ -366,7 +421,7 @@ async function runInternal(
       mode: settings.mode,
       kbArticleIds: kbIds,
       qnaIds,
-      confidence: grounded.confidence,
+      confidence: strategy.confidence,
       provider: aiResult.provider,
       model: aiResult.model,
       handoff: false,
@@ -395,8 +450,13 @@ async function runInternal(
     completionTokens: aiResult.completionTokens,
     creditsUsed: 1,
     kbArticleIds: kbIds,
-    confidence: grounded.confidence,
-    metadata: { latencyMs: aiResult.latencyMs, locale, qnaIds },
+    confidence: strategy.confidence,
+    metadata: {
+      latencyMs: aiResult.latencyMs,
+      locale,
+      qnaIds,
+      answer_strategy: strategyMeta,
+    },
   });
 
   const { data: suggestion, error: sErr } = await sb
@@ -407,7 +467,7 @@ async function runInternal(
       visitor_message_id: visitorMessageId,
       suggested_reply: aiResult.text,
       source_article_ids: kbIds,
-      confidence: grounded.confidence,
+      confidence: strategy.confidence,
       status: 'pending',
       created_by_run_id: runId,
     })

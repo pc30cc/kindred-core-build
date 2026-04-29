@@ -486,6 +486,51 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
     const { data: workspace } = await supabase
       .from('workspaces').select('name').eq('id', workspaceId).maybeSingle();
 
+    // Phase 4 — expose AI Agent activation snapshot so the widget can decide
+    // whether to suppress the generic greeting. Best-effort; never blocks
+    // the widget config response.
+    let aiAgentInfo: {
+      enabled: boolean;
+      mode: string;
+      introEnabled: boolean;
+      suppressGreeting: boolean;
+      agentName: string | null;
+      agentLogoUrl: string | null;
+    } = {
+      enabled: false,
+      mode: 'off',
+      introEnabled: false,
+      suppressGreeting: false,
+      agentName: null,
+      agentLogoUrl: null,
+    };
+    try {
+      const { data: aiSettings } = await supabase
+        .from('ai_agent_settings')
+        .select('enabled, mode, ai_intro_enabled, agent_name, agent_logo_url')
+        .eq('workspace_id', workspaceId)
+        .maybeSingle();
+      if (aiSettings) {
+        const mode = String(aiSettings.mode || 'off');
+        const isAuto = mode === 'auto_reply_when_offline'
+          || mode === 'auto_reply_until_human_joins'
+          || mode === 'auto_reply_always';
+        const introEnabled = aiSettings.ai_intro_enabled !== false;
+        aiAgentInfo = {
+          enabled: !!aiSettings.enabled,
+          mode,
+          introEnabled,
+          // Suppress the generic greeting only when AI will actually speak
+          // first to the visitor — i.e. enabled + auto mode + intro enabled.
+          suppressGreeting: !!aiSettings.enabled && isAuto && introEnabled,
+          agentName: aiSettings.agent_name || null,
+          agentLogoUrl: aiSettings.agent_logo_url || null,
+        };
+      }
+    } catch (e: any) {
+      console.warn('[widget-config] ai_agent_settings lookup failed:', e?.message || e);
+    }
+
     const { data: members } = await supabase
       .from('workspace_members').select('user_id').eq('workspace_id', workspaceId).limit(4);
 
@@ -645,6 +690,10 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
         chat: versionedAssetUrl(assetBase ? `${assetBase}/widget/${chatModuleName}` : null),
         kb: versionedAssetUrl(assetBase ? `${assetBase}/widget/${kbModuleName}` : null),
       },
+      // Phase 4 — AI Agent snapshot. Used by the widget runtime to decide
+      // whether to suppress the generic welcome greeting (the AI intro will
+      // take its place after pre-chat).
+      aiAgent: aiAgentInfo,
     };
 
     res.json(widgetConfig);

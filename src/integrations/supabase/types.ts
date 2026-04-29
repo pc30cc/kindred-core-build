@@ -264,14 +264,18 @@ export type Database = {
           agent_logo_url: string | null
           agent_name: string
           ai_intro_enabled: boolean
+          allow_answer_with_caveat: boolean
+          allow_clarifying_questions: boolean
           allow_suggestions_after_takeover: boolean
           allowed_locales: string[]
           answer_guidance: string
           answer_only_from_kb: boolean
+          auto_create_learning_candidates: boolean
           business_description: string | null
           confidence_threshold: number
           created_at: string
           enabled: boolean
+          escalation_style: string
           fallback_behavior: string
           fallback_message: string
           handoff_keywords: string[]
@@ -282,11 +286,14 @@ export type Database = {
           instructions: Json
           intro_message: string | null
           keep_in_automated_until_handoff: boolean
+          learning_enabled: boolean
+          max_clarification_attempts: number
           max_replies_per_conversation: number
           max_replies_per_hour: number
           metadata: Json
           mode: string
           pause_auto_reply_after_human_reply: boolean
+          require_approval_for_learning: boolean
           show_sources_to_operator: boolean
           show_sources_to_visitor: boolean
           stop_on_handoff: boolean
@@ -298,14 +305,18 @@ export type Database = {
           agent_logo_url?: string | null
           agent_name?: string
           ai_intro_enabled?: boolean
+          allow_answer_with_caveat?: boolean
+          allow_clarifying_questions?: boolean
           allow_suggestions_after_takeover?: boolean
           allowed_locales?: string[]
           answer_guidance?: string
           answer_only_from_kb?: boolean
+          auto_create_learning_candidates?: boolean
           business_description?: string | null
           confidence_threshold?: number
           created_at?: string
           enabled?: boolean
+          escalation_style?: string
           fallback_behavior?: string
           fallback_message?: string
           handoff_keywords?: string[]
@@ -316,11 +327,14 @@ export type Database = {
           instructions?: Json
           intro_message?: string | null
           keep_in_automated_until_handoff?: boolean
+          learning_enabled?: boolean
+          max_clarification_attempts?: number
           max_replies_per_conversation?: number
           max_replies_per_hour?: number
           metadata?: Json
           mode?: string
           pause_auto_reply_after_human_reply?: boolean
+          require_approval_for_learning?: boolean
           show_sources_to_operator?: boolean
           show_sources_to_visitor?: boolean
           stop_on_handoff?: boolean
@@ -332,14 +346,18 @@ export type Database = {
           agent_logo_url?: string | null
           agent_name?: string
           ai_intro_enabled?: boolean
+          allow_answer_with_caveat?: boolean
+          allow_clarifying_questions?: boolean
           allow_suggestions_after_takeover?: boolean
           allowed_locales?: string[]
           answer_guidance?: string
           answer_only_from_kb?: boolean
+          auto_create_learning_candidates?: boolean
           business_description?: string | null
           confidence_threshold?: number
           created_at?: string
           enabled?: boolean
+          escalation_style?: string
           fallback_behavior?: string
           fallback_message?: string
           handoff_keywords?: string[]
@@ -350,11 +368,14 @@ export type Database = {
           instructions?: Json
           intro_message?: string | null
           keep_in_automated_until_handoff?: boolean
+          learning_enabled?: boolean
+          max_clarification_attempts?: number
           max_replies_per_conversation?: number
           max_replies_per_hour?: number
           metadata?: Json
           mode?: string
           pause_auto_reply_after_human_reply?: boolean
+          require_approval_for_learning?: boolean
           show_sources_to_operator?: boolean
           show_sources_to_visitor?: boolean
           stop_on_handoff?: boolean

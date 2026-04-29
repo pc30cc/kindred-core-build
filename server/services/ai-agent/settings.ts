@@ -15,6 +15,7 @@ export type AgentMode =
   | 'auto_reply_always';
 
 export type AnswerGuidance = 'conservative' | 'balanced' | 'creative';
+export type EscalationStyle = 'conservative' | 'balanced' | 'helpful_first';
 
 export interface AgentInstructions {
   tone?: string;
@@ -58,6 +59,14 @@ export interface AgentSettings {
   pause_auto_reply_after_human_reply?: boolean;
   allow_suggestions_after_takeover?: boolean;
   keep_in_automated_until_handoff?: boolean;
+  // Phase 4 — answer strategy & learning toggles
+  escalation_style?: EscalationStyle;
+  allow_clarifying_questions?: boolean;
+  max_clarification_attempts?: number;
+  allow_answer_with_caveat?: boolean;
+  learning_enabled?: boolean;
+  auto_create_learning_candidates?: boolean;
+  require_approval_for_learning?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -99,6 +108,13 @@ function defaults(workspaceId: string): Omit<AgentSettings, 'id' | 'created_at' 
     pause_auto_reply_after_human_reply: true,
     allow_suggestions_after_takeover: true,
     keep_in_automated_until_handoff: true,
+    escalation_style: 'balanced',
+    allow_clarifying_questions: true,
+    max_clarification_attempts: 1,
+    allow_answer_with_caveat: true,
+    learning_enabled: true,
+    auto_create_learning_candidates: true,
+    require_approval_for_learning: true,
   };
 }
 
@@ -134,6 +150,9 @@ const ALLOWED_UPDATE_FIELDS = new Set([
   'ai_intro_enabled','intro_message','fallback_behavior','stop_on_handoff',
   'pause_auto_reply_after_human_reply','allow_suggestions_after_takeover',
   'keep_in_automated_until_handoff',
+  'escalation_style','allow_clarifying_questions','max_clarification_attempts',
+  'allow_answer_with_caveat','learning_enabled','auto_create_learning_candidates',
+  'require_approval_for_learning',
 ]);
 
 export async function updateSettings(

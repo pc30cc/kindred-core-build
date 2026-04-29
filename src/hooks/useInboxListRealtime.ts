@@ -113,21 +113,23 @@ export function useInboxListRealtime(workspaceId: string | undefined) {
               kind !== 'conversation_reopened' &&
               kind !== 'ai_human_takeover' &&
               kind !== 'ai_handoff_requested' &&
-              kind !== 'ai_managed'
+              kind !== 'ai_managed' &&
+              kind !== 'spam_changed'
             ) {
               return; // Other kinds are handled by per-conversation subscription.
             }
 
             rtDebug('inbox-list', 'event', { kind, conv: payload.conversation_id });
 
-            // AI lifecycle events shift conversations between queues
-            // (Main / Automated / Needs human). The lightweight patch
-            // path can't represent that, so always invalidate every
-            // cached list for this workspace.
+            // AI lifecycle and spam_changed events shift conversations
+            // between queues (Main / Automated / Needs human / Spam). The
+            // lightweight patch path can't represent that, so always
+            // invalidate every cached list for this workspace.
             if (
               kind === 'ai_human_takeover' ||
               kind === 'ai_handoff_requested' ||
-              kind === 'ai_managed'
+              kind === 'ai_managed' ||
+              kind === 'spam_changed'
             ) {
               qc.invalidateQueries({ queryKey: ['conversations', workspaceId] });
               qc.invalidateQueries({ queryKey: ['conversation', payload.conversation_id] });

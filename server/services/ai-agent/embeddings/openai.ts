@@ -63,11 +63,11 @@ export function buildOpenAIEmbeddingProvider(cfg: OpenAIEmbeddingResolved): Embe
           body: JSON.stringify({ model: cfg.model, input: batch }),
         });
         if (!res.ok) {
-          const err = await res.json().catch(() => ({} as any));
+          const err: any = await res.json().catch(() => ({} as any));
           throw new Error(`embedding_provider_error: ${err?.error?.message || res.statusText}`);
         }
-        const data = await res.json();
-        for (const row of data?.data || []) {
+        const data: any = await res.json();
+        for (const row of (data?.data as any[]) || []) {
           out.push(row.embedding || []);
         }
       }

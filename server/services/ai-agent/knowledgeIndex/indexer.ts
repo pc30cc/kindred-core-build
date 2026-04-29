@@ -50,15 +50,15 @@ export async function indexSource(
 
   // If chunks empty → mark all existing as deleted (source removed/unpublished).
   if (!input.chunks.length) {
-    const { count } = await sb
+    const { data: deleted } = await sb
       .from('ai_knowledge_chunks')
       .update({ status: 'deleted' })
       .eq('workspace_id', input.workspaceId)
       .eq('source_type', input.sourceType)
       .eq('source_id', input.sourceId)
       .neq('status', 'deleted')
-      .select('id', { count: 'exact', head: true });
-    result.chunksDeleted = count || 0;
+      .select('id');
+    result.chunksDeleted = (deleted || []).length;
     return result;
   }
 

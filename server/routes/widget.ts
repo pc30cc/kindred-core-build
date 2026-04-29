@@ -690,6 +690,10 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
         chat: versionedAssetUrl(assetBase ? `${assetBase}/widget/${chatModuleName}` : null),
         kb: versionedAssetUrl(assetBase ? `${assetBase}/widget/${kbModuleName}` : null),
       },
+      // Phase 4 — AI Agent snapshot. Used by the widget runtime to decide
+      // whether to suppress the generic welcome greeting (the AI intro will
+      // take its place after pre-chat).
+      aiAgent: aiAgentInfo,
     };
 
     res.json(widgetConfig);

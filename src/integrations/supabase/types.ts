@@ -264,6 +264,7 @@ export type Database = {
           agent_logo_url: string | null
           agent_name: string
           ai_intro_enabled: boolean
+          allow_suggestions_after_takeover: boolean
           allowed_locales: string[]
           answer_guidance: string
           answer_only_from_kb: boolean
@@ -280,10 +281,12 @@ export type Database = {
           id: string
           instructions: Json
           intro_message: string | null
+          keep_in_automated_until_handoff: boolean
           max_replies_per_conversation: number
           max_replies_per_hour: number
           metadata: Json
           mode: string
+          pause_auto_reply_after_human_reply: boolean
           show_sources_to_operator: boolean
           show_sources_to_visitor: boolean
           stop_on_handoff: boolean
@@ -295,6 +298,7 @@ export type Database = {
           agent_logo_url?: string | null
           agent_name?: string
           ai_intro_enabled?: boolean
+          allow_suggestions_after_takeover?: boolean
           allowed_locales?: string[]
           answer_guidance?: string
           answer_only_from_kb?: boolean
@@ -311,10 +315,12 @@ export type Database = {
           id?: string
           instructions?: Json
           intro_message?: string | null
+          keep_in_automated_until_handoff?: boolean
           max_replies_per_conversation?: number
           max_replies_per_hour?: number
           metadata?: Json
           mode?: string
+          pause_auto_reply_after_human_reply?: boolean
           show_sources_to_operator?: boolean
           show_sources_to_visitor?: boolean
           stop_on_handoff?: boolean
@@ -326,6 +332,7 @@ export type Database = {
           agent_logo_url?: string | null
           agent_name?: string
           ai_intro_enabled?: boolean
+          allow_suggestions_after_takeover?: boolean
           allowed_locales?: string[]
           answer_guidance?: string
           answer_only_from_kb?: boolean
@@ -342,10 +349,12 @@ export type Database = {
           id?: string
           instructions?: Json
           intro_message?: string | null
+          keep_in_automated_until_handoff?: boolean
           max_replies_per_conversation?: number
           max_replies_per_hour?: number
           metadata?: Json
           mode?: string
+          pause_auto_reply_after_human_reply?: boolean
           show_sources_to_operator?: boolean
           show_sources_to_visitor?: boolean
           stop_on_handoff?: boolean

@@ -5413,6 +5413,10 @@
             if (inputBar) inputBar.style.display = 'flex';
             renderBody();
             if (msgInput) setTimeout(function () { msgInput.focus(); }, 100);
+            // Phase 3 — AI Agent pre-chat intro. Fire-and-forget; never
+            // blocks the chat. Backend enforces mode/intro_enabled and
+            // dedupes by (conversation_id | session_id).
+            try { requestAiAgentIntro(); } catch (_) {}
           });
           return;
         }

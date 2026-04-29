@@ -2080,3 +2080,30 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
     color: #fecaca;
   }
 }
+
+/* Phase 3 — AI Agent message badge.
+   Small, low-key tag shown on AI-authored bubbles so visitors know they
+   are talking to an automated assistant (vs a human operator). */
+.msg.is-ai {
+  position: relative;
+}
+.msg-ai-badge {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 6px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+  vertical-align: middle;
+  border-radius: 4px;
+  background: rgba(59, 130, 246, 0.12);
+  color: #2563eb;
+  text-transform: uppercase;
+}
+@media (prefers-color-scheme: dark) {
+  .msg-ai-badge {
+    background: rgba(96, 165, 250, 0.18);
+    color: #93c5fd;
+  }
+}

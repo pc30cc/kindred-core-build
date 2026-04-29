@@ -2774,6 +2774,10 @@
         }
         var bg = m.sender === 'visitor' ? 'style="background:' + ctx.primaryColor + '"' : '';
         var cls = m.sender === 'visitor' ? 'visitor' : 'operator';
+        var isAi = m.senderType === 'ai';
+        var aiBadgeHtml = isAi
+          ? '<span class="msg-ai-badge" aria-label="AI assistant" title="AI assistant">AI</span>'
+          : '';
         var hasText = m.body && String(m.body).trim().length > 0;
         var attHtml = renderMessageAttachment(m.attachment);
         var extraCls = (attHtml && !hasText) ? ' has-att-only' : (attHtml ? ' has-att' : '');
@@ -2817,7 +2821,8 @@
 
         html += '<div class="msg-row ' + cls + '">' +
           avatarHtml +
-          '<div class="msg ' + cls + extraCls + '" ' + bg + '>' +
+          '<div class="msg ' + cls + extraCls + (isAi ? ' is-ai' : '') + '" ' + bg + '>' +
+            aiBadgeHtml +
             (hasText ? Util.escapeHtml(m.body) : '') + attHtml +
           '</div>' +
           statusHtml +
@@ -5377,6 +5382,73 @@
     departmentStore.subscribe(function () {
       if (shellStore.get().isOpen) renderBody();
     });
+
+    // ─── Phase 3 — AI Agent pre-chat intro ───
+    // Fire-and-forget POST to /api/widget/ai-agent/intro after the visitor
+    // completes pre-chat. Backend is authoritative — it decides whether to
+    // send (enabled + auto mode + ai_intro_enabled) and dedupes by
+    // conversation/session. We additionally guard locally against double
+    // calls within the same tab (re-renders, visibilitychange).
+    var __aiIntroRequested = false;
+    function requestAiAgentIntro() {
+      if (__aiIntroRequested) {
+        try { console.debug('[Widget AI Agent] intro skipped (already requested)'); } catch (_) {}
+        return;
+      }
+      __aiIntroRequested = true;
+      var conversationId = (chatStore.get() || {}).conversationId || null;
+      var identitySnap = identityStore.get() || {};
+      var sessionId = identitySnap.sessionId || identitySnap.session_id || null;
+      try { console.debug('[Widget AI Agent] intro requested', { conversationId: conversationId, sessionId: sessionId, locale: ctx.locale }); } catch (_) {}
+
+      ctx.fetchWith(ctx.apiBase + '/api/widget/ai-agent/intro', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversation_id: conversationId || undefined,
+          session_id: sessionId || undefined,
+          locale: ctx.locale || undefined,
+        }),
+      })
+        .then(function (r) { return r.json().catch(function () { return {}; }); })
+        .then(function (resp) {
+          if (!resp || resp.sent !== true) {
+            try { console.debug('[Widget AI Agent] intro skipped', resp && resp.reason); } catch (_) {}
+            return;
+          }
+          // If backend persisted it as a real conversation message, the
+          // poll/realtime stream WILL deliver it — do not render twice.
+          if (resp.messageId) {
+            try { console.debug('[Widget AI Agent] intro sent (will arrive via stream)'); } catch (_) {}
+            return;
+          }
+          // No backing message id (no conversation yet). Render a transient
+          // AI bubble locally so the visitor sees the greeting.
+          try {
+            var s = chatStore.get();
+            var msgs = (s.messages || []).slice();
+            msgs.push({
+              body: resp.body || '',
+              sender: 'operator',
+              senderType: 'ai',
+              senderName: resp.agentName || null,
+              senderAvatar: resp.agentLogoUrl || null,
+              time: new Date(),
+              __id: 'ai-intro-local-' + Date.now(),
+              status: null,
+              metadata: { source: 'ai_agent_intro_local' },
+            });
+            chatStore.set({ messages: msgs });
+            try { console.debug('[Widget AI Agent] intro rendered (local)'); } catch (_) {}
+          } catch (_) {}
+        })
+        .catch(function (err) {
+          // Reset so a future re-attempt is possible (e.g. transient network).
+          __aiIntroRequested = false;
+          try { console.debug('[Widget AI Agent] intro failed', err && err.message); } catch (_) {}
+        });
+    }
+
     function renderBody() {
       if (!body) return;
       // Pass 2 — when an in-panel call surface is open it owns the
@@ -5413,6 +5485,10 @@
             if (inputBar) inputBar.style.display = 'flex';
             renderBody();
             if (msgInput) setTimeout(function () { msgInput.focus(); }, 100);
+            // Phase 3 — AI Agent pre-chat intro. Fire-and-forget; never
+            // blocks the chat. Backend enforces mode/intro_enabled and
+            // dedupes by (conversation_id | session_id).
+            try { requestAiAgentIntro(); } catch (_) {}
           });
           return;
         }

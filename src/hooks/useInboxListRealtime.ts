@@ -110,12 +110,29 @@ export function useInboxListRealtime(workspaceId: string | undefined) {
             if (
               kind !== 'conversation_updated' &&
               kind !== 'conversation_resolved' &&
-              kind !== 'conversation_reopened'
+              kind !== 'conversation_reopened' &&
+              kind !== 'ai_human_takeover' &&
+              kind !== 'ai_handoff_requested' &&
+              kind !== 'ai_managed'
             ) {
               return; // Other kinds are handled by per-conversation subscription.
             }
 
             rtDebug('inbox-list', 'event', { kind, conv: payload.conversation_id });
+
+            // AI lifecycle events shift conversations between queues
+            // (Main / Automated / Needs human). The lightweight patch
+            // path can't represent that, so always invalidate every
+            // cached list for this workspace.
+            if (
+              kind === 'ai_human_takeover' ||
+              kind === 'ai_handoff_requested' ||
+              kind === 'ai_managed'
+            ) {
+              qc.invalidateQueries({ queryKey: ['conversations', workspaceId] });
+              qc.invalidateQueries({ queryKey: ['conversation', payload.conversation_id] });
+              return;
+            }
 
             // Patch every cached `['conversations', workspaceId, …]` query.
             // Filter chips share workspaceId but vary by status, so we

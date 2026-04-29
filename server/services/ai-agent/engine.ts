@@ -279,7 +279,8 @@ async function runInternal(
       inputText: question,
       errorMessage: 'no_ai_provider_configured',
       kbArticleIds: sources.filter((s) => s.kind === 'kb_article').map((s) => s.id),
-      confidence: grounded.confidence,
+      confidence: strategy.confidence,
+      metadata: { answer_strategy: strategyMeta, locale },
     });
     return { ran: true, action: 'failed', reason: 'no_ai_provider_configured', runId };
   }

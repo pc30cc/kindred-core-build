@@ -33,7 +33,7 @@ import {
   Mail, Phone, Globe, User, Eye, ChevronLeft, ChevronRight,
   Loader2, Bot, Copy, Paperclip, RefreshCw,
   MessageCircle, Hash, FileText, Download, ImageIcon,
-  PhoneOff,
+  PhoneOff, Ban, ShieldOff,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
@@ -141,6 +141,7 @@ export default function InboxPage() {
   const queue: InboxQueue =
     queueParam === 'automated' ? 'automated'
       : queueParam === 'needs_human' ? 'needs_human'
+      : queueParam === 'spam' ? 'spam'
       : 'main';
   const isQueueMode = queue !== 'main';
   const [filter, setFilter] = useState<FilterStatus>('open');

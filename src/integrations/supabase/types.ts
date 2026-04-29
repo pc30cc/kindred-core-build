@@ -2139,10 +2139,13 @@ export type Database = {
           created_at: string | null
           email: string | null
           id: string
+          is_spam: boolean
           metadata: Json | null
           name: string | null
           notes: string | null
           phone: string | null
+          spam_marked_at: string | null
+          spam_marked_by: string | null
           tags: string[] | null
           updated_at: string | null
           workspace_id: string
@@ -2152,10 +2155,13 @@ export type Database = {
           created_at?: string | null
           email?: string | null
           id?: string
+          is_spam?: boolean
           metadata?: Json | null
           name?: string | null
           notes?: string | null
           phone?: string | null
+          spam_marked_at?: string | null
+          spam_marked_by?: string | null
           tags?: string[] | null
           updated_at?: string | null
           workspace_id: string
@@ -2165,10 +2171,13 @@ export type Database = {
           created_at?: string | null
           email?: string | null
           id?: string
+          is_spam?: boolean
           metadata?: Json | null
           name?: string | null
           notes?: string | null
           phone?: string | null
+          spam_marked_at?: string | null
+          spam_marked_by?: string | null
           tags?: string[] | null
           updated_at?: string | null
           workspace_id?: string
@@ -2376,8 +2385,11 @@ export type Database = {
           contact_id: string | null
           created_at: string | null
           id: string
+          is_spam: boolean
           metadata: Json
           priority: Database["public"]["Enums"]["conversation_priority"] | null
+          spam_marked_at: string | null
+          spam_marked_by: string | null
           status: Database["public"]["Enums"]["conversation_status"] | null
           subject: string | null
           tags: string[] | null
@@ -2391,8 +2403,11 @@ export type Database = {
           contact_id?: string | null
           created_at?: string | null
           id?: string
+          is_spam?: boolean
           metadata?: Json
           priority?: Database["public"]["Enums"]["conversation_priority"] | null
+          spam_marked_at?: string | null
+          spam_marked_by?: string | null
           status?: Database["public"]["Enums"]["conversation_status"] | null
           subject?: string | null
           tags?: string[] | null
@@ -2406,8 +2421,11 @@ export type Database = {
           contact_id?: string | null
           created_at?: string | null
           id?: string
+          is_spam?: boolean
           metadata?: Json
           priority?: Database["public"]["Enums"]["conversation_priority"] | null
+          spam_marked_at?: string | null
+          spam_marked_by?: string | null
           status?: Database["public"]["Enums"]["conversation_status"] | null
           subject?: string | null
           tags?: string[] | null

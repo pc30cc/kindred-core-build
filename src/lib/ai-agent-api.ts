@@ -122,4 +122,31 @@ export const aiAgentApi = {
     jsonFetch(`/api/ai-agent/qna/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   deleteQna: (id: string) =>
     jsonFetch(`/api/ai-agent/qna/${id}`, { method: 'DELETE' }),
+  // Conversation suggestions (Phase 2 operator-facing UI)
+  listConversationSuggestions: (conversationId: string, status: 'pending' | 'all' = 'pending') =>
+    jsonFetch(`/api/ai-agent/conversations/${conversationId}/suggestions?status=${status}`) as Promise<{ items: AgentSuggestion[] }>,
+  useSuggestion: (id: string) =>
+    jsonFetch(`/api/ai-agent/suggestions/${id}/use`, { method: 'POST' }) as Promise<{ ok: boolean; suggestion: AgentSuggestion }>,
+  dismissSuggestion: (id: string) =>
+    jsonFetch(`/api/ai-agent/suggestions/${id}/dismiss`, { method: 'POST' }) as Promise<{ ok: boolean; suggestion: AgentSuggestion }>,
 };
+
+export interface AgentSuggestionSource {
+  id: string;
+  title: string;
+  slug: string | null;
+  locale: string | null;
+}
+
+export interface AgentSuggestion {
+  id: string;
+  conversation_id: string;
+  visitor_message_id: string | null;
+  suggested_reply: string;
+  source_article_ids: string[];
+  confidence: number | null;
+  status: 'pending' | 'used' | 'dismissed' | 'expired';
+  created_at: string;
+  updated_at: string;
+  sources?: AgentSuggestionSource[];
+}

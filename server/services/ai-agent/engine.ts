@@ -754,5 +754,13 @@ function pickHandoffAck(locale: string | undefined, agentName: string): string {
   return `Sure — I'll connect you with a human agent.`;
 }
 
+function pickGreeting(locale: string | undefined, _agentName: string): string {
+  const l = (locale || 'en').toLowerCase();
+  if (l.startsWith('fa')) return 'سلام! چطور می‌توانم کمکتان کنم؟';
+  if (l.startsWith('tr')) return 'Merhaba! Size nasıl yardımcı olabilirim?';
+  if (l.startsWith('ar')) return 'مرحباً! كيف يمكنني مساعدتك؟';
+  return 'Hi! How can I help?';
+}
+
 // Suppress unused-var warning for _RetrievedSource if added later
 export type { RetrievedSource };

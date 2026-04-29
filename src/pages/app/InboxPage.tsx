@@ -1035,6 +1035,8 @@ export default function InboxPage() {
                           const aiState = (conv as any)?.metadata?.ai_state
                             || (conv as any)?.ai_state;
                           if (aiState !== 'ai_managed' && aiState !== 'needs_human') return null;
+                          // Don't offer take-over on spam rows.
+                          if ((conv as any)?.is_spam) return null;
                           return (
                             <button
                               onClick={async (e) => {
@@ -1055,6 +1057,15 @@ export default function InboxPage() {
                             </button>
                           );
                         })()}
+                        {/* Spam badge — visible in any queue when flagged */}
+                        {(conv as any)?.is_spam && (
+                          <span
+                            className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md font-medium bg-warning/15 text-warning border border-warning/30"
+                            title="Marked as spam"
+                          >
+                            <Ban className="w-2.5 h-2.5" /> Spam
+                          </span>
+                        )}
                         {/* Selected-conversation typing indicator (live) */}
                         {isActive && visitorTypingActive && (
                           <span className="ml-auto inline-flex items-center gap-1 text-[10px] text-primary font-medium" aria-label="typing">

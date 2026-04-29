@@ -1222,6 +1222,67 @@ export default function InboxPage() {
                     <UserCheck className="w-3 h-3" /> Human active
                   </Badge>
                 )}
+                {(selected as any)?.is_spam ? (
+                  <>
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] gap-1 border-warning/40 text-warning bg-warning/10"
+                      title="This conversation is marked as spam — AI will not auto-reply."
+                    >
+                      <Ban className="w-3 h-3" /> Spam
+                    </Badge>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2.5 text-[10px] font-semibold"
+                      onClick={async () => {
+                        if (!workspace?.id || !selectedId) return;
+                        try {
+                          await conversationsApi.unmarkSpam({
+                            workspace_id: workspace.id,
+                            conversation_id: selectedId,
+                          });
+                          toast({ title: 'Removed from spam' });
+                          qc.invalidateQueries({ queryKey: ['conversations', workspace.id] });
+                        } catch (e: any) {
+                          toast({ title: 'Action failed', description: e?.message || 'unknown', variant: 'destructive' });
+                        }
+                      }}
+                    >
+                      <ShieldOff className={cn('w-3 h-3', dir === 'rtl' ? 'ml-1' : 'mr-1')} />
+                      Not spam
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 px-2.5 text-[10px] font-semibold text-muted-foreground hover:text-warning hover:border-warning/40"
+                    onClick={async () => {
+                      if (!workspace?.id || !selectedId) return;
+                      try {
+                        const r = await conversationsApi.markSpam({
+                          workspace_id: workspace.id,
+                          conversation_id: selectedId,
+                        });
+                        toast({
+                          title: 'Marked as spam',
+                          description:
+                            r.conversation_ids.length > 1
+                              ? `${r.conversation_ids.length} conversations from this contact moved to Spam.`
+                              : 'Conversation moved to Spam. AI will not auto-reply.',
+                        });
+                        qc.invalidateQueries({ queryKey: ['conversations', workspace.id] });
+                      } catch (e: any) {
+                        toast({ title: 'Action failed', description: e?.message || 'unknown', variant: 'destructive' });
+                      }
+                    }}
+                    title="Mark as spam (does not block the visitor)"
+                  >
+                    <Ban className={cn('w-3 h-3', dir === 'rtl' ? 'ml-1' : 'mr-1')} />
+                    Mark as spam
+                  </Button>
+                )}
                 {selected.status === 'open' && (
                   <Button
                     size="sm"

@@ -344,7 +344,10 @@ async function runInternal(
     }
   }
 
-  const systemPrompt = buildSystemPrompt(settings, locale);
+  const systemPrompt = buildSystemPrompt(settings, locale, {
+    responseLanguage: locale,
+    inputLanguage,
+  });
   const userPrompt = buildUserPrompt(question, sources, strategy);
 
   let aiResult;

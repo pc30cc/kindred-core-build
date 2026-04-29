@@ -4,6 +4,7 @@
 import type { AgentSettings, AnswerGuidance } from './settings.js';
 import type { RetrievedSource } from './retrieval.js';
 import type { StrategyDecision } from './answerStrategy.js';
+import { languageDisplayName } from './language.js';
 
 function guidanceLine(g: AnswerGuidance): string {
   switch (g) {
@@ -17,7 +18,20 @@ function guidanceLine(g: AnswerGuidance): string {
   }
 }
 
-export function buildSystemPrompt(s: AgentSettings, locale: string): string {
+export interface BuildSystemPromptOptions {
+  /** When provided, used in place of `locale` for the response-language line. */
+  responseLanguage?: string;
+  /** Detected visitor input language (informational only). */
+  inputLanguage?: string;
+  /** Workspace pages we can safely point the visitor to. */
+  workspaceLinks?: { pricing?: string | null; contact?: string | null; help?: string | null; domain?: string | null };
+}
+
+export function buildSystemPrompt(
+  s: AgentSettings,
+  locale: string,
+  opts: BuildSystemPromptOptions = {},
+): string {
   const lines: string[] = [];
   lines.push(`You are "${s.agent_name}", the AI support agent for this workspace.`);
   // ── Hard safety rules — same in every prompt, regardless of style. ──
@@ -33,7 +47,24 @@ export function buildSystemPrompt(s: AgentSettings, locale: string): string {
   }
   // Professional ladder — applies to every reply.
   lines.push('First try to help using the approved workspace sources. If the visitor question is unclear, prefer asking ONE short clarifying question before escalating. Only offer to connect a human when the answer is not available and a clarifying question will not help, or when the visitor asks for a human.');
-  lines.push(`Reply in this language: ${locale}.`);
+  // ── Language policy ──
+  const responseLang = opts.responseLanguage || locale;
+  lines.push(
+    `Response language: ${responseLang} (${languageDisplayName(responseLang)}). Always answer in this language, even if the visitor wrote in a different one. Do not switch languages unless the visitor explicitly asks.`,
+  );
+  if (opts.inputLanguage && opts.inputLanguage !== 'unknown' && opts.inputLanguage !== responseLang) {
+    lines.push(`The visitor wrote in ${languageDisplayName(opts.inputLanguage)}. Understand their meaning, but reply in ${languageDisplayName(responseLang)}.`);
+  }
+  // ── Workspace navigation context (safe links only, no factual claims) ──
+  const links = opts.workspaceLinks || {};
+  const linkLines: string[] = [];
+  if (links.pricing) linkLines.push(`Pricing page: ${links.pricing}`);
+  if (links.contact) linkLines.push(`Contact page: ${links.contact}`);
+  if (links.help) linkLines.push(`Help center: ${links.help}`);
+  if (linkLines.length) {
+    lines.push('Workspace pages you may reference if relevant:');
+    for (const l of linkLines) lines.push(`  - ${l}`);
+  }
   const ins = s.instructions || {};
   if (ins.tone) lines.push(`Tone preference: ${ins.tone}`);
   if (ins.custom_instructions) lines.push(`Operator instructions: ${ins.custom_instructions}`);
@@ -49,7 +80,7 @@ export function buildSystemPrompt(s: AgentSettings, locale: string): string {
 export function buildUserPrompt(
   question: string,
   sources: RetrievedSource[],
-  strategy?: Pick<StrategyDecision, 'decisionType' | 'clarificationHint'>,
+  strategy?: Pick<StrategyDecision, 'decisionType' | 'clarificationHint' | 'safeGuidanceTopic'>,
 ): string {
   const lines: string[] = [];
   if (sources.length === 0) {
@@ -75,6 +106,16 @@ export function buildUserPrompt(
       );
     } else if (strategy.decisionType === 'answer') {
       lines.push('Answer directly and confidently using the sources above. Be concise.');
+    } else if (strategy.decisionType === 'safe_guidance') {
+      const topic = strategy.safeGuidanceTopic || 'this topic';
+      lines.push(
+        `Provide SAFE GUIDANCE about ${topic}. The sources do not contain a precise answer, so:\n` +
+          `  - Do NOT invent prices, plan names, refund rules, policies, or any specific facts.\n` +
+          `  - Acknowledge the topic and explain what you can help with in general terms.\n` +
+          `  - If a relevant workspace page (pricing / contact / help) was listed in the system prompt, mention it as a next step.\n` +
+          `  - End by asking a short follow-up question OR offering to connect a human agent for exact details.\n` +
+          `Keep the reply short and helpful — never silent.`,
+      );
     }
   }
   lines.push(`Visitor question: ${question}`);

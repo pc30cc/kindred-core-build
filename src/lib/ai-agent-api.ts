@@ -58,6 +58,15 @@ export interface AgentSettings {
     forbidden_topics?: string[];
     escalation_instructions?: string;
     max_answer_length?: 'short' | 'medium' | 'long';
+    // Pass A
+    brand_voice?: string;
+    business_description?: string;
+    do_list?: string[];
+    dont_list?: string[];
+    handoff_instructions?: string;
+    pricing_instructions?: string;
+    support_instructions?: string;
+    custom_system_instruction?: string;
   };
   ai_intro_enabled?: boolean;
   intro_message?: string | null;

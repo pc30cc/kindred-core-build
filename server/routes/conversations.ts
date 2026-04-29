@@ -590,3 +590,82 @@ conversationsRouter.patch('/:id', async (req, res) => {
     return res.status(500).json({ error: err?.message || 'Internal error' });
   }
 });
+
+// ─── Spam routing ─────────────────────────────────────────────────────
+// POST /api/conversations/spam       → mark spam
+// POST /api/conversations/not-spam   → clear spam flag
+//
+// Soft routing only. Marking spam:
+//   • flags the conversation (and the contact, if any, plus all their
+//     other conversations) so they move to the Spam queue
+//   • prevents the AI Agent from auto-replying or generating suggestions
+//   • does NOT close the conversation, delete history, or block the
+//     visitor — Block is a separate, deliberate action.
+const spamSchema = z.object({
+  workspace_id: z.string().uuid(),
+  conversation_id: z.string().uuid(),
+});
+
+conversationsRouter.post('/spam', async (req: any, res: any) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = spamSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
+  const auth = await authorizeWorkspaceMember(req, res, config, parsed.data.workspace_id);
+  if (!auth) return;
+  try {
+    const result = await markSpam(config, {
+      workspaceId: parsed.data.workspace_id,
+      conversationId: parsed.data.conversation_id,
+      operatorId: auth.userId,
+    });
+    // Realtime: nudge every operator's inbox to re-fetch — the affected
+    // conversation(s) move between queues (Main/Automated/NeedsHuman → Spam).
+    for (const cid of result.conversation_ids) {
+      void publishOperatorEvent(config, {
+        kind: 'spam_changed',
+        conversation_id: cid,
+        workspace_id: parsed.data.workspace_id,
+        actor_id: auth.userId,
+        is_spam: true,
+        contact_id: result.contact_id,
+      });
+    }
+    return res.json(result);
+  } catch (err: any) {
+    if (err?.message === 'conversation_not_found') {
+      return res.status(404).json({ error: 'conversation_not_found' });
+    }
+    console.error('[conversations spam] error:', err);
+    return res.status(500).json({ error: err?.message || 'Internal error' });
+  }
+});
+
+conversationsRouter.post('/not-spam', async (req: any, res: any) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = spamSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
+  const auth = await authorizeWorkspaceMember(req, res, config, parsed.data.workspace_id);
+  if (!auth) return;
+  try {
+    const result = await unmarkSpam(config, {
+      workspaceId: parsed.data.workspace_id,
+      conversationId: parsed.data.conversation_id,
+      operatorId: auth.userId,
+    });
+    void publishOperatorEvent(config, {
+      kind: 'spam_changed',
+      conversation_id: parsed.data.conversation_id,
+      workspace_id: parsed.data.workspace_id,
+      actor_id: auth.userId,
+      is_spam: false,
+      contact_id: result.contact_id,
+    });
+    return res.json(result);
+  } catch (err: any) {
+    if (err?.message === 'conversation_not_found') {
+      return res.status(404).json({ error: 'conversation_not_found' });
+    }
+    console.error('[conversations not-spam] error:', err);
+    return res.status(500).json({ error: err?.message || 'Internal error' });
+  }
+});

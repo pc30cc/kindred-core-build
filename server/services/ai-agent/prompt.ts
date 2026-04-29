@@ -122,6 +122,10 @@ export function buildUserPrompt(
       );
     } else if (strategy.decisionType === 'answer') {
       lines.push('Answer directly and confidently using the sources above. Be concise.');
+    } else if (strategy.decisionType === 'greeting') {
+      lines.push(
+        'The visitor is greeting you. Reply with a SHORT, friendly greeting (one sentence) in the response language and offer to help. Do NOT mention sources, do NOT ask a clarifying question, do NOT propose escalation.',
+      );
     } else if (strategy.decisionType === 'safe_guidance') {
       const topic = strategy.safeGuidanceTopic || 'this topic';
       lines.push(

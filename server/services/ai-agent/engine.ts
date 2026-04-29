@@ -316,7 +316,7 @@ async function runInternal(
         await markNeedsHuman(config, {
           workspaceId,
           conversationId,
-          reason: strategy.reason,
+          reason: strategy.reason as any,
         }).catch(() => {});
         const display = deriveAgentDisplay(settings);
         const body = (settings.fallback_message || pickHandoffAck(locale, display.agentName));

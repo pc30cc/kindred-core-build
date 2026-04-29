@@ -36,7 +36,6 @@ import { runLimitHandoff, detectLimitErrorReason, type LimitReason } from './lim
 import { retrieveHybridSources } from './retrievalHybrid.js';
 import { loadWorkspaceContext } from './workspaceContext.js';
 import { maybeCreateLearningCandidateFromAiSkip } from './learning/candidates.js';
-import { validateAndRepairOutputLanguage } from './outputLanguageGuard.js';
 
 export interface MaybeRunInput {
   workspaceId: string;
@@ -631,39 +630,6 @@ async function runInternal(
     return { ran: true, action: 'handoff', reason: valid.reason, runId };
   }
 
-  // ── Output language guard ───────────────────────────────────────────────
-  // The LLM occasionally answers in the source language even when the system
-  // prompt requires the response language. Detect mismatch and repair.
-  let finalText = aiResult.text;
-  let outputLangMeta: Record<string, unknown> = {};
-  try {
-    const guard = await validateAndRepairOutputLanguage({
-      outputText: aiResult.text,
-      responseLanguage: locale,
-      aiConfig,
-      config,
-      workspaceId,
-    });
-    finalText = guard.text;
-    outputLangMeta = {
-      output_language_detected: guard.outputLanguageDetected,
-      output_language_mismatch: guard.mismatch,
-      output_language_repaired: guard.repaired,
-      output_language_detection_confidence: guard.detectionConfidence,
-      output_language_repair_reason: guard.repairReason || null,
-    };
-    if (guard.mismatch) {
-      console.log('[ai-agent] output language mismatch', {
-        conversationId,
-        expected: locale,
-        detected: guard.outputLanguageDetected,
-        repaired: guard.repaired,
-      });
-    }
-  } catch (e: any) {
-    console.warn('[ai-agent] output language guard failed:', e?.message);
-  }
-
   const kbIds = sources.filter((s) => s.kind === 'kb_article').map((s) => s.id);
   const qnaIds = sources.filter((s) => s.kind === 'qna').map((s) => s.id);
 
@@ -677,7 +643,7 @@ async function runInternal(
       mode: settings.mode,
       status: 'replied',
       inputText: question,
-      outputText: finalText,
+      outputText: aiResult.text,
       provider: aiResult.provider,
       model: aiResult.model,
       promptTokens: aiResult.promptTokens,
@@ -690,7 +656,7 @@ async function runInternal(
         locale,
         qnaIds,
         answer_strategy: strategyMeta,
-        language: { ...languageMeta, ...outputLangMeta },
+        language: languageMeta,
         retrieval: queryMeta,
       },
     });
@@ -698,7 +664,7 @@ async function runInternal(
     const inserted = await insertAiMessage(config, {
       workspaceId,
       conversationId,
-      body: finalText,
+      body: aiResult.text,
       source: 'ai_agent',
       runId,
       mode: settings.mode,
@@ -726,7 +692,7 @@ async function runInternal(
     mode: settings.mode,
     status: 'suggested',
     inputText: question,
-    outputText: finalText,
+    outputText: aiResult.text,
     provider: aiResult.provider,
     model: aiResult.model,
     promptTokens: aiResult.promptTokens,
@@ -739,7 +705,7 @@ async function runInternal(
       locale,
       qnaIds,
       answer_strategy: strategyMeta,
-      language: { ...languageMeta, ...outputLangMeta },
+      language: languageMeta,
       retrieval: queryMeta,
     },
   });
@@ -750,7 +716,7 @@ async function runInternal(
       workspace_id: workspaceId,
       conversation_id: conversationId,
       visitor_message_id: visitorMessageId,
-      suggested_reply: finalText,
+      suggested_reply: aiResult.text,
       source_article_ids: kbIds,
       confidence: strategy.confidence,
       status: 'pending',

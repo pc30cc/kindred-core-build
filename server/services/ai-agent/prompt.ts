@@ -50,15 +50,6 @@ export function buildSystemPrompt(
   const lines: string[] = [];
   const agentName = sanitizeAgentName(s.agent_name);
   lines.push(`You are "${agentName}", the AI support agent for this workspace.`);
-  // ── CRITICAL LANGUAGE RULE — must come before everything else. ──
-  const responseLangEarly = opts.responseLanguage || locale;
-  const responseLangNameEarly = languageDisplayName(responseLangEarly);
-  lines.push(
-    `CRITICAL LANGUAGE RULE: You MUST answer ONLY in ${responseLangNameEarly} (locale code: ${responseLangEarly}). ` +
-      `Even if every source below is written in another language, translate the relevant facts and answer in ${responseLangNameEarly}. ` +
-      `Do NOT mix languages in your reply. Do NOT quote source text in another language unless the visitor explicitly asks you to. ` +
-      `Examples: response_language=fa → answer entirely in Persian. response_language=tr → answer entirely in Turkish. response_language=en → answer entirely in English.`,
-  );
   // ── Hard safety rules — same in every prompt, regardless of style. ──
   lines.push('You are an AI assistant. Never claim to be a human, and never pretend to be a specific employee.');
   lines.push('Never invent prices, discounts, refunds, policies, legal terms, medical or financial advice. If the sources do not state a fact, do not state it.');
@@ -138,14 +129,12 @@ export function buildUserPrompt(
     } else if (strategy.decisionType === 'safe_guidance') {
       const topic = strategy.safeGuidanceTopic || 'this topic';
       lines.push(
-        `Provide SAFE GUIDANCE about ${topic}. The sources do NOT contain precise numbers/policies, so follow these rules strictly:\n` +
-          `  - Do NOT invent prices, plan names, discounts, refund rules, SLAs, legal terms, or any specific fact.\n` +
-          `  - Only mention a fact (e.g. "a free plan exists", "paid plans exist") if a source explicitly says so.\n` +
-          `  - If exact prices are not in the sources, openly say the exact amount is not available in your current sources.\n` +
-          `  - Offer to help the visitor pick the right option by asking what they need (1 short question).\n` +
-          `  - If a workspace page (pricing / contact / help) was listed in the system prompt, mention it as a next step.\n` +
-          `  - End by offering to connect a human agent for exact details.\n` +
-          `Keep the reply short, helpful and entirely in the response language. Never go silent.`,
+        `Provide SAFE GUIDANCE about ${topic}. The sources do not contain a precise answer, so:\n` +
+          `  - Do NOT invent prices, plan names, refund rules, policies, or any specific facts.\n` +
+          `  - Acknowledge the topic and explain what you can help with in general terms.\n` +
+          `  - If a relevant workspace page (pricing / contact / help) was listed in the system prompt, mention it as a next step.\n` +
+          `  - End by asking a short follow-up question OR offering to connect a human agent for exact details.\n` +
+          `Keep the reply short and helpful — never silent.`,
       );
     }
   }

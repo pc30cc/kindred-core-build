@@ -840,6 +840,66 @@ export type Database = {
           },
         ]
       }
+      ai_knowledge_chunks: {
+        Row: {
+          chunk_index: number
+          content: string
+          content_hash: string
+          created_at: string
+          embedding: string | null
+          embedding_model: string | null
+          embedding_provider: string | null
+          id: string
+          locale: string | null
+          metadata: Json
+          source_id: string
+          source_type: string
+          source_url: string | null
+          status: string
+          title: string | null
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          chunk_index?: number
+          content: string
+          content_hash: string
+          created_at?: string
+          embedding?: string | null
+          embedding_model?: string | null
+          embedding_provider?: string | null
+          id?: string
+          locale?: string | null
+          metadata?: Json
+          source_id: string
+          source_type: string
+          source_url?: string | null
+          status?: string
+          title?: string | null
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          chunk_index?: number
+          content?: string
+          content_hash?: string
+          created_at?: string
+          embedding?: string | null
+          embedding_model?: string | null
+          embedding_provider?: string | null
+          id?: string
+          locale?: string | null
+          metadata?: Json
+          source_id?: string
+          source_type?: string
+          source_url?: string | null
+          status?: string
+          title?: string | null
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: []
+      }
       ai_usage_logs: {
         Row: {
           completion_tokens: number | null

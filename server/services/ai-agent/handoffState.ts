@@ -33,7 +33,10 @@ export type HandoffReason =
   | 'no_kb_match'
   | 'low_confidence'
   | 'max_replies'
+  | 'max_replies_reached'
   | 'rate_limited'
+  | 'no_credits'
+  | 'plan_limit_reached'
   | 'fallback'
   | 'manual';
 

@@ -5503,6 +5503,17 @@
         }
         // Identified visitor on chat tab → composer visible.
         if (inputBar) inputBar.style.display = 'flex';
+        // Phase 4 — already-identified visitors (no pre-chat needed) still
+        // get the AI intro the first time they open chat with no history.
+        // Backend dedupes by conversation/session so it's safe to call
+        // every render — the in-flight guard prevents duplicate requests.
+        try {
+          var __ai = ctx.config && ctx.config.aiAgent;
+          var __hasMsgs = (chatStore.get().messages || []).length > 0;
+          if (__ai && __ai.suppressGreeting === true && !__hasMsgs) {
+            requestAiAgentIntro();
+          }
+        } catch (_) {}
         // Phase 5 — when offline + contact_fallback mode and there's no
         // active thread yet, render the fallback form instead of the chat.
         var pStatus = presenceStore.get().status;

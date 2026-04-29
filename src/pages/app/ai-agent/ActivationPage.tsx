@@ -187,6 +187,67 @@ export default function ActivationPage() {
         </CardContent>
       </Card>
 
+      {/* Automated inbox & takeover safety */}
+      <Card>
+        <CardHeader><CardTitle className="text-base">Automated inbox &amp; takeover safety</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <Label>Keep AI conversations in Automated inbox until handoff</Label>
+              <p className="text-xs text-muted-foreground mt-1">AI-handled conversations show in the Automated inbox until a human takes over or AI hands off.</p>
+            </div>
+            <Switch
+              checked={(settings as any).keep_in_automated_until_handoff !== false}
+              onCheckedChange={(v) => patch({ keep_in_automated_until_handoff: v } as any)}
+              disabled={update.isPending}
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <div>
+              <Label>Stop AI after a human reply</Label>
+              <p className="text-xs text-muted-foreground mt-1">Recommended. Even in <em>Auto-reply always</em>, AI pauses once an operator replies.</p>
+            </div>
+            <Switch
+              checked={(settings as any).pause_auto_reply_after_human_reply !== false}
+              onCheckedChange={(v) => patch({ pause_auto_reply_after_human_reply: v } as any)}
+              disabled={update.isPending}
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <div>
+              <Label>Allow AI suggestions after human takeover</Label>
+              <p className="text-xs text-muted-foreground mt-1">After a human takes over, AI never replies to the visitor — but may still suggest replies for the operator.</p>
+            </div>
+            <Switch
+              checked={(settings as any).allow_suggestions_after_takeover !== false}
+              onCheckedChange={(v) => patch({ allow_suggestions_after_takeover: v } as any)}
+              disabled={update.isPending}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Automated inbox snapshot */}
+      {(diag as any).automated_inbox && (
+        <Card>
+          <CardHeader><CardTitle className="text-base">Automated inbox snapshot</CardTitle></CardHeader>
+          <CardContent className="text-sm grid grid-cols-3 gap-3">
+            <div className="rounded-md border p-3">
+              <div className="text-xs text-muted-foreground">AI-managed</div>
+              <div className="text-xl font-semibold">{(diag as any).automated_inbox.ai_managed}</div>
+            </div>
+            <div className="rounded-md border p-3">
+              <div className="text-xs text-muted-foreground">Needs human</div>
+              <div className="text-xl font-semibold">{(diag as any).automated_inbox.needs_human}</div>
+            </div>
+            <div className="rounded-md border p-3">
+              <div className="text-xs text-muted-foreground">Human active</div>
+              <div className="text-xl font-semibold">{(diag as any).automated_inbox.human_active}</div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Limits */}
       <Card>
         <CardHeader><CardTitle className="text-base">Reply limits</CardTitle></CardHeader>

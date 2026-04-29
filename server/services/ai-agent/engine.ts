@@ -389,6 +389,35 @@ async function runInternal(
         settings.answer_guidance === 'balanced' ? 0.4 : 0.2,
     });
   } catch (err: any) {
+    // Credit / plan-limit errors → human-friendly limit handoff (no LLM,
+    // 0 credits, route to Needs human).
+    const limitReason = detectLimitErrorReason(err?.message);
+    if (limitReason) {
+      const result = await runLimitHandoff(config, {
+        workspaceId,
+        conversationId,
+        visitorMessageId,
+        question,
+        locale,
+        reason: limitReason,
+        settings,
+        suppressVisitorMessage: settings.mode === 'suggest_only',
+        extraMetadata: {
+          language: languageMeta,
+          retrieval: queryMeta,
+          provider: aiConfig.provider,
+          model: aiConfig.model,
+          original_error: String(err?.message || ''),
+        },
+      });
+      return {
+        ran: true,
+        action: 'handoff',
+        reason: limitReason,
+        runId: result.runId,
+        messageId: result.messageId,
+      };
+    }
     const runId = await logRun(config, {
       workspaceId,
       conversationId,

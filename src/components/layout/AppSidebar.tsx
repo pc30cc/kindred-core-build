@@ -283,7 +283,7 @@ export function AppSidebar() {
               to={wsPath('/inbox')}
               className={cn(
                 'flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] transition-colors',
-                location.pathname === wsPath('/inbox')
+                location.pathname === wsPath('/inbox') && !location.search.includes('queue=')
                   ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
                   : 'text-sidebar-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground'
               )}

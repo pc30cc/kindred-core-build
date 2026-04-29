@@ -214,7 +214,113 @@ export const aiAgentApi = {
     jsonFetch(`/api/ai-agent/learning-candidates/stats?workspaceId=${workspaceId}`) as Promise<{
       pending: number; approved: number; converted_to_qna: number; converted_to_kb: number; rejected: number;
     }>,
+  // Pass A — Guidance
+  listGuidance: (workspaceId: string) =>
+    jsonFetch(`/api/ai-agent/guidance?workspaceId=${workspaceId}`) as Promise<{ items: GuidanceRule[] }>,
+  createGuidance: (input: Partial<GuidanceRule> & { workspaceId: string; title: string; rule_type: GuidanceRule['rule_type'] }) =>
+    jsonFetch(`/api/ai-agent/guidance`, { method: 'POST', body: JSON.stringify(input) }) as Promise<{ item: GuidanceRule }>,
+  updateGuidance: (id: string, patch: Partial<GuidanceRule>) =>
+    jsonFetch(`/api/ai-agent/guidance/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }) as Promise<{ item: GuidanceRule }>,
+  deleteGuidance: (id: string) =>
+    jsonFetch(`/api/ai-agent/guidance/${id}`, { method: 'DELETE' }) as Promise<{ ok: boolean }>,
+  // Pass A — Routing
+  listRouting: (workspaceId: string) =>
+    jsonFetch(`/api/ai-agent/routing?workspaceId=${workspaceId}`) as Promise<{ items: RoutingRule[] }>,
+  createRouting: (input: Partial<RoutingRule> & { workspaceId: string; name: string; trigger_type: RoutingRule['trigger_type']; action_type: RoutingRule['action_type'] }) =>
+    jsonFetch(`/api/ai-agent/routing`, { method: 'POST', body: JSON.stringify(input) }) as Promise<{ item: RoutingRule }>,
+  updateRouting: (id: string, patch: Partial<RoutingRule>) =>
+    jsonFetch(`/api/ai-agent/routing/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }) as Promise<{ item: RoutingRule }>,
+  deleteRouting: (id: string) =>
+    jsonFetch(`/api/ai-agent/routing/${id}`, { method: 'DELETE' }) as Promise<{ ok: boolean }>,
+  // Pass A — Data sources
+  listDataSources: (workspaceId: string, sourceType?: string) =>
+    jsonFetch(`/api/ai-agent/data-sources?workspaceId=${workspaceId}${sourceType ? `&sourceType=${sourceType}` : ''}`) as Promise<{ items: DataSource[] }>,
+  createWebsiteSource: (input: { workspaceId: string; base_url?: string; name?: string; crawl_depth?: number; max_pages?: number; refresh_interval?: 'manual'|'daily'|'weekly'|'monthly'; include_rules?: string[]; exclude_rules?: string[] }) =>
+    jsonFetch(`/api/ai-agent/data-sources/website`, { method: 'POST', body: JSON.stringify(input) }) as Promise<{ item: DataSource; registeredDomain: string | null }>,
+  updateDataSource: (id: string, patch: Partial<DataSource>) =>
+    jsonFetch(`/api/ai-agent/data-sources/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }) as Promise<{ item: DataSource }>,
+  deleteDataSource: (id: string) =>
+    jsonFetch(`/api/ai-agent/data-sources/${id}`, { method: 'DELETE' }) as Promise<{ ok: boolean }>,
+  syncDataSource: (id: string) =>
+    jsonFetch(`/api/ai-agent/data-sources/${id}/sync`, { method: 'POST' }) as Promise<{ ok: boolean }>,
+  getDataSourceLogs: (id: string) =>
+    jsonFetch(`/api/ai-agent/data-sources/${id}/logs`) as Promise<{ items: SourceSyncLog[] }>,
+  getWorkspaceDomains: (workspaceId: string) =>
+    jsonFetch(`/api/ai-agent/workspace-domain?workspaceId=${workspaceId}`) as Promise<{ domains: Array<{ domain: string; is_primary: boolean; verified: boolean }> }>,
 };
+
+export type GuidanceRuleType =
+  | 'tone' | 'answer_policy' | 'escalation_policy' | 'restricted_topic'
+  | 'fallback_behavior' | 'sales_guidance' | 'support_guidance' | 'pricing_guidance';
+
+export interface GuidanceRule {
+  id: string;
+  workspace_id: string;
+  title: string;
+  description: string | null;
+  rule_type: GuidanceRuleType;
+  condition_json: Record<string, unknown>;
+  instruction: string;
+  priority: number;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export type RoutingTrigger =
+  | 'human_request' | 'no_answer' | 'low_confidence' | 'topic_detected'
+  | 'business_hours' | 'language' | 'vip_customer' | 'plan_limit';
+export type RoutingAction =
+  | 'handoff' | 'assign_team' | 'assign_operator' | 'keep_ai' | 'create_ticket' | 'mark_priority';
+
+export interface RoutingRule {
+  id: string;
+  workspace_id: string;
+  name: string;
+  description: string | null;
+  trigger_type: RoutingTrigger;
+  conditions_json: Record<string, unknown>;
+  action_type: RoutingAction;
+  action_json: Record<string, unknown>;
+  priority: number;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DataSource {
+  id: string;
+  workspace_id: string;
+  source_type: 'website' | 'kb' | 'qna' | 'file' | 'business_profile' | 'snippet';
+  name: string;
+  base_url: string | null;
+  status: 'active' | 'paused' | 'syncing' | 'failed' | 'deleted';
+  include_rules: string[];
+  exclude_rules: string[];
+  crawl_depth: number;
+  max_pages: number;
+  refresh_interval: 'manual' | 'daily' | 'weekly' | 'monthly';
+  last_synced_at: string | null;
+  next_sync_at: string | null;
+  last_error: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SourceSyncLog {
+  id: string;
+  workspace_id: string;
+  source_id: string;
+  status: string;
+  message: string | null;
+  pages_found: number;
+  chunks_created: number;
+  embedded_chunks: number;
+  errors: number;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
 
 export interface LearningCandidate {
   id: string;

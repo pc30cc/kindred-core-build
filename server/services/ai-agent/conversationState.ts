@@ -1,0 +1,114 @@
+/**
+ * AI Agent — conversation state inspector.
+ *
+ * Pure read helpers used by the runtime policy to decide whether the AI
+ * Agent is still allowed to auto-reply on a given conversation.
+ */
+import type { ServerConfig } from '../../config.js';
+import { getServiceClient } from '../../supabase.js';
+
+export interface ConversationState {
+  exists: boolean;
+  status: string | null;
+  assignedTo: string | null;
+  hasHumanAgentReplied: boolean;
+  isAssignedToHuman: boolean;
+  lastHumanReplyAt: string | null;
+  lastVisitorMessageAt: string | null;
+  aiRepliesCountInConversation: number;
+  aiRepliesInLastHour: number;
+  pendingHandoffRequested: boolean;
+}
+
+export async function getConversationState(
+  config: ServerConfig,
+  workspaceId: string,
+  conversationId: string,
+): Promise<ConversationState> {
+  const sb = getServiceClient(config);
+  const empty: ConversationState = {
+    exists: false,
+    status: null,
+    assignedTo: null,
+    hasHumanAgentReplied: false,
+    isAssignedToHuman: false,
+    lastHumanReplyAt: null,
+    lastVisitorMessageAt: null,
+    aiRepliesCountInConversation: 0,
+    aiRepliesInLastHour: 0,
+    pendingHandoffRequested: false,
+  };
+
+  const { data: conv } = await sb
+    .from('conversations')
+    .select('id,status,assigned_to,workspace_id,metadata')
+    .eq('id', conversationId)
+    .eq('workspace_id', workspaceId)
+    .maybeSingle();
+  if (!conv) return empty;
+
+  const { data: msgs } = await sb
+    .from('conversation_messages')
+    .select('id,sender_type,created_at,metadata')
+    .eq('conversation_id', conversationId)
+    .order('created_at', { ascending: false })
+    .limit(200);
+
+  let hasHumanAgentReplied = false;
+  let lastHumanReplyAt: string | null = null;
+  let lastVisitorMessageAt: string | null = null;
+  let aiRepliesCountInConversation = 0;
+  let aiRepliesInLastHour = 0;
+  const oneHourAgo = Date.now() - 3600_000;
+
+  for (const m of msgs || []) {
+    if (m.sender_type === 'agent') {
+      if (!hasHumanAgentReplied) hasHumanAgentReplied = true;
+      if (!lastHumanReplyAt) lastHumanReplyAt = m.created_at;
+    } else if (m.sender_type === 'ai') {
+      aiRepliesCountInConversation++;
+      if (m.created_at && new Date(m.created_at).getTime() > oneHourAgo) {
+        aiRepliesInLastHour++;
+      }
+    } else if (m.sender_type === 'contact') {
+      if (!lastVisitorMessageAt) lastVisitorMessageAt = m.created_at;
+    }
+  }
+
+  // Pending handoff: stored on conversation.metadata.ai_handoff_requested
+  const meta = (conv as any).metadata || {};
+  const pendingHandoffRequested = !!meta.ai_handoff_requested;
+
+  return {
+    exists: true,
+    status: conv.status || null,
+    assignedTo: conv.assigned_to || null,
+    hasHumanAgentReplied,
+    isAssignedToHuman: !!conv.assigned_to,
+    lastHumanReplyAt,
+    lastVisitorMessageAt,
+    aiRepliesCountInConversation,
+    aiRepliesInLastHour,
+    pendingHandoffRequested,
+  };
+}
+
+/**
+ * Mark the conversation as having a pending handoff so subsequent visitor
+ * messages won't trigger another AI auto-reply.
+ */
+export async function markHandoffRequested(
+  config: ServerConfig,
+  conversationId: string,
+): Promise<void> {
+  const sb = getServiceClient(config);
+  const { data: conv } = await sb
+    .from('conversations')
+    .select('metadata')
+    .eq('id', conversationId)
+    .maybeSingle();
+  const meta = (conv as any)?.metadata || {};
+  meta.ai_handoff_requested = true;
+  meta.ai_handoff_at = new Date().toISOString();
+  await sb.from('conversations').update({ metadata: meta }).eq('id', conversationId);
+}

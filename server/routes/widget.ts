@@ -1129,14 +1129,14 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // Phase 2 — AI Agent engine, suggest_only.
+    // Phase 3 — AI Agent runtime.
     //
-    // The previous primitive inline auto-reply has been removed. The new
-    // engine respects ai_agent_settings.mode:
-    //   - off / disabled → no-op
-    //   - suggest_only   → creates an ai_agent_suggestions row + run
-    //                      (visitor sees nothing)
-    //   - auto_reply_*   → NOT wired in Phase 2 (logged as skipped)
+    // The engine respects ai_agent_settings.mode and runtime policy:
+    //   - off / disabled                → no-op
+    //   - suggest_only                  → operator-only suggestion
+    //   - auto_reply_when_offline       → reply when operators offline
+    //   - auto_reply_until_human_joins  → reply until human posts
+    //   - auto_reply_always             → reply (capped + safety)
     //
     // Fire-and-forget: must never block the widget /message response.
     // ─────────────────────────────────────────────────────────────────────
@@ -2322,4 +2322,44 @@ widgetRouter.post('/call-queue/:entryId/cancel', widgetRateLimit('message'), asy
   }
   const updated = await cancelEntry(config, entryId, 'visitor_cancelled');
   return res.json({ entry: updated });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Phase 3 — AI Agent visitor-facing intro
+// ───────────────────────────────────────────────────────────────────
+// POST /api/widget/ai-agent/intro
+// Body: { conversation_id?, session_id?, locale? }
+// Token + origin already enforced by widgetRouter.use() above.
+// Returns the intro bubble or { sent:false, reason }. Never throws —
+// widget MUST tolerate any failure and continue rendering normally.
+// ═══════════════════════════════════════════════════════════════════
+import { maybeSendIntro } from '../services/ai-agent/intro.js';
+
+widgetRouter.post('/ai-agent/intro', widgetRateLimit('message'), async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = (req as any)._widgetWorkspaceId as string | undefined;
+  if (!workspaceId) return res.status(400).json({ error: 'missing_workspace' });
+  const visitorId = (req as any).visitorId as string | undefined;
+
+  const parsed = z.object({
+    conversation_id: z.string().uuid().optional().nullable(),
+    session_id: z.string().uuid().optional().nullable(),
+    locale: z.string().max(10).optional(),
+  }).safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_body' });
+
+  try {
+    const result = await maybeSendIntro(config, {
+      workspaceId,
+      conversationId: parsed.data.conversation_id || null,
+      visitorSessionId: parsed.data.session_id || null,
+      visitorId: visitorId || null,
+      locale: parsed.data.locale,
+    });
+    return res.json(result);
+  } catch (err: any) {
+    console.warn('[widget/ai-intro] failed:', err?.message);
+    // Never break widget — return graceful no-op.
+    return res.json({ sent: false, reason: 'intro_failed' });
+  }
 });

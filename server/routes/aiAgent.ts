@@ -20,6 +20,7 @@ import { getKnowledgeStatus } from '../services/ai-agent/retrieval.js';
 import { runPlayground } from '../services/ai-agent/playground.js';
 import { listRuns, summarize } from '../services/ai-agent/logs.js';
 import { resolveAIConfig } from '../services/ai/index.js';
+import { getOperatorAvailability } from '../services/ai-agent/availability.js';
 
 export const aiAgentRouter: Router = express.Router();
 
@@ -133,6 +134,10 @@ const updateSchema = z.object({
     escalation_instructions: z.string().max(1000).optional(),
     max_answer_length: z.enum(['short','medium','long']).optional(),
   }).optional(),
+  ai_intro_enabled: z.boolean().optional(),
+  intro_message: z.string().max(1000).nullable().optional(),
+  fallback_behavior: z.enum(['handoff','silent']).optional(),
+  stop_on_handoff: z.boolean().optional(),
 });
 
 aiAgentRouter.put('/settings', async (req: Request, res: Response) => {
@@ -223,6 +228,8 @@ aiAgentRouter.get('/diagnostics', async (req: Request, res: Response) => {
     mode: settings.mode,
   };
   const ready = checks.ai_provider_configured && checks.has_knowledge && checks.module_enabled;
+  const recentRuns = await listRuns(config, workspaceId, { limit: 5 }).catch(() => []);
+  const availability = await getOperatorAvailability(config, workspaceId, 'en').catch(() => null);
   return res.json({
     ready,
     checks,
@@ -230,6 +237,16 @@ aiAgentRouter.get('/diagnostics', async (req: Request, res: Response) => {
     knowledge: ks,
     is_global_admin: auth.isAdmin,
     role: auth.role,
+    auto_modes_supported: true,
+    intro_enabled: (settings as any).ai_intro_enabled !== false,
+    operator_availability: availability,
+    reply_limits: {
+      per_conversation: settings.max_replies_per_conversation,
+      per_hour: settings.max_replies_per_hour,
+      fallback_behavior: (settings as any).fallback_behavior || 'handoff',
+      stop_on_handoff: (settings as any).stop_on_handoff !== false,
+    },
+    recent_runs: recentRuns,
   });
 });
 

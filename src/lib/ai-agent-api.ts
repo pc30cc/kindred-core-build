@@ -528,3 +528,84 @@ export interface MessageTriggerRecord {
   enabled: boolean;
   created_at: string; updated_at: string;
 }
+
+// ─── Pass B2 types ───
+export type ToolType = 'internal' | 'mcp' | 'webhook' | 'crm' | 'ticket';
+export type ToolRiskLevel = 'low' | 'medium' | 'high';
+export interface ToolRecord {
+  id: string;
+  workspace_id: string;
+  name: string;
+  description: string | null;
+  tool_type: ToolType;
+  provider: string | null;
+  server_id: string | null;
+  config_json: Record<string, any>;
+  enabled: boolean;
+  permissions_json: Record<string, any>;
+  risk_level: ToolRiskLevel;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ToolServerType = 'mcp' | 'internal' | 'webhook';
+export type ToolServerStatus = 'disabled' | 'enabled' | 'error';
+export type ToolServerAuth = 'none' | 'bearer' | 'basic' | 'api_key' | 'oauth';
+export interface ToolServerRecord {
+  id: string;
+  workspace_id: string;
+  name: string;
+  server_type: ToolServerType;
+  endpoint_url: string | null;
+  status: ToolServerStatus;
+  auth_type: ToolServerAuth;
+  hasConfig?: boolean;
+  allowed_tools: string[];
+  permissions_json: Record<string, any>;
+  last_checked_at: string | null;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OverviewResponse {
+  settings: AgentSettings;
+  counts: {
+    guidanceRules: number;
+    routingRules: number;
+    topics: number;
+    workflows: number;
+    messageTriggers: number;
+    tools: number;
+    qna: number;
+    pendingLearningCandidates: number;
+    dataSources: number;
+    activeChunks: number;
+    embeddedChunks: number;
+    aiRuns24h: number;
+    replies24h: number;
+    handoffs24h: number;
+    noAnswer24h: number;
+    failed24h: number;
+    outputLanguageRepairs24h: number;
+  };
+  knowledgeIndex: KnowledgeIndexStatus | null;
+  recentRuns: Array<{ id: string; run_type: string | null; status: string | null; mode: string | null; created_at: string; input_text: string | null; output_text: string | null; confidence: number | null }>;
+  recentSyncLogs: Array<{ id: string; source_id: string; status: string; message: string | null; pages_found: number; chunks_created: number; embedded_chunks: number; errors: number; created_at: string }>;
+  warnings: Array<{ code: string; severity: 'info' | 'warn' | 'error'; message: string }>;
+  runtime: { workflowExecutionEnabled: boolean; mcpExecutionEnabled: boolean };
+}
+
+export interface TestRunResult {
+  language: { detected: string; confidence: number };
+  topics: { detectedTopics: Array<{ id: string; name: string; slug: string; confidence: number; matchedKeywords: string[]; matchedExamples: string[] }>; language: string; explanation: string };
+  retrieval: { query: string; sourceCount: number };
+  selectedSources: Array<{ id: string; kind: string; title: string; slug: string | null; locale: string | null; score: number }>;
+  routingRulesMatched: Array<{ id: string; name: string; trigger_type: string; action_type: string }>;
+  workflowMatches: Array<{ id: string; name: string; status: string }>;
+  messageTriggersMatched: Array<{ id: string; name: string; event_type: string; action_type: string }>;
+  answerStrategy: { action: string; reason: string | null; confidence: number };
+  finalAnswer: string | null;
+  runtime: { conversationCreated: boolean; workflowExecutionEnabled: boolean; mcpExecutionEnabled: boolean };
+  warnings: Array<{ code: string; severity: 'info' | 'warn' | 'error'; message: string }>;
+}

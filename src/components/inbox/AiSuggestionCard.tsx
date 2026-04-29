@@ -43,7 +43,12 @@ export function AiSuggestionCard({ conversationId, onInsert, onSendNow, dir = 'l
   const suggestion = (data?.items || [])[0];
   if (!suggestion) return null;
 
-  const tr = (k: string, fb: string) => (t ? t(k) || fb : fb);
+  const tr = (k: string, fb: string) => {
+    if (!t) return fb;
+    const v = t(k);
+    // i18n returns the key itself when missing — fall back to provided default.
+    return !v || v === k ? fb : v;
+  };
 
   const handleInsert = () => {
     onInsert(suggestion.suggested_reply);

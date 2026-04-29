@@ -1220,6 +1220,15 @@ const fa: TranslationKeys = {
       failed: 'عملیات حریم خصوصی ناموفق بود',
     },
   },
+  aiAgent: {
+    suggestedReply: 'پاسخ پیشنهادی دستیار هوشمند',
+    insertIntoComposer: 'درج در کادر پاسخ',
+    sendNow: 'ارسال فوری',
+    dismiss: 'رد کردن',
+    sources: 'منابع',
+    notVisibleToVisitor: 'تا زمانی که ارسال نکنید برای بازدیدکننده نمایش داده نمی‌شود',
+    suggestionInserted: 'در کادر پاسخ درج شد',
+  },
 };
 
 export default fa;

@@ -1220,6 +1220,15 @@ const tr: TranslationKeys = {
       failed: 'Gizlilik işlemi başarısız oldu',
     },
   },
+  aiAgent: {
+    suggestedReply: 'AI Asistanı önerilen yanıt',
+    insertIntoComposer: 'Yanıt kutusuna ekle',
+    sendNow: 'Şimdi gönder',
+    dismiss: 'Kapat',
+    sources: 'Kaynaklar',
+    notVisibleToVisitor: 'Siz göndermeden ziyaretçi göremez',
+    suggestionInserted: 'Yanıt kutusuna eklendi',
+  },
 };
 
 export default tr;

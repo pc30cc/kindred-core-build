@@ -1129,14 +1129,14 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // Phase 2 — AI Agent engine, suggest_only.
+    // Phase 3 — AI Agent runtime.
     //
-    // The previous primitive inline auto-reply has been removed. The new
-    // engine respects ai_agent_settings.mode:
-    //   - off / disabled → no-op
-    //   - suggest_only   → creates an ai_agent_suggestions row + run
-    //                      (visitor sees nothing)
-    //   - auto_reply_*   → NOT wired in Phase 2 (logged as skipped)
+    // The engine respects ai_agent_settings.mode and runtime policy:
+    //   - off / disabled                → no-op
+    //   - suggest_only                  → operator-only suggestion
+    //   - auto_reply_when_offline       → reply when operators offline
+    //   - auto_reply_until_human_joins  → reply until human posts
+    //   - auto_reply_always             → reply (capped + safety)
     //
     // Fire-and-forget: must never block the widget /message response.
     // ─────────────────────────────────────────────────────────────────────

@@ -1232,6 +1232,15 @@ const en = {
       failed: 'Privacy action failed',
     },
   },
+  aiAgent: {
+    suggestedReply: 'AI Agent suggested reply',
+    insertIntoComposer: 'Insert into composer',
+    sendNow: 'Send now',
+    dismiss: 'Dismiss',
+    sources: 'Sources',
+    notVisibleToVisitor: 'Not visible to visitor until you send',
+    suggestionInserted: 'Inserted into composer',
+  },
 };
 
 export type TranslationKeys = typeof en;

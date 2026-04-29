@@ -10,6 +10,7 @@ import { getServiceClient } from '../../supabase.js';
 import { getOrCreateSettings, type AgentSettings } from './settings.js';
 import { insertAiMessage, deriveAgentDisplay } from './responder.js';
 import { logRun } from './logs.js';
+import { sanitizeAgentName } from './prompt.js';
 
 export interface IntroInput {
   workspaceId: string;
@@ -52,7 +53,7 @@ export function buildIntroBody(settings: AgentSettings, locale?: string): string
   if (settings.welcome_message && settings.welcome_message.trim()) {
     return settings.welcome_message.trim();
   }
-  const name = settings.agent_name || 'AI Assistant';
+  const name = sanitizeAgentName(settings.agent_name);
   return FALLBACK_INTRO[pickLocale(locale)](name);
 }
 

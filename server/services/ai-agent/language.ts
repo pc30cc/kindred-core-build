@@ -85,11 +85,19 @@ export function detectInputLanguageDetailed(text: string): {
     if (turkishOnly.test(ch)) { tr += 2; continue; }
     if (asciiLetter.test(ch)) { en += 1; continue; }
   }
-  // Turkish word bonus — short tokens like "plan fiyat" have no diacritics.
-  const trWords = (s.match(/\b(merhaba|selam|nasıl|nedir|fiyat|fiyatlar|destek|yardım|bilgi|teşekkür|lütfen|paket|abonelik|ücret|temsilci|plan)\b/gi) || []).length;
-  tr += trWords * 3;
+  // Turkish strong-bias commercial / support words. A single match is
+  // enough to override an ASCII-only English fallback ("fiyat" must be
+  // detected as Turkish even though it's all ASCII letters).
+  // NOTE: JS \b doesn't treat ü/ç/ı/ş/ö/ğ/İ as word chars, so we use
+  // explicit non-letter delimiters instead.
+  const TR_STRONG = ['merhaba','selam','selamlar','nasılsın','nasilsin','nasıl','nasil','nedir','fiyat','fiyatlar','fiyatlandırma','fiyatlandirma','ücret','ucret','ücretler','ucretler','destek','yardım','yardim','temsilci','paket','paketler','abonelik','abonman','teşekkür','tesekkur','lütfen','lutfen','bilgi','sorun','hesap','fatura','ödeme','odeme'];
+  const trStrongRe = new RegExp(`(?:^|[^\\p{L}\\p{N}])(${TR_STRONG.join('|')})(?=[^\\p{L}\\p{N}]|$)`, 'giu');
+  const trStrong = (s.match(trStrongRe) || []).length;
+  // Turkish soft-bias words (also used in English) — small bonus only.
+  const trSoft = (s.match(/(?:^|[^\p{L}\p{N}])(plan|planlar)(?=[^\p{L}\p{N}]|$)/giu) || []).length;
+  tr += trStrong * 20 + trSoft * 2;
   // English word bonus — common interrogatives & support words.
-  const enWords = (s.match(/\b(hi|hello|help|price|pricing|plan|plans|support|how|what|when|where|why|the|and|please|thanks)\b/gi) || []).length;
+  const enWords = (s.match(/\b(hi|hello|help|price|pricing|plans|support|how|what|when|where|why|the|and|please|thanks|thank|account|billing|payment|refund|invoice)\b/gi) || []).length;
   en += enWords * 2;
 
   const scores: Record<SupportedLanguage, number> = { en, fa, tr, ar, unknown: 0 };
@@ -101,11 +109,15 @@ export function detectInputLanguageDetailed(text: string): {
   if (sum === 0) {
     return { language: 'unknown', confidence: 0, mixed: false, scores };
   }
-  const confidence = Math.min(1, topScore / sum);
+  let confidence = Math.min(1, topScore / sum);
+  // If a strong Turkish keyword was found, force high confidence.
+  if (topLang === 'tr' && trStrong > 0) {
+    confidence = Math.max(confidence, 0.85);
+  }
   // Mixed if the runner-up has at least 35% of the dominant signal.
   const mixed = secondScore > 0 && secondScore / Math.max(topScore, 1) >= 0.35;
   // Too short & ambiguous → unknown.
-  if (total < 2 && trWords === 0 && enWords === 0) {
+  if (total < 2 && trStrong === 0 && trSoft === 0 && enWords === 0) {
     return { language: 'unknown', confidence: 0, mixed: false, scores };
   }
   return { language: topLang, confidence, mixed, scores };

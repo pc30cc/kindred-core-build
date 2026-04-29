@@ -21,6 +21,11 @@ import { detectInputLanguage } from '../language.js';
 import { normalizeQuestion } from './normalize.js';
 import { isAnswerLearnable, isQuestionLearnable } from './safety.js';
 
+const DEBUG = process.env.DEBUG_AI_AGENT_LEARNING === '1';
+function dbg(...args: any[]) {
+  if (DEBUG) console.log('[ai-agent.learning]', ...args);
+}
+
 export interface MaybeCreateCandidateInput {
   workspaceId: string;
   conversationId: string;
@@ -44,6 +49,11 @@ export async function maybeCreateLearningCandidateFromOperatorReply(
   input: MaybeCreateCandidateInput,
 ): Promise<MaybeCreateCandidateResult> {
   try {
+    dbg('operator reply hook started', {
+      workspaceId: input.workspaceId,
+      conversationId: input.conversationId,
+      operatorMessageId: input.operatorMessageId,
+    });
     const sb = getServiceClient(config);
 
     // 1. Settings — workspace must have learning enabled.
@@ -52,18 +62,19 @@ export async function maybeCreateLearningCandidateFromOperatorReply(
       .select('learning_enabled, auto_create_learning_candidates, allowed_locales')
       .eq('workspace_id', input.workspaceId)
       .maybeSingle();
-    if (!settings) return { created: false, reason: 'no_settings' };
-    if ((settings as any).learning_enabled === false) return { created: false, reason: 'learning_disabled' };
-    if ((settings as any).auto_create_learning_candidates === false) return { created: false, reason: 'auto_create_disabled' };
+    if (!settings) { dbg('skipped reason=no_settings'); return { created: false, reason: 'no_settings' }; }
+    if ((settings as any).learning_enabled === false) { dbg('skipped reason=learning_disabled'); return { created: false, reason: 'learning_disabled' }; }
+    if ((settings as any).auto_create_learning_candidates === false) { dbg('skipped reason=auto_create_disabled'); return { created: false, reason: 'auto_create_disabled' }; }
 
     // 2. Spam guard.
     if (await isConversationSpam(config, input.conversationId)) {
+      dbg('skipped reason=spam');
       return { created: false, reason: 'spam' };
     }
 
     // 3. Operator-answer safety.
     const ansSafety = isAnswerLearnable(input.operatorMessageBody || '');
-    if (!ansSafety.ok) return { created: false, reason: ansSafety.reason };
+    if (!ansSafety.ok) { dbg('skipped answer reason=' + ansSafety.reason); return { created: false, reason: ansSafety.reason }; }
 
     // 4. Find the most recent visitor question + recent AI run that bailed.
     const { data: msgs } = await sb
@@ -91,23 +102,30 @@ export async function maybeCreateLearningCandidateFromOperatorReply(
       if (isHumanOperatorMessage(m)) break; // hit an earlier operator reply — give up.
     }
     const qSafety = isQuestionLearnable(visitorBody);
-    if (!qSafety.ok) return { created: false, reason: qSafety.reason };
+    if (!qSafety.ok) { dbg('skipped question reason=' + qSafety.reason); return { created: false, reason: qSafety.reason }; }
 
     // 5. AI run signal — was there a recent failed / handoff / clarification run?
     const { data: runs } = await sb
       .from('ai_agent_runs')
-      .select('id, status, run_type, metadata, created_at')
+      .select('id, status, run_type, skip_reason, metadata, created_at')
       .eq('conversation_id', input.conversationId)
       .order('created_at', { ascending: false })
       .limit(10);
+    const LIMIT_REASONS = new Set(['max_replies_reached','rate_limited','no_credits','plan_limit_reached']);
     const aiSignalled = (runs || []).some((r: any) => {
       const status = (r.status || '').toLowerCase();
+      const runType = (r.run_type || '').toLowerCase();
+      const skipReason = (r.skip_reason || '').toLowerCase();
       const decision = r?.metadata?.answer_strategy?.decision_type || '';
+      const isLimitHandoff = r?.metadata?.limit_handoff === true;
       if (['no_answer','handoff','failed','suggested'].includes(status)) return true;
       if (['no_answer_silent','handoff','ask_clarifying_question'].includes(decision)) return true;
+      if (runType === 'handoff') return true;
+      if (isLimitHandoff) return true;
+      if (LIMIT_REASONS.has(skipReason)) return true;
       return false;
     });
-    if (!aiSignalled) return { created: false, reason: 'no_ai_failure_signal' };
+    if (!aiSignalled) { dbg('skipped reason=no_ai_failure_signal'); return { created: false, reason: 'no_ai_failure_signal' }; }
 
     // 6. Locale & dedupe.
     const detected = detectInputLanguage(visitorBody);
@@ -123,7 +141,7 @@ export async function maybeCreateLearningCandidateFromOperatorReply(
       .in('status', ['pending','approved','converted_to_qna','converted_to_kb'])
       .limit(1)
       .maybeSingle();
-    if (existing?.id) return { created: false, reason: 'duplicate' };
+    if (existing?.id) { dbg('skipped reason=duplicate normalized=' + normalized); return { created: false, reason: 'duplicate' }; }
 
     // 7. Insert.
     const suggestedTitle = visitorBody.slice(0, 120);
@@ -153,6 +171,7 @@ export async function maybeCreateLearningCandidateFromOperatorReply(
       console.warn('[ai-agent.learning] insert failed:', error.message);
       return { created: false, reason: error.message };
     }
+    dbg('candidate created id=' + inserted.id);
     return { created: true, candidateId: inserted.id };
   } catch (err: any) {
     console.warn('[ai-agent.learning] candidate hook failed:', err?.message || err);

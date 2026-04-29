@@ -10,7 +10,7 @@ import {
   LogOut, Shield, ChevronDown, UserPlus, Plus,
   Zap, ShieldAlert, ExternalLink, Bell, EyeOff,
   Clock, UserCog, Building2, HelpCircle, Sparkles,
-  AlertCircle, Check,
+  AlertCircle, Check, Ban,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -316,6 +316,20 @@ export function AppSidebar() {
             >
               <AlertCircle className="h-3.5 w-3.5 shrink-0" />
               <span>Needs human</span>
+            </Link>
+
+            <p className="text-[11px] font-medium text-sidebar-muted-foreground uppercase tracking-wider px-2 pt-2 pb-1">Other Inboxes</p>
+            <Link
+              to={wsPath('/inbox?queue=spam')}
+              className={cn(
+                'flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] transition-colors',
+                location.pathname === wsPath('/inbox') && location.search.includes('queue=spam')
+                  ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
+                  : 'text-sidebar-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground'
+              )}
+            >
+              <Ban className="h-3.5 w-3.5 shrink-0" />
+              <span>Spam</span>
             </Link>
           </div>
         )}

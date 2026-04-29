@@ -33,7 +33,7 @@ import {
   Mail, Phone, Globe, User, Eye, ChevronLeft, ChevronRight,
   Loader2, Bot, Copy, Paperclip, RefreshCw,
   MessageCircle, Hash, FileText, Download, ImageIcon,
-  PhoneOff,
+  PhoneOff, Ban, ShieldOff,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
@@ -141,6 +141,7 @@ export default function InboxPage() {
   const queue: InboxQueue =
     queueParam === 'automated' ? 'automated'
       : queueParam === 'needs_human' ? 'needs_human'
+      : queueParam === 'spam' ? 'spam'
       : 'main';
   const isQueueMode = queue !== 'main';
   const [filter, setFilter] = useState<FilterStatus>('open');
@@ -768,11 +769,17 @@ export default function InboxPage() {
                   <span className="text-[11px] font-semibold text-foreground">Automated</span>
                   <span className="text-[10px] text-muted-foreground">AI-managed conversations</span>
                 </>
-              ) : (
+              ) : queue === 'needs_human' ? (
                 <>
                   <AlertCircle className="w-3.5 h-3.5 text-destructive" />
                   <span className="text-[11px] font-semibold text-foreground">Needs human</span>
                   <span className="text-[10px] text-muted-foreground">Handed off by AI</span>
+                </>
+              ) : (
+                <>
+                  <Ban className="w-3.5 h-3.5 text-warning" />
+                  <span className="text-[11px] font-semibold text-foreground">Spam</span>
+                  <span className="text-[10px] text-muted-foreground">Quarantined conversations</span>
                 </>
               )}
               <span className="ms-auto text-[10px] bg-secondary text-foreground/70 px-1.5 py-0.5 rounded-full font-bold tabular-nums">
@@ -840,6 +847,8 @@ export default function InboxPage() {
                   <Bot className="w-7 h-7 text-muted-foreground/40" />
                 ) : queue === 'needs_human' ? (
                   <AlertCircle className="w-7 h-7 text-muted-foreground/40" />
+                ) : queue === 'spam' ? (
+                  <Ban className="w-7 h-7 text-muted-foreground/40" />
                 ) : (
                   <MessageSquare className="w-7 h-7 text-muted-foreground/40" />
                 )}
@@ -852,6 +861,8 @@ export default function InboxPage() {
                       ? 'No AI-managed conversations'
                       : queue === 'needs_human'
                         ? 'No conversations need a human'
+                        : queue === 'spam'
+                          ? 'No spam'
                         : (t('inbox.noMessages') || 'No conversations')}
                 </p>
                 <p className="text-[11px] text-muted-foreground mt-1">
@@ -861,6 +872,8 @@ export default function InboxPage() {
                       ? 'AI replies will appear here'
                       : queue === 'needs_human'
                         ? 'AI handoffs will appear here'
+                        : queue === 'spam'
+                          ? 'Conversations you mark as spam will appear here'
                         : (filter !== 'all' ? statusLabels[filter] : '')}
                 </p>
               </div>
@@ -1022,6 +1035,8 @@ export default function InboxPage() {
                           const aiState = (conv as any)?.metadata?.ai_state
                             || (conv as any)?.ai_state;
                           if (aiState !== 'ai_managed' && aiState !== 'needs_human') return null;
+                          // Don't offer take-over on spam rows.
+                          if ((conv as any)?.is_spam) return null;
                           return (
                             <button
                               onClick={async (e) => {
@@ -1042,6 +1057,15 @@ export default function InboxPage() {
                             </button>
                           );
                         })()}
+                        {/* Spam badge — visible in any queue when flagged */}
+                        {(conv as any)?.is_spam && (
+                          <span
+                            className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md font-medium bg-warning/15 text-warning border border-warning/30"
+                            title="Marked as spam"
+                          >
+                            <Ban className="w-2.5 h-2.5" /> Spam
+                          </span>
+                        )}
                         {/* Selected-conversation typing indicator (live) */}
                         {isActive && visitorTypingActive && (
                           <span className="ml-auto inline-flex items-center gap-1 text-[10px] text-primary font-medium" aria-label="typing">
@@ -1197,6 +1221,67 @@ export default function InboxPage() {
                   <Badge variant="outline" className="text-[10px] gap-1">
                     <UserCheck className="w-3 h-3" /> Human active
                   </Badge>
+                )}
+                {(selected as any)?.is_spam ? (
+                  <>
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] gap-1 border-warning/40 text-warning bg-warning/10"
+                      title="This conversation is marked as spam — AI will not auto-reply."
+                    >
+                      <Ban className="w-3 h-3" /> Spam
+                    </Badge>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2.5 text-[10px] font-semibold"
+                      onClick={async () => {
+                        if (!workspace?.id || !selectedId) return;
+                        try {
+                          await conversationsApi.unmarkSpam({
+                            workspace_id: workspace.id,
+                            conversation_id: selectedId,
+                          });
+                          toast({ title: 'Removed from spam' });
+                          qc.invalidateQueries({ queryKey: ['conversations', workspace.id] });
+                        } catch (e: any) {
+                          toast({ title: 'Action failed', description: e?.message || 'unknown', variant: 'destructive' });
+                        }
+                      }}
+                    >
+                      <ShieldOff className={cn('w-3 h-3', dir === 'rtl' ? 'ml-1' : 'mr-1')} />
+                      Not spam
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 px-2.5 text-[10px] font-semibold text-muted-foreground hover:text-warning hover:border-warning/40"
+                    onClick={async () => {
+                      if (!workspace?.id || !selectedId) return;
+                      try {
+                        const r = await conversationsApi.markSpam({
+                          workspace_id: workspace.id,
+                          conversation_id: selectedId,
+                        });
+                        toast({
+                          title: 'Marked as spam',
+                          description:
+                            r.conversation_ids.length > 1
+                              ? `${r.conversation_ids.length} conversations from this contact moved to Spam.`
+                              : 'Conversation moved to Spam. AI will not auto-reply.',
+                        });
+                        qc.invalidateQueries({ queryKey: ['conversations', workspace.id] });
+                      } catch (e: any) {
+                        toast({ title: 'Action failed', description: e?.message || 'unknown', variant: 'destructive' });
+                      }
+                    }}
+                    title="Mark as spam (does not block the visitor)"
+                  >
+                    <Ban className={cn('w-3 h-3', dir === 'rtl' ? 'ml-1' : 'mr-1')} />
+                    Mark as spam
+                  </Button>
                 )}
                 {selected.status === 'open' && (
                   <Button

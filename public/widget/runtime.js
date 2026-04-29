@@ -5533,7 +5533,7 @@
             // Phase 3 — AI Agent pre-chat intro. Fire-and-forget; never
             // blocks the chat. Backend enforces mode/intro_enabled and
             // dedupes by (conversation_id | session_id).
-            try { requestAiAgentIntro(); } catch (_) {}
+            try { requestAiAgentIntro('prechat_submit'); } catch (_) {}
           });
           return;
         }
@@ -5547,7 +5547,7 @@
           var __ai = ctx.config && ctx.config.aiAgent;
           var __hasMsgs = (chatStore.get().messages || []).length > 0;
           if (__ai && __ai.suppressGreeting === true && !__hasMsgs) {
-            requestAiAgentIntro();
+            requestAiAgentIntro('chat_open');
           }
         } catch (_) {}
         // Phase 5 — when offline + contact_fallback mode and there's no

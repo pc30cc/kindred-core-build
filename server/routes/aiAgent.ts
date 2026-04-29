@@ -22,6 +22,7 @@ import { listRuns, summarize } from '../services/ai-agent/logs.js';
 import { resolveAIConfig } from '../services/ai/index.js';
 import { getOperatorAvailability } from '../services/ai-agent/availability.js';
 import { markHumanTakeover } from '../services/ai-agent/handoffState.js';
+import { syncKnowledgeSource, rebuildWorkspaceIndex, getKnowledgeIndexStatus } from '../services/ai-agent/knowledgeIndex/sync.js';
 
 export const aiAgentRouter: Router = express.Router();
 
@@ -412,6 +413,8 @@ aiAgentRouter.post('/qna', async (req: Request, res: Response) => {
     .select('*')
     .single();
   if (error) return res.status(500).json({ error: error.message });
+  // Best-effort knowledge index sync.
+  syncKnowledgeSource(config, { workspaceId, sourceType: 'qna', sourceId: data.id }).catch(() => {});
   return res.status(201).json({ item: data });
 });
 
@@ -427,6 +430,7 @@ aiAgentRouter.patch('/qna/:id', async (req: Request, res: Response) => {
   for (const k of allowed) if (k in req.body) patch[k] = (req.body as any)[k];
   const { data, error } = await sb.from('ai_agent_qna').update(patch).eq('id', req.params.id).select('*').single();
   if (error) return res.status(500).json({ error: error.message });
+  syncKnowledgeSource(config, { workspaceId: existing.workspace_id, sourceType: 'qna', sourceId: req.params.id }).catch(() => {});
   return res.json({ item: data });
 });
 
@@ -439,6 +443,7 @@ aiAgentRouter.delete('/qna/:id', async (req: Request, res: Response) => {
   if (!auth) return;
   const { error } = await sb.from('ai_agent_qna').delete().eq('id', req.params.id);
   if (error) return res.status(500).json({ error: error.message });
+  syncKnowledgeSource(config, { workspaceId: existing.workspace_id, sourceType: 'qna', sourceId: req.params.id }).catch(() => {});
   return res.json({ ok: true });
 });
 

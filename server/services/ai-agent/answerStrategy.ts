@@ -23,6 +23,7 @@ export type StrategyDecisionType =
   | 'answer'
   | 'answer_with_caveat'
   | 'ask_clarifying_question'
+  | 'safe_guidance'
   | 'handoff'
   | 'no_answer_silent';
 
@@ -32,6 +33,10 @@ export interface StrategyInput {
   sources: RetrievedSource[];
   /** How many clarifying questions AI has already asked in this conversation. */
   clarificationAttemptCount: number;
+  /** Topic groups detected by query expansion (pricing, support, …). */
+  topics?: string[];
+  /** Workspace navigation context — pricing/contact/help URLs if known. */
+  workspaceLinks?: { pricing?: string | null; contact?: string | null; help?: string | null };
 }
 
 export interface StrategyDecision {
@@ -45,6 +50,8 @@ export interface StrategyDecision {
   /** When asking clarification, the AI prompt should request a single
    *  short question — engine passes this hint into the LLM call. */
   clarificationHint?: string;
+  /** When using safe_guidance, the topic the AI should orient around. */
+  safeGuidanceTopic?: string;
 }
 
 const VAGUE_PATTERNS = [
@@ -151,6 +158,26 @@ export function decideStrategy(input: StrategyInput): StrategyDecision {
       handoffRequired: false,
       clarificationHint:
         'Ask exactly ONE short, friendly clarifying question to narrow down what the visitor needs. Do not invent facts and do not promise an answer.',
+    };
+  }
+
+  // 5. No grounding but we DO know the topic (e.g. pricing/support/contact).
+  //    Provide safe guidance — never invent specifics, but do something useful.
+  const knownTopics = (input.topics || []).filter(Boolean);
+  if (
+    (strength === 'none' || strength === 'weak') &&
+    knownTopics.length > 0 &&
+    style !== 'conservative'
+  ) {
+    return {
+      decisionType: 'safe_guidance',
+      reason: 'safe_guidance_known_topic',
+      retrievalStrength: strength,
+      topScore,
+      confidence,
+      sourceTypesUsed,
+      handoffRequired: false,
+      safeGuidanceTopic: knownTopics[0],
     };
   }
 

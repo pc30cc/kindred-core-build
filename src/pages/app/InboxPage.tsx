@@ -847,6 +847,8 @@ export default function InboxPage() {
                   <Bot className="w-7 h-7 text-muted-foreground/40" />
                 ) : queue === 'needs_human' ? (
                   <AlertCircle className="w-7 h-7 text-muted-foreground/40" />
+                ) : queue === 'spam' ? (
+                  <Ban className="w-7 h-7 text-muted-foreground/40" />
                 ) : (
                   <MessageSquare className="w-7 h-7 text-muted-foreground/40" />
                 )}
@@ -859,6 +861,8 @@ export default function InboxPage() {
                       ? 'No AI-managed conversations'
                       : queue === 'needs_human'
                         ? 'No conversations need a human'
+                        : queue === 'spam'
+                          ? 'No spam'
                         : (t('inbox.noMessages') || 'No conversations')}
                 </p>
                 <p className="text-[11px] text-muted-foreground mt-1">
@@ -868,6 +872,8 @@ export default function InboxPage() {
                       ? 'AI replies will appear here'
                       : queue === 'needs_human'
                         ? 'AI handoffs will appear here'
+                        : queue === 'spam'
+                          ? 'Conversations you mark as spam will appear here'
                         : (filter !== 'all' ? statusLabels[filter] : '')}
                 </p>
               </div>

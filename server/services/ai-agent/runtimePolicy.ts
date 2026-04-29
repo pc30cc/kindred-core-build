@@ -104,13 +104,38 @@ export function decideRuntime(input: RuntimePolicyInput): RuntimeDecision {
   }
 
   if (settings.mode === 'auto_reply_until_human_joins') {
-    if (state.hasHumanAgentReplied) {
-      return { ...base, action: 'suggest', reason: 'human_already_joined', canSuggest: true };
+    // Robust takeover detection — any one of these blocks AI auto-reply.
+    const humanTookOver =
+      state.hasHumanAgentReplied ||
+      state.aiState === 'human_active' ||
+      state.managedByAi === false && state.aiState === 'needs_human' ||
+      !!state.humanTakeoverAt;
+    if (humanTookOver) {
+      const allowSuggestionsAfterTakeover =
+        (settings as any).allow_suggestions_after_takeover !== false;
+      return {
+        ...base,
+        action: allowSuggestionsAfterTakeover ? 'suggest' : 'skip',
+        reason: 'human_already_joined',
+        canSuggest: allowSuggestionsAfterTakeover,
+      };
     }
     return { ...base, action: 'auto_reply', reason: 'ok', canAutoReply: true };
   }
 
   if (settings.mode === 'auto_reply_always') {
+    // Professional default: even in auto_reply_always, pause once a human replies.
+    const pauseAfterHuman = (settings as any).pause_auto_reply_after_human_reply !== false;
+    if (pauseAfterHuman && (state.hasHumanAgentReplied || state.aiState === 'human_active')) {
+      const allowSuggestionsAfterTakeover =
+        (settings as any).allow_suggestions_after_takeover !== false;
+      return {
+        ...base,
+        action: allowSuggestionsAfterTakeover ? 'suggest' : 'skip',
+        reason: 'human_already_joined',
+        canSuggest: allowSuggestionsAfterTakeover,
+      };
+    }
     return { ...base, action: 'auto_reply', reason: 'ok', canAutoReply: true };
   }
 

@@ -27,6 +27,7 @@ import { getConversationState, markHandoffRequested } from './conversationState.
 import { getOperatorAvailability } from './availability.js';
 import { decideRuntime } from './runtimePolicy.js';
 import { insertAiMessage, deriveAgentDisplay } from './responder.js';
+import { markAiManaged, markNeedsHuman } from './handoffState.js';
 
 export interface MaybeRunInput {
   workspaceId: string;
@@ -122,6 +123,11 @@ async function runInternal(
   // ─── Branch: HANDOFF (human request) ───────────────────────────────────
   if (decision.action === 'handoff') {
     await markHandoffRequested(config, conversationId).catch(() => {});
+    await markNeedsHuman(config, {
+      workspaceId,
+      conversationId,
+      reason: 'human_request',
+    }).catch(() => {});
     const runId = await logRun(config, {
       workspaceId,
       conversationId,
@@ -177,6 +183,11 @@ async function runInternal(
       const fallbackBehavior = (settings as any).fallback_behavior || 'handoff';
       if (fallbackBehavior === 'handoff') {
         await markHandoffRequested(config, conversationId).catch(() => {});
+        await markNeedsHuman(config, {
+          workspaceId,
+          conversationId,
+          reason: 'no_kb_match',
+        }).catch(() => {});
         const display = deriveAgentDisplay(settings);
         const body = (settings.fallback_message || pickHandoffAck(locale, display.agentName));
         const inserted = await insertAiMessage(config, {
@@ -283,6 +294,11 @@ async function runInternal(
     });
     if (decision.canAutoReply) {
       await markHandoffRequested(config, conversationId).catch(() => {});
+      await markNeedsHuman(config, {
+        workspaceId,
+        conversationId,
+        reason: 'low_confidence',
+      }).catch(() => {});
       const display = deriveAgentDisplay(settings);
       const inserted = await insertAiMessage(config, {
         workspaceId,
@@ -341,6 +357,8 @@ async function runInternal(
       agentLogoUrl: display.agentLogoUrl,
     });
     console.log('[ai-agent] auto reply sent', { conversationId, runId, messageId: inserted.id });
+    // Keep conversation in the Automated inbox while AI is handling it.
+    await markAiManaged(config, { workspaceId, conversationId }).catch(() => {});
     return { ran: true, action: 'replied', runId, messageId: inserted.id };
   }
 

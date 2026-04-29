@@ -54,6 +54,10 @@ export interface AgentSettings {
   fallback_behavior: 'handoff' | 'silent';
   stop_on_handoff: boolean;
   max_auto_replies_per_conversation?: number;
+  // Phase 3.1 — automated inbox & takeover safety
+  pause_auto_reply_after_human_reply?: boolean;
+  allow_suggestions_after_takeover?: boolean;
+  keep_in_automated_until_handoff?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -92,6 +96,9 @@ function defaults(workspaceId: string): Omit<AgentSettings, 'id' | 'created_at' 
     intro_message: null,
     fallback_behavior: 'handoff',
     stop_on_handoff: true,
+    pause_auto_reply_after_human_reply: true,
+    allow_suggestions_after_takeover: true,
+    keep_in_automated_until_handoff: true,
   };
 }
 
@@ -125,6 +132,8 @@ const ALLOWED_UPDATE_FIELDS = new Set([
   'handoff_on_low_confidence','handoff_on_human_request','handoff_when_no_kb_match',
   'confidence_threshold','instructions','metadata',
   'ai_intro_enabled','intro_message','fallback_behavior','stop_on_handoff',
+  'pause_auto_reply_after_human_reply','allow_suggestions_after_takeover',
+  'keep_in_automated_until_handoff',
 ]);
 
 export async function updateSettings(

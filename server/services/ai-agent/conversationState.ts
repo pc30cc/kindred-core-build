@@ -6,6 +6,7 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { isHumanOperatorMessage, isAiAgentMessage } from './handoffState.js';
 
 export interface ConversationState {
   exists: boolean;
@@ -18,6 +19,9 @@ export interface ConversationState {
   aiRepliesCountInConversation: number;
   aiRepliesInLastHour: number;
   pendingHandoffRequested: boolean;
+  aiState: string | null;
+  managedByAi: boolean;
+  humanTakeoverAt: string | null;
 }
 
 export async function getConversationState(
@@ -37,6 +41,9 @@ export async function getConversationState(
     aiRepliesCountInConversation: 0,
     aiRepliesInLastHour: 0,
     pendingHandoffRequested: false,
+    aiState: null,
+    managedByAi: false,
+    humanTakeoverAt: null,
   };
 
   const { data: conv } = await sb
@@ -49,7 +56,7 @@ export async function getConversationState(
 
   const { data: msgs } = await sb
     .from('conversation_messages')
-    .select('id,sender_type,created_at,metadata')
+    .select('id,sender_type,sender_id,created_at,metadata')
     .eq('conversation_id', conversationId)
     .order('created_at', { ascending: false })
     .limit(200);
@@ -62,10 +69,10 @@ export async function getConversationState(
   const oneHourAgo = Date.now() - 3600_000;
 
   for (const m of msgs || []) {
-    if (m.sender_type === 'agent') {
+    if (isHumanOperatorMessage(m as any)) {
       if (!hasHumanAgentReplied) hasHumanAgentReplied = true;
       if (!lastHumanReplyAt) lastHumanReplyAt = m.created_at;
-    } else if (m.sender_type === 'ai') {
+    } else if (isAiAgentMessage(m as any)) {
       aiRepliesCountInConversation++;
       if (m.created_at && new Date(m.created_at).getTime() > oneHourAgo) {
         aiRepliesInLastHour++;
@@ -75,9 +82,18 @@ export async function getConversationState(
     }
   }
 
-  // Pending handoff: stored on conversation.metadata.ai_handoff_requested
   const meta = (conv as any).metadata || {};
   const pendingHandoffRequested = !!meta.ai_handoff_requested;
+  const aiState = (meta.ai_state as string) || null;
+  const managedByAi = meta.managed_by_ai === true || meta.ai_managed_by_ai === true;
+  const humanTakeoverAt = (meta.human_takeover_at as string) || null;
+
+  // Belt-and-suspenders: if metadata says human took over, treat as human-replied
+  // even if message scan didn't catch it (e.g. older message with custom sender_type).
+  if (humanTakeoverAt && !hasHumanAgentReplied) {
+    hasHumanAgentReplied = true;
+    if (!lastHumanReplyAt) lastHumanReplyAt = humanTakeoverAt;
+  }
 
   return {
     exists: true,
@@ -90,6 +106,9 @@ export async function getConversationState(
     aiRepliesCountInConversation,
     aiRepliesInLastHour,
     pendingHandoffRequested,
+    aiState,
+    managedByAi,
+    humanTakeoverAt,
   };
 }
 

@@ -50,6 +50,15 @@ export function buildSystemPrompt(
   const lines: string[] = [];
   const agentName = sanitizeAgentName(s.agent_name);
   lines.push(`You are "${agentName}", the AI support agent for this workspace.`);
+  // ── CRITICAL LANGUAGE RULE — must come before everything else. ──
+  const responseLangEarly = opts.responseLanguage || locale;
+  const responseLangNameEarly = languageDisplayName(responseLangEarly);
+  lines.push(
+    `CRITICAL LANGUAGE RULE: You MUST answer ONLY in ${responseLangNameEarly} (locale code: ${responseLangEarly}). ` +
+      `Even if every source below is written in another language, translate the relevant facts and answer in ${responseLangNameEarly}. ` +
+      `Do NOT mix languages in your reply. Do NOT quote source text in another language unless the visitor explicitly asks you to. ` +
+      `Examples: response_language=fa → answer entirely in Persian. response_language=tr → answer entirely in Turkish. response_language=en → answer entirely in English.`,
+  );
   // ── Hard safety rules — same in every prompt, regardless of style. ──
   lines.push('You are an AI assistant. Never claim to be a human, and never pretend to be a specific employee.');
   lines.push('Never invent prices, discounts, refunds, policies, legal terms, medical or financial advice. If the sources do not state a fact, do not state it.');

@@ -1009,10 +1009,22 @@ export default function InboxPage() {
                             );
                           }
                           if (aiState === 'needs_human') {
+                            const limitReasonLabel: Record<string, string> = {
+                              max_replies_reached: 'AI handed off: reply limit reached',
+                              rate_limited: 'AI handed off: rate limit reached',
+                              no_credits: 'AI handed off: out of AI credits',
+                              plan_limit_reached: 'AI handed off: plan limit reached',
+                              human_request: 'AI handed off: visitor requested a human',
+                              low_confidence: 'AI handed off: low confidence',
+                              no_kb_match: 'AI handed off: no answer in knowledge base',
+                            };
+                            const titleText = reason
+                              ? (limitReasonLabel[reason] || `Handoff reason: ${reason}`)
+                              : 'AI handed off — needs human';
                             return (
                               <span
                                 className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md font-medium bg-destructive/10 text-destructive border border-destructive/20"
-                                title={reason ? `Handoff reason: ${reason}` : 'AI handed off — needs human'}
+                                title={titleText}
                               >
                                 <AlertCircle className="w-2.5 h-2.5" /> Needs human
                               </span>

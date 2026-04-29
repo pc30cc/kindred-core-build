@@ -297,6 +297,29 @@ export const aiAgentApi = {
     jsonFetch(`/api/ai-agent/message-triggers/${id}`, { method: 'DELETE' }) as Promise<{ ok: boolean }>,
   testMessageTrigger: (id: string) =>
     jsonFetch(`/api/ai-agent/message-triggers/${id}/test`, { method: 'POST' }) as Promise<{ ok: boolean; dryRun: boolean; runtimeExecutionEnabled: boolean; planned: any; note: string }>,
+  // ─── Pass B2 — Overview, Test-run, Tools & MCP ───
+  getOverview: (workspaceId: string) =>
+    jsonFetch(`/api/ai-agent/overview?workspaceId=${workspaceId}`) as Promise<OverviewResponse>,
+  testRun: (input: { workspaceId: string; message: string; pageUrl?: string; visitorLocale?: string }) =>
+    jsonFetch(`/api/ai-agent/test-run`, { method: 'POST', body: JSON.stringify({ ...input, dryRun: true }) }) as Promise<TestRunResult>,
+  listTools: (workspaceId: string) =>
+    jsonFetch(`/api/ai-agent/tools?workspaceId=${workspaceId}`) as Promise<{ items: ToolRecord[]; defaultInternalTools: Array<{ name: string; description: string; risk_level: ToolRiskLevel }>; runtimeExecutionEnabled: boolean }>,
+  createTool: (input: Partial<ToolRecord> & { workspaceId: string; name: string; tool_type: ToolRecord['tool_type'] }) =>
+    jsonFetch(`/api/ai-agent/tools`, { method: 'POST', body: JSON.stringify(input) }) as Promise<{ item: ToolRecord }>,
+  updateTool: (id: string, patch: Partial<ToolRecord> & { confirm_high_risk?: boolean }) =>
+    jsonFetch(`/api/ai-agent/tools/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }) as Promise<{ item: ToolRecord }>,
+  deleteTool: (id: string) =>
+    jsonFetch(`/api/ai-agent/tools/${id}`, { method: 'DELETE' }) as Promise<{ ok: boolean }>,
+  listToolServers: (workspaceId: string) =>
+    jsonFetch(`/api/ai-agent/tool-servers?workspaceId=${workspaceId}`) as Promise<{ items: ToolServerRecord[]; runtimeExecutionEnabled: boolean }>,
+  createToolServer: (input: Partial<ToolServerRecord> & { workspaceId: string; name: string; server_type: ToolServerRecord['server_type'] }) =>
+    jsonFetch(`/api/ai-agent/tool-servers`, { method: 'POST', body: JSON.stringify(input) }) as Promise<{ item: ToolServerRecord }>,
+  updateToolServer: (id: string, patch: Partial<ToolServerRecord>) =>
+    jsonFetch(`/api/ai-agent/tool-servers/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }) as Promise<{ item: ToolServerRecord }>,
+  deleteToolServer: (id: string) =>
+    jsonFetch(`/api/ai-agent/tool-servers/${id}`, { method: 'DELETE' }) as Promise<{ ok: boolean }>,
+  testToolServer: (id: string) =>
+    jsonFetch(`/api/ai-agent/tool-servers/${id}/test`, { method: 'POST' }) as Promise<{ ok: boolean; runtimeExecutionEnabled: boolean; validations: Array<{ key: string; ok: boolean; message?: string }>; message: string }>,
 };
 
 export type GuidanceRuleType =

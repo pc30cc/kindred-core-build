@@ -247,7 +247,7 @@ async function runInternal(
   let embeddingProviderName: string | null = null;
   let embeddingModelName: string | null = null;
   let fallbackReason: string | null = null;
-  let selectedSourcesMeta: Array<{ id: string; source_type: string; kind: string; score: number; locale: string | null }> = [];
+  let selectedSourcesMeta: Array<Record<string, unknown>> = [];
   try {
     const hybrid = await retrieveHybridSources(config, {
       workspaceId,

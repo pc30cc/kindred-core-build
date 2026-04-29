@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils';
 import {
   Beaker, BarChart3, ToggleLeft, Settings, CreditCard,
   Route, ScrollText, MessageCircleQuestion, Globe, FileText,
-  Tags, Workflow, Bell, Plug, Bot,
+  Tags, Workflow, Bell, Plug, Bot, LayoutDashboard, Compass,
 } from 'lucide-react';
 
 interface NavItem { key: string; label: string; subPath: string; icon: React.ElementType; }
@@ -14,6 +14,7 @@ interface NavGroup { key: string; label: string; items: NavItem[]; }
 const groups: NavGroup[] = [
   {
     key: 'evaluate', label: 'Evaluate', items: [
+      { key: 'overview', label: 'Overview', subPath: '/ai-agent/overview', icon: LayoutDashboard },
       { key: 'playground', label: 'Playground', subPath: '/ai-agent/playground', icon: Beaker },
       { key: 'analytics', label: 'Analytics', subPath: '/ai-agent/analytics', icon: BarChart3 },
     ],
@@ -27,6 +28,7 @@ const groups: NavGroup[] = [
   },
   {
     key: 'guidance', label: 'Guidance', items: [
+      { key: 'guidance', label: 'Guidance rules', subPath: '/ai-agent/guidance', icon: Compass },
       { key: 'routing', label: 'Routing', subPath: '/ai-agent/routing', icon: Route },
       { key: 'instructions', label: 'Instructions', subPath: '/ai-agent/instructions', icon: ScrollText },
     ],

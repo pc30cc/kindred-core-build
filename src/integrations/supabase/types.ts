@@ -103,6 +103,56 @@ export type Database = {
         }
         Relationships: []
       }
+      ai_agent_guidance_rules: {
+        Row: {
+          condition_json: Json
+          created_at: string
+          description: string | null
+          enabled: boolean
+          id: string
+          instruction: string
+          priority: number
+          rule_type: string
+          title: string
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          condition_json?: Json
+          created_at?: string
+          description?: string | null
+          enabled?: boolean
+          id?: string
+          instruction?: string
+          priority?: number
+          rule_type: string
+          title: string
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          condition_json?: Json
+          created_at?: string
+          description?: string | null
+          enabled?: boolean
+          id?: string
+          instruction?: string
+          priority?: number
+          rule_type?: string
+          title?: string
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_agent_guidance_rules_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ai_agent_intro_log: {
         Row: {
           conversation_id: string | null
@@ -244,6 +294,59 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "ai_agent_qna_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_agent_routing_rules: {
+        Row: {
+          action_json: Json
+          action_type: string
+          conditions_json: Json
+          created_at: string
+          description: string | null
+          enabled: boolean
+          id: string
+          name: string
+          priority: number
+          trigger_type: string
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          action_json?: Json
+          action_type: string
+          conditions_json?: Json
+          created_at?: string
+          description?: string | null
+          enabled?: boolean
+          id?: string
+          name: string
+          priority?: number
+          trigger_type: string
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          action_json?: Json
+          action_type?: string
+          conditions_json?: Json
+          created_at?: string
+          description?: string | null
+          enabled?: boolean
+          id?: string
+          name?: string
+          priority?: number
+          trigger_type?: string
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_agent_routing_rules_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
@@ -546,6 +649,74 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "ai_agent_suggestions_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_data_sources: {
+        Row: {
+          base_url: string | null
+          crawl_depth: number
+          created_at: string
+          exclude_rules: Json
+          id: string
+          include_rules: Json
+          last_error: string | null
+          last_synced_at: string | null
+          max_pages: number
+          metadata: Json
+          name: string
+          next_sync_at: string | null
+          refresh_interval: string
+          source_type: string
+          status: string
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          base_url?: string | null
+          crawl_depth?: number
+          created_at?: string
+          exclude_rules?: Json
+          id?: string
+          include_rules?: Json
+          last_error?: string | null
+          last_synced_at?: string | null
+          max_pages?: number
+          metadata?: Json
+          name: string
+          next_sync_at?: string | null
+          refresh_interval?: string
+          source_type: string
+          status?: string
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          base_url?: string | null
+          crawl_depth?: number
+          created_at?: string
+          exclude_rules?: Json
+          id?: string
+          include_rules?: Json
+          last_error?: string | null
+          last_synced_at?: string | null
+          max_pages?: number
+          metadata?: Json
+          name?: string
+          next_sync_at?: string | null
+          refresh_interval?: string
+          source_type?: string
+          status?: string
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_data_sources_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
@@ -968,6 +1139,63 @@ export type Database = {
           workspace_id?: string
         }
         Relationships: []
+      }
+      ai_source_sync_logs: {
+        Row: {
+          chunks_created: number | null
+          created_at: string
+          embedded_chunks: number | null
+          errors: number | null
+          id: string
+          message: string | null
+          metadata: Json
+          pages_found: number | null
+          source_id: string
+          status: string
+          workspace_id: string
+        }
+        Insert: {
+          chunks_created?: number | null
+          created_at?: string
+          embedded_chunks?: number | null
+          errors?: number | null
+          id?: string
+          message?: string | null
+          metadata?: Json
+          pages_found?: number | null
+          source_id: string
+          status: string
+          workspace_id: string
+        }
+        Update: {
+          chunks_created?: number | null
+          created_at?: string
+          embedded_chunks?: number | null
+          errors?: number | null
+          id?: string
+          message?: string | null
+          metadata?: Json
+          pages_found?: number | null
+          source_id?: string
+          status?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_source_sync_logs_source_id_fkey"
+            columns: ["source_id"]
+            isOneToOne: false
+            referencedRelation: "ai_data_sources"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_source_sync_logs_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       ai_usage_logs: {
         Row: {

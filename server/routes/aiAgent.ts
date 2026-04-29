@@ -135,6 +135,15 @@ const updateSchema = z.object({
     forbidden_topics: z.array(z.string().max(120)).max(40).optional(),
     escalation_instructions: z.string().max(1000).optional(),
     max_answer_length: z.enum(['short','medium','long']).optional(),
+    // Pass A — extended workspace-level instruction fields
+    brand_voice: z.string().max(500).optional(),
+    business_description: z.string().max(2000).optional(),
+    do_list: z.array(z.string().max(300)).max(40).optional(),
+    dont_list: z.array(z.string().max(300)).max(40).optional(),
+    handoff_instructions: z.string().max(1000).optional(),
+    pricing_instructions: z.string().max(1000).optional(),
+    support_instructions: z.string().max(1000).optional(),
+    custom_system_instruction: z.string().max(4000).optional(),
   }).optional(),
   ai_intro_enabled: z.boolean().optional(),
   intro_message: z.string().max(1000).nullable().optional(),
@@ -931,4 +940,363 @@ aiAgentRouter.get('/learning-candidates/stats', async (req: Request, res: Respon
     stats[s] = count ?? 0;
   }
   return res.json(stats);
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// Pass A — Guidance / Routing / Data Sources CRUD
+//   These power the AI Agent admin console. No runtime behaviour change
+//   in this pass; rules are stored and surfaced for review/editing only.
+//   Real engine integration happens in a later pass.
+// ─────────────────────────────────────────────────────────────────────
+
+const GUIDANCE_TYPES = [
+  'tone','answer_policy','escalation_policy','restricted_topic',
+  'fallback_behavior','sales_guidance','support_guidance','pricing_guidance',
+] as const;
+
+const guidanceCreateSchema = z.object({
+  workspaceId: z.string().uuid(),
+  title: z.string().min(1).max(160),
+  description: z.string().max(1000).optional().nullable(),
+  rule_type: z.enum(GUIDANCE_TYPES),
+  condition_json: z.record(z.any()).optional(),
+  instruction: z.string().max(2000).default(''),
+  priority: z.number().int().min(0).max(10000).default(100),
+  enabled: z.boolean().default(true),
+});
+const guidancePatchSchema = guidanceCreateSchema.partial().omit({ workspaceId: true });
+
+aiAgentRouter.get('/guidance', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = requireWorkspace(req);
+  if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  const sb = getServiceClient(config);
+  const { data, error } = await sb
+    .from('ai_agent_guidance_rules')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .order('priority', { ascending: true })
+    .order('created_at', { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ items: data || [] });
+});
+
+aiAgentRouter.post('/guidance', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = guidanceCreateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
+  const { workspaceId, ...row } = parsed.data;
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  const sb = getServiceClient(config);
+  const { data, error } = await sb
+    .from('ai_agent_guidance_rules')
+    .insert({ workspace_id: workspaceId, ...row })
+    .select('*')
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  return res.status(201).json({ item: data });
+});
+
+aiAgentRouter.patch('/guidance/:id', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const sb = getServiceClient(config);
+  const { data: existing } = await sb.from('ai_agent_guidance_rules').select('workspace_id').eq('id', req.params.id).maybeSingle();
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, existing.workspace_id);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  const parsed = guidancePatchSchema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
+  const { data, error } = await sb
+    .from('ai_agent_guidance_rules')
+    .update(parsed.data)
+    .eq('id', req.params.id)
+    .select('*')
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ item: data });
+});
+
+aiAgentRouter.delete('/guidance/:id', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const sb = getServiceClient(config);
+  const { data: existing } = await sb.from('ai_agent_guidance_rules').select('workspace_id').eq('id', req.params.id).maybeSingle();
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, existing.workspace_id);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  const { error } = await sb.from('ai_agent_guidance_rules').delete().eq('id', req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ ok: true });
+});
+
+// ─── Routing rules CRUD ───
+const ROUTING_TRIGGERS = [
+  'human_request','no_answer','low_confidence','topic_detected',
+  'business_hours','language','vip_customer','plan_limit',
+] as const;
+const ROUTING_ACTIONS = [
+  'handoff','assign_team','assign_operator','keep_ai','create_ticket','mark_priority',
+] as const;
+
+const routingCreateSchema = z.object({
+  workspaceId: z.string().uuid(),
+  name: z.string().min(1).max(160),
+  description: z.string().max(1000).optional().nullable(),
+  trigger_type: z.enum(ROUTING_TRIGGERS),
+  conditions_json: z.record(z.any()).optional(),
+  action_type: z.enum(ROUTING_ACTIONS),
+  action_json: z.record(z.any()).optional(),
+  priority: z.number().int().min(0).max(10000).default(100),
+  enabled: z.boolean().default(true),
+});
+const routingPatchSchema = routingCreateSchema.partial().omit({ workspaceId: true });
+
+aiAgentRouter.get('/routing', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = requireWorkspace(req);
+  if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  const sb = getServiceClient(config);
+  const { data, error } = await sb
+    .from('ai_agent_routing_rules')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .order('priority', { ascending: true })
+    .order('created_at', { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ items: data || [] });
+});
+
+aiAgentRouter.post('/routing', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = routingCreateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
+  const { workspaceId, ...row } = parsed.data;
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  const sb = getServiceClient(config);
+  const { data, error } = await sb
+    .from('ai_agent_routing_rules')
+    .insert({ workspace_id: workspaceId, ...row })
+    .select('*')
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  return res.status(201).json({ item: data });
+});
+
+aiAgentRouter.patch('/routing/:id', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const sb = getServiceClient(config);
+  const { data: existing } = await sb.from('ai_agent_routing_rules').select('workspace_id').eq('id', req.params.id).maybeSingle();
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, existing.workspace_id);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  const parsed = routingPatchSchema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
+  const { data, error } = await sb
+    .from('ai_agent_routing_rules')
+    .update(parsed.data)
+    .eq('id', req.params.id)
+    .select('*')
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ item: data });
+});
+
+aiAgentRouter.delete('/routing/:id', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const sb = getServiceClient(config);
+  const { data: existing } = await sb.from('ai_agent_routing_rules').select('workspace_id').eq('id', req.params.id).maybeSingle();
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, existing.workspace_id);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  const { error } = await sb.from('ai_agent_routing_rules').delete().eq('id', req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ ok: true });
+});
+
+// ─── Data sources (web pages, files) ───
+aiAgentRouter.get('/data-sources', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = requireWorkspace(req);
+  if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  const sourceType = req.query.sourceType ? String(req.query.sourceType) : null;
+  const sb = getServiceClient(config);
+  let q = sb.from('ai_data_sources').select('*').eq('workspace_id', workspaceId).neq('status', 'deleted').order('created_at', { ascending: false });
+  if (sourceType) q = q.eq('source_type', sourceType);
+  const { data, error } = await q;
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ items: data || [] });
+});
+
+const websiteCreateSchema = z.object({
+  workspaceId: z.string().uuid(),
+  name: z.string().min(1).max(160).optional(),
+  base_url: z.string().url().optional(),
+  include_rules: z.array(z.string().max(500)).max(50).optional(),
+  exclude_rules: z.array(z.string().max(500)).max(50).optional(),
+  crawl_depth: z.number().int().min(1).max(5).default(2),
+  max_pages: z.number().int().min(1).max(500).default(50),
+  refresh_interval: z.enum(['manual','daily','weekly','monthly']).default('manual'),
+});
+
+aiAgentRouter.post('/data-sources/website', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = websiteCreateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
+  const { workspaceId, base_url, name, include_rules, exclude_rules, crawl_depth, max_pages, refresh_interval } = parsed.data;
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+
+  const sb = getServiceClient(config);
+  // Resolve workspace registered domain — we do not allow arbitrary cross-domain crawl in v1.
+  const { data: domainRow } = await sb
+    .from('workspace_domains')
+    .select('domain')
+    .eq('workspace_id', workspaceId)
+    .order('is_primary', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const registeredDomain = (domainRow?.domain as string | undefined)?.toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+
+  let url: URL;
+  try {
+    url = new URL(base_url || (registeredDomain ? `https://${registeredDomain}` : ''));
+  } catch {
+    return res.status(400).json({ error: 'invalid_base_url' });
+  }
+  if (registeredDomain) {
+    const host = url.hostname.toLowerCase();
+    const ok = host === registeredDomain || host.endsWith(`.${registeredDomain}`);
+    if (!ok) return res.status(400).json({ error: 'domain_not_registered', registeredDomain });
+  }
+
+  const { data, error } = await sb
+    .from('ai_data_sources')
+    .insert({
+      workspace_id: workspaceId,
+      source_type: 'website',
+      name: name || url.hostname,
+      base_url: url.toString(),
+      status: 'active',
+      include_rules: include_rules || [],
+      exclude_rules: exclude_rules || [],
+      crawl_depth,
+      max_pages,
+      refresh_interval,
+    })
+    .select('*')
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  return res.status(201).json({ item: data, registeredDomain });
+});
+
+const dataSourcePatchSchema = z.object({
+  name: z.string().min(1).max(160).optional(),
+  status: z.enum(['active','paused','syncing','failed','deleted']).optional(),
+  include_rules: z.array(z.string().max(500)).max(50).optional(),
+  exclude_rules: z.array(z.string().max(500)).max(50).optional(),
+  crawl_depth: z.number().int().min(1).max(5).optional(),
+  max_pages: z.number().int().min(1).max(500).optional(),
+  refresh_interval: z.enum(['manual','daily','weekly','monthly']).optional(),
+});
+
+aiAgentRouter.patch('/data-sources/:id', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const sb = getServiceClient(config);
+  const { data: existing } = await sb.from('ai_data_sources').select('workspace_id').eq('id', req.params.id).maybeSingle();
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, existing.workspace_id);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  const parsed = dataSourcePatchSchema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
+  const { data, error } = await sb
+    .from('ai_data_sources')
+    .update(parsed.data)
+    .eq('id', req.params.id)
+    .select('*')
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ item: data });
+});
+
+aiAgentRouter.delete('/data-sources/:id', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const sb = getServiceClient(config);
+  const { data: existing } = await sb.from('ai_data_sources').select('workspace_id').eq('id', req.params.id).maybeSingle();
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, existing.workspace_id);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  // Soft-delete to preserve sync history.
+  const { error } = await sb.from('ai_data_sources').update({ status: 'deleted' }).eq('id', req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ ok: true });
+});
+
+// Manual sync trigger — records a "queued" log line. The actual crawler
+// (ai-kb worker) runs out-of-band and writes its own logs. In v1 we just
+// flip status and record a queued entry so the UI shows progress.
+aiAgentRouter.post('/data-sources/:id/sync', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const sb = getServiceClient(config);
+  const { data: existing } = await sb.from('ai_data_sources').select('id, workspace_id').eq('id', req.params.id).maybeSingle();
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, existing.workspace_id);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  await sb.from('ai_data_sources').update({ status: 'syncing', last_error: null }).eq('id', existing.id);
+  await sb.from('ai_source_sync_logs').insert({
+    workspace_id: existing.workspace_id,
+    source_id: existing.id,
+    status: 'queued',
+    message: 'Manual sync requested',
+  });
+  return res.json({ ok: true });
+});
+
+aiAgentRouter.get('/data-sources/:id/logs', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const sb = getServiceClient(config);
+  const { data: existing } = await sb.from('ai_data_sources').select('workspace_id').eq('id', req.params.id).maybeSingle();
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, existing.workspace_id);
+  if (!auth) return;
+  const { data, error } = await sb
+    .from('ai_source_sync_logs')
+    .select('*')
+    .eq('source_id', req.params.id)
+    .order('created_at', { ascending: false })
+    .limit(50);
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ items: data || [] });
+});
+
+// ─── Workspace registered domain helper (read-only) ───
+aiAgentRouter.get('/workspace-domain', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = requireWorkspace(req);
+  if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  const sb = getServiceClient(config);
+  const { data } = await sb
+    .from('workspace_domains')
+    .select('domain, is_primary, verified')
+    .eq('workspace_id', workspaceId)
+    .order('is_primary', { ascending: false });
+  return res.json({ domains: data || [] });
 });

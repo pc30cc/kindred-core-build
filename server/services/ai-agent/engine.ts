@@ -778,6 +778,8 @@ async function runInternal(
   }
 
   // ─── SUGGEST → operator-facing card (Phase 2 behaviour) ────────────────
+  decisionTimeline.push('answer_strategy_selected');
+  decisionTimeline.push('suggestion_sent');
   const runId = await logRun(config, {
     workspaceId,
     conversationId,

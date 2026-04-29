@@ -1,26 +1,32 @@
 /**
  * AI Agent — conversation engine entry point.
  *
- * Phase 2: invoked by widget /message handler after a visitor message is
- * persisted. Default mode is `suggest_only`, which means:
- *   - NO message is inserted into the conversation
- *   - An ai_agent_suggestions row is created (status='pending')
- *   - An ai_agent_runs row is recorded with run_type='suggestion',
- *     status='suggested'
- *   - The visitor sees nothing
+ * Phase 3 — Runtime Pro:
+ *   - off / disabled    → no-op
+ *   - suggest_only      → operator-facing suggestion (Phase 2 behaviour)
+ *   - auto_reply_when_offline       → AI replies only when operators offline
+ *   - auto_reply_until_human_joins  → AI replies until a human agent posts
+ *   - auto_reply_always             → AI replies subject to safety caps
  *
- * Other modes (auto_reply_*) are intentionally NOT wired in this phase.
- * They fall through to a 'skipped' run with reason='mode_not_wired_phase2'.
+ * Hard rules (do not relax):
+ *   - never throws; widget /message must never break
+ *   - answer_only_from_kb → no LLM call without a Q&A/KB match
+ *   - human_request keyword → handoff, no LLM call
+ *   - per-conversation cap, per-hour cap, pending handoff all enforced
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { executeAICompletion, resolveAIConfig } from '../ai/index.js';
 import { getOrCreateSettings } from './settings.js';
-import { retrieveSources } from './retrieval.js';
+import { retrieveSources, type RetrievedSource } from './retrieval.js';
 import { buildSystemPrompt, buildUserPrompt } from './prompt.js';
 import { decide, postValidateAnswer } from './policy.js';
 import { logRun } from './logs.js';
 import { publishOperatorEvent } from '../realtime/publish.js';
+import { getConversationState, markHandoffRequested } from './conversationState.js';
+import { getOperatorAvailability } from './availability.js';
+import { decideRuntime } from './runtimePolicy.js';
+import { insertAiMessage, deriveAgentDisplay } from './responder.js';
 
 export interface MaybeRunInput {
   workspaceId: string;
@@ -32,16 +38,13 @@ export interface MaybeRunInput {
 
 export interface MaybeRunResult {
   ran: boolean;
-  action: 'suggested' | 'handoff' | 'no_answer' | 'skipped' | 'failed';
+  action: 'replied' | 'suggested' | 'handoff' | 'no_answer' | 'skipped' | 'failed';
   reason?: string;
   suggestionId?: string | null;
   runId?: string | null;
+  messageId?: string | null;
 }
 
-/**
- * Safe entry: never throws. All failures are logged and swallowed so the
- * widget request path is never broken by AI Agent issues.
- */
 export async function maybeRunAiAssistantAfterVisitorMessage(
   config: ServerConfig,
   input: MaybeRunInput,
@@ -60,36 +63,16 @@ async function runInternal(
 ): Promise<MaybeRunResult> {
   const { workspaceId, conversationId, visitorMessageId } = input;
   const question = (input.question || '').trim();
-
-  // Empty question (e.g. attachment-only message) → silently skip
   if (!question) {
     return { ran: false, action: 'skipped', reason: 'empty_question' };
   }
 
   const settings = await getOrCreateSettings(config, workspaceId);
-
-  // Disabled or off → no-op (no run logged to keep tables clean)
   if (!settings.enabled || settings.mode === 'off') {
     return { ran: false, action: 'skipped', reason: 'disabled_or_off' };
   }
 
-  // Phase 2: only suggest_only is wired into real conversations.
-  // Auto-reply modes are intentionally NOT executed yet.
-  if (settings.mode !== 'suggest_only') {
-    const runId = await logRun(config, {
-      workspaceId,
-      conversationId,
-      visitorMessageId,
-      runType: 'skip',
-      mode: settings.mode,
-      status: 'skipped',
-      inputText: question,
-      skipReason: 'mode_not_wired_phase2',
-    });
-    return { ran: false, action: 'skipped', reason: 'mode_not_wired_phase2', runId };
-  }
-
-  // Resolve locale: explicit > workspace default > 'en'
+  // Resolve locale (explicit > workspace > 'en')
   const sb = getServiceClient(config);
   let locale = (input.locale || '').toLowerCase();
   if (!locale) {
@@ -103,18 +86,42 @@ async function runInternal(
       : (ws as any)?.locale) || 'en';
   }
   if (settings.allowed_locales?.length && !settings.allowed_locales.includes(locale)) {
-    // Fall back to first allowed locale rather than hard-blocking
     locale = settings.allowed_locales[0];
   }
 
-  // Retrieve KB / Q&A
-  const sources = await retrieveSources(config, workspaceId, question, locale, 5);
+  // Gather state in parallel — runtime policy needs all three.
+  const [state, availability] = await Promise.all([
+    getConversationState(config, workspaceId, conversationId),
+    getOperatorAvailability(config, workspaceId, locale),
+  ]);
 
-  // Decide
-  const decision = decide({ settings, question, sources });
+  const decision = decideRuntime({ settings, state, availability, visitorText: question });
+  console.log('[ai-agent] policy decision', {
+    conversationId,
+    mode: settings.mode,
+    action: decision.action,
+    reason: decision.reason,
+    availability: availability.state,
+  });
 
-  // Handoff (human request) → log + no suggestion
+  // ─── Branch: SKIP ──────────────────────────────────────────────────────
+  if (decision.action === 'skip') {
+    const runId = await logRun(config, {
+      workspaceId,
+      conversationId,
+      visitorMessageId,
+      runType: 'skip',
+      mode: settings.mode,
+      status: 'skipped',
+      inputText: question,
+      skipReason: decision.reason,
+    });
+    return { ran: false, action: 'skipped', reason: decision.reason, runId };
+  }
+
+  // ─── Branch: HANDOFF (human request) ───────────────────────────────────
   if (decision.action === 'handoff') {
+    await markHandoffRequested(config, conversationId).catch(() => {});
     const runId = await logRun(config, {
       workspaceId,
       conversationId,
@@ -123,60 +130,103 @@ async function runInternal(
       mode: settings.mode,
       status: 'handoff',
       inputText: question,
-      skipReason: decision.reason ?? null,
-      kbArticleIds: sources.filter((s) => s.kind === 'kb_article').map((s) => s.id),
-      confidence: decision.confidence,
+      skipReason: decision.reason,
     });
-    return { ran: true, action: 'handoff', reason: decision.reason, runId };
+    // In auto-reply modes we acknowledge the handoff to the visitor.
+    let messageId: string | null = null;
+    if (decision.canAutoReply || settings.mode !== 'suggest_only') {
+      const display = deriveAgentDisplay(settings);
+      const ack = pickHandoffAck(locale, display.agentName);
+      const inserted = await insertAiMessage(config, {
+        workspaceId,
+        conversationId,
+        body: ack,
+        source: 'ai_agent_handoff',
+        runId,
+        mode: settings.mode,
+        handoff: true,
+        agentName: display.agentName,
+        agentLogoUrl: display.agentLogoUrl,
+      });
+      messageId = inserted.id;
+    }
+    return { ran: true, action: 'handoff', reason: decision.reason, runId, messageId };
   }
 
-  // No KB match / no answer → log, do not call AI, no suggestion
-  if (decision.action !== 'answer') {
+  // From here we either suggest or auto-reply. Both need retrieval.
+  const sources = await retrieveSources(config, workspaceId, question, locale, 5);
+  const grounded = decide({ settings, question, sources });
+
+  // ─── No KB / answer-only-from-KB blocks the LLM call ──────────────────
+  if (grounded.action !== 'answer') {
     const runId = await logRun(config, {
       workspaceId,
       conversationId,
       visitorMessageId,
-      runType: 'skip',
+      runType: grounded.action === 'handoff' ? 'handoff' : 'skip',
       mode: settings.mode,
-      status: 'no_answer',
+      status: grounded.action === 'handoff' ? 'handoff' : 'no_answer',
       inputText: question,
-      skipReason: decision.reason ?? 'no_kb_match',
+      skipReason: grounded.reason ?? 'no_kb_match',
       kbArticleIds: sources.filter((s) => s.kind === 'kb_article').map((s) => s.id),
-      confidence: decision.confidence,
+      confidence: grounded.confidence,
     });
-    return { ran: true, action: 'no_answer', reason: decision.reason, runId };
+
+    // For auto-reply modes, surface the fallback (or stay silent) based on settings.
+    if (decision.canAutoReply) {
+      const fallbackBehavior = (settings as any).fallback_behavior || 'handoff';
+      if (fallbackBehavior === 'handoff') {
+        await markHandoffRequested(config, conversationId).catch(() => {});
+        const display = deriveAgentDisplay(settings);
+        const body = (settings.fallback_message || pickHandoffAck(locale, display.agentName));
+        const inserted = await insertAiMessage(config, {
+          workspaceId,
+          conversationId,
+          body,
+          source: 'ai_agent_fallback',
+          runId,
+          mode: settings.mode,
+          handoff: true,
+          agentName: display.agentName,
+          agentLogoUrl: display.agentLogoUrl,
+        });
+        return { ran: true, action: 'handoff', reason: grounded.reason, runId, messageId: inserted.id };
+      }
+    }
+    return { ran: true, action: 'no_answer', reason: grounded.reason, runId };
   }
 
-  // Need to call the LLM — make sure a provider is configured
+  // ─── LLM call ─────────────────────────────────────────────────────────
   const aiConfig = await resolveAIConfig(config, workspaceId);
   if (!aiConfig) {
     const runId = await logRun(config, {
       workspaceId,
       conversationId,
       visitorMessageId,
-      runType: 'suggestion',
+      runType: decision.canAutoReply ? 'auto_reply' : 'suggestion',
       mode: settings.mode,
       status: 'failed',
       inputText: question,
       errorMessage: 'no_ai_provider_configured',
       kbArticleIds: sources.filter((s) => s.kind === 'kb_article').map((s) => s.id),
-      confidence: decision.confidence,
+      confidence: grounded.confidence,
     });
     return { ran: true, action: 'failed', reason: 'no_ai_provider_configured', runId };
   }
 
-  // Dedupe: if a pending suggestion already exists for this exact visitor
-  // message, do not create another. Defends against retries / races.
-  const { data: existing } = await sb
-    .from('ai_agent_suggestions')
-    .select('id')
-    .eq('workspace_id', workspaceId)
-    .eq('conversation_id', conversationId)
-    .eq('visitor_message_id', visitorMessageId)
-    .limit(1)
-    .maybeSingle();
-  if (existing?.id) {
-    return { ran: false, action: 'skipped', reason: 'duplicate_suggestion', suggestionId: existing.id };
+  // Suggestion dedupe (Phase 2 contract).
+  if (decision.canSuggest) {
+    const { data: existing } = await sb
+      .from('ai_agent_suggestions')
+      .select('id')
+      .eq('workspace_id', workspaceId)
+      .eq('conversation_id', conversationId)
+      .eq('visitor_message_id', visitorMessageId)
+      .limit(1)
+      .maybeSingle();
+    if (existing?.id) {
+      return { ran: false, action: 'skipped', reason: 'duplicate_suggestion', suggestionId: existing.id };
+    }
   }
 
   const systemPrompt = buildSystemPrompt(settings, locale);
@@ -198,7 +248,7 @@ async function runInternal(
       workspaceId,
       conversationId,
       visitorMessageId,
-      runType: 'suggestion',
+      runType: decision.canAutoReply ? 'auto_reply' : 'suggestion',
       mode: settings.mode,
       status: 'failed',
       inputText: question,
@@ -206,13 +256,14 @@ async function runInternal(
       provider: aiConfig.provider,
       model: aiConfig.model,
       kbArticleIds: sources.filter((s) => s.kind === 'kb_article').map((s) => s.id),
-      confidence: decision.confidence,
+      confidence: grounded.confidence,
     });
     return { ran: true, action: 'failed', reason: err?.message || 'ai_call_failed', runId };
   }
 
   const valid = postValidateAnswer(aiResult.text || '');
   if (!valid.ok) {
+    // Treat as handoff when AI itself bailed out.
     const runId = await logRun(config, {
       workspaceId,
       conversationId,
@@ -228,12 +279,72 @@ async function runInternal(
       promptTokens: aiResult.promptTokens,
       completionTokens: aiResult.completionTokens,
       kbArticleIds: sources.filter((s) => s.kind === 'kb_article').map((s) => s.id),
-      confidence: decision.confidence,
+      confidence: grounded.confidence,
     });
+    if (decision.canAutoReply) {
+      await markHandoffRequested(config, conversationId).catch(() => {});
+      const display = deriveAgentDisplay(settings);
+      const inserted = await insertAiMessage(config, {
+        workspaceId,
+        conversationId,
+        body: settings.fallback_message || pickHandoffAck(locale, display.agentName),
+        source: 'ai_agent_fallback',
+        runId,
+        mode: settings.mode,
+        handoff: true,
+        agentName: display.agentName,
+        agentLogoUrl: display.agentLogoUrl,
+      });
+      return { ran: true, action: 'handoff', reason: valid.reason, runId, messageId: inserted.id };
+    }
     return { ran: true, action: 'handoff', reason: valid.reason, runId };
   }
 
-  // Persist run first, then suggestion (link via created_by_run_id)
+  const kbIds = sources.filter((s) => s.kind === 'kb_article').map((s) => s.id);
+  const qnaIds = sources.filter((s) => s.kind === 'qna').map((s) => s.id);
+
+  // ─── AUTO REPLY → insert visitor-facing message ────────────────────────
+  if (decision.canAutoReply) {
+    const runId = await logRun(config, {
+      workspaceId,
+      conversationId,
+      visitorMessageId,
+      runType: 'auto_reply',
+      mode: settings.mode,
+      status: 'replied',
+      inputText: question,
+      outputText: aiResult.text,
+      provider: aiResult.provider,
+      model: aiResult.model,
+      promptTokens: aiResult.promptTokens,
+      completionTokens: aiResult.completionTokens,
+      creditsUsed: 1,
+      kbArticleIds: kbIds,
+      confidence: grounded.confidence,
+      metadata: { latencyMs: aiResult.latencyMs, locale, qnaIds },
+    });
+    const display = deriveAgentDisplay(settings);
+    const inserted = await insertAiMessage(config, {
+      workspaceId,
+      conversationId,
+      body: aiResult.text,
+      source: 'ai_agent',
+      runId,
+      mode: settings.mode,
+      kbArticleIds: kbIds,
+      qnaIds,
+      confidence: grounded.confidence,
+      provider: aiResult.provider,
+      model: aiResult.model,
+      handoff: false,
+      agentName: display.agentName,
+      agentLogoUrl: display.agentLogoUrl,
+    });
+    console.log('[ai-agent] auto reply sent', { conversationId, runId, messageId: inserted.id });
+    return { ran: true, action: 'replied', runId, messageId: inserted.id };
+  }
+
+  // ─── SUGGEST → operator-facing card (Phase 2 behaviour) ────────────────
   const runId = await logRun(config, {
     workspaceId,
     conversationId,
@@ -247,9 +358,10 @@ async function runInternal(
     model: aiResult.model,
     promptTokens: aiResult.promptTokens,
     completionTokens: aiResult.completionTokens,
-    kbArticleIds: sources.filter((s) => s.kind === 'kb_article').map((s) => s.id),
-    confidence: decision.confidence,
-    metadata: { latencyMs: aiResult.latencyMs, locale },
+    creditsUsed: 1,
+    kbArticleIds: kbIds,
+    confidence: grounded.confidence,
+    metadata: { latencyMs: aiResult.latencyMs, locale, qnaIds },
   });
 
   const { data: suggestion, error: sErr } = await sb
@@ -259,8 +371,8 @@ async function runInternal(
       conversation_id: conversationId,
       visitor_message_id: visitorMessageId,
       suggested_reply: aiResult.text,
-      source_article_ids: sources.filter((s) => s.kind === 'kb_article').map((s) => s.id),
-      confidence: decision.confidence,
+      source_article_ids: kbIds,
+      confidence: grounded.confidence,
       status: 'pending',
       created_by_run_id: runId,
     })
@@ -271,8 +383,6 @@ async function runInternal(
     return { ran: true, action: 'failed', reason: 'suggestion_insert_failed', runId };
   }
 
-  // Realtime echo so the operator's open conversation gets the card without
-  // waiting on polling. Best-effort — UI also polls every 15s as fallback.
   try {
     await publishOperatorEvent(config, {
       kind: 'ai_suggestion_created' as any,
@@ -290,3 +400,13 @@ async function runInternal(
     runId,
   };
 }
+
+function pickHandoffAck(locale: string | undefined, agentName: string): string {
+  const l = (locale || 'en').toLowerCase();
+  if (l.startsWith('fa')) return `باشه — همین الان شما را به یک کارشناس انسانی وصل می‌کنم.`;
+  if (l.startsWith('tr')) return `Tamam — sizi bir temsilciye bağlıyorum.`;
+  return `Sure — I'll connect you with a human agent.`;
+}
+
+// Suppress unused-var warning for _RetrievedSource if added later
+export type { RetrievedSource };

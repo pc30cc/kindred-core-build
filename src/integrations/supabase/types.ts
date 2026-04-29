@@ -709,6 +709,128 @@ export type Database = {
           },
         ]
       }
+      ai_agent_tool_servers: {
+        Row: {
+          allowed_tools: string[]
+          auth_type: string
+          created_at: string
+          encrypted_config: Json | null
+          endpoint_url: string | null
+          id: string
+          last_checked_at: string | null
+          last_error: string | null
+          name: string
+          permissions_json: Json
+          server_type: string
+          status: string
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          allowed_tools?: string[]
+          auth_type?: string
+          created_at?: string
+          encrypted_config?: Json | null
+          endpoint_url?: string | null
+          id?: string
+          last_checked_at?: string | null
+          last_error?: string | null
+          name: string
+          permissions_json?: Json
+          server_type?: string
+          status?: string
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          allowed_tools?: string[]
+          auth_type?: string
+          created_at?: string
+          encrypted_config?: Json | null
+          endpoint_url?: string | null
+          id?: string
+          last_checked_at?: string | null
+          last_error?: string | null
+          name?: string
+          permissions_json?: Json
+          server_type?: string
+          status?: string
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_agent_tool_servers_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_agent_tools: {
+        Row: {
+          config_json: Json
+          created_at: string
+          description: string | null
+          enabled: boolean
+          id: string
+          name: string
+          permissions_json: Json
+          provider: string | null
+          risk_level: string
+          server_id: string | null
+          tool_type: string
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          config_json?: Json
+          created_at?: string
+          description?: string | null
+          enabled?: boolean
+          id?: string
+          name: string
+          permissions_json?: Json
+          provider?: string | null
+          risk_level?: string
+          server_id?: string | null
+          tool_type: string
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          config_json?: Json
+          created_at?: string
+          description?: string | null
+          enabled?: boolean
+          id?: string
+          name?: string
+          permissions_json?: Json
+          provider?: string | null
+          risk_level?: string
+          server_id?: string | null
+          tool_type?: string
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_agent_tools_server_id_fkey"
+            columns: ["server_id"]
+            isOneToOne: false
+            referencedRelation: "ai_agent_tool_servers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_agent_tools_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ai_agent_topics: {
         Row: {
           action: string

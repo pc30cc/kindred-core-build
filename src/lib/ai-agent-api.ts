@@ -62,6 +62,9 @@ export interface AgentSettings {
   intro_message?: string | null;
   fallback_behavior?: 'handoff' | 'silent';
   stop_on_handoff?: boolean;
+  pause_auto_reply_after_human_reply?: boolean;
+  allow_suggestions_after_takeover?: boolean;
+  keep_in_automated_until_handoff?: boolean;
 }
 
 export interface KnowledgeStatus {
@@ -105,6 +108,18 @@ export interface DiagnosticsResponse {
     mode?: string;
     created_at?: string;
   }>;
+  automated_inbox?: {
+    ai_managed: number;
+    needs_human: number;
+    human_active: number;
+    last_handoff_reason: string | null;
+    last_human_takeover_at: string | null;
+  };
+  safety_settings?: {
+    pause_auto_reply_after_human_reply: boolean;
+    allow_suggestions_after_takeover: boolean;
+    keep_in_automated_until_handoff: boolean;
+  };
 }
 
 export interface PlaygroundResult {
@@ -153,6 +168,11 @@ export const aiAgentApi = {
     jsonFetch(`/api/ai-agent/suggestions/${id}/use`, { method: 'POST' }) as Promise<{ ok: boolean; suggestion: AgentSuggestion }>,
   dismissSuggestion: (id: string) =>
     jsonFetch(`/api/ai-agent/suggestions/${id}/dismiss`, { method: 'POST' }) as Promise<{ ok: boolean; suggestion: AgentSuggestion }>,
+  takeOverConversation: (workspaceId: string, conversationId: string, assignToMe = true) =>
+    jsonFetch(`/api/ai-agent/conversations/${conversationId}/take-over`, {
+      method: 'POST',
+      body: JSON.stringify({ workspaceId, assign_to_me: assignToMe }),
+    }) as Promise<{ ok: boolean }>,
 };
 
 export interface AgentSuggestionSource {

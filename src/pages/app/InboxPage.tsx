@@ -769,11 +769,17 @@ export default function InboxPage() {
                   <span className="text-[11px] font-semibold text-foreground">Automated</span>
                   <span className="text-[10px] text-muted-foreground">AI-managed conversations</span>
                 </>
-              ) : (
+              ) : queue === 'needs_human' ? (
                 <>
                   <AlertCircle className="w-3.5 h-3.5 text-destructive" />
                   <span className="text-[11px] font-semibold text-foreground">Needs human</span>
                   <span className="text-[10px] text-muted-foreground">Handed off by AI</span>
+                </>
+              ) : (
+                <>
+                  <Ban className="w-3.5 h-3.5 text-warning" />
+                  <span className="text-[11px] font-semibold text-foreground">Spam</span>
+                  <span className="text-[10px] text-muted-foreground">Quarantined conversations</span>
                 </>
               )}
               <span className="ms-auto text-[10px] bg-secondary text-foreground/70 px-1.5 py-0.5 rounded-full font-bold tabular-nums">

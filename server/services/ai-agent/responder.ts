@@ -12,6 +12,7 @@ import {
   buildMessageEnvelope,
 } from '../realtime/publish.js';
 import type { AgentSettings } from './settings.js';
+import { sanitizeAgentName } from './prompt.js';
 
 export interface InsertAiMessageInput {
   workspaceId: string;
@@ -91,7 +92,7 @@ export function deriveAgentDisplay(settings: AgentSettings): {
   agentLogoUrl: string | null;
 } {
   return {
-    agentName: settings.agent_name || 'AI Assistant',
+    agentName: sanitizeAgentName(settings.agent_name),
     agentLogoUrl: settings.agent_logo_url || null,
   };
 }

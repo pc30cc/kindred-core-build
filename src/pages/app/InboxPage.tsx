@@ -136,6 +136,13 @@ export default function InboxPage() {
   const { user } = useAuth();
   const workspace = useCurrentWorkspace();
   const { platformName } = useBrandingContext();
+  const [searchParams] = useSearchParams();
+  const queueParam = searchParams.get('queue');
+  const queue: InboxQueue =
+    queueParam === 'automated' ? 'automated'
+      : queueParam === 'needs_human' ? 'needs_human'
+      : 'main';
+  const isQueueMode = queue !== 'main';
   const [filter, setFilter] = useState<FilterStatus>('open');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [message, setMessage] = useState('');
@@ -148,7 +155,11 @@ export default function InboxPage() {
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const selectedSnapshotRef = useRef<any>(null);
 
-  const { data: conversations, isLoading } = useConversations(workspace?.id, filter === 'all' ? undefined : filter);
+  const { data: conversations, isLoading } = useConversations(
+    workspace?.id,
+    filter === 'all' ? undefined : filter,
+    queue,
+  );
   const { data: rawMessages } = useConversationMessages(selectedId ?? undefined);
   const sendMessage = useSendMessage(selectedId ?? undefined, workspace?.id);
   const updateConv = useUpdateConversation();

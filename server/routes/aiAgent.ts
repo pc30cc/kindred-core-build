@@ -133,6 +133,10 @@ const updateSchema = z.object({
     escalation_instructions: z.string().max(1000).optional(),
     max_answer_length: z.enum(['short','medium','long']).optional(),
   }).optional(),
+  ai_intro_enabled: z.boolean().optional(),
+  intro_message: z.string().max(1000).nullable().optional(),
+  fallback_behavior: z.enum(['handoff','silent']).optional(),
+  stop_on_handoff: z.boolean().optional(),
 });
 
 aiAgentRouter.put('/settings', async (req: Request, res: Response) => {

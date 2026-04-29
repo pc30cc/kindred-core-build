@@ -48,6 +48,12 @@ export interface AgentSettings {
   confidence_threshold: number;
   instructions: AgentInstructions;
   metadata: Record<string, unknown>;
+  // Phase 3 — runtime
+  ai_intro_enabled: boolean;
+  intro_message: string | null;
+  fallback_behavior: 'handoff' | 'silent';
+  stop_on_handoff: boolean;
+  max_auto_replies_per_conversation?: number;
   created_at: string;
   updated_at: string;
 }
@@ -82,6 +88,10 @@ function defaults(workspaceId: string): Omit<AgentSettings, 'id' | 'created_at' 
     confidence_threshold: 0.55,
     instructions: {},
     metadata: {},
+    ai_intro_enabled: true,
+    intro_message: null,
+    fallback_behavior: 'handoff',
+    stop_on_handoff: true,
   };
 }
 
@@ -114,6 +124,7 @@ const ALLOWED_UPDATE_FIELDS = new Set([
   'show_sources_to_operator','show_sources_to_visitor',
   'handoff_on_low_confidence','handoff_on_human_request','handoff_when_no_kb_match',
   'confidence_threshold','instructions','metadata',
+  'ai_intro_enabled','intro_message','fallback_behavior','stop_on_handoff',
 ]);
 
 export async function updateSettings(

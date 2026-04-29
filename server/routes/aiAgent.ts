@@ -437,3 +437,158 @@ aiAgentRouter.get('/sources', async (req: Request, res: Response) => {
   if (error) return res.status(500).json({ error: error.message });
   return res.json({ sources: data || [] });
 });
+
+// ─────────────────────────────────────────────────────────────────────
+// Phase 2 — Operator-facing suggestion endpoints
+//
+// GET    /api/ai-agent/conversations/:conversationId/suggestions
+// POST   /api/ai-agent/suggestions/:id/use
+// POST   /api/ai-agent/suggestions/:id/dismiss
+//
+// Authorization: caller must be a workspace member (or global admin) of
+// the conversation's workspace. RLS already restricts SELECT for clients,
+// but mutations go through the service role + this middleware.
+// ─────────────────────────────────────────────────────────────────────
+
+async function authorizeSuggestion(
+  req: Request,
+  res: Response,
+  config: ServerConfig,
+  suggestionId: string,
+): Promise<{ workspaceId: string; userId: string; isAdmin: boolean; row: any } | null> {
+  const sb = getServiceClient(config);
+  const { data: row, error } = await sb
+    .from('ai_agent_suggestions')
+    .select('id, workspace_id, conversation_id, status, suggested_reply, source_article_ids, confidence, visitor_message_id, created_at')
+    .eq('id', suggestionId)
+    .maybeSingle();
+  if (error || !row) {
+    res.status(404).json({ error: 'suggestion_not_found' });
+    return null;
+  }
+  const auth = await authorizeMember(req, res, config, row.workspace_id);
+  if (!auth) return null;
+  return { workspaceId: row.workspace_id, userId: auth.userId, isAdmin: auth.isAdmin, row };
+}
+
+aiAgentRouter.get('/conversations/:conversationId/suggestions', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const conversationId = req.params.conversationId;
+  const sb = getServiceClient(config);
+  const { data: conv } = await sb
+    .from('conversations')
+    .select('workspace_id')
+    .eq('id', conversationId)
+    .maybeSingle();
+  if (!conv) return res.status(404).json({ error: 'conversation_not_found' });
+  const auth = await authorizeMember(req, res, config, conv.workspace_id);
+  if (!auth) return;
+
+  const status = String(req.query.status || 'pending');
+  let q = sb
+    .from('ai_agent_suggestions')
+    .select('id, conversation_id, visitor_message_id, suggested_reply, source_article_ids, confidence, status, created_at, updated_at')
+    .eq('workspace_id', conv.workspace_id)
+    .eq('conversation_id', conversationId)
+    .order('created_at', { ascending: false })
+    .limit(20);
+  if (status !== 'all') q = q.eq('status', status);
+
+  const { data, error } = await q;
+  if (error) return res.status(500).json({ error: error.message });
+
+  // Resolve source article titles/slugs (best-effort). Skip if none.
+  const articleIds = Array.from(
+    new Set((data || []).flatMap((r) => (r.source_article_ids as string[] | null) || [])),
+  );
+  let articleMap: Record<string, { id: string; title: string; slug: string | null; locale: string | null }> = {};
+  if (articleIds.length > 0) {
+    const { data: arts } = await sb
+      .from('knowledge_base_articles')
+      .select('id, title, slug, locale')
+      .in('id', articleIds);
+    for (const a of arts || []) {
+      articleMap[a.id as string] = {
+        id: a.id as string,
+        title: (a.title as string) || '',
+        slug: (a.slug as string) || null,
+        locale: (a.locale as string) || null,
+      };
+    }
+  }
+
+  const items = (data || []).map((r) => ({
+    ...r,
+    sources: ((r.source_article_ids as string[] | null) || [])
+      .map((id) => articleMap[id])
+      .filter(Boolean),
+  }));
+  return res.json({ items });
+});
+
+aiAgentRouter.post('/suggestions/:id/use', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const ctx = await authorizeSuggestion(req, res, config, req.params.id);
+  if (!ctx) return;
+  if (ctx.row.status !== 'pending') {
+    return res.status(409).json({ error: 'suggestion_not_pending', status: ctx.row.status });
+  }
+  const sb = getServiceClient(config);
+  const { data, error } = await sb
+    .from('ai_agent_suggestions')
+    .update({ status: 'used' })
+    .eq('id', req.params.id)
+    .eq('status', 'pending') // race-safe
+    .select('id, status, conversation_id, workspace_id')
+    .maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  if (!data) return res.status(409).json({ error: 'suggestion_not_pending' });
+
+  // Realtime echo so other open operator sessions remove the card.
+  try {
+    const { publishOperatorEvent } = await import('../services/realtime/publish.js');
+    await publishOperatorEvent(config, {
+      kind: 'ai_suggestion_updated' as any,
+      conversation_id: data.conversation_id as string,
+      workspace_id: data.workspace_id as string,
+      actor_id: ctx.userId,
+      suggestion_id: data.id as string,
+      status: 'used',
+    }, { skipInboxChannel: true });
+  } catch { /* best-effort */ }
+
+  return res.json({ ok: true, suggestion: data });
+});
+
+aiAgentRouter.post('/suggestions/:id/dismiss', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const ctx = await authorizeSuggestion(req, res, config, req.params.id);
+  if (!ctx) return;
+  if (ctx.row.status !== 'pending') {
+    return res.status(409).json({ error: 'suggestion_not_pending', status: ctx.row.status });
+  }
+  const sb = getServiceClient(config);
+  const { data, error } = await sb
+    .from('ai_agent_suggestions')
+    .update({ status: 'dismissed' })
+    .eq('id', req.params.id)
+    .eq('status', 'pending')
+    .select('id, status, conversation_id, workspace_id')
+    .maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  if (!data) return res.status(409).json({ error: 'suggestion_not_pending' });
+
+  try {
+    const { publishOperatorEvent } = await import('../services/realtime/publish.js');
+    await publishOperatorEvent(config, {
+      kind: 'ai_suggestion_updated' as any,
+      conversation_id: data.conversation_id as string,
+      workspace_id: data.workspace_id as string,
+      actor_id: ctx.userId,
+      suggestion_id: data.id as string,
+      status: 'dismissed',
+    }, { skipInboxChannel: true });
+  } catch { /* best-effort */ }
+
+  return res.json({ ok: true, suggestion: data });
+});

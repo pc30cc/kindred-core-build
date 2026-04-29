@@ -1,6 +1,15 @@
 import { supabase } from '@/lib/supabase';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { KnowledgeBaseArticle, KnowledgeBaseCategory } from '@/types/models';
+import { aiAgentApi } from '@/lib/ai-agent-api';
+
+function fireAndForgetSync(workspaceId: string | undefined, sourceId: string | undefined) {
+  if (!workspaceId || !sourceId) return;
+  // Best-effort: don't block UI on indexing.
+  aiAgentApi
+    .syncKnowledgeSource(workspaceId, 'kb_article', sourceId)
+    .catch(() => {});
+}
 
 export function useKBCategories(workspaceId: string | undefined, locale?: string) {
   return useQuery({
@@ -51,7 +60,10 @@ export function useCreateKBArticle(workspaceId: string | undefined) {
       if (error) throw error;
       return data;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['kb-articles'] }),
+    onSuccess: (data: any) => {
+      qc.invalidateQueries({ queryKey: ['kb-articles'] });
+      fireAndForgetSync(workspaceId, data?.id);
+    },
   });
 }
 
@@ -68,7 +80,10 @@ export function useUpdateKBArticle() {
       if (error) throw error;
       return data;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['kb-articles'] }),
+    onSuccess: (data: any) => {
+      qc.invalidateQueries({ queryKey: ['kb-articles'] });
+      fireAndForgetSync(data?.workspace_id, data?.id);
+    },
   });
 }
 
@@ -76,10 +91,19 @@ export function useDeleteKBArticle() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
+      const { data: row } = await supabase
+        .from('knowledge_base_articles')
+        .select('workspace_id')
+        .eq('id', id)
+        .maybeSingle();
       const { error } = await supabase.from('knowledge_base_articles').delete().eq('id', id);
       if (error) throw error;
+      return { id, workspace_id: (row as any)?.workspace_id };
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['kb-articles'] }),
+    onSuccess: (res: any) => {
+      qc.invalidateQueries({ queryKey: ['kb-articles'] });
+      fireAndForgetSync(res?.workspace_id, res?.id);
+    },
   });
 }
 

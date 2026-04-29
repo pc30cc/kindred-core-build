@@ -22,6 +22,7 @@ import { listRuns, summarize } from '../services/ai-agent/logs.js';
 import { resolveAIConfig } from '../services/ai/index.js';
 import { getOperatorAvailability } from '../services/ai-agent/availability.js';
 import { markHumanTakeover } from '../services/ai-agent/handoffState.js';
+import { syncKnowledgeSource, rebuildWorkspaceIndex, getKnowledgeIndexStatus } from '../services/ai-agent/knowledgeIndex/sync.js';
 
 export const aiAgentRouter: Router = express.Router();
 
@@ -412,6 +413,8 @@ aiAgentRouter.post('/qna', async (req: Request, res: Response) => {
     .select('*')
     .single();
   if (error) return res.status(500).json({ error: error.message });
+  // Best-effort knowledge index sync.
+  syncKnowledgeSource(config, { workspaceId, sourceType: 'qna', sourceId: data.id }).catch(() => {});
   return res.status(201).json({ item: data });
 });
 
@@ -427,6 +430,7 @@ aiAgentRouter.patch('/qna/:id', async (req: Request, res: Response) => {
   for (const k of allowed) if (k in req.body) patch[k] = (req.body as any)[k];
   const { data, error } = await sb.from('ai_agent_qna').update(patch).eq('id', req.params.id).select('*').single();
   if (error) return res.status(500).json({ error: error.message });
+  syncKnowledgeSource(config, { workspaceId: existing.workspace_id, sourceType: 'qna', sourceId: req.params.id }).catch(() => {});
   return res.json({ item: data });
 });
 
@@ -439,6 +443,7 @@ aiAgentRouter.delete('/qna/:id', async (req: Request, res: Response) => {
   if (!auth) return;
   const { error } = await sb.from('ai_agent_qna').delete().eq('id', req.params.id);
   if (error) return res.status(500).json({ error: error.message });
+  syncKnowledgeSource(config, { workspaceId: existing.workspace_id, sourceType: 'qna', sourceId: req.params.id }).catch(() => {});
   return res.json({ ok: true });
 });
 
@@ -711,3 +716,56 @@ aiAgentRouter.post(
     return res.json({ ok: true });
   },
 );
+
+// ─────────────────────────────────────────────────────────────────────
+// Pass 2 — Knowledge index endpoints
+// ─────────────────────────────────────────────────────────────────────
+
+const rebuildSchema = z.object({ workspaceId: z.string().uuid() });
+aiAgentRouter.post('/knowledge-index/rebuild', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = rebuildSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
+  const { workspaceId } = parsed.data;
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) {
+    return res.status(403).json({ error: 'owner_or_admin_required' });
+  }
+  try {
+    const summary = await rebuildWorkspaceIndex(config, workspaceId);
+    return res.json(summary);
+  } catch (err: any) {
+    return res.status(500).json({ error: 'rebuild_failed', details: err?.message });
+  }
+});
+
+aiAgentRouter.get('/knowledge-index/status', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = requireWorkspace(req);
+  if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  const status = await getKnowledgeIndexStatus(config, workspaceId);
+  return res.json(status);
+});
+
+// Per-source sync: called by clients after they save a KB article so the
+// index stays fresh without forcing a full rebuild. Backend re-reads the
+// source from the DB; client is not trusted to send content.
+const syncSourceSchema = z.object({
+  workspaceId: z.string().uuid(),
+  sourceType: z.enum(['kb_article', 'qna', 'business_profile']),
+  sourceId: z.string().min(1).max(200),
+});
+aiAgentRouter.post('/knowledge-index/sync-source', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = syncSourceSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
+  const { workspaceId, sourceType, sourceId } = parsed.data;
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  // Best-effort; never throws.
+  await syncKnowledgeSource(config, { workspaceId, sourceType, sourceId });
+  return res.json({ ok: true });
+});

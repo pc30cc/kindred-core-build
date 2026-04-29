@@ -33,6 +33,7 @@ import { isConversationSpam } from './spamGuard.js';
 import { decideResponseLanguage, detectInputLanguage } from './language.js';
 import { buildRetrievalQuery } from './queryBuilder.js';
 import { runLimitHandoff, detectLimitErrorReason, type LimitReason } from './limitHandoff.js';
+import { retrieveHybridSources } from './retrievalHybrid.js';
 
 export interface MaybeRunInput {
   workspaceId: string;
@@ -233,7 +234,56 @@ async function runInternal(
     inputLanguage,
     widgetLocale: locale,
   });
-  const sources = await retrieveSources(config, workspaceId, built.retrievalQuery, locale, 5);
+
+  // Pass 2 — hybrid retrieval with safe fallback to keyword-only retriever.
+  let sources: RetrievedSource[] = [];
+  let hybridUsed = false;
+  let vectorUsed = false;
+  let keywordUsed = false;
+  let embeddingProviderName: string | null = null;
+  let embeddingModelName: string | null = null;
+  let fallbackReason: string | null = null;
+  try {
+    const hybrid = await retrieveHybridSources(config, {
+      workspaceId,
+      originalMessage: built.originalMessage,
+      retrievalQuery: built.retrievalQuery,
+      expandedQuery: built.expandedQuery,
+      responseLanguage: locale,
+      inputLanguage,
+      limit: 5,
+    });
+    hybridUsed = hybrid.hybridUsed;
+    vectorUsed = hybrid.vectorUsed;
+    keywordUsed = hybrid.keywordUsed;
+    embeddingProviderName = hybrid.embeddingProvider;
+    embeddingModelName = hybrid.embeddingModel;
+    fallbackReason = hybrid.fallbackReason || null;
+    sources = hybrid.sources.map((s) => ({
+      kind: (s.kind === 'qna' ? 'qna' : 'kb_article') as 'qna' | 'kb_article',
+      id: s.source_id,
+      title: s.title,
+      excerpt: s.excerpt ?? null,
+      content: s.content ?? null,
+      slug: s.slug ?? null,
+      locale: s.locale ?? null,
+      score: s.final_score,
+    }));
+    if (!sources.length && (vectorUsed || keywordUsed)) {
+      // Fall through to legacy retriever only if hybrid produced nothing AND
+      // the simple keyword-only path might still find loose matches.
+      const legacy = await retrieveSources(config, workspaceId, built.retrievalQuery, locale, 5);
+      if (legacy.length) {
+        sources = legacy;
+        hybridUsed = false;
+      }
+    }
+  } catch (err: any) {
+    console.warn('[ai-agent.engine] hybrid retrieval failed, falling back to keyword:', err?.message);
+    fallbackReason = `hybrid_throw:${err?.message || 'unknown'}`;
+    sources = await retrieveSources(config, workspaceId, built.retrievalQuery, locale, 5);
+  }
+
   const queryMeta = {
     original_message: built.originalMessage,
     retrieval_query: built.retrievalQuery,
@@ -244,6 +294,13 @@ async function runInternal(
     follow_up_detected: built.followUpDetected,
     previous_ai_asked_clarification: built.previousAiAskedClarification,
     retrieval_results_count: sources.length,
+    hybrid_used: hybridUsed,
+    vector_used: vectorUsed,
+    keyword_used: keywordUsed,
+    embedding_provider: embeddingProviderName,
+    embedding_model: embeddingModelName,
+    fallback_reason: fallbackReason,
+    selected_sources: sources.map((s) => ({ id: s.id, kind: s.kind, score: s.score, locale: s.locale })),
   };
   const clarificationAttemptCount = await countClarificationAttempts(sb, conversationId);
   const strategy = decideStrategy({
@@ -252,6 +309,7 @@ async function runInternal(
     sources,
     clarificationAttemptCount,
     topics: built.topics,
+    hybridUsed,
   });
   console.log('[ai-agent] strategy decision', {
     conversationId,

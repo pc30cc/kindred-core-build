@@ -456,8 +456,6 @@ async function runInternal(
         locale,
         qnaIds,
         answer_strategy: strategyMeta,
-      language: languageMeta,
-      retrieval: queryMeta,
         language: languageMeta,
         retrieval: queryMeta,
       },

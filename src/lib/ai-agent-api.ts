@@ -195,7 +195,49 @@ export const aiAgentApi = {
       method: 'POST',
       body: JSON.stringify({ workspaceId, sourceType, sourceId }),
     }) as Promise<{ ok: boolean }>,
+  // Pass 3 — learning candidates
+  listLearningCandidates: (workspaceId: string, status: 'pending' | 'all' | 'rejected' | 'converted_to_qna' | 'converted_to_kb' = 'pending') =>
+    jsonFetch(`/api/ai-agent/learning-candidates?workspaceId=${workspaceId}&status=${status}`) as Promise<{ items: LearningCandidate[] }>,
+  approveLearningCandidateAsQna: (id: string, patch: { question?: string; answer?: string; locale?: string } = {}) =>
+    jsonFetch(`/api/ai-agent/learning-candidates/${id}/approve-qna`, {
+      method: 'POST',
+      body: JSON.stringify(patch),
+    }) as Promise<{ ok: boolean; qna_id: string }>,
+  convertLearningCandidateToKb: (id: string, patch: { title?: string; answer?: string; locale?: string } = {}) =>
+    jsonFetch(`/api/ai-agent/learning-candidates/${id}/convert-kb`, {
+      method: 'POST',
+      body: JSON.stringify(patch),
+    }) as Promise<{ ok: boolean; article_id: string }>,
+  rejectLearningCandidate: (id: string) =>
+    jsonFetch(`/api/ai-agent/learning-candidates/${id}/reject`, { method: 'POST' }) as Promise<{ ok: boolean }>,
+  getLearningCandidateStats: (workspaceId: string) =>
+    jsonFetch(`/api/ai-agent/learning-candidates/stats?workspaceId=${workspaceId}`) as Promise<{
+      pending: number; approved: number; converted_to_qna: number; converted_to_kb: number; rejected: number;
+    }>,
 };
+
+export interface LearningCandidate {
+  id: string;
+  workspace_id: string;
+  conversation_id: string | null;
+  visitor_message_id: string | null;
+  operator_message_id: string | null;
+  question_text: string;
+  answer_text: string;
+  normalized_question: string;
+  source_type: string;
+  locale: string | null;
+  confidence_score: number | null;
+  status: 'pending' | 'approved' | 'rejected' | 'converted_to_qna' | 'converted_to_kb';
+  suggested_title: string | null;
+  suggested_answer: string | null;
+  suggested_tags: string[];
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
 
 export interface AgentSuggestionSource {
   id: string;

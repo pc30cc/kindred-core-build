@@ -141,6 +141,75 @@ export type Database = {
           },
         ]
       }
+      ai_agent_learning_candidates: {
+        Row: {
+          answer_text: string
+          confidence_score: number | null
+          conversation_id: string | null
+          created_at: string
+          id: string
+          locale: string | null
+          metadata: Json
+          normalized_question: string
+          operator_message_id: string | null
+          question_text: string
+          reviewed_at: string | null
+          reviewed_by: string | null
+          source_type: string
+          status: string
+          suggested_answer: string | null
+          suggested_tags: string[]
+          suggested_title: string | null
+          updated_at: string
+          visitor_message_id: string | null
+          workspace_id: string
+        }
+        Insert: {
+          answer_text: string
+          confidence_score?: number | null
+          conversation_id?: string | null
+          created_at?: string
+          id?: string
+          locale?: string | null
+          metadata?: Json
+          normalized_question: string
+          operator_message_id?: string | null
+          question_text: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          source_type?: string
+          status?: string
+          suggested_answer?: string | null
+          suggested_tags?: string[]
+          suggested_title?: string | null
+          updated_at?: string
+          visitor_message_id?: string | null
+          workspace_id: string
+        }
+        Update: {
+          answer_text?: string
+          confidence_score?: number | null
+          conversation_id?: string | null
+          created_at?: string
+          id?: string
+          locale?: string | null
+          metadata?: Json
+          normalized_question?: string
+          operator_message_id?: string | null
+          question_text?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          source_type?: string
+          status?: string
+          suggested_answer?: string | null
+          suggested_tags?: string[]
+          suggested_title?: string | null
+          updated_at?: string
+          visitor_message_id?: string | null
+          workspace_id?: string
+        }
+        Relationships: []
+      }
       ai_agent_qna: {
         Row: {
           answer: string

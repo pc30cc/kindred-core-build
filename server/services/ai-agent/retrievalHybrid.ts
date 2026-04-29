@@ -15,6 +15,7 @@ import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { resolveEmbeddingProvider, isUsableEmbeddingProvider } from './embeddings/index.js';
 import { vectorToSql } from './knowledgeIndex/indexer.js';
+import { detectTopics, type TopicKey } from './queryExpansion.js';
 
 export type HybridSourceKind = 'qna' | 'kb_article' | 'learned_qna' | 'business_profile' | 'web_page' | 'file';
 
@@ -34,6 +35,10 @@ export interface HybridSource {
   keyword_score: number;
   vector_score: number;
   final_score: number;
+  topic_boost: number;
+  url_boost: number;
+  locale_bonus: number;
+  source_priority: number;
   metadata?: Record<string, unknown>;
 }
 
@@ -56,6 +61,7 @@ export interface HybridRetrievalResult {
   embeddingProvider: string;
   embeddingModel: string;
   retrievalResultsCount: number;
+  topics: TopicKey[];
 }
 
 const SOURCE_PRIORITY: Record<HybridSourceKind, number> = {
@@ -66,6 +72,48 @@ const SOURCE_PRIORITY: Record<HybridSourceKind, number> = {
   file: 0.5,
   business_profile: 0.45,
 };
+
+// Multilingual topic-keyword boosts. Lowercased and Unicode-aware.
+const TOPIC_KEYWORD_BOOSTS: Record<TopicKey, string[]> = {
+  pricing:  ['pricing', 'price', 'plan', 'plans', 'package', 'subscription', 'tier',
+             'fiyat', 'ücret', 'paket', 'tarife', 'abonelik',
+             'قیمت', 'تعرفه', 'پلن', 'اشتراک', 'هزینه', 'بسته'],
+  features: ['feature', 'features', 'integration', 'module', 'capability',
+             'özellik', 'özellikler', 'modül', 'entegrasyon',
+             'ویژگی', 'امکانات', 'قابلیت', 'ماژول'],
+  support:  ['support', 'help', 'agent', 'operator',
+             'destek', 'yardım', 'temsilci',
+             'پشتیبانی', 'کمک', 'پشتیبان'],
+  contact:  ['contact', 'sales', 'iletişim', 'iletisim', 'satış', 'تماس', 'ارتباط'],
+  billing:  ['invoice', 'payment', 'billing', 'refund', 'fatura', 'ödeme', 'فاکتور', 'پرداخت'],
+  demo:     ['demo', 'trial', 'sandbox', 'deneme', 'دمو'],
+  account:  ['account', 'login', 'signup', 'register', 'hesap', 'giriş', 'kayıt', 'حساب', 'ورود'],
+};
+
+const TOPIC_URL_HINTS: Record<TopicKey, string[]> = {
+  pricing:  ['pricing', 'price', 'plans', 'fiyat', 'paket', 'tarife'],
+  features: ['features', 'feature', 'ozellik', 'özellik', 'entegrasyon'],
+  support:  ['support', 'destek', 'help', 'yardim', 'yardım'],
+  contact:  ['contact', 'iletisim', 'iletişim'],
+  billing:  ['billing', 'invoice', 'fatura', 'odeme', 'ödeme'],
+  demo:     ['demo', 'trial', 'deneme'],
+  account:  ['account', 'login', 'signup', 'hesap', 'giris', 'giriş'],
+};
+
+function computeTopicBoost(topics: TopicKey[], a: { title: string; content: string; slug: string | null; source_url: string | null }): { topic: number; url: number } {
+  if (!topics.length) return { topic: 0, url: 0 };
+  const hayText = ((a.title || '') + ' ' + (a.content || '')).toLowerCase();
+  const hayUrl = ((a.slug || '') + ' ' + (a.source_url || '')).toLowerCase();
+  let topicBoost = 0;
+  let urlBoost = 0;
+  for (const t of topics) {
+    const kw = TOPIC_KEYWORD_BOOSTS[t] || [];
+    if (kw.some((w) => hayText.includes(w.toLowerCase()))) topicBoost = Math.max(topicBoost, 0.25);
+    const uh = TOPIC_URL_HINTS[t] || [];
+    if (uh.some((w) => hayUrl.includes(w.toLowerCase()))) urlBoost = Math.max(urlBoost, 0.2);
+  }
+  return { topic: topicBoost, url: urlBoost };
+}
 
 function tokenize(text: string): string[] {
   return (text || '')
@@ -128,7 +176,11 @@ export async function retrieveHybridSources(
     embeddingProvider: 'noop',
     embeddingModel: 'noop',
     retrievalResultsCount: 0,
+    topics: [],
   };
+
+  const topics = detectTopics(`${input.originalMessage} ${input.expandedQuery || ''}`);
+  result.topics = topics;
 
   const aggregated = new Map<string, Aggregated>();
   const upsert = (a: Aggregated) => {
@@ -313,8 +365,24 @@ export async function retrieveHybridSources(
   for (const m of merged) {
     const prio = SOURCE_PRIORITY[m.source_type] ?? 0.5;
     const lb = localeBonus(m.locale, input.responseLanguage, input.inputLanguage);
-    const final = (m.keywordScore * 0.35) + (m.vectorScore * 0.45) + (prio * 0.15) + (lb * 0.05);
+    const boosts = computeTopicBoost(topics, {
+      title: m.title || '',
+      content: m.content || '',
+      slug: m.slug,
+      source_url: m.source_url,
+    });
+    const final =
+      (m.keywordScore * 0.32)
+      + (m.vectorScore * 0.40)
+      + (prio * 0.10)
+      + (lb * 0.05)
+      + (boosts.topic * 0.08)
+      + (boosts.url * 0.05);
     (m as any).finalScore = final;
+    (m as any).topicBoost = boosts.topic;
+    (m as any).urlBoost = boosts.url;
+    (m as any).localeBonus = lb;
+    (m as any).sourcePriority = prio;
   }
   merged.sort((a: any, b: any) => b.finalScore - a.finalScore);
 
@@ -333,6 +401,10 @@ export async function retrieveHybridSources(
     keyword_score: Number(m.keywordScore.toFixed(4)),
     vector_score: Number(m.vectorScore.toFixed(4)),
     final_score: Number(m.finalScore.toFixed(4)),
+    topic_boost: Number((m.topicBoost || 0).toFixed(4)),
+    url_boost: Number((m.urlBoost || 0).toFixed(4)),
+    locale_bonus: Number((m.localeBonus || 0).toFixed(4)),
+    source_priority: Number((m.sourcePriority || 0).toFixed(4)),
     metadata: m.metadata,
   }));
 

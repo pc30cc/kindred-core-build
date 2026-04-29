@@ -769,3 +769,166 @@ aiAgentRouter.post('/knowledge-index/sync-source', async (req: Request, res: Res
   await syncKnowledgeSource(config, { workspaceId, sourceType, sourceId });
   return res.json({ ok: true });
 });
+
+// ─────────────────────────────────────────────────────────────────────
+// Pass 3 — Learning candidates
+// ─────────────────────────────────────────────────────────────────────
+
+aiAgentRouter.get('/learning-candidates', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = requireWorkspace(req);
+  if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  const status = String(req.query.status || 'pending');
+  const sb = getServiceClient(config);
+  let q = sb
+    .from('ai_agent_learning_candidates')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .order('created_at', { ascending: false })
+    .limit(200);
+  if (status !== 'all') q = q.eq('status', status);
+  const { data, error } = await q;
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ items: data || [] });
+});
+
+const candidateActionSchema = z.object({
+  question: z.string().min(1).max(500).optional(),
+  answer: z.string().min(1).max(4000).optional(),
+  locale: z.string().max(10).optional(),
+  title: z.string().max(200).optional(),
+});
+
+async function loadCandidate(config: ServerConfig, id: string) {
+  const sb = getServiceClient(config);
+  const { data } = await sb.from('ai_agent_learning_candidates').select('*').eq('id', id).maybeSingle();
+  return data as any | null;
+}
+
+aiAgentRouter.post('/learning-candidates/:id/approve-qna', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = candidateActionSchema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
+  const cand = await loadCandidate(config, req.params.id);
+  if (!cand) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, cand.workspace_id);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) {
+    return res.status(403).json({ error: 'owner_or_admin_required' });
+  }
+  if (cand.status !== 'pending' && cand.status !== 'approved') {
+    return res.status(409).json({ error: 'not_pending', status: cand.status });
+  }
+  const sb = getServiceClient(config);
+  const question = parsed.data.question ?? cand.question_text;
+  const answer = parsed.data.answer ?? (cand.suggested_answer || cand.answer_text);
+  const locale = parsed.data.locale ?? cand.locale ?? 'en';
+  const { data: qna, error: qErr } = await sb
+    .from('ai_agent_qna')
+    .insert({
+      workspace_id: cand.workspace_id,
+      question,
+      answer,
+      locale,
+      enabled: true,
+    })
+    .select('id')
+    .single();
+  if (qErr) return res.status(500).json({ error: qErr.message });
+  await sb
+    .from('ai_agent_learning_candidates')
+    .update({
+      status: 'converted_to_qna',
+      reviewed_by: auth.userId,
+      reviewed_at: new Date().toISOString(),
+      metadata: { ...(cand.metadata || {}), converted_qna_id: qna.id },
+    })
+    .eq('id', cand.id);
+  // Best-effort: index the new Q&A.
+  syncKnowledgeSource(config, { workspaceId: cand.workspace_id, sourceType: 'qna', sourceId: qna.id }).catch(() => {});
+  return res.json({ ok: true, qna_id: qna.id });
+});
+
+aiAgentRouter.post('/learning-candidates/:id/convert-kb', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = candidateActionSchema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
+  const cand = await loadCandidate(config, req.params.id);
+  if (!cand) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, cand.workspace_id);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) {
+    return res.status(403).json({ error: 'owner_or_admin_required' });
+  }
+  if (cand.status !== 'pending' && cand.status !== 'approved') {
+    return res.status(409).json({ error: 'not_pending', status: cand.status });
+  }
+  const sb = getServiceClient(config);
+  const title = parsed.data.title ?? cand.suggested_title ?? (cand.question_text || '').slice(0, 120);
+  const content = parsed.data.answer ?? (cand.suggested_answer || cand.answer_text);
+  const locale = parsed.data.locale ?? cand.locale ?? 'en';
+  const { data: art, error: aErr } = await sb
+    .from('knowledge_base_articles')
+    .insert({
+      workspace_id: cand.workspace_id,
+      title,
+      content,
+      locale,
+      status: 'draft',
+    })
+    .select('id')
+    .single();
+  if (aErr) return res.status(500).json({ error: aErr.message });
+  await sb
+    .from('ai_agent_learning_candidates')
+    .update({
+      status: 'converted_to_kb',
+      reviewed_by: auth.userId,
+      reviewed_at: new Date().toISOString(),
+      metadata: { ...(cand.metadata || {}), converted_kb_id: art.id },
+    })
+    .eq('id', cand.id);
+  return res.json({ ok: true, article_id: art.id });
+});
+
+aiAgentRouter.post('/learning-candidates/:id/reject', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const cand = await loadCandidate(config, req.params.id);
+  if (!cand) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, cand.workspace_id);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) {
+    return res.status(403).json({ error: 'owner_or_admin_required' });
+  }
+  const sb = getServiceClient(config);
+  await sb
+    .from('ai_agent_learning_candidates')
+    .update({
+      status: 'rejected',
+      reviewed_by: auth.userId,
+      reviewed_at: new Date().toISOString(),
+    })
+    .eq('id', cand.id);
+  return res.json({ ok: true });
+});
+
+aiAgentRouter.get('/learning-candidates/stats', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = requireWorkspace(req);
+  if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  const sb = getServiceClient(config);
+  const stats: Record<string, number> = { pending: 0, approved: 0, converted_to_qna: 0, converted_to_kb: 0, rejected: 0 };
+  for (const s of Object.keys(stats)) {
+    const { count } = await sb
+      .from('ai_agent_learning_candidates')
+      .select('id', { count: 'exact', head: true })
+      .eq('workspace_id', workspaceId)
+      .eq('status', s);
+    stats[s] = count ?? 0;
+  }
+  return res.json(stats);
+});

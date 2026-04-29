@@ -6,6 +6,21 @@ import type { RetrievedSource } from './retrieval.js';
 import type { StrategyDecision } from './answerStrategy.js';
 import { languageDisplayName } from './language.js';
 
+/**
+ * Sanitize a stored agent name. Trims whitespace, strips control chars and
+ * trailing punctuation that operators sometimes paste accidentally
+ * (e.g. "AI Assistantf" → "AI Assistant"). Falls back to "AI Assistant".
+ */
+export function sanitizeAgentName(raw: string | null | undefined): string {
+  const fallback = 'AI Assistant';
+  if (!raw) return fallback;
+  let v = String(raw).replace(/[\u0000-\u001F]/g, '').trim();
+  if (!v) return fallback;
+  // Specific known glitch from past data: "AI Assistantf" → "AI Assistant".
+  if (/^ai\s*assistant[a-z]$/i.test(v)) v = 'AI Assistant';
+  return v;
+}
+
 function guidanceLine(g: AnswerGuidance): string {
   switch (g) {
     case 'creative':
@@ -33,7 +48,8 @@ export function buildSystemPrompt(
   opts: BuildSystemPromptOptions = {},
 ): string {
   const lines: string[] = [];
-  lines.push(`You are "${s.agent_name}", the AI support agent for this workspace.`);
+  const agentName = sanitizeAgentName(s.agent_name);
+  lines.push(`You are "${agentName}", the AI support agent for this workspace.`);
   // ── Hard safety rules — same in every prompt, regardless of style. ──
   lines.push('You are an AI assistant. Never claim to be a human, and never pretend to be a specific employee.');
   lines.push('Never invent prices, discounts, refunds, policies, legal terms, medical or financial advice. If the sources do not state a fact, do not state it.');
@@ -106,6 +122,10 @@ export function buildUserPrompt(
       );
     } else if (strategy.decisionType === 'answer') {
       lines.push('Answer directly and confidently using the sources above. Be concise.');
+    } else if (strategy.decisionType === 'greeting') {
+      lines.push(
+        'The visitor is greeting you. Reply with a SHORT, friendly greeting (one sentence) in the response language and offer to help. Do NOT mention sources, do NOT ask a clarifying question, do NOT propose escalation.',
+      );
     } else if (strategy.decisionType === 'safe_guidance') {
       const topic = strategy.safeGuidanceTopic || 'this topic';
       lines.push(

@@ -24,6 +24,7 @@ export type StrategyDecisionType =
   | 'answer_with_caveat'
   | 'ask_clarifying_question'
   | 'safe_guidance'
+  | 'greeting'
   | 'handoff'
   | 'no_answer_silent';
 
@@ -61,6 +62,19 @@ const VAGUE_PATTERNS = [
   /^\s*(help|info|question|سوال|پرسش|yardım|soru)\b[\s!.,?]*$/i,
   /^\s*(how|what|when|where|why|چی|چه|چطور|nasıl|ne|nerede)\s*\??\s*$/i,
 ];
+
+const GREETING_PATTERNS = [
+  /^\s*(hi|hello|hey|hiya|yo|good\s+(morning|afternoon|evening))[\s!.,?]*$/i,
+  /^\s*(merhaba|selam|selamlar|günaydın|iyi\s+(akşamlar|günler))[\s!.,?]*$/i,
+  /^\s*(سلام|سلام\s+علیکم|درود|صبح\s+بخیر|عصر\s+بخیر|شب\s+بخیر)[\s!.,?]*$/i,
+];
+
+export function isGreeting(text: string): boolean {
+  const q = (text || '').trim();
+  if (!q) return false;
+  if (q.split(/\s+/).filter(Boolean).length > 4) return false;
+  return GREETING_PATTERNS.some((p) => p.test(q));
+}
 
 function isVague(question: string): boolean {
   const q = (question || '').trim();
@@ -124,6 +138,19 @@ export function decideStrategy(input: StrategyInput): StrategyDecision {
     };
   }
 
+  // 1.5 Greeting / small talk → friendly greeting in visitor language.
+  if (isGreeting(question)) {
+    return {
+      decisionType: 'greeting',
+      reason: 'greeting_detected',
+      retrievalStrength: strength,
+      topScore,
+      confidence,
+      sourceTypesUsed,
+      handoffRequired: false,
+    };
+  }
+
   const style: EscalationStyle = (settings.escalation_style as EscalationStyle) || 'balanced';
   const { answerMin, caveatMin } = thresholdsForStyle(style);
   const allowClar = settings.allow_clarifying_questions !== false;
@@ -157,7 +184,25 @@ export function decideStrategy(input: StrategyInput): StrategyDecision {
     };
   }
 
-  // 4. Vague / ambiguous → ask one clarifying question if allowed.
+  // 4. Known commercial / support topic → SAFE GUIDANCE first.
+  //    This is the key change: for topics like pricing/features/support we
+  //    NEVER fall through to a generic "could you clarify?" — we always
+  //    say something useful, even when the source grounding is weak.
+  const knownTopics = (input.topics || []).filter(Boolean);
+  if (knownTopics.length > 0 && style !== 'conservative') {
+    return {
+      decisionType: 'safe_guidance',
+      reason: 'safe_guidance_known_topic',
+      retrievalStrength: strength,
+      topScore,
+      confidence,
+      sourceTypesUsed,
+      handoffRequired: false,
+      safeGuidanceTopic: knownTopics[0],
+    };
+  }
+
+  // 5. Vague / ambiguous (and NOT a known topic) → ask ONE clarifying question.
   if (canAskClar && (isVague(question) || strength === 'weak' || strength === 'none')) {
     return {
       decisionType: 'ask_clarifying_question',
@@ -172,27 +217,7 @@ export function decideStrategy(input: StrategyInput): StrategyDecision {
     };
   }
 
-  // 5. No grounding but we DO know the topic (e.g. pricing/support/contact).
-  //    Provide safe guidance — never invent specifics, but do something useful.
-  const knownTopics = (input.topics || []).filter(Boolean);
-  if (
-    (strength === 'none' || strength === 'weak') &&
-    knownTopics.length > 0 &&
-    style !== 'conservative'
-  ) {
-    return {
-      decisionType: 'safe_guidance',
-      reason: 'safe_guidance_known_topic',
-      retrievalStrength: strength,
-      topScore,
-      confidence,
-      sourceTypesUsed,
-      handoffRequired: false,
-      safeGuidanceTopic: knownTopics[0],
-    };
-  }
-
-  // 5/6. Out of options → handoff (or stay silent).
+  // 6. Out of options → handoff (or stay silent).
   if (settings.fallback_behavior === 'silent' && strength === 'none') {
     return {
       decisionType: 'no_answer_silent',

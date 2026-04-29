@@ -34,6 +34,8 @@ import { decideResponseLanguage, detectInputLanguage } from './language.js';
 import { buildRetrievalQuery } from './queryBuilder.js';
 import { runLimitHandoff, detectLimitErrorReason, type LimitReason } from './limitHandoff.js';
 import { retrieveHybridSources } from './retrievalHybrid.js';
+import { loadWorkspaceContext } from './workspaceContext.js';
+import { maybeCreateLearningCandidateFromAiSkip } from './learning/candidates.js';
 
 export interface MaybeRunInput {
   workspaceId: string;
@@ -127,6 +129,8 @@ async function runInternal(
     response_language: locale,
     widget_locale: widgetLocale || null,
     language_decision_source: langDecision.source,
+    detection_confidence: langDecision.detectionConfidence,
+    mixed_language_detected: langDecision.mixedLanguageDetected,
   };
 
   // Gather state in parallel — runtime policy needs all three.
@@ -243,7 +247,7 @@ async function runInternal(
   let embeddingProviderName: string | null = null;
   let embeddingModelName: string | null = null;
   let fallbackReason: string | null = null;
-  let selectedSourcesMeta: Array<{ id: string; source_type: string; kind: string; score: number; locale: string | null }> = [];
+  let selectedSourcesMeta: Array<Record<string, unknown>> = [];
   try {
     const hybrid = await retrieveHybridSources(config, {
       workspaceId,
@@ -264,8 +268,18 @@ async function runInternal(
       id: s.source_id,
       source_type: s.source_type,
       kind: (s.kind === 'qna' ? 'qna' : 'kb_article'),
+      title: s.title,
+      slug: s.slug ?? null,
+      source_url: s.source_url ?? null,
       score: s.final_score,
       locale: s.locale ?? null,
+      keyword_score: s.keyword_score,
+      vector_score: s.vector_score,
+      topic_boost: s.topic_boost,
+      url_boost: s.url_boost,
+      locale_bonus: s.locale_bonus,
+      source_priority: s.source_priority,
+      final_score: s.final_score,
     }));
     sources = hybrid.sources.map((s) => ({
       kind: (s.kind === 'qna' ? 'qna' : 'kb_article') as 'qna' | 'kb_article',
@@ -285,7 +299,12 @@ async function runInternal(
         sources = legacy;
         hybridUsed = false;
         selectedSourcesMeta = legacy.map((s) => ({
-          id: s.id, source_type: s.kind, kind: s.kind, score: s.score, locale: s.locale ?? null,
+          id: s.id, source_type: s.kind, kind: s.kind,
+          title: s.title, slug: s.slug ?? null, source_url: null,
+          score: s.score, locale: s.locale ?? null,
+          keyword_score: s.score, vector_score: 0,
+          topic_boost: 0, url_boost: 0, locale_bonus: 0, source_priority: 0,
+          final_score: s.score,
         }));
       }
     }
@@ -294,7 +313,12 @@ async function runInternal(
     fallbackReason = `hybrid_throw:${err?.message || 'unknown'}`;
     sources = await retrieveSources(config, workspaceId, built.retrievalQuery, locale, 5);
     selectedSourcesMeta = sources.map((s) => ({
-      id: s.id, source_type: s.kind, kind: s.kind, score: s.score, locale: s.locale ?? null,
+      id: s.id, source_type: s.kind, kind: s.kind,
+      title: s.title, slug: s.slug ?? null, source_url: null,
+      score: s.score, locale: s.locale ?? null,
+      keyword_score: s.score, vector_score: 0,
+      topic_boost: 0, url_boost: 0, locale_bonus: 0, source_priority: 0,
+      final_score: s.score,
     }));
   }
 
@@ -409,6 +433,46 @@ async function runInternal(
     return { ran: true, action: 'no_answer', reason: strategy.reason, runId };
   }
 
+  // ─── Branch: GREETING (no LLM, no retrieval needed) ────────────────────
+  if (strategy.decisionType === 'greeting') {
+    const display = deriveAgentDisplay(settings);
+    const body = pickGreeting(locale, display.agentName);
+    const runId = await logRun(config, {
+      workspaceId,
+      conversationId,
+      visitorMessageId,
+      runType: decision.canAutoReply ? 'auto_reply' : 'suggestion',
+      mode: settings.mode,
+      status: decision.canAutoReply ? 'replied' : 'suggested',
+      inputText: question,
+      outputText: body,
+      kbArticleIds: [],
+      confidence: 1,
+      metadata: { answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta, greeting: true },
+    });
+    if (decision.canAutoReply) {
+      const inserted = await insertAiMessage(config, {
+        workspaceId,
+        conversationId,
+        body,
+        source: 'ai_agent',
+        runId,
+        mode: settings.mode,
+        kbArticleIds: [],
+        qnaIds: [],
+        confidence: 1,
+        provider: null,
+        model: null,
+        handoff: false,
+        agentName: display.agentName,
+        agentLogoUrl: display.agentLogoUrl,
+      });
+      await markAiManaged(config, { workspaceId, conversationId }).catch(() => {});
+      return { ran: true, action: 'replied', runId, messageId: inserted.id };
+    }
+    return { ran: true, action: 'no_answer', reason: 'greeting_suggest_skipped', runId };
+  }
+
   // ─── LLM call ─────────────────────────────────────────────────────────
   const aiConfig = await resolveAIConfig(config, workspaceId);
   if (!aiConfig) {
@@ -443,9 +507,17 @@ async function runInternal(
     }
   }
 
+  // Workspace navigation context — best-effort.
+  const wsContext = await loadWorkspaceContext(config, workspaceId).catch(() => null);
   const systemPrompt = buildSystemPrompt(settings, locale, {
     responseLanguage: locale,
     inputLanguage,
+    workspaceLinks: wsContext ? {
+      pricing: wsContext.pricingUrl,
+      contact: wsContext.contactUrl,
+      help: wsContext.helpUrl,
+      domain: wsContext.domain,
+    } : undefined,
   });
   const userPrompt = buildUserPrompt(question, sources, strategy);
 
@@ -680,6 +752,14 @@ function pickHandoffAck(locale: string | undefined, agentName: string): string {
   if (l.startsWith('fa')) return `باشه — همین الان شما را به یک کارشناس انسانی وصل می‌کنم.`;
   if (l.startsWith('tr')) return `Tamam — sizi bir temsilciye bağlıyorum.`;
   return `Sure — I'll connect you with a human agent.`;
+}
+
+function pickGreeting(locale: string | undefined, _agentName: string): string {
+  const l = (locale || 'en').toLowerCase();
+  if (l.startsWith('fa')) return 'سلام! چطور می‌توانم کمکتان کنم؟';
+  if (l.startsWith('tr')) return 'Merhaba! Size nasıl yardımcı olabilirim?';
+  if (l.startsWith('ar')) return 'مرحباً! كيف يمكنني مساعدتك؟';
+  return 'Hi! How can I help?';
 }
 
 // Suppress unused-var warning for _RetrievedSource if added later

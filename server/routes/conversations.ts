@@ -40,6 +40,7 @@ import {
 import { isActionActive } from '../services/observability/autoActionsCache.js';
 import { emitLog } from '../services/observability/metrics.js';
 import { markHumanTakeover } from '../services/ai-agent/handoffState.js';
+import { maybeCreateLearningCandidateFromOperatorReply } from '../services/ai-agent/learning/candidates.js';
 import { markSpam, unmarkSpam } from '../services/spam/state.js';
 
 export const conversationsRouter = Router();
@@ -294,6 +295,20 @@ conversationsRouter.post('/send-message', async (req, res) => {
     }).catch((e: any) =>
       console.warn('[conversations/send-message] markHumanTakeover failed:', e?.message),
     );
+
+    // AI Agent — learning candidate v1. Pair this operator reply with the
+    // visitor's last question if the AI recently bailed out. Best-effort.
+    if (inserted?.id && (parsed.data.body || '').trim().length > 0) {
+      void maybeCreateLearningCandidateFromOperatorReply(config, {
+        workspaceId: parsed.data.workspace_id,
+        conversationId: parsed.data.conversation_id,
+        operatorMessageId: inserted.id,
+        operatorMessageBody: parsed.data.body || '',
+        operatorId: auth.userId,
+      }).catch((e: any) =>
+        console.warn('[conversations/send-message] learning candidate hook failed:', e?.message),
+      );
+    }
 
     return res.json({
       ok: true,

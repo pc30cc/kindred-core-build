@@ -32,6 +32,7 @@ import { markAiManaged, markNeedsHuman } from './handoffState.js';
 import { isConversationSpam } from './spamGuard.js';
 import { decideResponseLanguage, detectInputLanguage } from './language.js';
 import { buildRetrievalQuery } from './queryBuilder.js';
+import { runLimitHandoff, detectLimitErrorReason, type LimitReason } from './limitHandoff.js';
 
 export interface MaybeRunInput {
   workspaceId: string;
@@ -144,6 +145,32 @@ async function runInternal(
 
   // ─── Branch: SKIP ──────────────────────────────────────────────────────
   if (decision.action === 'skip') {
+    // Limit-related skips deserve a human-friendly handoff template instead
+    // of dead silence. Suggest-only mode skips the visitor message but still
+    // routes to needs_human + logs the run.
+    const limitReason: LimitReason | null =
+      decision.reason === 'max_replies_reached' ? 'max_replies_reached' :
+      decision.reason === 'rate_limited' ? 'rate_limited' : null;
+    if (limitReason) {
+      const result = await runLimitHandoff(config, {
+        workspaceId,
+        conversationId,
+        visitorMessageId,
+        question,
+        locale,
+        reason: limitReason,
+        settings,
+        suppressVisitorMessage: settings.mode === 'suggest_only',
+        extraMetadata: { language: languageMeta, mode: settings.mode },
+      });
+      return {
+        ran: true,
+        action: 'handoff',
+        reason: limitReason,
+        runId: result.runId,
+        messageId: result.messageId,
+      };
+    }
     const runId = await logRun(config, {
       workspaceId,
       conversationId,

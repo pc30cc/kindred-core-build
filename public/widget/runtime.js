@@ -2774,6 +2774,10 @@
         }
         var bg = m.sender === 'visitor' ? 'style="background:' + ctx.primaryColor + '"' : '';
         var cls = m.sender === 'visitor' ? 'visitor' : 'operator';
+        var isAi = m.senderType === 'ai';
+        var aiBadgeHtml = isAi
+          ? '<span class="msg-ai-badge" aria-label="AI assistant" title="AI assistant">AI</span>'
+          : '';
         var hasText = m.body && String(m.body).trim().length > 0;
         var attHtml = renderMessageAttachment(m.attachment);
         var extraCls = (attHtml && !hasText) ? ' has-att-only' : (attHtml ? ' has-att' : '');
@@ -2817,7 +2821,8 @@
 
         html += '<div class="msg-row ' + cls + '">' +
           avatarHtml +
-          '<div class="msg ' + cls + extraCls + '" ' + bg + '>' +
+          '<div class="msg ' + cls + extraCls + (isAi ? ' is-ai' : '') + '" ' + bg + '>' +
+            aiBadgeHtml +
             (hasText ? Util.escapeHtml(m.body) : '') + attHtml +
           '</div>' +
           statusHtml +

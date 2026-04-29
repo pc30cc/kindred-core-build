@@ -1020,6 +1020,39 @@ export default function InboxPage() {
                 <Badge className={cn('text-[10px] border', statusColors[selected.status ?? 'open'])}>
                   {statusLabels[selected.status ?? 'open']}
                 </Badge>
+                {(selected as any)?.metadata?.ai_state === 'ai_managed' && (
+                  <>
+                    <Badge variant="secondary" className="text-[10px] gap-1">
+                      <Bot className="w-3 h-3" /> AI managed
+                    </Badge>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2.5 text-[10px] font-semibold"
+                      onClick={async () => {
+                        if (!workspace?.id || !selectedId) return;
+                        try {
+                          await aiAgentApi.takeOverConversation(workspace.id, selectedId, true);
+                          toast({ title: 'Conversation taken over', description: 'AI will stop auto-replying.' });
+                          qc.invalidateQueries({ queryKey: ['conversations', workspace.id] });
+                        } catch (e: any) {
+                          toast({ title: 'Take-over failed', description: e?.message || 'unknown', variant: 'destructive' });
+                        }
+                      }}
+                    >
+                      <UserCheck className={cn('w-3 h-3', dir === 'rtl' ? 'ml-1' : 'mr-1')} />
+                      Take over
+                    </Button>
+                  </>
+                )}
+                {(selected as any)?.metadata?.ai_state === 'needs_human' && (
+                  <Badge variant="destructive" className="text-[10px]">Needs human</Badge>
+                )}
+                {(selected as any)?.metadata?.ai_state === 'human_active' && (
+                  <Badge variant="outline" className="text-[10px] gap-1">
+                    <UserCheck className="w-3 h-3" /> Human active
+                  </Badge>
+                )}
                 {selected.status === 'open' && (
                   <Button
                     size="sm"

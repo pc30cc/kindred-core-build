@@ -243,6 +243,7 @@ async function runInternal(
   let embeddingProviderName: string | null = null;
   let embeddingModelName: string | null = null;
   let fallbackReason: string | null = null;
+  let selectedSourcesMeta: Array<{ id: string; source_type: string; kind: string; score: number; locale: string | null }> = [];
   try {
     const hybrid = await retrieveHybridSources(config, {
       workspaceId,
@@ -259,6 +260,13 @@ async function runInternal(
     embeddingProviderName = hybrid.embeddingProvider;
     embeddingModelName = hybrid.embeddingModel;
     fallbackReason = hybrid.fallbackReason || null;
+    selectedSourcesMeta = hybrid.sources.map((s) => ({
+      id: s.source_id,
+      source_type: s.source_type,
+      kind: (s.kind === 'qna' ? 'qna' : 'kb_article'),
+      score: s.final_score,
+      locale: s.locale ?? null,
+    }));
     sources = hybrid.sources.map((s) => ({
       kind: (s.kind === 'qna' ? 'qna' : 'kb_article') as 'qna' | 'kb_article',
       id: s.source_id,
@@ -276,12 +284,18 @@ async function runInternal(
       if (legacy.length) {
         sources = legacy;
         hybridUsed = false;
+        selectedSourcesMeta = legacy.map((s) => ({
+          id: s.id, source_type: s.kind, kind: s.kind, score: s.score, locale: s.locale ?? null,
+        }));
       }
     }
   } catch (err: any) {
     console.warn('[ai-agent.engine] hybrid retrieval failed, falling back to keyword:', err?.message);
     fallbackReason = `hybrid_throw:${err?.message || 'unknown'}`;
     sources = await retrieveSources(config, workspaceId, built.retrievalQuery, locale, 5);
+    selectedSourcesMeta = sources.map((s) => ({
+      id: s.id, source_type: s.kind, kind: s.kind, score: s.score, locale: s.locale ?? null,
+    }));
   }
 
   const queryMeta = {
@@ -300,7 +314,7 @@ async function runInternal(
     embedding_provider: embeddingProviderName,
     embedding_model: embeddingModelName,
     fallback_reason: fallbackReason,
-    selected_sources: sources.map((s) => ({ id: s.id, kind: s.kind, score: s.score, locale: s.locale })),
+    selected_sources: selectedSourcesMeta,
   };
   const clarificationAttemptCount = await countClarificationAttempts(sb, conversationId);
   const strategy = decideStrategy({

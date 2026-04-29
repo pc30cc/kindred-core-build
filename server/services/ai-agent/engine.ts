@@ -606,6 +606,9 @@ async function runInternal(
       help: wsContext.helpUrl,
       domain: wsContext.domain,
     } : undefined,
+    extendedInstructions: runtimeCfg?.instructions,
+    guidanceRules: runtimeCfg?.guidanceRules,
+    topicSlug: topTopicSlug,
   });
   const userPrompt = buildUserPrompt(question, sources, strategy);
 

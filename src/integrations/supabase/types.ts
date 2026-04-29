@@ -2362,10 +2362,12 @@ export type Database = {
       }
       conversations: {
         Row: {
+          ai_state: string | null
           assigned_to: string | null
           contact_id: string | null
           created_at: string | null
           id: string
+          metadata: Json
           priority: Database["public"]["Enums"]["conversation_priority"] | null
           status: Database["public"]["Enums"]["conversation_status"] | null
           subject: string | null
@@ -2375,10 +2377,12 @@ export type Database = {
           workspace_id: string
         }
         Insert: {
+          ai_state?: string | null
           assigned_to?: string | null
           contact_id?: string | null
           created_at?: string | null
           id?: string
+          metadata?: Json
           priority?: Database["public"]["Enums"]["conversation_priority"] | null
           status?: Database["public"]["Enums"]["conversation_status"] | null
           subject?: string | null
@@ -2388,10 +2392,12 @@ export type Database = {
           workspace_id: string
         }
         Update: {
+          ai_state?: string | null
           assigned_to?: string | null
           contact_id?: string | null
           created_at?: string | null
           id?: string
+          metadata?: Json
           priority?: Database["public"]["Enums"]["conversation_priority"] | null
           status?: Database["public"]["Enums"]["conversation_status"] | null
           subject?: string | null

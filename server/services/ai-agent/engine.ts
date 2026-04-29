@@ -433,6 +433,46 @@ async function runInternal(
     return { ran: true, action: 'no_answer', reason: strategy.reason, runId };
   }
 
+  // ─── Branch: GREETING (no LLM, no retrieval needed) ────────────────────
+  if (strategy.decisionType === 'greeting') {
+    const display = deriveAgentDisplay(settings);
+    const body = pickGreeting(locale, display.agentName);
+    const runId = await logRun(config, {
+      workspaceId,
+      conversationId,
+      visitorMessageId,
+      runType: decision.canAutoReply ? 'auto_reply' : 'suggestion',
+      mode: settings.mode,
+      status: decision.canAutoReply ? 'replied' : 'suggested',
+      inputText: question,
+      outputText: body,
+      kbArticleIds: [],
+      confidence: 1,
+      metadata: { answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta, greeting: true },
+    });
+    if (decision.canAutoReply) {
+      const inserted = await insertAiMessage(config, {
+        workspaceId,
+        conversationId,
+        body,
+        source: 'ai_agent',
+        runId,
+        mode: settings.mode,
+        kbArticleIds: [],
+        qnaIds: [],
+        confidence: 1,
+        provider: null,
+        model: null,
+        handoff: false,
+        agentName: display.agentName,
+        agentLogoUrl: display.agentLogoUrl,
+      });
+      await markAiManaged(config, { workspaceId, conversationId }).catch(() => {});
+      return { ran: true, action: 'replied', runId, messageId: inserted.id };
+    }
+    return { ran: true, action: 'no_answer', reason: 'greeting_suggest_skipped', runId };
+  }
+
   // ─── LLM call ─────────────────────────────────────────────────────────
   const aiConfig = await resolveAIConfig(config, workspaceId);
   if (!aiConfig) {
@@ -467,9 +507,17 @@ async function runInternal(
     }
   }
 
+  // Workspace navigation context — best-effort.
+  const wsContext = await loadWorkspaceContext(config, workspaceId).catch(() => null);
   const systemPrompt = buildSystemPrompt(settings, locale, {
     responseLanguage: locale,
     inputLanguage,
+    workspaceLinks: wsContext ? {
+      pricing: wsContext.pricingUrl,
+      contact: wsContext.contactUrl,
+      help: wsContext.helpUrl,
+      domain: wsContext.domain,
+    } : undefined,
   });
   const userPrompt = buildUserPrompt(question, sources, strategy);
 

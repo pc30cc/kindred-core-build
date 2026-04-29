@@ -759,7 +759,28 @@ export default function InboxPage() {
             />
           </div>
 
-          {/* Filter tabs */}
+          {/* Queue header (Automated / Needs human) — replaces status tabs */}
+          {isQueueMode ? (
+            <div className="flex items-center gap-2 px-1 py-1">
+              {queue === 'automated' ? (
+                <>
+                  <Bot className="w-3.5 h-3.5 text-primary" />
+                  <span className="text-[11px] font-semibold text-foreground">Automated</span>
+                  <span className="text-[10px] text-muted-foreground">AI-managed conversations</span>
+                </>
+              ) : (
+                <>
+                  <AlertCircle className="w-3.5 h-3.5 text-destructive" />
+                  <span className="text-[11px] font-semibold text-foreground">Needs human</span>
+                  <span className="text-[10px] text-muted-foreground">Handed off by AI</span>
+                </>
+              )}
+              <span className="ms-auto text-[10px] bg-secondary text-foreground/70 px-1.5 py-0.5 rounded-full font-bold tabular-nums">
+                {conversations?.length || 0}
+              </span>
+            </div>
+          ) : (
+          /* Filter tabs */
           <div
             role="tablist"
             aria-label={t('inbox.title') || 'Inbox'}
@@ -795,6 +816,7 @@ export default function InboxPage() {
               );
             })}
           </div>
+          )}
         </div>
 
         {/* Conversation items */}

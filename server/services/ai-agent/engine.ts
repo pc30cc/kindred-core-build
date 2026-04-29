@@ -34,6 +34,8 @@ import { decideResponseLanguage, detectInputLanguage } from './language.js';
 import { buildRetrievalQuery } from './queryBuilder.js';
 import { runLimitHandoff, detectLimitErrorReason, type LimitReason } from './limitHandoff.js';
 import { retrieveHybridSources } from './retrievalHybrid.js';
+import { loadWorkspaceContext } from './workspaceContext.js';
+import { maybeCreateLearningCandidateFromAiSkip } from './learning/candidates.js';
 
 export interface MaybeRunInput {
   workspaceId: string;
@@ -127,6 +129,8 @@ async function runInternal(
     response_language: locale,
     widget_locale: widgetLocale || null,
     language_decision_source: langDecision.source,
+    detection_confidence: langDecision.detectionConfidence,
+    mixed_language_detected: langDecision.mixedLanguageDetected,
   };
 
   // Gather state in parallel — runtime policy needs all three.
@@ -264,8 +268,18 @@ async function runInternal(
       id: s.source_id,
       source_type: s.source_type,
       kind: (s.kind === 'qna' ? 'qna' : 'kb_article'),
+      title: s.title,
+      slug: s.slug ?? null,
+      source_url: s.source_url ?? null,
       score: s.final_score,
       locale: s.locale ?? null,
+      keyword_score: s.keyword_score,
+      vector_score: s.vector_score,
+      topic_boost: s.topic_boost,
+      url_boost: s.url_boost,
+      locale_bonus: s.locale_bonus,
+      source_priority: s.source_priority,
+      final_score: s.final_score,
     }));
     sources = hybrid.sources.map((s) => ({
       kind: (s.kind === 'qna' ? 'qna' : 'kb_article') as 'qna' | 'kb_article',
@@ -285,7 +299,12 @@ async function runInternal(
         sources = legacy;
         hybridUsed = false;
         selectedSourcesMeta = legacy.map((s) => ({
-          id: s.id, source_type: s.kind, kind: s.kind, score: s.score, locale: s.locale ?? null,
+          id: s.id, source_type: s.kind, kind: s.kind,
+          title: s.title, slug: s.slug ?? null, source_url: null,
+          score: s.score, locale: s.locale ?? null,
+          keyword_score: s.score, vector_score: 0,
+          topic_boost: 0, url_boost: 0, locale_bonus: 0, source_priority: 0,
+          final_score: s.score,
         }));
       }
     }
@@ -294,7 +313,12 @@ async function runInternal(
     fallbackReason = `hybrid_throw:${err?.message || 'unknown'}`;
     sources = await retrieveSources(config, workspaceId, built.retrievalQuery, locale, 5);
     selectedSourcesMeta = sources.map((s) => ({
-      id: s.id, source_type: s.kind, kind: s.kind, score: s.score, locale: s.locale ?? null,
+      id: s.id, source_type: s.kind, kind: s.kind,
+      title: s.title, slug: s.slug ?? null, source_url: null,
+      score: s.score, locale: s.locale ?? null,
+      keyword_score: s.score, vector_score: 0,
+      topic_boost: 0, url_boost: 0, locale_bonus: 0, source_priority: 0,
+      final_score: s.score,
     }));
   }
 

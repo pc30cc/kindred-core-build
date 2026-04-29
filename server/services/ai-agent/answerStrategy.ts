@@ -37,6 +37,8 @@ export interface StrategyInput {
   topics?: string[];
   /** Workspace navigation context — pricing/contact/help URLs if known. */
   workspaceLinks?: { pricing?: string | null; contact?: string | null; help?: string | null };
+  /** When set, hybrid retrieval was used and final_score replaces raw score for ladder. */
+  hybridUsed?: boolean;
 }
 
 export interface StrategyDecision {
@@ -69,10 +71,19 @@ function isVague(question: string): boolean {
 
 function classifyRetrieval(
   sources: RetrievedSource[],
+  hybridUsed?: boolean,
 ): { strength: StrategyDecision['retrievalStrength']; topScore: number } {
   if (!sources.length) return { strength: 'none', topScore: 0 };
   const top = sources[0];
   const topScore = top.score || 0;
+  // Hybrid retrieval thresholds (Pass 2): final_score is normalised differently.
+  if (hybridUsed) {
+    if (top.kind === 'qna' && topScore >= 0.6) return { strength: 'exact_qna', topScore };
+    if (topScore >= 0.72) return { strength: 'strong', topScore };
+    if (topScore >= 0.45) return { strength: 'medium', topScore };
+    if (topScore > 0) return { strength: 'weak', topScore };
+    return { strength: 'none', topScore };
+  }
   if (top.kind === 'qna' && topScore >= 0.7) return { strength: 'exact_qna', topScore };
   if (topScore >= 0.7) return { strength: 'strong', topScore };
   if (topScore >= 0.45) return { strength: 'medium', topScore };
@@ -94,7 +105,7 @@ function thresholdsForStyle(style: EscalationStyle): {
 export function decideStrategy(input: StrategyInput): StrategyDecision {
   const { settings, question, sources, clarificationAttemptCount } = input;
   const sourceTypesUsed = Array.from(new Set(sources.map((s) => s.kind)));
-  const { strength, topScore } = classifyRetrieval(sources);
+  const { strength, topScore } = classifyRetrieval(sources, input.hybridUsed);
   const confidence = Math.min(1, topScore);
 
   // 1. Human request always wins — never try to outsmart the visitor.

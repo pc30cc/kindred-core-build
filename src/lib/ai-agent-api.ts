@@ -256,6 +256,47 @@ export const aiAgentApi = {
     jsonFetch(`/api/ai-agent/data-sources/${id}/logs`) as Promise<{ items: SourceSyncLog[] }>,
   getWorkspaceDomains: (workspaceId: string) =>
     jsonFetch(`/api/ai-agent/workspace-domain?workspaceId=${workspaceId}`) as Promise<{ domains: Array<{ domain: string; is_primary: boolean; verified: boolean }> }>,
+  // Pass B1 — Topics
+  listTopics: (workspaceId: string) =>
+    jsonFetch(`/api/ai-agent/topics?workspaceId=${workspaceId}`) as Promise<{ items: TopicRecord[] }>,
+  createTopic: (input: Partial<TopicRecord> & { workspaceId: string; name: string }) =>
+    jsonFetch(`/api/ai-agent/topics`, { method: 'POST', body: JSON.stringify(input) }) as Promise<{ item: TopicRecord }>,
+  updateTopic: (id: string, patch: Partial<TopicRecord>) =>
+    jsonFetch(`/api/ai-agent/topics/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }) as Promise<{ item: TopicRecord }>,
+  deleteTopic: (id: string) =>
+    jsonFetch(`/api/ai-agent/topics/${id}`, { method: 'DELETE' }) as Promise<{ ok: boolean }>,
+  seedDefaultTopics: (workspaceId: string) =>
+    jsonFetch(`/api/ai-agent/topics/seed-defaults`, { method: 'POST', body: JSON.stringify({ workspaceId }) }) as Promise<{ ok: boolean; created: number }>,
+  testTopics: (input: { workspaceId: string; text: string; language?: string }) =>
+    jsonFetch(`/api/ai-agent/topics/test`, { method: 'POST', body: JSON.stringify(input) }) as Promise<TopicDetectionResult>,
+  // Pass B1 — Workflows
+  listWorkflows: (workspaceId: string) =>
+    jsonFetch(`/api/ai-agent/workflows?workspaceId=${workspaceId}`) as Promise<{ items: WorkflowRecord[] }>,
+  createWorkflow: (input: Partial<WorkflowRecord> & { workspaceId: string; name: string }) =>
+    jsonFetch(`/api/ai-agent/workflows`, { method: 'POST', body: JSON.stringify(input) }) as Promise<{ item: WorkflowRecord }>,
+  updateWorkflow: (id: string, patch: Partial<WorkflowRecord>) =>
+    jsonFetch(`/api/ai-agent/workflows/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }) as Promise<{ item: WorkflowRecord }>,
+  deleteWorkflow: (id: string) =>
+    jsonFetch(`/api/ai-agent/workflows/${id}`, { method: 'DELETE' }) as Promise<{ ok: boolean }>,
+  duplicateWorkflow: (id: string) =>
+    jsonFetch(`/api/ai-agent/workflows/${id}/duplicate`, { method: 'POST' }) as Promise<{ item: WorkflowRecord }>,
+  validateWorkflow: (id: string) =>
+    jsonFetch(`/api/ai-agent/workflows/${id}/validate`, { method: 'POST' }) as Promise<{ valid: boolean; errors: string[] }>,
+  previewWorkflow: (input: { workspaceId: string; workflowDraft: any; sampleMessage?: string; sampleContext?: any }) =>
+    jsonFetch(`/api/ai-agent/workflows/preview`, { method: 'POST', body: JSON.stringify(input) }) as Promise<WorkflowPreviewResult>,
+  getWorkflowMeta: () =>
+    jsonFetch(`/api/ai-agent/workflows/_meta`) as Promise<{ triggers: string[]; conditions: string[]; actions: string[] }>,
+  // Pass B1 — Message triggers
+  listMessageTriggers: (workspaceId: string) =>
+    jsonFetch(`/api/ai-agent/message-triggers?workspaceId=${workspaceId}`) as Promise<{ items: MessageTriggerRecord[] }>,
+  createMessageTrigger: (input: Partial<MessageTriggerRecord> & { workspaceId: string; name: string; event_type: MessageTriggerRecord['event_type']; action_type: MessageTriggerRecord['action_type'] }) =>
+    jsonFetch(`/api/ai-agent/message-triggers`, { method: 'POST', body: JSON.stringify(input) }) as Promise<{ item: MessageTriggerRecord }>,
+  updateMessageTrigger: (id: string, patch: Partial<MessageTriggerRecord>) =>
+    jsonFetch(`/api/ai-agent/message-triggers/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }) as Promise<{ item: MessageTriggerRecord }>,
+  deleteMessageTrigger: (id: string) =>
+    jsonFetch(`/api/ai-agent/message-triggers/${id}`, { method: 'DELETE' }) as Promise<{ ok: boolean }>,
+  testMessageTrigger: (id: string) =>
+    jsonFetch(`/api/ai-agent/message-triggers/${id}/test`, { method: 'POST' }) as Promise<{ ok: boolean; dryRun: boolean; runtimeExecutionEnabled: boolean; planned: any; note: string }>,
 };
 
 export type GuidanceRuleType =
@@ -400,4 +441,67 @@ export interface AgentSuggestion {
   created_at: string;
   updated_at: string;
   sources?: AgentSuggestionSource[];
+}
+
+// ─── Pass B1 types ───
+export type TopicAction = 'label_only' | 'route' | 'trigger_workflow' | 'suggest_reply';
+export interface TopicRecord {
+  id: string;
+  workspace_id: string;
+  name: string;
+  description: string | null;
+  slug: string;
+  keywords: string[];
+  examples: string[];
+  language: string | null;
+  confidence_threshold: number;
+  action: TopicAction;
+  action_json: Record<string, unknown>;
+  enabled: boolean;
+  system: boolean;
+  created_at: string;
+  updated_at: string;
+}
+export interface DetectedTopic {
+  id: string; name: string; slug: string; confidence: number;
+  matchedKeywords: string[]; matchedExamples: string[];
+  action: TopicAction; actionJson: Record<string, unknown>;
+}
+export interface TopicDetectionResult {
+  detectedTopics: DetectedTopic[];
+  language: string;
+  explanation: string;
+}
+export type WorkflowStatus = 'draft' | 'active' | 'paused' | 'archived';
+export interface WorkflowRecord {
+  id: string; workspace_id: string; name: string;
+  description: string | null;
+  trigger_json: Record<string, any>;
+  steps_json: Array<Record<string, any>>;
+  enabled: boolean; version: number; status: WorkflowStatus;
+  created_at: string; updated_at: string;
+}
+export interface WorkflowPreviewResult {
+  valid: boolean;
+  errors: string[];
+  wouldTrigger: boolean;
+  matchedConditions: string[];
+  plannedActions: Array<{ type: string; details: Record<string, unknown> }>;
+}
+export type MessageTriggerEvent =
+  | 'visitor_first_message' | 'conversation_started' | 'after_prechat'
+  | 'no_operator_online' | 'ai_no_answer' | 'topic_detected'
+  | 'human_requested' | 'business_hours_closed';
+export type MessageTriggerAction =
+  | 'send_message' | 'start_workflow' | 'handoff' | 'assign' | 'tag' | 'internal_note';
+export interface MessageTriggerRecord {
+  id: string; workspace_id: string; name: string;
+  description: string | null;
+  event_type: MessageTriggerEvent;
+  conditions_json: Record<string, any>;
+  action_type: MessageTriggerAction;
+  action_json: Record<string, any>;
+  delay_seconds: number;
+  enabled: boolean;
+  created_at: string; updated_at: string;
 }

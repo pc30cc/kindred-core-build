@@ -260,6 +260,59 @@ export type Database = {
         }
         Relationships: []
       }
+      ai_agent_message_triggers: {
+        Row: {
+          action_json: Json
+          action_type: string
+          conditions_json: Json
+          created_at: string
+          delay_seconds: number
+          description: string | null
+          enabled: boolean
+          event_type: string
+          id: string
+          name: string
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          action_json?: Json
+          action_type: string
+          conditions_json?: Json
+          created_at?: string
+          delay_seconds?: number
+          description?: string | null
+          enabled?: boolean
+          event_type: string
+          id?: string
+          name: string
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          action_json?: Json
+          action_type?: string
+          conditions_json?: Json
+          created_at?: string
+          delay_seconds?: number
+          description?: string | null
+          enabled?: boolean
+          event_type?: string
+          id?: string
+          name?: string
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_agent_message_triggers_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ai_agent_qna: {
         Row: {
           answer: string
@@ -649,6 +702,118 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "ai_agent_suggestions_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_agent_topics: {
+        Row: {
+          action: string
+          action_json: Json
+          confidence_threshold: number
+          created_at: string
+          description: string | null
+          enabled: boolean
+          examples: string[]
+          id: string
+          keywords: string[]
+          language: string | null
+          name: string
+          slug: string
+          system: boolean
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          action?: string
+          action_json?: Json
+          confidence_threshold?: number
+          created_at?: string
+          description?: string | null
+          enabled?: boolean
+          examples?: string[]
+          id?: string
+          keywords?: string[]
+          language?: string | null
+          name: string
+          slug: string
+          system?: boolean
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          action?: string
+          action_json?: Json
+          confidence_threshold?: number
+          created_at?: string
+          description?: string | null
+          enabled?: boolean
+          examples?: string[]
+          id?: string
+          keywords?: string[]
+          language?: string | null
+          name?: string
+          slug?: string
+          system?: boolean
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_agent_topics_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_agent_workflows: {
+        Row: {
+          created_at: string
+          description: string | null
+          enabled: boolean
+          id: string
+          name: string
+          status: string
+          steps_json: Json
+          trigger_json: Json
+          updated_at: string
+          version: number
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          enabled?: boolean
+          id?: string
+          name: string
+          status?: string
+          steps_json?: Json
+          trigger_json?: Json
+          updated_at?: string
+          version?: number
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          enabled?: boolean
+          id?: string
+          name?: string
+          status?: string
+          steps_json?: Json
+          trigger_json?: Json
+          updated_at?: string
+          version?: number
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_agent_workflows_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"

@@ -189,11 +189,7 @@ export function decideStrategy(input: StrategyInput): StrategyDecision {
   //    NEVER fall through to a generic "could you clarify?" — we always
   //    say something useful, even when the source grounding is weak.
   const knownTopics = (input.topics || []).filter(Boolean);
-  if (
-    knownTopics.length > 0 &&
-    style !== 'conservative' &&
-    (strength !== 'strong' && strength !== 'exact_qna')
-  ) {
+  if (knownTopics.length > 0 && style !== 'conservative') {
     return {
       decisionType: 'safe_guidance',
       reason: 'safe_guidance_known_topic',

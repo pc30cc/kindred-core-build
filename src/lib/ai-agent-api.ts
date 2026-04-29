@@ -58,6 +58,10 @@ export interface AgentSettings {
     escalation_instructions?: string;
     max_answer_length?: 'short' | 'medium' | 'long';
   };
+  ai_intro_enabled?: boolean;
+  intro_message?: string | null;
+  fallback_behavior?: 'handoff' | 'silent';
+  stop_on_handoff?: boolean;
 }
 
 export interface KnowledgeStatus {

@@ -88,10 +88,13 @@ export function detectInputLanguageDetailed(text: string): {
   // Turkish strong-bias commercial / support words. A single match is
   // enough to override an ASCII-only English fallback ("fiyat" must be
   // detected as Turkish even though it's all ASCII letters).
-  const trStrongRe = /\b(merhaba|selam|selamlar|nasılsın|nasilsin|nasıl|nasil|nedir|fiyat|fiyatlar|fiyatlandırma|fiyatlandirma|ücret|ucret|ücretler|ucretler|destek|yardım|yardim|temsilci|paket|paketler|abonelik|abonman|teşekkür|tesekkur|lütfen|lutfen|bilgi|sorun|hesap|fatura|ödeme|odeme)\b/gi;
+  // NOTE: JS \b doesn't treat ü/ç/ı/ş/ö/ğ/İ as word chars, so we use
+  // explicit non-letter delimiters instead.
+  const TR_STRONG = ['merhaba','selam','selamlar','nasılsın','nasilsin','nasıl','nasil','nedir','fiyat','fiyatlar','fiyatlandırma','fiyatlandirma','ücret','ucret','ücretler','ucretler','destek','yardım','yardim','temsilci','paket','paketler','abonelik','abonman','teşekkür','tesekkur','lütfen','lutfen','bilgi','sorun','hesap','fatura','ödeme','odeme'];
+  const trStrongRe = new RegExp(`(?:^|[^\\p{L}\\p{N}])(${TR_STRONG.join('|')})(?=[^\\p{L}\\p{N}]|$)`, 'giu');
   const trStrong = (s.match(trStrongRe) || []).length;
   // Turkish soft-bias words (also used in English) — small bonus only.
-  const trSoft = (s.match(/\b(plan|planlar)\b/gi) || []).length;
+  const trSoft = (s.match(/(?:^|[^\p{L}\p{N}])(plan|planlar)(?=[^\p{L}\p{N}]|$)/giu) || []).length;
   tr += trStrong * 20 + trSoft * 2;
   // English word bonus — common interrogatives & support words.
   const enWords = (s.match(/\b(hi|hello|help|price|pricing|plans|support|how|what|when|where|why|the|and|please|thanks|thank|account|billing|payment|refund|invoice)\b/gi) || []).length;

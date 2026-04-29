@@ -28,6 +28,7 @@ import { getOperatorAvailability } from './availability.js';
 import { decideRuntime } from './runtimePolicy.js';
 import { insertAiMessage, deriveAgentDisplay } from './responder.js';
 import { markAiManaged, markNeedsHuman } from './handoffState.js';
+import { isConversationSpam } from './spamGuard.js';
 
 export interface MaybeRunInput {
   workspaceId: string;
@@ -71,6 +72,22 @@ async function runInternal(
   const settings = await getOrCreateSettings(config, workspaceId);
   if (!settings.enabled || settings.mode === 'off') {
     return { ran: false, action: 'skipped', reason: 'disabled_or_off' };
+  }
+
+  // Spam guard — never auto-reply or suggest on flagged conversations.
+  // This runs before retrieval/LLM so we don't burn tokens on spam.
+  if (await isConversationSpam(config, conversationId)) {
+    const runId = await logRun(config, {
+      workspaceId,
+      conversationId,
+      visitorMessageId,
+      runType: 'skip',
+      mode: settings.mode,
+      status: 'skipped',
+      inputText: input.question,
+      skipReason: 'spam',
+    });
+    return { ran: false, action: 'skipped', reason: 'spam', runId };
   }
 
   // Resolve locale (explicit > workspace > 'en')

@@ -28,6 +28,7 @@ async function jsonFetch(path: string, init: RequestInit = {}) {
 
 export type AgentMode = 'off' | 'suggest_only' | 'auto_reply_when_offline' | 'auto_reply_until_human_joins' | 'auto_reply_always';
 export type AnswerGuidance = 'conservative' | 'balanced' | 'creative';
+export type EscalationStyle = 'conservative' | 'balanced' | 'helpful_first';
 
 export interface AgentSettings {
   id: string;
@@ -65,6 +66,14 @@ export interface AgentSettings {
   pause_auto_reply_after_human_reply?: boolean;
   allow_suggestions_after_takeover?: boolean;
   keep_in_automated_until_handoff?: boolean;
+  // Phase 4 — answer strategy & learning
+  escalation_style?: EscalationStyle;
+  allow_clarifying_questions?: boolean;
+  max_clarification_attempts?: number;
+  allow_answer_with_caveat?: boolean;
+  learning_enabled?: boolean;
+  auto_create_learning_candidates?: boolean;
+  require_approval_for_learning?: boolean;
 }
 
 export interface KnowledgeStatus {

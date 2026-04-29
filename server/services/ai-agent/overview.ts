@@ -179,7 +179,8 @@ export async function runDryRun(
   const { detectInputLanguageDetailed } = await import('./language.js');
   const { detectTopics } = await import('./topics/detector.js');
 
-  const language = detectInputLanguageDetailed(input.message);
+  const langDetail = detectInputLanguageDetailed(input.message);
+  const detectedLang = langDetail.language;
 
   // Topics
   const { data: topicRows } = await sb
@@ -202,7 +203,7 @@ export async function runDryRun(
       if (slug && topicResult.detectedTopics?.some((t) => t.slug === slug)) matched = true;
     } else if (r.trigger_type === 'language') {
       const target = (r.conditions_json as any)?.language;
-      if (target && language.lang === target) matched = true;
+      if (target && detectedLang === target) matched = true;
     }
     if (matched) routingMatched.push({ id: r.id, name: r.name, trigger_type: r.trigger_type, action_type: r.action_type });
   }
@@ -228,7 +229,7 @@ export async function runDryRun(
 
   // Retrieval (real, but read-only)
   const { retrieveSources } = await import('./retrieval.js');
-  const sources = await retrieveSources(config, input.workspaceId, input.message, language.lang || 'en', 5);
+  const sources = await retrieveSources(config, input.workspaceId, input.message, detectedLang || 'en', 5);
 
   // Decision
   const settings = await getOrCreateSettings(config, input.workspaceId);
@@ -239,10 +240,10 @@ export async function runDryRun(
   // Operators can use the existing Playground for a real LLM completion.
   const warnings: OverviewWarning[] = [];
   if (sources.length === 0) warnings.push({ code: 'no_sources', severity: 'info', message: 'No knowledge sources matched this query.' });
-  if (!language.detected) warnings.push({ code: 'language_low_confidence', severity: 'info', message: 'Input language could not be confidently detected.' });
+  if (langDetail.confidence < 0.5) warnings.push({ code: 'language_low_confidence', severity: 'info', message: 'Input language could not be confidently detected.' });
 
   return {
-    language: { detected: language.lang, confidence: language.confidence },
+    language: { detected: detectedLang, confidence: langDetail.confidence, mixed: langDetail.mixed },
     topics: topicResult,
     retrieval: {
       query: input.message,

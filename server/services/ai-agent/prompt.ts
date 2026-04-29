@@ -5,6 +5,7 @@ import type { AgentSettings, AnswerGuidance } from './settings.js';
 import type { RetrievedSource } from './retrieval.js';
 import type { StrategyDecision } from './answerStrategy.js';
 import { languageDisplayName } from './language.js';
+import type { ExtendedInstructions, GuidanceRule } from './runtimeConfig.js';
 
 /**
  * Sanitize a stored agent name. Trims whitespace, strips control chars and
@@ -40,6 +41,12 @@ export interface BuildSystemPromptOptions {
   inputLanguage?: string;
   /** Workspace pages we can safely point the visitor to. */
   workspaceLinks?: { pricing?: string | null; contact?: string | null; help?: string | null; domain?: string | null };
+  /** Extended instructions from ai_agent_settings.instructions jsonb (Pass C1). */
+  extendedInstructions?: ExtendedInstructions;
+  /** Enabled guidance rules — applied below safety, above visitor instructions. */
+  guidanceRules?: GuidanceRule[];
+  /** Detected topic slug (e.g. "pricing") to nudge tone-relevant guidance. */
+  topicSlug?: string | null;
 }
 
 export function buildSystemPrompt(
@@ -81,13 +88,49 @@ export function buildSystemPrompt(
     lines.push('Workspace pages you may reference if relevant:');
     for (const l of linkLines) lines.push(`  - ${l}`);
   }
-  const ins = s.instructions || {};
-  if (ins.tone) lines.push(`Tone preference: ${ins.tone}`);
-  if (ins.custom_instructions) lines.push(`Operator instructions: ${ins.custom_instructions}`);
-  if (ins.forbidden_topics?.length) lines.push(`Do not discuss: ${ins.forbidden_topics.join(', ')}`);
-  if (ins.escalation_instructions) lines.push(`Escalation: ${ins.escalation_instructions}`);
-  if (ins.max_answer_length === 'short') lines.push('Keep answers under 2 short sentences.');
-  else if (ins.max_answer_length === 'long') lines.push('You may give a thorough multi-paragraph answer when useful.');
+
+  // ── Guidance rules (workspace-configured, below safety) ──
+  const guidance = (opts.guidanceRules || []).filter((g) => g && g.enabled !== false);
+  if (guidance.length) {
+    lines.push('Workspace guidance rules (apply unless they conflict with the safety rules above):');
+    for (const g of guidance.slice(0, 12)) {
+      const body = (g.body || g.description || '').trim();
+      const label = `[${g.type}] ${g.title}`.trim();
+      lines.push(body ? `  - ${label}: ${body}` : `  - ${label}`);
+    }
+  }
+
+  // ── Workspace instructions (extended, then legacy fallback) ──
+  const ext: ExtendedInstructions = opts.extendedInstructions || (s.instructions as any) || {};
+  if (ext.brand_voice) lines.push(`Brand voice: ${ext.brand_voice}`);
+  if (ext.tone) lines.push(`Tone preference: ${ext.tone}`);
+  if (ext.do_list?.length) {
+    lines.push('Always:');
+    for (const item of ext.do_list.slice(0, 12)) lines.push(`  - ${item}`);
+  }
+  if (ext.dont_list?.length) {
+    lines.push('Never:');
+    for (const item of ext.dont_list.slice(0, 12)) lines.push(`  - ${item}`);
+  }
+  if (opts.topicSlug === 'pricing' && ext.pricing_instructions) {
+    lines.push(`Pricing guidance: ${ext.pricing_instructions}`);
+  }
+  if ((opts.topicSlug === 'support' || opts.topicSlug === 'technical-issue') && ext.support_instructions) {
+    lines.push(`Support guidance: ${ext.support_instructions}`);
+  }
+  if (ext.handoff_instructions || ext.escalation_instructions) {
+    lines.push(`Escalation: ${ext.handoff_instructions || ext.escalation_instructions}`);
+  }
+  if (ext.forbidden_topics?.length) {
+    lines.push(`Do not discuss: ${ext.forbidden_topics.join(', ')}`);
+  }
+  if (ext.custom_system_instruction) {
+    lines.push(`Operator instructions (must not override safety rules above): ${ext.custom_system_instruction}`);
+  } else if (ext.custom_instructions) {
+    lines.push(`Operator instructions (must not override safety rules above): ${ext.custom_instructions}`);
+  }
+  if (ext.max_answer_length === 'short') lines.push('Keep answers under 2 short sentences.');
+  else if (ext.max_answer_length === 'long') lines.push('You may give a thorough multi-paragraph answer when useful.');
   else lines.push('Keep answers concise: 1–4 sentences.');
   lines.push('Output plain text. Do not use markdown headings, bullet lists, or code fences unless absolutely needed.');
   return lines.join('\n');

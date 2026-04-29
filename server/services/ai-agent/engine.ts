@@ -36,6 +36,8 @@ import { runLimitHandoff, detectLimitErrorReason, type LimitReason } from './lim
 import { retrieveHybridSources } from './retrievalHybrid.js';
 import { loadWorkspaceContext } from './workspaceContext.js';
 import { maybeCreateLearningCandidateFromAiSkip } from './learning/candidates.js';
+import { loadAiAgentRuntimeConfig } from './runtimeConfig.js';
+import { detectTopics } from './topics/detector.js';
 
 export interface MaybeRunInput {
   workspaceId: string;
@@ -79,6 +81,25 @@ async function runInternal(
   const settings = await getOrCreateSettings(config, workspaceId);
   if (!settings.enabled || settings.mode === 'off') {
     return { ran: false, action: 'skipped', reason: 'disabled_or_off' };
+  }
+
+  // Pass C1 — load runtime configuration (cached 30s per workspace).
+  // Best-effort: any failure must not break the existing auto-reply flow.
+  const runtimeCfg = await loadAiAgentRuntimeConfig(config, workspaceId).catch((err) => {
+    console.warn('[ai-agent.runtime] runtimeConfig load failed:', err?.message || err);
+    return null;
+  });
+  const decisionTimeline: string[] = ['runtime_config_loaded'];
+  if (runtimeCfg) {
+    console.log('[ai-agent.runtime] config loaded', {
+      workspaceId,
+      topics: runtimeCfg.topics.length,
+      guidance: runtimeCfg.guidanceRules.length,
+      routing: runtimeCfg.routingRules.length,
+      triggers: runtimeCfg.messageTriggers.length,
+      tools: runtimeCfg.internalTools.length,
+      warnings: runtimeCfg.warnings,
+    });
   }
 
   // Spam guard — never auto-reply or suggest on flagged conversations.
@@ -133,6 +154,59 @@ async function runInternal(
     mixed_language_detected: langDecision.mixedLanguageDetected,
   };
 
+  // Pass C1 — deterministic topic detection from configured ai_agent_topics.
+  let detectedTopicsMeta: Record<string, unknown> = { detectedTopics: [] };
+  let topTopicSlug: string | null = null;
+  let humanRequestFromTopics = false;
+  if (runtimeCfg && runtimeCfg.topics.length) {
+    try {
+      const det = detectTopics(question, runtimeCfg.topics);
+      const top = det.detectedTopics[0] || null;
+      topTopicSlug = top?.slug || null;
+      humanRequestFromTopics = top?.slug === 'human-request';
+      detectedTopicsMeta = {
+        detectedTopics: det.detectedTopics.map((t) => ({
+          slug: t.slug,
+          name: t.name,
+          confidence: t.confidence,
+          matchedKeywords: t.matchedKeywords,
+          matchedExamples: t.matchedExamples,
+          action: t.action,
+        })),
+        topTopic: top ? { slug: top.slug, name: top.name, confidence: top.confidence } : null,
+        language: det.language,
+      };
+      decisionTimeline.push('topics_detected');
+      if (det.detectedTopics.length) {
+        console.log('[ai-agent.runtime] topics detected', {
+          conversationId,
+          top: top?.slug,
+          confidence: top?.confidence,
+          count: det.detectedTopics.length,
+        });
+      }
+    } catch (err: any) {
+      console.warn('[ai-agent.runtime] topic detection failed:', err?.message || err);
+    }
+  }
+
+  const guidanceMeta = runtimeCfg
+    ? {
+        appliedRuleIds: runtimeCfg.guidanceRules.map((g) => g.id),
+        appliedRuleTitles: runtimeCfg.guidanceRules.map((g) => g.title),
+        appliedRuleTypes: Array.from(new Set(runtimeCfg.guidanceRules.map((g) => g.type))),
+      }
+    : { appliedRuleIds: [], appliedRuleTitles: [], appliedRuleTypes: [] };
+  if (runtimeCfg?.guidanceRules.length) decisionTimeline.push('guidance_loaded');
+
+  // Helper to enrich every logRun call below with the new metadata bundles.
+  const baseRuntimeMeta = {
+    topics: detectedTopicsMeta,
+    guidance: guidanceMeta,
+    decision_timeline: decisionTimeline,
+    runtime_warnings: runtimeCfg?.warnings || [],
+  } as Record<string, unknown>;
+
   // Gather state in parallel — runtime policy needs all three.
   const [state, availability] = await Promise.all([
     getConversationState(config, workspaceId, conversationId),
@@ -140,12 +214,26 @@ async function runInternal(
   ]);
 
   const decision = decideRuntime({ settings, state, availability, visitorText: question });
+  // If the visitor's intent matched the configured "human-request" topic but
+  // the legacy keyword check did not fire, upgrade the decision to handoff so
+  // we never miss an explicit "وصل کن" / "operatör".
+  if (
+    settings.handoff_on_human_request &&
+    humanRequestFromTopics &&
+    decision.action !== 'handoff' &&
+    decision.action !== 'skip'
+  ) {
+    (decision as any).action = 'handoff';
+    (decision as any).reason = 'human_request';
+    decisionTimeline.push('immediate_intent_human_request');
+  }
   console.log('[ai-agent] policy decision', {
     conversationId,
     mode: settings.mode,
     action: decision.action,
     reason: decision.reason,
     availability: availability.state,
+    topTopic: topTopicSlug,
   });
 
   // ─── Branch: SKIP ──────────────────────────────────────────────────────
@@ -385,7 +473,7 @@ async function runInternal(
       skipReason: strategy.reason,
       kbArticleIds: sources.filter((s) => s.kind === 'kb_article').map((s) => s.id),
       confidence: strategy.confidence,
-      metadata: { answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta },
+      metadata: { ...baseRuntimeMeta, answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta },
     });
     return { ran: true, action: 'no_answer', reason: strategy.reason, runId };
   }
@@ -402,7 +490,7 @@ async function runInternal(
       skipReason: strategy.reason,
       kbArticleIds: sources.filter((s) => s.kind === 'kb_article').map((s) => s.id),
       confidence: strategy.confidence,
-      metadata: { answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta },
+      metadata: { ...baseRuntimeMeta, answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta },
     });
 
     if (decision.canAutoReply) {
@@ -448,7 +536,7 @@ async function runInternal(
       outputText: body,
       kbArticleIds: [],
       confidence: 1,
-      metadata: { answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta, greeting: true },
+      metadata: { ...baseRuntimeMeta, answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta, greeting: true },
     });
     if (decision.canAutoReply) {
       const inserted = await insertAiMessage(config, {
@@ -487,7 +575,7 @@ async function runInternal(
       errorMessage: 'no_ai_provider_configured',
       kbArticleIds: sources.filter((s) => s.kind === 'kb_article').map((s) => s.id),
       confidence: strategy.confidence,
-      metadata: { answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta },
+      metadata: { ...baseRuntimeMeta, answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta },
     });
     return { ran: true, action: 'failed', reason: 'no_ai_provider_configured', runId };
   }
@@ -518,6 +606,9 @@ async function runInternal(
       help: wsContext.helpUrl,
       domain: wsContext.domain,
     } : undefined,
+    extendedInstructions: runtimeCfg?.instructions,
+    guidanceRules: runtimeCfg?.guidanceRules,
+    topicSlug: topTopicSlug,
   });
   const userPrompt = buildUserPrompt(question, sources, strategy);
 
@@ -575,7 +666,7 @@ async function runInternal(
       model: aiConfig.model,
       kbArticleIds: sources.filter((s) => s.kind === 'kb_article').map((s) => s.id),
       confidence: strategy.confidence,
-      metadata: { answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta },
+      metadata: { ...baseRuntimeMeta, answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta },
     });
     return { ran: true, action: 'failed', reason: err?.message || 'ai_call_failed', runId };
   }
@@ -604,7 +695,7 @@ async function runInternal(
       completionTokens: aiResult.completionTokens,
       kbArticleIds: sources.filter((s) => s.kind === 'kb_article').map((s) => s.id),
       confidence: strategy.confidence,
-      metadata: { answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta },
+      metadata: { ...baseRuntimeMeta, answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta },
     });
     if (decision.canAutoReply) {
       await markHandoffRequested(config, conversationId).catch(() => {});
@@ -635,6 +726,8 @@ async function runInternal(
 
   // ─── AUTO REPLY → insert visitor-facing message ────────────────────────
   if (decision.canAutoReply) {
+    decisionTimeline.push('answer_strategy_selected');
+    decisionTimeline.push('reply_sent');
     const runId = await logRun(config, {
       workspaceId,
       conversationId,
@@ -652,6 +745,7 @@ async function runInternal(
       kbArticleIds: kbIds,
       confidence: strategy.confidence,
       metadata: {
+        ...baseRuntimeMeta,
         latencyMs: aiResult.latencyMs,
         locale,
         qnaIds,
@@ -684,6 +778,8 @@ async function runInternal(
   }
 
   // ─── SUGGEST → operator-facing card (Phase 2 behaviour) ────────────────
+  decisionTimeline.push('answer_strategy_selected');
+  decisionTimeline.push('suggestion_sent');
   const runId = await logRun(config, {
     workspaceId,
     conversationId,
@@ -701,6 +797,7 @@ async function runInternal(
     kbArticleIds: kbIds,
     confidence: strategy.confidence,
     metadata: {
+      ...baseRuntimeMeta,
       latencyMs: aiResult.latencyMs,
       locale,
       qnaIds,

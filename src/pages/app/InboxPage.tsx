@@ -1143,7 +1143,37 @@ export default function InboxPage() {
                   </>
                 )}
                 {(selected as any)?.metadata?.ai_state === 'needs_human' && (
-                  <Badge variant="destructive" className="text-[10px]">Needs human</Badge>
+                  <>
+                    <Badge
+                      variant="destructive"
+                      className="text-[10px] gap-1"
+                      title={
+                        ((selected as any)?.metadata?.ai_handoff_reason as string)
+                          ? `Handoff reason: ${(selected as any).metadata.ai_handoff_reason}`
+                          : 'AI handed off — needs human'
+                      }
+                    >
+                      <AlertCircle className="w-3 h-3" /> Needs human
+                    </Badge>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2.5 text-[10px] font-semibold"
+                      onClick={async () => {
+                        if (!workspace?.id || !selectedId) return;
+                        try {
+                          await aiAgentApi.takeOverConversation(workspace.id, selectedId, true);
+                          toast({ title: 'Conversation taken over', description: 'Assigned to you.' });
+                          qc.invalidateQueries({ queryKey: ['conversations', workspace.id] });
+                        } catch (e: any) {
+                          toast({ title: 'Take-over failed', description: e?.message || 'unknown', variant: 'destructive' });
+                        }
+                      }}
+                    >
+                      <UserCheck className={cn('w-3 h-3', dir === 'rtl' ? 'ml-1' : 'mr-1')} />
+                      Take over
+                    </Button>
+                  </>
                 )}
                 {(selected as any)?.metadata?.ai_state === 'human_active' && (
                   <Badge variant="outline" className="text-[10px] gap-1">

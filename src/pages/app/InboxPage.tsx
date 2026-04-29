@@ -961,6 +961,69 @@ export default function InboxPage() {
                             <UserCheck className="w-3 h-3" />
                           </span>
                         )}
+                        {/* AI lifecycle badge — Automated / Needs human / Human active */}
+                        {(() => {
+                          const aiState = (conv as any)?.metadata?.ai_state
+                            || (conv as any)?.ai_state;
+                          if (!aiState) return null;
+                          const reason = (conv as any)?.metadata?.ai_handoff_reason as string | undefined;
+                          if (aiState === 'ai_managed') {
+                            return (
+                              <span
+                                className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md font-medium bg-primary/10 text-primary border border-primary/20"
+                                title="AI is currently handling this conversation"
+                              >
+                                <Bot className="w-2.5 h-2.5" /> AI
+                              </span>
+                            );
+                          }
+                          if (aiState === 'needs_human') {
+                            return (
+                              <span
+                                className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md font-medium bg-destructive/10 text-destructive border border-destructive/20"
+                                title={reason ? `Handoff reason: ${reason}` : 'AI handed off — needs human'}
+                              >
+                                <AlertCircle className="w-2.5 h-2.5" /> Needs human
+                              </span>
+                            );
+                          }
+                          if (aiState === 'human_active') {
+                            return (
+                              <span
+                                className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md font-medium bg-secondary text-foreground/70 border border-border"
+                                title="Operator has taken over"
+                              >
+                                <UserCheck className="w-2.5 h-2.5" /> Human
+                              </span>
+                            );
+                          }
+                          return null;
+                        })()}
+                        {/* Inline take-over action on Automated / Needs human rows */}
+                        {(() => {
+                          const aiState = (conv as any)?.metadata?.ai_state
+                            || (conv as any)?.ai_state;
+                          if (aiState !== 'ai_managed' && aiState !== 'needs_human') return null;
+                          return (
+                            <button
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                if (!workspace?.id) return;
+                                try {
+                                  await aiAgentApi.takeOverConversation(workspace.id, conv.id, true);
+                                  toast({ title: 'Taken over', description: 'AI will stop auto-replying.' });
+                                  qc.invalidateQueries({ queryKey: ['conversations', workspace.id] });
+                                } catch (err: any) {
+                                  toast({ title: 'Take-over failed', description: err?.message || 'unknown', variant: 'destructive' });
+                                }
+                              }}
+                              className="text-[10px] px-1.5 py-0.5 rounded-md font-semibold bg-secondary hover:bg-primary hover:text-primary-foreground text-foreground/70 transition-colors"
+                              title="Take over this conversation"
+                            >
+                              Take over
+                            </button>
+                          );
+                        })()}
                         {/* Selected-conversation typing indicator (live) */}
                         {isActive && visitorTypingActive && (
                           <span className="ml-auto inline-flex items-center gap-1 text-[10px] text-primary font-medium" aria-label="typing">

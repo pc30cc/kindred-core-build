@@ -106,7 +106,7 @@ export function useInboxListRealtime(workspaceId: string | undefined) {
             if (!payload || typeof payload !== 'object') return;
             if (payload.workspace_id && payload.workspace_id !== workspaceId) return;
 
-            const kind = payload.kind;
+            const kind = (payload as { kind?: string }).kind as string;
             if (
               kind !== 'conversation_updated' &&
               kind !== 'conversation_resolved' &&

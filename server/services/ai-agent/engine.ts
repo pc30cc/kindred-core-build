@@ -743,6 +743,7 @@ async function runInternal(
       kbArticleIds: kbIds,
       confidence: strategy.confidence,
       metadata: {
+        ...baseRuntimeMeta,
         latencyMs: aiResult.latencyMs,
         locale,
         qnaIds,
@@ -792,6 +793,7 @@ async function runInternal(
     kbArticleIds: kbIds,
     confidence: strategy.confidence,
     metadata: {
+      ...baseRuntimeMeta,
       latencyMs: aiResult.latencyMs,
       locale,
       qnaIds,

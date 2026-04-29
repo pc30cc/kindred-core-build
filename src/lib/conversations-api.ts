@@ -224,4 +224,31 @@ export const conversationsApi = {
     if (!res.ok) throw new Error(json.error || `Update failed: ${res.status}`);
     return json;
   },
+
+  /**
+   * Mark a conversation (and its contact, if any) as spam.
+   * Soft routing only — does not block the visitor.
+   */
+  async markSpam(payload: { workspace_id: string; conversation_id: string }) {
+    const res = await fetch(`${API_BASE}/api/conversations/spam`, {
+      method: 'POST',
+      headers: await authHeaders(),
+      body: JSON.stringify(payload),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || `Mark spam failed: ${res.status}`);
+    return json as { ok: true; conversation_ids: string[]; contact_id: string | null };
+  },
+
+  /** Clear the spam flag (and the contact's flag, if any). */
+  async unmarkSpam(payload: { workspace_id: string; conversation_id: string }) {
+    const res = await fetch(`${API_BASE}/api/conversations/not-spam`, {
+      method: 'POST',
+      headers: await authHeaders(),
+      body: JSON.stringify(payload),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || `Unmark spam failed: ${res.status}`);
+    return json as { ok: true; conversation_ids: string[]; contact_id: string | null };
+  },
 };

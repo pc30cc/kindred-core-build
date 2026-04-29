@@ -39,6 +39,7 @@ import {
 } from '../services/conversationEvents.js';
 import { isActionActive } from '../services/observability/autoActionsCache.js';
 import { emitLog } from '../services/observability/metrics.js';
+import { markHumanTakeover } from '../services/ai-agent/handoffState.js';
 
 export const conversationsRouter = Router();
 
@@ -279,6 +280,19 @@ conversationsRouter.post('/send-message', async (req, res) => {
         },
       });
     }
+
+    // AI Agent — explicit human takeover marker. Once an operator replies,
+    // the conversation leaves the Automated inbox and the AI must back off
+    // (in `auto_reply_until_human_joins` and, by default, also in
+    // `auto_reply_always` via pause_auto_reply_after_human_reply=true).
+    void markHumanTakeover(config, {
+      workspaceId: parsed.data.workspace_id,
+      conversationId: parsed.data.conversation_id,
+      operatorId: auth.userId,
+      reason: 'operator_replied',
+    }).catch((e: any) =>
+      console.warn('[conversations/send-message] markHumanTakeover failed:', e?.message),
+    );
 
     return res.json({
       ok: true,

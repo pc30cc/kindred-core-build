@@ -182,6 +182,19 @@ export const aiAgentApi = {
       method: 'POST',
       body: JSON.stringify({ workspaceId, assign_to_me: assignToMe }),
     }) as Promise<{ ok: boolean }>,
+  // Pass 2 — knowledge index
+  getKnowledgeIndexStatus: (workspaceId: string) =>
+    jsonFetch(`/api/ai-agent/knowledge-index/status?workspaceId=${workspaceId}`) as Promise<KnowledgeIndexStatus>,
+  rebuildKnowledgeIndex: (workspaceId: string) =>
+    jsonFetch(`/api/ai-agent/knowledge-index/rebuild`, {
+      method: 'POST',
+      body: JSON.stringify({ workspaceId }),
+    }) as Promise<KnowledgeIndexRebuildResult>,
+  syncKnowledgeSource: (workspaceId: string, sourceType: 'kb_article' | 'qna' | 'business_profile', sourceId: string) =>
+    jsonFetch(`/api/ai-agent/knowledge-index/sync-source`, {
+      method: 'POST',
+      body: JSON.stringify({ workspaceId, sourceType, sourceId }),
+    }) as Promise<{ ok: boolean }>,
 };
 
 export interface AgentSuggestionSource {
@@ -189,6 +202,34 @@ export interface AgentSuggestionSource {
   title: string;
   slug: string | null;
   locale: string | null;
+}
+
+export interface KnowledgeIndexStatus {
+  activeChunks: number;
+  embeddedChunks: number;
+  staleChunks: number;
+  deletedChunks: number;
+  bySourceType: Record<string, number>;
+  byLocale: Record<string, number>;
+  lastUpdated: string | null;
+  embeddingProvider: string | null;
+  embeddingModel: string | null;
+  embeddingProviderAvailable: boolean;
+}
+
+export interface KnowledgeIndexRebuildResult {
+  ok: boolean;
+  chunksCreated: number;
+  chunksUpdated: number;
+  chunksSkipped: number;
+  chunksDeleted: number;
+  embeddingsGenerated: number;
+  embeddingFailures: number;
+  embeddingProvider: string;
+  embeddingModel: string;
+  embeddingBudget: number;
+  embeddingBudgetUsed: number;
+  sourcesProcessed: number;
 }
 
 export interface AgentSuggestion {

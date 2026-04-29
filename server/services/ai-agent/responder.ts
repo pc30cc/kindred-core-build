@@ -1,0 +1,97 @@
+/**
+ * AI Agent — visitor-facing responder.
+ *
+ * Persists an `ai` sender_type message into conversation_messages and fans
+ * it out via the standard realtime envelope. Used by both auto-reply and
+ * handoff paths so the wire format stays identical to operator messages.
+ */
+import type { ServerConfig } from '../../config.js';
+import { getServiceClient } from '../../supabase.js';
+import {
+  publishConversationEvent,
+  buildMessageEnvelope,
+} from '../realtime/publish.js';
+import type { AgentSettings } from './settings.js';
+
+export interface InsertAiMessageInput {
+  workspaceId: string;
+  conversationId: string;
+  body: string;
+  source: 'ai_agent' | 'ai_agent_intro' | 'ai_agent_handoff' | 'ai_agent_fallback';
+  runId?: string | null;
+  mode?: string | null;
+  kbArticleIds?: string[];
+  qnaIds?: string[];
+  confidence?: number | null;
+  provider?: string | null;
+  model?: string | null;
+  handoff?: boolean;
+  agentName?: string | null;
+  agentLogoUrl?: string | null;
+}
+
+export async function insertAiMessage(
+  config: ServerConfig,
+  input: InsertAiMessageInput,
+): Promise<{ id: string | null }> {
+  const sb = getServiceClient(config);
+  const metadata: Record<string, unknown> = {
+    source: input.source,
+    run_id: input.runId ?? null,
+    mode: input.mode ?? null,
+    kb_article_ids: input.kbArticleIds ?? [],
+    qna_ids: input.qnaIds ?? [],
+    confidence: input.confidence ?? null,
+    provider: input.provider ?? null,
+    model: input.model ?? null,
+    handoff: !!input.handoff,
+    agent_name: input.agentName ?? null,
+    agent_logo_url: input.agentLogoUrl ?? null,
+  };
+
+  const { data: row, error } = await sb
+    .from('conversation_messages')
+    .insert({
+      conversation_id: input.conversationId,
+      body: input.body,
+      sender_type: 'ai',
+      metadata,
+    })
+    .select('id, conversation_id, sender_type, body, created_at, metadata, seen_at')
+    .single();
+
+  if (error) {
+    console.warn('[ai-agent] insertAiMessage failed:', error.message);
+    return { id: null };
+  }
+
+  // Bump conversation updated_at so inbox ordering reflects the AI reply.
+  await sb
+    .from('conversations')
+    .update({ updated_at: new Date().toISOString() })
+    .eq('id', input.conversationId);
+
+  // Realtime fan-out: same envelope as operator messages.
+  try {
+    await publishConversationEvent(
+      config,
+      input.workspaceId,
+      input.conversationId,
+      buildMessageEnvelope(row as any),
+    );
+  } catch (e: any) {
+    console.warn('[ai-agent] publish AI message failed:', e?.message || e);
+  }
+
+  return { id: row?.id || null };
+}
+
+export function deriveAgentDisplay(settings: AgentSettings): {
+  agentName: string;
+  agentLogoUrl: string | null;
+} {
+  return {
+    agentName: settings.agent_name || 'AI Assistant',
+    agentLogoUrl: settings.agent_logo_url || null,
+  };
+}

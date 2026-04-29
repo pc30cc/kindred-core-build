@@ -23,6 +23,7 @@ export interface IntroResult {
   sent: boolean;
   reason?: string;
   messageId?: string | null;
+  conversationId?: string | null;
   body?: string | null;
   agentName?: string | null;
   agentLogoUrl?: string | null;
@@ -119,19 +120,80 @@ export async function maybeSendIntro(
     }
 
     const sb = getServiceClient(config);
-    if (await alreadyIntroduced(sb, input.workspaceId, input.conversationId, input.visitorSessionId)) {
-      return { sent: false, reason: 'already_sent' };
+
+    // ─── Resolve or create a real conversation ───
+    // The intro must live in a real conversation_messages row so it appears
+    // in history on reload and is visible in the operator inbox. If the
+    // widget hasn't created a conversation yet (just finished pre-chat),
+    // we resolve an existing open one or create a new one here.
+    let conversationId = input.conversationId || null;
+
+    if (!conversationId && input.visitorSessionId) {
+      const { data: existing } = await sb
+        .from('conversations')
+        .select('id')
+        .eq('workspace_id', input.workspaceId)
+        .eq('visitor_session_id', input.visitorSessionId)
+        .neq('status', 'closed')
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (existing?.id) {
+        conversationId = existing.id;
+        console.debug('[ai-agent] intro resolve conversation', conversationId);
+      }
+    }
+
+    if (!conversationId) {
+      // Try to attach a contact via the visitor_id metadata (set by pre-chat).
+      let contactId: string | null = null;
+      if (input.visitorId) {
+        const { data: c } = await sb
+          .from('contacts')
+          .select('id')
+          .eq('workspace_id', input.workspaceId)
+          .contains('metadata', { visitor_id: input.visitorId })
+          .limit(1)
+          .maybeSingle();
+        contactId = c?.id || null;
+      }
+
+      const { data: created, error: createErr } = await sb
+        .from('conversations')
+        .insert({
+          workspace_id: input.workspaceId,
+          status: 'open',
+          priority: 'normal',
+          subject: 'New conversation',
+          contact_id: contactId,
+          visitor_session_id: input.visitorSessionId || null,
+          metadata: { ai_state: 'ai_managed', source: 'ai_agent_intro' },
+          updated_at: new Date().toISOString(),
+        })
+        .select('id')
+        .single();
+      if (createErr || !created?.id) {
+        console.warn('[ai-agent] intro conversation create failed:', createErr?.message);
+        return { sent: false, reason: 'conversation_create_failed' };
+      }
+      conversationId = created.id;
+      console.debug('[ai-agent] intro conversation created', conversationId);
+    }
+
+    if (await alreadyIntroduced(sb, input.workspaceId, conversationId, input.visitorSessionId)) {
+      console.debug('[ai-agent] intro already sent', conversationId);
+      return { sent: false, reason: 'already_sent', conversationId };
     }
 
     const body = buildIntroBody(settings, input.locale);
     const display = deriveAgentDisplay(settings);
 
     let messageId: string | null = null;
-    if (input.conversationId) {
+    if (conversationId) {
       // Persist as a real conversation message — history-consistent.
       const inserted = await insertAiMessage(config, {
         workspaceId: input.workspaceId,
-        conversationId: input.conversationId,
+        conversationId,
         body,
         source: 'ai_agent_intro',
         mode: settings.mode,
@@ -139,12 +201,13 @@ export async function maybeSendIntro(
         agentLogoUrl: display.agentLogoUrl,
       });
       messageId = inserted.id;
+      console.debug('[ai-agent] intro inserted', { conversationId, messageId });
     }
 
     // Always record the intro log so subsequent intro attempts dedupe.
     await sb.from('ai_agent_intro_log').insert({
       workspace_id: input.workspaceId,
-      conversation_id: input.conversationId || null,
+      conversation_id: conversationId,
       visitor_session_id: input.visitorSessionId || null,
       visitor_id: input.visitorId || null,
       message_id: messageId,
@@ -152,7 +215,7 @@ export async function maybeSendIntro(
 
     await logRun(config, {
       workspaceId: input.workspaceId,
-      conversationId: input.conversationId || null,
+      conversationId: conversationId || null,
       runType: 'auto_reply',
       mode: settings.mode,
       status: 'replied',
@@ -164,6 +227,7 @@ export async function maybeSendIntro(
     return {
       sent: true,
       messageId,
+      conversationId,
       body,
       agentName: display.agentName,
       agentLogoUrl: display.agentLogoUrl,

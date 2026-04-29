@@ -5399,7 +5399,7 @@
     // conversation/session. We additionally guard locally against double
     // calls within the same tab (re-renders, visibilitychange).
     var __aiIntroRequested = false;
-    function requestAiAgentIntro() {
+    function requestAiAgentIntro(source) {
       if (__aiIntroRequested) {
         try { console.debug('[Widget AI Agent] intro skipped (already requested)'); } catch (_) {}
         return;
@@ -5408,7 +5408,7 @@
       var conversationId = (chatStore.get() || {}).conversationId || null;
       var identitySnap = identityStore.get() || {};
       var sessionId = identitySnap.sessionId || identitySnap.session_id || null;
-      try { console.debug('[Widget AI Agent] intro requested', { conversationId: conversationId, sessionId: sessionId, locale: ctx.locale }); } catch (_) {}
+      try { console.debug('[Widget AI Agent] intro requested', { source: source || 'auto', conversationId: conversationId, sessionId: sessionId, locale: ctx.locale }); } catch (_) {}
 
       ctx.fetchWith(ctx.apiBase + '/api/widget/ai-agent/intro', {
         method: 'POST',
@@ -5421,34 +5421,70 @@
       })
         .then(function (r) { return r.json().catch(function () { return {}; }); })
         .then(function (resp) {
+          try { console.debug('[Widget AI Agent] intro response', { sent: resp && resp.sent, reason: resp && resp.reason, messageId: resp && resp.messageId, conversationId: resp && resp.conversationId }); } catch (_) {}
           if (!resp || resp.sent !== true) {
-            try { console.debug('[Widget AI Agent] intro skipped', resp && resp.reason); } catch (_) {}
+            // Adopt conversationId even on already_sent so the next message
+            // lands in the same conversation.
+            if (resp && resp.conversationId && !chatStore.get().conversationId) {
+              chatStore.set({ conversationId: resp.conversationId });
+              try { if (transport && transport.subscribeConversation) transport.subscribeConversation(resp.conversationId); } catch (_) {}
+            }
             return;
           }
-          // If backend persisted it as a real conversation message, the
-          // poll/realtime stream WILL deliver it — do not render twice.
-          if (resp.messageId) {
-            try { console.debug('[Widget AI Agent] intro sent (will arrive via stream)'); } catch (_) {}
-            return;
-          }
-          // No backing message id (no conversation yet). Render a transient
-          // AI bubble locally so the visitor sees the greeting.
+          if (!resp.body) return;
           try {
             var s = chatStore.get();
+            // Adopt the (possibly newly-created) conversationId so the
+            // visitor's first message goes into the same conversation.
+            var patch = {};
+            if (resp.conversationId && resp.conversationId !== s.conversationId) {
+              patch.conversationId = resp.conversationId;
+            }
             var msgs = (s.messages || []).slice();
+            var seenIds = Object.assign({}, s.seenIds || {});
+            // ─── Dedup: skip if intro already in store ───
+            var localId = resp.messageId || ('ai-intro-local-' + Date.now());
+            var isDup = false;
+            for (var i = 0; i < msgs.length; i++) {
+              var m = msgs[i];
+              var meta = m && m.metadata;
+              if (m && m.__id === localId) { isDup = true; break; }
+              if (meta && (meta.source === 'ai_agent_intro' || meta.source === 'ai_agent_intro_local')) {
+                isDup = true;
+                break;
+              }
+            }
+            if (isDup) {
+              try { console.debug('[Widget AI Agent] intro deduped'); } catch (_) {}
+              if (Object.keys(patch).length) {
+                chatStore.set(patch);
+                try { if (patch.conversationId && transport && transport.subscribeConversation) transport.subscribeConversation(patch.conversationId); } catch (_) {}
+              }
+              return;
+            }
             msgs.push({
-              body: resp.body || '',
+              body: resp.body,
               sender: 'operator',
               senderType: 'ai',
               senderName: resp.agentName || null,
               senderAvatar: resp.agentLogoUrl || null,
               time: new Date(),
-              __id: 'ai-intro-local-' + Date.now(),
+              __id: localId,
               status: null,
-              metadata: { source: 'ai_agent_intro_local' },
+              metadata: { source: resp.messageId ? 'ai_agent_intro' : 'ai_agent_intro_local' },
             });
-            chatStore.set({ messages: msgs });
-            try { console.debug('[Widget AI Agent] intro rendered (local)'); } catch (_) {}
+            // Mark as seen so the inevitable poll/history echo of the same
+            // messageId does not duplicate the bubble.
+            if (resp.messageId) seenIds[resp.messageId] = true;
+            patch.messages = msgs;
+            patch.seenIds = seenIds;
+            chatStore.set(patch);
+            try { if (patch.conversationId && transport && transport.subscribeConversation) transport.subscribeConversation(patch.conversationId); } catch (_) {}
+            // Force an immediate re-render — chatStore listeners debounce
+            // through renderBody, but we want zero-delay paint of the intro.
+            try { renderBody(); } catch (_) {}
+            try { if (body) body.scrollTop = body.scrollHeight; } catch (_) {}
+            try { console.debug('[Widget AI Agent] intro rendered immediately'); } catch (_) {}
           } catch (_) {}
         })
         .catch(function (err) {
@@ -5497,7 +5533,7 @@
             // Phase 3 — AI Agent pre-chat intro. Fire-and-forget; never
             // blocks the chat. Backend enforces mode/intro_enabled and
             // dedupes by (conversation_id | session_id).
-            try { requestAiAgentIntro(); } catch (_) {}
+            try { requestAiAgentIntro('prechat_submit'); } catch (_) {}
           });
           return;
         }
@@ -5511,7 +5547,7 @@
           var __ai = ctx.config && ctx.config.aiAgent;
           var __hasMsgs = (chatStore.get().messages || []).length > 0;
           if (__ai && __ai.suppressGreeting === true && !__hasMsgs) {
-            requestAiAgentIntro();
+            requestAiAgentIntro('chat_open');
           }
         } catch (_) {}
         // Phase 5 — when offline + contact_fallback mode and there's no

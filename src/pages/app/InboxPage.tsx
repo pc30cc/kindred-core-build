@@ -836,14 +836,32 @@ export default function InboxPage() {
           ) : !filteredConvos?.length ? (
             <div className="py-16 px-6 text-center flex flex-col items-center gap-3">
               <div className="w-14 h-14 rounded-2xl bg-secondary/40 flex items-center justify-center">
-                <MessageSquare className="w-7 h-7 text-muted-foreground/40" />
+                {queue === 'automated' ? (
+                  <Bot className="w-7 h-7 text-muted-foreground/40" />
+                ) : queue === 'needs_human' ? (
+                  <AlertCircle className="w-7 h-7 text-muted-foreground/40" />
+                ) : (
+                  <MessageSquare className="w-7 h-7 text-muted-foreground/40" />
+                )}
               </div>
               <div>
                 <p className="text-[13px] font-medium text-foreground">
-                  {search ? 'No matches found' : (t('inbox.noMessages') || 'No conversations')}
+                  {search
+                    ? 'No matches found'
+                    : queue === 'automated'
+                      ? 'No AI-managed conversations'
+                      : queue === 'needs_human'
+                        ? 'No conversations need a human'
+                        : (t('inbox.noMessages') || 'No conversations')}
                 </p>
                 <p className="text-[11px] text-muted-foreground mt-1">
-                  {search ? `"${search}"` : (filter !== 'all' ? statusLabels[filter] : '')}
+                  {search
+                    ? `"${search}"`
+                    : queue === 'automated'
+                      ? 'AI replies will appear here'
+                      : queue === 'needs_human'
+                        ? 'AI handoffs will appear here'
+                        : (filter !== 'all' ? statusLabels[filter] : '')}
                 </p>
               </div>
             </div>

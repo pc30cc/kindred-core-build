@@ -11,7 +11,7 @@ import { toast } from '@/hooks/use-toast';
 import { MessageCircleQuestion, Sparkles, Check, X, FileText, Loader2 } from 'lucide-react';
 
 export default function QnaPage() {
-  const { workspace } = useCurrentWorkspace();
+  const workspace = useCurrentWorkspace() as any;
   const wsId = workspace?.id;
   const [tab, setTab] = useState<'qna' | 'learning'>('qna');
   const [qnaItems, setQnaItems] = useState<any[]>([]);

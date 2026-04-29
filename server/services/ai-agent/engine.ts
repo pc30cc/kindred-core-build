@@ -726,6 +726,8 @@ async function runInternal(
 
   // ─── AUTO REPLY → insert visitor-facing message ────────────────────────
   if (decision.canAutoReply) {
+    decisionTimeline.push('answer_strategy_selected');
+    decisionTimeline.push('reply_sent');
     const runId = await logRun(config, {
       workspaceId,
       conversationId,

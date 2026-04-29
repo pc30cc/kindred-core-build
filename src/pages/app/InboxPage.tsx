@@ -38,6 +38,7 @@ import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { ConversationActionPanel } from '@/components/inbox/ConversationActionPanel';
 import { ConversationActivityPanel } from '@/components/inbox/ConversationActivityPanel';
+import { AiSuggestionCard } from '@/components/inbox/AiSuggestionCard';
 import { SidebarCallCard } from '@/components/inbox/SidebarCallCard';
 import { CannedResponsePicker, type CannedPickerHandle } from '@/components/canned-responses/CannedResponsePicker';
 import { interpolate } from '@/components/canned-responses/interpolation';

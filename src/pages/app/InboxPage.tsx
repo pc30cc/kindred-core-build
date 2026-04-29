@@ -38,6 +38,7 @@ import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { ConversationActionPanel } from '@/components/inbox/ConversationActionPanel';
 import { ConversationActivityPanel } from '@/components/inbox/ConversationActivityPanel';
+import { AiSuggestionCard } from '@/components/inbox/AiSuggestionCard';
 import { SidebarCallCard } from '@/components/inbox/SidebarCallCard';
 import { CannedResponsePicker, type CannedPickerHandle } from '@/components/canned-responses/CannedResponsePicker';
 import { interpolate } from '@/components/canned-responses/interpolation';
@@ -1268,6 +1269,34 @@ export default function InboxPage() {
               style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
               dir={dir}
             >
+              {/* Phase 2 — AI Agent suggestion card (suggest_only mode).
+                  Visitor never sees this. "Send now" delivers as a normal
+                  operator message, not as an AI message. */}
+              {selectedId && (
+                <AiSuggestionCard
+                  conversationId={selectedId}
+                  dir={dir}
+                  t={t}
+                  onInsert={(text) => {
+                    setMessage((prev) => (prev ? `${prev}\n${text}` : text));
+                    requestAnimationFrame(() => {
+                      messageInputRef.current?.focus();
+                    });
+                  }}
+                  onSendNow={(text) =>
+                    new Promise<boolean>((resolve) => {
+                      if (!user) { resolve(false); return; }
+                      sendMessage.mutate(
+                        { body: text, attachmentId: null },
+                        {
+                          onSuccess: () => resolve(true),
+                          onError: () => resolve(false),
+                        },
+                      );
+                    })
+                  }
+                />
+              )}
               {/* Pending attachment chip */}
               {att.status !== 'idle' && (
                 <div className="mb-2 flex items-center gap-2 rounded-lg border border-border bg-secondary/40 px-2.5 py-2">

@@ -20,6 +20,7 @@ import { retrieveSources } from './retrieval.js';
 import { buildSystemPrompt, buildUserPrompt } from './prompt.js';
 import { decide, postValidateAnswer } from './policy.js';
 import { logRun } from './logs.js';
+import { publishOperatorEvent } from '../realtime/publish.js';
 
 export interface MaybeRunInput {
   workspaceId: string;
@@ -269,6 +270,18 @@ async function runInternal(
     console.warn('[ai-agent] suggestion insert failed:', sErr.message);
     return { ran: true, action: 'failed', reason: 'suggestion_insert_failed', runId };
   }
+
+  // Realtime echo so the operator's open conversation gets the card without
+  // waiting on polling. Best-effort — UI also polls every 15s as fallback.
+  try {
+    await publishOperatorEvent(config, {
+      kind: 'ai_suggestion_created' as any,
+      conversation_id: conversationId,
+      workspace_id: workspaceId,
+      actor_id: null,
+      suggestion_id: suggestion?.id || null,
+    }, { skipInboxChannel: true });
+  } catch { /* best-effort */ }
 
   return {
     ran: true,

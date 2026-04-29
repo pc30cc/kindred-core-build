@@ -103,6 +103,44 @@ export type Database = {
         }
         Relationships: []
       }
+      ai_agent_intro_log: {
+        Row: {
+          conversation_id: string | null
+          created_at: string
+          id: string
+          message_id: string | null
+          visitor_id: string | null
+          visitor_session_id: string | null
+          workspace_id: string
+        }
+        Insert: {
+          conversation_id?: string | null
+          created_at?: string
+          id?: string
+          message_id?: string | null
+          visitor_id?: string | null
+          visitor_session_id?: string | null
+          workspace_id: string
+        }
+        Update: {
+          conversation_id?: string | null
+          created_at?: string
+          id?: string
+          message_id?: string | null
+          visitor_id?: string | null
+          visitor_session_id?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_agent_intro_log_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ai_agent_qna: {
         Row: {
           answer: string
@@ -225,6 +263,7 @@ export type Database = {
         Row: {
           agent_logo_url: string | null
           agent_name: string
+          ai_intro_enabled: boolean
           allowed_locales: string[]
           answer_guidance: string
           answer_only_from_kb: boolean
@@ -232,6 +271,7 @@ export type Database = {
           confidence_threshold: number
           created_at: string
           enabled: boolean
+          fallback_behavior: string
           fallback_message: string
           handoff_keywords: string[]
           handoff_on_human_request: boolean
@@ -239,12 +279,14 @@ export type Database = {
           handoff_when_no_kb_match: boolean
           id: string
           instructions: Json
+          intro_message: string | null
           max_replies_per_conversation: number
           max_replies_per_hour: number
           metadata: Json
           mode: string
           show_sources_to_operator: boolean
           show_sources_to_visitor: boolean
+          stop_on_handoff: boolean
           updated_at: string
           welcome_message: string | null
           workspace_id: string
@@ -252,6 +294,7 @@ export type Database = {
         Insert: {
           agent_logo_url?: string | null
           agent_name?: string
+          ai_intro_enabled?: boolean
           allowed_locales?: string[]
           answer_guidance?: string
           answer_only_from_kb?: boolean
@@ -259,6 +302,7 @@ export type Database = {
           confidence_threshold?: number
           created_at?: string
           enabled?: boolean
+          fallback_behavior?: string
           fallback_message?: string
           handoff_keywords?: string[]
           handoff_on_human_request?: boolean
@@ -266,12 +310,14 @@ export type Database = {
           handoff_when_no_kb_match?: boolean
           id?: string
           instructions?: Json
+          intro_message?: string | null
           max_replies_per_conversation?: number
           max_replies_per_hour?: number
           metadata?: Json
           mode?: string
           show_sources_to_operator?: boolean
           show_sources_to_visitor?: boolean
+          stop_on_handoff?: boolean
           updated_at?: string
           welcome_message?: string | null
           workspace_id: string
@@ -279,6 +325,7 @@ export type Database = {
         Update: {
           agent_logo_url?: string | null
           agent_name?: string
+          ai_intro_enabled?: boolean
           allowed_locales?: string[]
           answer_guidance?: string
           answer_only_from_kb?: boolean
@@ -286,6 +333,7 @@ export type Database = {
           confidence_threshold?: number
           created_at?: string
           enabled?: boolean
+          fallback_behavior?: string
           fallback_message?: string
           handoff_keywords?: string[]
           handoff_on_human_request?: boolean
@@ -293,12 +341,14 @@ export type Database = {
           handoff_when_no_kb_match?: boolean
           id?: string
           instructions?: Json
+          intro_message?: string | null
           max_replies_per_conversation?: number
           max_replies_per_hour?: number
           metadata?: Json
           mode?: string
           show_sources_to_operator?: boolean
           show_sources_to_visitor?: boolean
+          stop_on_handoff?: boolean
           updated_at?: string
           welcome_message?: string | null
           workspace_id?: string

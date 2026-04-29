@@ -23,6 +23,12 @@ import { resolveAIConfig } from '../services/ai/index.js';
 import { getOperatorAvailability } from '../services/ai-agent/availability.js';
 import { markHumanTakeover } from '../services/ai-agent/handoffState.js';
 import { syncKnowledgeSource, rebuildWorkspaceIndex, getKnowledgeIndexStatus } from '../services/ai-agent/knowledgeIndex/sync.js';
+import { detectTopics } from '../services/ai-agent/topics/detector.js';
+import { DEFAULT_TOPICS } from '../services/ai-agent/topics/defaults.js';
+import {
+  validateWorkflow, previewWorkflow,
+  ALLOWED_TRIGGERS, ALLOWED_CONDITION_TYPES, ALLOWED_ACTION_TYPES,
+} from '../services/ai-agent/workflows/validate.js';
 
 export const aiAgentRouter: Router = express.Router();
 

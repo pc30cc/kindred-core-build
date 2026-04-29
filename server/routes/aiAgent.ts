@@ -21,6 +21,7 @@ import { runPlayground } from '../services/ai-agent/playground.js';
 import { listRuns, summarize } from '../services/ai-agent/logs.js';
 import { resolveAIConfig } from '../services/ai/index.js';
 import { getOperatorAvailability } from '../services/ai-agent/availability.js';
+import { markHumanTakeover } from '../services/ai-agent/handoffState.js';
 
 export const aiAgentRouter: Router = express.Router();
 
@@ -138,6 +139,9 @@ const updateSchema = z.object({
   intro_message: z.string().max(1000).nullable().optional(),
   fallback_behavior: z.enum(['handoff','silent']).optional(),
   stop_on_handoff: z.boolean().optional(),
+  pause_auto_reply_after_human_reply: z.boolean().optional(),
+  allow_suggestions_after_takeover: z.boolean().optional(),
+  keep_in_automated_until_handoff: z.boolean().optional(),
 });
 
 aiAgentRouter.put('/settings', async (req: Request, res: Response) => {
@@ -230,6 +234,50 @@ aiAgentRouter.get('/diagnostics', async (req: Request, res: Response) => {
   const ready = checks.ai_provider_configured && checks.has_knowledge && checks.module_enabled;
   const recentRuns = await listRuns(config, workspaceId, { limit: 5 }).catch(() => []);
   const availability = await getOperatorAvailability(config, workspaceId, 'en').catch(() => null);
+
+  // Phase 3.1 — automated inbox counts (best-effort).
+  const sb = getServiceClient(config);
+  let automatedCounts = {
+    ai_managed: 0,
+    needs_human: 0,
+    human_active: 0,
+    last_handoff_reason: null as string | null,
+    last_human_takeover_at: null as string | null,
+  };
+  try {
+    const states = ['ai_managed', 'needs_human', 'human_active'] as const;
+    for (const s of states) {
+      const { count } = await sb
+        .from('conversations')
+        .select('id', { count: 'exact', head: true })
+        .eq('workspace_id', workspaceId)
+        .eq('ai_state', s);
+      (automatedCounts as any)[s] = count ?? 0;
+    }
+    const { data: lastHandoff } = await sb
+      .from('conversations')
+      .select('metadata, updated_at')
+      .eq('workspace_id', workspaceId)
+      .eq('ai_state', 'needs_human')
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (lastHandoff?.metadata) {
+      automatedCounts.last_handoff_reason = ((lastHandoff.metadata as any).ai_handoff_reason as string) || null;
+    }
+    const { data: lastTakeover } = await sb
+      .from('conversations')
+      .select('metadata')
+      .eq('workspace_id', workspaceId)
+      .eq('ai_state', 'human_active')
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (lastTakeover?.metadata) {
+      automatedCounts.last_human_takeover_at = ((lastTakeover.metadata as any).human_takeover_at as string) || null;
+    }
+  } catch { /* best-effort */ }
+
   return res.json({
     ready,
     checks,
@@ -245,6 +293,15 @@ aiAgentRouter.get('/diagnostics', async (req: Request, res: Response) => {
       per_hour: settings.max_replies_per_hour,
       fallback_behavior: (settings as any).fallback_behavior || 'handoff',
       stop_on_handoff: (settings as any).stop_on_handoff !== false,
+    },
+    automated_inbox: automatedCounts,
+    safety_settings: {
+      pause_auto_reply_after_human_reply:
+        (settings as any).pause_auto_reply_after_human_reply !== false,
+      allow_suggestions_after_takeover:
+        (settings as any).allow_suggestions_after_takeover !== false,
+      keep_in_automated_until_handoff:
+        (settings as any).keep_in_automated_until_handoff !== false,
     },
     recent_runs: recentRuns,
   });

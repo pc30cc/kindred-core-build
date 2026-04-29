@@ -53,6 +53,8 @@ import AiAgentTopicsPage from "@/pages/app/ai-agent/TopicsPage";
 import AiAgentWorkflowPage from "@/pages/app/ai-agent/WorkflowPage";
 import AiAgentTriggersPage from "@/pages/app/ai-agent/TriggersPage";
 import AiAgentIntegrationsPage from "@/pages/app/ai-agent/IntegrationsPage";
+import AiAgentGuidancePage from "@/pages/app/ai-agent/GuidancePage";
+import AiAgentOverviewPage from "@/pages/app/ai-agent/OverviewPage";
 import EmailPage from "@/pages/app/EmailPage";
 import BillingPage from "@/pages/app/BillingPage";
 import SettingsGeneralPage from "@/pages/app/settings/GeneralPage";
@@ -222,7 +224,9 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 </Route>
                 {/* AI Agent — Phase 1 foundation. Separate layout with its own sidebar. */}
                 <Route path="ai-agent" element={<AiAgentLayout />}>
-                  <Route index element={<Navigate to="playground" replace />} />
+                  <Route index element={<Navigate to="overview" replace />} />
+                  <Route path="overview" element={<AiAgentOverviewPage />} />
+                  <Route path="guidance" element={<AiAgentGuidancePage />} />
                   <Route path="playground" element={<AiAgentPlaygroundPage />} />
                   <Route path="analytics" element={<AiAgentAnalyticsPage />} />
                   <Route path="activation" element={<AiAgentActivationPage />} />

@@ -30,6 +30,8 @@ import { decideRuntime } from './runtimePolicy.js';
 import { insertAiMessage, deriveAgentDisplay } from './responder.js';
 import { markAiManaged, markNeedsHuman } from './handoffState.js';
 import { isConversationSpam } from './spamGuard.js';
+import { decideResponseLanguage, detectInputLanguage } from './language.js';
+import { buildRetrievalQuery } from './queryBuilder.js';
 
 export interface MaybeRunInput {
   workspaceId: string;
@@ -93,20 +95,37 @@ async function runInternal(
 
   // Resolve locale (explicit > workspace > 'en')
   const sb = getServiceClient(config);
-  let locale = (input.locale || '').toLowerCase();
-  if (!locale) {
-    const { data: ws } = await sb
-      .from('workspaces')
-      .select('locale, widget_language')
-      .eq('id', workspaceId)
-      .maybeSingle();
-    locale = ((ws as any)?.widget_language && (ws as any).widget_language !== 'auto'
-      ? (ws as any).widget_language
-      : (ws as any)?.locale) || 'en';
-  }
+  // Read workspace locale info once — needed by language service.
+  const { data: wsRow } = await sb
+    .from('workspaces')
+    .select('locale, widget_language')
+    .eq('id', workspaceId)
+    .maybeSingle();
+  const widgetLocale = (wsRow as any)?.widget_language || '';
+  const workspaceLocale = (wsRow as any)?.locale || '';
+
+  // Phase A — language policy. Decide what language to RESPOND in regardless
+  // of what language the visitor wrote in.
+  const langDecision = decideResponseLanguage({
+    visitorText: question,
+    widgetLocale,
+    workspaceLocale,
+    allowedLocales: settings.allowed_locales,
+  });
+  // `locale` from here on means the response locale.
+  let locale = (input.locale || '').toLowerCase() || langDecision.responseLanguage || 'en';
   if (settings.allowed_locales?.length && !settings.allowed_locales.includes(locale)) {
     locale = settings.allowed_locales[0];
   }
+  const inputLanguage = langDecision.inputLanguage !== 'unknown'
+    ? langDecision.inputLanguage
+    : detectInputLanguage(question);
+  const languageMeta = {
+    input_language: inputLanguage,
+    response_language: locale,
+    widget_locale: widgetLocale || null,
+    language_decision_source: langDecision.source,
+  };
 
   // Gather state in parallel — runtime policy needs all three.
   const [state, availability] = await Promise.all([
@@ -178,13 +197,34 @@ async function runInternal(
   }
 
   // From here we either suggest or auto-reply. Both need retrieval.
-  const sources = await retrieveSources(config, workspaceId, question, locale, 5);
+  // Phase B — conversation-aware query builder + Phase C synonym expansion.
+  const built = await buildRetrievalQuery({
+    config,
+    workspaceId,
+    conversationId,
+    currentMessage: question,
+    inputLanguage,
+    widgetLocale: locale,
+  });
+  const sources = await retrieveSources(config, workspaceId, built.retrievalQuery, locale, 5);
+  const queryMeta = {
+    original_message: built.originalMessage,
+    retrieval_query: built.retrievalQuery,
+    expanded_query: built.expandedQuery,
+    context_messages_used: built.contextMessagesUsed,
+    topics: built.topics,
+    added_terms_count: built.addedTerms.length,
+    follow_up_detected: built.followUpDetected,
+    previous_ai_asked_clarification: built.previousAiAskedClarification,
+    retrieval_results_count: sources.length,
+  };
   const clarificationAttemptCount = await countClarificationAttempts(sb, conversationId);
   const strategy = decideStrategy({
     settings,
     question,
     sources,
     clarificationAttemptCount,
+    topics: built.topics,
   });
   console.log('[ai-agent] strategy decision', {
     conversationId,
@@ -193,6 +233,9 @@ async function runInternal(
     retrievalStrength: strategy.retrievalStrength,
     topScore: strategy.topScore,
     clarificationAttempts: clarificationAttemptCount,
+    inputLanguage,
+    responseLanguage: locale,
+    topics: built.topics,
   });
   const strategyMeta = {
     decision_type: strategy.decisionType,
@@ -203,6 +246,7 @@ async function runInternal(
     source_types_used: strategy.sourceTypesUsed,
     handoff_required: strategy.handoffRequired,
     escalation_style: settings.escalation_style || 'balanced',
+    safe_guidance_topic: strategy.safeGuidanceTopic || null,
   };
 
   // ─── Decisions that don't require an LLM call ─────────────────────────

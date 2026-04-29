@@ -110,6 +110,14 @@ export function useInboxRealtime(opts: InboxRealtimeOptions) {
               queryClient.invalidateQueries({
                 queryKey: ['conversation-timeline', conversationId, workspaceId],
               });
+            } else if (
+              kind === 'ai_suggestion_created' ||
+              kind === 'ai_suggestion_updated'
+            ) {
+              // Phase 2 — operator AI suggestion card refresh
+              queryClient.invalidateQueries({
+                queryKey: ['ai-agent', 'conv-suggestions', conversationId],
+              });
             }
             handlersRef.current.onEvent?.(payload);
           },

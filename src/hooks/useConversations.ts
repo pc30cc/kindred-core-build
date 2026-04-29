@@ -11,11 +11,18 @@ import { dedupeById } from '@/realtime/dedupe';
  *                          assigned_to IS NULL (AI-managed queue)
  *   - 'needs_human'      → ai_state='needs_human' AND status != 'closed'
  *                          (handoff queue waiting for an operator)
+ *   - 'spam'             → is_spam=true (operator-flagged conversations)
  *
- * Queue mode bypasses the `status` argument so the AI queues are not
+ * Routing rules:
+ *   • Spam is excluded from EVERY non-spam queue.
+ *   • Main Inbox excludes ai_state='ai_managed' (those live in Automated)
+ *     but INCLUDES needs_human + human_active because those are
+ *     human-actionable threads.
+ *
+ * Queue mode bypasses the `status` argument so the AI / Spam queues are not
  * accidentally narrowed by the operator's open/pending/resolved chip.
  */
-export type InboxQueue = 'main' | 'automated' | 'needs_human';
+export type InboxQueue = 'main' | 'automated' | 'needs_human' | 'spam';
 
 export function useConversations(
   workspaceId: string | undefined,
@@ -31,11 +38,21 @@ export function useConversations(
         .eq('workspace_id', workspaceId!)
         .order('updated_at', { ascending: false });
       if (queue === 'automated') {
-        q = q.eq('ai_state', 'ai_managed').neq('status', 'closed').is('assigned_to', null);
+        q = q
+          .eq('ai_state', 'ai_managed')
+          .neq('status', 'closed')
+          .is('assigned_to', null)
+          .eq('is_spam', false);
       } else if (queue === 'needs_human') {
-        q = q.eq('ai_state', 'needs_human').neq('status', 'closed');
-      } else if (status && status !== 'all') {
-        q = q.eq('status', status);
+        q = q.eq('ai_state', 'needs_human').neq('status', 'closed').eq('is_spam', false);
+      } else if (queue === 'spam') {
+        q = q.eq('is_spam', true);
+      } else {
+        // Main Inbox — human-actionable. Exclude spam and AI-managed
+        // threads; needs_human + human_active stay visible because the
+        // operator should act on them.
+        q = q.eq('is_spam', false).neq('ai_state', 'ai_managed');
+        if (status && status !== 'all') q = q.eq('status', status);
       }
       const { data, error } = await q;
       if (error) throw error;

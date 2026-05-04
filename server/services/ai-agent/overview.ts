@@ -424,7 +424,8 @@ export async function runDryRun(
     finalAnswer: null,
     runtime: {
       conversationCreated: false,
-      workflowExecutionEnabled: false,
+      workflowExecutionEnabled: true,
+      workflowSafeExecutionOnly: true,
       mcpExecutionEnabled: process.env.AI_AGENT_MCP_TEST_ENABLED === '1',
     },
     warnings,

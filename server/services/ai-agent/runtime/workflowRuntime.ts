@@ -91,8 +91,10 @@ export interface WorkflowHostCapabilities {
 }
 
 export const DEFAULT_HOST_CAPABILITIES: WorkflowHostCapabilities = {
-  supportsInternalNotes: true,   // conversation_notes service-role insert is safe
-  supportsTags: false,
+  // conversation_notes.author_id is NOT NULL → no AI/system user → planned only.
+  supportsInternalNotes: false,
+  // conversations.tags is a text[] column — safe append via service role.
+  supportsTags: true,
   supportsTeamAssignment: false,
   supportsOperatorAssignment: false,
 };

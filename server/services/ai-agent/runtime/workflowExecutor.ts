@@ -214,6 +214,26 @@ async function executeInternalNote(
   }
 }
 
+async function executeAddTag(
+  ctx: WorkflowExecutorContext,
+  step: NormalizedWorkflowStep,
+): Promise<{ ok: boolean; tag: string | null; reason: string }> {
+  const tag = String(step.payload.tag || step.payload.value || '').trim();
+  if (!tag) return { ok: false, tag: null, reason: 'empty_tag' };
+  try {
+    const sb = getServiceClient(ctx.config);
+    const { data: row } = await sb.from('conversations').select('tags').eq('id', ctx.conversationId).maybeSingle();
+    const current: string[] = Array.isArray((row as any)?.tags) ? (row as any).tags : [];
+    if (current.includes(tag)) return { ok: true, tag, reason: 'tag_already_present' };
+    await sb.from('conversations').update({ tags: [...current, tag] })
+      .eq('id', ctx.conversationId).eq('workspace_id', ctx.workspaceId);
+    return { ok: true, tag, reason: 'add_tag' };
+  } catch (err: any) {
+    console.warn('[ai-agent.runtime.workflowExecutor] add_tag failed:', err?.message || err);
+    return { ok: false, tag, reason: 'add_tag_failed' };
+  }
+}
+
 export async function executeMatchedWorkflows(
   ctx: WorkflowExecutorContext,
   matchResult: WorkflowEvaluationResult,

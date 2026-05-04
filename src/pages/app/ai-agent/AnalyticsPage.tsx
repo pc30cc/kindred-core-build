@@ -31,7 +31,8 @@ export default function AnalyticsPage() {
   const lowConfidence: Array<{ q: string; conf: number }> = [];
   for (const r of runs as any[]) {
     const meta = (r.metadata || {}) as any;
-    const topics: string[] = meta?.topics || meta?.detectedTopics?.map?.((t: any) => t.slug) || [];
+    const rawTopics = meta?.topics ?? meta?.detectedTopics?.map?.((t: any) => t.slug) ?? [];
+    const topics: string[] = Array.isArray(rawTopics) ? rawTopics : [];
     for (const t of topics) topicTally[t] = (topicTally[t] || 0) + 1;
     if (r.status === 'handoff') {
       const reason = r.skip_reason || meta?.handoffReason || 'unspecified';

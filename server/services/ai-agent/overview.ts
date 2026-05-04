@@ -271,6 +271,7 @@ export async function runDryRun(
   const { evaluateMessageTriggers, buildTriggerMetadata } = await import('./runtime/triggerRuntime.js');
   const { evaluateWorkflows, buildWorkflowMetadata } = await import('./runtime/workflowRuntime.js');
   const { evaluateInternalTools, buildToolMetadata } = await import('./runtime/toolRuntime.js');
+  const { dryRunMatchedWorkflows } = await import('./runtime/workflowExecutor.js');
 
   const langDetail = detectInputLanguageDetailed(input.message);
   const detectedLang = langDetail.language;
@@ -330,7 +331,12 @@ export async function runDryRun(
   let triggerExec: any[] = [];
   let triggerPlan: any[] = [];
   let triggerSkip: any[] = [];
-  let workflowMeta: any = { matchedWorkflowIds: [], matchedWorkflowNames: [], plannedActions: [], skippedActions: [], runtimeExecutionEnabled: false };
+  let workflowMeta: any = {
+    matchedWorkflowIds: [], matchedWorkflowNames: [],
+    wouldExecuteActions: [], plannedActions: [], blockedActions: [], skippedActions: [],
+    stopAiWouldBe: false,
+    runtimeExecutionEnabled: true, safeExecutionOnly: true, dryRun: true,
+  };
   for (const ev of triggerEvents) {
     const r = evaluateMessageTriggers(ctxBase as any, ev);
     const meta = buildTriggerMetadata(r);
@@ -341,15 +347,23 @@ export async function runDryRun(
     if (r.matchedTriggerIds.length) decisionTimeline.push('trigger_evaluated');
     const w = evaluateWorkflows(ctxBase as any, ev as any);
     const wm = buildWorkflowMetadata(w);
+    const dry = dryRunMatchedWorkflows(w);
     workflowMeta = {
       matchedWorkflowIds: [...workflowMeta.matchedWorkflowIds, ...wm.matchedWorkflowIds],
       matchedWorkflowNames: [...workflowMeta.matchedWorkflowNames, ...wm.matchedWorkflowNames],
-      plannedActions: [...workflowMeta.plannedActions, ...wm.plannedActions],
-      skippedActions: [...workflowMeta.skippedActions, ...wm.skippedActions],
-      runtimeExecutionEnabled: false,
+      wouldExecuteActions: [...workflowMeta.wouldExecuteActions, ...dry.wouldExecuteActions],
+      plannedActions: [...workflowMeta.plannedActions, ...dry.plannedActions, ...wm.plannedActions.filter((p: any) => p.capability !== 'blocked')],
+      blockedActions: [...workflowMeta.blockedActions, ...dry.blockedActions, ...(wm.blockedActions || [])],
+      skippedActions: [...workflowMeta.skippedActions, ...dry.skippedActions, ...wm.skippedActions],
+      stopAiWouldBe: workflowMeta.stopAiWouldBe || dry.stopAiWouldBe,
+      runtimeExecutionEnabled: true,
+      safeExecutionOnly: true,
+      dryRun: true,
     };
     if (w.matchedWorkflowIds.length) decisionTimeline.push('workflow_evaluated');
-    if (w.plannedActions.length) decisionTimeline.push('workflow_planned');
+    if (dry.wouldExecuteActions.length) decisionTimeline.push('workflow_would_execute');
+    if (dry.blockedActions.length) decisionTimeline.push('workflow_step_blocked');
+    if (dry.stopAiWouldBe) decisionTimeline.push('workflow_would_stop_ai');
   }
   // Tools — show what would be allowed; mark handoff_to_operator for human_requested.
   const requestedTools: Array<{ name: string; source: any }> = [];

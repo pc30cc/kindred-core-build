@@ -544,6 +544,14 @@ async function runInternal(
   }
 
   if (strategy.decisionType === 'handoff') {
+    // C2A — keep_ai routing rule prevents weak-confidence handoff escalation.
+    if (routingKeepAi) {
+      decisionTimeline.push('routing_keep_ai_overrides_handoff');
+      console.log('[ai-agent.runtime.routing] keep_ai overrides handoff', { conversationId });
+      // Fall through to LLM by treating strategy as substantive answer.
+      (strategy as any).decisionType = 'answer';
+      (strategy as any).reason = `${strategy.reason || 'low_confidence'}_keep_ai`;
+    } else {
     const runId = await logRun(config, {
       workspaceId,
       conversationId,
@@ -567,8 +575,9 @@ async function runInternal(
           conversationId,
           reason: strategy.reason as any,
         }).catch(() => {});
+        await updateRuntimeFlags(config, conversationId, { handoffSent: true }).catch(() => {});
         const display = deriveAgentDisplay(settings);
-        const body = (settings.fallback_message || pickHandoffAck(locale, display.agentName));
+        const body = (settings.fallback_message || pickTemplate('no_answer_handoff', locale));
         const inserted = await insertAiMessage(config, {
           workspaceId,
           conversationId,
@@ -584,6 +593,7 @@ async function runInternal(
       }
     }
     return { ran: true, action: 'no_answer', reason: strategy.reason, runId };
+    }
   }
 
   // ─── Branch: GREETING (no LLM, no retrieval needed) ────────────────────

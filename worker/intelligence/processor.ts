@@ -510,6 +510,38 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
   for (const page of fetched) {
     if (articlesGenerated >= maxArticles) break;
 
+    // Dedup: if a generated article already exists for the same workspace +
+    // locale + source URL, skip re-generation. This prevents repeat scans
+    // from creating duplicate KB drafts/articles for unchanged pages.
+    const dedupLocale = job.locale || 'en';
+    try {
+      const { data: existingDup } = await sb
+        .from('ai_kb_generated_articles')
+        .select('id, status, kb_article_id')
+        .eq('workspace_id', job.workspace_id)
+        .eq('locale', dedupLocale)
+        .contains('source_urls', JSON.stringify([page.url]))
+        .limit(1)
+        .maybeSingle();
+      if (existingDup?.id) {
+        workerLog('draft skipped — duplicate source url', {
+          jobId: job.id, pageUrl: page.url, existingId: existingDup.id, status: existingDup.status,
+        });
+        await jobQueue.recordEvent(job.id, job.workspace_id, 'info',
+          'Skipped duplicate page', {
+            url: page.url, locale: dedupLocale,
+            existing_generated_id: existingDup.id,
+            existing_status: existingDup.status,
+            existing_kb_article_id: existingDup.kb_article_id,
+          });
+        continue;
+      }
+    } catch (e) {
+      workerLog('dedup check failed (continuing)', {
+        jobId: job.id, pageUrl: page.url, error: (e as Error)?.message,
+      });
+    }
+
     workerLog('draft generation attempt', {
       jobId: job.id,
       pageUrl: page.url,

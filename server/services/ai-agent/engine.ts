@@ -38,6 +38,9 @@ import { loadWorkspaceContext } from './workspaceContext.js';
 import { maybeCreateLearningCandidateFromAiSkip } from './learning/candidates.js';
 import { loadAiAgentRuntimeConfig } from './runtimeConfig.js';
 import { detectTopics } from './topics/detector.js';
+import { evaluateRoutingRules, buildRoutingMetadata } from './runtime/routingRuntime.js';
+import { updateRuntimeFlags } from './runtime/conversationState.js';
+import { pickTemplate } from './runtime/templates.js';
 
 export interface MaybeRunInput {
   workspaceId: string;
@@ -200,18 +203,57 @@ async function runInternal(
   if (runtimeCfg?.guidanceRules.length) decisionTimeline.push('guidance_loaded');
 
   // Helper to enrich every logRun call below with the new metadata bundles.
-  const baseRuntimeMeta = {
+  // `routing` is filled in once routing rules are evaluated (after we have
+  // conversation state). Until then, defaults to an empty bundle.
+  let routingMeta: ReturnType<typeof buildRoutingMetadata> = {
+    matchedRuleIds: [],
+    matchedRuleNames: [],
+    executedActions: [],
+    plannedActions: [],
+    skippedActions: [],
+  };
+  const baseRuntimeMeta = () => ({
     topics: detectedTopicsMeta,
     guidance: guidanceMeta,
+    routing: routingMeta,
     decision_timeline: decisionTimeline,
     runtime_warnings: runtimeCfg?.warnings || [],
-  } as Record<string, unknown>;
+  } as Record<string, unknown>);
 
   // Gather state in parallel — runtime policy needs all three.
   const [state, availability] = await Promise.all([
     getConversationState(config, workspaceId, conversationId),
     getOperatorAvailability(config, workspaceId, locale),
   ]);
+
+  // ─── C2A — evaluate routing rules ────────────────────────────────────
+  // Pure evaluation. Side-effects (handoff, mark_priority) executed below.
+  let routingResult: ReturnType<typeof evaluateRoutingRules> | null = null;
+  if (runtimeCfg?.routingRules?.length) {
+    try {
+      const topTopic = (detectedTopicsMeta as any)?.topTopic
+        ? { slug: (detectedTopicsMeta as any).topTopic.slug, name: (detectedTopicsMeta as any).topTopic.name } as any
+        : null;
+      routingResult = evaluateRoutingRules({
+        workspaceId,
+        conversationId,
+        visitorMessageId,
+        visitorText: question,
+        inputLanguage,
+        responseLanguage: locale,
+        topTopic,
+        detectedTopics: ((detectedTopicsMeta as any)?.detectedTopics || []) as any,
+        settings,
+        runtimeConfig: runtimeCfg,
+        conversationState: state,
+        now: Date.now(),
+      });
+      routingMeta = buildRoutingMetadata(routingResult);
+      decisionTimeline.push('routing_evaluated');
+    } catch (err: any) {
+      console.warn('[ai-agent.runtime.routing] evaluation failed:', err?.message || err);
+    }
+  }
 
   const decision = decideRuntime({ settings, state, availability, visitorText: question });
   // If the visitor's intent matched the configured "human-request" topic but
@@ -227,6 +269,16 @@ async function runInternal(
     (decision as any).reason = 'human_request';
     decisionTimeline.push('immediate_intent_human_request');
   }
+
+  // Routing rule with action=handoff overrides the legacy decision.
+  if (routingResult?.hardHandoff && decision.action !== 'skip') {
+    (decision as any).action = 'handoff';
+    (decision as any).reason = (decision as any).reason || 'routing_handoff';
+    decisionTimeline.push('routing_handoff_executed');
+  }
+  // Routing rule with action=keep_ai prevents weak-confidence handoff.
+  const routingKeepAi = !!routingResult?.keepAi;
+
   console.log('[ai-agent] policy decision', {
     conversationId,
     mode: settings.mode,
@@ -234,6 +286,9 @@ async function runInternal(
     reason: decision.reason,
     availability: availability.state,
     topTopic: topTopicSlug,
+    routingMatched: routingResult?.matchedRuleIds.length || 0,
+    routingHardHandoff: !!routingResult?.hardHandoff,
+    routingKeepAi,
   });
 
   // ─── Branch: SKIP ──────────────────────────────────────────────────────

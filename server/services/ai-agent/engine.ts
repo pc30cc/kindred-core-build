@@ -41,6 +41,10 @@ import { detectTopics } from './topics/detector.js';
 import { evaluateRoutingRules, buildRoutingMetadata } from './runtime/routingRuntime.js';
 import { updateRuntimeFlags } from './runtime/conversationState.js';
 import { pickTemplate } from './runtime/templates.js';
+import { evaluateMessageTriggers, buildTriggerMetadata, type TriggerEvaluationResult } from './runtime/triggerRuntime.js';
+import { evaluateWorkflows, buildWorkflowMetadata, type WorkflowEvaluationResult } from './runtime/workflowRuntime.js';
+import { evaluateInternalTools, buildToolMetadata, type ToolEvaluationResult } from './runtime/toolRuntime.js';
+import { executeRuntimeActions } from './runtime/actionExecutor.js';
 
 export interface MaybeRunInput {
   workspaceId: string;
@@ -212,10 +216,24 @@ async function runInternal(
     plannedActions: [],
     skippedActions: [],
   };
+  // C2B aggregators — populated as runtime evaluators run.
+  let triggerMeta: ReturnType<typeof buildTriggerMetadata> = {
+    matched: [], executed: [], planned: [], skipped: [],
+  };
+  let workflowMeta: ReturnType<typeof buildWorkflowMetadata> = {
+    matchedWorkflowIds: [], matchedWorkflowNames: [],
+    plannedActions: [], skippedActions: [], runtimeExecutionEnabled: false,
+  };
+  let toolMeta: ReturnType<typeof buildToolMetadata> = {
+    allowedTools: [], usedTools: [], plannedTools: [], skippedTools: [],
+  };
   const baseRuntimeMeta = () => ({
     topics: detectedTopicsMeta,
     guidance: guidanceMeta,
     routing: routingMeta,
+    message_triggers: triggerMeta,
+    workflows: workflowMeta,
+    tools: toolMeta,
     decision_timeline: decisionTimeline,
     runtime_warnings: runtimeCfg?.warnings || [],
   } as Record<string, unknown>);

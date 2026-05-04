@@ -84,6 +84,14 @@ export async function buildOverview(config: ServerConfig, workspaceId: string) {
   let toolExecutions24h = 0;
   let hardHandoffs24h = 0;
   let duplicateTriggersSkipped24h = 0;
+  // Pass D — workflow execution diagnostics
+  let workflowExecuted24h = 0;
+  let workflowBlocked24h = 0;
+  let workflowSkipped24h = 0;
+  let workflowStopAi24h = 0;
+  let workflowHandoffs24h = 0;
+  let workflowMessagesSent24h = 0;
+  let workflowDuplicateSkips24h = 0;
   const recentRuntimeActions: Array<Record<string, unknown>> = [];
   try {
     const { data: repairs } = await sb
@@ -103,6 +111,21 @@ export async function buildOverview(config: ServerConfig, workspaceId: string) {
       duplicateTriggersSkipped24h += Array.isArray(tr.skipped)
         ? tr.skipped.filter((s: any) => (s?.reason || '').includes('duplicate')).length : 0;
       workflowPlanned24h += Array.isArray(wf.plannedActions) ? wf.plannedActions.length : 0;
+      workflowExecuted24h += Array.isArray(wf.executedActions) ? wf.executedActions.length : 0;
+      workflowBlocked24h += Array.isArray(wf.blockedActions) ? wf.blockedActions.length : 0;
+      workflowSkipped24h += Array.isArray(wf.skippedActions) ? wf.skippedActions.length : 0;
+      if (Array.isArray(wf.executedActions)) {
+        for (const a of wf.executedActions) {
+          if (a?.action_type === 'handoff') workflowHandoffs24h += 1;
+          if (a?.action_type === 'send_message' || a?.action_type === 'ask_question') workflowMessagesSent24h += 1;
+        }
+      }
+      if (Array.isArray(wf.skippedActions)) {
+        workflowDuplicateSkips24h += wf.skippedActions.filter((s: any) => (s?.reason || '').includes('duplicate')).length;
+      }
+      if (m?.workflow_only === true || (Array.isArray(m?.decision_timeline) && m.decision_timeline.includes('workflow_stopped_ai'))) {
+        workflowStopAi24h += 1;
+      }
       toolExecutions24h += Array.isArray(tl.usedTools) ? tl.usedTools.length : 0;
       if (Array.isArray(ro.executedActions)) {
         for (const a of ro.executedActions) {
@@ -113,12 +136,17 @@ export async function buildOverview(config: ServerConfig, workspaceId: string) {
       if (r.status === 'handoff') hardHandoffs24h += 1;
       if (recentRuntimeActions.length < 25 && (
         (Array.isArray(tr.executed) && tr.executed.length) ||
+        (Array.isArray(wf.executedActions) && wf.executedActions.length) ||
+        (Array.isArray(wf.blockedActions) && wf.blockedActions.length) ||
         (Array.isArray(wf.plannedActions) && wf.plannedActions.length) ||
         (Array.isArray(tl.usedTools) && tl.usedTools.length)
       )) {
         recentRuntimeActions.push({
           run_id: r.id, created_at: r.created_at, status: r.status,
-          triggers_executed: tr.executed || [], workflows_planned: wf.plannedActions || [],
+          triggers_executed: tr.executed || [],
+          workflows_executed: wf.executedActions || [],
+          workflows_planned: wf.plannedActions || [],
+          workflows_blocked: wf.blockedActions || [],
           tools_used: tl.usedTools || [],
         });
       }
@@ -156,6 +184,13 @@ export async function buildOverview(config: ServerConfig, workspaceId: string) {
     toolExecutions24h,
     hardHandoffs24h,
     duplicateTriggersSkipped24h,
+    workflowExecuted24h,
+    workflowBlocked24h,
+    workflowSkipped24h,
+    workflowStopAi24h,
+    workflowHandoffs24h,
+    workflowMessagesSent24h,
+    workflowDuplicateSkips24h,
   };
 
   // Warnings
@@ -172,8 +207,14 @@ export async function buildOverview(config: ServerConfig, workspaceId: string) {
   if (counts.pendingLearningCandidates > 0) {
     warnings.push({ code: 'learning_candidates_pending', severity: 'info', message: `${counts.pendingLearningCandidates} learning candidate(s) awaiting review.` });
   }
-  if (counts.workflows > 0) {
-    warnings.push({ code: 'workflow_runtime_disabled', severity: 'info', message: 'Workflow runtime execution is not yet enabled. Workflows are configurable but inert.' });
+  if (counts.workflows === 0) {
+    // No active workflows — skip warning.
+  }
+  if (workflowBlocked24h > 0) {
+    warnings.push({ code: 'workflow_actions_blocked', severity: 'warn', message: `${workflowBlocked24h} workflow step(s) blocked in the last 24h (external/unsafe actions are never executed).` });
+  }
+  if (workflowDuplicateSkips24h > 0) {
+    warnings.push({ code: 'workflow_duplicate_skips', severity: 'info', message: `${workflowDuplicateSkips24h} duplicate workflow execution(s) prevented in the last 24h.` });
   }
   if (counts.tools > 0) {
     warnings.push({ code: 'mcp_runtime_disabled', severity: 'info', message: 'MCP / tool runtime execution is disabled until platform admin enables it.' });
@@ -204,7 +245,8 @@ export async function buildOverview(config: ServerConfig, workspaceId: string) {
     recentRuntimeActions,
     warnings,
     runtime: {
-      workflowExecutionEnabled: false,
+      workflowExecutionEnabled: true,
+      workflowSafeExecutionOnly: true,
       triggerExecutionEnabled: true,
       internalToolExecutionEnabled: true,
       mcpExecutionEnabled: process.env.AI_AGENT_MCP_TEST_ENABLED === '1',

@@ -1048,12 +1048,61 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
           .limit(1).maybeSingle();
 
         if (contact) {
-          const { data: existingConv } = await supabase
+          // Prefer an existing open/pending thread for this contact so
+          // returning visitors land in the same conversation instead of
+          // spawning a new one each visit.
+          let { data: existingConv } = await supabase
             .from('conversations').select('id')
             .eq('workspace_id', workspaceId).eq('contact_id', contact.id)
+            .in('status', ['open', 'pending'])
             .order('updated_at', { ascending: false }).limit(1).maybeSingle();
+          // Fallback to most recent (any status) — caller may reopen.
+          if (!existingConv) {
+            const r = await supabase
+              .from('conversations').select('id')
+              .eq('workspace_id', workspaceId).eq('contact_id', contact.id)
+              .order('updated_at', { ascending: false }).limit(1).maybeSingle();
+            existingConv = r.data || null;
+          }
           if (existingConv) {
             convId = existingConv.id;
+            await supabase.from('conversations')
+              .update({ status: 'open', updated_at: new Date().toISOString() })
+              .eq('id', convId);
+          }
+        }
+      }
+
+      // Final fallback: if we still don't have a conv but the visitor sent
+      // identity fields (email/phone), look up the contact directly and
+      // attach to their most recent open thread. Covers cross-device returns
+      // where the visitor cookie is fresh but the contact already exists.
+      if (!convId && (body.visitor_email || body.visitor_phone)) {
+        const email = (body.visitor_email || '').trim().toLowerCase() || null;
+        const phone = (body.visitor_phone || '').trim().replace(/[^\d+]/g, '') || null;
+        let contactRow: any = null;
+        if (email) {
+          const r = await supabase
+            .from('contacts').select('id')
+            .eq('workspace_id', workspaceId).eq('email', email)
+            .limit(1).maybeSingle();
+          contactRow = r.data;
+        }
+        if (!contactRow && phone) {
+          const r = await supabase
+            .from('contacts').select('id')
+            .eq('workspace_id', workspaceId).eq('phone', phone)
+            .limit(1).maybeSingle();
+          contactRow = r.data;
+        }
+        if (contactRow) {
+          const { data: openConv } = await supabase
+            .from('conversations').select('id')
+            .eq('workspace_id', workspaceId).eq('contact_id', contactRow.id)
+            .in('status', ['open', 'pending'])
+            .order('updated_at', { ascending: false }).limit(1).maybeSingle();
+          if (openConv) {
+            convId = openConv.id;
             await supabase.from('conversations')
               .update({ status: 'open', updated_at: new Date().toISOString() })
               .eq('id', convId);

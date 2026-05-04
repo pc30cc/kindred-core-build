@@ -211,6 +211,25 @@ export async function findContinuableConversation(
 
   // Prefer contact-based lookup (more reliable across devices)
   if (contactId) {
+    // For identified contacts, ALWAYS continue the most recent open/pending
+    // thread regardless of the workspace continue-window. The window is a
+    // privacy/UX guard for anonymous returns — once we've identified the
+    // visitor (email/phone), they are the same person and should land back
+    // in the same conversation. This prevents the inbox from accumulating
+    // a new conversation per visit for the same contact.
+    const { data: openConv } = await supabase
+      .from('conversations')
+      .select('id, updated_at, status')
+      .eq('workspace_id', workspaceId)
+      .eq('contact_id', contactId)
+      .in('status', ['open', 'pending'])
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (openConv) return { id: openConv.id, updatedAt: openConv.updated_at };
+
+    // No open thread → fall back to the most recent (any status) within window
+    // so a recently resolved chat can still be resumed if the window allows.
     const { data } = await supabase
       .from('conversations')
       .select('id, updated_at, status')

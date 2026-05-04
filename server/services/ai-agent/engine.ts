@@ -1177,8 +1177,9 @@ async function evaluateNoAnswerHooks(args: {
   triggerMetaRef: { get: () => any; set: (v: any) => void };
   workflowMetaRef: { get: () => any; set: (v: any) => void };
   toolMetaRef: { get: () => any; set: (v: any) => void };
-}) {
-  if (!args.runtimeCfg) return;
+}): Promise<{ handoffExecuted: boolean; lastMessageId: string | null }> {
+  const summary = { handoffExecuted: false, lastMessageId: null as string | null };
+  if (!args.runtimeCfg) return summary;
   try {
     const ctx = args.buildEvalCtx({ answerStrategy: args.strategyMeta });
     const trig = evaluateMessageTriggers(ctx, 'ai_no_answer');
@@ -1189,6 +1190,8 @@ async function evaluateNoAnswerHooks(args: {
         config: args.config, workspaceId: args.workspaceId, conversationId: args.conversationId,
         responseLanguage: args.locale, settings: args.settings, runId: null,
       }, trig.executed);
+      if (exec.handoffExecuted) summary.handoffExecuted = true;
+      if (exec.insertedMessageIds.length) summary.lastMessageId = exec.insertedMessageIds[exec.insertedMessageIds.length - 1];
       const cur = args.triggerMetaRef.get();
       args.triggerMetaRef.set({
         matched: [...cur.matched, ...trig.matchedTriggerIds.map((id, i) => ({ id, name: trig.matchedTriggerNames[i] || id }))],
@@ -1236,6 +1239,8 @@ async function evaluateNoAnswerHooks(args: {
           responseLanguage: args.locale, settings: args.settings, runId: null,
         }, tool.actions.filter((a) => a.executed));
         if (exec.handoffExecuted) args.decisionTimeline.push('tool_handoff_executed');
+        if (exec.handoffExecuted) summary.handoffExecuted = true;
+        if (exec.insertedMessageIds.length) summary.lastMessageId = exec.insertedMessageIds[exec.insertedMessageIds.length - 1];
       }
       const cur = args.toolMetaRef.get();
       args.toolMetaRef.set({
@@ -1248,4 +1253,5 @@ async function evaluateNoAnswerHooks(args: {
   } catch (err: any) {
     console.warn('[ai-agent.runtime.no_answer_hooks] failed:', err?.message || err);
   }
+  return summary;
 }

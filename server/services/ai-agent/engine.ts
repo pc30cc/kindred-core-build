@@ -1135,3 +1135,93 @@ async function applySafeRoutingSideEffects(
     }
   }
 }
+
+/**
+ * C2B — evaluate ai_no_answer triggers / workflows and (optionally) the
+ * internal handoff_to_operator tool. Mutates the provided meta refs.
+ */
+async function evaluateNoAnswerHooks(args: {
+  config: ServerConfig;
+  workspaceId: string;
+  conversationId: string;
+  locale: string;
+  settings: any;
+  buildEvalCtx: (extra?: { answerStrategy?: any }) => any;
+  runtimeCfg: any;
+  decisionTimeline: string[];
+  strategyMeta: { action: string; confidence: number | null; reason: string | null };
+  triggerMetaRef: { get: () => any; set: (v: any) => void };
+  workflowMetaRef: { get: () => any; set: (v: any) => void };
+  toolMetaRef: { get: () => any; set: (v: any) => void };
+}) {
+  if (!args.runtimeCfg) return;
+  try {
+    const ctx = args.buildEvalCtx({ answerStrategy: args.strategyMeta });
+    const trig = evaluateMessageTriggers(ctx, 'ai_no_answer');
+    if (trig.matchedTriggerIds.length) {
+      args.decisionTimeline.push('ai_no_answer_trigger_evaluated');
+      // Execute safe trigger actions for ai_no_answer (handoff/send_message).
+      const exec = await executeRuntimeActions({
+        config: args.config, workspaceId: args.workspaceId, conversationId: args.conversationId,
+        responseLanguage: args.locale, settings: args.settings, runId: null,
+      }, trig.executed);
+      const cur = args.triggerMetaRef.get();
+      args.triggerMetaRef.set({
+        matched: [...cur.matched, ...trig.matchedTriggerIds.map((id, i) => ({ id, name: trig.matchedTriggerNames[i] || id }))],
+        executed: [...cur.executed, ...trig.executed.map((a, i) => ({
+          id: a.sourceId, name: a.sourceName,
+          action_type: a.type === 'reply_template' ? 'send_message' : a.type,
+          messageId: exec.insertedMessageIds[i] || null,
+        }))],
+        planned: [...cur.planned, ...trig.planned.map((a) => ({ id: a.sourceId, name: a.sourceName, action_type: a.type, reason: a.skippedReason || a.reason || null }))],
+        skipped: [...cur.skipped, ...trig.skipped.map((a) => ({ id: a.sourceId, name: a.sourceName, reason: a.skippedReason || a.reason || null }))],
+      });
+    }
+    const wf = evaluateWorkflows(ctx, 'ai_no_answer');
+    if (wf.matchedWorkflowIds.length) {
+      args.decisionTimeline.push('workflow_evaluated');
+      if (wf.plannedActions.length) args.decisionTimeline.push('workflow_planned');
+      const wm = buildWorkflowMetadata(wf);
+      const cur = args.workflowMetaRef.get();
+      args.workflowMetaRef.set({
+        matchedWorkflowIds: [...cur.matchedWorkflowIds, ...wm.matchedWorkflowIds],
+        matchedWorkflowNames: [...cur.matchedWorkflowNames, ...wm.matchedWorkflowNames],
+        plannedActions: [...cur.plannedActions, ...wm.plannedActions],
+        skippedActions: [...cur.skippedActions, ...wm.skippedActions],
+        runtimeExecutionEnabled: false,
+      });
+      for (const pa of wm.plannedActions) {
+        const id = (pa as any).workflow_id;
+        if (id) await updateRuntimeFlags(args.config, args.conversationId, { appendWorkflowId: id }).catch(() => {});
+      }
+    }
+    // Internal tool: if handoff_to_operator is enabled, evaluate it for
+    // no-answer/handoff strategies. This is a no-op when no internal tools
+    // are configured.
+    const enabledNames = new Set((args.runtimeCfg?.internalTools || []).map((t: any) => t.name));
+    if (enabledNames.has('handoff_to_operator')) {
+      const tool = evaluateInternalTools(ctx, [{ name: 'handoff_to_operator', source: 'runtime_policy' }]);
+      if (tool.usedTools.length || tool.plannedTools.length || tool.skippedTools.length) {
+        args.decisionTimeline.push('tools_evaluated');
+      }
+      if (tool.usedTools.includes('handoff_to_operator')) {
+        // Executed by central executor. (Engine no_answer path also calls
+        // its own markNeedsHuman; safe due to dedup flags.)
+        const exec = await executeRuntimeActions({
+          config: args.config, workspaceId: args.workspaceId, conversationId: args.conversationId,
+          responseLanguage: args.locale, settings: args.settings, runId: null,
+        }, tool.actions.filter((a) => a.executed));
+        if (exec.handoffExecuted) args.decisionTimeline.push('tool_handoff_executed');
+      }
+      const cur = args.toolMetaRef.get();
+      args.toolMetaRef.set({
+        allowedTools: tool.allowedTools,
+        usedTools: Array.from(new Set([...cur.usedTools, ...tool.usedTools])),
+        plannedTools: Array.from(new Set([...cur.plannedTools, ...tool.plannedTools])),
+        skippedTools: Array.from(new Set([...cur.skippedTools, ...tool.skippedTools])),
+      });
+    }
+  } catch (err: any) {
+    console.warn('[ai-agent.runtime.no_answer_hooks] failed:', err?.message || err);
+  }
+}

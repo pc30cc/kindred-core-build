@@ -631,6 +631,7 @@ async function runInternal(
         agentLogoUrl: display.agentLogoUrl,
       });
       await markAiManaged(config, { workspaceId, conversationId }).catch(() => {});
+      await updateRuntimeFlags(config, conversationId, { greetingSent: true }).catch(() => {});
       return { ran: true, action: 'replied', runId, messageId: inserted.id };
     }
     return { ran: true, action: 'no_answer', reason: 'greeting_suggest_skipped', runId };
@@ -936,3 +937,34 @@ function pickGreeting(locale: string | undefined, _agentName: string): string {
 
 // Suppress unused-var warning for _RetrievedSource if added later
 export type { RetrievedSource };
+
+/**
+ * C2A — execute the safe non-handoff routing side-effects in-place.
+ * Currently only `mark_priority` is supported (existing column).
+ * Other actions are planned-only and already logged.
+ */
+async function applySafeRoutingSideEffects(
+  config: ServerConfig,
+  workspaceId: string,
+  conversationId: string,
+  result: { actions: Array<{ type: string; executed: boolean; payload?: any; sourceId?: string | null }> } | null,
+): Promise<void> {
+  if (!result || !conversationId) return;
+  const sb = getServiceClient(config);
+  for (const a of result.actions) {
+    if (!a.executed) continue;
+    if (a.type === 'mark_priority') {
+      const desired = (a.payload?.priority || a.payload?.level || 'high') as string;
+      try {
+        await sb
+          .from('conversations')
+          .update({ priority: desired })
+          .eq('id', conversationId)
+          .eq('workspace_id', workspaceId);
+        console.log('[ai-agent.runtime.routing] executed mark_priority', { conversationId, priority: desired });
+      } catch (err: any) {
+        console.warn('[ai-agent.runtime.routing] mark_priority failed:', err?.message || err);
+      }
+    }
+  }
+}

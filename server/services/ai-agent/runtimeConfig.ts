@@ -25,32 +25,32 @@ export interface RoutingRule {
   id: string;
   name: string;
   trigger_type: string;
-  trigger_value: string | null;
-  action: string;
-  action_target: string | null;
+  conditions_json: Record<string, unknown>;
+  action_type: string;
+  action_json: Record<string, unknown>;
   priority: number;
   enabled: boolean;
-  metadata: Record<string, unknown>;
 }
 
 export interface MessageTrigger {
   id: string;
   name: string;
-  event: string;
-  conditions: Record<string, unknown>;
+  event_type: string;
+  conditions_json: Record<string, unknown>;
   action_type: string;
-  action_payload: Record<string, unknown>;
+  action_json: Record<string, unknown>;
+  delay_seconds: number;
   enabled: boolean;
-  run_once_per_conversation: boolean;
 }
 
 export interface InternalToolRecord {
   id: string;
   name: string;
-  slug: string;
-  kind: 'internal';
+  tool_type: 'internal' | 'mcp' | 'webhook' | 'crm' | 'ticket';
+  risk_level: 'low' | 'medium' | 'high';
   enabled: boolean;
-  config: Record<string, unknown>;
+  config_json: Record<string, unknown>;
+  permissions_json: Record<string, unknown>;
 }
 
 export interface ExtendedInstructions {
@@ -119,7 +119,7 @@ export async function loadAiAgentRuntimeConfig(
         .order('priority', { ascending: true }),
       sb
         .from('ai_agent_routing_rules')
-        .select('id,name,trigger_type,trigger_value,action,action_target,priority,enabled,metadata')
+        .select('id,name,trigger_type,conditions_json,action_type,action_json,priority,enabled')
         .eq('workspace_id', workspaceId)
         .eq('enabled', true)
         .order('priority', { ascending: true }),
@@ -130,16 +130,15 @@ export async function loadAiAgentRuntimeConfig(
         .eq('enabled', true),
       sb
         .from('ai_agent_message_triggers')
-        .select('id,name,event,conditions,action_type,action_payload,enabled,run_once_per_conversation')
+        .select('id,name,event_type,conditions_json,action_type,action_json,delay_seconds,enabled')
         .eq('workspace_id', workspaceId)
-        .eq('enabled', true)
-        .order('priority', { ascending: true }),
+        .eq('enabled', true),
       sb
         .from('ai_agent_tools')
-        .select('id,name,slug,kind,enabled,config')
+        .select('id,name,tool_type,risk_level,enabled,config_json,permissions_json')
         .eq('workspace_id', workspaceId)
         .eq('enabled', true)
-        .eq('kind', 'internal'),
+        .eq('tool_type', 'internal'),
       sb
         .from('ai_knowledge_chunks')
         .select('id', { count: 'exact', head: true })

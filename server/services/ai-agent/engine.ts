@@ -484,12 +484,17 @@ async function runInternal(
 
   // ─── Branch: HANDOFF (human request) ───────────────────────────────────
   if (decision.action === 'handoff') {
-    await markHandoffRequested(config, conversationId).catch(() => {});
-    await markNeedsHuman(config, {
-      workspaceId,
-      conversationId,
-      reason: 'human_request',
-    }).catch(() => {});
+    // C2 hardening — if a trigger/tool already executed the handoff above,
+    // do not call markNeedsHuman or insert a second handoff message.
+    const handoffAlreadyDone = triggerForcesHandoff;
+    if (!handoffAlreadyDone) {
+      await markHandoffRequested(config, conversationId).catch(() => {});
+      await markNeedsHuman(config, {
+        workspaceId,
+        conversationId,
+        reason: 'human_request',
+      }).catch(() => {});
+    }
     // C2A — execute safe non-handoff routing actions (mark_priority).
     await applySafeRoutingSideEffects(config, workspaceId, conversationId, routingResult).catch(() => {});
     await updateRuntimeFlags(config, conversationId, { handoffSent: true }).catch(() => {});
@@ -512,7 +517,7 @@ async function runInternal(
     });
     // In auto-reply modes we acknowledge the handoff to the visitor.
     let messageId: string | null = null;
-    if (decision.canAutoReply || settings.mode !== 'suggest_only') {
+    if (!handoffAlreadyDone && (decision.canAutoReply || settings.mode !== 'suggest_only')) {
       const display = deriveAgentDisplay(settings);
       const ack = pickTemplate('handoff', locale);
       const inserted = await insertAiMessage(config, {
@@ -527,6 +532,9 @@ async function runInternal(
         agentLogoUrl: display.agentLogoUrl,
       });
       messageId = inserted.id;
+    } else if (handoffAlreadyDone) {
+      messageId = triggerMessageId;
+      decisionTimeline.push('handoff_message_already_sent');
     }
     return { ran: true, action: 'handoff', reason: decision.reason, runId, messageId };
   }

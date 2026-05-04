@@ -595,6 +595,13 @@ export interface OverviewResponse {
     toolExecutions24h?: number;
     hardHandoffs24h?: number;
     duplicateTriggersSkipped24h?: number;
+    workflowExecuted24h?: number;
+    workflowBlocked24h?: number;
+    workflowSkipped24h?: number;
+    workflowStopAi24h?: number;
+    workflowHandoffs24h?: number;
+    workflowMessagesSent24h?: number;
+    workflowDuplicateSkips24h?: number;
   };
   knowledgeIndex: KnowledgeIndexStatus | null;
   recentRuns: Array<{ id: string; run_type: string | null; status: string | null; mode: string | null; created_at: string; input_text: string | null; output_text: string | null; confidence: number | null }>;
@@ -606,6 +613,7 @@ export interface OverviewResponse {
     mcpExecutionEnabled: boolean;
     triggerExecutionEnabled?: boolean;
     internalToolExecutionEnabled?: boolean;
+    workflowSafeExecutionOnly?: boolean;
   };
 }
 
@@ -636,9 +644,15 @@ export interface TestRunResult {
   workflows?: {
     matchedWorkflowIds: string[];
     matchedWorkflowNames: string[];
+    wouldExecuteActions?: any[];
+    executedActions?: any[];
+    blockedActions?: any[];
     plannedActions: any[];
     skippedActions: any[];
+    stopAiWouldBe?: boolean;
     runtimeExecutionEnabled: boolean;
+    safeExecutionOnly?: boolean;
+    dryRun?: boolean;
   };
   tools?: {
     allowedTools: string[];

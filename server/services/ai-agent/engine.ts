@@ -719,7 +719,7 @@ async function runInternal(
       (strategy as any).decisionType = 'answer';
       (strategy as any).reason = `${strategy.reason || 'low_confidence'}_keep_ai`;
     } else {
-    await evaluateNoAnswerHooks({
+    const noAnsResult = await evaluateNoAnswerHooks({
       config, workspaceId, conversationId, locale, settings,
       buildEvalCtx, runtimeCfg, decisionTimeline,
       strategyMeta: { action: 'handoff', confidence: strategy.confidence, reason: strategy.reason },
@@ -744,6 +744,12 @@ async function runInternal(
     if (decision.canAutoReply) {
       const fallbackBehavior = (settings as any).fallback_behavior || 'handoff';
       if (fallbackBehavior === 'handoff') {
+        // C2 — if no_answer hooks already executed a handoff (trigger/tool),
+        // skip a second markNeedsHuman + duplicate fallback message.
+        if (noAnsResult?.handoffExecuted) {
+          decisionTimeline.push('handoff_message_already_sent');
+          return { ran: true, action: 'handoff', reason: strategy.reason, runId, messageId: noAnsResult.lastMessageId || null };
+        }
         await markHandoffRequested(config, conversationId).catch(() => {});
         await markNeedsHuman(config, {
           workspaceId,

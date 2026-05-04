@@ -520,7 +520,7 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
         .select('id, status, kb_article_id')
         .eq('workspace_id', job.workspace_id)
         .eq('locale', dedupLocale)
-        .contains('source_urls', JSON.stringify([page.url]))
+        .contains('source_urls', [page.url])
         .limit(1)
         .maybeSingle();
       if (existingDup?.id) {

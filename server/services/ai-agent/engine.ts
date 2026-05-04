@@ -340,6 +340,15 @@ async function runInternal(
       conversationId,
       reason: 'human_request',
     }).catch(() => {});
+    // C2A — execute safe non-handoff routing actions (mark_priority).
+    await applySafeRoutingSideEffects(config, workspaceId, conversationId, routingResult).catch(() => {});
+    await updateRuntimeFlags(config, conversationId, { handoffSent: true }).catch(() => {});
+    // Persist routing rule executed ids for dedup.
+    if (routingResult) {
+      for (const id of routingResult.matchedRuleIds) {
+        await updateRuntimeFlags(config, conversationId, { appendRoutingRuleId: id }).catch(() => {});
+      }
+    }
     const runId = await logRun(config, {
       workspaceId,
       conversationId,
@@ -349,12 +358,13 @@ async function runInternal(
       status: 'handoff',
       inputText: question,
       skipReason: decision.reason,
+      metadata: { ...baseRuntimeMeta(), language: languageMeta, locale },
     });
     // In auto-reply modes we acknowledge the handoff to the visitor.
     let messageId: string | null = null;
     if (decision.canAutoReply || settings.mode !== 'suggest_only') {
       const display = deriveAgentDisplay(settings);
-      const ack = pickHandoffAck(locale, display.agentName);
+      const ack = pickTemplate('handoff', locale);
       const inserted = await insertAiMessage(config, {
         workspaceId,
         conversationId,

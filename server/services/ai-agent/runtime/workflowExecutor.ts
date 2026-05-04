@@ -379,3 +379,46 @@ export function buildExecutedWorkflowMetadata(result: WorkflowExecutionResult) {
     safeExecutionOnly: true,
   };
 }
+
+/**
+ * Pure dry-run — classifies steps and reports what WOULD execute without
+ * touching the database, the AI, or the conversation. Safe for Playground.
+ */
+export function dryRunMatchedWorkflows(
+  matchResult: WorkflowEvaluationResult,
+  caps: WorkflowHostCapabilities = DEFAULT_HOST_CAPABILITIES,
+): {
+  wouldExecuteActions: ExecutedStepRecord[];
+  plannedActions: ExecutedStepRecord[];
+  blockedActions: ExecutedStepRecord[];
+  skippedActions: ExecutedStepRecord[];
+  stopAiWouldBe: boolean;
+} {
+  const out = {
+    wouldExecuteActions: [] as ExecutedStepRecord[],
+    plannedActions: [] as ExecutedStepRecord[],
+    blockedActions: [] as ExecutedStepRecord[],
+    skippedActions: [] as ExecutedStepRecord[],
+    stopAiWouldBe: false,
+  };
+  if (!matchResult?.matches?.length) return out;
+  for (const m of matchResult.matches) {
+    for (const step of m.normalizedSteps) {
+      const cls = classifyWorkflowStep(step, caps);
+      const rec: ExecutedStepRecord = {
+        workflowId: m.workflow.id, workflowName: m.workflow.name,
+        stepIndex: step.stepIndex, actionType: step.actionType,
+        capability: cls.capability, reason: cls.reason,
+      };
+      if (cls.capability === 'executed') {
+        out.wouldExecuteActions.push(rec);
+        if (step.actionType === 'handoff') out.stopAiWouldBe = true;
+        if (step.actionType === 'ask_question' && step.payload.continue_ai !== true) out.stopAiWouldBe = true;
+        if (step.actionType === 'send_message' && step.payload.continue_ai === false) out.stopAiWouldBe = true;
+      } else if (cls.capability === 'blocked') out.blockedActions.push(rec);
+      else if (cls.capability === 'skipped') out.skippedActions.push(rec);
+      else out.plannedActions.push(rec);
+    }
+  }
+  return out;
+}

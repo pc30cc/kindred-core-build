@@ -677,6 +677,15 @@ async function runInternal(
 
   // ─── Decisions that don't require an LLM call ─────────────────────────
   if (strategy.decisionType === 'no_answer_silent') {
+    // C2B — evaluate ai_no_answer triggers/workflows/tools.
+    await evaluateNoAnswerHooks({
+      config, workspaceId, conversationId, locale, settings,
+      buildEvalCtx, runtimeCfg, decisionTimeline,
+      strategyMeta: { action: 'no_answer', confidence: strategy.confidence, reason: strategy.reason },
+      triggerMetaRef: { get: () => triggerMeta, set: (v) => { triggerMeta = v; } },
+      workflowMetaRef: { get: () => workflowMeta, set: (v) => { workflowMeta = v; } },
+      toolMetaRef: { get: () => toolMeta, set: (v) => { toolMeta = v; } },
+    });
     const runId = await logRun(config, {
       workspaceId,
       conversationId,
@@ -702,6 +711,14 @@ async function runInternal(
       (strategy as any).decisionType = 'answer';
       (strategy as any).reason = `${strategy.reason || 'low_confidence'}_keep_ai`;
     } else {
+    await evaluateNoAnswerHooks({
+      config, workspaceId, conversationId, locale, settings,
+      buildEvalCtx, runtimeCfg, decisionTimeline,
+      strategyMeta: { action: 'handoff', confidence: strategy.confidence, reason: strategy.reason },
+      triggerMetaRef: { get: () => triggerMeta, set: (v) => { triggerMeta = v; } },
+      workflowMetaRef: { get: () => workflowMeta, set: (v) => { workflowMeta = v; } },
+      toolMetaRef: { get: () => toolMeta, set: (v) => { toolMeta = v; } },
+    });
     const runId = await logRun(config, {
       workspaceId,
       conversationId,

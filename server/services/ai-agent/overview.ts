@@ -76,16 +76,52 @@ export async function buildOverview(config: ServerConfig, workspaceId: string) {
 
   // Output language repairs in last 24h (metadata flag)
   let outputLanguageRepairs24h = 0;
+  // C2B runtime diagnostics
+  let triggerExecutions24h = 0;
+  let workflowPlanned24h = 0;
+  let routingHandoffs24h = 0;
+  let routingKeepAi24h = 0;
+  let toolExecutions24h = 0;
+  let hardHandoffs24h = 0;
+  let duplicateTriggersSkipped24h = 0;
+  const recentRuntimeActions: Array<Record<string, unknown>> = [];
   try {
     const { data: repairs } = await sb
       .from('ai_agent_runs')
-      .select('id, metadata')
+      .select('id, status, created_at, metadata')
       .eq('workspace_id', workspaceId)
       .gte('created_at', since24)
       .limit(1000);
     for (const r of repairs || []) {
       const m: any = r.metadata || {};
       if (m?.language?.outputRepaired || m?.outputLanguageRepaired) outputLanguageRepairs24h += 1;
+      const tr = m?.message_triggers || {};
+      const wf = m?.workflows || {};
+      const tl = m?.tools || {};
+      const ro = m?.routing || {};
+      triggerExecutions24h += Array.isArray(tr.executed) ? tr.executed.length : 0;
+      duplicateTriggersSkipped24h += Array.isArray(tr.skipped)
+        ? tr.skipped.filter((s: any) => (s?.reason || '').includes('duplicate')).length : 0;
+      workflowPlanned24h += Array.isArray(wf.plannedActions) ? wf.plannedActions.length : 0;
+      toolExecutions24h += Array.isArray(tl.usedTools) ? tl.usedTools.length : 0;
+      if (Array.isArray(ro.executedActions)) {
+        for (const a of ro.executedActions) {
+          if (a?.type === 'handoff') routingHandoffs24h += 1;
+          if (a?.type === 'keep_ai') routingKeepAi24h += 1;
+        }
+      }
+      if (r.status === 'handoff') hardHandoffs24h += 1;
+      if (recentRuntimeActions.length < 25 && (
+        (Array.isArray(tr.executed) && tr.executed.length) ||
+        (Array.isArray(wf.plannedActions) && wf.plannedActions.length) ||
+        (Array.isArray(tl.usedTools) && tl.usedTools.length)
+      )) {
+        recentRuntimeActions.push({
+          run_id: r.id, created_at: r.created_at, status: r.status,
+          triggers_executed: tr.executed || [], workflows_planned: wf.plannedActions || [],
+          tools_used: tl.usedTools || [],
+        });
+      }
     }
   } catch { /* best-effort */ }
 
@@ -113,6 +149,13 @@ export async function buildOverview(config: ServerConfig, workspaceId: string) {
     noAnswer24h: noAns24.count ?? 0,
     failed24h: failed24.count ?? 0,
     outputLanguageRepairs24h,
+    triggerExecutions24h,
+    workflowPlanned24h,
+    routingHandoffs24h,
+    routingKeepAi24h,
+    toolExecutions24h,
+    hardHandoffs24h,
+    duplicateTriggersSkipped24h,
   };
 
   // Warnings
@@ -158,9 +201,12 @@ export async function buildOverview(config: ServerConfig, workspaceId: string) {
     knowledgeIndex,
     recentRuns: recentRunsRows || [],
     recentSyncLogs: syncLogsRows || [],
+    recentRuntimeActions,
     warnings,
     runtime: {
       workflowExecutionEnabled: false,
+      triggerExecutionEnabled: true,
+      internalToolExecutionEnabled: true,
       mcpExecutionEnabled: process.env.AI_AGENT_MCP_TEST_ENABLED === '1',
     },
   };

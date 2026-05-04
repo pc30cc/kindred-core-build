@@ -324,6 +324,17 @@ export async function executeMatchedWorkflows(
             out.executedActions.push(base);
             executedAny = true;
           }
+        } else if (step.actionType === 'add_tag') {
+          const r = await executeAddTag(ctx, step);
+          if (!r.ok) {
+            base.capability = 'planned';
+            base.reason = r.reason;
+            out.plannedActions.push(base);
+          } else {
+            base.metadata = { tag: r.tag, reason: r.reason };
+            out.executedActions.push(base);
+            executedAny = true;
+          }
         } else {
           // Should not happen — classifier returned executed for an action
           // we can't actually execute. Treat as planned defensively.

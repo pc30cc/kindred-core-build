@@ -221,7 +221,16 @@ async function runInternal(
   let triggerMeta: ReturnType<typeof buildTriggerMetadata> = {
     matched: [], executed: [], planned: [], skipped: [],
   };
-  let workflowMeta: ReturnType<typeof buildWorkflowMetadata> = {
+  let workflowMeta: {
+    matchedWorkflowIds: string[];
+    matchedWorkflowNames: string[];
+    executedActions: any[];
+    blockedActions: any[];
+    plannedActions: any[];
+    skippedActions: any[];
+    runtimeExecutionEnabled: boolean;
+    safeExecutionOnly: boolean;
+  } = {
     matchedWorkflowIds: [], matchedWorkflowNames: [],
     executedActions: [], blockedActions: [],
     plannedActions: [], skippedActions: [], runtimeExecutionEnabled: true, safeExecutionOnly: true,

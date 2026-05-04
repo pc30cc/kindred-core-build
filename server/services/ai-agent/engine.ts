@@ -41,6 +41,10 @@ import { detectTopics } from './topics/detector.js';
 import { evaluateRoutingRules, buildRoutingMetadata } from './runtime/routingRuntime.js';
 import { updateRuntimeFlags } from './runtime/conversationState.js';
 import { pickTemplate } from './runtime/templates.js';
+import { evaluateMessageTriggers, buildTriggerMetadata, type TriggerEvaluationResult } from './runtime/triggerRuntime.js';
+import { evaluateWorkflows, buildWorkflowMetadata, type WorkflowEvaluationResult } from './runtime/workflowRuntime.js';
+import { evaluateInternalTools, buildToolMetadata, type ToolEvaluationResult } from './runtime/toolRuntime.js';
+import { executeRuntimeActions } from './runtime/actionExecutor.js';
 
 export interface MaybeRunInput {
   workspaceId: string;
@@ -212,10 +216,24 @@ async function runInternal(
     plannedActions: [],
     skippedActions: [],
   };
+  // C2B aggregators — populated as runtime evaluators run.
+  let triggerMeta: ReturnType<typeof buildTriggerMetadata> = {
+    matched: [], executed: [], planned: [], skipped: [],
+  };
+  let workflowMeta: ReturnType<typeof buildWorkflowMetadata> = {
+    matchedWorkflowIds: [], matchedWorkflowNames: [],
+    plannedActions: [], skippedActions: [], runtimeExecutionEnabled: false,
+  };
+  let toolMeta: ReturnType<typeof buildToolMetadata> = {
+    allowedTools: [], usedTools: [], plannedTools: [], skippedTools: [],
+  };
   const baseRuntimeMeta = () => ({
     topics: detectedTopicsMeta,
     guidance: guidanceMeta,
     routing: routingMeta,
+    message_triggers: triggerMeta,
+    workflows: workflowMeta,
+    tools: toolMeta,
     decision_timeline: decisionTimeline,
     runtime_warnings: runtimeCfg?.warnings || [],
   } as Record<string, unknown>);
@@ -255,6 +273,121 @@ async function runInternal(
     }
   }
 
+  // ─── C2B — message triggers + workflow planned (pre-retrieval) ──────
+  // Build a shared evaluation context once.
+  const buildEvalCtx = (extra?: { answerStrategy?: any }) => ({
+    workspaceId,
+    conversationId,
+    visitorMessageId,
+    visitorText: question,
+    inputLanguage,
+    responseLanguage: locale,
+    topTopic: (detectedTopicsMeta as any)?.topTopic
+      ? { slug: (detectedTopicsMeta as any).topTopic.slug, name: (detectedTopicsMeta as any).topTopic.name } as any
+      : null,
+    detectedTopics: ((detectedTopicsMeta as any)?.detectedTopics || []) as any,
+    settings,
+    runtimeConfig: runtimeCfg,
+    conversationState: state,
+    answerStrategy: extra?.answerStrategy ?? null,
+    now: Date.now(),
+  });
+
+  let triggerResult: TriggerEvaluationResult | null = null;
+  let workflowResult: WorkflowEvaluationResult | null = null;
+  if (runtimeCfg) {
+    try {
+      const isFirstVisitorMessage = (state.aiRepliesCountInConversation === 0);
+      const triggerEvents: Array<'visitor_first_message' | 'topic_detected' | 'human_requested'> = [];
+      if (isFirstVisitorMessage) triggerEvents.push('visitor_first_message');
+      if ((detectedTopicsMeta as any)?.topTopic) triggerEvents.push('topic_detected');
+      if (humanRequestFromTopics) triggerEvents.push('human_requested');
+
+      const aggExec: any[] = [];
+      const aggPlan: any[] = [];
+      const aggSkip: any[] = [];
+      const matchedAll: Array<{ id: string; name: string }> = [];
+      for (const ev of triggerEvents) {
+        const r = evaluateMessageTriggers(buildEvalCtx(), ev);
+        if (!r.matchedTriggerIds.length) continue;
+        matchedAll.push(...r.matchedTriggerIds.map((id, i) => ({ id, name: r.matchedTriggerNames[i] || id })));
+        aggExec.push(...r.executed);
+        aggPlan.push(...r.planned);
+        aggSkip.push(...r.skipped);
+        // Workflow planned matches for this same event.
+        const w = evaluateWorkflows(buildEvalCtx(), ev as any);
+        if (w.matchedWorkflowIds.length) {
+          const wm = buildWorkflowMetadata(w);
+          workflowMeta = {
+            matchedWorkflowIds: [...workflowMeta.matchedWorkflowIds, ...wm.matchedWorkflowIds],
+            matchedWorkflowNames: [...workflowMeta.matchedWorkflowNames, ...wm.matchedWorkflowNames],
+            plannedActions: [...workflowMeta.plannedActions, ...wm.plannedActions],
+            skippedActions: [...workflowMeta.skippedActions, ...wm.skippedActions],
+            runtimeExecutionEnabled: false,
+          };
+          decisionTimeline.push('workflow_evaluated');
+          if (wm.plannedActions.length) decisionTimeline.push('workflow_planned');
+          // Persist planned dedup keys so the same workflow doesn't re-plan every message.
+          for (const pa of wm.plannedActions) {
+            const key = (pa as any).workflow_id;
+            if (key) await updateRuntimeFlags(config, conversationId, { appendWorkflowId: key }).catch(() => {});
+          }
+        }
+      }
+      if (matchedAll.length) {
+        triggerMeta = {
+          matched: matchedAll,
+          executed: aggExec.map((a) => ({ id: a.sourceId, name: a.sourceName, action_type: a.type === 'reply_template' ? 'send_message' : a.type, messageId: (a.payload as any)?.messageId || null })),
+          planned: aggPlan.map((a) => ({ id: a.sourceId, name: a.sourceName, action_type: a.type, reason: a.skippedReason || a.reason || null })),
+          skipped: aggSkip.map((a) => ({ id: a.sourceId, name: a.sourceName, reason: a.skippedReason || a.reason || null })),
+        };
+        decisionTimeline.push('trigger_evaluated');
+        // Build a synthetic combined result for downstream execution.
+        triggerResult = {
+          actions: [...aggExec, ...aggPlan, ...aggSkip],
+          matchedTriggerIds: matchedAll.map((m) => m.id),
+          matchedTriggerNames: matchedAll.map((m) => m.name),
+          executed: aggExec, planned: aggPlan, skipped: aggSkip,
+        };
+      }
+    } catch (err: any) {
+      console.warn('[ai-agent.runtime.trigger] evaluation failed:', err?.message || err);
+    }
+  }
+
+  // Execute safe trigger actions BEFORE retrieval. send_message with
+  // continue_ai=false short-circuits the entire AI flow for this message.
+  let stoppedByTrigger = false;
+  let triggerMessageId: string | null = null;
+  let triggerForcesHandoff = false;
+  if (triggerResult && triggerResult.executed.length) {
+    const exec = await executeRuntimeActions({
+      config, workspaceId, conversationId,
+      responseLanguage: locale, settings, runId: null,
+    }, triggerResult.executed);
+    if (exec.insertedMessageIds.length) {
+      triggerMessageId = exec.insertedMessageIds[0];
+      decisionTimeline.push('trigger_message_sent');
+      // Refresh trigger executed messageIds in metadata.
+      triggerMeta = {
+        ...triggerMeta,
+        executed: triggerMeta.executed.map((e, i) => ({ ...e, messageId: exec.insertedMessageIds[i] || e.messageId })),
+      };
+    }
+    if (exec.handoffExecuted) {
+      triggerForcesHandoff = true;
+      decisionTimeline.push('trigger_handoff_executed');
+    }
+    // continue_ai=false on any send_message stops further AI work.
+    const blockingSend = triggerResult.executed.find(
+      (a) => a.type === 'reply_template' && (a.payload as any)?.continue_ai !== true,
+    );
+    if (blockingSend) {
+      stoppedByTrigger = true;
+      decisionTimeline.push('stopped_after_trigger_message');
+    }
+  }
+
   const decision = decideRuntime({ settings, state, availability, visitorText: question });
   // If the visitor's intent matched the configured "human-request" topic but
   // the legacy keyword check did not fire, upgrade the decision to handoff so
@@ -275,6 +408,23 @@ async function runInternal(
     (decision as any).action = 'handoff';
     (decision as any).reason = (decision as any).reason || 'routing_handoff';
     decisionTimeline.push('routing_handoff_executed');
+  }
+  // Trigger forced handoff also overrides legacy decision.
+  if (triggerForcesHandoff && decision.action !== 'skip') {
+    (decision as any).action = 'handoff';
+    (decision as any).reason = (decision as any).reason || 'trigger_handoff';
+  }
+  // If a trigger sent a static message with continue_ai=false, stop.
+  if (stoppedByTrigger && decision.action !== 'skip' && decision.action !== 'handoff') {
+    const runId = await logRun(config, {
+      workspaceId, conversationId, visitorMessageId,
+      runType: 'auto_reply', mode: settings.mode, status: 'replied',
+      inputText: question,
+      outputText: '[trigger]',
+      kbArticleIds: [], confidence: 1,
+      metadata: { ...baseRuntimeMeta(), language: languageMeta, locale, trigger_only: true },
+    });
+    return { ran: true, action: 'replied', runId, messageId: triggerMessageId };
   }
   // Routing rule with action=keep_ai prevents weak-confidence handoff.
   const routingKeepAi = !!routingResult?.keepAi;
@@ -527,6 +677,15 @@ async function runInternal(
 
   // ─── Decisions that don't require an LLM call ─────────────────────────
   if (strategy.decisionType === 'no_answer_silent') {
+    // C2B — evaluate ai_no_answer triggers/workflows/tools.
+    await evaluateNoAnswerHooks({
+      config, workspaceId, conversationId, locale, settings,
+      buildEvalCtx, runtimeCfg, decisionTimeline,
+      strategyMeta: { action: 'no_answer', confidence: strategy.confidence, reason: strategy.reason },
+      triggerMetaRef: { get: () => triggerMeta, set: (v) => { triggerMeta = v; } },
+      workflowMetaRef: { get: () => workflowMeta, set: (v) => { workflowMeta = v; } },
+      toolMetaRef: { get: () => toolMeta, set: (v) => { toolMeta = v; } },
+    });
     const runId = await logRun(config, {
       workspaceId,
       conversationId,
@@ -552,6 +711,14 @@ async function runInternal(
       (strategy as any).decisionType = 'answer';
       (strategy as any).reason = `${strategy.reason || 'low_confidence'}_keep_ai`;
     } else {
+    await evaluateNoAnswerHooks({
+      config, workspaceId, conversationId, locale, settings,
+      buildEvalCtx, runtimeCfg, decisionTimeline,
+      strategyMeta: { action: 'handoff', confidence: strategy.confidence, reason: strategy.reason },
+      triggerMetaRef: { get: () => triggerMeta, set: (v) => { triggerMeta = v; } },
+      workflowMetaRef: { get: () => workflowMeta, set: (v) => { workflowMeta = v; } },
+      toolMetaRef: { get: () => toolMeta, set: (v) => { toolMeta = v; } },
+    });
     const runId = await logRun(config, {
       workspaceId,
       conversationId,
@@ -966,5 +1133,95 @@ async function applySafeRoutingSideEffects(
         console.warn('[ai-agent.runtime.routing] mark_priority failed:', err?.message || err);
       }
     }
+  }
+}
+
+/**
+ * C2B — evaluate ai_no_answer triggers / workflows and (optionally) the
+ * internal handoff_to_operator tool. Mutates the provided meta refs.
+ */
+async function evaluateNoAnswerHooks(args: {
+  config: ServerConfig;
+  workspaceId: string;
+  conversationId: string;
+  locale: string;
+  settings: any;
+  buildEvalCtx: (extra?: { answerStrategy?: any }) => any;
+  runtimeCfg: any;
+  decisionTimeline: string[];
+  strategyMeta: { action: string; confidence: number | null; reason: string | null };
+  triggerMetaRef: { get: () => any; set: (v: any) => void };
+  workflowMetaRef: { get: () => any; set: (v: any) => void };
+  toolMetaRef: { get: () => any; set: (v: any) => void };
+}) {
+  if (!args.runtimeCfg) return;
+  try {
+    const ctx = args.buildEvalCtx({ answerStrategy: args.strategyMeta });
+    const trig = evaluateMessageTriggers(ctx, 'ai_no_answer');
+    if (trig.matchedTriggerIds.length) {
+      args.decisionTimeline.push('ai_no_answer_trigger_evaluated');
+      // Execute safe trigger actions for ai_no_answer (handoff/send_message).
+      const exec = await executeRuntimeActions({
+        config: args.config, workspaceId: args.workspaceId, conversationId: args.conversationId,
+        responseLanguage: args.locale, settings: args.settings, runId: null,
+      }, trig.executed);
+      const cur = args.triggerMetaRef.get();
+      args.triggerMetaRef.set({
+        matched: [...cur.matched, ...trig.matchedTriggerIds.map((id, i) => ({ id, name: trig.matchedTriggerNames[i] || id }))],
+        executed: [...cur.executed, ...trig.executed.map((a, i) => ({
+          id: a.sourceId, name: a.sourceName,
+          action_type: a.type === 'reply_template' ? 'send_message' : a.type,
+          messageId: exec.insertedMessageIds[i] || null,
+        }))],
+        planned: [...cur.planned, ...trig.planned.map((a) => ({ id: a.sourceId, name: a.sourceName, action_type: a.type, reason: a.skippedReason || a.reason || null }))],
+        skipped: [...cur.skipped, ...trig.skipped.map((a) => ({ id: a.sourceId, name: a.sourceName, reason: a.skippedReason || a.reason || null }))],
+      });
+    }
+    const wf = evaluateWorkflows(ctx, 'ai_no_answer');
+    if (wf.matchedWorkflowIds.length) {
+      args.decisionTimeline.push('workflow_evaluated');
+      if (wf.plannedActions.length) args.decisionTimeline.push('workflow_planned');
+      const wm = buildWorkflowMetadata(wf);
+      const cur = args.workflowMetaRef.get();
+      args.workflowMetaRef.set({
+        matchedWorkflowIds: [...cur.matchedWorkflowIds, ...wm.matchedWorkflowIds],
+        matchedWorkflowNames: [...cur.matchedWorkflowNames, ...wm.matchedWorkflowNames],
+        plannedActions: [...cur.plannedActions, ...wm.plannedActions],
+        skippedActions: [...cur.skippedActions, ...wm.skippedActions],
+        runtimeExecutionEnabled: false,
+      });
+      for (const pa of wm.plannedActions) {
+        const id = (pa as any).workflow_id;
+        if (id) await updateRuntimeFlags(args.config, args.conversationId, { appendWorkflowId: id }).catch(() => {});
+      }
+    }
+    // Internal tool: if handoff_to_operator is enabled, evaluate it for
+    // no-answer/handoff strategies. This is a no-op when no internal tools
+    // are configured.
+    const enabledNames = new Set((args.runtimeCfg?.internalTools || []).map((t: any) => t.name));
+    if (enabledNames.has('handoff_to_operator')) {
+      const tool = evaluateInternalTools(ctx, [{ name: 'handoff_to_operator', source: 'runtime_policy' }]);
+      if (tool.usedTools.length || tool.plannedTools.length || tool.skippedTools.length) {
+        args.decisionTimeline.push('tools_evaluated');
+      }
+      if (tool.usedTools.includes('handoff_to_operator')) {
+        // Executed by central executor. (Engine no_answer path also calls
+        // its own markNeedsHuman; safe due to dedup flags.)
+        const exec = await executeRuntimeActions({
+          config: args.config, workspaceId: args.workspaceId, conversationId: args.conversationId,
+          responseLanguage: args.locale, settings: args.settings, runId: null,
+        }, tool.actions.filter((a) => a.executed));
+        if (exec.handoffExecuted) args.decisionTimeline.push('tool_handoff_executed');
+      }
+      const cur = args.toolMetaRef.get();
+      args.toolMetaRef.set({
+        allowedTools: tool.allowedTools,
+        usedTools: Array.from(new Set([...cur.usedTools, ...tool.usedTools])),
+        plannedTools: Array.from(new Set([...cur.plannedTools, ...tool.plannedTools])),
+        skippedTools: Array.from(new Set([...cur.skippedTools, ...tool.skippedTools])),
+      });
+    }
+  } catch (err: any) {
+    console.warn('[ai-agent.runtime.no_answer_hooks] failed:', err?.message || err);
   }
 }

@@ -43,6 +43,17 @@ export interface MessageTrigger {
   enabled: boolean;
 }
 
+export interface WorkflowRecord {
+  id: string;
+  name: string;
+  description: string | null;
+  trigger_json: Record<string, unknown>;
+  steps_json: unknown;
+  enabled: boolean;
+  status: string;
+  version: number;
+}
+
 export interface InternalToolRecord {
   id: string;
   name: string;
@@ -83,6 +94,7 @@ export interface AiAgentRuntimeConfig {
   routingRules: RoutingRule[];
   topics: TopicRecord[];
   messageTriggers: MessageTrigger[];
+  workflows: WorkflowRecord[];
   internalTools: InternalToolRecord[];
   knowledgeStatus: KnowledgeStatusSummary;
   warnings: string[];
@@ -109,7 +121,7 @@ export async function loadAiAgentRuntimeConfig(
   const settings = await getOrCreateSettings(config, workspaceId);
   const warnings: string[] = [];
 
-  const [guidanceRes, routingRes, topicsRes, triggersRes, toolsRes, kbStatsRes] =
+  const [guidanceRes, routingRes, topicsRes, triggersRes, workflowsRes, toolsRes, allEnabledToolsRes, kbStatsRes] =
     await Promise.all([
       sb
         .from('ai_agent_guidance_rules')
@@ -134,11 +146,22 @@ export async function loadAiAgentRuntimeConfig(
         .eq('workspace_id', workspaceId)
         .eq('enabled', true),
       sb
+        .from('ai_agent_workflows')
+        .select('id,name,description,trigger_json,steps_json,enabled,status,version')
+        .eq('workspace_id', workspaceId)
+        .eq('enabled', true)
+        .eq('status', 'active'),
+      sb
         .from('ai_agent_tools')
         .select('id,name,tool_type,risk_level,enabled,config_json,permissions_json')
         .eq('workspace_id', workspaceId)
         .eq('enabled', true)
         .eq('tool_type', 'internal'),
+      sb
+        .from('ai_agent_tools')
+        .select('id,tool_type,enabled')
+        .eq('workspace_id', workspaceId)
+        .eq('enabled', true),
       sb
         .from('ai_knowledge_chunks')
         .select('id', { count: 'exact', head: true })
@@ -154,6 +177,20 @@ export async function loadAiAgentRuntimeConfig(
   if (!knowledgeStatus.hasEmbeddings) warnings.push('no_knowledge_chunks_indexed');
   if (!settings.enabled) warnings.push('agent_disabled');
 
+  const workflows = (workflowsRes.data || []) as WorkflowRecord[];
+  if (workflows.length) warnings.push('workflows_planned_only');
+  const externalEnabledTools = (allEnabledToolsRes.data || []).filter(
+    (t: any) => t.tool_type && t.tool_type !== 'internal',
+  );
+  if (externalEnabledTools.length) warnings.push('external_tools_runtime_disabled');
+  const triggersList = (triggersRes.data || []) as MessageTrigger[];
+  const SUPPORTED_TRIGGER_ACTIONS = new Set([
+    'send_message', 'handoff', 'start_workflow', 'assign', 'tag', 'internal_note',
+  ]);
+  if (triggersList.some((t) => !SUPPORTED_TRIGGER_ACTIONS.has(t.action_type))) {
+    warnings.push('unsupported_trigger_actions');
+  }
+
   const instructions: ExtendedInstructions = (settings.instructions as any) || {};
 
   const out: AiAgentRuntimeConfig = {
@@ -162,7 +199,8 @@ export async function loadAiAgentRuntimeConfig(
     guidanceRules: (guidanceRes.data || []) as GuidanceRule[],
     routingRules: (routingRes.data || []) as RoutingRule[],
     topics: (topicsRes.data || []) as TopicRecord[],
-    messageTriggers: (triggersRes.data || []) as MessageTrigger[],
+    messageTriggers: triggersList,
+    workflows,
     internalTools: (toolsRes.data || []) as InternalToolRecord[],
     knowledgeStatus,
     warnings,

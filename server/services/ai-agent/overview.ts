@@ -76,16 +76,52 @@ export async function buildOverview(config: ServerConfig, workspaceId: string) {
 
   // Output language repairs in last 24h (metadata flag)
   let outputLanguageRepairs24h = 0;
+  // C2B runtime diagnostics
+  let triggerExecutions24h = 0;
+  let workflowPlanned24h = 0;
+  let routingHandoffs24h = 0;
+  let routingKeepAi24h = 0;
+  let toolExecutions24h = 0;
+  let hardHandoffs24h = 0;
+  let duplicateTriggersSkipped24h = 0;
+  const recentRuntimeActions: Array<Record<string, unknown>> = [];
   try {
     const { data: repairs } = await sb
       .from('ai_agent_runs')
-      .select('id, metadata')
+      .select('id, status, created_at, metadata')
       .eq('workspace_id', workspaceId)
       .gte('created_at', since24)
       .limit(1000);
     for (const r of repairs || []) {
       const m: any = r.metadata || {};
       if (m?.language?.outputRepaired || m?.outputLanguageRepaired) outputLanguageRepairs24h += 1;
+      const tr = m?.message_triggers || {};
+      const wf = m?.workflows || {};
+      const tl = m?.tools || {};
+      const ro = m?.routing || {};
+      triggerExecutions24h += Array.isArray(tr.executed) ? tr.executed.length : 0;
+      duplicateTriggersSkipped24h += Array.isArray(tr.skipped)
+        ? tr.skipped.filter((s: any) => (s?.reason || '').includes('duplicate')).length : 0;
+      workflowPlanned24h += Array.isArray(wf.plannedActions) ? wf.plannedActions.length : 0;
+      toolExecutions24h += Array.isArray(tl.usedTools) ? tl.usedTools.length : 0;
+      if (Array.isArray(ro.executedActions)) {
+        for (const a of ro.executedActions) {
+          if (a?.type === 'handoff') routingHandoffs24h += 1;
+          if (a?.type === 'keep_ai') routingKeepAi24h += 1;
+        }
+      }
+      if (r.status === 'handoff') hardHandoffs24h += 1;
+      if (recentRuntimeActions.length < 25 && (
+        (Array.isArray(tr.executed) && tr.executed.length) ||
+        (Array.isArray(wf.plannedActions) && wf.plannedActions.length) ||
+        (Array.isArray(tl.usedTools) && tl.usedTools.length)
+      )) {
+        recentRuntimeActions.push({
+          run_id: r.id, created_at: r.created_at, status: r.status,
+          triggers_executed: tr.executed || [], workflows_planned: wf.plannedActions || [],
+          tools_used: tl.usedTools || [],
+        });
+      }
     }
   } catch { /* best-effort */ }
 
@@ -113,6 +149,13 @@ export async function buildOverview(config: ServerConfig, workspaceId: string) {
     noAnswer24h: noAns24.count ?? 0,
     failed24h: failed24.count ?? 0,
     outputLanguageRepairs24h,
+    triggerExecutions24h,
+    workflowPlanned24h,
+    routingHandoffs24h,
+    routingKeepAi24h,
+    toolExecutions24h,
+    hardHandoffs24h,
+    duplicateTriggersSkipped24h,
   };
 
   // Warnings
@@ -158,9 +201,12 @@ export async function buildOverview(config: ServerConfig, workspaceId: string) {
     knowledgeIndex,
     recentRuns: recentRunsRows || [],
     recentSyncLogs: syncLogsRows || [],
+    recentRuntimeActions,
     warnings,
     runtime: {
       workflowExecutionEnabled: false,
+      triggerExecutionEnabled: true,
+      internalToolExecutionEnabled: true,
       mcpExecutionEnabled: process.env.AI_AGENT_MCP_TEST_ENABLED === '1',
     },
   };
@@ -180,6 +226,9 @@ export async function runDryRun(
   const { detectTopics } = await import('./topics/detector.js');
   const { loadAiAgentRuntimeConfig } = await import('./runtimeConfig.js');
   const { evaluateRoutingRules, buildRoutingMetadata } = await import('./runtime/routingRuntime.js');
+  const { evaluateMessageTriggers, buildTriggerMetadata } = await import('./runtime/triggerRuntime.js');
+  const { evaluateWorkflows, buildWorkflowMetadata } = await import('./runtime/workflowRuntime.js');
+  const { evaluateInternalTools, buildToolMetadata } = await import('./runtime/toolRuntime.js');
 
   const langDetail = detectInputLanguageDetailed(input.message);
   const detectedLang = langDetail.language;
@@ -215,24 +264,58 @@ export async function runDryRun(
   if (routingResult.matchedRuleIds.length) decisionTimeline.push('routing_evaluated');
   if (routingResult.hardHandoff) decisionTimeline.push('routing_handoff_executed');
 
-  // Message triggers — surface event matches (no execution)
-  const { data: triggerRows } = await sb
-    .from('ai_agent_message_triggers').select('*')
-    .eq('workspace_id', input.workspaceId).eq('enabled', true);
-  const triggersMatched = (triggerRows || [])
-    .filter((t) => t.event_type === 'visitor_first_message' || t.event_type === 'topic_detected')
-    .map((t) => ({ id: t.id, name: t.name, event_type: t.event_type, action_type: t.action_type }));
+  // C2B — triggers / workflows / tools using the runtime evaluators.
+  const ctxBase = {
+    workspaceId: input.workspaceId,
+    conversationId: null,
+    visitorText: input.message,
+    inputLanguage: detectedLang || 'en',
+    responseLanguage: input.visitorLocale || detectedLang || 'en',
+    topTopic: topTopic as any,
+    detectedTopics: (topicResult.detectedTopics || []) as any,
+    settings,
+    runtimeConfig: runtimeCfg,
+    conversationState: null,
+    currentPageUrl: input.pageUrl || null,
+    answerStrategy: null,
+    now: Date.now(),
+  };
+  const triggerEvents: Array<'visitor_first_message' | 'topic_detected' | 'human_requested'> = ['visitor_first_message'];
+  if ((topicResult.detectedTopics || []).length) triggerEvents.push('topic_detected');
+  if ((topTopic as any)?.slug === 'human-request') triggerEvents.push('human_requested');
 
-  // Workflow matches (by trigger.event)
-  const { data: workflowRows } = await sb
-    .from('ai_agent_workflows').select('id,name,trigger_json,status,enabled')
-    .eq('workspace_id', input.workspaceId).eq('enabled', true);
-  const workflowMatches = (workflowRows || [])
-    .filter((w) => {
-      const ev = (w.trigger_json as any)?.event;
-      return ev === 'visitor_first_message' || ev === 'topic_detected';
-    })
-    .map((w) => ({ id: w.id, name: w.name, status: w.status }));
+  let triggerMatched: any[] = [];
+  let triggerExec: any[] = [];
+  let triggerPlan: any[] = [];
+  let triggerSkip: any[] = [];
+  let workflowMeta: any = { matchedWorkflowIds: [], matchedWorkflowNames: [], plannedActions: [], skippedActions: [], runtimeExecutionEnabled: false };
+  for (const ev of triggerEvents) {
+    const r = evaluateMessageTriggers(ctxBase as any, ev);
+    const meta = buildTriggerMetadata(r);
+    triggerMatched = [...triggerMatched, ...meta.matched];
+    triggerExec = [...triggerExec, ...meta.executed];
+    triggerPlan = [...triggerPlan, ...meta.planned];
+    triggerSkip = [...triggerSkip, ...meta.skipped];
+    if (r.matchedTriggerIds.length) decisionTimeline.push('trigger_evaluated');
+    const w = evaluateWorkflows(ctxBase as any, ev as any);
+    const wm = buildWorkflowMetadata(w);
+    workflowMeta = {
+      matchedWorkflowIds: [...workflowMeta.matchedWorkflowIds, ...wm.matchedWorkflowIds],
+      matchedWorkflowNames: [...workflowMeta.matchedWorkflowNames, ...wm.matchedWorkflowNames],
+      plannedActions: [...workflowMeta.plannedActions, ...wm.plannedActions],
+      skippedActions: [...workflowMeta.skippedActions, ...wm.skippedActions],
+      runtimeExecutionEnabled: false,
+    };
+    if (w.matchedWorkflowIds.length) decisionTimeline.push('workflow_evaluated');
+    if (w.plannedActions.length) decisionTimeline.push('workflow_planned');
+  }
+  // Tools — show what would be allowed; mark handoff_to_operator for human_requested.
+  const requestedTools: Array<{ name: string; source: any }> = [];
+  if ((topTopic as any)?.slug === 'human-request') requestedTools.push({ name: 'handoff_to_operator', source: 'runtime_policy' });
+  if (routingResult.actions.some((a) => a.type === 'mark_priority' && a.executed)) requestedTools.push({ name: 'mark_priority', source: 'routing_rule' });
+  const toolRes = evaluateInternalTools(ctxBase as any, requestedTools);
+  const toolMeta = buildToolMetadata(toolRes);
+  if (requestedTools.length) decisionTimeline.push('tools_evaluated');
 
   // Retrieval (real, but read-only)
   const { retrieveSources } = await import('./retrieval.js');
@@ -268,11 +351,19 @@ export async function runDryRun(
       id, name: routingMeta.matchedRuleNames[i] || id,
     })),
     routing: routingMeta,
+    messageTriggers: {
+      matched: triggerMatched, executed: triggerExec, planned: triggerPlan, skipped: triggerSkip,
+    },
+    workflows: workflowMeta,
+    tools: toolMeta,
+    executedActionsDryRun: triggerExec,
     plannedActions: [...routingMeta.plannedActions],
     finalAction: decision.action,
     decisionTimeline,
-    workflowMatches,
-    messageTriggersMatched: triggersMatched,
+    workflowMatches: workflowMeta.matchedWorkflowIds.map((id: string, i: number) => ({
+      id, name: workflowMeta.matchedWorkflowNames[i] || id, status: 'active',
+    })),
+    messageTriggersMatched: triggerMatched.map((m: any) => ({ id: m.id, name: m.name })),
     answerStrategy: { action: decision.action, reason: decision.reason ?? null, confidence: decision.confidence },
     finalAnswer: null,
     runtime: {

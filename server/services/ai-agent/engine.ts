@@ -528,7 +528,7 @@ async function runInternal(
       skipReason: strategy.reason,
       kbArticleIds: sources.filter((s) => s.kind === 'kb_article').map((s) => s.id),
       confidence: strategy.confidence,
-      metadata: { ...baseRuntimeMeta, answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta },
+      metadata: { ...baseRuntimeMeta(), answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta },
     });
     return { ran: true, action: 'no_answer', reason: strategy.reason, runId };
   }
@@ -545,7 +545,7 @@ async function runInternal(
       skipReason: strategy.reason,
       kbArticleIds: sources.filter((s) => s.kind === 'kb_article').map((s) => s.id),
       confidence: strategy.confidence,
-      metadata: { ...baseRuntimeMeta, answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta },
+      metadata: { ...baseRuntimeMeta(), answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta },
     });
 
     if (decision.canAutoReply) {
@@ -591,7 +591,7 @@ async function runInternal(
       outputText: body,
       kbArticleIds: [],
       confidence: 1,
-      metadata: { ...baseRuntimeMeta, answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta, greeting: true },
+      metadata: { ...baseRuntimeMeta(), answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta, greeting: true },
     });
     if (decision.canAutoReply) {
       const inserted = await insertAiMessage(config, {
@@ -630,7 +630,7 @@ async function runInternal(
       errorMessage: 'no_ai_provider_configured',
       kbArticleIds: sources.filter((s) => s.kind === 'kb_article').map((s) => s.id),
       confidence: strategy.confidence,
-      metadata: { ...baseRuntimeMeta, answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta },
+      metadata: { ...baseRuntimeMeta(), answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta },
     });
     return { ran: true, action: 'failed', reason: 'no_ai_provider_configured', runId };
   }
@@ -721,7 +721,7 @@ async function runInternal(
       model: aiConfig.model,
       kbArticleIds: sources.filter((s) => s.kind === 'kb_article').map((s) => s.id),
       confidence: strategy.confidence,
-      metadata: { ...baseRuntimeMeta, answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta },
+      metadata: { ...baseRuntimeMeta(), answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta },
     });
     return { ran: true, action: 'failed', reason: err?.message || 'ai_call_failed', runId };
   }
@@ -750,7 +750,7 @@ async function runInternal(
       completionTokens: aiResult.completionTokens,
       kbArticleIds: sources.filter((s) => s.kind === 'kb_article').map((s) => s.id),
       confidence: strategy.confidence,
-      metadata: { ...baseRuntimeMeta, answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta },
+      metadata: { ...baseRuntimeMeta(), answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta },
     });
     if (decision.canAutoReply) {
       await markHandoffRequested(config, conversationId).catch(() => {});
@@ -800,7 +800,7 @@ async function runInternal(
       kbArticleIds: kbIds,
       confidence: strategy.confidence,
       metadata: {
-        ...baseRuntimeMeta,
+        ...baseRuntimeMeta(),
         latencyMs: aiResult.latencyMs,
         locale,
         qnaIds,
@@ -852,7 +852,7 @@ async function runInternal(
     kbArticleIds: kbIds,
     confidence: strategy.confidence,
     metadata: {
-      ...baseRuntimeMeta,
+      ...baseRuntimeMeta(),
       latencyMs: aiResult.latencyMs,
       locale,
       qnaIds,

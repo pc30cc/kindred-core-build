@@ -22,6 +22,8 @@ export interface ConversationState {
   aiState: string | null;
   managedByAi: boolean;
   humanTakeoverAt: string | null;
+  /** Raw conversation.metadata — read-only consumers (C2 runtime flags). */
+  _metadata?: Record<string, unknown> | null;
 }
 
 export async function getConversationState(
@@ -109,6 +111,7 @@ export async function getConversationState(
     aiState,
     managedByAi,
     humanTakeoverAt,
+    _metadata: meta || null,
   };
 }
 

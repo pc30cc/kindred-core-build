@@ -38,6 +38,9 @@ import { loadWorkspaceContext } from './workspaceContext.js';
 import { maybeCreateLearningCandidateFromAiSkip } from './learning/candidates.js';
 import { loadAiAgentRuntimeConfig } from './runtimeConfig.js';
 import { detectTopics } from './topics/detector.js';
+import { evaluateRoutingRules, buildRoutingMetadata } from './runtime/routingRuntime.js';
+import { updateRuntimeFlags } from './runtime/conversationState.js';
+import { pickTemplate } from './runtime/templates.js';
 
 export interface MaybeRunInput {
   workspaceId: string;
@@ -200,18 +203,57 @@ async function runInternal(
   if (runtimeCfg?.guidanceRules.length) decisionTimeline.push('guidance_loaded');
 
   // Helper to enrich every logRun call below with the new metadata bundles.
-  const baseRuntimeMeta = {
+  // `routing` is filled in once routing rules are evaluated (after we have
+  // conversation state). Until then, defaults to an empty bundle.
+  let routingMeta: ReturnType<typeof buildRoutingMetadata> = {
+    matchedRuleIds: [],
+    matchedRuleNames: [],
+    executedActions: [],
+    plannedActions: [],
+    skippedActions: [],
+  };
+  const baseRuntimeMeta = () => ({
     topics: detectedTopicsMeta,
     guidance: guidanceMeta,
+    routing: routingMeta,
     decision_timeline: decisionTimeline,
     runtime_warnings: runtimeCfg?.warnings || [],
-  } as Record<string, unknown>;
+  } as Record<string, unknown>);
 
   // Gather state in parallel — runtime policy needs all three.
   const [state, availability] = await Promise.all([
     getConversationState(config, workspaceId, conversationId),
     getOperatorAvailability(config, workspaceId, locale),
   ]);
+
+  // ─── C2A — evaluate routing rules ────────────────────────────────────
+  // Pure evaluation. Side-effects (handoff, mark_priority) executed below.
+  let routingResult: ReturnType<typeof evaluateRoutingRules> | null = null;
+  if (runtimeCfg?.routingRules?.length) {
+    try {
+      const topTopic = (detectedTopicsMeta as any)?.topTopic
+        ? { slug: (detectedTopicsMeta as any).topTopic.slug, name: (detectedTopicsMeta as any).topTopic.name } as any
+        : null;
+      routingResult = evaluateRoutingRules({
+        workspaceId,
+        conversationId,
+        visitorMessageId,
+        visitorText: question,
+        inputLanguage,
+        responseLanguage: locale,
+        topTopic,
+        detectedTopics: ((detectedTopicsMeta as any)?.detectedTopics || []) as any,
+        settings,
+        runtimeConfig: runtimeCfg,
+        conversationState: state,
+        now: Date.now(),
+      });
+      routingMeta = buildRoutingMetadata(routingResult);
+      decisionTimeline.push('routing_evaluated');
+    } catch (err: any) {
+      console.warn('[ai-agent.runtime.routing] evaluation failed:', err?.message || err);
+    }
+  }
 
   const decision = decideRuntime({ settings, state, availability, visitorText: question });
   // If the visitor's intent matched the configured "human-request" topic but
@@ -227,6 +269,16 @@ async function runInternal(
     (decision as any).reason = 'human_request';
     decisionTimeline.push('immediate_intent_human_request');
   }
+
+  // Routing rule with action=handoff overrides the legacy decision.
+  if (routingResult?.hardHandoff && decision.action !== 'skip') {
+    (decision as any).action = 'handoff';
+    (decision as any).reason = (decision as any).reason || 'routing_handoff';
+    decisionTimeline.push('routing_handoff_executed');
+  }
+  // Routing rule with action=keep_ai prevents weak-confidence handoff.
+  const routingKeepAi = !!routingResult?.keepAi;
+
   console.log('[ai-agent] policy decision', {
     conversationId,
     mode: settings.mode,
@@ -234,6 +286,9 @@ async function runInternal(
     reason: decision.reason,
     availability: availability.state,
     topTopic: topTopicSlug,
+    routingMatched: routingResult?.matchedRuleIds.length || 0,
+    routingHardHandoff: !!routingResult?.hardHandoff,
+    routingKeepAi,
   });
 
   // ─── Branch: SKIP ──────────────────────────────────────────────────────
@@ -285,6 +340,15 @@ async function runInternal(
       conversationId,
       reason: 'human_request',
     }).catch(() => {});
+    // C2A — execute safe non-handoff routing actions (mark_priority).
+    await applySafeRoutingSideEffects(config, workspaceId, conversationId, routingResult).catch(() => {});
+    await updateRuntimeFlags(config, conversationId, { handoffSent: true }).catch(() => {});
+    // Persist routing rule executed ids for dedup.
+    if (routingResult) {
+      for (const id of routingResult.matchedRuleIds) {
+        await updateRuntimeFlags(config, conversationId, { appendRoutingRuleId: id }).catch(() => {});
+      }
+    }
     const runId = await logRun(config, {
       workspaceId,
       conversationId,
@@ -294,12 +358,13 @@ async function runInternal(
       status: 'handoff',
       inputText: question,
       skipReason: decision.reason,
+      metadata: { ...baseRuntimeMeta(), language: languageMeta, locale },
     });
     // In auto-reply modes we acknowledge the handoff to the visitor.
     let messageId: string | null = null;
     if (decision.canAutoReply || settings.mode !== 'suggest_only') {
       const display = deriveAgentDisplay(settings);
-      const ack = pickHandoffAck(locale, display.agentName);
+      const ack = pickTemplate('handoff', locale);
       const inserted = await insertAiMessage(config, {
         workspaceId,
         conversationId,
@@ -473,12 +538,20 @@ async function runInternal(
       skipReason: strategy.reason,
       kbArticleIds: sources.filter((s) => s.kind === 'kb_article').map((s) => s.id),
       confidence: strategy.confidence,
-      metadata: { ...baseRuntimeMeta, answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta },
+      metadata: { ...baseRuntimeMeta(), answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta },
     });
     return { ran: true, action: 'no_answer', reason: strategy.reason, runId };
   }
 
   if (strategy.decisionType === 'handoff') {
+    // C2A — keep_ai routing rule prevents weak-confidence handoff escalation.
+    if (routingKeepAi) {
+      decisionTimeline.push('routing_keep_ai_overrides_handoff');
+      console.log('[ai-agent.runtime.routing] keep_ai overrides handoff', { conversationId });
+      // Fall through to LLM by treating strategy as substantive answer.
+      (strategy as any).decisionType = 'answer';
+      (strategy as any).reason = `${strategy.reason || 'low_confidence'}_keep_ai`;
+    } else {
     const runId = await logRun(config, {
       workspaceId,
       conversationId,
@@ -490,7 +563,7 @@ async function runInternal(
       skipReason: strategy.reason,
       kbArticleIds: sources.filter((s) => s.kind === 'kb_article').map((s) => s.id),
       confidence: strategy.confidence,
-      metadata: { ...baseRuntimeMeta, answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta },
+      metadata: { ...baseRuntimeMeta(), answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta },
     });
 
     if (decision.canAutoReply) {
@@ -502,8 +575,9 @@ async function runInternal(
           conversationId,
           reason: strategy.reason as any,
         }).catch(() => {});
+        await updateRuntimeFlags(config, conversationId, { handoffSent: true }).catch(() => {});
         const display = deriveAgentDisplay(settings);
-        const body = (settings.fallback_message || pickHandoffAck(locale, display.agentName));
+        const body = (settings.fallback_message || pickTemplate('no_answer_handoff', locale));
         const inserted = await insertAiMessage(config, {
           workspaceId,
           conversationId,
@@ -519,6 +593,7 @@ async function runInternal(
       }
     }
     return { ran: true, action: 'no_answer', reason: strategy.reason, runId };
+    }
   }
 
   // ─── Branch: GREETING (no LLM, no retrieval needed) ────────────────────
@@ -536,7 +611,7 @@ async function runInternal(
       outputText: body,
       kbArticleIds: [],
       confidence: 1,
-      metadata: { ...baseRuntimeMeta, answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta, greeting: true },
+      metadata: { ...baseRuntimeMeta(), answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta, greeting: true },
     });
     if (decision.canAutoReply) {
       const inserted = await insertAiMessage(config, {
@@ -556,6 +631,7 @@ async function runInternal(
         agentLogoUrl: display.agentLogoUrl,
       });
       await markAiManaged(config, { workspaceId, conversationId }).catch(() => {});
+      await updateRuntimeFlags(config, conversationId, { greetingSent: true }).catch(() => {});
       return { ran: true, action: 'replied', runId, messageId: inserted.id };
     }
     return { ran: true, action: 'no_answer', reason: 'greeting_suggest_skipped', runId };
@@ -575,7 +651,7 @@ async function runInternal(
       errorMessage: 'no_ai_provider_configured',
       kbArticleIds: sources.filter((s) => s.kind === 'kb_article').map((s) => s.id),
       confidence: strategy.confidence,
-      metadata: { ...baseRuntimeMeta, answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta },
+      metadata: { ...baseRuntimeMeta(), answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta },
     });
     return { ran: true, action: 'failed', reason: 'no_ai_provider_configured', runId };
   }
@@ -666,7 +742,7 @@ async function runInternal(
       model: aiConfig.model,
       kbArticleIds: sources.filter((s) => s.kind === 'kb_article').map((s) => s.id),
       confidence: strategy.confidence,
-      metadata: { ...baseRuntimeMeta, answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta },
+      metadata: { ...baseRuntimeMeta(), answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta },
     });
     return { ran: true, action: 'failed', reason: err?.message || 'ai_call_failed', runId };
   }
@@ -695,7 +771,7 @@ async function runInternal(
       completionTokens: aiResult.completionTokens,
       kbArticleIds: sources.filter((s) => s.kind === 'kb_article').map((s) => s.id),
       confidence: strategy.confidence,
-      metadata: { ...baseRuntimeMeta, answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta },
+      metadata: { ...baseRuntimeMeta(), answer_strategy: strategyMeta, locale, language: languageMeta, retrieval: queryMeta },
     });
     if (decision.canAutoReply) {
       await markHandoffRequested(config, conversationId).catch(() => {});
@@ -745,7 +821,7 @@ async function runInternal(
       kbArticleIds: kbIds,
       confidence: strategy.confidence,
       metadata: {
-        ...baseRuntimeMeta,
+        ...baseRuntimeMeta(),
         latencyMs: aiResult.latencyMs,
         locale,
         qnaIds,
@@ -797,7 +873,7 @@ async function runInternal(
     kbArticleIds: kbIds,
     confidence: strategy.confidence,
     metadata: {
-      ...baseRuntimeMeta,
+      ...baseRuntimeMeta(),
       latencyMs: aiResult.latencyMs,
       locale,
       qnaIds,
@@ -861,3 +937,34 @@ function pickGreeting(locale: string | undefined, _agentName: string): string {
 
 // Suppress unused-var warning for _RetrievedSource if added later
 export type { RetrievedSource };
+
+/**
+ * C2A — execute the safe non-handoff routing side-effects in-place.
+ * Currently only `mark_priority` is supported (existing column).
+ * Other actions are planned-only and already logged.
+ */
+async function applySafeRoutingSideEffects(
+  config: ServerConfig,
+  workspaceId: string,
+  conversationId: string,
+  result: { actions: Array<{ type: string; executed: boolean; payload?: any; sourceId?: string | null }> } | null,
+): Promise<void> {
+  if (!result || !conversationId) return;
+  const sb = getServiceClient(config);
+  for (const a of result.actions) {
+    if (!a.executed) continue;
+    if (a.type === 'mark_priority') {
+      const desired = (a.payload?.priority || a.payload?.level || 'high') as string;
+      try {
+        await sb
+          .from('conversations')
+          .update({ priority: desired })
+          .eq('id', conversationId)
+          .eq('workspace_id', workspaceId);
+        console.log('[ai-agent.runtime.routing] executed mark_priority', { conversationId, priority: desired });
+      } catch (err: any) {
+        console.warn('[ai-agent.runtime.routing] mark_priority failed:', err?.message || err);
+      }
+    }
+  }
+}

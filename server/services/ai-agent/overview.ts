@@ -178,35 +178,42 @@ export async function runDryRun(
   const sb = getServiceClient(config);
   const { detectInputLanguageDetailed } = await import('./language.js');
   const { detectTopics } = await import('./topics/detector.js');
+  const { loadAiAgentRuntimeConfig } = await import('./runtimeConfig.js');
+  const { evaluateRoutingRules, buildRoutingMetadata } = await import('./runtime/routingRuntime.js');
 
   const langDetail = detectInputLanguageDetailed(input.message);
   const detectedLang = langDetail.language;
+  const decisionTimeline: string[] = ['runtime_config_loaded', 'conversation_state_loaded'];
+
+  // Load full runtime config (cached) so the dry-run uses the same evaluators.
+  const runtimeCfg = await loadAiAgentRuntimeConfig(config, input.workspaceId).catch(() => null);
 
   // Topics
   const { data: topicRows } = await sb
     .from('ai_agent_topics').select('*')
     .eq('workspace_id', input.workspaceId).eq('enabled', true);
   const topicResult = detectTopics(input.message, (topicRows || []) as any[]);
+  if (topicResult.detectedTopics?.length) decisionTimeline.push('topics_detected');
 
-  // Routing rules — surface matches by trigger semantics (no execution)
-  const { data: routingRows } = await sb
-    .from('ai_agent_routing_rules').select('*')
-    .eq('workspace_id', input.workspaceId).eq('enabled', true)
-    .order('priority', { ascending: true });
-  const routingMatched: any[] = [];
-  for (const r of routingRows || []) {
-    let matched = false;
-    if (r.trigger_type === 'human_request') {
-      if (/operator|human|agent|وصل|انسان|پشتیبان|اپراتور|insan|destek|temsilci/i.test(input.message)) matched = true;
-    } else if (r.trigger_type === 'topic_detected') {
-      const slug = (r.conditions_json as any)?.topic_slug;
-      if (slug && topicResult.detectedTopics?.some((t) => t.slug === slug)) matched = true;
-    } else if (r.trigger_type === 'language') {
-      const target = (r.conditions_json as any)?.language;
-      if (target && detectedLang === target) matched = true;
-    }
-    if (matched) routingMatched.push({ id: r.id, name: r.name, trigger_type: r.trigger_type, action_type: r.action_type });
-  }
+  // Routing — use the same C2 evaluator as the runtime engine.
+  const settings = await getOrCreateSettings(config, input.workspaceId);
+  const topTopic = topicResult.detectedTopics?.[0] || null;
+  const routingResult = evaluateRoutingRules({
+    workspaceId: input.workspaceId,
+    conversationId: null,
+    visitorText: input.message,
+    inputLanguage: detectedLang || 'en',
+    responseLanguage: input.visitorLocale || detectedLang || 'en',
+    topTopic: topTopic as any,
+    detectedTopics: (topicResult.detectedTopics || []) as any,
+    settings,
+    runtimeConfig: runtimeCfg,
+    conversationState: null,
+    now: Date.now(),
+  });
+  const routingMeta = buildRoutingMetadata(routingResult);
+  if (routingResult.matchedRuleIds.length) decisionTimeline.push('routing_evaluated');
+  if (routingResult.hardHandoff) decisionTimeline.push('routing_handoff_executed');
 
   // Message triggers — surface event matches (no execution)
   const { data: triggerRows } = await sb
@@ -229,12 +236,16 @@ export async function runDryRun(
 
   // Retrieval (real, but read-only)
   const { retrieveSources } = await import('./retrieval.js');
-  const sources = await retrieveSources(config, input.workspaceId, input.message, detectedLang || 'en', 5);
+  const sources = routingResult.hardHandoff
+    ? []
+    : await retrieveSources(config, input.workspaceId, input.message, detectedLang || 'en', 5);
 
   // Decision
-  const settings = await getOrCreateSettings(config, input.workspaceId);
   const { decide } = await import('./policy.js');
-  const decision = decide({ settings, question: input.message, sources });
+  const decision = routingResult.hardHandoff
+    ? { action: 'handoff' as const, reason: 'routing_handoff', confidence: 0.95 }
+    : decide({ settings, question: input.message, sources });
+  decisionTimeline.push('answer_strategy_selected');
 
   // Final answer preview is left empty in dry-run (no LLM call).
   // Operators can use the existing Playground for a real LLM completion.
@@ -245,6 +256,7 @@ export async function runDryRun(
   return {
     language: { detected: detectedLang, confidence: langDetail.confidence, mixed: langDetail.mixed },
     topics: topicResult,
+    guidanceRulesApplied: (runtimeCfg?.guidanceRules || []).map((g) => ({ id: g.id, title: g.title, type: g.type })),
     retrieval: {
       query: input.message,
       sourceCount: sources.length,
@@ -252,7 +264,13 @@ export async function runDryRun(
     selectedSources: sources.map((s) => ({
       id: s.id, kind: s.kind, title: s.title, slug: s.slug ?? null, locale: s.locale ?? null, score: Number(s.score.toFixed(3)),
     })),
-    routingRulesMatched: routingMatched,
+    routingRulesMatched: routingMeta.matchedRuleIds.map((id, i) => ({
+      id, name: routingMeta.matchedRuleNames[i] || id,
+    })),
+    routing: routingMeta,
+    plannedActions: [...routingMeta.plannedActions],
+    finalAction: decision.action,
+    decisionTimeline,
     workflowMatches,
     messageTriggersMatched: triggersMatched,
     answerStrategy: { action: decision.action, reason: decision.reason ?? null, confidence: decision.confidence },

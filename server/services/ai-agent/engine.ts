@@ -543,7 +543,7 @@ async function runInternal(
   if (decision.action === 'handoff') {
     // C2 hardening — if a trigger/tool already executed the handoff above,
     // do not call markNeedsHuman or insert a second handoff message.
-    const handoffAlreadyDone = triggerForcesHandoff;
+    const handoffAlreadyDone = triggerForcesHandoff || workflowHandoffExecuted;
     if (!handoffAlreadyDone) {
       await markHandoffRequested(config, conversationId).catch(() => {});
       await markNeedsHuman(config, {
@@ -590,7 +590,7 @@ async function runInternal(
       });
       messageId = inserted.id;
     } else if (handoffAlreadyDone) {
-      messageId = triggerMessageId;
+      messageId = triggerMessageId || workflowMessageId;
       decisionTimeline.push('handoff_message_already_sent');
     }
     return { ran: true, action: 'handoff', reason: decision.reason, runId, messageId };

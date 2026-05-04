@@ -43,6 +43,17 @@ export interface MessageTrigger {
   enabled: boolean;
 }
 
+export interface WorkflowRecord {
+  id: string;
+  name: string;
+  description: string | null;
+  trigger_json: Record<string, unknown>;
+  steps_json: unknown;
+  enabled: boolean;
+  status: string;
+  version: number;
+}
+
 export interface InternalToolRecord {
   id: string;
   name: string;
@@ -83,6 +94,7 @@ export interface AiAgentRuntimeConfig {
   routingRules: RoutingRule[];
   topics: TopicRecord[];
   messageTriggers: MessageTrigger[];
+  workflows: WorkflowRecord[];
   internalTools: InternalToolRecord[];
   knowledgeStatus: KnowledgeStatusSummary;
   warnings: string[];

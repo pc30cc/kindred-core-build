@@ -779,6 +779,15 @@ async function runInternal(
 
   // ─── Branch: GREETING (no LLM, no retrieval needed) ────────────────────
   if (strategy.decisionType === 'greeting') {
+    // C2 dedup — if we already greeted this visitor, fall through to LLM.
+    const flagsForGreet = (state._metadata as any) || {};
+    if (flagsForGreet.ai_greeting_sent === true) {
+      decisionTimeline.push('greeting_skipped_duplicate');
+      console.log('[ai-agent.runtime] greeting skipped — already greeted', { conversationId });
+      // Fall through to LLM by treating as substantive answer.
+      (strategy as any).decisionType = 'answer';
+      (strategy as any).reason = `${strategy.reason || 'greeting'}_dedup`;
+    } else {
     const display = deriveAgentDisplay(settings);
     const body = pickGreeting(locale, display.agentName);
     const runId = await logRun(config, {
@@ -816,6 +825,7 @@ async function runInternal(
       return { ran: true, action: 'replied', runId, messageId: inserted.id };
     }
     return { ran: true, action: 'no_answer', reason: 'greeting_suggest_skipped', runId };
+    }
   }
 
   // ─── LLM call ─────────────────────────────────────────────────────────

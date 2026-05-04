@@ -273,6 +273,121 @@ async function runInternal(
     }
   }
 
+  // ─── C2B — message triggers + workflow planned (pre-retrieval) ──────
+  // Build a shared evaluation context once.
+  const buildEvalCtx = (extra?: { answerStrategy?: any }) => ({
+    workspaceId,
+    conversationId,
+    visitorMessageId,
+    visitorText: question,
+    inputLanguage,
+    responseLanguage: locale,
+    topTopic: (detectedTopicsMeta as any)?.topTopic
+      ? { slug: (detectedTopicsMeta as any).topTopic.slug, name: (detectedTopicsMeta as any).topTopic.name } as any
+      : null,
+    detectedTopics: ((detectedTopicsMeta as any)?.detectedTopics || []) as any,
+    settings,
+    runtimeConfig: runtimeCfg,
+    conversationState: state,
+    answerStrategy: extra?.answerStrategy ?? null,
+    now: Date.now(),
+  });
+
+  let triggerResult: TriggerEvaluationResult | null = null;
+  let workflowResult: WorkflowEvaluationResult | null = null;
+  if (runtimeCfg) {
+    try {
+      const isFirstVisitorMessage = (state.aiRepliesCountInConversation === 0);
+      const triggerEvents: Array<'visitor_first_message' | 'topic_detected' | 'human_requested'> = [];
+      if (isFirstVisitorMessage) triggerEvents.push('visitor_first_message');
+      if ((detectedTopicsMeta as any)?.topTopic) triggerEvents.push('topic_detected');
+      if (humanRequestFromTopics) triggerEvents.push('human_requested');
+
+      const aggExec: any[] = [];
+      const aggPlan: any[] = [];
+      const aggSkip: any[] = [];
+      const matchedAll: Array<{ id: string; name: string }> = [];
+      for (const ev of triggerEvents) {
+        const r = evaluateMessageTriggers(buildEvalCtx(), ev);
+        if (!r.matchedTriggerIds.length) continue;
+        matchedAll.push(...r.matchedTriggerIds.map((id, i) => ({ id, name: r.matchedTriggerNames[i] || id })));
+        aggExec.push(...r.executed);
+        aggPlan.push(...r.planned);
+        aggSkip.push(...r.skipped);
+        // Workflow planned matches for this same event.
+        const w = evaluateWorkflows(buildEvalCtx(), ev as any);
+        if (w.matchedWorkflowIds.length) {
+          const wm = buildWorkflowMetadata(w);
+          workflowMeta = {
+            matchedWorkflowIds: [...workflowMeta.matchedWorkflowIds, ...wm.matchedWorkflowIds],
+            matchedWorkflowNames: [...workflowMeta.matchedWorkflowNames, ...wm.matchedWorkflowNames],
+            plannedActions: [...workflowMeta.plannedActions, ...wm.plannedActions],
+            skippedActions: [...workflowMeta.skippedActions, ...wm.skippedActions],
+            runtimeExecutionEnabled: false,
+          };
+          decisionTimeline.push('workflow_evaluated');
+          if (wm.plannedActions.length) decisionTimeline.push('workflow_planned');
+          // Persist planned dedup keys so the same workflow doesn't re-plan every message.
+          for (const pa of wm.plannedActions) {
+            const key = (pa as any).workflow_id;
+            if (key) await updateRuntimeFlags(config, conversationId, { appendWorkflowId: key }).catch(() => {});
+          }
+        }
+      }
+      if (matchedAll.length) {
+        triggerMeta = {
+          matched: matchedAll,
+          executed: aggExec.map((a) => ({ id: a.sourceId, name: a.sourceName, action_type: a.type === 'reply_template' ? 'send_message' : a.type, messageId: (a.payload as any)?.messageId || null })),
+          planned: aggPlan.map((a) => ({ id: a.sourceId, name: a.sourceName, action_type: a.type, reason: a.skippedReason || a.reason || null })),
+          skipped: aggSkip.map((a) => ({ id: a.sourceId, name: a.sourceName, reason: a.skippedReason || a.reason || null })),
+        };
+        decisionTimeline.push('trigger_evaluated');
+        // Build a synthetic combined result for downstream execution.
+        triggerResult = {
+          actions: [...aggExec, ...aggPlan, ...aggSkip],
+          matchedTriggerIds: matchedAll.map((m) => m.id),
+          matchedTriggerNames: matchedAll.map((m) => m.name),
+          executed: aggExec, planned: aggPlan, skipped: aggSkip,
+        };
+      }
+    } catch (err: any) {
+      console.warn('[ai-agent.runtime.trigger] evaluation failed:', err?.message || err);
+    }
+  }
+
+  // Execute safe trigger actions BEFORE retrieval. send_message with
+  // continue_ai=false short-circuits the entire AI flow for this message.
+  let stoppedByTrigger = false;
+  let triggerMessageId: string | null = null;
+  let triggerForcesHandoff = false;
+  if (triggerResult && triggerResult.executed.length) {
+    const exec = await executeRuntimeActions({
+      config, workspaceId, conversationId,
+      responseLanguage: locale, settings, runId: null,
+    }, triggerResult.executed);
+    if (exec.insertedMessageIds.length) {
+      triggerMessageId = exec.insertedMessageIds[0];
+      decisionTimeline.push('trigger_message_sent');
+      // Refresh trigger executed messageIds in metadata.
+      triggerMeta = {
+        ...triggerMeta,
+        executed: triggerMeta.executed.map((e, i) => ({ ...e, messageId: exec.insertedMessageIds[i] || e.messageId })),
+      };
+    }
+    if (exec.handoffExecuted) {
+      triggerForcesHandoff = true;
+      decisionTimeline.push('trigger_handoff_executed');
+    }
+    // continue_ai=false on any send_message stops further AI work.
+    const blockingSend = triggerResult.executed.find(
+      (a) => a.type === 'reply_template' && (a.payload as any)?.continue_ai !== true,
+    );
+    if (blockingSend) {
+      stoppedByTrigger = true;
+      decisionTimeline.push('stopped_after_trigger_message');
+    }
+  }
+
   const decision = decideRuntime({ settings, state, availability, visitorText: question });
   // If the visitor's intent matched the configured "human-request" topic but
   // the legacy keyword check did not fire, upgrade the decision to handoff so
@@ -293,6 +408,23 @@ async function runInternal(
     (decision as any).action = 'handoff';
     (decision as any).reason = (decision as any).reason || 'routing_handoff';
     decisionTimeline.push('routing_handoff_executed');
+  }
+  // Trigger forced handoff also overrides legacy decision.
+  if (triggerForcesHandoff && decision.action !== 'skip') {
+    (decision as any).action = 'handoff';
+    (decision as any).reason = (decision as any).reason || 'trigger_handoff';
+  }
+  // If a trigger sent a static message with continue_ai=false, stop.
+  if (stoppedByTrigger && decision.action !== 'skip' && decision.action !== 'handoff') {
+    const runId = await logRun(config, {
+      workspaceId, conversationId, visitorMessageId,
+      runType: 'auto_reply', mode: settings.mode, status: 'replied',
+      inputText: question,
+      outputText: '[trigger]',
+      kbArticleIds: [], confidence: 1,
+      metadata: { ...baseRuntimeMeta(), language: languageMeta, locale, trigger_only: true },
+    });
+    return { ran: true, action: 'replied', runId, messageId: triggerMessageId };
   }
   // Routing rule with action=keep_ai prevents weak-confidence handoff.
   const routingKeepAi = !!routingResult?.keepAi;

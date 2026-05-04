@@ -588,22 +588,70 @@ export interface OverviewResponse {
     noAnswer24h: number;
     failed24h: number;
     outputLanguageRepairs24h: number;
+    triggerExecutions24h?: number;
+    workflowPlanned24h?: number;
+    routingHandoffs24h?: number;
+    routingKeepAi24h?: number;
+    toolExecutions24h?: number;
+    hardHandoffs24h?: number;
+    duplicateTriggersSkipped24h?: number;
   };
   knowledgeIndex: KnowledgeIndexStatus | null;
   recentRuns: Array<{ id: string; run_type: string | null; status: string | null; mode: string | null; created_at: string; input_text: string | null; output_text: string | null; confidence: number | null }>;
   recentSyncLogs: Array<{ id: string; source_id: string; status: string; message: string | null; pages_found: number; chunks_created: number; embedded_chunks: number; errors: number; created_at: string }>;
+  recentRuntimeActions?: Array<Record<string, unknown>>;
   warnings: Array<{ code: string; severity: 'info' | 'warn' | 'error'; message: string }>;
-  runtime: { workflowExecutionEnabled: boolean; mcpExecutionEnabled: boolean };
+  runtime: {
+    workflowExecutionEnabled: boolean;
+    mcpExecutionEnabled: boolean;
+    triggerExecutionEnabled?: boolean;
+    internalToolExecutionEnabled?: boolean;
+  };
 }
 
 export interface TestRunResult {
-  language: { detected: string; confidence: number };
-  topics: { detectedTopics: Array<{ id: string; name: string; slug: string; confidence: number; matchedKeywords: string[]; matchedExamples: string[] }>; language: string; explanation: string };
+  language: { detected: string; confidence: number; mixed?: boolean };
+  topics: {
+    detectedTopics: Array<{ id?: string; name: string; slug: string; confidence: number; matchedKeywords?: string[]; matchedExamples?: string[]; action?: string }>;
+    language?: string;
+    explanation?: string;
+  };
+  guidanceRulesApplied?: Array<{ id: string; title: string; type: string }>;
   retrieval: { query: string; sourceCount: number };
   selectedSources: Array<{ id: string; kind: string; title: string; slug: string | null; locale: string | null; score: number }>;
-  routingRulesMatched: Array<{ id: string; name: string; trigger_type: string; action_type: string }>;
+  routingRulesMatched: Array<{ id: string; name: string; trigger_type?: string; action_type?: string }>;
+  routing?: {
+    matchedRuleIds: string[];
+    matchedRuleNames: string[];
+    executedActions: any[];
+    plannedActions: any[];
+    skippedActions: any[];
+  };
+  messageTriggers?: {
+    matched: Array<{ id: string; name: string }>;
+    executed: any[];
+    planned: any[];
+    skipped: any[];
+  };
+  workflows?: {
+    matchedWorkflowIds: string[];
+    matchedWorkflowNames: string[];
+    plannedActions: any[];
+    skippedActions: any[];
+    runtimeExecutionEnabled: boolean;
+  };
+  tools?: {
+    allowedTools: string[];
+    usedTools: string[];
+    plannedTools: string[];
+    skippedTools: string[];
+  };
   workflowMatches: Array<{ id: string; name: string; status: string }>;
-  messageTriggersMatched: Array<{ id: string; name: string; event_type: string; action_type: string }>;
+  messageTriggersMatched: Array<{ id: string; name: string; event_type?: string; action_type?: string }>;
+  decisionTimeline?: string[];
+  plannedActions?: any[];
+  executedActionsDryRun?: any[];
+  finalAction?: string;
   answerStrategy: { action: string; reason: string | null; confidence: number };
   finalAnswer: string | null;
   runtime: { conversationCreated: boolean; workflowExecutionEnabled: boolean; mcpExecutionEnabled: boolean };

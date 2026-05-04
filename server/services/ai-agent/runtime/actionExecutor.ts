@@ -14,7 +14,7 @@ import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
 import type { RuntimeAction } from './types.js';
 import { insertAiMessage, deriveAgentDisplay } from '../responder.js';
-import { markNeedsHuman } from '../handoffState.js';
+import { markNeedsHuman, readAiConversationMeta } from '../handoffState.js';
 import { markHandoffRequested } from '../conversationState.js';
 import { updateRuntimeFlags } from './conversationState.js';
 import { pickTemplate } from './templates.js';
@@ -84,6 +84,30 @@ export async function executeRuntimeActions(
 
     if (a.type === 'handoff' || (a.type === 'tool_executed' && a.sourceName === 'handoff_to_operator')) {
       try {
+        // Idempotency: if a handoff/takeover is already recorded, do not insert
+        // another handoff message. We still mark dedup flag so downstream sees it.
+        const current = await readAiConversationMeta(ctx.config, ctx.conversationId).catch(() => null);
+        const alreadyHandoff =
+          !!current && (
+            current.state === 'needs_human' ||
+            current.state === 'human_active' ||
+            current.handoff_requested === true ||
+            !!current.human_takeover_at ||
+            (current.metadata as any)?.ai_handoff_sent === true
+          );
+        if (alreadyHandoff) {
+          await updateRuntimeFlags(ctx.config, ctx.conversationId, { handoffSent: true }).catch(() => {});
+          if (a.source === 'message_trigger' && a.sourceId) {
+            await updateRuntimeFlags(ctx.config, ctx.conversationId, {
+              appendTriggerId: a.sourceId,
+            }).catch(() => {});
+            result.triggerExecutedIds.push(a.sourceId);
+          }
+          if (a.type === 'tool_executed') result.toolUsedNames.push('handoff_to_operator');
+          result.handoffExecuted = true;
+          console.log('[ai-agent.runtime.executor] handoff skipped — already in handoff/takeover state', { conversationId: ctx.conversationId });
+          continue;
+        }
         await markHandoffRequested(ctx.config, ctx.conversationId).catch(() => {});
         await markNeedsHuman(ctx.config, {
           workspaceId: ctx.workspaceId,
@@ -120,7 +144,10 @@ export async function executeRuntimeActions(
     }
 
     if (a.type === 'mark_priority' || (a.type === 'tool_executed' && a.sourceName === 'mark_priority')) {
-      const desired = ((a.payload as any)?.priority || (a.payload as any)?.level || 'high') as string;
+      const raw = String((a.payload as any)?.priority || (a.payload as any)?.level || 'high').toLowerCase();
+      // conversation_priority enum: low | normal | high | urgent
+      const ALLOWED = new Set(['low', 'normal', 'high', 'urgent']);
+      const desired = ALLOWED.has(raw) ? raw : 'high';
       try {
         const sb = getServiceClient(ctx.config);
         await sb.from('conversations').update({ priority: desired })

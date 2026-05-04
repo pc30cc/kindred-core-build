@@ -484,12 +484,17 @@ async function runInternal(
 
   // ─── Branch: HANDOFF (human request) ───────────────────────────────────
   if (decision.action === 'handoff') {
-    await markHandoffRequested(config, conversationId).catch(() => {});
-    await markNeedsHuman(config, {
-      workspaceId,
-      conversationId,
-      reason: 'human_request',
-    }).catch(() => {});
+    // C2 hardening — if a trigger/tool already executed the handoff above,
+    // do not call markNeedsHuman or insert a second handoff message.
+    const handoffAlreadyDone = triggerForcesHandoff;
+    if (!handoffAlreadyDone) {
+      await markHandoffRequested(config, conversationId).catch(() => {});
+      await markNeedsHuman(config, {
+        workspaceId,
+        conversationId,
+        reason: 'human_request',
+      }).catch(() => {});
+    }
     // C2A — execute safe non-handoff routing actions (mark_priority).
     await applySafeRoutingSideEffects(config, workspaceId, conversationId, routingResult).catch(() => {});
     await updateRuntimeFlags(config, conversationId, { handoffSent: true }).catch(() => {});
@@ -512,7 +517,7 @@ async function runInternal(
     });
     // In auto-reply modes we acknowledge the handoff to the visitor.
     let messageId: string | null = null;
-    if (decision.canAutoReply || settings.mode !== 'suggest_only') {
+    if (!handoffAlreadyDone && (decision.canAutoReply || settings.mode !== 'suggest_only')) {
       const display = deriveAgentDisplay(settings);
       const ack = pickTemplate('handoff', locale);
       const inserted = await insertAiMessage(config, {
@@ -527,6 +532,9 @@ async function runInternal(
         agentLogoUrl: display.agentLogoUrl,
       });
       messageId = inserted.id;
+    } else if (handoffAlreadyDone) {
+      messageId = triggerMessageId;
+      decisionTimeline.push('handoff_message_already_sent');
     }
     return { ran: true, action: 'handoff', reason: decision.reason, runId, messageId };
   }
@@ -711,7 +719,7 @@ async function runInternal(
       (strategy as any).decisionType = 'answer';
       (strategy as any).reason = `${strategy.reason || 'low_confidence'}_keep_ai`;
     } else {
-    await evaluateNoAnswerHooks({
+    const noAnsResult = await evaluateNoAnswerHooks({
       config, workspaceId, conversationId, locale, settings,
       buildEvalCtx, runtimeCfg, decisionTimeline,
       strategyMeta: { action: 'handoff', confidence: strategy.confidence, reason: strategy.reason },
@@ -736,6 +744,12 @@ async function runInternal(
     if (decision.canAutoReply) {
       const fallbackBehavior = (settings as any).fallback_behavior || 'handoff';
       if (fallbackBehavior === 'handoff') {
+        // C2 — if no_answer hooks already executed a handoff (trigger/tool),
+        // skip a second markNeedsHuman + duplicate fallback message.
+        if (noAnsResult?.handoffExecuted) {
+          decisionTimeline.push('handoff_message_already_sent');
+          return { ran: true, action: 'handoff', reason: strategy.reason, runId, messageId: noAnsResult.lastMessageId || null };
+        }
         await markHandoffRequested(config, conversationId).catch(() => {});
         await markNeedsHuman(config, {
           workspaceId,
@@ -765,6 +779,15 @@ async function runInternal(
 
   // ─── Branch: GREETING (no LLM, no retrieval needed) ────────────────────
   if (strategy.decisionType === 'greeting') {
+    // C2 dedup — if we already greeted this visitor, fall through to LLM.
+    const flagsForGreet = (state._metadata as any) || {};
+    if (flagsForGreet.ai_greeting_sent === true) {
+      decisionTimeline.push('greeting_skipped_duplicate');
+      console.log('[ai-agent.runtime] greeting skipped — already greeted', { conversationId });
+      // Fall through to LLM by treating as substantive answer.
+      (strategy as any).decisionType = 'answer';
+      (strategy as any).reason = `${strategy.reason || 'greeting'}_dedup`;
+    } else {
     const display = deriveAgentDisplay(settings);
     const body = pickGreeting(locale, display.agentName);
     const runId = await logRun(config, {
@@ -802,6 +825,7 @@ async function runInternal(
       return { ran: true, action: 'replied', runId, messageId: inserted.id };
     }
     return { ran: true, action: 'no_answer', reason: 'greeting_suggest_skipped', runId };
+    }
   }
 
   // ─── LLM call ─────────────────────────────────────────────────────────
@@ -1153,8 +1177,9 @@ async function evaluateNoAnswerHooks(args: {
   triggerMetaRef: { get: () => any; set: (v: any) => void };
   workflowMetaRef: { get: () => any; set: (v: any) => void };
   toolMetaRef: { get: () => any; set: (v: any) => void };
-}) {
-  if (!args.runtimeCfg) return;
+}): Promise<{ handoffExecuted: boolean; lastMessageId: string | null }> {
+  const summary = { handoffExecuted: false, lastMessageId: null as string | null };
+  if (!args.runtimeCfg) return summary;
   try {
     const ctx = args.buildEvalCtx({ answerStrategy: args.strategyMeta });
     const trig = evaluateMessageTriggers(ctx, 'ai_no_answer');
@@ -1165,6 +1190,8 @@ async function evaluateNoAnswerHooks(args: {
         config: args.config, workspaceId: args.workspaceId, conversationId: args.conversationId,
         responseLanguage: args.locale, settings: args.settings, runId: null,
       }, trig.executed);
+      if (exec.handoffExecuted) summary.handoffExecuted = true;
+      if (exec.insertedMessageIds.length) summary.lastMessageId = exec.insertedMessageIds[exec.insertedMessageIds.length - 1];
       const cur = args.triggerMetaRef.get();
       args.triggerMetaRef.set({
         matched: [...cur.matched, ...trig.matchedTriggerIds.map((id, i) => ({ id, name: trig.matchedTriggerNames[i] || id }))],
@@ -1212,6 +1239,8 @@ async function evaluateNoAnswerHooks(args: {
           responseLanguage: args.locale, settings: args.settings, runId: null,
         }, tool.actions.filter((a) => a.executed));
         if (exec.handoffExecuted) args.decisionTimeline.push('tool_handoff_executed');
+        if (exec.handoffExecuted) summary.handoffExecuted = true;
+        if (exec.insertedMessageIds.length) summary.lastMessageId = exec.insertedMessageIds[exec.insertedMessageIds.length - 1];
       }
       const cur = args.toolMetaRef.get();
       args.toolMetaRef.set({
@@ -1224,4 +1253,5 @@ async function evaluateNoAnswerHooks(args: {
   } catch (err: any) {
     console.warn('[ai-agent.runtime.no_answer_hooks] failed:', err?.message || err);
   }
+  return summary;
 }

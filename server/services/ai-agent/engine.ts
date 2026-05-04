@@ -45,6 +45,7 @@ import { evaluateMessageTriggers, buildTriggerMetadata, type TriggerEvaluationRe
 import { evaluateWorkflows, buildWorkflowMetadata, type WorkflowEvaluationResult } from './runtime/workflowRuntime.js';
 import { evaluateInternalTools, buildToolMetadata, type ToolEvaluationResult } from './runtime/toolRuntime.js';
 import { executeRuntimeActions } from './runtime/actionExecutor.js';
+import { executeMatchedWorkflows, buildExecutedWorkflowMetadata, type WorkflowExecutionResult } from './runtime/workflowExecutor.js';
 
 export interface MaybeRunInput {
   workspaceId: string;
@@ -220,9 +221,19 @@ async function runInternal(
   let triggerMeta: ReturnType<typeof buildTriggerMetadata> = {
     matched: [], executed: [], planned: [], skipped: [],
   };
-  let workflowMeta: ReturnType<typeof buildWorkflowMetadata> = {
+  let workflowMeta: {
+    matchedWorkflowIds: string[];
+    matchedWorkflowNames: string[];
+    executedActions: any[];
+    blockedActions: any[];
+    plannedActions: any[];
+    skippedActions: any[];
+    runtimeExecutionEnabled: boolean;
+    safeExecutionOnly: boolean;
+  } = {
     matchedWorkflowIds: [], matchedWorkflowNames: [],
-    plannedActions: [], skippedActions: [], runtimeExecutionEnabled: false,
+    executedActions: [], blockedActions: [],
+    plannedActions: [], skippedActions: [], runtimeExecutionEnabled: true, safeExecutionOnly: true,
   };
   let toolMeta: ReturnType<typeof buildToolMetadata> = {
     allowedTools: [], usedTools: [], plannedTools: [], skippedTools: [],
@@ -295,6 +306,10 @@ async function runInternal(
 
   let triggerResult: TriggerEvaluationResult | null = null;
   let workflowResult: WorkflowEvaluationResult | null = null;
+  // Pass D — aggregated execution state across all workflow events fired pre-retrieval.
+  let workflowStopAi = false;
+  let workflowHandoffExecuted = false;
+  let workflowMessageId: string | null = null;
   if (runtimeCfg) {
     try {
       const isFirstVisitorMessage = (state.aiRepliesCountInConversation === 0);
@@ -314,24 +329,58 @@ async function runInternal(
         aggExec.push(...r.executed);
         aggPlan.push(...r.planned);
         aggSkip.push(...r.skipped);
-        // Workflow planned matches for this same event.
+      }
+
+      // Pass D — workflow MATCH + EXECUTE for the firing events.
+      // Always considered (not gated by trigger matches).
+      const wfEvents: Array<'visitor_first_message' | 'topic_detected' | 'human_requested'> = [];
+      if (isFirstVisitorMessage) wfEvents.push('visitor_first_message');
+      if ((detectedTopicsMeta as any)?.topTopic) wfEvents.push('topic_detected');
+      if (humanRequestFromTopics) wfEvents.push('human_requested');
+      for (const ev of wfEvents) {
         const w = evaluateWorkflows(buildEvalCtx(), ev as any);
-        if (w.matchedWorkflowIds.length) {
-          const wm = buildWorkflowMetadata(w);
-          workflowMeta = {
-            matchedWorkflowIds: [...workflowMeta.matchedWorkflowIds, ...wm.matchedWorkflowIds],
-            matchedWorkflowNames: [...workflowMeta.matchedWorkflowNames, ...wm.matchedWorkflowNames],
-            plannedActions: [...workflowMeta.plannedActions, ...wm.plannedActions],
-            skippedActions: [...workflowMeta.skippedActions, ...wm.skippedActions],
-            runtimeExecutionEnabled: false,
-          };
-          decisionTimeline.push('workflow_evaluated');
-          if (wm.plannedActions.length) decisionTimeline.push('workflow_planned');
-          // Persist planned dedup keys so the same workflow doesn't re-plan every message.
-          for (const pa of wm.plannedActions) {
-            const key = (pa as any).workflow_id;
-            if (key) await updateRuntimeFlags(config, conversationId, { appendWorkflowId: key }).catch(() => {});
-          }
+        if (!w.matchedWorkflowIds.length) continue;
+        decisionTimeline.push('workflow_matched');
+        const planMeta = buildWorkflowMetadata(w);
+        // Execute safe steps.
+        const exec = await executeMatchedWorkflows(
+          {
+            config, workspaceId, conversationId,
+            responseLanguage: locale, inputLanguage,
+            settings, runId: null,
+          },
+          w,
+          buildEvalCtx(),
+        );
+        const execMeta = buildExecutedWorkflowMetadata(exec);
+        workflowMeta = {
+          matchedWorkflowIds: [...workflowMeta.matchedWorkflowIds, ...planMeta.matchedWorkflowIds],
+          matchedWorkflowNames: [...workflowMeta.matchedWorkflowNames, ...planMeta.matchedWorkflowNames],
+          executedActions: [...(workflowMeta.executedActions || []), ...execMeta.executedActions],
+          blockedActions: [...(workflowMeta.blockedActions || []), ...execMeta.blockedActions],
+          plannedActions: [
+            ...workflowMeta.plannedActions,
+            ...execMeta.plannedActions,
+            // Surface the classifier's planned/blocked steps from match step too,
+            // de-duplicated naturally because the executor already returned them.
+          ],
+          skippedActions: [...workflowMeta.skippedActions, ...execMeta.skippedActions, ...planMeta.skippedActions],
+          runtimeExecutionEnabled: true,
+          safeExecutionOnly: true,
+        };
+        if (execMeta.executedActions.length) decisionTimeline.push('workflow_step_executed');
+        if (execMeta.plannedActions.length) decisionTimeline.push('workflow_step_planned');
+        if (execMeta.blockedActions.length) decisionTimeline.push('workflow_step_blocked');
+        if (exec.handoffExecuted) {
+          workflowHandoffExecuted = true;
+          decisionTimeline.push('workflow_handoff_executed');
+        }
+        if (exec.stopAi) {
+          workflowStopAi = true;
+          decisionTimeline.push('workflow_stopped_ai');
+        }
+        if (exec.insertedMessageIds.length && !workflowMessageId) {
+          workflowMessageId = exec.insertedMessageIds[0];
         }
       }
       if (matchedAll.length) {
@@ -414,6 +463,23 @@ async function runInternal(
     (decision as any).action = 'handoff';
     (decision as any).reason = (decision as any).reason || 'trigger_handoff';
   }
+  // Pass D — workflow handoff / stopAi can also override legacy decision.
+  if (workflowHandoffExecuted && decision.action !== 'skip') {
+    (decision as any).action = 'handoff';
+    (decision as any).reason = (decision as any).reason || 'workflow_handoff';
+  }
+  // Pass D — workflow stopAi without handoff: short-circuit before retrieval.
+  if (workflowStopAi && !workflowHandoffExecuted && decision.action !== 'skip' && decision.action !== 'handoff') {
+    const runId = await logRun(config, {
+      workspaceId, conversationId, visitorMessageId,
+      runType: 'auto_reply', mode: settings.mode, status: 'replied',
+      inputText: question,
+      outputText: '[workflow]',
+      kbArticleIds: [], confidence: 1,
+      metadata: { ...baseRuntimeMeta(), language: languageMeta, locale, workflow_only: true },
+    });
+    return { ran: true, action: 'replied', runId, messageId: workflowMessageId };
+  }
   // If a trigger sent a static message with continue_ai=false, stop.
   if (stoppedByTrigger && decision.action !== 'skip' && decision.action !== 'handoff') {
     const runId = await logRun(config, {
@@ -486,7 +552,7 @@ async function runInternal(
   if (decision.action === 'handoff') {
     // C2 hardening — if a trigger/tool already executed the handoff above,
     // do not call markNeedsHuman or insert a second handoff message.
-    const handoffAlreadyDone = triggerForcesHandoff;
+    const handoffAlreadyDone = triggerForcesHandoff || workflowHandoffExecuted;
     if (!handoffAlreadyDone) {
       await markHandoffRequested(config, conversationId).catch(() => {});
       await markNeedsHuman(config, {
@@ -533,7 +599,7 @@ async function runInternal(
       });
       messageId = inserted.id;
     } else if (handoffAlreadyDone) {
-      messageId = triggerMessageId;
+      messageId = triggerMessageId || workflowMessageId;
       decisionTimeline.push('handoff_message_already_sent');
     }
     return { ran: true, action: 'handoff', reason: decision.reason, runId, messageId };
@@ -1206,21 +1272,37 @@ async function evaluateNoAnswerHooks(args: {
     }
     const wf = evaluateWorkflows(ctx, 'ai_no_answer');
     if (wf.matchedWorkflowIds.length) {
-      args.decisionTimeline.push('workflow_evaluated');
-      if (wf.plannedActions.length) args.decisionTimeline.push('workflow_planned');
-      const wm = buildWorkflowMetadata(wf);
+      args.decisionTimeline.push('workflow_matched');
+      // Pass D — execute safe workflow steps for ai_no_answer.
+      const exec = await executeMatchedWorkflows(
+        {
+          config: args.config, workspaceId: args.workspaceId, conversationId: args.conversationId,
+          responseLanguage: args.locale, settings: args.settings, runId: null,
+        },
+        wf,
+        ctx,
+      );
+      const execMeta = buildExecutedWorkflowMetadata(exec);
+      const planMeta = buildWorkflowMetadata(wf);
       const cur = args.workflowMetaRef.get();
       args.workflowMetaRef.set({
-        matchedWorkflowIds: [...cur.matchedWorkflowIds, ...wm.matchedWorkflowIds],
-        matchedWorkflowNames: [...cur.matchedWorkflowNames, ...wm.matchedWorkflowNames],
-        plannedActions: [...cur.plannedActions, ...wm.plannedActions],
-        skippedActions: [...cur.skippedActions, ...wm.skippedActions],
-        runtimeExecutionEnabled: false,
+        matchedWorkflowIds: [...cur.matchedWorkflowIds, ...planMeta.matchedWorkflowIds],
+        matchedWorkflowNames: [...cur.matchedWorkflowNames, ...planMeta.matchedWorkflowNames],
+        executedActions: [...(cur.executedActions || []), ...execMeta.executedActions],
+        blockedActions: [...(cur.blockedActions || []), ...execMeta.blockedActions],
+        plannedActions: [...cur.plannedActions, ...execMeta.plannedActions],
+        skippedActions: [...cur.skippedActions, ...execMeta.skippedActions, ...planMeta.skippedActions],
+        runtimeExecutionEnabled: true,
+        safeExecutionOnly: true,
       });
-      for (const pa of wm.plannedActions) {
-        const id = (pa as any).workflow_id;
-        if (id) await updateRuntimeFlags(args.config, args.conversationId, { appendWorkflowId: id }).catch(() => {});
+      if (execMeta.executedActions.length) args.decisionTimeline.push('workflow_step_executed');
+      if (execMeta.blockedActions.length) args.decisionTimeline.push('workflow_step_blocked');
+      if (exec.handoffExecuted) {
+        args.decisionTimeline.push('workflow_handoff_executed');
+        summary.handoffExecuted = true;
+        if (exec.insertedMessageIds.length) summary.lastMessageId = exec.insertedMessageIds[exec.insertedMessageIds.length - 1];
       }
+      if (exec.stopAi) args.decisionTimeline.push('workflow_stopped_ai');
     }
     // Internal tool: if handoff_to_operator is enabled, evaluate it for
     // no-answer/handoff strategies. This is a no-op when no internal tools

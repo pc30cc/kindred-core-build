@@ -1489,12 +1489,6 @@ aiAgentRouter.get('/data-sources/limits', async (req: Request, res: Response) =>
   return res.json({ ...resolved, jobs_used_this_month: used, worker: getWorkerInfo() });
 });
 
-// ─── Web Pages aliases (cleaner UI URLs; same logic as /data-sources) ───
-aiAgentRouter.get('/web-pages/sources', (req, res, next) => {
-  (req.query as any).sourceType = 'website';
-  req.url = '/data-sources' + (req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '');
-  next('route');
-});
 // ─── Workspace registered domain helper (read-only) ───
 aiAgentRouter.get('/workspace-domain', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;

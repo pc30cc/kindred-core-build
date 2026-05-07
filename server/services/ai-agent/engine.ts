@@ -740,6 +740,7 @@ async function runInternal(
     embedding_model: embeddingModelName,
     fallback_reason: fallbackReason,
     selected_sources: selectedSourcesMeta,
+    page_context: pageContextDebug || null,
   };
   const clarificationAttemptCount = await countClarificationAttempts(sb, conversationId);
   const strategy = decideStrategy({

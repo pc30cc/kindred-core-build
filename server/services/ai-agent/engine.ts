@@ -1049,7 +1049,10 @@ async function runInternal(
     guidanceRules: runtimeCfg?.guidanceRules,
     topicSlug: topTopicSlug,
   });
-  const userPrompt = buildUserPrompt(question, sources, strategy);
+  const userPrompt = buildUserPrompt(question, sources, strategy, {
+    pageContext: pageContext ? { currentPageUrl: pageContext.currentPageUrl, currentPageTitle: pageContext.currentPageTitle } : null,
+    pageMatched: pageExact || pagePath,
+  });
 
   let aiResult;
   try {

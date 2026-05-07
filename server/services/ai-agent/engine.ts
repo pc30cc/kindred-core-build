@@ -637,6 +637,7 @@ async function runInternal(
   let embeddingModelName: string | null = null;
   let fallbackReason: string | null = null;
   let selectedSourcesMeta: Array<Record<string, unknown>> = [];
+  let pageContextDebug: any = null;
   try {
     const hybrid = await retrieveHybridSources(config, {
       workspaceId,
@@ -646,6 +647,12 @@ async function runInternal(
       responseLanguage: locale,
       inputLanguage,
       limit: 5,
+      pageContext: pageContext ? {
+        currentPageUrl: pageContext.currentPageUrl,
+        currentPageOrigin: pageContext.currentPageOrigin,
+        currentPagePath: pageContext.currentPagePath,
+        currentPageTitle: pageContext.currentPageTitle,
+      } : null,
     });
     hybridUsed = hybrid.hybridUsed;
     vectorUsed = hybrid.vectorUsed;
@@ -653,6 +660,7 @@ async function runInternal(
     embeddingProviderName = hybrid.embeddingProvider;
     embeddingModelName = hybrid.embeddingModel;
     fallbackReason = hybrid.fallbackReason || null;
+    pageContextDebug = hybrid.pageContextDebug || null;
     selectedSourcesMeta = hybrid.sources.map((s) => ({
       id: s.source_id,
       source_type: s.source_type,
@@ -679,7 +687,11 @@ async function runInternal(
       slug: s.slug ?? null,
       locale: s.locale ?? null,
       score: s.final_score,
-    }));
+      // E2C — preserve original source_type + URL so prompt can label "Current page".
+      source_type: s.source_type,
+      source_url: s.source_url ?? null,
+      url_boost: s.url_boost,
+    } as any));
     if (!sources.length && (vectorUsed || keywordUsed)) {
       // Fall through to legacy retriever only if hybrid produced nothing AND
       // the simple keyword-only path might still find loose matches.

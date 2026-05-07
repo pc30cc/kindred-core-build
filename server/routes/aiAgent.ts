@@ -1255,9 +1255,9 @@ aiAgentRouter.post('/learning-candidates/:id/reject', async (req: Request, res: 
     })
     .eq('id', cand.id);
   // Defense-in-depth: any prior learned_qna chunk for this candidate is hard-deleted.
-  await sb.from('ai_knowledge_chunks').update({ status: 'deleted' })
+  const { count: removedStale } = await sb.from('ai_knowledge_chunks').update({ status: 'deleted' }, { count: 'exact' })
     .eq('workspace_id', cand.workspace_id).eq('source_type', 'learned_qna').eq('source_id', cand.id);
-  return res.json({ ok: true });
+  return res.json({ ok: true, removed_stale_chunks: removedStale ?? 0 });
 });
 
 // Slug helper for KB conversion. Lowercase, ascii-fold-best-effort, dedupe per workspace+locale.

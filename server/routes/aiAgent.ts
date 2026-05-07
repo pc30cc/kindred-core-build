@@ -1226,12 +1226,12 @@ async function loadCandidate(config: ServerConfig, id: string) {
 // implementations (dedupe, stale-chunk teardown, empty-answer validation).
 aiAgentRouter.post('/learning-candidates/:id/approve-qna', (req, res, next) => {
   req.url = req.url.replace('/approve-qna', '/convert-to-qna');
-  next();
+  (aiAgentRouter as any).handle(req, res, next);
 });
 aiAgentRouter.post('/learning-candidates/:id/convert-kb', (req, res, next) => {
   req.body = { ...(req.body || {}), publish: false };
   req.url = req.url.replace('/convert-kb', '/convert-to-kb');
-  next();
+  (aiAgentRouter as any).handle(req, res, next);
 });
 
 aiAgentRouter.post('/learning-candidates/:id/reject', async (req: Request, res: Response) => {

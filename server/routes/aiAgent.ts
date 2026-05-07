@@ -1024,12 +1024,22 @@ aiAgentRouter.post('/learning-candidates/:id/approve', async (req: Request, res:
   const auth = await authorizeMember(req, res, config, cand.workspace_id);
   if (!auth) return;
   if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
-  if (cand.status !== 'pending') return res.status(409).json({ error: 'not_pending', status: cand.status });
+  // Idempotent re-approve: if already approved, replace its single learned_qna
+  // chunk with the new answer text. Reject hard-conflicts with terminal states.
+  if (!['pending','approved'].includes(cand.status)) {
+    return res.status(409).json({ error: 'not_pending', status: cand.status });
+  }
   const sb = getServiceClient(config);
   const question = parsed.data.question ?? cand.question_text;
   const answer = parsed.data.final_answer;
   const locale = parsed.data.locale ?? cand.locale ?? 'en';
   const nowIso = new Date().toISOString();
+  // Wipe any prior learned_qna chunks for this candidate so re-approval is
+  // a clean replace (no duplicate / stale active chunks).
+  await sb.from('ai_knowledge_chunks').delete()
+    .eq('workspace_id', cand.workspace_id)
+    .eq('source_type', 'learned_qna')
+    .eq('source_id', cand.id);
   // Persist final_answer + status.
   await sb.from('ai_agent_learning_candidates').update({
     status: 'approved',
@@ -1082,22 +1092,39 @@ aiAgentRouter.post('/learning-candidates/:id/convert-to-qna', async (req: Reques
   const question = parsed.data.question ?? cand.question_text;
   const answer = parsed.data.answer ?? (cand.suggested_answer || cand.answer_text);
   const locale = parsed.data.locale ?? cand.locale ?? 'en';
-  const { data: qna, error: qErr } = await sb
-    .from('ai_agent_qna')
-    .insert({ workspace_id: cand.workspace_id, question, answer, locale, enabled: true })
-    .select('id').single();
-  if (qErr) return res.status(500).json({ error: qErr.message });
+  // Dedupe against existing Q&A by workspace + locale + normalized question.
+  const normalized = normalizeQuestion(question);
+  let qnaId: string | null = null;
+  let duplicate = false;
+  if (normalized) {
+    const { data: existingRows } = await sb
+      .from('ai_agent_qna')
+      .select('id, question, locale')
+      .eq('workspace_id', cand.workspace_id)
+      .eq('locale', locale)
+      .limit(2000);
+    const hit = (existingRows || []).find((r: any) => normalizeQuestion(r.question || '') === normalized);
+    if (hit) { qnaId = hit.id; duplicate = true; }
+  }
+  if (!qnaId) {
+    const { data: qna, error: qErr } = await sb
+      .from('ai_agent_qna')
+      .insert({ workspace_id: cand.workspace_id, question, answer, locale, enabled: true })
+      .select('id').single();
+    if (qErr) return res.status(500).json({ error: qErr.message });
+    qnaId = qna.id;
+  }
   await sb.from('ai_agent_learning_candidates').update({
     status: 'converted_to_qna',
     reviewed_by: auth.userId,
     reviewed_at: new Date().toISOString(),
-    metadata: { ...(cand.metadata || {}), converted_qna_id: qna.id },
+    metadata: { ...(cand.metadata || {}), converted_qna_id: qnaId, deduped_to_existing: duplicate },
   }).eq('id', cand.id);
-  // Deactivate any prior learned_qna chunk for this candidate.
-  await sb.from('ai_knowledge_chunks').update({ status: 'deleted' })
+  // Deactivate any prior learned_qna chunk for this candidate (defense-in-depth).
+  await sb.from('ai_knowledge_chunks').delete()
     .eq('workspace_id', cand.workspace_id).eq('source_type', 'learned_qna').eq('source_id', cand.id);
-  syncKnowledgeSource(config, { workspaceId: cand.workspace_id, sourceType: 'qna', sourceId: qna.id }).catch(() => {});
-  return res.json({ ok: true, qna_id: qna.id });
+  syncKnowledgeSource(config, { workspaceId: cand.workspace_id, sourceType: 'qna', sourceId: qnaId }).catch(() => {});
+  return res.json({ ok: true, qna_id: qnaId, deduped: duplicate });
 });
 
 // ─── POST /learning-candidates/:id/convert-to-kb  (replaces /convert-kb; supports publish flag) ───
@@ -1137,6 +1164,10 @@ aiAgentRouter.post('/learning-candidates/:id/convert-to-kb', async (req: Request
     reviewed_at: new Date().toISOString(),
     metadata: { ...(cand.metadata || {}), converted_kb_id: art.id, kb_published: publish },
   }).eq('id', cand.id);
+  // Always tear down the candidate's learned_qna chunks once we've handed
+  // ownership to the KB article (so retrieval doesn't return both).
+  await sb.from('ai_knowledge_chunks').delete()
+    .eq('workspace_id', cand.workspace_id).eq('source_type', 'learned_qna').eq('source_id', cand.id);
   // Only published articles enter the runtime index. Drafts stay invisible.
   if (publish) {
     syncKnowledgeSource(config, { workspaceId: cand.workspace_id, sourceType: 'kb_article', sourceId: art.id }).catch(() => {});

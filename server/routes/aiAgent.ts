@@ -1190,45 +1190,8 @@ aiAgentRouter.post('/learning-candidates/:id/convert-to-qna', async (req: Reques
   const auth = await authorizeMember(req, res, config, cand.workspace_id);
   if (!auth) return;
   if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
-  if (cand.status !== 'pending' && cand.status !== 'approved') return res.status(409).json({ error: 'not_pending', status: cand.status });
-  const sb = getServiceClient(config);
-  const question = parsed.data.question ?? cand.question_text;
-  const answer = parsed.data.answer ?? (cand.suggested_answer || cand.answer_text);
-  if (!answer || !String(answer).trim()) return res.status(400).json({ error: 'answer_required' });
-  const locale = parsed.data.locale ?? cand.locale ?? 'en';
-  // Dedupe against existing Q&A by workspace + locale + normalized question.
-  const normalized = normalizeQuestion(question);
-  let qnaId: string | null = null;
-  let duplicate = false;
-  if (normalized) {
-    const { data: existingRows } = await sb
-      .from('ai_agent_qna')
-      .select('id, question, locale')
-      .eq('workspace_id', cand.workspace_id)
-      .eq('locale', locale)
-      .limit(2000);
-    const hit = (existingRows || []).find((r: any) => normalizeQuestion(r.question || '') === normalized);
-    if (hit) { qnaId = hit.id; duplicate = true; }
-  }
-  if (!qnaId) {
-    const { data: qna, error: qErr } = await sb
-      .from('ai_agent_qna')
-      .insert({ workspace_id: cand.workspace_id, question, answer, locale, enabled: true })
-      .select('id').single();
-    if (qErr) return res.status(500).json({ error: qErr.message });
-    qnaId = qna.id;
-  }
-  await sb.from('ai_agent_learning_candidates').update({
-    status: 'converted_to_qna',
-    reviewed_by: auth.userId,
-    reviewed_at: new Date().toISOString(),
-    metadata: { ...(cand.metadata || {}), converted_qna_id: qnaId, deduped_to_existing: duplicate },
-  }).eq('id', cand.id);
-  // Defense-in-depth: tear down any prior learned_qna chunk for this candidate.
-  const { count: removedStale } = await sb.from('ai_knowledge_chunks').delete({ count: 'exact' })
-    .eq('workspace_id', cand.workspace_id).eq('source_type', 'learned_qna').eq('source_id', cand.id);
-  syncKnowledgeSource(config, { workspaceId: cand.workspace_id, sourceType: 'qna', sourceId: qnaId }).catch(() => {});
-  return res.json({ ok: true, qna_id: qnaId, deduped: duplicate, removed_stale_chunks: removedStale ?? 0 });
+  const result = await convertCandidateToQna(config, cand.id, parsed.data, { userId: auth.userId });
+  return res.status(result.status).json(result.payload);
 });
 
 // ─── POST /learning-candidates/:id/convert-to-kb  (replaces /convert-kb; supports publish flag) ───
@@ -1247,39 +1210,8 @@ aiAgentRouter.post('/learning-candidates/:id/convert-to-kb', async (req: Request
   const auth = await authorizeMember(req, res, config, cand.workspace_id);
   if (!auth) return;
   if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
-  if (cand.status !== 'pending' && cand.status !== 'approved') return res.status(409).json({ error: 'not_pending', status: cand.status });
-  const sb = getServiceClient(config);
-  const title = parsed.data.title ?? cand.suggested_title ?? (cand.question_text || '').slice(0, 120);
-  const content = parsed.data.answer ?? (cand.suggested_answer || cand.answer_text);
-  if (!content || !String(content).trim()) return res.status(400).json({ error: 'answer_required' });
-  const locale = parsed.data.locale ?? cand.locale ?? 'en';
-  const publish = !!parsed.data.publish;
-  // knowledge_base_articles.slug is NOT NULL — derive a workspace-unique slug.
-  const slug = await generateUniqueKbSlug(config, cand.workspace_id, locale, title);
-  const { data: art, error: aErr } = await sb
-    .from('knowledge_base_articles')
-    .insert({
-      workspace_id: cand.workspace_id,
-      title, content, locale, slug,
-      status: publish ? 'published' : 'draft',
-    })
-    .select('id').single();
-  if (aErr) return res.status(500).json({ error: aErr.message });
-  await sb.from('ai_agent_learning_candidates').update({
-    status: 'converted_to_kb',
-    reviewed_by: auth.userId,
-    reviewed_at: new Date().toISOString(),
-    metadata: { ...(cand.metadata || {}), converted_kb_id: art.id, kb_published: publish },
-  }).eq('id', cand.id);
-  // Always tear down the candidate's learned_qna chunks once we've handed
-  // ownership to the KB article (so retrieval doesn't return both).
-  const { count: removedStale } = await sb.from('ai_knowledge_chunks').delete({ count: 'exact' })
-    .eq('workspace_id', cand.workspace_id).eq('source_type', 'learned_qna').eq('source_id', cand.id);
-  // Only published articles enter the runtime index. Drafts stay invisible.
-  if (publish) {
-    syncKnowledgeSource(config, { workspaceId: cand.workspace_id, sourceType: 'kb_article', sourceId: art.id }).catch(() => {});
-  }
-  return res.json({ ok: true, article_id: art.id, published: publish, removed_stale_chunks: removedStale ?? 0 });
+  const result = await convertCandidateToKb(config, cand.id, parsed.data, { userId: auth.userId });
+  return res.status(result.status).json(result.payload);
 });
 
 const candidateActionSchema = z.object({
@@ -1423,16 +1355,30 @@ async function convertCandidateToKb(
   return { status: 200, payload: { ok: true, article_id: art.id, published: publish, removed_stale_chunks: removedStale ?? 0 } };
 }
 
-// Legacy aliases — kept for older clients. They forward into the hardened
-// implementations (dedupe, stale-chunk teardown, empty-answer validation).
-aiAgentRouter.post('/learning-candidates/:id/approve-qna', (req, res, next) => {
-  req.url = req.url.replace('/approve-qna', '/convert-to-qna');
-  (aiAgentRouter as any).handle(req, res, next);
+// Legacy aliases — call shared helpers directly. No req.url mutation.
+aiAgentRouter.post('/learning-candidates/:id/approve-qna', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = convertQnaSchema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
+  const cand = await loadCandidate(config, req.params.id);
+  if (!cand) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, cand.workspace_id);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  const result = await convertCandidateToQna(config, cand.id, parsed.data, { userId: auth.userId });
+  return res.status(result.status).json(result.payload);
 });
-aiAgentRouter.post('/learning-candidates/:id/convert-kb', (req, res, next) => {
-  req.body = { ...(req.body || {}), publish: false };
-  req.url = req.url.replace('/convert-kb', '/convert-to-kb');
-  (aiAgentRouter as any).handle(req, res, next);
+aiAgentRouter.post('/learning-candidates/:id/convert-kb', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = convertKbSchema.safeParse({ ...(req.body || {}), publish: false });
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
+  const cand = await loadCandidate(config, req.params.id);
+  if (!cand) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, cand.workspace_id);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  const result = await convertCandidateToKb(config, cand.id, { ...parsed.data, publish: false }, { userId: auth.userId });
+  return res.status(result.status).json(result.payload);
 });
 
 aiAgentRouter.post('/learning-candidates/:id/reject', async (req: Request, res: Response) => {
@@ -1443,6 +1389,15 @@ aiAgentRouter.post('/learning-candidates/:id/reject', async (req: Request, res: 
   if (!auth) return;
   if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) {
     return res.status(403).json({ error: 'owner_or_admin_required' });
+  }
+  if (cand.status === 'converted_to_qna' || cand.status === 'converted_to_kb') {
+    return res.status(409).json({ error: 'already_converted', status: cand.status });
+  }
+  if (cand.status === 'rejected') {
+    return res.json({ ok: true, already_rejected: true });
+  }
+  if (cand.status !== 'pending' && cand.status !== 'approved') {
+    return res.status(409).json({ error: 'invalid_status', status: cand.status });
   }
   const sb = getServiceClient(config);
   const reason = typeof req.body?.reason === 'string' ? String(req.body.reason).slice(0, 500) : null;

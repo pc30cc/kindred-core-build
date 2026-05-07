@@ -788,6 +788,61 @@ aiAgentRouter.post('/knowledge-index/sync-source', async (req: Request, res: Res
 });
 
 // ─────────────────────────────────────────────────────────────────────
+// Pass E1 — Train / Data Hub overview + index diagnostics
+// ─────────────────────────────────────────────────────────────────────
+
+aiAgentRouter.get('/train/overview', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = requireWorkspace(req);
+  if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  try {
+    const overview = await buildTrainOverview(config, workspaceId);
+    return res.json(overview);
+  } catch (err: any) {
+    return res.status(500).json({ error: 'train_overview_failed', details: err?.message });
+  }
+});
+
+aiAgentRouter.get('/knowledge-index/chunks', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = requireWorkspace(req);
+  if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  const sourceType = req.query.sourceType ? String(req.query.sourceType) : null;
+  const status = req.query.status ? String(req.query.status) : null;
+  const query = req.query.query ? String(req.query.query).slice(0, 200) : null;
+  const limit = req.query.limit ? Math.min(parseInt(String(req.query.limit), 10) || 50, 200) : 50;
+  try {
+    const r = await listChunks(config, workspaceId, { sourceType, status, query, limit });
+    return res.json(r);
+  } catch (err: any) {
+    return res.status(500).json({ error: 'list_chunks_failed', details: err?.message });
+  }
+});
+
+const rebuildSourceSchema = z.object({
+  workspaceId: z.string().uuid(),
+  sourceType: z.enum(['kb_article', 'qna', 'business_profile']),
+  sourceId: z.string().min(1).max(200),
+});
+aiAgentRouter.post('/knowledge-index/rebuild-source', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = rebuildSourceSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
+  const { workspaceId, sourceType, sourceId } = parsed.data;
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) {
+    return res.status(403).json({ error: 'owner_or_admin_required' });
+  }
+  const r = await rebuildSingleSource(config, workspaceId, sourceType, sourceId);
+  return res.json(r);
+});
+
+// ─────────────────────────────────────────────────────────────────────
 // Pass 3 — Learning candidates
 // ─────────────────────────────────────────────────────────────────────
 

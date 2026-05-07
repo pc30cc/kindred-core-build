@@ -36,6 +36,7 @@ import { workspaceDepartmentsRouter } from './routes/workspaceDepartments.js';
 import { callInvitationsRouter } from './routes/callInvitations.js';
 import { aiKbRouter } from './routes/aiKb.js';
 import { aiAgentRouter } from './routes/aiAgent.js';
+import { startInProcessSourceWorker } from './services/ai-agent/sourceWorker.js';
 import { startCallQueueTicker } from './services/calls/queueTicker.js';
 import { startInvitationExpirySweeper } from './services/calls/invitations.js';
 import { startAttachmentJanitor } from './services/attachmentJanitor.js';
@@ -276,6 +277,9 @@ app.listen(config.port, () => {
 
   // Phase 4 — start in-process alerting ticker (every 60s). Best-effort.
   startAlertingTicker(config);
+
+  // E2 — start in-process Data Hub source-sync worker if AI_KB_WORKER_INPROC=1.
+  startInProcessSourceWorker(config);
 
   // Phase 5A — start perf sample flusher + process sampler. Best-effort.
   startPerfCollectors(config);

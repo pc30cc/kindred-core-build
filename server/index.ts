@@ -278,8 +278,20 @@ app.listen(config.port, () => {
   // Phase 4 — start in-process alerting ticker (every 60s). Best-effort.
   startAlertingTicker(config);
 
-  // E2 — start in-process Data Hub source-sync worker if AI_KB_WORKER_INPROC=1.
-  startInProcessSourceWorker(config);
+  // E2 — in-process Data Hub source-sync worker.
+  // Production: run as a separate WORKER_KIND=source-sync container.
+  // Dev/local: AI_SOURCE_SYNC_WORKER_INPROC=1 (preferred) or legacy
+  // AI_KB_WORKER_INPROC=1 (deprecated — see warning below).
+  if (
+    process.env.AI_SOURCE_SYNC_WORKER_INPROC === '1' ||
+    process.env.AI_KB_WORKER_INPROC === '1'
+  ) {
+    if (process.env.AI_KB_WORKER_INPROC === '1' && process.env.AI_SOURCE_SYNC_WORKER_INPROC !== '1') {
+      console.warn('[worker] AI_KB_WORKER_INPROC is deprecated. Use AI_SOURCE_SYNC_WORKER_INPROC for source-sync or AI_KB_INTELLIGENCE_WORKER_INPROC for intelligence.');
+    }
+    process.env.AI_KB_WORKER_INPROC = '1'; // sourceWorker.ts checks this internally
+    startInProcessSourceWorker(config);
+  }
 
   // Phase 5A — start perf sample flusher + process sampler. Best-effort.
   startPerfCollectors(config);
@@ -309,9 +321,16 @@ app.listen(config.port, () => {
   startInvitationExpirySweeper(config);
 
   // AI KB Builder — optional in-process worker (dev/local only).
-  // Production deploys MUST run worker/intelligence as a separate
-  // process/container. Set AI_KB_WORKER_INPROC=1 to enable here.
-  if (process.env.AI_KB_WORKER_INPROC === '1') {
+  // Production deploys MUST run a separate WORKER_KIND=intelligence
+  // container. Preferred flag: AI_KB_INTELLIGENCE_WORKER_INPROC=1.
+  // Legacy flag AI_KB_WORKER_INPROC=1 still works but is deprecated.
+  if (
+    process.env.AI_KB_INTELLIGENCE_WORKER_INPROC === '1' ||
+    process.env.AI_KB_WORKER_INPROC === '1'
+  ) {
+    if (process.env.AI_KB_WORKER_INPROC === '1' && process.env.AI_KB_INTELLIGENCE_WORKER_INPROC !== '1') {
+      console.warn('[worker] AI_KB_WORKER_INPROC is deprecated. Use AI_KB_INTELLIGENCE_WORKER_INPROC for intelligence worker in-process.');
+    }
     import('../worker/intelligence/index.js')
       .then((m) => m.startAiKbWorker?.())
       .catch((e) => console.warn('[ai-kb worker] inproc start failed:', e?.message));

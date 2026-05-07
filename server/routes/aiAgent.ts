@@ -31,6 +31,9 @@ import {
   ALLOWED_TRIGGERS, ALLOWED_CONDITION_TYPES, ALLOWED_ACTION_TYPES,
 } from '../services/ai-agent/workflows/validate.js';
 import { buildOverview, runDryRun, DEFAULT_INTERNAL_TOOLS } from '../services/ai-agent/overview.js';
+import { resolveAiAgentDataLimits, countSourceJobsThisMonth } from '../services/ai-agent/limits.js';
+import { enqueueSourceSyncJob, cancelSourceSyncJob } from '../services/ai-agent/sourceJobs.js';
+import { processOne as processOneSourceJob, getWorkerInfo } from '../services/ai-agent/sourceWorker.js';
 
 export const aiAgentRouter: Router = express.Router();
 
@@ -1210,7 +1213,7 @@ const websiteCreateSchema = z.object({
   include_rules: z.array(z.string().max(500)).max(50).optional(),
   exclude_rules: z.array(z.string().max(500)).max(50).optional(),
   crawl_depth: z.number().int().min(1).max(5).default(2),
-  max_pages: z.number().int().min(1).max(500).default(50),
+  max_pages: z.number().int().min(1).max(5000).default(50),
   refresh_interval: z.enum(['manual','daily','weekly','monthly']).default('manual'),
 });
 
@@ -1233,6 +1236,9 @@ aiAgentRouter.post('/data-sources/website', async (req: Request, res: Response) 
     .limit(1)
     .maybeSingle();
   const registeredDomain = (domainRow?.domain as string | undefined)?.toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+  if (!registeredDomain) {
+    return res.status(400).json({ error: 'no_workspace_domain' });
+  }
 
   let url: URL;
   try {
@@ -1240,11 +1246,20 @@ aiAgentRouter.post('/data-sources/website', async (req: Request, res: Response) 
   } catch {
     return res.status(400).json({ error: 'invalid_base_url' });
   }
-  if (registeredDomain) {
-    const host = url.hostname.toLowerCase();
-    const ok = host === registeredDomain || host.endsWith(`.${registeredDomain}`);
-    if (!ok) return res.status(400).json({ error: 'domain_not_registered', registeredDomain });
+  const proto = url.protocol.toLowerCase();
+  if (proto !== 'http:' && proto !== 'https:') {
+    return res.status(400).json({ error: 'unsupported_protocol' });
   }
+  const hostBare = url.hostname.toLowerCase().replace(/^www\./, '');
+  const rootBare = registeredDomain.replace(/^www\./, '');
+  if (hostBare !== rootBare) {
+    return res.status(400).json({ error: 'domain_not_allowed', registeredDomain });
+  }
+
+  // Cap user input by plan limits at create time.
+  const { limits } = await resolveAiAgentDataLimits(config, workspaceId);
+  const cappedMaxPages = Math.min(max_pages, limits.ai_kb_max_pages);
+  const cappedDepth = Math.min(crawl_depth, limits.ai_kb_max_depth);
 
   const { data, error } = await sb
     .from('ai_data_sources')
@@ -1256,8 +1271,8 @@ aiAgentRouter.post('/data-sources/website', async (req: Request, res: Response) 
       status: 'active',
       include_rules: include_rules || [],
       exclude_rules: exclude_rules || [],
-      crawl_depth,
-      max_pages,
+      crawl_depth: cappedDepth,
+      max_pages: cappedMaxPages,
       refresh_interval,
     })
     .select('*')
@@ -1304,31 +1319,58 @@ aiAgentRouter.delete('/data-sources/:id', async (req: Request, res: Response) =>
   const auth = await authorizeMember(req, res, config, existing.workspace_id);
   if (!auth) return;
   if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
-  // Soft-delete to preserve sync history.
+  // Soft-delete + cancel queued jobs + deactivate chunks (fail-closed retrieval).
   const { error } = await sb.from('ai_data_sources').update({ status: 'deleted' }).eq('id', req.params.id);
   if (error) return res.status(500).json({ error: error.message });
+  await sb.from('ai_knowledge_chunks')
+    .update({ status: 'deleted' })
+    .eq('workspace_id', existing.workspace_id)
+    .eq('source_type', 'web_page')
+    .like('source_id', `${req.params.id}:%`)
+    .neq('status', 'deleted');
+  await sb.from('ai_source_sync_jobs')
+    .update({ status: 'cancelled', finished_at: new Date().toISOString() })
+    .eq('source_id', req.params.id)
+    .in('status', ['queued', 'running']);
   return res.json({ ok: true });
 });
 
-// Manual sync trigger — records a "queued" log line. The actual crawler
-// (ai-kb worker) runs out-of-band and writes its own logs. In v1 we just
-// flip status and record a queued entry so the UI shows progress.
+// Manual sync trigger — enqueues a DB-backed sync job (ai_source_sync_jobs).
+// If AI_KB_WORKER_INPROC=1 the local server will pick it up immediately;
+// otherwise a standalone worker can claim it.
 aiAgentRouter.post('/data-sources/:id/sync', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
   const sb = getServiceClient(config);
-  const { data: existing } = await sb.from('ai_data_sources').select('id, workspace_id').eq('id', req.params.id).maybeSingle();
+  const { data: existing } = await sb.from('ai_data_sources').select('id, workspace_id, source_type, status').eq('id', req.params.id).maybeSingle();
   if (!existing) return res.status(404).json({ error: 'not_found' });
   const auth = await authorizeMember(req, res, config, existing.workspace_id);
   if (!auth) return;
   if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
-  await sb.from('ai_data_sources').update({ status: 'syncing', last_error: null }).eq('id', existing.id);
+  if (existing.status === 'deleted') return res.status(400).json({ error: 'source_deleted' });
+  // Plan: monthly job ceiling.
+  const { limits } = await resolveAiAgentDataLimits(config, existing.workspace_id);
+  const monthly = await countSourceJobsThisMonth(config, existing.workspace_id);
+  if (monthly >= limits.ai_kb_jobs_per_month) {
+    return res.status(403).json({ error: 'plan_limit_reached', detail: 'ai_kb_jobs_per_month', limit: limits.ai_kb_jobs_per_month, used: monthly });
+  }
+  const job = await enqueueSourceSyncJob(config, {
+    workspaceId: existing.workspace_id,
+    sourceId: existing.id,
+    jobType: 'website_sync',
+    createdBy: auth.userId || null,
+  });
   await sb.from('ai_source_sync_logs').insert({
     workspace_id: existing.workspace_id,
     source_id: existing.id,
     status: 'queued',
-    message: 'Manual sync requested',
+    message: 'Sync job queued',
+    metadata: { job_id: job.id },
   });
-  return res.json({ ok: true });
+  // In-process opportunistic kick.
+  if (process.env.AI_KB_WORKER_INPROC === '1') {
+    setImmediate(() => { processOneSourceJob(config).catch(() => {}); });
+  }
+  return res.json({ ok: true, jobId: job.id, status: job.status, worker: getWorkerInfo() });
 });
 
 aiAgentRouter.get('/data-sources/:id/logs', async (req: Request, res: Response) => {

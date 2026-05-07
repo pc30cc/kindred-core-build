@@ -34,6 +34,8 @@ import { buildOverview, runDryRun, DEFAULT_INTERNAL_TOOLS } from '../services/ai
 import { resolveAiAgentDataLimits, countSourceJobsThisMonth } from '../services/ai-agent/limits.js';
 import { enqueueSourceSyncJob, cancelSourceSyncJob } from '../services/ai-agent/sourceJobs.js';
 import { processOne as processOneSourceJob, getWorkerInfo } from '../services/ai-agent/sourceWorker.js';
+import { generatePendingCandidates } from '../services/ai-agent/learning/generator.js';
+import { normalizeQuestion } from '../services/ai-agent/learning/normalize.js';
 
 export const aiAgentRouter: Router = express.Router();
 
@@ -467,6 +469,67 @@ aiAgentRouter.delete('/qna/:id', async (req: Request, res: Response) => {
   return res.json({ ok: true });
 });
 
+// ─── Q&A bulk import (owner/admin) ───
+const qnaBulkSchema = z.object({
+  workspaceId: z.string().uuid(),
+  items: z.array(z.object({
+    question: z.string().min(1).max(500),
+    answer: z.string().min(1).max(4000),
+    locale: z.string().max(10).optional(),
+    enabled: z.boolean().optional(),
+  })).min(1).max(200),
+});
+aiAgentRouter.post('/qna/bulk', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = qnaBulkSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
+  const { workspaceId, items } = parsed.data;
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  const sb = getServiceClient(config);
+  // Pull existing normalized questions per locale to dedupe in-memory.
+  const { data: existingRows } = await sb
+    .from('ai_agent_qna')
+    .select('question, locale')
+    .eq('workspace_id', workspaceId)
+    .limit(5000);
+  const existingKeys = new Set(
+    (existingRows || []).map((r: any) => `${(r.locale || 'en')}::${normalizeQuestion(r.question || '')}`)
+  );
+  const created: string[] = [];
+  const skipped: { question: string; reason: string }[] = [];
+  const errors: { question: string; error: string }[] = [];
+  for (const it of items) {
+    const locale = it.locale || 'en';
+    const key = `${locale}::${normalizeQuestion(it.question)}`;
+    if (!key.split('::')[1]) { skipped.push({ question: it.question, reason: 'normalize_empty' }); continue; }
+    if (existingKeys.has(key)) { skipped.push({ question: it.question, reason: 'duplicate' }); continue; }
+    existingKeys.add(key);
+    const { data, error } = await sb
+      .from('ai_agent_qna')
+      .insert({ workspace_id: workspaceId, question: it.question, answer: it.answer, locale, enabled: it.enabled ?? true })
+      .select('id').single();
+    if (error) { errors.push({ question: it.question, error: error.message }); continue; }
+    created.push(data.id);
+    syncKnowledgeSource(config, { workspaceId, sourceType: 'qna', sourceId: data.id }).catch(() => {});
+  }
+  return res.json({ created: created.length, skipped: skipped.length, errors: errors.length, details: { skipped, errors } });
+});
+
+// ─── Q&A reindex single (owner/admin) ───
+aiAgentRouter.post('/qna/:id/reindex', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const sb = getServiceClient(config);
+  const { data: existing } = await sb.from('ai_agent_qna').select('workspace_id').eq('id', req.params.id).maybeSingle();
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, existing.workspace_id);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  await syncKnowledgeSource(config, { workspaceId: existing.workspace_id, sourceType: 'qna', sourceId: req.params.id });
+  return res.json({ ok: true });
+});
+
 // ─── POST /generate-business-description ───
 const genDescSchema = z.object({ workspaceId: z.string().uuid() });
 
@@ -880,11 +943,193 @@ aiAgentRouter.get('/learning-candidates', async (req: Request, res: Response) =>
     .select('*')
     .eq('workspace_id', workspaceId)
     .order('created_at', { ascending: false })
-    .limit(200);
+    .limit(Math.min(Number(req.query.limit) || 200, 500));
   if (status !== 'all') q = q.eq('status', status);
+  const reason = String(req.query.reason || '').trim();
+  if (reason) q = q.contains('metadata', { reason });
+  const locale = String(req.query.locale || '').trim();
+  if (locale) q = q.eq('locale', locale);
+  const search = String(req.query.q || '').trim();
+  if (search) q = q.ilike('question_text', `%${search}%`);
   const { data, error } = await q;
   if (error) return res.status(500).json({ error: error.message });
   return res.json({ items: data || [] });
+});
+
+// ─── POST /learning-candidates/generate ───
+const generateSchema = z.object({
+  workspaceId: z.string().uuid(),
+  sinceIso: z.string().datetime().optional(),
+  limit: z.number().int().min(1).max(500).optional(),
+});
+aiAgentRouter.post('/learning-candidates/generate', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = generateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
+  const auth = await authorizeMember(req, res, config, parsed.data.workspaceId);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  const result = await generatePendingCandidates(config, parsed.data);
+  return res.json(result);
+});
+
+// ─── PATCH /learning-candidates/:id ───
+const candidatePatchSchema = z.object({
+  question_text: z.string().min(1).max(500).optional(),
+  suggested_answer: z.string().min(1).max(4000).optional(),
+  locale: z.string().max(10).optional(),
+  suggested_title: z.string().max(200).optional(),
+});
+aiAgentRouter.patch('/learning-candidates/:id', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = candidatePatchSchema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
+  const cand = await loadCandidate(config, req.params.id);
+  if (!cand) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, cand.workspace_id);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  const sb = getServiceClient(config);
+  const patch: Record<string, unknown> = { ...parsed.data };
+  if (parsed.data.question_text) patch.normalized_question = normalizeQuestion(parsed.data.question_text);
+  const { data, error } = await sb.from('ai_agent_learning_candidates').update(patch).eq('id', req.params.id).select('*').single();
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ item: data });
+});
+
+// ─── POST /learning-candidates/:id/approve  (creates a learned_qna chunk, no Q&A row) ───
+const approveLearnedSchema = z.object({
+  final_answer: z.string().min(1).max(4000),
+  question: z.string().min(1).max(500).optional(),
+  locale: z.string().max(10).optional(),
+});
+aiAgentRouter.post('/learning-candidates/:id/approve', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = approveLearnedSchema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: 'final_answer_required', details: parsed.error.flatten().fieldErrors });
+  const cand = await loadCandidate(config, req.params.id);
+  if (!cand) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, cand.workspace_id);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  if (cand.status !== 'pending') return res.status(409).json({ error: 'not_pending', status: cand.status });
+  const sb = getServiceClient(config);
+  const question = parsed.data.question ?? cand.question_text;
+  const answer = parsed.data.final_answer;
+  const locale = parsed.data.locale ?? cand.locale ?? 'en';
+  const nowIso = new Date().toISOString();
+  // Persist final_answer + status.
+  await sb.from('ai_agent_learning_candidates').update({
+    status: 'approved',
+    suggested_answer: answer,
+    answer_text: answer,
+    locale,
+    reviewed_by: auth.userId,
+    reviewed_at: nowIso,
+    metadata: { ...(cand.metadata || {}), approved_by: auth.userId, approved_at: nowIso },
+  }).eq('id', cand.id);
+  // Index a learned_qna chunk directly. We use the candidate id as source_id
+  // so the indexer's idempotent dedup keys keep working across re-approvals.
+  try {
+    const { indexSource } = await import('../services/ai-agent/knowledgeIndex/indexer.js');
+    const { chunkQna } = await import('../services/ai-agent/knowledgeIndex/chunker.js');
+    const { getEmbedderForWorkspace } = await import('../services/ai-agent/knowledgeIndex/indexer.js');
+    const embedder = await getEmbedderForWorkspace(config, cand.workspace_id);
+    await indexSource(config, {
+      workspaceId: cand.workspace_id,
+      sourceType: 'learned_qna',
+      sourceId: cand.id,
+      title: question.slice(0, 300),
+      locale,
+      chunks: chunkQna(question, answer),
+      metadata: { candidate_id: cand.id, approved_by: auth.userId, approved_at: nowIso },
+    }, embedder);
+  } catch (err: any) {
+    console.warn('[learning-candidates.approve] index failed:', err?.message);
+  }
+  return res.json({ ok: true, candidate_id: cand.id });
+});
+
+// ─── POST /learning-candidates/:id/convert-to-qna  (creates ai_agent_qna row + indexes) ───
+const convertQnaSchema = z.object({
+  question: z.string().min(1).max(500).optional(),
+  answer: z.string().min(1).max(4000).optional(),
+  locale: z.string().max(10).optional(),
+});
+aiAgentRouter.post('/learning-candidates/:id/convert-to-qna', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = convertQnaSchema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
+  const cand = await loadCandidate(config, req.params.id);
+  if (!cand) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, cand.workspace_id);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  if (cand.status !== 'pending' && cand.status !== 'approved') return res.status(409).json({ error: 'not_pending', status: cand.status });
+  const sb = getServiceClient(config);
+  const question = parsed.data.question ?? cand.question_text;
+  const answer = parsed.data.answer ?? (cand.suggested_answer || cand.answer_text);
+  const locale = parsed.data.locale ?? cand.locale ?? 'en';
+  const { data: qna, error: qErr } = await sb
+    .from('ai_agent_qna')
+    .insert({ workspace_id: cand.workspace_id, question, answer, locale, enabled: true })
+    .select('id').single();
+  if (qErr) return res.status(500).json({ error: qErr.message });
+  await sb.from('ai_agent_learning_candidates').update({
+    status: 'converted_to_qna',
+    reviewed_by: auth.userId,
+    reviewed_at: new Date().toISOString(),
+    metadata: { ...(cand.metadata || {}), converted_qna_id: qna.id },
+  }).eq('id', cand.id);
+  // Deactivate any prior learned_qna chunk for this candidate.
+  await sb.from('ai_knowledge_chunks').update({ status: 'deleted' })
+    .eq('workspace_id', cand.workspace_id).eq('source_type', 'learned_qna').eq('source_id', cand.id);
+  syncKnowledgeSource(config, { workspaceId: cand.workspace_id, sourceType: 'qna', sourceId: qna.id }).catch(() => {});
+  return res.json({ ok: true, qna_id: qna.id });
+});
+
+// ─── POST /learning-candidates/:id/convert-to-kb  (replaces /convert-kb; supports publish flag) ───
+const convertKbSchema = z.object({
+  title: z.string().max(200).optional(),
+  answer: z.string().min(1).max(20000).optional(),
+  locale: z.string().max(10).optional(),
+  publish: z.boolean().optional(),
+});
+aiAgentRouter.post('/learning-candidates/:id/convert-to-kb', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = convertKbSchema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
+  const cand = await loadCandidate(config, req.params.id);
+  if (!cand) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, cand.workspace_id);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  if (cand.status !== 'pending' && cand.status !== 'approved') return res.status(409).json({ error: 'not_pending', status: cand.status });
+  const sb = getServiceClient(config);
+  const title = parsed.data.title ?? cand.suggested_title ?? (cand.question_text || '').slice(0, 120);
+  const content = parsed.data.answer ?? (cand.suggested_answer || cand.answer_text);
+  const locale = parsed.data.locale ?? cand.locale ?? 'en';
+  const publish = !!parsed.data.publish;
+  const { data: art, error: aErr } = await sb
+    .from('knowledge_base_articles')
+    .insert({
+      workspace_id: cand.workspace_id,
+      title, content, locale,
+      status: publish ? 'published' : 'draft',
+    })
+    .select('id').single();
+  if (aErr) return res.status(500).json({ error: aErr.message });
+  await sb.from('ai_agent_learning_candidates').update({
+    status: 'converted_to_kb',
+    reviewed_by: auth.userId,
+    reviewed_at: new Date().toISOString(),
+    metadata: { ...(cand.metadata || {}), converted_kb_id: art.id, kb_published: publish },
+  }).eq('id', cand.id);
+  // Only published articles enter the runtime index. Drafts stay invisible.
+  if (publish) {
+    syncKnowledgeSource(config, { workspaceId: cand.workspace_id, sourceType: 'kb_article', sourceId: art.id }).catch(() => {});
+  }
+  return res.json({ ok: true, article_id: art.id, published: publish });
 });
 
 const candidateActionSchema = z.object({
@@ -996,14 +1241,19 @@ aiAgentRouter.post('/learning-candidates/:id/reject', async (req: Request, res: 
     return res.status(403).json({ error: 'owner_or_admin_required' });
   }
   const sb = getServiceClient(config);
+  const reason = typeof req.body?.reason === 'string' ? String(req.body.reason).slice(0, 500) : null;
   await sb
     .from('ai_agent_learning_candidates')
     .update({
       status: 'rejected',
       reviewed_by: auth.userId,
       reviewed_at: new Date().toISOString(),
+      metadata: { ...(cand.metadata || {}), rejection_reason: reason },
     })
     .eq('id', cand.id);
+  // Defense-in-depth: any prior learned_qna chunk for this candidate is hard-deleted.
+  await sb.from('ai_knowledge_chunks').update({ status: 'deleted' })
+    .eq('workspace_id', cand.workspace_id).eq('source_type', 'learned_qna').eq('source_id', cand.id);
   return res.json({ ok: true });
 });
 

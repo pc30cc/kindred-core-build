@@ -50,6 +50,13 @@ export interface HybridRetrievalInput {
   responseLanguage: string;
   inputLanguage?: string;
   limit?: number;
+  /** E2C — visitor's current page context for URL-aware retrieval. */
+  pageContext?: {
+    currentPageUrl?: string | null;
+    currentPageOrigin?: string | null;
+    currentPagePath?: string | null;
+    currentPageTitle?: string | null;
+  } | null;
 }
 
 export interface HybridRetrievalResult {
@@ -62,6 +69,16 @@ export interface HybridRetrievalResult {
   embeddingModel: string;
   retrievalResultsCount: number;
   topics: TopicKey[];
+  /** E2C — debug info about the page-aware match. */
+  pageContextDebug?: {
+    current_page_url: string | null;
+    current_page_title: string | null;
+    exact_page_match: boolean;
+    same_path_match: boolean;
+    same_host_match: boolean;
+    page_matched_source_ids: string[];
+    page_url_boost_applied: boolean;
+  };
 }
 
 const SOURCE_PRIORITY: Record<HybridSourceKind, number> = {
@@ -72,6 +89,26 @@ const SOURCE_PRIORITY: Record<HybridSourceKind, number> = {
   file: 0.5,
   business_profile: 0.45,
 };
+
+/** Canonicalize a URL for page-aware match: strip hash, strip sensitive
+ *  query params, drop trailing slash, lowercase host, normalize www. */
+function canonicalizeUrl(raw: string | null | undefined): { full: string; host: string; path: string } | null {
+  if (!raw) return null;
+  try {
+    const u = new URL(raw);
+    u.hash = '';
+    for (const k of ['token','access_token','refresh_token','code','password','session','auth','key','secret','api_key','sig','signature']) {
+      u.searchParams.delete(k);
+    }
+    let host = u.hostname.toLowerCase();
+    if (host.startsWith('www.')) host = host.slice(4);
+    let path = u.pathname || '/';
+    if (path.length > 1 && path.endsWith('/')) path = path.slice(0, -1);
+    const search = u.search || '';
+    const full = `${u.protocol}//${host}${path}${search}`;
+    return { full, host, path };
+  } catch { return null; }
+}
 
 // Multilingual topic-keyword boosts. Lowercased and Unicode-aware.
 const TOPIC_KEYWORD_BOOSTS: Record<TopicKey, string[]> = {
@@ -195,6 +232,76 @@ export async function retrieveHybridSources(
     if (!prev.excerpt && a.excerpt) prev.excerpt = a.excerpt;
     if (!prev.title && a.title) prev.title = a.title;
   };
+
+  // ── E2C — page-aware injection. Always-on, separate from keyword/vector.
+  // Pulls active web_page/website chunks matching the visitor's current URL
+  // and stores per-key url_boost so they outrank generic vector matches when
+  // the question is about "this page".
+  const pageBoosts = new Map<string, number>();
+  const pageMatchedIds: string[] = [];
+  const pageDebug = {
+    current_page_url: null as string | null,
+    current_page_title: input.pageContext?.currentPageTitle || null,
+    exact_page_match: false,
+    same_path_match: false,
+    same_host_match: false,
+    page_matched_source_ids: [] as string[],
+    page_url_boost_applied: false,
+  };
+  const canonical = canonicalizeUrl(input.pageContext?.currentPageUrl || null);
+  if (canonical) {
+    pageDebug.current_page_url = canonical.full;
+    try {
+      const { data: pageRows } = await sb
+        .from('ai_knowledge_chunks')
+        .select('id, source_type, source_id, title, content, locale, source_url, metadata')
+        .eq('workspace_id', input.workspaceId)
+        .eq('status', 'active')
+        .in('source_type', ['web_page', 'website'])
+        .limit(200);
+      for (const c of pageRows || []) {
+        const cu = canonicalizeUrl(c.source_url as string);
+        if (!cu) continue;
+        let boost = 0;
+        if (cu.full === canonical.full) {
+          boost = 1.0;
+          pageDebug.exact_page_match = true;
+        } else if (cu.host === canonical.host && cu.path === canonical.path) {
+          boost = 0.8;
+          pageDebug.same_path_match = true;
+        } else if (cu.host === canonical.host) {
+          boost = 0.35;
+          pageDebug.same_host_match = true;
+        }
+        if (boost <= 0) continue;
+        const key = `${c.source_type}:${c.source_id}`;
+        const prevBoost = pageBoosts.get(key) || 0;
+        if (boost > prevBoost) pageBoosts.set(key, boost);
+        if (!pageMatchedIds.includes(c.source_id as string)) pageMatchedIds.push(c.source_id as string);
+        upsert({
+          key,
+          source_type: c.source_type as HybridSourceKind,
+          source_id: c.source_id as string,
+          id: c.id as string,
+          title: (c.title as string) || '',
+          content: (c.content as string) || '',
+          excerpt: ((c.content as string) || '').slice(0, 240),
+          locale: (c.locale as string) || null,
+          source_url: (c.source_url as string) || null,
+          slug: null,
+          metadata: (c.metadata as any) || {},
+          // Inject a synthetic keyword score so it survives merges that have
+          // no other signal — final scoring still adds url boost on top.
+          keywordScore: 0,
+          vectorScore: 0,
+        });
+      }
+      pageDebug.page_matched_source_ids = pageMatchedIds;
+      pageDebug.page_url_boost_applied = pageBoosts.size > 0;
+    } catch (err: any) {
+      console.warn('[ai-agent.retrievalHybrid] page-aware lookup failed:', err?.message || err);
+    }
+  }
 
   // ── 1) Keyword retrieval ──────────────────────────────────────────────
   try {
@@ -383,16 +490,19 @@ export async function retrieveHybridSources(
       slug: m.slug,
       source_url: m.source_url,
     });
+    const pageBoost = pageBoosts.get(m.key) || 0;
     const final =
       (m.keywordScore * 0.32)
       + (m.vectorScore * 0.40)
       + (prio * 0.10)
       + (lb * 0.05)
       + (boosts.topic * 0.08)
-      + (boosts.url * 0.05);
+      + (boosts.url * 0.05)
+      // E2C — page-aware URL boost. Exact page match dominates the ranking.
+      + (pageBoost * 0.55);
     (m as any).finalScore = final;
     (m as any).topicBoost = boosts.topic;
-    (m as any).urlBoost = boosts.url;
+    (m as any).urlBoost = Math.max(boosts.url, pageBoost);
     (m as any).localeBonus = lb;
     (m as any).sourcePriority = prio;
   }
@@ -422,6 +532,7 @@ export async function retrieveHybridSources(
 
   result.sources = top as HybridSource[];
   result.retrievalResultsCount = top.length;
+  result.pageContextDebug = pageDebug;
   return result;
 }
 

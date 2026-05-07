@@ -828,7 +828,7 @@ aiAgentRouter.get('/knowledge-index/chunks', async (req: Request, res: Response)
 
 const rebuildSourceSchema = z.object({
   workspaceId: z.string().uuid(),
-  sourceType: z.enum(['kb_article', 'qna', 'business_profile']),
+  sourceType: z.enum(['kb_article', 'qna', 'business_profile', 'website', 'web_page']),
   sourceId: z.string().min(1).max(200),
 });
 aiAgentRouter.post('/knowledge-index/rebuild-source', async (req: Request, res: Response) => {
@@ -840,6 +840,24 @@ aiAgentRouter.post('/knowledge-index/rebuild-source', async (req: Request, res: 
   if (!auth) return;
   if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) {
     return res.status(403).json({ error: 'owner_or_admin_required' });
+  }
+  if (sourceType === 'website' || sourceType === 'web_page') {
+    // Resolve website source (web_page rebuild is parent-source rebuild).
+    const sb = getServiceClient(config);
+    const websiteId = sourceType === 'website' ? sourceId : sourceId.split(':')[0];
+    const { data: src } = await sb.from('ai_data_sources')
+      .select('id, workspace_id, status').eq('id', websiteId).maybeSingle();
+    if (!src || src.workspace_id !== workspaceId) {
+      return res.status(404).json({ error: 'source_not_found' });
+    }
+    if (src.status === 'deleted') return res.status(400).json({ error: 'source_deleted' });
+    const job = await enqueueSourceSyncJob(config, {
+      workspaceId, sourceId: src.id, jobType: 'website_rebuild', createdBy: auth.userId,
+    });
+    if (process.env.AI_KB_WORKER_INPROC === '1') {
+      setImmediate(() => { processOneSourceJob(config).catch(() => {}); });
+    }
+    return res.json({ ok: true, jobId: job.id, status: 'queued' });
   }
   const r = await rebuildSingleSource(config, workspaceId, sourceType, sourceId);
   return res.json(r);

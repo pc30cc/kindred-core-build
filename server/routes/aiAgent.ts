@@ -443,7 +443,7 @@ aiAgentRouter.post('/qna', async (req: Request, res: Response) => {
 aiAgentRouter.patch('/qna/:id', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
   const sb = getServiceClient(config);
-  const { data: existing } = await sb.from('ai_agent_qna').select('workspace_id').eq('id', req.params.id).maybeSingle();
+  const { data: existing } = await sb.from('ai_agent_qna').select('workspace_id, enabled').eq('id', req.params.id).maybeSingle();
   if (!existing) return res.status(404).json({ error: 'not_found' });
   const auth = await authorizeMember(req, res, config, existing.workspace_id);
   if (!auth) return;
@@ -452,6 +452,8 @@ aiAgentRouter.patch('/qna/:id', async (req: Request, res: Response) => {
   for (const k of allowed) if (k in req.body) patch[k] = (req.body as any)[k];
   const { data, error } = await sb.from('ai_agent_qna').update(patch).eq('id', req.params.id).select('*').single();
   if (error) return res.status(500).json({ error: error.message });
+  // syncKnowledgeSource already deactivates chunks when enabled=false (passes
+  // empty chunks → indexer marks all as deleted) and re-indexes on enabled=true.
   syncKnowledgeSource(config, { workspaceId: existing.workspace_id, sourceType: 'qna', sourceId: req.params.id }).catch(() => {});
   return res.json({ item: data });
 });
@@ -463,9 +465,15 @@ aiAgentRouter.delete('/qna/:id', async (req: Request, res: Response) => {
   if (!existing) return res.status(404).json({ error: 'not_found' });
   const auth = await authorizeMember(req, res, config, existing.workspace_id);
   if (!auth) return;
+  // Deactivate runtime chunks BEFORE the row vanishes so retrieval can never
+  // surface a Q&A whose source row is gone.
+  await sb.from('ai_knowledge_chunks')
+    .update({ status: 'deleted' })
+    .eq('workspace_id', existing.workspace_id)
+    .eq('source_type', 'qna')
+    .eq('source_id', req.params.id);
   const { error } = await sb.from('ai_agent_qna').delete().eq('id', req.params.id);
   if (error) return res.status(500).json({ error: error.message });
-  syncKnowledgeSource(config, { workspaceId: existing.workspace_id, sourceType: 'qna', sourceId: req.params.id }).catch(() => {});
   return res.json({ ok: true });
 });
 
@@ -521,13 +529,13 @@ aiAgentRouter.post('/qna/bulk', async (req: Request, res: Response) => {
 aiAgentRouter.post('/qna/:id/reindex', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
   const sb = getServiceClient(config);
-  const { data: existing } = await sb.from('ai_agent_qna').select('workspace_id').eq('id', req.params.id).maybeSingle();
+  const { data: existing } = await sb.from('ai_agent_qna').select('workspace_id, enabled').eq('id', req.params.id).maybeSingle();
   if (!existing) return res.status(404).json({ error: 'not_found' });
   const auth = await authorizeMember(req, res, config, existing.workspace_id);
   if (!auth) return;
   if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
   await syncKnowledgeSource(config, { workspaceId: existing.workspace_id, sourceType: 'qna', sourceId: req.params.id });
-  return res.json({ ok: true });
+  return res.json({ ok: true, indexed: existing.enabled !== false, skipped_disabled: existing.enabled === false });
 });
 
 // ─── POST /generate-business-description ───
@@ -946,7 +954,11 @@ aiAgentRouter.get('/learning-candidates', async (req: Request, res: Response) =>
     .limit(Math.min(Number(req.query.limit) || 200, 500));
   if (status !== 'all') q = q.eq('status', status);
   const reason = String(req.query.reason || '').trim();
-  if (reason) q = q.contains('metadata', { reason });
+  if (reason) {
+    // Prefer the dedicated reason column (post-migration); fall back to JSONB
+    // for rows created before the backfill.
+    q = q.or(`reason.eq.${reason},metadata->>reason.eq.${reason}`);
+  }
   const locale = String(req.query.locale || '').trim();
   if (locale) q = q.eq('locale', locale);
   const search = String(req.query.q || '').trim();

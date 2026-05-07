@@ -1076,13 +1076,14 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
           workspaceId, currentPageUrl: cleanUrl, ctxHost, reqOriginHost,
         });
       } else if (cleanUrl) {
-        console.warn('[widget-message] page_context rejected (cross-domain)', {
-          workspaceId, ctxHost, reqOriginHost,
-        });
-        if (debugPC) console.log('[widget-page-ctx] rejected', {
-          workspaceId, ctxHost, reqOriginHost,
-          reason: !ctxHost ? 'invalid_url' : (matchesReqOrigin ? 'unknown' : 'domain_not_allowed'),
-        });
+        // Gated: probing bots can otherwise flood logs. Security-relevant
+        // events are still observable via DEBUG_WIDGET_PAGE_CONTEXT=1.
+        if (debugPC) {
+          console.warn('[widget-page-ctx] rejected', {
+            workspaceId, ctxHost, reqOriginHost,
+            reason: !ctxHost ? 'invalid_url' : (matchesReqOrigin ? 'unknown' : 'domain_not_allowed'),
+          });
+        }
       }
     }
   } catch (err: any) {

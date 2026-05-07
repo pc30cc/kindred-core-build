@@ -219,6 +219,36 @@ export const aiAgentApi = {
     }) as Promise<{ ok: boolean; article_id: string }>,
   rejectLearningCandidate: (id: string) =>
     jsonFetch(`/api/ai-agent/learning-candidates/${id}/reject`, { method: 'POST' }) as Promise<{ ok: boolean }>,
+  rejectLearningCandidateWithReason: (id: string, reason?: string) =>
+    jsonFetch(`/api/ai-agent/learning-candidates/${id}/reject`, {
+      method: 'POST', body: JSON.stringify({ reason }),
+    }) as Promise<{ ok: boolean }>,
+  generateLearningCandidates: (workspaceId: string, opts?: { sinceIso?: string; limit?: number }) =>
+    jsonFetch(`/api/ai-agent/learning-candidates/generate`, {
+      method: 'POST', body: JSON.stringify({ workspaceId, ...(opts || {}) }),
+    }) as Promise<{ scanned: number; created: number; skipped: number; reasons: Record<string, number> }>,
+  patchLearningCandidate: (id: string, patch: { question_text?: string; suggested_answer?: string; locale?: string; suggested_title?: string }) =>
+    jsonFetch(`/api/ai-agent/learning-candidates/${id}`, {
+      method: 'PATCH', body: JSON.stringify(patch),
+    }) as Promise<{ item: LearningCandidate }>,
+  approveLearningCandidateAsLearned: (id: string, body: { final_answer: string; question?: string; locale?: string }) =>
+    jsonFetch(`/api/ai-agent/learning-candidates/${id}/approve`, {
+      method: 'POST', body: JSON.stringify(body),
+    }) as Promise<{ ok: boolean; candidate_id: string }>,
+  convertLearningCandidateToQna: (id: string, patch: { question?: string; answer?: string; locale?: string } = {}) =>
+    jsonFetch(`/api/ai-agent/learning-candidates/${id}/convert-to-qna`, {
+      method: 'POST', body: JSON.stringify(patch),
+    }) as Promise<{ ok: boolean; qna_id: string }>,
+  convertLearningCandidateToKbV2: (id: string, body: { title?: string; answer?: string; locale?: string; publish?: boolean } = {}) =>
+    jsonFetch(`/api/ai-agent/learning-candidates/${id}/convert-to-kb`, {
+      method: 'POST', body: JSON.stringify(body),
+    }) as Promise<{ ok: boolean; article_id: string; published: boolean }>,
+  bulkCreateQna: (workspaceId: string, items: Array<{ question: string; answer: string; locale?: string; enabled?: boolean }>) =>
+    jsonFetch(`/api/ai-agent/qna/bulk`, {
+      method: 'POST', body: JSON.stringify({ workspaceId, items }),
+    }) as Promise<{ created: number; skipped: number; errors: number; details: any }>,
+  reindexQna: (id: string) =>
+    jsonFetch(`/api/ai-agent/qna/${id}/reindex`, { method: 'POST' }) as Promise<{ ok: boolean }>,
   getLearningCandidateStats: (workspaceId: string) =>
     jsonFetch(`/api/ai-agent/learning-candidates/stats?workspaceId=${workspaceId}`) as Promise<{
       pending: number; approved: number; converted_to_qna: number; converted_to_kb: number; rejected: number;

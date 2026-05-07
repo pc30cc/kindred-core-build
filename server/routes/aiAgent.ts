@@ -431,18 +431,21 @@ aiAgentRouter.post('/qna', async (req: Request, res: Response) => {
   if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) {
     return res.status(403).json({ error: 'owner_or_admin_required' });
   }
-  if (!row.answer || !row.answer.trim()) {
-    return res.status(400).json({ error: 'answer_required' });
-  }
+  // Trim & normalize before validation/insertion (parity with /qna/bulk).
+  const trimmedQuestion = (row.question || '').trim();
+  const trimmedAnswer = (row.answer || '').trim();
+  const trimmedLocale = ((row.locale || 'en') + '').trim().toLowerCase().slice(0, 10) || 'en';
+  if (!trimmedQuestion) return res.status(400).json({ error: 'question_required' });
+  if (!trimmedAnswer) return res.status(400).json({ error: 'answer_required' });
   const sb = getServiceClient(config);
   // Dedupe by workspace + locale + normalized question.
-  const normalized = normalizeQuestion(row.question);
+  const normalized = normalizeQuestion(trimmedQuestion);
   if (!normalized) return res.status(400).json({ error: 'question_required' });
   const { data: existingRows } = await sb
     .from('ai_agent_qna')
     .select('id, question, locale')
     .eq('workspace_id', workspaceId)
-    .eq('locale', row.locale)
+    .eq('locale', trimmedLocale)
     .limit(2000);
   const dup = (existingRows || []).find((r: any) => normalizeQuestion(r.question || '') === normalized);
   if (dup) {
@@ -450,7 +453,13 @@ aiAgentRouter.post('/qna', async (req: Request, res: Response) => {
   }
   const { data, error } = await sb
     .from('ai_agent_qna')
-    .insert({ workspace_id: workspaceId, ...row })
+    .insert({
+      workspace_id: workspaceId,
+      question: trimmedQuestion,
+      answer: trimmedAnswer,
+      locale: trimmedLocale,
+      enabled: row.enabled,
+    })
     .select('*')
     .single();
   if (error) return res.status(500).json({ error: error.message });

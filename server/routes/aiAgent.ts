@@ -1222,92 +1222,16 @@ async function loadCandidate(config: ServerConfig, id: string) {
   return data as any | null;
 }
 
-aiAgentRouter.post('/learning-candidates/:id/approve-qna', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
-  const parsed = candidateActionSchema.safeParse(req.body || {});
-  if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
-  const cand = await loadCandidate(config, req.params.id);
-  if (!cand) return res.status(404).json({ error: 'not_found' });
-  const auth = await authorizeMember(req, res, config, cand.workspace_id);
-  if (!auth) return;
-  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) {
-    return res.status(403).json({ error: 'owner_or_admin_required' });
-  }
-  if (cand.status !== 'pending' && cand.status !== 'approved') {
-    return res.status(409).json({ error: 'not_pending', status: cand.status });
-  }
-  const sb = getServiceClient(config);
-  const question = parsed.data.question ?? cand.question_text;
-  const answer = parsed.data.answer ?? (cand.suggested_answer || cand.answer_text);
-  const locale = parsed.data.locale ?? cand.locale ?? 'en';
-  const { data: qna, error: qErr } = await sb
-    .from('ai_agent_qna')
-    .insert({
-      workspace_id: cand.workspace_id,
-      question,
-      answer,
-      locale,
-      enabled: true,
-    })
-    .select('id')
-    .single();
-  if (qErr) return res.status(500).json({ error: qErr.message });
-  await sb
-    .from('ai_agent_learning_candidates')
-    .update({
-      status: 'converted_to_qna',
-      reviewed_by: auth.userId,
-      reviewed_at: new Date().toISOString(),
-      metadata: { ...(cand.metadata || {}), converted_qna_id: qna.id },
-    })
-    .eq('id', cand.id);
-  // Best-effort: index the new Q&A.
-  syncKnowledgeSource(config, { workspaceId: cand.workspace_id, sourceType: 'qna', sourceId: qna.id }).catch(() => {});
-  return res.json({ ok: true, qna_id: qna.id });
+// Legacy aliases — kept for older clients. They forward into the hardened
+// implementations (dedupe, stale-chunk teardown, empty-answer validation).
+aiAgentRouter.post('/learning-candidates/:id/approve-qna', (req, res, next) => {
+  req.url = req.url.replace('/approve-qna', '/convert-to-qna');
+  next();
 });
-
-aiAgentRouter.post('/learning-candidates/:id/convert-kb', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
-  const parsed = candidateActionSchema.safeParse(req.body || {});
-  if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
-  const cand = await loadCandidate(config, req.params.id);
-  if (!cand) return res.status(404).json({ error: 'not_found' });
-  const auth = await authorizeMember(req, res, config, cand.workspace_id);
-  if (!auth) return;
-  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) {
-    return res.status(403).json({ error: 'owner_or_admin_required' });
-  }
-  if (cand.status !== 'pending' && cand.status !== 'approved') {
-    return res.status(409).json({ error: 'not_pending', status: cand.status });
-  }
-  const sb = getServiceClient(config);
-  const title = parsed.data.title ?? cand.suggested_title ?? (cand.question_text || '').slice(0, 120);
-  const content = parsed.data.answer ?? (cand.suggested_answer || cand.answer_text);
-  const locale = parsed.data.locale ?? cand.locale ?? 'en';
-  const slug = await generateUniqueKbSlug(config, cand.workspace_id, locale, title);
-  const { data: art, error: aErr } = await sb
-    .from('knowledge_base_articles')
-    .insert({
-      workspace_id: cand.workspace_id,
-      title,
-      content,
-      locale,
-      slug,
-      status: 'draft',
-    })
-    .select('id')
-    .single();
-  if (aErr) return res.status(500).json({ error: aErr.message });
-  await sb
-    .from('ai_agent_learning_candidates')
-    .update({
-      status: 'converted_to_kb',
-      reviewed_by: auth.userId,
-      reviewed_at: new Date().toISOString(),
-      metadata: { ...(cand.metadata || {}), converted_kb_id: art.id },
-    })
-    .eq('id', cand.id);
-  return res.json({ ok: true, article_id: art.id });
+aiAgentRouter.post('/learning-candidates/:id/convert-kb', (req, res, next) => {
+  req.body = { ...(req.body || {}), publish: false };
+  req.url = req.url.replace('/convert-kb', '/convert-to-kb');
+  next();
 });
 
 aiAgentRouter.post('/learning-candidates/:id/reject', async (req: Request, res: Response) => {

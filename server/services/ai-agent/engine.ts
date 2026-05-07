@@ -824,16 +824,36 @@ async function runInternal(
       pageIntentOverride = 'no_indexed_page';
     }
   }
-  // Top-level run metadata bundle for ai_agent_runs.metadata.page_context.
-  const pageContextMeta = pageContext ? {
-    source: 'widget',
-    current_page_url: pageContext.currentPageUrl || null,
-    current_page_origin: pageContext.currentPageOrigin || null,
-    current_page_path: pageContext.currentPagePath || null,
-    current_page_title: pageContext.currentPageTitle || null,
-    page_intent_detected: isPageIntent,
-    intent_override: pageIntentOverride,
-  } : (isPageIntent ? { source: null, page_intent_detected: true, intent_override: pageIntentOverride } : null);
+  // Reflect page-intent override into the closure-captured metadata bundle.
+  if (pageContextMetaRef) {
+    pageContextMetaRef.intent_override = pageIntentOverride;
+  } else if (pageIntentOverride) {
+    pageContextMetaRef = { page_intent_detected: isPageIntent, intent_override: pageIntentOverride };
+  }
+
+  // ─── E2C — page intent without a usable match → short honest reply ───
+  // Avoid hallucinating from unrelated KB. We do this BEFORE the LLM call.
+  if (isPageIntent && pageIntentOverride && pageIntentOverride !== 'answer' && decision.canAutoReply) {
+    const body = pageIntentOverride === 'no_url'
+      ? pickPageNoUrl(locale)
+      : pickPageNotIndexed(locale);
+    const runId = await logRun(config, {
+      workspaceId, conversationId, visitorMessageId,
+      runType: 'auto_reply', mode: settings.mode, status: 'replied',
+      inputText: question, outputText: body,
+      kbArticleIds: [], confidence: 0.6,
+      metadata: { ...baseRuntimeMeta(), answer_strategy: { ...strategyMeta, decision_type: 'no_answer', reason: pageIntentOverride }, locale, language: languageMeta, retrieval: queryMeta },
+    });
+    const display = deriveAgentDisplay(settings);
+    const inserted = await insertAiMessage(config, {
+      workspaceId, conversationId, body, source: 'ai_agent', runId,
+      mode: settings.mode, kbArticleIds: [], qnaIds: [],
+      confidence: 0.6, provider: null, model: null, handoff: false,
+      agentName: display.agentName, agentLogoUrl: display.agentLogoUrl,
+    });
+    await markAiManaged(config, { workspaceId, conversationId }).catch(() => {});
+    return { ran: true, action: 'replied', runId, messageId: inserted.id };
+  }
 
   // ─── Decisions that don't require an LLM call ─────────────────────────
   if (strategy.decisionType === 'no_answer_silent') {

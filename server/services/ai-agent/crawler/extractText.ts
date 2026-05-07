@@ -6,6 +6,8 @@
 
 const STRIP_BLOCK_RE = /<(script|style|noscript|template|nav|footer|header|aside|form|svg)\b[\s\S]*?<\/\1>/gi;
 
+import { createHash } from 'node:crypto';
+
 export interface ExtractResult {
   title: string;
   text: string;
@@ -51,8 +53,5 @@ export function extractFromHtml(html: string, baseUrl: string): ExtractResult {
 }
 
 export function sha256Hex(s: string): string {
-  // Lazy import to avoid pulling node:crypto when this module is type-checked elsewhere.
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { createHash } = require('node:crypto');
   return createHash('sha256').update(s, 'utf8').digest('hex');
 }

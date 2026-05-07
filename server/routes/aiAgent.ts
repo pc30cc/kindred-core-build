@@ -431,18 +431,21 @@ aiAgentRouter.post('/qna', async (req: Request, res: Response) => {
   if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) {
     return res.status(403).json({ error: 'owner_or_admin_required' });
   }
-  if (!row.answer || !row.answer.trim()) {
-    return res.status(400).json({ error: 'answer_required' });
-  }
+  // Trim & normalize before validation/insertion (parity with /qna/bulk).
+  const trimmedQuestion = (row.question || '').trim();
+  const trimmedAnswer = (row.answer || '').trim();
+  const trimmedLocale = ((row.locale || 'en') + '').trim().toLowerCase().slice(0, 10) || 'en';
+  if (!trimmedQuestion) return res.status(400).json({ error: 'question_required' });
+  if (!trimmedAnswer) return res.status(400).json({ error: 'answer_required' });
   const sb = getServiceClient(config);
   // Dedupe by workspace + locale + normalized question.
-  const normalized = normalizeQuestion(row.question);
+  const normalized = normalizeQuestion(trimmedQuestion);
   if (!normalized) return res.status(400).json({ error: 'question_required' });
   const { data: existingRows } = await sb
     .from('ai_agent_qna')
     .select('id, question, locale')
     .eq('workspace_id', workspaceId)
-    .eq('locale', row.locale)
+    .eq('locale', trimmedLocale)
     .limit(2000);
   const dup = (existingRows || []).find((r: any) => normalizeQuestion(r.question || '') === normalized);
   if (dup) {
@@ -450,7 +453,13 @@ aiAgentRouter.post('/qna', async (req: Request, res: Response) => {
   }
   const { data, error } = await sb
     .from('ai_agent_qna')
-    .insert({ workspace_id: workspaceId, ...row })
+    .insert({
+      workspace_id: workspaceId,
+      question: trimmedQuestion,
+      answer: trimmedAnswer,
+      locale: trimmedLocale,
+      enabled: row.enabled,
+    })
     .select('*')
     .single();
   if (error) return res.status(500).json({ error: error.message });
@@ -1132,20 +1141,17 @@ aiAgentRouter.post('/learning-candidates/:id/approve', async (req: Request, res:
   if (!['pending','approved'].includes(cand.status)) {
     return res.status(409).json({ error: 'not_pending', status: cand.status });
   }
-  const sb = getServiceClient(config);
-  const question = parsed.data.question ?? cand.question_text;
-  const answer = parsed.data.final_answer;
-  const locale = parsed.data.locale ?? cand.locale ?? 'en';
+  const answer = (parsed.data.final_answer || '').trim();
+  if (!answer) return res.status(400).json({ error: 'answer_required' });
+  const question = (parsed.data.question ?? cand.question_text ?? '').trim();
+  if (!question) return res.status(400).json({ error: 'question_required' });
+  const locale = ((parsed.data.locale ?? cand.locale ?? 'en') + '').trim().toLowerCase().slice(0, 10) || 'en';
   const nowIso = new Date().toISOString();
-  // Wipe any prior learned_qna chunks for this candidate so re-approval is
-  // a clean replace (no duplicate / stale active chunks).
-  await sb.from('ai_knowledge_chunks').delete()
-    .eq('workspace_id', cand.workspace_id)
-    .eq('source_type', 'learned_qna')
-    .eq('source_id', cand.id);
+  const sb = getServiceClient(config);
   // Persist final_answer + status.
   await sb.from('ai_agent_learning_candidates').update({
     status: 'approved',
+    question_text: question,
     suggested_answer: answer,
     answer_text: answer,
     locale,
@@ -1153,24 +1159,18 @@ aiAgentRouter.post('/learning-candidates/:id/approve', async (req: Request, res:
     reviewed_at: nowIso,
     metadata: { ...(cand.metadata || {}), approved_by: auth.userId, approved_at: nowIso },
   }).eq('id', cand.id);
-  // Index a learned_qna chunk directly. We use the candidate id as source_id
-  // so the indexer's idempotent dedup keys keep working across re-approvals.
   try {
-    const { indexSource } = await import('../services/ai-agent/knowledgeIndex/indexer.js');
-    const { chunkQna } = await import('../services/ai-agent/knowledgeIndex/chunker.js');
-    const { getEmbedderForWorkspace } = await import('../services/ai-agent/knowledgeIndex/indexer.js');
-    const embedder = await getEmbedderForWorkspace(config, cand.workspace_id);
-    await indexSource(config, {
+    await reindexLearnedCandidate(config, {
       workspaceId: cand.workspace_id,
-      sourceType: 'learned_qna',
-      sourceId: cand.id,
-      title: question.slice(0, 300),
+      candidateId: cand.id,
+      question,
+      answer,
       locale,
-      chunks: chunkQna(question, answer),
-      metadata: { candidate_id: cand.id, approved_by: auth.userId, approved_at: nowIso },
-    }, embedder);
+      actorId: auth.userId,
+      markReindexed: false,
+    });
   } catch (err: any) {
-    console.warn('[learning-candidates.approve] index failed:', err?.message);
+    console.warn('[learning-candidates.approve] reindex failed:', err?.message);
   }
   return res.json({ ok: true, candidate_id: cand.id });
 });

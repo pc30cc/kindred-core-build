@@ -943,11 +943,162 @@ aiAgentRouter.get('/learning-candidates', async (req: Request, res: Response) =>
     .select('*')
     .eq('workspace_id', workspaceId)
     .order('created_at', { ascending: false })
-    .limit(200);
+    .limit(Math.min(Number(req.query.limit) || 200, 500));
   if (status !== 'all') q = q.eq('status', status);
+  const reason = String(req.query.reason || '').trim();
+  if (reason) q = q.contains('metadata', { reason });
+  const locale = String(req.query.locale || '').trim();
+  if (locale) q = q.eq('locale', locale);
+  const search = String(req.query.q || '').trim();
+  if (search) q = q.ilike('question_text', `%${search}%`);
   const { data, error } = await q;
   if (error) return res.status(500).json({ error: error.message });
   return res.json({ items: data || [] });
+});
+
+// ─── POST /learning-candidates/generate ───
+const generateSchema = z.object({
+  workspaceId: z.string().uuid(),
+  sinceIso: z.string().datetime().optional(),
+  limit: z.number().int().min(1).max(500).optional(),
+});
+aiAgentRouter.post('/learning-candidates/generate', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = generateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
+  const auth = await authorizeMember(req, res, config, parsed.data.workspaceId);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  const result = await generatePendingCandidates(config, parsed.data);
+  return res.json(result);
+});
+
+// ─── PATCH /learning-candidates/:id ───
+const candidatePatchSchema = z.object({
+  question_text: z.string().min(1).max(500).optional(),
+  suggested_answer: z.string().min(1).max(4000).optional(),
+  locale: z.string().max(10).optional(),
+  suggested_title: z.string().max(200).optional(),
+});
+aiAgentRouter.patch('/learning-candidates/:id', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = candidatePatchSchema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
+  const cand = await loadCandidate(config, req.params.id);
+  if (!cand) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, cand.workspace_id);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  const sb = getServiceClient(config);
+  const patch: Record<string, unknown> = { ...parsed.data };
+  if (parsed.data.question_text) patch.normalized_question = normalizeQuestion(parsed.data.question_text);
+  const { data, error } = await sb.from('ai_agent_learning_candidates').update(patch).eq('id', req.params.id).select('*').single();
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ item: data });
+});
+
+// ─── POST /learning-candidates/:id/approve  (creates a learned_qna chunk, no Q&A row) ───
+const approveLearnedSchema = z.object({
+  final_answer: z.string().min(1).max(4000),
+  question: z.string().min(1).max(500).optional(),
+  locale: z.string().max(10).optional(),
+});
+aiAgentRouter.post('/learning-candidates/:id/approve', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = approveLearnedSchema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: 'final_answer_required', details: parsed.error.flatten().fieldErrors });
+  const cand = await loadCandidate(config, req.params.id);
+  if (!cand) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, cand.workspace_id);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  if (cand.status !== 'pending') return res.status(409).json({ error: 'not_pending', status: cand.status });
+  const sb = getServiceClient(config);
+  const question = parsed.data.question ?? cand.question_text;
+  const answer = parsed.data.final_answer;
+  const locale = parsed.data.locale ?? cand.locale ?? 'en';
+  const nowIso = new Date().toISOString();
+  // Persist final_answer + status.
+  await sb.from('ai_agent_learning_candidates').update({
+    status: 'approved',
+    suggested_answer: answer,
+    answer_text: answer,
+    locale,
+    reviewed_by: auth.userId,
+    reviewed_at: nowIso,
+    metadata: { ...(cand.metadata || {}), approved_by: auth.userId, approved_at: nowIso },
+  }).eq('id', cand.id);
+  // Index a learned_qna chunk directly. We use the candidate id as source_id
+  // so the indexer's idempotent dedup keys keep working across re-approvals.
+  try {
+    const { indexSource } = await import('../services/ai-agent/knowledgeIndex/indexer.js');
+    const { chunkQna } = await import('../services/ai-agent/knowledgeIndex/chunker.js');
+    const { getEmbedderForWorkspace } = await import('../services/ai-agent/knowledgeIndex/indexer.js');
+    const embedder = await getEmbedderForWorkspace(config, cand.workspace_id);
+    await indexSource(config, {
+      workspaceId: cand.workspace_id,
+      sourceType: 'learned_qna',
+      sourceId: cand.id,
+      title: question.slice(0, 300),
+      locale,
+      chunks: chunkQna(question, answer),
+      metadata: { candidate_id: cand.id, approved_by: auth.userId, approved_at: nowIso },
+    }, embedder);
+  } catch (err: any) {
+    console.warn('[learning-candidates.approve] index failed:', err?.message);
+  }
+  return res.json({ ok: true, candidate_id: cand.id });
+});
+
+// ─── POST /learning-candidates/:id/convert-to-qna  (alias of approve-qna) ───
+aiAgentRouter.post('/learning-candidates/:id/convert-to-qna', async (req: Request, res: Response) => {
+  // Delegate by re-routing internally.
+  req.url = req.url.replace('/convert-to-qna', '/approve-qna');
+  aiAgentRouter.handle(req, res, () => {});
+});
+
+// ─── POST /learning-candidates/:id/convert-to-kb  (replaces /convert-kb; supports publish flag) ───
+const convertKbSchema = z.object({
+  title: z.string().max(200).optional(),
+  answer: z.string().min(1).max(20000).optional(),
+  locale: z.string().max(10).optional(),
+  publish: z.boolean().optional(),
+});
+aiAgentRouter.post('/learning-candidates/:id/convert-to-kb', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = convertKbSchema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
+  const cand = await loadCandidate(config, req.params.id);
+  if (!cand) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, cand.workspace_id);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  if (cand.status !== 'pending' && cand.status !== 'approved') return res.status(409).json({ error: 'not_pending', status: cand.status });
+  const sb = getServiceClient(config);
+  const title = parsed.data.title ?? cand.suggested_title ?? (cand.question_text || '').slice(0, 120);
+  const content = parsed.data.answer ?? (cand.suggested_answer || cand.answer_text);
+  const locale = parsed.data.locale ?? cand.locale ?? 'en';
+  const publish = !!parsed.data.publish;
+  const { data: art, error: aErr } = await sb
+    .from('knowledge_base_articles')
+    .insert({
+      workspace_id: cand.workspace_id,
+      title, content, locale,
+      status: publish ? 'published' : 'draft',
+    })
+    .select('id').single();
+  if (aErr) return res.status(500).json({ error: aErr.message });
+  await sb.from('ai_agent_learning_candidates').update({
+    status: 'converted_to_kb',
+    reviewed_by: auth.userId,
+    reviewed_at: new Date().toISOString(),
+    metadata: { ...(cand.metadata || {}), converted_kb_id: art.id, kb_published: publish },
+  }).eq('id', cand.id);
+  // Only published articles enter the runtime index. Drafts stay invisible.
+  if (publish) {
+    syncKnowledgeSource(config, { workspaceId: cand.workspace_id, sourceType: 'kb_article', sourceId: art.id }).catch(() => {});
+  }
+  return res.json({ ok: true, article_id: art.id, published: publish });
 });
 
 const candidateActionSchema = z.object({

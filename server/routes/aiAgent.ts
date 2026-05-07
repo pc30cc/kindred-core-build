@@ -1045,7 +1045,10 @@ const approveLearnedSchema = z.object({
 aiAgentRouter.post('/learning-candidates/:id/approve', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
   const parsed = approveLearnedSchema.safeParse(req.body || {});
-  if (!parsed.success) return res.status(400).json({ error: 'final_answer_required', details: parsed.error.flatten().fieldErrors });
+  if (!parsed.success) return res.status(400).json({ error: 'answer_required', details: parsed.error.flatten().fieldErrors });
+  if (!parsed.data.final_answer || !parsed.data.final_answer.trim()) {
+    return res.status(400).json({ error: 'answer_required' });
+  }
   const cand = await loadCandidate(config, req.params.id);
   if (!cand) return res.status(404).json({ error: 'not_found' });
   const auth = await authorizeMember(req, res, config, cand.workspace_id);

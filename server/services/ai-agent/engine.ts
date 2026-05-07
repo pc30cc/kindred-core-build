@@ -53,6 +53,15 @@ export interface MaybeRunInput {
   visitorMessageId: string;
   question: string;
   locale?: string;
+  /** E2C — sanitized visitor page context from the widget. */
+  pageContext?: {
+    currentPageUrl?: string | null;
+    currentPageOrigin?: string | null;
+    currentPagePath?: string | null;
+    currentPageTitle?: string | null;
+    referrer?: string | null;
+    source?: string;
+  } | null;
 }
 
 export interface MaybeRunResult {
@@ -85,6 +94,9 @@ async function runInternal(
   if (!question) {
     return { ran: false, action: 'skipped', reason: 'empty_question' };
   }
+  const pageContext = input.pageContext || null;
+  // E2C — lightweight intent detector for "what is this page" questions.
+  const isPageIntent = detectPageIntent(question);
 
   const settings = await getOrCreateSettings(config, workspaceId);
   if (!settings.enabled || settings.mode === 'off') {
@@ -247,7 +259,18 @@ async function runInternal(
     tools: toolMeta,
     decision_timeline: decisionTimeline,
     runtime_warnings: runtimeCfg?.warnings || [],
+    page_context: pageContextMetaRef,
   } as Record<string, unknown>);
+  // E2C — populated after retrieval. Captured by closure above.
+  let pageContextMetaRef: any = pageContext ? {
+    source: 'widget',
+    current_page_url: pageContext.currentPageUrl || null,
+    current_page_origin: pageContext.currentPageOrigin || null,
+    current_page_path: pageContext.currentPagePath || null,
+    current_page_title: pageContext.currentPageTitle || null,
+    page_intent_detected: isPageIntent,
+    intent_override: null,
+  } : (isPageIntent ? { page_intent_detected: true, intent_override: null } : null);
 
   // Gather state in parallel — runtime policy needs all three.
   const [state, availability] = await Promise.all([
@@ -625,6 +648,7 @@ async function runInternal(
   let embeddingModelName: string | null = null;
   let fallbackReason: string | null = null;
   let selectedSourcesMeta: Array<Record<string, unknown>> = [];
+  let pageContextDebug: any = null;
   try {
     const hybrid = await retrieveHybridSources(config, {
       workspaceId,
@@ -634,6 +658,12 @@ async function runInternal(
       responseLanguage: locale,
       inputLanguage,
       limit: 5,
+      pageContext: pageContext ? {
+        currentPageUrl: pageContext.currentPageUrl,
+        currentPageOrigin: pageContext.currentPageOrigin,
+        currentPagePath: pageContext.currentPagePath,
+        currentPageTitle: pageContext.currentPageTitle,
+      } : null,
     });
     hybridUsed = hybrid.hybridUsed;
     vectorUsed = hybrid.vectorUsed;
@@ -641,6 +671,7 @@ async function runInternal(
     embeddingProviderName = hybrid.embeddingProvider;
     embeddingModelName = hybrid.embeddingModel;
     fallbackReason = hybrid.fallbackReason || null;
+    pageContextDebug = hybrid.pageContextDebug || null;
     selectedSourcesMeta = hybrid.sources.map((s) => ({
       id: s.source_id,
       source_type: s.source_type,
@@ -667,7 +698,11 @@ async function runInternal(
       slug: s.slug ?? null,
       locale: s.locale ?? null,
       score: s.final_score,
-    }));
+      // E2C — preserve original source_type + URL so prompt can label "Current page".
+      source_type: s.source_type,
+      source_url: s.source_url ?? null,
+      url_boost: s.url_boost,
+    } as any));
     if (!sources.length && (vectorUsed || keywordUsed)) {
       // Fall through to legacy retriever only if hybrid produced nothing AND
       // the simple keyword-only path might still find loose matches.
@@ -716,6 +751,7 @@ async function runInternal(
     embedding_model: embeddingModelName,
     fallback_reason: fallbackReason,
     selected_sources: selectedSourcesMeta,
+    page_context: pageContextDebug || null,
   };
   const clarificationAttemptCount = await countClarificationAttempts(sb, conversationId);
   const strategy = decideStrategy({
@@ -748,6 +784,76 @@ async function runInternal(
     escalation_style: settings.escalation_style || 'balanced',
     safe_guidance_topic: strategy.safeGuidanceTopic || null,
   };
+
+  // ─── E2C — page-aware overrides ────────────────────────────────────────
+  // When the visitor asks "what is this page" AND we have an indexed match,
+  // force ANSWER (no handoff, no clarifying question). When intent is set
+  // but no page is matched, force a short honest no-answer message.
+  const pageExact = !!pageContextDebug?.exact_page_match;
+  const pagePath = !!pageContextDebug?.same_path_match;
+  let pageIntentOverride: 'answer' | 'no_indexed_page' | 'no_url' | null = null;
+  if (isPageIntent) {
+    if (pageExact || pagePath) {
+      // Reorder sources so the matched page chunk is FIRST, and force answer.
+      const matchedIds: string[] = pageContextDebug?.page_matched_source_ids || [];
+      const idx = sources.findIndex((s: any) => matchedIds.includes(s.id));
+      if (idx > 0) {
+        const [hit] = sources.splice(idx, 1);
+        sources.unshift(hit);
+      }
+      (strategy as any).decisionType = 'answer';
+      (strategy as any).reason = 'page_context_match';
+      (strategy as any).retrievalStrength = pageExact ? 'page_exact_match' : 'page_path_match';
+      (strategy as any).handoffRequired = false;
+      (strategy as any).topScore = Math.max(strategy.topScore, pageExact ? 0.95 : 0.8);
+      (strategy as any).confidence = Math.max(strategy.confidence, pageExact ? 0.95 : 0.8);
+      if (!strategy.sourceTypesUsed.includes('web_page')) {
+        (strategy as any).sourceTypesUsed = ['web_page', ...strategy.sourceTypesUsed];
+      }
+      strategyMeta.decision_type = strategy.decisionType;
+      strategyMeta.reason = strategy.reason;
+      strategyMeta.retrieval_strength = strategy.retrievalStrength;
+      strategyMeta.top_score = strategy.topScore;
+      strategyMeta.handoff_required = false;
+      strategyMeta.source_types_used = strategy.sourceTypesUsed;
+      pageIntentOverride = 'answer';
+      decisionTimeline.push('page_context_answer_override');
+    } else if (!pageContext?.currentPageUrl) {
+      pageIntentOverride = 'no_url';
+    } else {
+      pageIntentOverride = 'no_indexed_page';
+    }
+  }
+  // Reflect page-intent override into the closure-captured metadata bundle.
+  if (pageContextMetaRef) {
+    pageContextMetaRef.intent_override = pageIntentOverride;
+  } else if (pageIntentOverride) {
+    pageContextMetaRef = { page_intent_detected: isPageIntent, intent_override: pageIntentOverride };
+  }
+
+  // ─── E2C — page intent without a usable match → short honest reply ───
+  // Avoid hallucinating from unrelated KB. We do this BEFORE the LLM call.
+  if (isPageIntent && pageIntentOverride && pageIntentOverride !== 'answer' && decision.canAutoReply) {
+    const body = pageIntentOverride === 'no_url'
+      ? pickPageNoUrl(locale)
+      : pickPageNotIndexed(locale);
+    const runId = await logRun(config, {
+      workspaceId, conversationId, visitorMessageId,
+      runType: 'auto_reply', mode: settings.mode, status: 'replied',
+      inputText: question, outputText: body,
+      kbArticleIds: [], confidence: 0.6,
+      metadata: { ...baseRuntimeMeta(), answer_strategy: { ...strategyMeta, decision_type: 'no_answer', reason: pageIntentOverride }, locale, language: languageMeta, retrieval: queryMeta },
+    });
+    const display = deriveAgentDisplay(settings);
+    const inserted = await insertAiMessage(config, {
+      workspaceId, conversationId, body, source: 'ai_agent', runId,
+      mode: settings.mode, kbArticleIds: [], qnaIds: [],
+      confidence: 0.6, provider: null, model: null, handoff: false,
+      agentName: display.agentName, agentLogoUrl: display.agentLogoUrl,
+    });
+    await markAiManaged(config, { workspaceId, conversationId }).catch(() => {});
+    return { ran: true, action: 'replied', runId, messageId: inserted.id };
+  }
 
   // ─── Decisions that don't require an LLM call ─────────────────────────
   if (strategy.decisionType === 'no_answer_silent') {
@@ -943,7 +1049,10 @@ async function runInternal(
     guidanceRules: runtimeCfg?.guidanceRules,
     topicSlug: topTopicSlug,
   });
-  const userPrompt = buildUserPrompt(question, sources, strategy);
+  const userPrompt = buildUserPrompt(question, sources, strategy, {
+    pageContext: pageContext ? { currentPageUrl: pageContext.currentPageUrl, currentPageTitle: pageContext.currentPageTitle } : null,
+    pageMatched: pageExact || pagePath,
+  });
 
   let aiResult;
   try {
@@ -1190,6 +1299,42 @@ function pickGreeting(locale: string | undefined, _agentName: string): string {
   if (l.startsWith('tr')) return 'Merhaba! Size nasıl yardımcı olabilirim?';
   if (l.startsWith('ar')) return 'مرحباً! كيف يمكنني مساعدتك؟';
   return 'Hi! How can I help?';
+}
+
+function pickPageNotIndexed(locale: string | undefined): string {
+  const l = (locale || 'en').toLowerCase();
+  if (l.startsWith('fa')) return 'این صفحه هنوز در منابع آموزشی AI ایندکس نشده است. از بخش AI Agent → Train → Web Pages این صفحه را sync کنید.';
+  if (l.startsWith('tr')) return 'Bu sayfa henüz AI eğitim kaynaklarına eklenmemiş. AI Agent → Train → Web Pages üzerinden bu sayfayı senkronize edin.';
+  return 'This page has not been indexed in the AI training sources yet. Sync it from AI Agent → Train → Web Pages.';
+}
+function pickPageNoUrl(locale: string | undefined): string {
+  const l = (locale || 'en').toLowerCase();
+  if (l.startsWith('fa')) return 'من به آدرس صفحه فعلی دسترسی ندارم. لطفاً لینک صفحه را بفرستید یا ویجت را روی همان صفحه باز کنید.';
+  if (l.startsWith('tr')) return 'Mevcut sayfanın adresine erişimim yok. Lütfen sayfanın bağlantısını gönderin veya widget\u2019ı o sayfada açın.';
+  return 'I do not have the URL of the page you are on. Please share the page link or open the widget on that page.';
+}
+
+/** E2C — detect "what is this page" / "what page am I on" style intents. */
+const PAGE_INTENT_PATTERNS: RegExp[] = [
+  // Persian
+  /این\s*صفحه/i,
+  /صفحه[ای|‌ای]?\s*که\s*(الان|اکنون)?\s*(داخل(ش)?|توی|تو)\s*(هستم|هستیم)/i,
+  /الان\s*(داخل|توی)\s*چه\s*صفحه/i,
+  /محتوای\s*این\s*صفحه/i,
+  /درباره\s*این\s*صفحه/i,
+  // Turkish
+  /bu\s*sayfa/i,
+  /(şu\s*an|şuan)\s*hangi\s*sayfada/i,
+  // English
+  /\b(this|current)\s+page\b/i,
+  /\bwhat\s+page\s+am\s+i\s+on\b/i,
+  /\bexplain\s+this\s+page\b/i,
+];
+function detectPageIntent(text: string): boolean {
+  const t = (text || '').trim();
+  if (!t || t.length > 300) return false;
+  for (const p of PAGE_INTENT_PATTERNS) if (p.test(t)) return true;
+  return false;
 }
 
 // Suppress unused-var warning for _RetrievedSource if added later

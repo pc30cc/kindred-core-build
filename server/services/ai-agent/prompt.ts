@@ -140,15 +140,28 @@ export function buildUserPrompt(
   question: string,
   sources: RetrievedSource[],
   strategy?: Pick<StrategyDecision, 'decisionType' | 'clarificationHint' | 'safeGuidanceTopic'>,
+  opts?: { pageContext?: { currentPageUrl?: string | null; currentPageTitle?: string | null } | null; pageMatched?: boolean },
 ): string {
   const lines: string[] = [];
+  const pc = opts?.pageContext || null;
+  if (pc?.currentPageUrl) {
+    lines.push('Current visitor page:');
+    lines.push(`  URL: ${pc.currentPageUrl}`);
+    if (pc.currentPageTitle) lines.push(`  Title: ${pc.currentPageTitle}`);
+    if (opts?.pageMatched) {
+      lines.push('The first source below is the indexed content of this exact page. If the visitor asks about "this page" or "the current page", answer from that source first. Use the other sources only as secondary context.');
+    }
+    lines.push('');
+  }
   if (sources.length === 0) {
     lines.push('No sources were retrieved.');
   } else {
     lines.push('Sources:');
     sources.forEach((s, i) => {
       const body = (s.content || s.excerpt || '').slice(0, 1200);
-      lines.push(`---\n[${i + 1}] (${s.kind}) ${s.title}\n${body}`);
+      const stype = (s as any).source_type || s.kind;
+      const surl = (s as any).source_url ? ` ${(s as any).source_url}` : '';
+      lines.push(`---\n[${i + 1}] (${stype})${surl} ${s.title}\n${body}`);
     });
     lines.push('---');
   }

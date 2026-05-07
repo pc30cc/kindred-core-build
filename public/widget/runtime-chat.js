@@ -25,6 +25,42 @@
     return base + path + (qs.length ? '?' + qs.join('&') : '');
   }
 
+  // Strip sensitive query params from a URL string. Returns sanitized string.
+  // Used for the visitor's current page URL so we never leak tokens upstream.
+  var SENSITIVE_QS = ['token','access_token','refresh_token','code','password','session','auth','key','secret','api_key','sig','signature'];
+  function sanitizeUrl(raw) {
+    if (!raw || typeof raw !== 'string') return null;
+    try {
+      var u = new URL(raw);
+      u.hash = '';
+      var sp = u.searchParams;
+      for (var i = 0; i < SENSITIVE_QS.length; i++) sp.delete(SENSITIVE_QS[i]);
+      var s = u.toString();
+      if (s.length > 1000) s = s.slice(0, 1000);
+      return s;
+    } catch (_) { return null; }
+  }
+  function buildPageContext() {
+    try {
+      if (typeof window === 'undefined' || !window.location) return null;
+      var loc = window.location;
+      var url = sanitizeUrl(loc.href || '');
+      if (!url) return null;
+      var parsed = null;
+      try { parsed = new URL(url); } catch (_) { parsed = null; }
+      var title = (typeof document !== 'undefined' && document.title) ? String(document.title).slice(0, 300) : null;
+      var ref = (typeof document !== 'undefined' && document.referrer) ? sanitizeUrl(document.referrer) : null;
+      if (ref && ref.length > 1000) ref = ref.slice(0, 1000);
+      return {
+        currentPageUrl: url,
+        currentPageOrigin: parsed ? parsed.origin : (loc.origin || null),
+        currentPagePath: parsed ? parsed.pathname : (loc.pathname || null),
+        currentPageTitle: title,
+        referrer: ref,
+      };
+    } catch (_) { return null; }
+  }
+
   window.__gs_mod_chat = {
     sendMessage: function (opts) {
       var apiBase = opts.apiBase;
@@ -64,6 +100,7 @@
           attachment_id: attachmentId || undefined,
           message: text,
           department_id: departmentId || undefined,
+          page_context: buildPageContext() || undefined,
         }),
       })
         .then(function (r) {

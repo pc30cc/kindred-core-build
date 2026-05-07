@@ -23,6 +23,7 @@ import { resolveAIConfig } from '../services/ai/index.js';
 import { getOperatorAvailability } from '../services/ai-agent/availability.js';
 import { markHumanTakeover } from '../services/ai-agent/handoffState.js';
 import { syncKnowledgeSource, rebuildWorkspaceIndex, getKnowledgeIndexStatus } from '../services/ai-agent/knowledgeIndex/sync.js';
+import { buildTrainOverview, listChunks, rebuildSingleSource } from '../services/ai-agent/train.js';
 import { detectTopics } from '../services/ai-agent/topics/detector.js';
 import { DEFAULT_TOPICS } from '../services/ai-agent/topics/defaults.js';
 import {

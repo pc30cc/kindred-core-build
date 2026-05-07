@@ -24,17 +24,20 @@ export default function WebPagesPage() {
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [logs, setLogs] = useState<Record<string, SourceSyncLog[]>>({});
+  const [limits, setLimits] = useState<{ planName: string | null; planSlug: string | null; limits: { ai_kb_max_pages: number; ai_kb_max_depth: number; ai_kb_jobs_per_month: number }; jobs_used_this_month: number; worker?: { inProcess: boolean; started: boolean } } | null>(null);
 
   async function refresh() {
     if (!wsId) return;
     setLoading(true);
     try {
-      const [srcs, dom] = await Promise.all([
+      const [srcs, dom, lim] = await Promise.all([
         aiAgentApi.listDataSources(wsId, 'website'),
         aiAgentApi.getWorkspaceDomains(wsId),
+        aiAgentApi.getDataSourceLimits(wsId).catch(() => null),
       ]);
       setItems(srcs.items || []);
       setDomains(dom.domains || []);
+      setLimits(lim as any);
     } catch (e: any) {
       toast({ title: 'Failed to load', description: e?.message, variant: 'destructive' });
     } finally { setLoading(false); }
@@ -99,9 +102,20 @@ export default function WebPagesPage() {
       )}
 
       {primaryDomain && (
-        <p className="text-xs text-muted-foreground">
-          Registered domain: <span className="font-mono text-foreground">{primaryDomain}</span>
-        </p>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+          <span>Registered domain: <span className="font-mono text-foreground">{primaryDomain}</span></span>
+          {limits && (
+            <>
+              <span>Plan: <span className="text-foreground">{limits.planName || limits.planSlug || 'free'}</span></span>
+              <span>Max pages/source: <span className="text-foreground">{limits.limits.ai_kb_max_pages}</span></span>
+              <span>Max depth: <span className="text-foreground">{limits.limits.ai_kb_max_depth}</span></span>
+              <span>Sync jobs this month: <span className="text-foreground">{limits.jobs_used_this_month}/{limits.limits.ai_kb_jobs_per_month}</span></span>
+              {limits.worker && (
+                <span>Worker: <span className="text-foreground">{limits.worker.inProcess ? 'in-process' : 'external'}{limits.worker.started ? ' · running' : ''}</span></span>
+              )}
+            </>
+          )}
+        </div>
       )}
 
       {loading ? (

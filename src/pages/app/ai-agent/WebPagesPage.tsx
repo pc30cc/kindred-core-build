@@ -24,7 +24,8 @@ export default function WebPagesPage() {
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [logs, setLogs] = useState<Record<string, SourceSyncLog[]>>({});
-  const [limits, setLimits] = useState<{ planName: string | null; planSlug: string | null; limits: { ai_kb_max_pages: number; ai_kb_max_depth: number; ai_kb_jobs_per_month: number }; jobs_used_this_month: number; worker?: { inProcess: boolean; started: boolean } } | null>(null);
+  const [limits, setLimits] = useState<{ planName: string | null; planSlug: string | null; limits: { ai_kb_max_pages: number; ai_kb_max_depth: number; ai_kb_jobs_per_month: number }; jobs_used_this_month: number; bypass?: boolean; bypassReason?: string | null; worker?: { inProcess: boolean; started: boolean } } | null>(null);
+  const [latestJobs, setLatestJobs] = useState<Record<string, { status: string; last_error: string | null } | null>>({});
 
   async function refresh() {
     if (!wsId) return;
@@ -38,6 +39,15 @@ export default function WebPagesPage() {
       setItems(srcs.items || []);
       setDomains(dom.domains || []);
       setLimits(lim as any);
+      // Fetch latest job per source (for retry affordance).
+      const sources = srcs.items || [];
+      const jobs = await Promise.all(sources.map(async (s) => {
+        try {
+          const r = await aiAgentApi.getDataSourceJobs(s.id);
+          return [s.id, r.items?.[0] ? { status: r.items[0].status, last_error: r.items[0].last_error } : null] as const;
+        } catch { return [s.id, null] as const; }
+      }));
+      setLatestJobs(Object.fromEntries(jobs));
     } catch (e: any) {
       toast({ title: 'Failed to load', description: e?.message, variant: 'destructive' });
     } finally { setLoading(false); }
@@ -56,8 +66,27 @@ export default function WebPagesPage() {
   }
 
   async function sync(s: DataSource) {
-    try { await aiAgentApi.syncDataSource(s.id); toast({ title: 'Sync queued' }); refresh();
-    } catch (e: any) { toast({ title: 'Sync failed', description: e?.message, variant: 'destructive' }); }
+    try {
+      const r = await aiAgentApi.syncDataSource(s.id);
+      toast({ title: r.bypass ? 'Sync queued (admin bypass)' : 'Sync queued' });
+      refresh();
+    } catch (e: any) {
+      const msg = String(e?.message || '');
+      if (msg.includes('plan_limit_reached')) {
+        toast({ title: 'Plan limit reached', description: 'Monthly sync jobs exhausted for this plan.', variant: 'destructive' });
+      } else {
+        toast({ title: 'Sync failed', description: msg, variant: 'destructive' });
+      }
+    }
+  }
+  async function retry(s: DataSource) {
+    try {
+      const r = await aiAgentApi.retryFailedSourceJob(s.id);
+      toast({ title: r.reused ? 'Existing job already queued' : 'Retry queued' });
+      refresh();
+    } catch (e: any) {
+      toast({ title: 'Retry failed', description: e?.message, variant: 'destructive' });
+    }
   }
   async function remove(s: DataSource) {
     if (!confirm(`Delete website source "${s.name}"?`)) return;
@@ -110,6 +139,9 @@ export default function WebPagesPage() {
               <span>Max pages/source: <span className="text-foreground">{limits.limits.ai_kb_max_pages}</span></span>
               <span>Max depth: <span className="text-foreground">{limits.limits.ai_kb_max_depth}</span></span>
               <span>Sync jobs this month: <span className="text-foreground">{limits.jobs_used_this_month}/{limits.limits.ai_kb_jobs_per_month}</span></span>
+              {limits.bypass && (
+                <Badge variant="outline" className="text-[10px] border-primary/40 text-primary">Admin bypass active</Badge>
+              )}
               {limits.worker && (
                 <span>Worker: <span className="text-foreground">{limits.worker.inProcess ? 'in-process' : 'external'}{limits.worker.started ? ' · running' : ''}</span></span>
               )}
@@ -163,6 +195,11 @@ export default function WebPagesPage() {
                     )}
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
+                    {latestJobs[s.id]?.status === 'failed' && (
+                      <Button variant="outline" size="sm" onClick={() => retry(s)}>
+                        Retry sync
+                      </Button>
+                    )}
                     <Button variant="ghost" size="sm" onClick={() => sync(s)} disabled={s.status === 'syncing'}>
                       <RefreshCw className={`h-4 w-4 ${s.status === 'syncing' ? 'animate-spin' : ''}`} />
                     </Button>

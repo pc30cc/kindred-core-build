@@ -428,7 +428,26 @@ aiAgentRouter.post('/qna', async (req: Request, res: Response) => {
   const { workspaceId, ...row } = parsed.data;
   const auth = await authorizeMember(req, res, config, workspaceId);
   if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) {
+    return res.status(403).json({ error: 'owner_or_admin_required' });
+  }
+  if (!row.answer || !row.answer.trim()) {
+    return res.status(400).json({ error: 'answer_required' });
+  }
   const sb = getServiceClient(config);
+  // Dedupe by workspace + locale + normalized question.
+  const normalized = normalizeQuestion(row.question);
+  if (!normalized) return res.status(400).json({ error: 'question_required' });
+  const { data: existingRows } = await sb
+    .from('ai_agent_qna')
+    .select('id, question, locale')
+    .eq('workspace_id', workspaceId)
+    .eq('locale', row.locale)
+    .limit(2000);
+  const dup = (existingRows || []).find((r: any) => normalizeQuestion(r.question || '') === normalized);
+  if (dup) {
+    return res.status(409).json({ error: 'duplicate_qna', existing_id: dup.id });
+  }
   const { data, error } = await sb
     .from('ai_agent_qna')
     .insert({ workspace_id: workspaceId, ...row })
@@ -447,9 +466,15 @@ aiAgentRouter.patch('/qna/:id', async (req: Request, res: Response) => {
   if (!existing) return res.status(404).json({ error: 'not_found' });
   const auth = await authorizeMember(req, res, config, existing.workspace_id);
   if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) {
+    return res.status(403).json({ error: 'owner_or_admin_required' });
+  }
   const allowed = ['question','answer','locale','enabled'];
   const patch: Record<string, unknown> = {};
   for (const k of allowed) if (k in req.body) patch[k] = (req.body as any)[k];
+  if ('answer' in patch && (!patch.answer || !String(patch.answer).trim())) {
+    return res.status(400).json({ error: 'answer_required' });
+  }
   const { data, error } = await sb.from('ai_agent_qna').update(patch).eq('id', req.params.id).select('*').single();
   if (error) return res.status(500).json({ error: error.message });
   // syncKnowledgeSource already deactivates chunks when enabled=false (passes
@@ -465,6 +490,9 @@ aiAgentRouter.delete('/qna/:id', async (req: Request, res: Response) => {
   if (!existing) return res.status(404).json({ error: 'not_found' });
   const auth = await authorizeMember(req, res, config, existing.workspace_id);
   if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) {
+    return res.status(403).json({ error: 'owner_or_admin_required' });
+  }
   // Deactivate runtime chunks BEFORE the row vanishes so retrieval can never
   // surface a Q&A whose source row is gone.
   await sb.from('ai_knowledge_chunks')

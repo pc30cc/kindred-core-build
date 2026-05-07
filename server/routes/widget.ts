@@ -979,6 +979,14 @@ const messageSchema = z.object({
   attachment_id: z.string().uuid().optional().nullable(),
   /** Phase 8H — optional department selected by widget (single/multi mode). */
   department_id: z.string().uuid().optional().nullable(),
+  /** E2C — sanitized page context (currentPageUrl/Origin/Path/Title/referrer). */
+  page_context: z.object({
+    currentPageUrl: z.string().max(1000).optional().nullable(),
+    currentPageOrigin: z.string().max(255).optional().nullable(),
+    currentPagePath: z.string().max(1000).optional().nullable(),
+    currentPageTitle: z.string().max(300).optional().nullable(),
+    referrer: z.string().max(1000).optional().nullable(),
+  }).optional().nullable(),
 }).refine(
   d => !!((d.message && d.message.trim()) || (d.body && d.body.trim()) || d.attachment_id),
   { message: 'message, body, or attachment_id required' }

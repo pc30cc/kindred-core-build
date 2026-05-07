@@ -120,7 +120,7 @@ export async function maybeCreateLearningCandidateFromOperatorReply(
       .select('id, status')
       .eq('workspace_id', input.workspaceId)
       .eq('normalized_question', normalized)
-      .in('status', ['pending','approved','converted_to_qna','converted_to_kb'])
+      .in('status', ['pending','approved','converted_to_qna','converted_to_kb','rejected'])
       .limit(1)
       .maybeSingle();
     if (existing?.id) return { created: false, reason: 'duplicate' };
@@ -142,9 +142,11 @@ export async function maybeCreateLearningCandidateFromOperatorReply(
         status: 'pending',
         suggested_title: suggestedTitle,
         suggested_answer: input.operatorMessageBody,
+        reason: 'operator_answer_available',
         metadata: {
           operator_id: input.operatorId,
           ai_signalled: true,
+          reason: 'operator_answer_available',
         },
       })
       .select('id')

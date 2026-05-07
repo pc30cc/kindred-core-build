@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils';
 import {
   Beaker, BarChart3, ToggleLeft, Settings, CreditCard,
   Route, ScrollText, MessageCircleQuestion, Globe, FileText,
-  Tags, Workflow, Bell, Plug, Bot, LayoutDashboard, Compass, Database,
+  Tags, Workflow, Bell, Plug, Bot, LayoutDashboard, Compass, Database, GraduationCap,
 } from 'lucide-react';
 
 interface NavItem { key: string; label: string; subPath: string; icon: React.ElementType; }
@@ -37,6 +37,7 @@ const groups: NavGroup[] = [
     key: 'train', label: 'Train', items: [
       { key: 'dataHub', label: 'Data Hub', subPath: '/ai-agent/train', icon: Database },
       { key: 'qna', label: 'Questions & Answers', subPath: '/ai-agent/qna', icon: MessageCircleQuestion },
+      { key: 'learningCandidates', label: 'Learning Candidates', subPath: '/ai-agent/learning-candidates', icon: GraduationCap },
       { key: 'webPages', label: 'Web pages', subPath: '/ai-agent/web-pages', icon: Globe },
       { key: 'files', label: 'Files', subPath: '/ai-agent/files', icon: FileText },
     ],

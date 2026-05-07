@@ -47,6 +47,7 @@ import AiAgentBillingPage from "@/pages/app/ai-agent/BillingPage";
 import AiAgentRoutingPage from "@/pages/app/ai-agent/RoutingPage";
 import AiAgentInstructionsPage from "@/pages/app/ai-agent/InstructionsPage";
 import AiAgentQnaPage from "@/pages/app/ai-agent/QnaPage";
+import AiAgentLearningCandidatesPage from "@/pages/app/ai-agent/LearningCandidatesPage";
 import AiAgentWebPagesPage from "@/pages/app/ai-agent/WebPagesPage";
 import AiAgentFilesPage from "@/pages/app/ai-agent/FilesPage";
 import AiAgentTopicsPage from "@/pages/app/ai-agent/TopicsPage";
@@ -236,6 +237,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                   <Route path="routing" element={<AiAgentRoutingPage />} />
                   <Route path="instructions" element={<AiAgentInstructionsPage />} />
                   <Route path="qna" element={<AiAgentQnaPage />} />
+                  <Route path="learning-candidates" element={<AiAgentLearningCandidatesPage />} />
                   <Route path="train" element={<AiAgentTrainPage />} />
                   <Route path="web-pages" element={<AiAgentWebPagesPage />} />
                   <Route path="files" element={<AiAgentFilesPage />} />

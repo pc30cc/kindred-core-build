@@ -946,17 +946,21 @@ export type Database = {
       ai_data_sources: {
         Row: {
           base_url: string | null
+          chunks_created: number
           crawl_depth: number
           created_at: string
+          embedded_chunks: number
           exclude_rules: Json
           id: string
           include_rules: Json
           last_error: string | null
           last_synced_at: string | null
+          last_warning: string | null
           max_pages: number
           metadata: Json
           name: string
           next_sync_at: string | null
+          pages_found: number
           refresh_interval: string
           source_type: string
           status: string
@@ -965,17 +969,21 @@ export type Database = {
         }
         Insert: {
           base_url?: string | null
+          chunks_created?: number
           crawl_depth?: number
           created_at?: string
+          embedded_chunks?: number
           exclude_rules?: Json
           id?: string
           include_rules?: Json
           last_error?: string | null
           last_synced_at?: string | null
+          last_warning?: string | null
           max_pages?: number
           metadata?: Json
           name: string
           next_sync_at?: string | null
+          pages_found?: number
           refresh_interval?: string
           source_type: string
           status?: string
@@ -984,17 +992,21 @@ export type Database = {
         }
         Update: {
           base_url?: string | null
+          chunks_created?: number
           crawl_depth?: number
           created_at?: string
+          embedded_chunks?: number
           exclude_rules?: Json
           id?: string
           include_rules?: Json
           last_error?: string | null
           last_synced_at?: string | null
+          last_warning?: string | null
           max_pages?: number
           metadata?: Json
           name?: string
           next_sync_at?: string | null
+          pages_found?: number
           refresh_interval?: string
           source_type?: string
           status?: string
@@ -1422,6 +1434,129 @@ export type Database = {
           source_url?: string | null
           status?: string
           title?: string | null
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: []
+      }
+      ai_source_pages: {
+        Row: {
+          chunks_created: number | null
+          content_hash: string | null
+          created_at: string
+          embedding_status: string | null
+          http_status: number | null
+          id: string
+          last_seen_at: string
+          locale: string | null
+          source_id: string
+          status: string
+          text_length: number | null
+          title: string | null
+          updated_at: string
+          url: string
+          url_hash: string
+          warning: string | null
+          workspace_id: string
+        }
+        Insert: {
+          chunks_created?: number | null
+          content_hash?: string | null
+          created_at?: string
+          embedding_status?: string | null
+          http_status?: number | null
+          id?: string
+          last_seen_at?: string
+          locale?: string | null
+          source_id: string
+          status?: string
+          text_length?: number | null
+          title?: string | null
+          updated_at?: string
+          url: string
+          url_hash: string
+          warning?: string | null
+          workspace_id: string
+        }
+        Update: {
+          chunks_created?: number | null
+          content_hash?: string | null
+          created_at?: string
+          embedding_status?: string | null
+          http_status?: number | null
+          id?: string
+          last_seen_at?: string
+          locale?: string | null
+          source_id?: string
+          status?: string
+          text_length?: number | null
+          title?: string | null
+          updated_at?: string
+          url?: string
+          url_hash?: string
+          warning?: string | null
+          workspace_id?: string
+        }
+        Relationships: []
+      }
+      ai_source_sync_jobs: {
+        Row: {
+          attempts: number
+          created_at: string
+          created_by: string | null
+          finished_at: string | null
+          id: string
+          job_type: string
+          last_error: string | null
+          lock_expires_at: string | null
+          locked_at: string | null
+          locked_by: string | null
+          max_attempts: number
+          metadata: Json
+          priority: number
+          source_id: string
+          started_at: string | null
+          status: string
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          attempts?: number
+          created_at?: string
+          created_by?: string | null
+          finished_at?: string | null
+          id?: string
+          job_type?: string
+          last_error?: string | null
+          lock_expires_at?: string | null
+          locked_at?: string | null
+          locked_by?: string | null
+          max_attempts?: number
+          metadata?: Json
+          priority?: number
+          source_id: string
+          started_at?: string | null
+          status?: string
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          attempts?: number
+          created_at?: string
+          created_by?: string | null
+          finished_at?: string | null
+          id?: string
+          job_type?: string
+          last_error?: string | null
+          lock_expires_at?: string | null
+          locked_at?: string | null
+          locked_by?: string | null
+          max_attempts?: number
+          metadata?: Json
+          priority?: number
+          source_id?: string
+          started_at?: string | null
+          status?: string
           updated_at?: string
           workspace_id?: string
         }

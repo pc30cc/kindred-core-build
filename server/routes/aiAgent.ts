@@ -462,7 +462,11 @@ aiAgentRouter.post('/qna', async (req: Request, res: Response) => {
 aiAgentRouter.patch('/qna/:id', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
   const sb = getServiceClient(config);
-  const { data: existing } = await sb.from('ai_agent_qna').select('workspace_id, enabled').eq('id', req.params.id).maybeSingle();
+  const { data: existing } = await sb
+    .from('ai_agent_qna')
+    .select('workspace_id, enabled, question, locale')
+    .eq('id', req.params.id)
+    .maybeSingle();
   if (!existing) return res.status(404).json({ error: 'not_found' });
   const auth = await authorizeMember(req, res, config, existing.workspace_id);
   if (!auth) return;
@@ -474,6 +478,26 @@ aiAgentRouter.patch('/qna/:id', async (req: Request, res: Response) => {
   for (const k of allowed) if (k in req.body) patch[k] = (req.body as any)[k];
   if ('answer' in patch && (!patch.answer || !String(patch.answer).trim())) {
     return res.status(400).json({ error: 'answer_required' });
+  }
+  if ('question' in patch && (!patch.question || !String(patch.question).trim())) {
+    return res.status(400).json({ error: 'question_required' });
+  }
+  // Duplicate-protection: if question or locale is changing, dedupe against
+  // sibling rows in same (workspace_id, locale) using normalized form.
+  if ('question' in patch || 'locale' in patch) {
+    const finalQuestion = ('question' in patch ? String(patch.question) : (existing as any).question) || '';
+    const finalLocale = ('locale' in patch ? String(patch.locale) : ((existing as any).locale || 'en')) || 'en';
+    const normalized = normalizeQuestion(finalQuestion);
+    if (!normalized) return res.status(400).json({ error: 'question_required' });
+    const { data: siblings } = await sb
+      .from('ai_agent_qna')
+      .select('id, question, locale')
+      .eq('workspace_id', existing.workspace_id)
+      .eq('locale', finalLocale)
+      .neq('id', req.params.id)
+      .limit(2000);
+    const dup = (siblings || []).find((r: any) => normalizeQuestion(r.question || '') === normalized);
+    if (dup) return res.status(409).json({ error: 'duplicate_qna', existing_id: dup.id });
   }
   const { data, error } = await sb.from('ai_agent_qna').update(patch).eq('id', req.params.id).select('*').single();
   if (error) return res.status(500).json({ error: error.message });
@@ -537,16 +561,22 @@ aiAgentRouter.post('/qna/bulk', async (req: Request, res: Response) => {
   const skipped: { question: string; reason: string }[] = [];
   const errors: { question: string; error: string }[] = [];
   for (const it of items) {
-    const locale = it.locale || 'en';
-    const key = `${locale}::${normalizeQuestion(it.question)}`;
-    if (!key.split('::')[1]) { skipped.push({ question: it.question, reason: 'normalize_empty' }); continue; }
+    const rawQ = typeof it.question === 'string' ? it.question.trim() : '';
+    const rawA = typeof it.answer === 'string' ? it.answer.trim() : '';
+    const rawLocale = (typeof it.locale === 'string' ? it.locale.trim().toLowerCase() : '') || 'en';
+    if (rawLocale.length > 10) { skipped.push({ question: it.question, reason: 'invalid_locale' }); continue; }
+    if (!rawQ) { skipped.push({ question: it.question, reason: 'empty_question' }); continue; }
+    if (!rawA) { skipped.push({ question: it.question, reason: 'empty_answer' }); continue; }
+    const normalized = normalizeQuestion(rawQ);
+    if (!normalized) { skipped.push({ question: it.question, reason: 'empty_question' }); continue; }
+    const key = `${rawLocale}::${normalized}`;
     if (existingKeys.has(key)) { skipped.push({ question: it.question, reason: 'duplicate' }); continue; }
     existingKeys.add(key);
     const { data, error } = await sb
       .from('ai_agent_qna')
-      .insert({ workspace_id: workspaceId, question: it.question, answer: it.answer, locale, enabled: it.enabled ?? true })
+      .insert({ workspace_id: workspaceId, question: rawQ, answer: rawA, locale: rawLocale, enabled: it.enabled ?? true })
       .select('id').single();
-    if (error) { errors.push({ question: it.question, error: error.message }); continue; }
+    if (error) { skipped.push({ question: it.question, reason: 'insert_failed' }); errors.push({ question: it.question, error: error.message }); continue; }
     created.push(data.id);
     syncKnowledgeSource(config, { workspaceId, sourceType: 'qna', sourceId: data.id }).catch(() => {});
   }

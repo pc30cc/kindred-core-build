@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from '@/hooks/use-toast';
-import { MessageCircleQuestion, Sparkles, Check, X, FileText, Loader2 } from 'lucide-react';
+import { MessageCircleQuestion, Sparkles, Check, X, FileText, Loader2, RefreshCw, GraduationCap } from 'lucide-react';
 
 export default function QnaPage() {
   const workspace = useCurrentWorkspace() as any;
@@ -18,6 +18,7 @@ export default function QnaPage() {
   const [candidates, setCandidates] = useState<LearningCandidate[]>([]);
   const [stats, setStats] = useState<{ pending: number; converted_to_qna: number; converted_to_kb: number; rejected: number } | null>(null);
   const [loading, setLoading] = useState(false);
+  const [generating, setGenerating] = useState(false);
 
   async function refreshAll() {
     if (!wsId) return;
@@ -38,6 +39,18 @@ export default function QnaPage() {
     }
   }
   useEffect(() => { refreshAll(); /* eslint-disable-next-line */ }, [wsId]);
+
+  async function generate() {
+    if (!wsId) return;
+    setGenerating(true);
+    try {
+      const r = await aiAgentApi.generateLearningCandidates(wsId);
+      toast({ title: 'Scan complete', description: `${r.created} created · ${r.skipped} skipped (scanned ${r.scanned})` });
+      refreshAll();
+    } catch (e: any) {
+      toast({ title: 'Generate failed', description: e?.message, variant: 'destructive' });
+    } finally { setGenerating(false); }
+  }
 
   if (!wsId) return null;
 
@@ -77,6 +90,15 @@ export default function QnaPage() {
         </TabsContent>
 
         <TabsContent value="learning" className="space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-muted-foreground">
+              Pending candidates are NEVER used by the AI until you approve them.
+            </p>
+            <Button size="sm" variant="outline" onClick={generate} disabled={generating}>
+              {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <RefreshCw className="h-3.5 w-3.5 mr-1" />}
+              Scan recent runs
+            </Button>
+          </div>
           {stats && (
             <div className="flex flex-wrap gap-2 text-xs">
               <Badge variant="secondary">Pending: {stats.pending}</Badge>

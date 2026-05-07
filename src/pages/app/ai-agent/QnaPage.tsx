@@ -47,7 +47,7 @@ export default function QnaPage() {
     }
     setCreating(true);
     try {
-      await aiAgentApi.createQna({ workspaceId: wsId, question: q.trim(), answer: a.trim(), locale });
+      await aiAgentApi.createQna(wsId, { question: q.trim(), answer: a.trim(), locale });
       setQ(''); setA('');
       toast({ title: 'Q&A added' });
       refresh();

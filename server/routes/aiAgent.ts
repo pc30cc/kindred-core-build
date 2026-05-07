@@ -1386,30 +1386,93 @@ aiAgentRouter.post('/data-sources/:id/sync', async (req: Request, res: Response)
   if (!auth) return;
   if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
   if (existing.status === 'deleted') return res.status(400).json({ error: 'source_deleted' });
-  // Plan: monthly job ceiling.
-  const { limits } = await resolveAiAgentDataLimits(config, existing.workspace_id);
-  const monthly = await countSourceJobsThisMonth(config, existing.workspace_id);
-  if (monthly >= limits.ai_kb_jobs_per_month) {
-    return res.status(403).json({ error: 'plan_limit_reached', detail: 'ai_kb_jobs_per_month', limit: limits.ai_kb_jobs_per_month, used: monthly });
+  // Plan: monthly job ceiling. Platform admins bypass for operational use.
+  if (!auth.isAdmin) {
+    const { limits } = await resolveAiAgentDataLimits(config, existing.workspace_id);
+    const monthly = await countSourceJobsThisMonth(config, existing.workspace_id);
+    if (monthly >= limits.ai_kb_jobs_per_month) {
+      return res.status(403).json({ error: 'plan_limit_reached', detail: 'ai_kb_jobs_per_month', limit: limits.ai_kb_jobs_per_month, used: monthly });
+    }
   }
-  const job = await enqueueSourceSyncJob(config, {
-    workspaceId: existing.workspace_id,
-    sourceId: existing.id,
-    jobType: 'website_sync',
-    createdBy: auth.userId || null,
-  });
+  // Block if a queued/running job already exists. Otherwise (including when
+  // the latest job is failed/max-attempts), enqueue a fresh queued job —
+  // failed jobs are never auto-claimed; this is the explicit retry path.
+  const { data: active } = await sb
+    .from('ai_source_sync_jobs')
+    .select('id, status')
+    .eq('source_id', existing.id)
+    .in('status', ['queued', 'running'])
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  let job: { id: string; status: string };
+  if (active) {
+    job = active as any;
+  } else {
+    const created = await enqueueSourceSyncJob(config, {
+      workspaceId: existing.workspace_id,
+      sourceId: existing.id,
+      jobType: 'website_sync',
+      createdBy: auth.userId || null,
+      metadata: auth.isAdmin ? { admin_override: true } : {},
+    });
+    job = created;
+  }
   await sb.from('ai_source_sync_logs').insert({
     workspace_id: existing.workspace_id,
     source_id: existing.id,
     status: 'queued',
-    message: 'Sync job queued',
+    message: auth.isAdmin ? 'Sync job queued (admin bypass)' : 'Sync job queued',
     metadata: { job_id: job.id },
   });
   // In-process opportunistic kick.
   if (process.env.AI_KB_WORKER_INPROC === '1') {
     setImmediate(() => { processOneSourceJob(config).catch(() => {}); });
   }
-  return res.json({ ok: true, jobId: job.id, status: job.status, worker: getWorkerInfo() });
+  return res.json({ ok: true, jobId: job.id, status: job.status, bypass: auth.isAdmin || undefined, worker: getWorkerInfo() });
+});
+
+// Explicit retry of the latest job for a source. Creates a fresh queued job
+// (preferred for clean audit history) when no queued/running job already
+// exists. Failed jobs are NEVER auto-claimed by the worker.
+aiAgentRouter.post('/data-sources/:id/retry-failed-job', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const sb = getServiceClient(config);
+  const { data: existing } = await sb.from('ai_data_sources').select('id, workspace_id, status').eq('id', req.params.id).maybeSingle();
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, existing.workspace_id);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  if (existing.status === 'deleted') return res.status(400).json({ error: 'source_deleted' });
+  const { data: active } = await sb
+    .from('ai_source_sync_jobs')
+    .select('id, status')
+    .eq('source_id', existing.id)
+    .in('status', ['queued', 'running'])
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (active) {
+    return res.json({ ok: true, jobId: (active as any).id, status: (active as any).status, reused: true, worker: getWorkerInfo() });
+  }
+  const created = await enqueueSourceSyncJob(config, {
+    workspaceId: existing.workspace_id,
+    sourceId: existing.id,
+    jobType: 'website_sync',
+    createdBy: auth.userId || null,
+    metadata: { retry: true, ...(auth.isAdmin ? { admin_override: true } : {}) },
+  });
+  await sb.from('ai_source_sync_logs').insert({
+    workspace_id: existing.workspace_id,
+    source_id: existing.id,
+    status: 'queued',
+    message: auth.isAdmin ? 'Retry sync job queued (admin bypass)' : 'Retry sync job queued',
+    metadata: { job_id: created.id, retry: true },
+  });
+  if (process.env.AI_KB_WORKER_INPROC === '1') {
+    setImmediate(() => { processOneSourceJob(config).catch(() => {}); });
+  }
+  return res.json({ ok: true, jobId: created.id, status: created.status, retried: true, bypass: auth.isAdmin || undefined, worker: getWorkerInfo() });
 });
 
 aiAgentRouter.get('/data-sources/:id/logs', async (req: Request, res: Response) => {
@@ -1486,7 +1549,13 @@ aiAgentRouter.get('/data-sources/limits', async (req: Request, res: Response) =>
   if (!auth) return;
   const resolved = await resolveAiAgentDataLimits(config, workspaceId);
   const used = await countSourceJobsThisMonth(config, workspaceId);
-  return res.json({ ...resolved, jobs_used_this_month: used, worker: getWorkerInfo() });
+  return res.json({
+    ...resolved,
+    jobs_used_this_month: used,
+    bypass: auth.isAdmin || false,
+    bypassReason: auth.isAdmin ? 'platform_admin' : null,
+    worker: getWorkerInfo(),
+  });
 });
 
 // ─── Workspace registered domain helper (read-only) ───

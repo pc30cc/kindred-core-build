@@ -251,7 +251,9 @@ export const aiAgentApi = {
   deleteDataSource: (id: string) =>
     jsonFetch(`/api/ai-agent/data-sources/${id}`, { method: 'DELETE' }) as Promise<{ ok: boolean }>,
   syncDataSource: (id: string) =>
-    jsonFetch(`/api/ai-agent/data-sources/${id}/sync`, { method: 'POST' }) as Promise<{ ok: boolean }>,
+    jsonFetch(`/api/ai-agent/data-sources/${id}/sync`, { method: 'POST' }) as Promise<{ ok: boolean; jobId: string; status: string; bypass?: boolean }>,
+  retryFailedSourceJob: (id: string) =>
+    jsonFetch(`/api/ai-agent/data-sources/${id}/retry-failed-job`, { method: 'POST' }) as Promise<{ ok: boolean; jobId: string; status: string; retried?: boolean; reused?: boolean; bypass?: boolean }>,
   getDataSourceLogs: (id: string) =>
     jsonFetch(`/api/ai-agent/data-sources/${id}/logs`) as Promise<{ items: SourceSyncLog[] }>,
   getDataSourcePages: (id: string) =>
@@ -261,7 +263,7 @@ export const aiAgentApi = {
   cancelSourceJob: (jobId: string) =>
     jsonFetch(`/api/ai-agent/data-sources/jobs/${jobId}/cancel`, { method: 'POST' }) as Promise<{ ok: boolean }>,
   getDataSourceLimits: (workspaceId: string) =>
-    jsonFetch(`/api/ai-agent/data-sources/limits?workspaceId=${workspaceId}`) as Promise<{ planSlug: string | null; planName: string | null; limits: { ai_kb_max_pages: number; ai_kb_max_depth: number; ai_kb_jobs_per_month: number; ai_kb_file_count: number; ai_kb_file_size_mb: number }; jobs_used_this_month: number; worker: { workerId: string; inProcess: boolean; started: boolean } }>,
+    jsonFetch(`/api/ai-agent/data-sources/limits?workspaceId=${workspaceId}`) as Promise<{ planSlug: string | null; planName: string | null; limits: { ai_kb_max_pages: number; ai_kb_max_depth: number; ai_kb_jobs_per_month: number; ai_kb_file_count: number; ai_kb_file_size_mb: number }; jobs_used_this_month: number; bypass?: boolean; bypassReason?: string | null; worker: { workerId: string; inProcess: boolean; started: boolean } }>,
   getWorkspaceDomains: (workspaceId: string) =>
     jsonFetch(`/api/ai-agent/workspace-domain?workspaceId=${workspaceId}`) as Promise<{ domains: Array<{ domain: string; is_primary: boolean; verified: boolean }> }>,
   // Pass B1 — Topics

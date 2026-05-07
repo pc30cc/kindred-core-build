@@ -40,6 +40,52 @@
       return s;
     } catch (_) { return null; }
   }
+  // Normalize a string: trim + collapse internal whitespace + length cap.
+  function normTitle(s) {
+    if (!s || typeof s !== 'string') return null;
+    var t = s.replace(/\s+/g, ' ').trim();
+    if (!t) return null;
+    return t.length > 300 ? t.slice(0, 300) : t;
+  }
+  // Read a meta tag's content by attribute name/value pair, safely.
+  function readMeta(attr, val) {
+    try {
+      if (typeof document === 'undefined') return null;
+      var el = document.querySelector('meta[' + attr + '="' + val + '"]');
+      if (!el) return null;
+      return normTitle(el.getAttribute('content') || '');
+    } catch (_) { return null; }
+  }
+  function readH1() {
+    try {
+      if (typeof document === 'undefined') return null;
+      var nodes = document.getElementsByTagName('h1');
+      for (var i = 0; i < nodes.length && i < 5; i++) {
+        var n = nodes[i];
+        if (!n) continue;
+        if (n.getAttribute && n.getAttribute('aria-hidden') === 'true') continue;
+        var t = normTitle(n.textContent || '');
+        if (t) return t;
+      }
+      return null;
+    } catch (_) { return null; }
+  }
+  // Public-page-only title extraction. Never reads inputs, cookies, storage.
+  function getSafePageTitle() {
+    var t = readMeta('property', 'og:title');
+    if (t) return { title: t, source: 'og:title' };
+    t = readMeta('name', 'twitter:title');
+    if (t) return { title: t, source: 'twitter:title' };
+    t = readH1();
+    if (t) return { title: t, source: 'h1' };
+    try {
+      if (typeof document !== 'undefined') {
+        var d = normTitle(document.title || '');
+        if (d) return { title: d, source: 'document.title' };
+      }
+    } catch (_) {}
+    return { title: null, source: null };
+  }
   function buildPageContext() {
     try {
       if (typeof window === 'undefined' || !window.location) return null;
@@ -48,16 +94,19 @@
       if (!url) return null;
       var parsed = null;
       try { parsed = new URL(url); } catch (_) { parsed = null; }
-      var title = (typeof document !== 'undefined' && document.title) ? String(document.title).slice(0, 300) : null;
+      var titleInfo = getSafePageTitle();
       var ref = (typeof document !== 'undefined' && document.referrer) ? sanitizeUrl(document.referrer) : null;
       if (ref && ref.length > 1000) ref = ref.slice(0, 1000);
-      return {
+      var ctx = {
         currentPageUrl: url,
         currentPageOrigin: parsed ? parsed.origin : (loc.origin || null),
         currentPagePath: parsed ? parsed.pathname : (loc.pathname || null),
-        currentPageTitle: title,
+        currentPageTitle: titleInfo.title,
         referrer: ref,
       };
+      // Non-enumerable-ish hint for debug only; not sent to backend.
+      ctx.__titleSource = titleInfo.source;
+      return ctx;
     } catch (_) { return null; }
   }
 
@@ -105,13 +154,26 @@
       }
 
       var pageCtx = buildPageContext();
+      var titleSource = pageCtx ? pageCtx.__titleSource : null;
+      // Strip debug-only hint before sending over the wire.
+      var pageCtxOut = null;
+      if (pageCtx) {
+        pageCtxOut = {
+          currentPageUrl: pageCtx.currentPageUrl,
+          currentPageOrigin: pageCtx.currentPageOrigin,
+          currentPagePath: pageCtx.currentPagePath,
+          currentPageTitle: pageCtx.currentPageTitle,
+          referrer: pageCtx.referrer,
+        };
+      }
       dbg('[Widget Runtime] active message sender', { file: 'runtime-chat.js', path: '/api/widget/message' });
-      dbg('[Widget Runtime] page_context built', pageCtx ? {
-        currentPageUrl: pageCtx.currentPageUrl,
-        currentPagePath: pageCtx.currentPagePath,
-        currentPageTitle: pageCtx.currentPageTitle,
+      dbg('[Widget Runtime] page_context built', pageCtxOut ? {
+        currentPageUrl: pageCtxOut.currentPageUrl,
+        currentPagePath: pageCtxOut.currentPagePath,
+        currentPageTitle: pageCtxOut.currentPageTitle,
+        titleSource: titleSource,
       } : null);
-      dbg('[Widget Runtime] payload includes page_context', !!pageCtx);
+      dbg('[Widget Runtime] payload includes page_context', !!pageCtxOut);
 
       fetchWith(apiBase + '/api/widget/message', {
         method: 'POST',
@@ -122,10 +184,9 @@
           attachment_id: attachmentId || undefined,
           message: text,
           department_id: departmentId || undefined,
-          // Send canonical key + alias for forward compatibility with any
-          // future server consolidation. Backend already accepts both.
-          page_context: pageCtx || undefined,
-          pageContext: pageCtx || undefined,
+          // Canonical key only. Backend still accepts the legacy `pageContext`
+          // alias from older deployed runtimes for backward compatibility.
+          page_context: pageCtxOut || undefined,
         }),
       })
         .then(function (r) {

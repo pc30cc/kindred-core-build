@@ -126,7 +126,29 @@ function CandidateRow({ candidate, onChanged }: { candidate: LearningCandidate; 
   const [question, setQuestion] = useState(candidate.question_text);
   const [answer, setAnswer] = useState(candidate.suggested_answer ?? candidate.answer_text);
   const [locale, setLocale] = useState(candidate.locale ?? 'en');
-  const [busy, setBusy] = useState<null | 'qna' | 'kb' | 'reject'>(null);
+  const [busy, setBusy] = useState<null | 'qna' | 'kb' | 'reject' | 'learned' | 'kbpub'>(null);
+  const reason = (candidate.metadata as any)?.reason as string | undefined;
+  const pageUrl = (candidate.metadata as any)?.page_context?.current_page_url as string | undefined;
+  async function approveLearned() {
+    setBusy('learned');
+    try {
+      await aiAgentApi.approveLearningCandidateAsLearned(candidate.id, { final_answer: answer, question, locale });
+      toast({ title: 'Approved as learned answer' });
+      onChanged();
+    } catch (e: any) {
+      toast({ title: 'Approve failed', description: e?.message, variant: 'destructive' });
+    } finally { setBusy(null); }
+  }
+  async function convertKbPublished() {
+    setBusy('kbpub');
+    try {
+      await aiAgentApi.convertLearningCandidateToKbV2(candidate.id, { title: question.slice(0, 120), answer, locale, publish: true });
+      toast({ title: 'Published as KB article' });
+      onChanged();
+    } catch (e: any) {
+      toast({ title: 'Publish failed', description: e?.message, variant: 'destructive' });
+    } finally { setBusy(null); }
+  }
 
   async function approve() {
     setBusy('qna');
@@ -163,11 +185,13 @@ function CandidateRow({ candidate, onChanged }: { candidate: LearningCandidate; 
     <Card className="p-4 space-y-3">
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <Badge variant="outline">{candidate.source_type}</Badge>
+        {reason && <Badge variant="secondary">{reason}</Badge>}
         {candidate.locale && <Badge variant="outline">{candidate.locale}</Badge>}
         <span>{new Date(candidate.created_at).toLocaleString()}</span>
         {candidate.conversation_id && (
           <a href={`/app/w/${candidate.workspace_id}/inbox?c=${candidate.conversation_id}`} className="underline">view conversation</a>
         )}
+        {pageUrl && <a href={pageUrl} target="_blank" rel="noreferrer" className="underline truncate max-w-[260px]">{pageUrl}</a>}
       </div>
       <div className="space-y-1">
         <label className="text-xs font-medium">Visitor question</label>
@@ -182,13 +206,21 @@ function CandidateRow({ candidate, onChanged }: { candidate: LearningCandidate; 
         <Input value={locale} onChange={(e) => setLocale(e.target.value)} className="w-24 h-8" />
       </div>
       <div className="flex flex-wrap gap-2">
+        <Button size="sm" onClick={approveLearned} disabled={!!busy || !answer.trim()}>
+          {busy === 'learned' ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <GraduationCap className="h-3.5 w-3.5 mr-1" />}
+          Approve (learned)
+        </Button>
         <Button size="sm" onClick={approve} disabled={!!busy}>
           {busy === 'qna' ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Check className="h-3.5 w-3.5 mr-1" />}
-          Approve as Q&A
+          Convert to Q&A
         </Button>
         <Button size="sm" variant="outline" onClick={convertKb} disabled={!!busy}>
           {busy === 'kb' ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <FileText className="h-3.5 w-3.5 mr-1" />}
-          Convert to KB draft
+          KB draft
+        </Button>
+        <Button size="sm" variant="outline" onClick={convertKbPublished} disabled={!!busy}>
+          {busy === 'kbpub' ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <FileText className="h-3.5 w-3.5 mr-1" />}
+          KB publish
         </Button>
         <Button size="sm" variant="ghost" onClick={reject} disabled={!!busy}>
           {busy === 'reject' ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <X className="h-3.5 w-3.5 mr-1" />}

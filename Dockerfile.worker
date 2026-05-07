@@ -1,24 +1,26 @@
-# ── AI KB Builder Worker ───────────────────────────────────────────
-# Standalone worker process. Polls public.ai_kb_jobs and runs the
-# crawl → extract → AI-generate pipeline. Reuses the shared backend
-# AI provider abstraction (server/services/ai/index.ts) — never
-# instantiates its own OpenAI/Anthropic/Gemini client.
+# ── Multi-Worker Image ─────────────────────────────────────────────
+# A single image, multiple Coolify services. Pick the worker loop with:
+#   WORKER_KIND=intelligence   → AI KB Builder (public.ai_kb_jobs)
+#   WORKER_KIND=source-sync    → Data Hub sync (public.ai_source_sync_jobs)
+#   WORKER_KIND=all            → both (dev/small deploys only)
+# Default kind is "intelligence" for backward compatibility.
 #
-# Required env:
+# Required env (all kinds):
 #   SUPABASE_URL
 #   SUPABASE_SERVICE_ROLE_KEY
 #
-# Optional env:
-#   WORKER_ID                  unique id for this worker (defaults to ai-kb-<pid>)
-#   AI_KB_WORKER_POLL_MS       claim poll interval, default 5000
-#   CRAWLER_TIMEOUT_MS         per-page fetch timeout, default 15000
-#   CRAWLER_MAX_BYTES          per-page max body bytes, default 2_000_000
-#   CRAWLER_USER_AGENT         outgoing User-Agent string
+# Optional env (kind-aware; new names preferred, old names still work):
+#   WORKER_ID | AI_KB_WORKER_ID
+#   WORKER_INTERVAL_MS | AI_KB_WORKER_INTERVAL_MS | AI_KB_WORKER_POLL_MS
+#   WORKER_LOCK_TTL_SECONDS | AI_KB_WORKER_LOCK_TTL_SECONDS
+#   CRAWLER_TIMEOUT_MS / CRAWLER_MAX_BYTES / CRAWLER_USER_AGENT  (intelligence + source-sync)
 #
 # Build from repo root:
-#   docker build -f Dockerfile.worker -t growth-suite-ai-kb-worker .
-# Run:
-#   docker run --rm --env-file .env growth-suite-ai-kb-worker
+#   docker build -f Dockerfile.worker -t growth-suite-worker .
+# Run (intelligence):
+#   docker run --rm -e WORKER_KIND=intelligence --env-file .env growth-suite-worker
+# Run (source-sync):
+#   docker run --rm -e WORKER_KIND=source-sync  --env-file .env growth-suite-worker
 
 FROM node:20-alpine
 WORKDIR /app
@@ -38,8 +40,9 @@ COPY tsconfig.server.json ./
 # tsx runs TypeScript directly — same approach as Dockerfile.server.
 ENV NODE_ENV=production
 ENV AI_KB_WORKER_STANDALONE=1
+ENV WORKER_KIND=intelligence
 
 # Use the locally installed tsx binary — no network fetch at startup.
 # Verified at build time so the image fails fast if tsx is missing.
 RUN test -f node_modules/tsx/dist/cli.mjs || (echo "❌ tsx not installed" && ls node_modules/.bin | head && exit 1)
-CMD ["node", "node_modules/tsx/dist/cli.mjs", "worker/intelligence/index.ts"]
+CMD ["node", "node_modules/tsx/dist/cli.mjs", "worker/index.ts"]

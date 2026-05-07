@@ -14,7 +14,11 @@
     "typecheck:all": "npm run typecheck && npm run typecheck:server",
     "test": "vitest run",
     "test:watch": "vitest",
-    "worker:intelligence": "tsx worker/intelligence/index.ts"
+    "worker": "tsx worker/index.ts",
+    "worker:intelligence": "WORKER_KIND=intelligence tsx worker/index.ts",
+    "worker:source-sync": "WORKER_KIND=source-sync tsx worker/index.ts",
+    "worker:all": "WORKER_KIND=all tsx worker/index.ts",
+    "worker:intelligence:legacy": "tsx worker/intelligence/index.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

@@ -1324,6 +1324,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
         visitorMessageId: insertedMsg.id,
         question: messageBody,
         locale: (req.body && (req.body.locale as string)) || undefined,
+        pageContext: pageContext || undefined,
       }).catch((e: any) =>
         console.warn('[widget-message] AI Agent engine error:', e?.message || e),
       );

@@ -774,6 +774,56 @@ async function runInternal(
     safe_guidance_topic: strategy.safeGuidanceTopic || null,
   };
 
+  // ─── E2C — page-aware overrides ────────────────────────────────────────
+  // When the visitor asks "what is this page" AND we have an indexed match,
+  // force ANSWER (no handoff, no clarifying question). When intent is set
+  // but no page is matched, force a short honest no-answer message.
+  const pageExact = !!pageContextDebug?.exact_page_match;
+  const pagePath = !!pageContextDebug?.same_path_match;
+  let pageIntentOverride: 'answer' | 'no_indexed_page' | 'no_url' | null = null;
+  if (isPageIntent) {
+    if (pageExact || pagePath) {
+      // Reorder sources so the matched page chunk is FIRST, and force answer.
+      const matchedIds: string[] = pageContextDebug?.page_matched_source_ids || [];
+      const idx = sources.findIndex((s: any) => matchedIds.includes(s.id));
+      if (idx > 0) {
+        const [hit] = sources.splice(idx, 1);
+        sources.unshift(hit);
+      }
+      (strategy as any).decisionType = 'answer';
+      (strategy as any).reason = 'page_context_match';
+      (strategy as any).retrievalStrength = pageExact ? 'page_exact_match' : 'page_path_match';
+      (strategy as any).handoffRequired = false;
+      (strategy as any).topScore = Math.max(strategy.topScore, pageExact ? 0.95 : 0.8);
+      (strategy as any).confidence = Math.max(strategy.confidence, pageExact ? 0.95 : 0.8);
+      if (!strategy.sourceTypesUsed.includes('web_page')) {
+        (strategy as any).sourceTypesUsed = ['web_page', ...strategy.sourceTypesUsed];
+      }
+      strategyMeta.decision_type = strategy.decisionType;
+      strategyMeta.reason = strategy.reason;
+      strategyMeta.retrieval_strength = strategy.retrievalStrength;
+      strategyMeta.top_score = strategy.topScore;
+      strategyMeta.handoff_required = false;
+      strategyMeta.source_types_used = strategy.sourceTypesUsed;
+      pageIntentOverride = 'answer';
+      decisionTimeline.push('page_context_answer_override');
+    } else if (!pageContext?.currentPageUrl) {
+      pageIntentOverride = 'no_url';
+    } else {
+      pageIntentOverride = 'no_indexed_page';
+    }
+  }
+  // Top-level run metadata bundle for ai_agent_runs.metadata.page_context.
+  const pageContextMeta = pageContext ? {
+    source: 'widget',
+    current_page_url: pageContext.currentPageUrl || null,
+    current_page_origin: pageContext.currentPageOrigin || null,
+    current_page_path: pageContext.currentPagePath || null,
+    current_page_title: pageContext.currentPageTitle || null,
+    page_intent_detected: isPageIntent,
+    intent_override: pageIntentOverride,
+  } : (isPageIntent ? { source: null, page_intent_detected: true, intent_override: pageIntentOverride } : null);
+
   // ─── Decisions that don't require an LLM call ─────────────────────────
   if (strategy.decisionType === 'no_answer_silent') {
     // C2B — evaluate ai_no_answer triggers/workflows/tools.

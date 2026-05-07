@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from '@/hooks/use-toast';
-import { Sparkles, Check, X, FileText, Loader2, RefreshCw, GraduationCap } from 'lucide-react';
+import { Sparkles, Check, X, FileText, Loader2, RefreshCw, GraduationCap, Save } from 'lucide-react';
 
 type Tab = 'pending' | 'approved' | 'rejected' | 'converted';
 
@@ -107,9 +107,26 @@ function CandidateRow({ candidate, onChanged, readOnly }: { candidate: LearningC
   const [answer, setAnswer] = useState(candidate.suggested_answer ?? candidate.answer_text);
   const [locale, setLocale] = useState(candidate.locale ?? 'en');
   const [busy, setBusy] = useState<null | 'qna' | 'kb' | 'reject' | 'learned' | 'kbpub'>(null);
+  const [saving, setSaving] = useState(false);
   const reason = ((candidate as any).reason as string | undefined) || ((candidate.metadata as any)?.reason as string | undefined);
   const pageUrl = (candidate.metadata as any)?.page_context?.current_page_url as string | undefined;
   const answerEmpty = !answer || !answer.trim();
+  const questionEmpty = !question || !question.trim();
+
+  async function saveEdits() {
+    setSaving(true);
+    try {
+      await aiAgentApi.patchLearningCandidate(candidate.id, {
+        question_text: question,
+        suggested_answer: answer,
+        locale,
+      });
+      toast({ title: 'Candidate updated' });
+      onChanged();
+    } catch (e: any) {
+      toast({ title: 'Update failed', description: e?.message, variant: 'destructive' });
+    } finally { setSaving(false); }
+  }
 
   async function approveLearned() {
     setBusy('learned');
@@ -186,6 +203,10 @@ function CandidateRow({ candidate, onChanged, readOnly }: { candidate: LearningC
       </div>
       {!readOnly && (
         <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="secondary" onClick={saveEdits} disabled={saving || answerEmpty || questionEmpty}>
+            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Save className="h-3.5 w-3.5 mr-1" />}
+            Save edits
+          </Button>
           <Button size="sm" onClick={approveLearned} disabled={!!busy || answerEmpty}>
             {busy === 'learned' ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <GraduationCap className="h-3.5 w-3.5 mr-1" />}
             Approve (learned)

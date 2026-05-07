@@ -1059,10 +1059,53 @@ aiAgentRouter.patch('/learning-candidates/:id', async (req: Request, res: Respon
   if (!auth) return;
   if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
   const sb = getServiceClient(config);
-  const patch: Record<string, unknown> = { ...parsed.data };
-  if (parsed.data.question_text) patch.normalized_question = normalizeQuestion(parsed.data.question_text);
+  // Trim + validate fields. Empty-after-trim is rejected.
+  const patch: Record<string, unknown> = {};
+  if (parsed.data.question_text !== undefined) {
+    const q = parsed.data.question_text.trim();
+    if (!q) return res.status(400).json({ error: 'question_required' });
+    patch.question_text = q;
+    patch.normalized_question = normalizeQuestion(q);
+  }
+  if (parsed.data.suggested_answer !== undefined) {
+    const a = parsed.data.suggested_answer.trim();
+    if (!a) return res.status(400).json({ error: 'answer_required' });
+    patch.suggested_answer = a;
+  }
+  if (parsed.data.locale !== undefined) {
+    const loc = (parsed.data.locale || '').trim().toLowerCase() || 'en';
+    if (loc.length > 10) return res.status(400).json({ error: 'invalid_locale' });
+    patch.locale = loc;
+  }
+  if (parsed.data.suggested_title !== undefined) patch.suggested_title = parsed.data.suggested_title;
+  const reindexFields = ['question_text','suggested_answer','locale'] as const;
+  const willReindex = cand.status === 'approved' && reindexFields.some((k) => k in patch);
+  if (willReindex) {
+    const finalAnswer = (patch.suggested_answer as string | undefined) ?? cand.suggested_answer ?? cand.answer_text;
+    if (!finalAnswer || !String(finalAnswer).trim()) {
+      return res.status(400).json({ error: 'answer_required' });
+    }
+  }
   const { data, error } = await sb.from('ai_agent_learning_candidates').update(patch).eq('id', req.params.id).select('*').single();
   if (error) return res.status(500).json({ error: error.message });
+  if (willReindex) {
+    const finalQuestion = (patch.question_text as string | undefined) ?? cand.question_text;
+    const finalAnswer = (patch.suggested_answer as string | undefined) ?? cand.suggested_answer ?? cand.answer_text;
+    const finalLocale = (patch.locale as string | undefined) ?? cand.locale ?? 'en';
+    try {
+      await reindexLearnedCandidate(config, {
+        workspaceId: cand.workspace_id,
+        candidateId: cand.id,
+        question: finalQuestion,
+        answer: finalAnswer,
+        locale: finalLocale,
+        actorId: auth.userId,
+        markReindexed: true,
+      });
+    } catch (err: any) {
+      console.warn('[learning-candidates.patch] reindex failed:', err?.message);
+    }
+  }
   return res.json({ item: data });
 });
 

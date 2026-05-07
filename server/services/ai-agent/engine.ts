@@ -259,7 +259,18 @@ async function runInternal(
     tools: toolMeta,
     decision_timeline: decisionTimeline,
     runtime_warnings: runtimeCfg?.warnings || [],
+    page_context: pageContextMetaRef,
   } as Record<string, unknown>);
+  // E2C — populated after retrieval. Captured by closure above.
+  let pageContextMetaRef: any = pageContext ? {
+    source: 'widget',
+    current_page_url: pageContext.currentPageUrl || null,
+    current_page_origin: pageContext.currentPageOrigin || null,
+    current_page_path: pageContext.currentPagePath || null,
+    current_page_title: pageContext.currentPageTitle || null,
+    page_intent_detected: isPageIntent,
+    intent_override: null,
+  } : (isPageIntent ? { page_intent_detected: true, intent_override: null } : null);
 
   // Gather state in parallel — runtime policy needs all three.
   const [state, availability] = await Promise.all([

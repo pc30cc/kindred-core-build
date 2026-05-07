@@ -1272,6 +1272,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
           session_id: body.session_id,
           attachment_id: data.attachment_id || undefined,
           department_id: data.department_id || undefined,
+          page_context: pageContext || undefined,
         },
       })
       .select('id, conversation_id, sender_type, body, created_at, metadata, seen_at')

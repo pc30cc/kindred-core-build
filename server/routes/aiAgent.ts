@@ -1145,6 +1145,8 @@ aiAgentRouter.post('/learning-candidates/:id/approve', async (req: Request, res:
   if (!answer) return res.status(400).json({ error: 'answer_required' });
   const question = (parsed.data.question ?? cand.question_text ?? '').trim();
   if (!question) return res.status(400).json({ error: 'question_required' });
+  const normalized = normalizeQuestion(question);
+  if (!normalized) return res.status(400).json({ error: 'question_required' });
   const locale = ((parsed.data.locale ?? cand.locale ?? 'en') + '').trim().toLowerCase().slice(0, 10) || 'en';
   const nowIso = new Date().toISOString();
   const sb = getServiceClient(config);
@@ -1152,6 +1154,7 @@ aiAgentRouter.post('/learning-candidates/:id/approve', async (req: Request, res:
   await sb.from('ai_agent_learning_candidates').update({
     status: 'approved',
     question_text: question,
+    normalized_question: normalized,
     suggested_answer: answer,
     answer_text: answer,
     locale,

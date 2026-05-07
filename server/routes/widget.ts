@@ -61,6 +61,7 @@ import { widgetCallbacksRouter } from './widgetCallbacks.js';
 import { widgetDepartmentsRouter } from './widgetDepartments.js';
 import { widgetCallInvitationsRouter } from './widgetCallInvitations.js';
 import { recordConversationEvent } from '../services/conversationEvents.js';
+import { extractHostname, isOriginAllowed } from '../utils/domain.js';
 import { resolveAvailability, snapshotToWirePayload } from '../services/widget/availability.js';
 import { sendEmail } from '../services/email/index.js';
 import { enrichVisitorSessionGeo } from '../services/geo/index.js';

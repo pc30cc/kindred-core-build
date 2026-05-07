@@ -198,7 +198,18 @@ export async function retrieveHybridSources(
 
   // ── 1) Keyword retrieval ──────────────────────────────────────────────
   try {
-    // Q&A
+    // Retrieval safety contract (Pass E1):
+    //   Only active workspace-scoped chunks are eligible. Draft/unpublished/
+    //   disabled/rejected sources must be excluded before or during indexing,
+    //   and inactive chunks must not be returned here.
+    //   - Q&A: enabled = true only
+    //   - KB articles: status = 'published' only
+    //   - ai_knowledge_chunks: status = 'active' only, current workspace_id only
+    //   - Vector phase below applies the same workspace_id + status='active' filters
+    //   - No cross-workspace data, no pending/rejected learning candidates,
+    //     no draft/unpublished KB, no disabled Q&A, no deleted/paused/failed sources.
+
+    // Q&A — enabled only, workspace-scoped
     const { data: qna } = await sb
       .from('ai_agent_qna')
       .select('id, question, answer, locale')
@@ -228,7 +239,7 @@ export async function retrieveHybridSources(
       });
     }
 
-    // KB articles
+    // KB articles — published only, workspace-scoped
     const { data: arts } = await sb
       .from('knowledge_base_articles')
       .select('id, slug, locale, title, excerpt, content')
@@ -260,6 +271,7 @@ export async function retrieveHybridSources(
     }
 
     // Chunk-level keyword (covers business_profile, learned_qna, web_page, file)
+    // Active chunks only, workspace-scoped. Inactive/deleted chunks excluded.
     const { data: chunks } = await sb
       .from('ai_knowledge_chunks')
       .select('id, source_type, source_id, title, content, locale, source_url, metadata')

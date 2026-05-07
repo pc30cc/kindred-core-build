@@ -1121,6 +1121,7 @@ aiAgentRouter.post('/learning-candidates/:id/convert-to-qna', async (req: Reques
   const sb = getServiceClient(config);
   const question = parsed.data.question ?? cand.question_text;
   const answer = parsed.data.answer ?? (cand.suggested_answer || cand.answer_text);
+  if (!answer || !String(answer).trim()) return res.status(400).json({ error: 'answer_required' });
   const locale = parsed.data.locale ?? cand.locale ?? 'en';
   // Dedupe against existing Q&A by workspace + locale + normalized question.
   const normalized = normalizeQuestion(question);
@@ -1150,11 +1151,11 @@ aiAgentRouter.post('/learning-candidates/:id/convert-to-qna', async (req: Reques
     reviewed_at: new Date().toISOString(),
     metadata: { ...(cand.metadata || {}), converted_qna_id: qnaId, deduped_to_existing: duplicate },
   }).eq('id', cand.id);
-  // Deactivate any prior learned_qna chunk for this candidate (defense-in-depth).
-  await sb.from('ai_knowledge_chunks').delete()
+  // Defense-in-depth: tear down any prior learned_qna chunk for this candidate.
+  const { count: removedStale } = await sb.from('ai_knowledge_chunks').delete({ count: 'exact' })
     .eq('workspace_id', cand.workspace_id).eq('source_type', 'learned_qna').eq('source_id', cand.id);
   syncKnowledgeSource(config, { workspaceId: cand.workspace_id, sourceType: 'qna', sourceId: qnaId }).catch(() => {});
-  return res.json({ ok: true, qna_id: qnaId, deduped: duplicate });
+  return res.json({ ok: true, qna_id: qnaId, deduped: duplicate, removed_stale_chunks: removedStale ?? 0 });
 });
 
 // ─── POST /learning-candidates/:id/convert-to-kb  (replaces /convert-kb; supports publish flag) ───
@@ -1177,6 +1178,7 @@ aiAgentRouter.post('/learning-candidates/:id/convert-to-kb', async (req: Request
   const sb = getServiceClient(config);
   const title = parsed.data.title ?? cand.suggested_title ?? (cand.question_text || '').slice(0, 120);
   const content = parsed.data.answer ?? (cand.suggested_answer || cand.answer_text);
+  if (!content || !String(content).trim()) return res.status(400).json({ error: 'answer_required' });
   const locale = parsed.data.locale ?? cand.locale ?? 'en';
   const publish = !!parsed.data.publish;
   // knowledge_base_articles.slug is NOT NULL — derive a workspace-unique slug.
@@ -1198,13 +1200,13 @@ aiAgentRouter.post('/learning-candidates/:id/convert-to-kb', async (req: Request
   }).eq('id', cand.id);
   // Always tear down the candidate's learned_qna chunks once we've handed
   // ownership to the KB article (so retrieval doesn't return both).
-  await sb.from('ai_knowledge_chunks').delete()
+  const { count: removedStale } = await sb.from('ai_knowledge_chunks').delete({ count: 'exact' })
     .eq('workspace_id', cand.workspace_id).eq('source_type', 'learned_qna').eq('source_id', cand.id);
   // Only published articles enter the runtime index. Drafts stay invisible.
   if (publish) {
     syncKnowledgeSource(config, { workspaceId: cand.workspace_id, sourceType: 'kb_article', sourceId: art.id }).catch(() => {});
   }
-  return res.json({ ok: true, article_id: art.id, published: publish });
+  return res.json({ ok: true, article_id: art.id, published: publish, removed_stale_chunks: removedStale ?? 0 });
 });
 
 const candidateActionSchema = z.object({

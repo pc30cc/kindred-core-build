@@ -254,6 +254,14 @@ export const aiAgentApi = {
     jsonFetch(`/api/ai-agent/data-sources/${id}/sync`, { method: 'POST' }) as Promise<{ ok: boolean }>,
   getDataSourceLogs: (id: string) =>
     jsonFetch(`/api/ai-agent/data-sources/${id}/logs`) as Promise<{ items: SourceSyncLog[] }>,
+  getDataSourcePages: (id: string) =>
+    jsonFetch(`/api/ai-agent/data-sources/${id}/pages`) as Promise<{ items: Array<{ id: string; url: string; status: string; http_status: number | null; title: string | null; locale: string | null; text_length: number; content_hash: string | null; chunks_created: number; embedding_status: string | null; warning: string | null; last_seen_at: string }> }>,
+  getDataSourceJobs: (id: string) =>
+    jsonFetch(`/api/ai-agent/data-sources/${id}/jobs`) as Promise<{ items: Array<{ id: string; status: string; attempts: number; locked_by: string | null; started_at: string | null; finished_at: string | null; last_error: string | null; metadata: Record<string, unknown>; created_at: string }>; worker: { workerId: string; inProcess: boolean; pollIntervalMs: number; lockTtlSeconds: number; started: boolean } }>,
+  cancelSourceJob: (jobId: string) =>
+    jsonFetch(`/api/ai-agent/data-sources/jobs/${jobId}/cancel`, { method: 'POST' }) as Promise<{ ok: boolean }>,
+  getDataSourceLimits: (workspaceId: string) =>
+    jsonFetch(`/api/ai-agent/data-sources/limits?workspaceId=${workspaceId}`) as Promise<{ planSlug: string | null; planName: string | null; limits: { ai_kb_max_pages: number; ai_kb_max_depth: number; ai_kb_jobs_per_month: number; ai_kb_file_count: number; ai_kb_file_size_mb: number }; jobs_used_this_month: number; worker: { workerId: string; inProcess: boolean; started: boolean } }>,
   getWorkspaceDomains: (workspaceId: string) =>
     jsonFetch(`/api/ai-agent/workspace-domain?workspaceId=${workspaceId}`) as Promise<{ domains: Array<{ domain: string; is_primary: boolean; verified: boolean }> }>,
   // Pass B1 — Topics

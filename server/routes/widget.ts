@@ -1009,6 +1009,75 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
 
   const supabase = getServiceClient(config);
 
+  // ─── E2C — sanitize + validate visitor page context ──────────────────
+  // We only trust pageContext if its origin matches the request Origin OR is
+  // covered by the workspace allowed_domains. Otherwise we drop it silently
+  // (no error to widget) so a forged context can never poison retrieval.
+  let pageContext: {
+    currentPageUrl: string | null;
+    currentPageOrigin: string | null;
+    currentPagePath: string | null;
+    currentPageTitle: string | null;
+    referrer: string | null;
+    source: 'widget';
+  } | null = null;
+  try {
+    const raw = (data as any).page_context || null;
+    if (raw && typeof raw === 'object') {
+      const sanitizeStr = (v: any, max: number) =>
+        (typeof v === 'string' && v.trim()) ? v.trim().slice(0, max) : null;
+      const sanitizeUrl = (raw: string | null): string | null => {
+        if (!raw) return null;
+        try {
+          const u = new URL(raw);
+          u.hash = '';
+          for (const k of ['token','access_token','refresh_token','code','password','session','auth','key','secret','api_key','sig','signature']) {
+            u.searchParams.delete(k);
+          }
+          const s = u.toString();
+          return s.slice(0, 1000);
+        } catch { return null; }
+      };
+      const cleanUrl = sanitizeUrl(sanitizeStr(raw.currentPageUrl, 1000));
+      const cleanRef = sanitizeUrl(sanitizeStr(raw.referrer, 1000));
+      const reqOrigin = (req.headers.origin as string) || '';
+      const reqOriginHost = extractHostname(reqOrigin);
+      const ctxHost = cleanUrl ? extractHostname(cleanUrl) : null;
+      // Pull workspace allowed_domains for cross-check.
+      let allowedDomains: string[] = [];
+      let allowSubdomains = false;
+      try {
+        const { data: ws } = await supabase
+          .from('widget_settings')
+          .select('allowed_domains, allow_subdomains')
+          .eq('workspace_id', workspaceId).maybeSingle();
+        allowedDomains = (ws?.allowed_domains as string[] | null) || [];
+        allowSubdomains = !!ws?.allow_subdomains;
+      } catch { /* best-effort */ }
+      const matchesReqOrigin = !!(reqOriginHost && ctxHost && reqOriginHost === ctxHost);
+      const matchesWorkspace = !!(cleanUrl && (allowedDomains.length === 0 || isOriginAllowed(cleanUrl, allowedDomains, allowSubdomains)));
+      if (cleanUrl && (matchesReqOrigin || matchesWorkspace)) {
+        let parsed: URL | null = null;
+        try { parsed = new URL(cleanUrl); } catch { parsed = null; }
+        pageContext = {
+          currentPageUrl: cleanUrl,
+          currentPageOrigin: parsed?.origin || sanitizeStr(raw.currentPageOrigin, 255),
+          currentPagePath: parsed?.pathname || sanitizeStr(raw.currentPagePath, 1000),
+          currentPageTitle: sanitizeStr(raw.currentPageTitle, 300),
+          referrer: cleanRef,
+          source: 'widget',
+        };
+      } else if (cleanUrl) {
+        console.warn('[widget-message] page_context rejected (cross-domain)', {
+          workspaceId, ctxHost, reqOriginHost,
+        });
+      }
+    }
+  } catch (err: any) {
+    console.warn('[widget-message] page_context parse failed:', err?.message || err);
+    pageContext = null;
+  }
+
   try {
     // Verify widget is enabled
     const { data: widget } = await supabase

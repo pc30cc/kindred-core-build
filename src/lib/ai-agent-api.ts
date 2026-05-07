@@ -320,7 +320,63 @@ export const aiAgentApi = {
     jsonFetch(`/api/ai-agent/tool-servers/${id}`, { method: 'DELETE' }) as Promise<{ ok: boolean }>,
   testToolServer: (id: string) =>
     jsonFetch(`/api/ai-agent/tool-servers/${id}/test`, { method: 'POST' }) as Promise<{ ok: boolean; runtimeExecutionEnabled: boolean; validations: Array<{ key: string; ok: boolean; message?: string }>; message: string }>,
+  // ─── Pass E1 — Train / Data Hub ───
+  getTrainOverview: (workspaceId: string) =>
+    jsonFetch(`/api/ai-agent/train/overview?workspaceId=${workspaceId}`) as Promise<TrainOverviewResponse>,
+  listKnowledgeChunks: (workspaceId: string, opts: { sourceType?: string; status?: string; query?: string; limit?: number } = {}) => {
+    const p = new URLSearchParams({ workspaceId });
+    if (opts.sourceType) p.set('sourceType', opts.sourceType);
+    if (opts.status) p.set('status', opts.status);
+    if (opts.query) p.set('query', opts.query);
+    if (opts.limit) p.set('limit', String(opts.limit));
+    return jsonFetch(`/api/ai-agent/knowledge-index/chunks?${p.toString()}`) as Promise<{ items: ChunkDebugRow[]; total: number }>;
+  },
+  rebuildKnowledgeSource: (workspaceId: string, sourceType: 'kb_article' | 'qna' | 'business_profile', sourceId: string) =>
+    jsonFetch(`/api/ai-agent/knowledge-index/rebuild-source`, { method: 'POST', body: JSON.stringify({ workspaceId, sourceType, sourceId }) }) as Promise<{ ok: boolean; reason?: string }>,
 };
+
+export interface TrainSourceTypeBreakdown {
+  source_type: string;
+  total: number;
+  active: number;
+  paused: number;
+  failed: number;
+  syncing: number;
+  last_synced_at: string | null;
+}
+export interface TrainWarning {
+  code: string;
+  severity: 'info' | 'warn' | 'error';
+  message: string;
+  source_type?: string;
+  source_id?: string;
+}
+export interface TrainOverviewResponse {
+  counts: {
+    totalSources: number; activeSources: number; pausedSources: number;
+    failedSources: number; syncingSources: number;
+    qnaEnabled: number; qnaDisabled: number;
+    kbPublished: number; kbDraft: number;
+    learningPending: number; learningApproved: number; learningRejected: number;
+    learningConvertedQna: number; learningConvertedKb: number;
+    activeChunks: number; embeddedChunks: number;
+    failedEmbeddings: number; deletedChunks: number;
+  };
+  sourcesByType: TrainSourceTypeBreakdown[];
+  knowledgeIndex: KnowledgeIndexStatus | null;
+  recentSyncLogs: Array<Record<string, unknown>>;
+  recentJobs: Array<Record<string, unknown>>;
+  warnings: TrainWarning[];
+  lastSyncAt: string | null;
+  lastRebuildAt: string | null;
+  retrievalContract: { allowed: string[]; blocked: string[] };
+}
+export interface ChunkDebugRow {
+  id: string; source_type: string; source_id: string;
+  title: string | null; source_url: string | null; locale: string | null;
+  status: string; has_embedding: boolean;
+  content_preview: string; updated_at: string;
+}
 
 export type GuidanceRuleType =
   | 'tone' | 'answer_policy' | 'escalation_policy' | 'restricted_topic'

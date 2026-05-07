@@ -983,9 +983,8 @@ aiAgentRouter.get('/learning-candidates', async (req: Request, res: Response) =>
   if (status !== 'all') q = q.eq('status', status);
   const reason = String(req.query.reason || '').trim();
   if (reason) {
-    // Prefer the dedicated reason column (post-migration); fall back to JSONB
-    // for rows created before the backfill.
-    q = q.or(`reason.eq.${reason},metadata->>reason.eq.${reason}`);
+    // Filter strictly by the dedicated `reason` column (backfilled by migration).
+    q = q.eq('reason', reason);
   }
   const locale = String(req.query.locale || '').trim();
   if (locale) q = q.eq('locale', locale);

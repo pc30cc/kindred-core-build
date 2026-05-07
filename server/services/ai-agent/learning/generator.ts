@@ -28,7 +28,8 @@ export type CandidateReason =
   | 'low_confidence'
   | 'handoff_after_ai'
   | 'repeated_clarification'
-  | 'page_not_indexed'
+  | 'no_indexed_page'
+  | 'no_url'
   | 'operator_answer_available';
 
 export interface GenerateCandidatesInput {
@@ -54,7 +55,9 @@ function detectReason(run: any): CandidateReason | null {
   const intentOverride = run?.metadata?.page_context?.intent_override || '';
   const conf = typeof run?.confidence === 'number' ? run.confidence : null;
 
-  if (intentOverride === 'page_not_indexed') return 'page_not_indexed';
+  // Engine writes 'no_indexed_page' | 'no_url' | 'answer' | null.
+  if (intentOverride === 'no_indexed_page') return 'no_indexed_page';
+  if (intentOverride === 'no_url') return 'no_url';
   if (status === 'no_answer' || decision === 'no_answer_silent') return 'no_answer';
   if (status === 'handoff' || decision === 'handoff') return 'handoff_after_ai';
   if (decision === 'ask_clarifying_question') return 'repeated_clarification';
@@ -105,7 +108,7 @@ export async function generatePendingCandidates(
       .select('id')
       .eq('workspace_id', input.workspaceId)
       .eq('normalized_question', normalized)
-      .in('status', ['pending', 'approved', 'converted_to_qna', 'converted_to_kb'])
+      .in('status', ['pending', 'approved', 'converted_to_qna', 'converted_to_kb', 'rejected'])
       .limit(1)
       .maybeSingle();
     if (dup?.id) { out.skipped += 1; continue; }
@@ -163,6 +166,7 @@ export async function generatePendingCandidates(
       confidence_score: confidence,
       suggested_title: question.slice(0, 120),
       suggested_answer: suggestedAnswer,
+      reason: effectiveReason,
       metadata: {
         reason: effectiveReason,
         run_id: run.id,

@@ -1022,7 +1022,12 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
     source: 'widget';
   } | null = null;
   try {
-    const raw = (data as any).page_context || null;
+    // Accept both canonical and camelCase aliases for forward compat.
+    const raw = (data as any).page_context || (req.body && (req.body as any).pageContext) || null;
+    const debugPC = process.env.DEBUG_WIDGET_PAGE_CONTEXT === '1';
+    if (debugPC) {
+      console.log('[widget-page-ctx] received', { workspaceId, hasRaw: !!raw });
+    }
     if (raw && typeof raw === 'object') {
       const sanitizeStr = (v: any, max: number) =>
         (typeof v === 'string' && v.trim()) ? v.trim().slice(0, max) : null;
@@ -1067,9 +1072,16 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
           referrer: cleanRef,
           source: 'widget',
         };
+        if (debugPC) console.log('[widget-page-ctx] accepted', {
+          workspaceId, currentPageUrl: cleanUrl, ctxHost, reqOriginHost,
+        });
       } else if (cleanUrl) {
         console.warn('[widget-message] page_context rejected (cross-domain)', {
           workspaceId, ctxHost, reqOriginHost,
+        });
+        if (debugPC) console.log('[widget-page-ctx] rejected', {
+          workspaceId, ctxHost, reqOriginHost,
+          reason: !ctxHost ? 'invalid_url' : (matchesReqOrigin ? 'unknown' : 'domain_not_allowed'),
         });
       }
     }

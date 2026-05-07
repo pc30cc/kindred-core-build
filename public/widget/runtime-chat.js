@@ -61,6 +61,19 @@
     } catch (_) { return null; }
   }
 
+  // Phase 9 — gated debug. Visitor opts in with:
+  //   localStorage.setItem('gs:debug', '1')
+  // Used to verify in production that the page-aware payload is leaving
+  // the browser. Never logs cookies, tokens, or sensitive query params.
+  function isDebug() {
+    try { return typeof localStorage !== 'undefined' && localStorage.getItem('gs:debug') === '1'; }
+    catch (_) { return false; }
+  }
+  function dbg() {
+    if (!isDebug()) return;
+    try { console.log.apply(console, arguments); } catch (_) {}
+  }
+
   window.__gs_mod_chat = {
     sendMessage: function (opts) {
       var apiBase = opts.apiBase;
@@ -91,6 +104,15 @@
         return;
       }
 
+      var pageCtx = buildPageContext();
+      dbg('[Widget Runtime] active message sender', { file: 'runtime-chat.js', path: '/api/widget/message' });
+      dbg('[Widget Runtime] page_context built', pageCtx ? {
+        currentPageUrl: pageCtx.currentPageUrl,
+        currentPagePath: pageCtx.currentPagePath,
+        currentPageTitle: pageCtx.currentPageTitle,
+      } : null);
+      dbg('[Widget Runtime] payload includes page_context', !!pageCtx);
+
       fetchWith(apiBase + '/api/widget/message', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -100,7 +122,10 @@
           attachment_id: attachmentId || undefined,
           message: text,
           department_id: departmentId || undefined,
-          page_context: buildPageContext() || undefined,
+          // Send canonical key + alias for forward compatibility with any
+          // future server consolidation. Backend already accepts both.
+          page_context: pageCtx || undefined,
+          pageContext: pageCtx || undefined,
         }),
       })
         .then(function (r) {

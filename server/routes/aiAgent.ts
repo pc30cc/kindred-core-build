@@ -1149,11 +1149,13 @@ aiAgentRouter.post('/learning-candidates/:id/convert-to-kb', async (req: Request
   const content = parsed.data.answer ?? (cand.suggested_answer || cand.answer_text);
   const locale = parsed.data.locale ?? cand.locale ?? 'en';
   const publish = !!parsed.data.publish;
+  // knowledge_base_articles.slug is NOT NULL — derive a workspace-unique slug.
+  const slug = await generateUniqueKbSlug(config, cand.workspace_id, locale, title);
   const { data: art, error: aErr } = await sb
     .from('knowledge_base_articles')
     .insert({
       workspace_id: cand.workspace_id,
-      title, content, locale,
+      title, content, locale, slug,
       status: publish ? 'published' : 'draft',
     })
     .select('id').single();
@@ -1250,6 +1252,7 @@ aiAgentRouter.post('/learning-candidates/:id/convert-kb', async (req: Request, r
   const title = parsed.data.title ?? cand.suggested_title ?? (cand.question_text || '').slice(0, 120);
   const content = parsed.data.answer ?? (cand.suggested_answer || cand.answer_text);
   const locale = parsed.data.locale ?? cand.locale ?? 'en';
+  const slug = await generateUniqueKbSlug(config, cand.workspace_id, locale, title);
   const { data: art, error: aErr } = await sb
     .from('knowledge_base_articles')
     .insert({
@@ -1257,6 +1260,7 @@ aiAgentRouter.post('/learning-candidates/:id/convert-kb', async (req: Request, r
       title,
       content,
       locale,
+      slug,
       status: 'draft',
     })
     .select('id')
@@ -1299,6 +1303,39 @@ aiAgentRouter.post('/learning-candidates/:id/reject', async (req: Request, res: 
     .eq('workspace_id', cand.workspace_id).eq('source_type', 'learned_qna').eq('source_id', cand.id);
   return res.json({ ok: true });
 });
+
+// Slug helper for KB conversion. Lowercase, ascii-fold-best-effort, dedupe per workspace+locale.
+async function generateUniqueKbSlug(
+  config: ServerConfig,
+  workspaceId: string,
+  locale: string,
+  title: string,
+): Promise<string> {
+  const sb = getServiceClient(config);
+  const base = (title || 'article')
+    .toString()
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\u00C0-\u024F\u0370-\u1FFF\u3040-\u30FF\u4E00-\u9FFF\u0600-\u06FF\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 80) || 'article';
+  let candidate = base;
+  for (let i = 0; i < 20; i += 1) {
+    const { data } = await sb
+      .from('knowledge_base_articles')
+      .select('id')
+      .eq('workspace_id', workspaceId)
+      .eq('locale', locale)
+      .eq('slug', candidate)
+      .maybeSingle();
+    if (!data) return candidate;
+    candidate = `${base}-${Math.random().toString(36).slice(2, 7)}`;
+  }
+  return `${base}-${Date.now()}`;
+}
 
 aiAgentRouter.get('/learning-candidates/stats', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;

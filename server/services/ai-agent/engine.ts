@@ -1298,6 +1298,42 @@ function pickGreeting(locale: string | undefined, _agentName: string): string {
   return 'Hi! How can I help?';
 }
 
+function pickPageNotIndexed(locale: string | undefined): string {
+  const l = (locale || 'en').toLowerCase();
+  if (l.startsWith('fa')) return 'این صفحه هنوز در منابع آموزشی AI ایندکس نشده است. از بخش AI Agent → Train → Web Pages این صفحه را sync کنید.';
+  if (l.startsWith('tr')) return 'Bu sayfa henüz AI eğitim kaynaklarına eklenmemiş. AI Agent → Train → Web Pages üzerinden bu sayfayı senkronize edin.';
+  return 'This page has not been indexed in the AI training sources yet. Sync it from AI Agent → Train → Web Pages.';
+}
+function pickPageNoUrl(locale: string | undefined): string {
+  const l = (locale || 'en').toLowerCase();
+  if (l.startsWith('fa')) return 'من به آدرس صفحه فعلی دسترسی ندارم. لطفاً لینک صفحه را بفرستید یا ویجت را روی همان صفحه باز کنید.';
+  if (l.startsWith('tr')) return 'Mevcut sayfanın adresine erişimim yok. Lütfen sayfanın bağlantısını gönderin veya widget\u2019ı o sayfada açın.';
+  return 'I do not have the URL of the page you are on. Please share the page link or open the widget on that page.';
+}
+
+/** E2C — detect "what is this page" / "what page am I on" style intents. */
+const PAGE_INTENT_PATTERNS: RegExp[] = [
+  // Persian
+  /این\s*صفحه/i,
+  /صفحه[ای|‌ای]?\s*که\s*(الان|اکنون)?\s*(داخل(ش)?|توی|تو)\s*(هستم|هستیم)/i,
+  /الان\s*(داخل|توی)\s*چه\s*صفحه/i,
+  /محتوای\s*این\s*صفحه/i,
+  /درباره\s*این\s*صفحه/i,
+  // Turkish
+  /bu\s*sayfa/i,
+  /(şu\s*an|şuan)\s*hangi\s*sayfada/i,
+  // English
+  /\b(this|current)\s+page\b/i,
+  /\bwhat\s+page\s+am\s+i\s+on\b/i,
+  /\bexplain\s+this\s+page\b/i,
+];
+function detectPageIntent(text: string): boolean {
+  const t = (text || '').trim();
+  if (!t || t.length > 300) return false;
+  for (const p of PAGE_INTENT_PATTERNS) if (p.test(t)) return true;
+  return false;
+}
+
 // Suppress unused-var warning for _RetrievedSource if added later
 export type { RetrievedSource };
 

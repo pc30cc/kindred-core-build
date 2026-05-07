@@ -1050,11 +1050,42 @@ aiAgentRouter.post('/learning-candidates/:id/approve', async (req: Request, res:
   return res.json({ ok: true, candidate_id: cand.id });
 });
 
-// ─── POST /learning-candidates/:id/convert-to-qna  (alias of approve-qna) ───
+// ─── POST /learning-candidates/:id/convert-to-qna  (creates ai_agent_qna row + indexes) ───
+const convertQnaSchema = z.object({
+  question: z.string().min(1).max(500).optional(),
+  answer: z.string().min(1).max(4000).optional(),
+  locale: z.string().max(10).optional(),
+});
 aiAgentRouter.post('/learning-candidates/:id/convert-to-qna', async (req: Request, res: Response) => {
-  // Delegate by re-routing internally.
-  req.url = req.url.replace('/convert-to-qna', '/approve-qna');
-  aiAgentRouter.handle(req, res, () => {});
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = convertQnaSchema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
+  const cand = await loadCandidate(config, req.params.id);
+  if (!cand) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, cand.workspace_id);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  if (cand.status !== 'pending' && cand.status !== 'approved') return res.status(409).json({ error: 'not_pending', status: cand.status });
+  const sb = getServiceClient(config);
+  const question = parsed.data.question ?? cand.question_text;
+  const answer = parsed.data.answer ?? (cand.suggested_answer || cand.answer_text);
+  const locale = parsed.data.locale ?? cand.locale ?? 'en';
+  const { data: qna, error: qErr } = await sb
+    .from('ai_agent_qna')
+    .insert({ workspace_id: cand.workspace_id, question, answer, locale, enabled: true })
+    .select('id').single();
+  if (qErr) return res.status(500).json({ error: qErr.message });
+  await sb.from('ai_agent_learning_candidates').update({
+    status: 'converted_to_qna',
+    reviewed_by: auth.userId,
+    reviewed_at: new Date().toISOString(),
+    metadata: { ...(cand.metadata || {}), converted_qna_id: qna.id },
+  }).eq('id', cand.id);
+  // Deactivate any prior learned_qna chunk for this candidate.
+  await sb.from('ai_knowledge_chunks').update({ status: 'deleted' })
+    .eq('workspace_id', cand.workspace_id).eq('source_type', 'learned_qna').eq('source_id', cand.id);
+  syncKnowledgeSource(config, { workspaceId: cand.workspace_id, sourceType: 'qna', sourceId: qna.id }).catch(() => {});
+  return res.json({ ok: true, qna_id: qna.id });
 });
 
 // ─── POST /learning-candidates/:id/convert-to-kb  (replaces /convert-kb; supports publish flag) ───

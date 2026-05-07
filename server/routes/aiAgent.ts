@@ -1080,6 +1080,9 @@ aiAgentRouter.patch('/learning-candidates/:id', async (req: Request, res: Respon
     const a = parsed.data.suggested_answer.trim();
     if (!a) return res.status(400).json({ error: 'answer_required' });
     patch.suggested_answer = a;
+    if (cand.status === 'approved') {
+      patch.answer_text = a;
+    }
   }
   if (parsed.data.locale !== undefined) {
     const loc = (parsed.data.locale || '').trim().toLowerCase() || 'en';

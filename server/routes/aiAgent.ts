@@ -1295,6 +1295,134 @@ async function loadCandidate(config: ServerConfig, id: string) {
   return data as any | null;
 }
 
+// Shared helper: (re)index a learned_qna chunk for an approved candidate.
+// Always wipes prior learned_qna chunks for this candidate first so retrieval
+// never returns stale duplicates.
+async function reindexLearnedCandidate(
+  config: ServerConfig,
+  args: {
+    workspaceId: string;
+    candidateId: string;
+    question: string;
+    answer: string;
+    locale: string;
+    actorId: string | null;
+    markReindexed?: boolean;
+  },
+): Promise<void> {
+  const sb = getServiceClient(config);
+  await sb.from('ai_knowledge_chunks').delete()
+    .eq('workspace_id', args.workspaceId)
+    .eq('source_type', 'learned_qna')
+    .eq('source_id', args.candidateId);
+  const { indexSource, getEmbedderForWorkspace } = await import('../services/ai-agent/knowledgeIndex/indexer.js');
+  const { chunkQna } = await import('../services/ai-agent/knowledgeIndex/chunker.js');
+  const embedder = await getEmbedderForWorkspace(config, args.workspaceId);
+  await indexSource(config, {
+    workspaceId: args.workspaceId,
+    sourceType: 'learned_qna',
+    sourceId: args.candidateId,
+    title: (args.question || '').slice(0, 300),
+    locale: args.locale,
+    chunks: chunkQna(args.question, args.answer),
+    metadata: {
+      candidate_id: args.candidateId,
+      approved_by: args.actorId,
+      reindexed_at: args.markReindexed ? new Date().toISOString() : undefined,
+    },
+  }, embedder);
+}
+
+// Shared convert helpers — used by both new and legacy routes. Caller must
+// have already authorized owner/admin. These return a result tuple instead
+// of writing to res so the calling route owns the response shape.
+async function convertCandidateToQna(
+  config: ServerConfig,
+  candidateId: string,
+  body: { question?: string; answer?: string; locale?: string },
+  auth: { userId: string | null },
+): Promise<{ status: number; payload: any }> {
+  const cand = await loadCandidate(config, candidateId);
+  if (!cand) return { status: 404, payload: { error: 'not_found' } };
+  if (cand.status !== 'pending' && cand.status !== 'approved') {
+    return { status: 409, payload: { error: 'not_pending', status: cand.status } };
+  }
+  const sb = getServiceClient(config);
+  const question = (body.question ?? cand.question_text ?? '').toString().trim();
+  const answer = (body.answer ?? cand.suggested_answer ?? cand.answer_text ?? '').toString().trim();
+  if (!answer) return { status: 400, payload: { error: 'answer_required' } };
+  if (!question) return { status: 400, payload: { error: 'question_required' } };
+  const locale = ((body.locale ?? cand.locale ?? 'en') as string).trim().toLowerCase() || 'en';
+  const normalized = normalizeQuestion(question);
+  let qnaId: string | null = null;
+  let duplicate = false;
+  if (normalized) {
+    const { data: existingRows } = await sb
+      .from('ai_agent_qna')
+      .select('id, question, locale')
+      .eq('workspace_id', cand.workspace_id)
+      .eq('locale', locale)
+      .limit(2000);
+    const hit = (existingRows || []).find((r: any) => normalizeQuestion(r.question || '') === normalized);
+    if (hit) { qnaId = hit.id; duplicate = true; }
+  }
+  if (!qnaId) {
+    const { data: qna, error: qErr } = await sb
+      .from('ai_agent_qna')
+      .insert({ workspace_id: cand.workspace_id, question, answer, locale, enabled: true })
+      .select('id').single();
+    if (qErr) return { status: 500, payload: { error: qErr.message } };
+    qnaId = qna.id;
+  }
+  await sb.from('ai_agent_learning_candidates').update({
+    status: 'converted_to_qna',
+    reviewed_by: auth.userId,
+    reviewed_at: new Date().toISOString(),
+    metadata: { ...(cand.metadata || {}), converted_qna_id: qnaId, deduped_to_existing: duplicate },
+  }).eq('id', cand.id);
+  const { count: removedStale } = await sb.from('ai_knowledge_chunks').delete({ count: 'exact' })
+    .eq('workspace_id', cand.workspace_id).eq('source_type', 'learned_qna').eq('source_id', cand.id);
+  syncKnowledgeSource(config, { workspaceId: cand.workspace_id, sourceType: 'qna', sourceId: qnaId }).catch(() => {});
+  return { status: 200, payload: { ok: true, qna_id: qnaId, deduped: duplicate, removed_stale_chunks: removedStale ?? 0 } };
+}
+
+async function convertCandidateToKb(
+  config: ServerConfig,
+  candidateId: string,
+  body: { title?: string; answer?: string; locale?: string; publish?: boolean },
+  auth: { userId: string | null },
+): Promise<{ status: number; payload: any }> {
+  const cand = await loadCandidate(config, candidateId);
+  if (!cand) return { status: 404, payload: { error: 'not_found' } };
+  if (cand.status !== 'pending' && cand.status !== 'approved') {
+    return { status: 409, payload: { error: 'not_pending', status: cand.status } };
+  }
+  const sb = getServiceClient(config);
+  const title = (body.title ?? cand.suggested_title ?? (cand.question_text || '').slice(0, 120)).toString().trim();
+  const content = (body.answer ?? cand.suggested_answer ?? cand.answer_text ?? '').toString().trim();
+  if (!content) return { status: 400, payload: { error: 'answer_required' } };
+  const locale = ((body.locale ?? cand.locale ?? 'en') as string).trim().toLowerCase() || 'en';
+  const publish = !!body.publish;
+  const slug = await generateUniqueKbSlug(config, cand.workspace_id, locale, title);
+  const { data: art, error: aErr } = await sb
+    .from('knowledge_base_articles')
+    .insert({ workspace_id: cand.workspace_id, title, content, locale, slug, status: publish ? 'published' : 'draft' })
+    .select('id').single();
+  if (aErr) return { status: 500, payload: { error: aErr.message } };
+  await sb.from('ai_agent_learning_candidates').update({
+    status: 'converted_to_kb',
+    reviewed_by: auth.userId,
+    reviewed_at: new Date().toISOString(),
+    metadata: { ...(cand.metadata || {}), converted_kb_id: art.id, kb_published: publish },
+  }).eq('id', cand.id);
+  const { count: removedStale } = await sb.from('ai_knowledge_chunks').delete({ count: 'exact' })
+    .eq('workspace_id', cand.workspace_id).eq('source_type', 'learned_qna').eq('source_id', cand.id);
+  if (publish) {
+    syncKnowledgeSource(config, { workspaceId: cand.workspace_id, sourceType: 'kb_article', sourceId: art.id }).catch(() => {});
+  }
+  return { status: 200, payload: { ok: true, article_id: art.id, published: publish, removed_stale_chunks: removedStale ?? 0 } };
+}
+
 // Legacy aliases — kept for older clients. They forward into the hardened
 // implementations (dedupe, stale-chunk teardown, empty-answer validation).
 aiAgentRouter.post('/learning-candidates/:id/approve-qna', (req, res, next) => {

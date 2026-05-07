@@ -1305,7 +1305,7 @@ const dataSourcePatchSchema = z.object({
   include_rules: z.array(z.string().max(500)).max(50).optional(),
   exclude_rules: z.array(z.string().max(500)).max(50).optional(),
   crawl_depth: z.number().int().min(1).max(5).optional(),
-  max_pages: z.number().int().min(1).max(500).optional(),
+  max_pages: z.number().int().min(1).max(5000).optional(),
   refresh_interval: z.enum(['manual','daily','weekly','monthly']).optional(),
 });
 
@@ -1319,13 +1319,34 @@ aiAgentRouter.patch('/data-sources/:id', async (req: Request, res: Response) => 
   if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
   const parsed = dataSourcePatchSchema.safeParse(req.body || {});
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
+  // Cap by plan limits when caller is editing crawl_depth/max_pages.
+  const patch: Record<string, unknown> = { ...parsed.data };
+  if (patch.crawl_depth !== undefined || patch.max_pages !== undefined) {
+    const { limits } = await resolveAiAgentDataLimits(config, existing.workspace_id);
+    if (patch.crawl_depth !== undefined) patch.crawl_depth = Math.min(Number(patch.crawl_depth), limits.ai_kb_max_depth);
+    if (patch.max_pages !== undefined) patch.max_pages = Math.min(Number(patch.max_pages), limits.ai_kb_max_pages);
+  }
   const { data, error } = await sb
     .from('ai_data_sources')
-    .update(parsed.data)
+    .update(patch)
     .eq('id', req.params.id)
     .select('*')
     .single();
   if (error) return res.status(500).json({ error: error.message });
+  // If transitioned to paused → deactivate active chunks (fail-closed retrieval).
+  if (parsed.data.status === 'paused') {
+    await sb.from('ai_knowledge_chunks').update({ status: 'inactive' })
+      .eq('workspace_id', existing.workspace_id)
+      .eq('source_type', 'web_page')
+      .like('source_id', `${req.params.id}:%`)
+      .eq('status', 'active');
+  } else if (parsed.data.status === 'active') {
+    await sb.from('ai_knowledge_chunks').update({ status: 'active' })
+      .eq('workspace_id', existing.workspace_id)
+      .eq('source_type', 'web_page')
+      .like('source_id', `${req.params.id}:%`)
+      .eq('status', 'inactive');
+  }
   return res.json({ item: data });
 });
 
@@ -1408,6 +1429,72 @@ aiAgentRouter.get('/data-sources/:id/logs', async (req: Request, res: Response) 
   return res.json({ items: data || [] });
 });
 
+// ─── Discovered pages (E2) ───
+aiAgentRouter.get('/data-sources/:id/pages', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const sb = getServiceClient(config);
+  const { data: existing } = await sb.from('ai_data_sources').select('workspace_id').eq('id', req.params.id).maybeSingle();
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, existing.workspace_id);
+  if (!auth) return;
+  const { data, error } = await sb
+    .from('ai_source_pages')
+    .select('id, url, status, http_status, title, locale, text_length, content_hash, chunks_created, embedding_status, warning, last_seen_at')
+    .eq('source_id', req.params.id)
+    .order('last_seen_at', { ascending: false })
+    .limit(500);
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ items: data || [] });
+});
+
+// ─── Sync jobs (latest per source) ───
+aiAgentRouter.get('/data-sources/:id/jobs', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const sb = getServiceClient(config);
+  const { data: existing } = await sb.from('ai_data_sources').select('workspace_id').eq('id', req.params.id).maybeSingle();
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, existing.workspace_id);
+  if (!auth) return;
+  const { data, error } = await sb
+    .from('ai_source_sync_jobs')
+    .select('id, status, attempts, locked_by, started_at, finished_at, last_error, metadata, created_at')
+    .eq('source_id', req.params.id)
+    .order('created_at', { ascending: false })
+    .limit(20);
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ items: data || [], worker: getWorkerInfo() });
+});
+
+aiAgentRouter.post('/data-sources/jobs/:jobId/cancel', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const sb = getServiceClient(config);
+  const { data: job } = await sb.from('ai_source_sync_jobs').select('workspace_id').eq('id', req.params.jobId).maybeSingle();
+  if (!job) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, job.workspace_id);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  await cancelSourceSyncJob(config, { jobId: req.params.jobId });
+  return res.json({ ok: true });
+});
+
+// ─── Plan limits view (read-only, used by Web Pages UI) ───
+aiAgentRouter.get('/data-sources/limits', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = requireWorkspace(req);
+  if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  const resolved = await resolveAiAgentDataLimits(config, workspaceId);
+  const used = await countSourceJobsThisMonth(config, workspaceId);
+  return res.json({ ...resolved, jobs_used_this_month: used, worker: getWorkerInfo() });
+});
+
+// ─── Web Pages aliases (cleaner UI URLs; same logic as /data-sources) ───
+aiAgentRouter.get('/web-pages/sources', (req, res, next) => {
+  (req.query as any).sourceType = 'website';
+  req.url = '/data-sources' + (req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '');
+  next('route');
+});
 // ─── Workspace registered domain helper (read-only) ───
 aiAgentRouter.get('/workspace-domain', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;

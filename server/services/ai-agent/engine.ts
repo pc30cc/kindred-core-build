@@ -94,6 +94,9 @@ async function runInternal(
   if (!question) {
     return { ran: false, action: 'skipped', reason: 'empty_question' };
   }
+  const pageContext = input.pageContext || null;
+  // E2C — lightweight intent detector for "what is this page" questions.
+  const isPageIntent = detectPageIntent(question);
 
   const settings = await getOrCreateSettings(config, workspaceId);
   if (!settings.enabled || settings.mode === 'off') {

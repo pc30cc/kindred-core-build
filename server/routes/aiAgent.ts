@@ -34,6 +34,8 @@ import { buildOverview, runDryRun, DEFAULT_INTERNAL_TOOLS } from '../services/ai
 import { resolveAiAgentDataLimits, countSourceJobsThisMonth } from '../services/ai-agent/limits.js';
 import { enqueueSourceSyncJob, cancelSourceSyncJob } from '../services/ai-agent/sourceJobs.js';
 import { processOne as processOneSourceJob, getWorkerInfo } from '../services/ai-agent/sourceWorker.js';
+import { generatePendingCandidates } from '../services/ai-agent/learning/generator.js';
+import { normalizeQuestion } from '../services/ai-agent/learning/normalize.js';
 
 export const aiAgentRouter: Router = express.Router();
 
@@ -464,6 +466,67 @@ aiAgentRouter.delete('/qna/:id', async (req: Request, res: Response) => {
   const { error } = await sb.from('ai_agent_qna').delete().eq('id', req.params.id);
   if (error) return res.status(500).json({ error: error.message });
   syncKnowledgeSource(config, { workspaceId: existing.workspace_id, sourceType: 'qna', sourceId: req.params.id }).catch(() => {});
+  return res.json({ ok: true });
+});
+
+// ─── Q&A bulk import (owner/admin) ───
+const qnaBulkSchema = z.object({
+  workspaceId: z.string().uuid(),
+  items: z.array(z.object({
+    question: z.string().min(1).max(500),
+    answer: z.string().min(1).max(4000),
+    locale: z.string().max(10).optional(),
+    enabled: z.boolean().optional(),
+  })).min(1).max(200),
+});
+aiAgentRouter.post('/qna/bulk', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = qnaBulkSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
+  const { workspaceId, items } = parsed.data;
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  const sb = getServiceClient(config);
+  // Pull existing normalized questions per locale to dedupe in-memory.
+  const { data: existingRows } = await sb
+    .from('ai_agent_qna')
+    .select('question, locale')
+    .eq('workspace_id', workspaceId)
+    .limit(5000);
+  const existingKeys = new Set(
+    (existingRows || []).map((r: any) => `${(r.locale || 'en')}::${normalizeQuestion(r.question || '')}`)
+  );
+  const created: string[] = [];
+  const skipped: { question: string; reason: string }[] = [];
+  const errors: { question: string; error: string }[] = [];
+  for (const it of items) {
+    const locale = it.locale || 'en';
+    const key = `${locale}::${normalizeQuestion(it.question)}`;
+    if (!key.split('::')[1]) { skipped.push({ question: it.question, reason: 'normalize_empty' }); continue; }
+    if (existingKeys.has(key)) { skipped.push({ question: it.question, reason: 'duplicate' }); continue; }
+    existingKeys.add(key);
+    const { data, error } = await sb
+      .from('ai_agent_qna')
+      .insert({ workspace_id: workspaceId, question: it.question, answer: it.answer, locale, enabled: it.enabled ?? true })
+      .select('id').single();
+    if (error) { errors.push({ question: it.question, error: error.message }); continue; }
+    created.push(data.id);
+    syncKnowledgeSource(config, { workspaceId, sourceType: 'qna', sourceId: data.id }).catch(() => {});
+  }
+  return res.json({ created: created.length, skipped: skipped.length, errors: errors.length, details: { skipped, errors } });
+});
+
+// ─── Q&A reindex single (owner/admin) ───
+aiAgentRouter.post('/qna/:id/reindex', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const sb = getServiceClient(config);
+  const { data: existing } = await sb.from('ai_agent_qna').select('workspace_id').eq('id', req.params.id).maybeSingle();
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, existing.workspace_id);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  await syncKnowledgeSource(config, { workspaceId: existing.workspace_id, sourceType: 'qna', sourceId: req.params.id });
   return res.json({ ok: true });
 });
 

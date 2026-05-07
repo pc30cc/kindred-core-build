@@ -53,6 +53,15 @@ export interface MaybeRunInput {
   visitorMessageId: string;
   question: string;
   locale?: string;
+  /** E2C — sanitized visitor page context from the widget. */
+  pageContext?: {
+    currentPageUrl?: string | null;
+    currentPageOrigin?: string | null;
+    currentPagePath?: string | null;
+    currentPageTitle?: string | null;
+    referrer?: string | null;
+    source?: string;
+  } | null;
 }
 
 export interface MaybeRunResult {

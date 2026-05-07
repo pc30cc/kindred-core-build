@@ -203,6 +203,7 @@ export type Database = {
           normalized_question: string
           operator_message_id: string | null
           question_text: string
+          reason: string | null
           reviewed_at: string | null
           reviewed_by: string | null
           source_type: string
@@ -225,6 +226,7 @@ export type Database = {
           normalized_question: string
           operator_message_id?: string | null
           question_text: string
+          reason?: string | null
           reviewed_at?: string | null
           reviewed_by?: string | null
           source_type?: string
@@ -247,6 +249,7 @@ export type Database = {
           normalized_question?: string
           operator_message_id?: string | null
           question_text?: string
+          reason?: string | null
           reviewed_at?: string | null
           reviewed_by?: string | null
           source_type?: string

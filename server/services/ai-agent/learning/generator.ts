@@ -54,13 +54,21 @@ function detectReason(run: any): CandidateReason | null {
   const decision = run?.metadata?.answer_strategy?.decision_type || '';
   const intentOverride = run?.metadata?.page_context?.intent_override || '';
   const conf = typeof run?.confidence === 'number' ? run.confidence : null;
+  const clarAttempts = Number(run?.metadata?.answer_strategy?.clarification_attempt_count || 0);
+  const prevAskedClar = !!run?.metadata?.retrieval?.previous_ai_asked_clarification;
 
   // Engine writes 'no_indexed_page' | 'no_url' | 'answer' | null.
   if (intentOverride === 'no_indexed_page') return 'no_indexed_page';
   if (intentOverride === 'no_url') return 'no_url';
   if (status === 'no_answer' || decision === 'no_answer_silent') return 'no_answer';
   if (status === 'handoff' || decision === 'handoff') return 'handoff_after_ai';
-  if (decision === 'ask_clarifying_question') return 'repeated_clarification';
+  if (decision === 'ask_clarifying_question') {
+    // Only treat as a learning signal if it's actually a *repeat* clarification —
+    // a single clarifying question in isolation isn't a failure to learn from.
+    if (clarAttempts >= 1 || prevAskedClar) return 'repeated_clarification';
+    if (conf !== null && conf > 0 && conf < LOW_CONFIDENCE_FLOOR) return 'low_confidence';
+    return null;
+  }
   if (conf !== null && conf > 0 && conf < LOW_CONFIDENCE_FLOOR) return 'low_confidence';
   return null;
 }

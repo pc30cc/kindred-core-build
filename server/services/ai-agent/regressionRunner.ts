@@ -509,10 +509,27 @@ export async function runRegressionBatch(
     return { ok: false, total: 0, passed: 0, failed: 0, errored: 0, error: casesErr.message };
   }
   const list = cases || [];
-  await sb.from('ai_agent_regression_batches').update({ total_cases: list.length }).eq('id', batchId);
+  const startedAtMs = Date.now();
+  const baseMeta = { ...((batch.metadata as Record<string, unknown>) || {}) };
+  baseMeta.current_case_index = 0;
+  baseMeta.current_test_case_id = null;
+  baseMeta.last_progress_at = new Date().toISOString();
+  await sb.from('ai_agent_regression_batches').update({
+    total_cases: list.length, metadata: baseMeta,
+  }).eq('id', batchId);
 
   let passed = 0, failed = 0, errored = 0;
-  for (const tc of list) {
+  let cancelled = false;
+  for (let i = 0; i < list.length; i++) {
+    const tc = list[i];
+    // Cooperative cancellation: re-check status before each case.
+    if (i > 0 && i % 1 === 0) {
+      const { data: cur } = await sb
+        .from('ai_agent_regression_batches')
+        .select('status,metadata')
+        .eq('id', batchId).maybeSingle();
+      if (cur?.status === 'cancelled') { cancelled = true; break; }
+    }
     try {
       let result: DryRunResult;
       try {
@@ -597,10 +614,21 @@ export async function runRegressionBatch(
 
       // Periodic counter update so progress is visible.
       const total = passed + failed + errored;
-      if (total % 5 === 0 || total === list.length) {
+      const elapsed = Date.now() - startedAtMs;
+      const avg = total > 0 ? Math.round(elapsed / total) : 0;
+      const progressMeta = {
+        ...baseMeta,
+        current_case_index: i + 1,
+        current_test_case_id: tc.id,
+        current_test_case_name: tc.name || null,
+        last_progress_at: new Date().toISOString(),
+        duration_ms: elapsed,
+        avg_case_duration_ms: avg,
+      };
+      if (total % 5 === 0 || total === list.length || i === 0) {
         const passRate = total > 0 ? passed / total : null;
         await sb.from('ai_agent_regression_batches').update({
-          passed, failed, errored, pass_rate: passRate,
+          passed, failed, errored, pass_rate: passRate, metadata: progressMeta,
         }).eq('id', batchId);
       }
     } catch (caseErr: any) {
@@ -627,12 +655,96 @@ export async function runRegressionBatch(
 
   const total = passed + failed + errored;
   const passRate = total > 0 ? passed / total : null;
+  const finalMeta = {
+    ...baseMeta,
+    current_case_index: total,
+    last_progress_at: new Date().toISOString(),
+    duration_ms: Date.now() - startedAtMs,
+    avg_case_duration_ms: total > 0 ? Math.round((Date.now() - startedAtMs) / total) : 0,
+  };
+  if (cancelled) {
+    // Preserve cancellation status; just update counters + final metadata.
+    await sb.from('ai_agent_regression_batches').update({
+      passed, failed, errored, pass_rate: passRate,
+      finished_at: new Date().toISOString(),
+      metadata: finalMeta,
+    }).eq('id', batchId);
+    return { ok: true, total, passed, failed, errored, error: 'cancelled' };
+  }
   await sb.from('ai_agent_regression_batches').update({
     status: 'completed',
     passed, failed, errored,
     pass_rate: passRate,
     finished_at: new Date().toISOString(),
+    metadata: finalMeta,
   }).eq('id', batchId);
 
   return { ok: true, total, passed, failed, errored };
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// E10.1 — Cancel + Retry-failed
+// ──────────────────────────────────────────────────────────────────────
+
+export async function cancelRegressionBatch(
+  config: ServerConfig,
+  batchId: string,
+  actorId: string,
+): Promise<{ ok: boolean; status: RegressionBatch['status']; idempotent?: boolean; error?: string }> {
+  const sb = getServiceClient(config);
+  const { data: cur } = await sb.from('ai_agent_regression_batches')
+    .select('id,status,metadata').eq('id', batchId).maybeSingle();
+  if (!cur) return { ok: false, status: 'failed', error: 'not_found' };
+  if (cur.status === 'completed' || cur.status === 'failed' || cur.status === 'cancelled') {
+    return { ok: true, status: cur.status as RegressionBatch['status'], idempotent: true };
+  }
+  const meta = { ...((cur.metadata as Record<string, unknown>) || {}) };
+  meta.cancelled_at = new Date().toISOString();
+  meta.cancelled_by = actorId;
+  const { data: upd, error } = await sb.from('ai_agent_regression_batches')
+    .update({ status: 'cancelled', finished_at: new Date().toISOString(), metadata: meta })
+    .eq('id', batchId)
+    .in('status', ['queued', 'running'])
+    .select('status').maybeSingle();
+  if (error) return { ok: false, status: cur.status as RegressionBatch['status'], error: error.message };
+  return { ok: true, status: (upd?.status as RegressionBatch['status']) || 'cancelled' };
+}
+
+export async function retryFailedRegressionBatch(
+  config: ServerConfig,
+  batchId: string,
+  actorId: string,
+): Promise<{ ok: boolean; batch?: RegressionBatch; error?: string }> {
+  const sb = getServiceClient(config);
+  const { data: orig } = await sb.from('ai_agent_regression_batches')
+    .select('*').eq('id', batchId).maybeSingle();
+  if (!orig) return { ok: false, error: 'not_found' };
+  // Find latest run per test_case in this batch where status is failed/errored.
+  const { data: runs } = await sb.from('ai_agent_test_runs')
+    .select('test_case_id,status,created_at')
+    .eq('regression_batch_id', batchId)
+    .order('created_at', { ascending: false });
+  const seen = new Set<string>();
+  const failedCaseIds: string[] = [];
+  for (const r of (runs || []) as any[]) {
+    if (!r.test_case_id || seen.has(r.test_case_id)) continue;
+    seen.add(r.test_case_id);
+    if (r.status === 'failed' || r.status === 'errored') failedCaseIds.push(r.test_case_id);
+  }
+  if (!failedCaseIds.length) return { ok: false, error: 'no_failed_cases' };
+  const { data: created, error } = await sb.from('ai_agent_regression_batches')
+    .insert({
+      workspace_id: orig.workspace_id,
+      schedule_id: orig.schedule_id || null,
+      status: 'queued',
+      trigger_type: 'manual',
+      created_by: actorId,
+      metadata: {
+        retry_of_batch_id: batchId,
+        retry_case_ids: failedCaseIds,
+      },
+    }).select('*').single();
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, batch: created as RegressionBatch };
+}
 }

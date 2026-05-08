@@ -87,6 +87,7 @@ export interface HybridRetrievalResult {
     pending_candidates_excluded: number;
     cross_workspace_excluded: number;
     inactive_file_excluded: number;
+    inactive_web_page_excluded: number;
   };
   /** E5 — fully-formed debug payload, safe to persist to ai_agent_runs.metadata. */
   retrievalDebug?: Record<string, unknown>;

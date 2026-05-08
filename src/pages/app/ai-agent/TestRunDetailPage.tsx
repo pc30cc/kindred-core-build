@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 import { aiAgentApi, type TestRunMetadata } from '@/lib/ai-agent-api';
 import { useWorkspacePath } from '@/hooks/useWorkspace';
@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft } from 'lucide-react';
+import { toast } from '@/hooks/use-toast';
 
 export default function TestRunDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -38,6 +39,16 @@ export default function TestRunDetailPage() {
   if (tcPC.currentPageTitle) debugParams.set('pageTitle', tcPC.currentPageTitle);
 
   const statusVariant = run.status === 'passed' ? 'default' : run.status === 'failed' ? 'destructive' : 'secondary';
+  const canSuggest = run.status === 'failed' || run.status === 'errored';
+  const suggestMut = useMutation({
+    mutationFn: () => aiAgentApi.suggestTestCaseFromTestRun(run.id),
+    onSuccess: () => toast({ title: 'Suggested test created', description: 'Open Suggested Tests to review and convert.' }),
+    onError: (e: any) => toast({
+      title: 'Could not create suggestion',
+      description: e?.message?.includes('duplicate') ? 'A suggestion for this run already exists.' : (e?.message || 'Failed'),
+      variant: 'destructive',
+    }),
+  });
 
   return (
     <div className="p-6 space-y-4 max-w-5xl">
@@ -51,6 +62,11 @@ export default function TestRunDetailPage() {
         <h1 className="text-2xl font-semibold">Test Run</h1>
         <Badge variant={statusVariant as any}>{run.status}</Badge>
         {run.confidence != null && <span className="text-sm text-muted-foreground">conf {Number(run.confidence).toFixed(2)}</span>}
+        {canSuggest && (
+          <Button size="sm" variant="outline" disabled={suggestMut.isPending} onClick={() => suggestMut.mutate()}>
+            {suggestMut.isPending ? 'Creating…' : 'Create suggested test'}
+          </Button>
+        )}
       </div>
 
       <Card>

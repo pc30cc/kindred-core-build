@@ -707,6 +707,84 @@ export type Database = {
           },
         ]
       }
+      ai_agent_suggested_test_cases: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          expected_behavior: string
+          expected_contains: string[]
+          expected_not_contains: string[]
+          expected_source_id: string | null
+          expected_source_type: string | null
+          expected_source_url: string | null
+          id: string
+          input_message: string
+          locale: string | null
+          metadata: Json
+          min_confidence: number | null
+          name: string
+          page_context: Json | null
+          reason: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          source_id: string | null
+          source_type: string
+          status: string
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          expected_behavior: string
+          expected_contains?: string[]
+          expected_not_contains?: string[]
+          expected_source_id?: string | null
+          expected_source_type?: string | null
+          expected_source_url?: string | null
+          id?: string
+          input_message: string
+          locale?: string | null
+          metadata?: Json
+          min_confidence?: number | null
+          name: string
+          page_context?: Json | null
+          reason?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          source_id?: string | null
+          source_type: string
+          status?: string
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          expected_behavior?: string
+          expected_contains?: string[]
+          expected_not_contains?: string[]
+          expected_source_id?: string | null
+          expected_source_type?: string | null
+          expected_source_url?: string | null
+          id?: string
+          input_message?: string
+          locale?: string | null
+          metadata?: Json
+          min_confidence?: number | null
+          name?: string
+          page_context?: Json | null
+          reason?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          source_id?: string | null
+          source_type?: string
+          status?: string
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: []
+      }
       ai_agent_suggestions: {
         Row: {
           confidence: number | null

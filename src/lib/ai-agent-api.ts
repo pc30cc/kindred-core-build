@@ -223,6 +223,7 @@ export interface OperatorAssistAnalytics {
   by_day: Array<{ day: string; suggestions: number; positive: number; negative: number; neutral: number }>;
   worst_runs: Array<{
     run_id: string;
+    feedback_id: string | null;
     created_at: string;
     confidence: number | null;
     rating: 'negative';
@@ -231,6 +232,35 @@ export interface OperatorAssistAnalytics {
     safety_notes: string[];
     suggestion_preview: string | null;
   }>;
+}
+
+// ─── E9 — Suggested regression test cases ───
+export type SuggestedTestCaseStatus = 'pending' | 'accepted' | 'rejected' | 'converted';
+export type SuggestedTestCaseSource = 'operator_assist_feedback' | 'test_run' | 'manual';
+export interface SuggestedTestCase {
+  id: string;
+  workspace_id: string;
+  source_type: SuggestedTestCaseSource;
+  source_id: string | null;
+  status: SuggestedTestCaseStatus;
+  name: string;
+  input_message: string;
+  locale: string | null;
+  page_context: any;
+  expected_behavior: 'answer' | 'no_answer' | 'handoff' | 'clarification';
+  expected_source_type: string | null;
+  expected_source_url: string | null;
+  expected_source_id: string | null;
+  expected_contains: string[];
+  expected_not_contains: string[];
+  min_confidence: number | null;
+  reason: string | null;
+  metadata: any;
+  created_by: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export const aiAgentApi = {
@@ -579,6 +609,19 @@ export const aiAgentApi = {
     jsonFetch(`/api/ai-agent/test-summary?workspaceId=${workspaceId}`) as Promise<TestSummary>,
   debugRunTest: (input: { workspaceId: string; message: string; locale?: string; pageContext?: any; callLLM?: boolean }) =>
     jsonFetch(`/api/ai-agent/debug/run-test`, { method: 'POST', body: JSON.stringify(input) }) as Promise<any>,
+  // ─── E9 — Suggested regression test cases ───
+  listSuggestedTestCases: (workspaceId: string, status: SuggestedTestCaseStatus | 'all' = 'pending') =>
+    jsonFetch(`/api/ai-agent/suggested-test-cases?workspaceId=${workspaceId}&status=${status}`) as Promise<{ items: SuggestedTestCase[] }>,
+  suggestTestCaseFromFeedback: (feedbackId: string) =>
+    jsonFetch(`/api/ai-agent/suggested-test-cases/from-feedback/${feedbackId}`, { method: 'POST' }) as Promise<{ ok: boolean; suggestion: SuggestedTestCase }>,
+  suggestTestCaseFromTestRun: (runId: string) =>
+    jsonFetch(`/api/ai-agent/suggested-test-cases/from-test-run/${runId}`, { method: 'POST' }) as Promise<{ ok: boolean; suggestion: SuggestedTestCase }>,
+  acceptSuggestedTestCase: (id: string, overrides: Partial<SuggestedTestCase> = {}) =>
+    jsonFetch(`/api/ai-agent/suggested-test-cases/${id}/accept`, { method: 'POST', body: JSON.stringify(overrides) }) as Promise<{ ok: boolean; test_case_id: string }>,
+  rejectSuggestedTestCase: (id: string, reason?: string) =>
+    jsonFetch(`/api/ai-agent/suggested-test-cases/${id}/reject`, { method: 'POST', body: JSON.stringify({ reason: reason || null }) }) as Promise<{ ok: boolean }>,
+  deleteSuggestedTestCase: (id: string) =>
+    jsonFetch(`/api/ai-agent/suggested-test-cases/${id}`, { method: 'DELETE' }) as Promise<{ ok: boolean }>,
 };
 
 export interface TrainSourceTypeBreakdown {

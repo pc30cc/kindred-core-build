@@ -63,6 +63,7 @@ import AiAgentSourceHealthPage from "@/pages/app/ai-agent/SourceHealthPage";
 import AiAgentTestCasesPage from "@/pages/app/ai-agent/TestCasesPage";
 import AiAgentTestRunDetailPage from "@/pages/app/ai-agent/TestRunDetailPage";
 import AiAgentOperatorAssistAnalyticsPage from "@/pages/app/ai-agent/OperatorAssistAnalyticsPage";
+import AiAgentSuggestedTestsPage from "@/pages/app/ai-agent/SuggestedTestsPage";
 import EmailPage from "@/pages/app/EmailPage";
 import BillingPage from "@/pages/app/BillingPage";
 import SettingsGeneralPage from "@/pages/app/settings/GeneralPage";
@@ -257,6 +258,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                   <Route path="test-cases" element={<AiAgentTestCasesPage />} />
                   <Route path="test-runs/:id" element={<AiAgentTestRunDetailPage />} />
                   <Route path="operator-assist-analytics" element={<AiAgentOperatorAssistAnalyticsPage />} />
+                  <Route path="suggested-tests" element={<AiAgentSuggestedTestsPage />} />
                 </Route>
                 {/* Backwards-compat redirects: legacy URLs → settings */}
                 <Route path="team" element={<Navigate to="../settings/team-departments" replace />} />

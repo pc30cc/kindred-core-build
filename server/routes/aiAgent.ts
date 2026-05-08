@@ -1790,7 +1790,8 @@ aiAgentRouter.patch('/data-sources/:id', async (req: Request, res: Response) => 
   if (error) return res.status(500).json({ error: error.message });
   // If transitioned to paused → deactivate active chunks (fail-closed retrieval).
   if (parsed.data.status === 'paused') {
-    await sb.from('ai_knowledge_chunks').update({ status: 'inactive' })
+    // ai_knowledge_chunks CHECK allows active|stale|deleted only.
+    await sb.from('ai_knowledge_chunks').update({ status: 'stale' })
       .eq('workspace_id', existing.workspace_id)
       .eq('source_type', 'web_page')
       .like('source_id', `${req.params.id}:%`)
@@ -1800,7 +1801,7 @@ aiAgentRouter.patch('/data-sources/:id', async (req: Request, res: Response) => 
       .eq('workspace_id', existing.workspace_id)
       .eq('source_type', 'web_page')
       .like('source_id', `${req.params.id}:%`)
-      .eq('status', 'inactive');
+      .eq('status', 'stale');
   }
   return res.json({ item: data });
 });

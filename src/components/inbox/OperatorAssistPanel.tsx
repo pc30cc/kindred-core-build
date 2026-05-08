@@ -68,12 +68,11 @@ export function OperatorAssistPanel({
     setResult(null);
     setError(null);
     setOpen(false);
-    setInstruction('');
+    // Preserve tone/instruction so operator can regenerate quickly.
   };
 
-  const insert = () => {
+  const insert = (mode: 'replace' | 'append') => {
     if (!result?.suggestion) return;
-    const mode: 'replace' | 'append' = composerHasText ? 'append' : 'replace';
     onInsert(result.suggestion, mode);
     toast({ title: mode === 'append' ? 'Appended to composer' : 'Inserted into composer' });
   };
@@ -83,6 +82,12 @@ export function OperatorAssistPanel({
     : confidencePct >= 70 ? 'bg-success/15 text-success'
     : confidencePct >= 40 ? 'bg-warning/15 text-warning'
     : 'bg-destructive/10 text-destructive';
+
+  const noKnowledge =
+    !!result && (
+      (result.selected_sources?.length ?? 0) === 0 ||
+      result.safety_notes?.includes('no_eligible_knowledge_sources')
+    );
 
   if (!open && !result) {
     return (
@@ -179,10 +184,14 @@ export function OperatorAssistPanel({
           <div className="rounded-md border border-destructive/30 bg-destructive/5 px-2.5 py-2 text-[12px] text-destructive">
             {error === 'feature_not_available'
               ? 'AI Operator Assist is not enabled on your current plan.'
+              : error === 'operator_permission_required'
+              ? 'Your role does not have permission to use AI Operator Assist.'
               : error === 'ai_provider_not_configured'
               ? 'No AI provider is configured for this workspace.'
               : error === 'no_visitor_message'
               ? 'No visitor message in this conversation yet.'
+              : error === 'rate_limited'
+              ? 'Too many AI Assist requests. Please wait a moment and try again.'
               : `Could not generate a suggestion: ${error}`}
           </div>
         )}
@@ -190,6 +199,13 @@ export function OperatorAssistPanel({
         {/* Result */}
         {result?.suggestion && !loading && (
           <div className="rounded-md border border-border bg-background px-2.5 py-2">
+            {noKnowledge && (
+              <div className="mb-2">
+                <Badge variant="outline" className="text-[10px] font-normal text-warning border-warning/40">
+                  No knowledge source used
+                </Badge>
+              </div>
+            )}
             <p className="text-[13px] leading-relaxed whitespace-pre-wrap text-foreground">
               {result.suggestion}
             </p>
@@ -222,10 +238,24 @@ export function OperatorAssistPanel({
         {/* Actions */}
         {result?.suggestion && !loading && (
           <div className="flex items-center gap-2 flex-wrap">
-            <Button size="sm" onClick={insert} className="h-7 gap-1.5 text-[12px]">
+            <Button
+              size="sm"
+              onClick={() => insert(composerHasText ? 'append' : 'replace')}
+              className="h-7 gap-1.5 text-[12px]"
+            >
               <ArrowDownToLine className="w-3.5 h-3.5" />
               {composerHasText ? 'Append to composer' : 'Insert into composer'}
             </Button>
+            {composerHasText && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => insert('replace')}
+                className="h-7 gap-1.5 text-[12px]"
+              >
+                Replace composer
+              </Button>
+            )}
             <Button
               size="sm"
               variant="outline"
@@ -268,6 +298,14 @@ export function OperatorAssistPanel({
                   {JSON.stringify(result.retrieval_debug, null, 2)}
                 </pre>
               </section>
+              {result.excluded_summary && Object.keys(result.excluded_summary).length > 0 && (
+                <section>
+                  <div className="font-semibold mb-1">Excluded sources (summary)</div>
+                  <pre className="bg-muted/40 rounded p-2 overflow-x-auto">
+                    {JSON.stringify(result.excluded_summary, null, 2)}
+                  </pre>
+                </section>
+              )}
               {result.prompt_preview && (
                 <section>
                   <div className="font-semibold mb-1">Prompt preview (admin only)</div>

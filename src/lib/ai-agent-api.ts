@@ -181,6 +181,7 @@ export interface OperatorSuggestReplyResponse {
     source_types_used: string[];
   };
   safety_notes: string[];
+  excluded_summary?: Record<string, number>;
   prompt_preview?: { system: string; user: string };
 }
 

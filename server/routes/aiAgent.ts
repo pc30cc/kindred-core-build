@@ -50,11 +50,12 @@ import {
   evaluateExpectations as e6_evaluateExpectations,
   type DryRunResult as E6DryRunResult,
   redactDeep as e7_redactDeep,
+  redactString as e7_redactString,
 } from '../services/ai-agent/testHarness.js';
 import { decideStrategy as e7_decideStrategy } from '../services/ai-agent/answerStrategy.js';
 import { buildSystemPrompt as e7_buildSystemPrompt, buildUserPrompt as e7_buildUserPrompt } from '../services/ai-agent/prompt.js';
 import { resolveAIConfig as e7_resolveAIConfig, executeAICompletion as e7_executeAICompletion } from '../services/ai/index.js';
-import { checkEntitlementFromDB, incrementUsage as e7_incrementUsage } from '../middleware/featureGating.js';
+import { checkEntitlementFromDB } from '../middleware/featureGating.js';
 
 export const aiAgentRouter: Router = express.Router();
 
@@ -1211,6 +1212,22 @@ const TONE_HINTS: Record<string, string> = {
   detailed: 'Provide a thorough reply that covers the question completely while staying grounded in the sources.',
 };
 
+/** Operator inbox permission: owner / admin / agent (or global admin). */
+function e7_isOperator(role: string | null, isGlobalAdmin: boolean): boolean {
+  if (isGlobalAdmin) return true;
+  return role === 'owner' || role === 'admin' || role === 'agent';
+}
+
+/** Schema-aware visitor message detection. Conversation messages use
+ *  `sender_type` in this app; visitor messages are stored as 'contact'
+ *  (see widgetIdentity / conversations routes). 'visitor'/'customer'/'user'
+ *  are accepted as forward-compat fallbacks but never as a guess. */
+function e7_isVisitorMessage(m: { sender_type?: string | null } | null | undefined): boolean {
+  if (!m) return false;
+  const t = (m.sender_type || '').toLowerCase();
+  return t === 'contact' || t === 'visitor' || t === 'customer';
+}
+
 async function e7PersistAssistRun(
   config: ServerConfig,
   payload: {
@@ -1246,8 +1263,8 @@ async function e7PersistAssistRun(
       confidence: payload.confidence,
       selected_sources: e7_redactDeep(payload.selectedSources) || [],
       retrieval_debug: e7_redactDeep(payload.retrievalDebug) || {},
-      answer_strategy: payload.answerStrategy || {},
-      safety_notes: payload.safetyNotes || [],
+      answer_strategy: e7_redactDeep(payload.answerStrategy) || {},
+      safety_notes: e7_redactDeep(payload.safetyNotes) || [],
       provider: payload.provider,
       model: payload.model,
       error: payload.error,
@@ -1267,6 +1284,11 @@ aiAgentRouter.post('/operator/suggest-reply', async (req: Request, res: Response
   const auth = await authorizeMember(req, res, config, workspaceId);
   if (!auth) return;
 
+  // E7-Hardening: only inbox operators (owner/admin/agent or global admin).
+  if (!e7_isOperator(auth.role, auth.isAdmin)) {
+    return res.status(403).json({ error: 'operator_permission_required' });
+  }
+
   if (!checkE7AssistRateLimit(workspaceId, auth.userId)) {
     return res.status(429).json({ error: 'rate_limited' });
   }
@@ -1282,8 +1304,8 @@ aiAgentRouter.post('/operator/suggest-reply', async (req: Request, res: Response
     return res.status(404).json({ error: 'conversation_not_found' });
   }
 
-  // Feature gate: fail-closed if explicitly denied. If no plans defined
-  // (legacy/self-host), DB function returns allowed=true → fail-open.
+  // Feature gate: fail-closed in production. Only allow in non-production
+  // when AI_OPERATOR_ASSIST_ALLOW_WITHOUT_PLAN=true is explicitly set.
   const ent = await checkEntitlementFromDB(
     config.supabaseUrl,
     config.supabaseServiceRoleKey,
@@ -1291,13 +1313,18 @@ aiAgentRouter.post('/operator/suggest-reply', async (req: Request, res: Response
     'ai_operator_assist',
   );
   if (!ent.allowed) {
-    return res.status(403).json({
-      error: 'feature_not_available',
-      feature: 'ai_operator_assist',
-      plan: ent.plan,
-      reason: ent.reason,
-      upgrade_required: true,
-    });
+    const allowDevBypass =
+      process.env.NODE_ENV !== 'production' &&
+      process.env.AI_OPERATOR_ASSIST_ALLOW_WITHOUT_PLAN === 'true';
+    if (!allowDevBypass) {
+      return res.status(403).json({
+        error: 'feature_not_available',
+        feature: 'ai_operator_assist',
+        plan: ent.plan,
+        reason: ent.reason || 'entitlement_denied',
+        upgrade_required: true,
+      });
+    }
   }
 
   // Load recent messages — last 20 / 12k chars cap.
@@ -1316,9 +1343,7 @@ aiAgentRouter.post('/operator/suggest-reply', async (req: Request, res: Response
     trimmed.push(m);
     totalChars += len;
   }
-  const latestVisitor = [...trimmed].reverse().find((m) =>
-    m.sender_type === 'visitor' || m.sender_type === 'contact',
-  );
+  const latestVisitor = [...trimmed].reverse().find((m) => e7_isVisitorMessage(m));
   const inputMessage = latestVisitor?.body || '';
 
   if (!inputMessage.trim()) {
@@ -1327,7 +1352,7 @@ aiAgentRouter.post('/operator/suggest-reply', async (req: Request, res: Response
 
   // Build retrieval query: latest visitor message + tail context.
   const tailContext = trimmed.slice(-4)
-    .map((m) => `${m.sender_type === 'visitor' || m.sender_type === 'contact' ? 'Visitor' : 'Agent'}: ${(m.body || '').slice(0, 400)}`)
+    .map((m) => `${e7_isVisitorMessage(m) ? 'Visitor' : 'Agent'}: ${(m.body || '').slice(0, 400)}`)
     .join('\n');
 
   const settings = await getOrCreateSettings(config, workspaceId);
@@ -1368,6 +1393,11 @@ aiAgentRouter.post('/operator/suggest-reply', async (req: Request, res: Response
     final_score: s.final_score,
   }));
   if (sources.length === 0) safetyNotes.push('no_eligible_knowledge_sources');
+
+  // Excluded summary for the UI debug modal (counts of sources filtered out).
+  const excludedSummary: Record<string, number> = (hybrid.retrievalDebug?.excluded_summary)
+    || (hybrid.retrievalDebug?.excluded as any)
+    || {};
 
   const enginePromptSources = sources.map((s: any) => ({
     kind: s.kind === 'qna' ? 'qna' : 'kb_article',
@@ -1421,6 +1451,9 @@ aiAgentRouter.post('/operator/suggest-reply', async (req: Request, res: Response
     '- If the sources do not support a fact, do not invent it; suggest collecting more info instead.',
     tone ? `- Operator-selected tone: ${tone}. ${TONE_HINTS[tone] || ''}` : '',
     instruction ? `- Operator instruction: ${instruction}` : '',
+    sources.length === 0
+      ? '- No eligible knowledge source was found. Draft only from the conversation context. Do not state product, pricing, policy, technical, or legal facts unless they are explicitly present in the conversation.'
+      : '',
   ].filter(Boolean).join('\n');
   const systemPrompt = `${baseSystem}\n${operatorFraming}`;
 
@@ -1432,7 +1465,10 @@ aiAgentRouter.post('/operator/suggest-reply', async (req: Request, res: Response
   const userPrompt = `${baseUser}\n\nRecent conversation (for context, do not quote verbatim):\n${tailContext}`;
 
   const promptPreview = (auth.isAdmin || auth.role === 'owner' || auth.role === 'admin')
-    ? { system: systemPrompt, user: userPrompt }
+    ? {
+        system: e7_redactString(systemPrompt) || '',
+        user: e7_redactString(userPrompt) || '',
+      }
     : undefined;
 
   const baseResponse = {
@@ -1444,8 +1480,9 @@ aiAgentRouter.post('/operator/suggest-reply', async (req: Request, res: Response
     model: null as string | null,
     selected_sources: e7_redactDeep(selectedSources),
     retrieval_debug: e7_redactDeep(hybrid.retrievalDebug),
-    answer_strategy: answerStrategy,
+    answer_strategy: e7_redactDeep(answerStrategy),
     safety_notes: safetyNotes,
+    excluded_summary: excludedSummary,
     prompt_preview: promptPreview,
   };
 
@@ -1484,12 +1521,28 @@ aiAgentRouter.post('/operator/suggest-reply', async (req: Request, res: Response
         : settings.answer_guidance === 'balanced' ? 0.4 : 0.25,
     });
     const suggestion = (result.text || '').trim() || null;
-    // Increment usage only on successful LLM call.
-    e7_incrementUsage(config.supabaseUrl, config.supabaseServiceRoleKey, workspaceId, 'ai_operator_suggestions');
+    // Increment usage only after a non-empty successful suggestion.
+    if (suggestion) {
+      try {
+        const { error: usageErr } = await sb.rpc('increment_usage_counter', {
+          _workspace_id: workspaceId,
+          _counter_name: 'ai_operator_suggestions',
+          _amount: 1,
+        });
+        if (usageErr) {
+          console.error('[ai-agent.e7] usage increment failed:', usageErr.message);
+          safetyNotes.push('usage_increment_failed');
+        }
+      } catch (uerr: any) {
+        console.error('[ai-agent.e7] usage increment exception:', uerr?.message);
+        safetyNotes.push('usage_increment_failed');
+      }
+    }
 
     const out = {
       ...baseResponse,
       suggestion,
+      safety_notes: safetyNotes,
       provider: result.provider,
       model: result.model,
     };

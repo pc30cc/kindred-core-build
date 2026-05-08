@@ -102,12 +102,18 @@ export interface DryRunResult {
 }
 
 const SENSITIVE_KEY_PATTERNS = [
-  'storage_path', 'storage_url', 'signed_url', 'public_url',
-  'token', 'secret', 'api_key', 'apikey', 'credential', 'password',
+  'storage_path', 'storagepath', 'storage_url', 'storageurl',
+  'signed_url', 'signedurl', 'public_url', 'publicurl',
+  'token', 'secret', 'password',
+  'credential', 'credentials',
+  'api_key', 'apikey', 'access_key', 'accesskey',
+  'authorization', 'signature', 'bucket',
 ];
 const SENSITIVE_VALUE_PATTERNS = [
   'storage_path', 'storage_url', 'signed_url', 'public_url',
-  'token', 'secret', 'api_key', 'access_key',
+  'signedurl', 'token=', 'secret', 'api_key', 'access_key',
+  'x-amz-signature', 'awsaccesskeyid',
+  'storage.googleapis.com', 'supabase.co/storage', '/storage/v1/object',
 ];
 
 function buildRuntime(
@@ -144,7 +150,29 @@ export function redactDeep(obj: any, depth = 0): any {
     }
     return out;
   }
+  if (typeof obj === 'string') {
+    const lv = obj.toLowerCase();
+    if (SENSITIVE_VALUE_PATTERNS.some((p) => lv.includes(p))) return '[redacted]';
+  }
   return obj;
+}
+
+/** Scan a free-form string (e.g. prompt_preview) and redact leak patterns. */
+export function redactString(s: string | null | undefined): string | null | undefined {
+  if (!s) return s;
+  let out = s;
+  // Replace matched patterns line-by-line so we keep mostly-readable output.
+  const lower = out.toLowerCase();
+  if (SENSITIVE_VALUE_PATTERNS.some((p) => lower.includes(p))) {
+    out = out
+      .split('\n')
+      .map((line) => {
+        const ll = line.toLowerCase();
+        return SENSITIVE_VALUE_PATTERNS.some((p) => ll.includes(p)) ? '[redacted]' : line;
+      })
+      .join('\n');
+  }
+  return out;
 }
 
 function strategyToAction(decisionType: string, handoffRequired: boolean):

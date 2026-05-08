@@ -493,13 +493,15 @@ export function evaluateExpectations(
     }
   }
 
-  if (deepHasSensitive(result.retrieval_debug)) {
+  if (deepHasSensitive(result.retrieval_debug)
+    || deepHasSensitive(result.selected_sources)
+    || deepHasSensitive((result as any).page_context)) {
     reasons.push('sensitive_metadata_leak');
   }
 
   if (result.prompt_preview) {
     const blob = `${result.prompt_preview.system}\n${result.prompt_preview.user}`.toLowerCase();
-    if (['storage_path','storage_url','signed_url'].some((p) => blob.includes(p))) {
+    if (SENSITIVE_VALUE_PATTERNS.some((p) => blob.includes(p))) {
       reasons.push('prompt_preview_leak');
     }
   }

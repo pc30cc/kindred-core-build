@@ -757,6 +757,149 @@ export type Database = {
           },
         ]
       }
+      ai_agent_test_cases: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          enabled: boolean
+          expected_behavior: string
+          expected_contains: string[]
+          expected_not_contains: string[]
+          expected_source_id: string | null
+          expected_source_type: string | null
+          expected_source_url: string | null
+          id: string
+          input_message: string
+          locale: string | null
+          metadata: Json
+          min_confidence: number | null
+          name: string
+          page_context: Json | null
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          enabled?: boolean
+          expected_behavior: string
+          expected_contains?: string[]
+          expected_not_contains?: string[]
+          expected_source_id?: string | null
+          expected_source_type?: string | null
+          expected_source_url?: string | null
+          id?: string
+          input_message: string
+          locale?: string | null
+          metadata?: Json
+          min_confidence?: number | null
+          name: string
+          page_context?: Json | null
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          enabled?: boolean
+          expected_behavior?: string
+          expected_contains?: string[]
+          expected_not_contains?: string[]
+          expected_source_id?: string | null
+          expected_source_type?: string | null
+          expected_source_url?: string | null
+          id?: string
+          input_message?: string
+          locale?: string | null
+          metadata?: Json
+          min_confidence?: number | null
+          name?: string
+          page_context?: Json | null
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_agent_test_cases_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_agent_test_runs: {
+        Row: {
+          actual_output: string | null
+          actual_status: string | null
+          ai_agent_run_id: string | null
+          answer_strategy: Json | null
+          confidence: number | null
+          created_at: string
+          created_by: string | null
+          failure_reasons: string[]
+          id: string
+          input_message: string
+          metadata: Json
+          retrieval_debug: Json | null
+          selected_sources: Json
+          status: string
+          test_case_id: string | null
+          workspace_id: string
+        }
+        Insert: {
+          actual_output?: string | null
+          actual_status?: string | null
+          ai_agent_run_id?: string | null
+          answer_strategy?: Json | null
+          confidence?: number | null
+          created_at?: string
+          created_by?: string | null
+          failure_reasons?: string[]
+          id?: string
+          input_message: string
+          metadata?: Json
+          retrieval_debug?: Json | null
+          selected_sources?: Json
+          status: string
+          test_case_id?: string | null
+          workspace_id: string
+        }
+        Update: {
+          actual_output?: string | null
+          actual_status?: string | null
+          ai_agent_run_id?: string | null
+          answer_strategy?: Json | null
+          confidence?: number | null
+          created_at?: string
+          created_by?: string | null
+          failure_reasons?: string[]
+          id?: string
+          input_message?: string
+          metadata?: Json
+          retrieval_debug?: Json | null
+          selected_sources?: Json
+          status?: string
+          test_case_id?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_agent_test_runs_test_case_id_fkey"
+            columns: ["test_case_id"]
+            isOneToOne: false
+            referencedRelation: "ai_agent_test_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_agent_test_runs_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ai_agent_tool_servers: {
         Row: {
           allowed_tools: string[]

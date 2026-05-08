@@ -100,17 +100,17 @@ export default function TestCasesPage() {
 
   const casesQ = useQuery({
     queryKey: ['ai-agent', 'test-cases', wsId],
-    queryFn: () => (aiAgentApi as any).listTestCases(wsId!),
+    queryFn: () => aiAgentApi.listTestCases(wsId!),
     enabled: !!wsId,
   });
   const runsQ = useQuery({
     queryKey: ['ai-agent', 'test-runs', wsId],
-    queryFn: () => (aiAgentApi as any).listTestRuns(wsId!),
+    queryFn: () => aiAgentApi.listTestRuns(wsId!),
     enabled: !!wsId,
   });
   const summaryQ = useQuery({
     queryKey: ['ai-agent', 'test-summary', wsId],
-    queryFn: () => (aiAgentApi as any).getTestSummary(wsId!),
+    queryFn: () => aiAgentApi.getTestSummary(wsId!),
     enabled: !!wsId,
   });
 
@@ -130,18 +130,18 @@ export default function TestCasesPage() {
 
   const saveMut = useMutation({
     mutationFn: async (f: FormState) => {
-      if (f.id) return (aiAgentApi as any).updateTestCase(f.id, formToPayload(f));
-      return (aiAgentApi as any).createTestCase(wsId!, formToPayload(f));
+      if (f.id) return aiAgentApi.updateTestCase(f.id, formToPayload(f) as any);
+      return aiAgentApi.createTestCase(wsId!, formToPayload(f) as any);
     },
     onSuccess: () => { setForm(null); invalidateAll(); toast({ title: 'Saved' }); },
     onError: (e: any) => toast({ title: 'Save failed', description: e?.message, variant: 'destructive' }),
   });
   const deleteMut = useMutation({
-    mutationFn: (id: string) => (aiAgentApi as any).deleteTestCase(id),
+    mutationFn: (id: string) => aiAgentApi.deleteTestCase(id),
     onSuccess: () => { invalidateAll(); toast({ title: 'Deleted' }); },
   });
   const runMut = useMutation({
-    mutationFn: (id: string) => (aiAgentApi as any).runTestCase(id),
+    mutationFn: (id: string) => aiAgentApi.runTestCase(id),
     onSuccess: (data: any) => {
       invalidateAll();
       toast({
@@ -152,15 +152,15 @@ export default function TestCasesPage() {
     },
   });
   const bulkMut = useMutation({
-    mutationFn: () => (aiAgentApi as any).runBulkTests(wsId!),
+    mutationFn: () => aiAgentApi.runBulkTests(wsId!),
     onSuccess: (s: any) => {
       invalidateAll();
       toast({ title: `Bulk: ${s.passed}/${s.total} passed`, description: `${s.failed} failed, ${s.errored} errored` });
     },
   });
   const seedMut = useMutation({
-    mutationFn: () => (aiAgentApi as any).seedRecommendedTests(wsId!),
-    onSuccess: (r: any) => { invalidateAll(); toast({ title: `Seeded ${r.inserted}`, description: `Skipped ${r.skipped} duplicates.` }); },
+    mutationFn: () => aiAgentApi.seedRecommendedTests(wsId!),
+    onSuccess: (r) => { invalidateAll(); toast({ title: `Seeded ${r.inserted}`, description: `Skipped ${r.skipped}. ${(r.skipped_reasons || []).slice(0,3).join('; ') || ''}` }); },
   });
 
   const summary = summaryQ.data;
@@ -252,6 +252,7 @@ export default function TestCasesPage() {
                         ))}</div>
                         <div className="flex gap-3 pt-1">
                           <Link className="text-primary hover:underline" to={wsPath(`/ai-agent/debug/retrieval`)}>Open Retrieval Debugger</Link>
+                          <Link className="text-primary hover:underline" to={wsPath(`/ai-agent/test-runs/${latest.id}`)}>Open Run Detail</Link>
                           {(latest as any).ai_agent_run_id && (
                             <Link className="text-primary hover:underline" to={wsPath(`/ai-agent/runs/${(latest as any).ai_agent_run_id}`)}>Open Inspector</Link>
                           )}

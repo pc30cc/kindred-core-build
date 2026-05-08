@@ -51,8 +51,29 @@ export default function RetrievalDebuggerPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="text-xs space-y-2">
-              <div><strong>Excluded:</strong> {JSON.stringify(run.data.excluded_summary)}</div>
               <div><strong>Page match:</strong> {JSON.stringify(run.data.page_context_debug)}</div>
+              {(() => {
+                const exc = run.data.excluded_summary || {};
+                const entries = Object.entries(exc).filter(([, v]) => Number(v) > 0);
+                const allIneligibleWarning = (run.data.sources?.length ?? 0) === 0 && entries.length > 0;
+                return (
+                  <div className="space-y-1">
+                    <div className="font-medium">Excluded sources</div>
+                    {entries.length === 0
+                      ? <div className="text-muted-foreground">No sources excluded by eligibility filter.</div>
+                      : (
+                        <ul className="list-disc pl-5">
+                          {entries.map(([k, v]) => <li key={k}>{k}: <span className="tabular-nums">{String(v)}</span></li>)}
+                        </ul>
+                      )}
+                    {allIneligibleWarning && (
+                      <div className="mt-1 rounded border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300 px-2 py-1">
+                        Warning: query had matches, but every source was excluded as ineligible.
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </CardContent>
           </Card>
 

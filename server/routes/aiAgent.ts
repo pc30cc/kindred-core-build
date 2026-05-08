@@ -19,6 +19,8 @@ import {
 import { getKnowledgeStatus } from '../services/ai-agent/retrieval.js';
 import { runPlayground } from '../services/ai-agent/playground.js';
 import { listRuns, summarize } from '../services/ai-agent/logs.js';
+import { retrieveHybridSources } from '../services/ai-agent/retrievalHybrid.js';
+import { buildRetrievalQuery } from '../services/ai-agent/queryBuilder.js';
 import { resolveAIConfig } from '../services/ai/index.js';
 import { getOperatorAvailability } from '../services/ai-agent/availability.js';
 import { markHumanTakeover } from '../services/ai-agent/handoffState.js';

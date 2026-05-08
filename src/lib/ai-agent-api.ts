@@ -298,7 +298,20 @@ export const aiAgentApi = {
   listAiFiles: (workspaceId: string) =>
     jsonFetch(`/api/ai-agent/files?workspaceId=${workspaceId}`) as Promise<{ items: DataSource[] }>,
   getAiFileLimits: (workspaceId: string) =>
-    jsonFetch(`/api/ai-agent/files/limits?workspaceId=${workspaceId}`) as Promise<{ maxFiles: number; maxFileSizeMB: number; storageProvider: string | null; used: number; bypass: boolean; supported_mimes: string[]; hard_cap_mb: number }>,
+    jsonFetch(`/api/ai-agent/files/limits?workspaceId=${workspaceId}`) as Promise<{
+      maxFiles: number;
+      maxFileSizeMB: number;
+      effectiveMaxFileSizeMB: number;
+      storageProvider: string | null;
+      storageReady: boolean;
+      storageError: string | null;
+      transport: 'json_base64';
+      transportMaxFileSizeMB: number;
+      used: number;
+      bypass: boolean;
+      supported_mimes: string[];
+      hard_cap_mb: number;
+    }>,
   uploadAiFile: async (workspaceId: string, file: File) => {
     const buf = new Uint8Array(await file.arrayBuffer());
     // Chunked base64 to avoid call-stack overflow on large files.

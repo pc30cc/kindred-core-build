@@ -649,6 +649,8 @@ async function runInternal(
   let fallbackReason: string | null = null;
   let selectedSourcesMeta: Array<Record<string, unknown>> = [];
   let pageContextDebug: any = null;
+  let retrievalDebug: any = null;
+  let excludedSummary: any = null;
   try {
     const hybrid = await retrieveHybridSources(config, {
       workspaceId,
@@ -672,6 +674,8 @@ async function runInternal(
     embeddingModelName = hybrid.embeddingModel;
     fallbackReason = hybrid.fallbackReason || null;
     pageContextDebug = hybrid.pageContextDebug || null;
+    retrievalDebug = hybrid.retrievalDebug || null;
+    excludedSummary = hybrid.excludedSummary || null;
     selectedSourcesMeta = hybrid.sources.map((s) => ({
       id: s.source_id,
       source_type: s.source_type,
@@ -752,6 +756,9 @@ async function runInternal(
     fallback_reason: fallbackReason,
     selected_sources: selectedSourcesMeta,
     page_context: pageContextDebug || null,
+    // E5 — standardized observable retrieval debug (Inspector reads this).
+    retrieval_debug: retrievalDebug,
+    excluded_sources_summary: excludedSummary,
   };
   const clarificationAttemptCount = await countClarificationAttempts(sb, conversationId);
   const strategy = decideStrategy({

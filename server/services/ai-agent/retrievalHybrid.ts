@@ -28,6 +28,16 @@ import { detectTopics, type TopicKey } from './queryExpansion.js';
 
 export type HybridSourceKind = 'qna' | 'kb_article' | 'learned_qna' | 'business_profile' | 'web_page' | 'file';
 
+// web_page parent derivation must stay identical in Source Health and Runtime Retrieval.
+// Mirrors deriveWebPageParent() in server/services/ai-agent/sourceHealth.ts.
+function deriveWebPageParentSourceId(sourceId: string, metadata: any): string {
+  const m = metadata && typeof metadata === 'object' ? metadata : {};
+  const fromMeta = (m.parent_source_id as string) || (m.source_id as string);
+  if (typeof fromMeta === 'string' && fromMeta.trim()) return fromMeta.trim();
+  if (sourceId && sourceId.includes(':')) return sourceId.split(':', 2)[0];
+  return sourceId;
+}
+
 export interface HybridSource {
   /** id of the chunk row when vector hit, otherwise of the source row. */
   id: string;
@@ -537,7 +547,7 @@ export async function retrieveHybridSources(
       for (const a of all) {
         if (a.source_type !== 'web_page') continue;
         const meta: any = (a as any).metadata || {};
-        const parent = (meta.parent_source_id as string) || (a.source_id.includes(':') ? a.source_id.split(':', 2)[0] : a.source_id);
+        const parent = deriveWebPageParentSourceId(a.source_id, meta);
         if (parent) webPageChunkParent.set(a.source_id, parent);
       }
     }

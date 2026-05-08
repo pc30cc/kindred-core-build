@@ -5,7 +5,7 @@
  * feedback. Read-only. Does not auto-send anything.
  */
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { useCurrentWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import { aiAgentApi, type OperatorAssistAnalytics } from '@/lib/ai-agent-api';
@@ -16,6 +16,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import { Loader2, Sparkles } from 'lucide-react';
+import { toast } from '@/hooks/use-toast';
 
 type Range = '7d' | '30d' | '90d';
 
@@ -25,6 +26,16 @@ export default function OperatorAssistAnalyticsPage() {
   const workspace = useCurrentWorkspace();
   const wsPath = useWorkspacePath();
   const [range, setRange] = useState<Range>('7d');
+
+  const suggestMut = useMutation({
+    mutationFn: (feedbackId: string) => aiAgentApi.suggestTestCaseFromFeedback(feedbackId),
+    onSuccess: () => toast({ title: 'Suggested test created', description: 'Open the Suggested Tests page to review.' }),
+    onError: (e: any) => toast({
+      title: 'Could not create suggestion',
+      description: e?.message?.includes('duplicate') ? 'A suggestion for this run already exists.' : (e?.message || 'Failed'),
+      variant: 'destructive',
+    }),
+  });
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['ai-agent', 'assist-analytics', workspace?.id, range],

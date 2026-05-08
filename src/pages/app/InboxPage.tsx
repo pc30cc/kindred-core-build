@@ -1582,7 +1582,9 @@ export default function InboxPage() {
                   dir={dir}
                   onInsert={(text, mode) => {
                     setMessage((prev) =>
-                      mode === 'append' && prev ? `${prev}\n\n${text}` : text,
+                      mode === 'append' && prev
+                        ? `${prev}\n\n---\nAI draft:\n${text}`
+                        : text,
                     );
                     requestAnimationFrame(() => messageInputRef.current?.focus());
                   }}

@@ -56,8 +56,13 @@ export function startInProcessSourceWorker(config: ServerConfig): void {
 export function stopInProcessSourceWorker(): void { stopping = true; }
 
 /** Public: try to process one job; safe to call from anywhere (route, worker). */
-export async function processOne(config: ServerConfig): Promise<{ processed: boolean }> {
-  const job = await claimNextSourceSyncJob(config, { workerId: WORKER_ID, lockTtlSeconds: LOCK_TTL_SECONDS });
+export async function processOne(
+  config: ServerConfig,
+  opts: { jobTypes?: string[] } = {},
+): Promise<{ processed: boolean }> {
+  const job = await claimNextSourceSyncJob(config, {
+    workerId: WORKER_ID, lockTtlSeconds: LOCK_TTL_SECONDS, jobTypes: opts.jobTypes,
+  });
   if (!job) return { processed: false };
   console.log('[ai-kb worker] source job claimed', { workerId: WORKER_ID, jobId: job.id, workspaceId: job.workspace_id, sourceId: job.source_id });
   try {
@@ -203,10 +208,21 @@ async function runFileIngestJobWrapper(config: ServerConfig, job: SourceSyncJob)
     });
   } catch (e: any) {
     const code = e instanceof IngestError ? e.code : (e?.message || 'file_ingest_failed');
-    // Non-retryable for terminal parse errors (encrypted/no_text/etc.) — only retry transient errors.
-    const transient = new Set(['download_failed']);
-    await failSourceSyncJob(config, { jobId: job.id, error: code, retryable: transient.has(code) });
-    console.warn('[ai-kb worker] file_ingest job failed', { jobId: job.id, sourceId: job.source_id, error: code });
+    // Cancellation codes — pause/delete/race. NOT a worker failure.
+    const cancelled = new Set(['source_paused', 'source_deleted', 'source_cancelled', 'job_cancelled']);
+    // Transient errors that may succeed on retry.
+    const transient = new Set(['download_failed', 'storage_temporary_failure', 'embedder_temporary_failure']);
+    if (cancelled.has(code)) {
+      const { cancelSourceSyncJob } = await import('./sourceJobs.js');
+      await cancelSourceSyncJob(config, { jobId: job.id });
+      console.log('[ai-kb worker] file_ingest job cancelled', { jobId: job.id, sourceId: job.source_id, reason: code });
+      return;
+    }
+    const retryable = transient.has(code);
+    await failSourceSyncJob(config, { jobId: job.id, error: code, retryable });
+    console.warn('[ai-kb worker] file_ingest job failed', {
+      jobId: job.id, sourceId: job.source_id, error: code, retryable,
+    });
   }
 }
 

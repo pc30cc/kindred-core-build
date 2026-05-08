@@ -76,15 +76,27 @@ export function startSourceSyncWorker(): void {
   const pollMs = clampInt(process.env.AI_KB_WORKER_INTERVAL_MS, 5000, 1000, 60_000);
   const idleLogMs = clampInt(process.env.AI_KB_WORKER_IDLE_LOG_MS, 60_000, 5000, 600_000);
 
+  // Restrict claimable job types based on WORKER_KIND so a dedicated
+  // file-ingest worker never accidentally claims website crawl jobs (and
+  // vice versa). 'all' / 'source-sync' fallback to "no filter" when
+  // explicitly requested via AI_SOURCE_JOB_TYPES env override.
+  const kind = (process.env.WORKER_KIND || 'source-sync').trim().toLowerCase();
+  let jobTypes: string[] | undefined;
+  if (kind === 'file-ingest') jobTypes = ['file_ingest'];
+  else if (kind === 'source-sync') jobTypes = ['website_sync', 'website_rebuild'];
+  else jobTypes = undefined; // 'all' / dev
+  const envOverride = (process.env.AI_SOURCE_JOB_TYPES || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (envOverride.length > 0) jobTypes = envOverride;
+
   console.log('[ai-source worker] started', {
-    workerId, pollMs, lockTtl: info.lockTtlSeconds,
+    workerId, pollMs, lockTtl: info.lockTtlSeconds, kind, jobTypes: jobTypes || 'all',
   });
 
   let lastIdleLog = 0;
   const tick = async () => {
     if (stopping) return;
     try {
-      const res = await processOne(config);
+      const res = await processOne(config, { jobTypes });
       if (!res.processed) {
         const now = Date.now();
         if (now - lastIdleLog >= idleLogMs) {

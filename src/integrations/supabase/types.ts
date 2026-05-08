@@ -1630,6 +1630,59 @@ export type Database = {
         }
         Relationships: []
       }
+      ai_operator_assist_feedback: {
+        Row: {
+          assist_run_id: string
+          comment: string | null
+          conversation_id: string | null
+          created_at: string
+          final_composer_text: string | null
+          id: string
+          metadata: Json
+          operator_action: string | null
+          rating: string
+          reason: string | null
+          submitted_by: string | null
+          workspace_id: string
+        }
+        Insert: {
+          assist_run_id: string
+          comment?: string | null
+          conversation_id?: string | null
+          created_at?: string
+          final_composer_text?: string | null
+          id?: string
+          metadata?: Json
+          operator_action?: string | null
+          rating: string
+          reason?: string | null
+          submitted_by?: string | null
+          workspace_id: string
+        }
+        Update: {
+          assist_run_id?: string
+          comment?: string | null
+          conversation_id?: string | null
+          created_at?: string
+          final_composer_text?: string | null
+          id?: string
+          metadata?: Json
+          operator_action?: string | null
+          rating?: string
+          reason?: string | null
+          submitted_by?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_operator_assist_feedback_assist_run_id_fkey"
+            columns: ["assist_run_id"]
+            isOneToOne: false
+            referencedRelation: "ai_operator_assist_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ai_operator_assist_runs: {
         Row: {
           answer_strategy: Json

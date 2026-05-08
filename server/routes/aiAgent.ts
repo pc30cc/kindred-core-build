@@ -56,6 +56,13 @@ import { decideStrategy as e7_decideStrategy } from '../services/ai-agent/answer
 import { buildSystemPrompt as e7_buildSystemPrompt, buildUserPrompt as e7_buildUserPrompt } from '../services/ai-agent/prompt.js';
 import { resolveAIConfig as e7_resolveAIConfig, executeAICompletion as e7_executeAICompletion } from '../services/ai/index.js';
 import { checkEntitlementFromDB } from '../middleware/featureGating.js';
+import {
+  suggestFromAssistFeedback as e9_suggestFromAssistFeedback,
+  suggestFromFailedTestRun as e9_suggestFromFailedTestRun,
+  listSuggestedCases as e9_listSuggestedCases,
+  acceptSuggestedCase as e9_acceptSuggestedCase,
+  rejectSuggestedCase as e9_rejectSuggestedCase,
+} from '../services/ai-agent/regressionSuggestions.js';
 
 export const aiAgentRouter: Router = express.Router();
 

@@ -4539,7 +4539,8 @@ aiAgentRouter.post('/suggested-test-cases/:id/accept', async (req: Request, res:
   }
   const result = await e9_acceptSuggestedCase(sb, id, auth.userId, safeOverrides);
   if (!result.ok) {
-    return res.status(result.reason === 'not_found' ? 404 : 400).json({ error: result.reason });
+    const r = result.reason;
+    return res.status(r === 'not_found' ? 404 : 400).json({ error: r });
   }
   return res.json({ ok: true, test_case_id: result.test_case_id });
 });

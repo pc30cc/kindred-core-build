@@ -570,12 +570,12 @@ aiAgentRouter.post('/debug/retrieval', async (req: Request, res: Response) => {
     // Best-effort observability event (no visitor side-effect).
     const sb = getServiceClient(config);
     try {
-      await sb.from('ai_source_sync_logs').insert({
+      await sb.from('ai_agent_debug_events').insert({
         workspace_id: workspaceId,
-        source_id: null,
-        event: 'retrieval_debug_run',
-        level: 'info',
-        metadata: { by_user: auth.userId, top_score: top?.final_score ?? 0, count: hybrid.sources.length },
+        run_id: null,
+        event_type: 'retrieval_debug_run',
+        actor_user_id: auth.userId,
+        metadata: { top_score: top?.final_score ?? 0, count: hybrid.sources.length },
       });
     } catch { /* noop */ }
 

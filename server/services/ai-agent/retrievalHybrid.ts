@@ -621,27 +621,31 @@ export async function retrieveHybridSources(
   }
   merged.sort((a: any, b: any) => b.finalScore - a.finalScore);
 
-  const top = merged.slice(0, limit).map((m: any) => ({
-    id: m.id,
-    kind: m.source_type as HybridSourceKind,
-    source_type: m.source_type,
-    source_id: m.source_id,
-    title: m.title,
-    content: m.content,
-    excerpt: m.excerpt,
-    locale: m.locale,
-    source_url: m.source_url,
-    slug: m.slug,
-    score: Number(m.finalScore.toFixed(4)),
-    keyword_score: Number(m.keywordScore.toFixed(4)),
-    vector_score: Number(m.vectorScore.toFixed(4)),
-    final_score: Number(m.finalScore.toFixed(4)),
-    topic_boost: Number((m.topicBoost || 0).toFixed(4)),
-    url_boost: Number((m.urlBoost || 0).toFixed(4)),
-    locale_bonus: Number((m.localeBonus || 0).toFixed(4)),
-    source_priority: Number((m.sourcePriority || 0).toFixed(4)),
-    metadata: m.metadata,
-  }));
+  const top = merged.slice(0, limit).map((m: any) => {
+    const isFile = m.source_type === 'file';
+    return {
+      id: m.id,
+      kind: m.source_type as HybridSourceKind,
+      source_type: m.source_type,
+      source_id: m.source_id,
+      title: m.title,
+      content: m.content,
+      excerpt: m.excerpt,
+      locale: m.locale,
+      // Files MUST NEVER expose any URL (storage_path/storage_url/signed_url).
+      source_url: isFile ? null : (m.source_url || null),
+      slug: m.slug,
+      score: Number(m.finalScore.toFixed(4)),
+      keyword_score: Number(m.keywordScore.toFixed(4)),
+      vector_score: Number(m.vectorScore.toFixed(4)),
+      final_score: Number(m.finalScore.toFixed(4)),
+      topic_boost: Number((m.topicBoost || 0).toFixed(4)),
+      url_boost: Number((m.urlBoost || 0).toFixed(4)),
+      locale_bonus: Number((m.localeBonus || 0).toFixed(4)),
+      source_priority: Number((m.sourcePriority || 0).toFixed(4)),
+      metadata: sanitizeChunkMetadata(m.metadata),
+    };
+  });
 
   result.sources = top as HybridSource[];
   result.retrievalResultsCount = top.length;

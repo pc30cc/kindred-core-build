@@ -204,6 +204,8 @@ export default function RegressionRunsPage() {
         batchId={openBatch}
         onClose={() => setOpenBatch(null)}
         wsPath={wsPath}
+        canManage={isOwnerOrAdmin}
+        onChanged={() => qc.invalidateQueries({ queryKey: ['ai-agent', 'regression-batches', wsId] })}
       />
     </div>
   );
@@ -351,13 +353,36 @@ function ScheduleMeta({ schedule }: { schedule: RegressionSchedule }) {
 }
 
 function BatchDetailDialog({
-  batchId, onClose, wsPath,
-}: { batchId: string | null; onClose: () => void; wsPath: (p: string) => string }) {
+  batchId, onClose, wsPath, canManage, onChanged,
+}: { batchId: string | null; onClose: () => void; wsPath: (p: string) => string; canManage: boolean; onChanged: () => void }) {
+  const qc = useQueryClient();
   const q = useQuery({
     queryKey: ['ai-agent', 'regression-batch', batchId],
     queryFn: () => aiAgentApi.getRegressionBatch(batchId!),
     enabled: !!batchId,
     refetchInterval: 5_000,
+  });
+  const cancelMut = useMutation({
+    mutationFn: () => aiAgentApi.cancelRegressionBatch(batchId!),
+    onSuccess: (r) => {
+      toast({ title: r.idempotent ? `Already ${r.status}` : 'Batch cancelled' });
+      qc.invalidateQueries({ queryKey: ['ai-agent', 'regression-batch', batchId] });
+      onChanged();
+    },
+    onError: (e: any) => toast({ title: 'Cancel failed', description: e?.message, variant: 'destructive' }),
+  });
+  const retryMut = useMutation({
+    mutationFn: () => aiAgentApi.retryFailedRegressionBatch(batchId!),
+    onSuccess: () => {
+      toast({ title: 'Retry batch queued' });
+      onChanged();
+      onClose();
+    },
+    onError: (e: any) => toast({
+      title: 'Retry failed',
+      description: e?.message?.includes('no_failed_cases') ? 'No failed/errored cases to retry.' : (e?.message || 'Failed'),
+      variant: 'destructive',
+    }),
   });
   const suggestMut = useMutation({
     mutationFn: (runId: string) => aiAgentApi.suggestTestCaseFromTestRun(runId),
@@ -374,7 +399,14 @@ function BatchDetailDialog({
         <DialogHeader><DialogTitle>Regression batch</DialogTitle></DialogHeader>
         {q.isLoading || !q.data ? (
           <div className="text-sm text-muted-foreground">Loading…</div>
-        ) : (
+        ) : (() => {
+          const batch = q.data.batch;
+          const meta = (batch.metadata || {}) as Record<string, any>;
+          const idx = typeof meta.current_case_index === 'number' ? meta.current_case_index : 0;
+          const total = batch.total_cases || 0;
+          const isActive = batch.status === 'queued' || batch.status === 'running';
+          const hasFailures = batch.status === 'completed' && (batch.failed + batch.errored) > 0;
+          return (
           <div className="space-y-4">
             <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-sm">
               <div><div className="text-xs text-muted-foreground">Status</div><BatchStatusBadge status={q.data.batch.status} /></div>
@@ -382,6 +414,35 @@ function BatchDetailDialog({
               <div><div className="text-xs text-muted-foreground">Passed</div><span className="text-emerald-600">{q.data.summary.passed}</span></div>
               <div><div className="text-xs text-muted-foreground">Failed</div><span className="text-destructive">{q.data.summary.failed}</span></div>
               <div><div className="text-xs text-muted-foreground">Errored</div><span className="text-amber-600">{q.data.summary.errored}</span></div>
+            </div>
+            {isActive && total > 0 && (
+              <div className="space-y-1">
+                <Progress value={(idx / total) * 100} />
+                <div className="text-xs text-muted-foreground">
+                  Processed {idx} / {total}
+                  {meta.current_test_case_name ? ` · current: ${meta.current_test_case_name}` : ''}
+                </div>
+              </div>
+            )}
+            <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+              <span>Duration: {fmtDuration(meta.duration_ms)}</span>
+              <span>Avg/case: {fmtDuration(meta.avg_case_duration_ms)}</span>
+              {meta.cancelled_at && <span>Cancelled: {fmtDate(meta.cancelled_at)}</span>}
+              {meta.retry_of_batch_id && <span>Retry of: <code className="text-[10px]">{String(meta.retry_of_batch_id).slice(0,8)}</code></span>}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {isActive && (
+                <Button size="sm" variant="destructive" disabled={!canManage || cancelMut.isPending}
+                  onClick={() => cancelMut.mutate()}>
+                  {cancelMut.isPending ? 'Cancelling…' : 'Cancel batch'}
+                </Button>
+              )}
+              {hasFailures && (
+                <Button size="sm" variant="outline" disabled={!canManage || retryMut.isPending}
+                  onClick={() => retryMut.mutate()}>
+                  {retryMut.isPending ? 'Queuing…' : 'Retry failed'}
+                </Button>
+              )}
             </div>
             <div className="overflow-x-auto">
               <table className="text-xs w-full">
@@ -420,7 +481,8 @@ function BatchDetailDialog({
               </table>
             </div>
           </div>
-        )}
+          );
+        })()}
       </DialogContent>
     </Dialog>
   );

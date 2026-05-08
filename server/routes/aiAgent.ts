@@ -72,6 +72,8 @@ import {
   getRegressionBatchDetail as e10_getBatchDetail,
   claimQueuedBatch as e10_claimBatch,
   runRegressionBatch as e10_runBatch,
+  cancelRegressionBatch as e10_cancelBatch,
+  retryFailedRegressionBatch as e10_retryFailed,
 } from '../services/ai-agent/regressionRunner.js';
 
 export const aiAgentRouter: Router = express.Router();

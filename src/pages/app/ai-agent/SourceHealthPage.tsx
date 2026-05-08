@@ -81,6 +81,7 @@ export default function SourceHealthPage() {
             <option value="kb_article">KB article</option>
             <option value="file">File</option>
             <option value="website">Website</option>
+            <option value="web_page">Web page</option>
           </select>
           <select value={eligible} onChange={(e) => setEligible(e.target.value)} className="h-9 rounded-md border border-input bg-background px-2 text-sm">
             <option value="">All eligibility</option>

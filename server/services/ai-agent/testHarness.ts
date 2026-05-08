@@ -360,7 +360,7 @@ export async function runDryRunTest(
       safety_notes: [`llm_error:${err?.message || 'unknown'}`, ...safetyNotes],
       provider: aiCfg.provider, model: aiCfg.model,
       error: err?.message || 'llm_call_failed',
-      runtime: buildRuntime(false),
+      runtime: buildRuntime(true, 'unknown'),
       runtime_parity: RUNTIME_PARITY,
     };
   }

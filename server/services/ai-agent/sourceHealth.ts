@@ -117,7 +117,7 @@ export async function getSourceHealth(
   for (;;) {
     const { data, error } = await sb
       .from('ai_knowledge_chunks')
-      .select('source_type, source_id, status, embedding, indexed_at, updated_at, metadata')
+      .select('source_type, source_id, status, embedding, updated_at')
       .eq('workspace_id', workspaceId)
       .range(from, from + PAGE - 1);
     if (error) break;
@@ -138,7 +138,7 @@ export async function getSourceHealth(
       else if (status === 'stale') agg.stale += 1;
       else if (status === 'deleted') agg.deleted += 1;
       if (r.embedding) agg.embedded += 1;
-      const ts = (r.indexed_at || r.updated_at) as string | null;
+      const ts = (r.updated_at) as string | null;
       if (ts && (!agg.lastIndexedAt || ts > agg.lastIndexedAt)) agg.lastIndexedAt = ts;
     }
     if (data.length < PAGE) break;

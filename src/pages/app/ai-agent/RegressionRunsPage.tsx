@@ -2,8 +2,8 @@ import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { aiAgentApi, type RegressionSchedule, type RegressionBatch } from '@/lib/ai-agent-api';
-import { useWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
-import { useWorkspaceRole } from '@/hooks/useWorkspaceRole';
+import { useCurrentWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
+import { useWorkspaceRole, isWorkspaceAdmin } from '@/hooks/useWorkspaceRole';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -22,10 +22,11 @@ function pct(n: number | null | undefined) {
 }
 
 export default function RegressionRunsPage() {
-  const ws = useWorkspace();
+  const ws = useCurrentWorkspace();
   const wsId = ws?.id;
   const wsPath = useWorkspacePath();
-  const { isOwnerOrAdmin } = useWorkspaceRole(wsId);
+  const roleQ = useWorkspaceRole(wsId);
+  const isOwnerOrAdmin = isWorkspaceAdmin(roleQ.data);
   const qc = useQueryClient();
   const [openBatch, setOpenBatch] = useState<string | null>(null);
 

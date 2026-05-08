@@ -287,13 +287,24 @@ export async function updateRegressionSchedule(
     safe.max_cases_per_run = Math.max(1, Math.min(HARD_MAX_CASES, safe.max_cases_per_run as number));
   }
   safe.updated_by = actorId;
-  // Recompute next_run_at when enabled or frequency changes.
-  if ('enabled' in safe || 'frequency' in safe) {
+  // Recompute next_run_at + resolved_timezone metadata whenever scheduling
+  // inputs change (enabled, frequency, time_of_day, timezone).
+  const recomputeKeys = ['enabled', 'frequency', 'time_of_day', 'timezone'];
+  if (recomputeKeys.some((k) => k in safe)) {
     const { data: cur } = await sb.from('ai_agent_regression_schedules')
-      .select('frequency,enabled').eq('id', scheduleId).maybeSingle();
-    const enabled = (safe.enabled ?? cur?.enabled) as boolean;
-    const freq = (safe.frequency ?? cur?.frequency) as Frequency;
-    safe.next_run_at = enabled ? (computeNextRunAt(freq)?.toISOString() ?? null) : null;
+      .select('*').eq('id', scheduleId).maybeSingle();
+    const merged = { ...(cur || {}), ...safe } as RegressionSchedule;
+    if (merged.enabled) {
+      const c = await computeNextRunAt(sb, merged);
+      safe.next_run_at = c.next_run_at?.toISOString() ?? null;
+      const meta = { ...((cur as any)?.metadata || {}) };
+      meta.resolved_timezone = c.resolved_timezone;
+      if (c.warning) meta.warning = c.warning;
+      else delete meta.warning;
+      safe.metadata = meta;
+    } else {
+      safe.next_run_at = null;
+    }
   }
   const { data, error } = await sb
     .from('ai_agent_regression_schedules')
@@ -418,11 +429,15 @@ export async function claimDueSchedule(
     .maybeSingle();
   if (!cur || !cur.enabled || cur.frequency === 'manual') return null;
   const prevNext = cur.next_run_at;
-  const newNext = computeNextRunAt(cur.frequency as Frequency)?.toISOString() ?? null;
+  const c = await computeNextRunAt(sb, cur as RegressionSchedule);
+  const newNext = c.next_run_at?.toISOString() ?? null;
   const nowIso = new Date().toISOString();
+  const meta = { ...((cur as any).metadata || {}) };
+  meta.resolved_timezone = c.resolved_timezone;
+  if (c.warning) meta.warning = c.warning; else delete meta.warning;
   const { data: claimed } = await sb
     .from('ai_agent_regression_schedules')
-    .update({ next_run_at: newNext, last_run_at: nowIso })
+    .update({ next_run_at: newNext, last_run_at: nowIso, metadata: meta })
     .eq('id', scheduleId)
     .eq('next_run_at', prevNext)
     .select('*')

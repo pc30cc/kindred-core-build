@@ -502,6 +502,7 @@ export async function retrieveHybridSources(
     pending_candidates_excluded: 0,
     cross_workspace_excluded: 0,
     inactive_file_excluded: 0,
+    inactive_web_page_excluded: 0,
   };
   try {
     const all = Array.from(aggregated.values());
@@ -514,6 +515,19 @@ export async function retrieveHybridSources(
     const eligibleKb = new Set<string>();
     const eligibleFiles = new Set<string>();
     const eligibleWebPages = new Set<string>();
+    // Map web_page chunk source_id -> derived parent ai_data_sources.id.
+    // web_page chunks use compound source_id like "${parentId}:${urlHash}" or
+    // store parent_source_id in metadata. They are NOT directly rows in
+    // ai_data_sources, so we cannot look them up by source_id.
+    const webPageChunkParent = new Map<string, string>();
+    if (idsByKind['web_page']?.size) {
+      for (const a of all) {
+        if (a.source_type !== 'web_page') continue;
+        const meta: any = (a as any).metadata || {};
+        const parent = (meta.parent_source_id as string) || (a.source_id.includes(':') ? a.source_id.split(':', 2)[0] : a.source_id);
+        if (parent) webPageChunkParent.set(a.source_id, parent);
+      }
+    }
     if (idsByKind['qna']?.size) {
       const { data } = await sb
         .from('ai_agent_qna')
@@ -534,20 +548,30 @@ export async function retrieveHybridSources(
         if (r.status === 'published') eligibleKb.add(r.id as string);
       }
     }
-    const fileLikeIds = new Set<string>([
-      ...(idsByKind['file'] ? Array.from(idsByKind['file']) : []),
-      ...(idsByKind['web_page'] ? Array.from(idsByKind['web_page']) : []),
-    ]);
-    if (fileLikeIds.size) {
+    // File chunks: source_id IS ai_data_sources.id directly.
+    const fileSourceIds = idsByKind['file'] ? Array.from(idsByKind['file']) : [];
+    // Web page chunks: derive parent ids from compound source_id / metadata.
+    const webParentIds = Array.from(new Set(Array.from(webPageChunkParent.values())));
+    const lookupIds = Array.from(new Set([...fileSourceIds, ...webParentIds]));
+    const activeParentBySrc = new Map<string, 'file' | 'website'>();
+    if (lookupIds.length) {
       const { data } = await sb
         .from('ai_data_sources')
         .select('id, workspace_id, source_type, status')
-        .in('id', Array.from(fileLikeIds));
+        .in('id', lookupIds);
       for (const r of data || []) {
         if (r.workspace_id !== input.workspaceId) continue;
         if (r.status !== 'active') continue;
-        if (r.source_type === 'file') eligibleFiles.add(r.id as string);
-        else eligibleWebPages.add(r.id as string);
+        if (r.source_type === 'file') {
+          eligibleFiles.add(r.id as string);
+          activeParentBySrc.set(r.id as string, 'file');
+        } else if (r.source_type === 'website') {
+          activeParentBySrc.set(r.id as string, 'website');
+        }
+      }
+      // A web_page chunk is eligible iff its derived parent website is active.
+      for (const [chunkSrcId, parent] of webPageChunkParent.entries()) {
+        if (activeParentBySrc.get(parent) === 'website') eligibleWebPages.add(chunkSrcId);
       }
     }
     for (const [key, a] of Array.from(aggregated.entries())) {
@@ -559,7 +583,7 @@ export async function retrieveHybridSources(
       } else if (a.source_type === 'file' && !eligibleFiles.has(a.source_id)) {
         excludedSummary.inactive_file_excluded += 1; drop = true;
       } else if (a.source_type === 'web_page' && !eligibleWebPages.has(a.source_id)) {
-        excludedSummary.inactive_file_excluded += 1; drop = true;
+        excludedSummary.inactive_web_page_excluded += 1; drop = true;
       }
       if (drop) aggregated.delete(key);
     }

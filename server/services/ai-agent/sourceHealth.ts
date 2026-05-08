@@ -62,6 +62,8 @@ export interface SourceHealthSummary {
   files_not_active: number;
   websites_active: number;
   websites_not_active: number;
+  web_pages_eligible: number;
+  web_pages_not_eligible: number;
   active_chunks_total: number;
   embedded_chunks_total: number;
 }
@@ -161,11 +163,12 @@ export async function getSourceHealth(
   };
   const chunkMap = new Map<string, ChunkAgg>();
   const key = (t: string, id: string) => `${t}:${id}`;
-  // Derive web_page parent id using the SAME strategy as retrievalHybrid.ts.
+  // web_page parent derivation must stay identical in Source Health and Runtime Retrieval.
+  // Mirrors deriveWebPageParentSourceId() in server/services/ai-agent/retrievalHybrid.ts.
   const deriveWebPageParent = (sourceId: string, meta: any): string => {
     const m = (meta && typeof meta === 'object') ? meta : {};
     const fromMeta = (m.parent_source_id as string) || (m.source_id as string);
-    if (fromMeta) return fromMeta;
+    if (typeof fromMeta === 'string' && fromMeta.trim()) return fromMeta.trim();
     if (sourceId && sourceId.includes(':')) return sourceId.split(':', 2)[0];
     return sourceId;
   };
@@ -424,6 +427,7 @@ export async function getSourceHealth(
     kb_published: 0, kb_draft: 0,
     files_active: 0, files_not_active: 0,
     websites_active: 0, websites_not_active: 0,
+    web_pages_eligible: 0, web_pages_not_eligible: 0,
     active_chunks_total: 0, embedded_chunks_total: 0,
   };
   for (const it of filtered) {
@@ -435,6 +439,7 @@ export async function getSourceHealth(
     else if (it.source_type === 'kb_article') (it.status === 'published' ? summary.kb_published++ : summary.kb_draft++);
     else if (it.source_type === 'file') (it.status === 'active' ? summary.files_active++ : summary.files_not_active++);
     else if (it.source_type === 'website') (it.status === 'active' ? summary.websites_active++ : summary.websites_not_active++);
+    else if (it.source_type === 'web_page') (it.eligible ? summary.web_pages_eligible++ : summary.web_pages_not_eligible++);
   }
 
   return { items: filtered, summary };

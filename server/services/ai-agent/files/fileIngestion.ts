@@ -547,37 +547,15 @@ export async function cancelFileIngestJobsForSource(
   return (data || []).length;
 }
 
-/** Parse + index an already-stored file. */
-export async function reindexAiFile(
-  config: ServerConfig, sourceId: string,
-): Promise<IngestResult> {
-  const sb = getServiceClient(config);
-  const { data: source } = await sb
-    .from('ai_data_sources').select('*').eq('id', sourceId).maybeSingle();
-  if (!source) throw new IngestError('not_found', 404);
-  if (source.source_type !== 'file') throw new IngestError('not_a_file_source', 400);
-
-  const meta = (source.metadata as any) || {};
-  const storagePath: string | undefined = meta.storage_path;
-  if (!storagePath) throw new IngestError('storage_path_missing', 400);
-
-  await sb.from('ai_data_sources').update({ status: 'syncing', last_error: null }).eq('id', sourceId);
-
-  const dl = await downloadFile(config, source.workspace_id, storagePath);
-  if (!dl.success || !dl.data) {
-    await sb.from('ai_data_sources').update({
-      status: 'failed', last_error: 'download_failed',
-      metadata: { ...meta, download_error: dl.error || 'unknown' },
-    }).eq('id', sourceId);
-    throw new IngestError('download_failed', 500, dl.error);
-  }
-
-  return finalizeIndex(
-    config, sourceId, source.workspace_id,
-    meta.original_file_name || source.name || 'file',
-    meta.mime_type || 'application/octet-stream',
-    dl.data,
-    meta,
+/**
+ * REMOVED in Pass E4-G. Use queueReindexAiFile instead. The legacy sync
+ * path bypassed cancel/pause guards and could leave active chunks for a
+ * paused/deleted source.
+ */
+export async function reindexAiFile(): Promise<never> {
+  throw new IngestError(
+    'sync_file_ingestion_disabled', 410,
+    'reindexAiFile is removed. Use queueReindexAiFile.',
   );
 }
 

@@ -40,11 +40,15 @@ export async function enqueueSourceSyncJob(
   args: { workspaceId: string; sourceId: string; jobType?: string; createdBy?: string | null; metadata?: Record<string, unknown> },
 ): Promise<SourceSyncJob> {
   const sb = getServiceClient(config);
-  // Coalesce: if a queued job already exists for this source, reuse it.
+  const jobType = args.jobType || 'website_sync';
+  // Coalesce: if a queued job of the SAME job_type already exists for this
+  // source, reuse it. Different job_types (e.g. file_ingest vs website_sync)
+  // must NOT collapse into one another.
   const { data: existing } = await sb
     .from('ai_source_sync_jobs')
     .select('*')
     .eq('source_id', args.sourceId)
+    .eq('job_type', jobType)
     .eq('status', 'queued')
     .order('created_at', { ascending: false })
     .limit(1)
@@ -56,7 +60,7 @@ export async function enqueueSourceSyncJob(
     .insert({
       workspace_id: args.workspaceId,
       source_id: args.sourceId,
-      job_type: args.jobType || 'website_sync',
+      job_type: jobType,
       status: 'queued',
       created_by: args.createdBy ?? null,
       metadata: args.metadata || {},
@@ -75,20 +79,23 @@ export async function enqueueSourceSyncJob(
  */
 export async function claimNextSourceSyncJob(
   config: ServerConfig,
-  args: { workerId: string; lockTtlSeconds: number },
+  args: { workerId: string; lockTtlSeconds: number; jobTypes?: string[] },
 ): Promise<SourceSyncJob | null> {
   const sb = getServiceClient(config);
   const nowIso = new Date().toISOString();
 
   // Find candidate.
-  const { data: cand } = await sb
+  let q = sb
     .from('ai_source_sync_jobs')
     .select('id, status, attempts, max_attempts')
     .or(`status.eq.queued,and(status.eq.running,lock_expires_at.lt.${nowIso})`)
     .order('priority', { ascending: true })
     .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle();
+    .limit(1);
+  if (args.jobTypes && args.jobTypes.length > 0) {
+    q = q.in('job_type', args.jobTypes);
+  }
+  const { data: cand } = await q.maybeSingle();
   if (!cand) return null;
   if ((cand as any).attempts >= (cand as any).max_attempts) {
     // Burn the row out so we don't keep looping.

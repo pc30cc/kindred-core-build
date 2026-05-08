@@ -45,6 +45,11 @@ export default function RegressionRunsPage() {
     dateFrom: string; dateTo: string; onlyFailed: boolean;
   }>({ status: 'all', triggerType: 'all', scheduleId: 'all', dateFrom: '', dateTo: '', onlyFailed: false });
 
+  // Allow retry-child links inside the dialog to swap the open batch.
+  if (typeof window !== 'undefined') {
+    (window as any).__openRegressionBatch = (id: string) => setOpenBatch(id);
+  }
+
   const schedulesQ = useQuery({
     queryKey: ['ai-agent', 'regression-schedules', wsId],
     queryFn: () => aiAgentApi.listRegressionSchedules(wsId!),

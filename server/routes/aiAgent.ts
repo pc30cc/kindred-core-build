@@ -4591,3 +4591,153 @@ aiAgentRouter.delete('/suggested-test-cases/:id', async (req: Request, res: Resp
   if (error) return res.status(500).json({ error: 'delete_failed', details: error.message });
   return res.json({ ok: true });
 });
+
+// ─── E10 — Scheduled regression runs ─────────────────────────────────
+
+aiAgentRouter.get('/regression/schedules', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = requireWorkspace(req);
+  if (!workspaceId) return res.status(400).json({ error: 'workspaceId_required' });
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  try {
+    const items = await e10_listSchedules(config, workspaceId);
+    return res.json({ items });
+  } catch (e: any) {
+    return res.status(500).json({ error: 'list_failed', details: e?.message });
+  }
+});
+
+aiAgentRouter.post('/regression/schedules/default', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = requireWorkspace(req);
+  if (!workspaceId) return res.status(400).json({ error: 'workspaceId_required' });
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) {
+    return res.status(403).json({ error: 'owner_or_admin_required' });
+  }
+  try {
+    const item = await e10_getOrCreateSchedule(config, workspaceId, auth.userId);
+    return res.json({ item });
+  } catch (e: any) {
+    return res.status(500).json({ error: 'create_failed', details: e?.message });
+  }
+});
+
+aiAgentRouter.patch('/regression/schedules/:id', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const id = String(req.params.id);
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'invalid_id' });
+  const sb = getServiceClient(config);
+  const { data: existing } = await sb.from('ai_agent_regression_schedules').select('workspace_id').eq('id', id).maybeSingle();
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, existing.workspace_id);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) {
+    return res.status(403).json({ error: 'owner_or_admin_required' });
+  }
+  try {
+    const item = await e10_updateSchedule(config, id, req.body || {}, auth.userId);
+    return res.json({ item });
+  } catch (e: any) {
+    return res.status(400).json({ error: 'update_failed', details: e?.message });
+  }
+});
+
+aiAgentRouter.get('/regression/batches', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = requireWorkspace(req);
+  if (!workspaceId) return res.status(400).json({ error: 'workspaceId_required' });
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  const limit = parseInt(String(req.query.limit || '50'), 10);
+  try {
+    const items = await e10_listBatches(config, workspaceId, isFinite(limit) ? limit : 50);
+    return res.json({ items });
+  } catch (e: any) {
+    return res.status(500).json({ error: 'list_failed', details: e?.message });
+  }
+});
+
+aiAgentRouter.get('/regression/batches/:id', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const id = String(req.params.id);
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'invalid_id' });
+  try {
+    const detail = await e10_getBatchDetail(config, id);
+    if (!detail) return res.status(404).json({ error: 'not_found' });
+    const auth = await authorizeMember(req, res, config, detail.batch.workspace_id);
+    if (!auth) return;
+    return res.json({
+      batch: detail.batch,
+      runs: detail.runs,
+      summary: {
+        total: detail.batch.total_cases,
+        passed: detail.batch.passed,
+        failed: detail.batch.failed,
+        errored: detail.batch.errored,
+        pass_rate: detail.batch.pass_rate,
+      },
+    });
+  } catch (e: any) {
+    return res.status(500).json({ error: 'detail_failed', details: e?.message });
+  }
+});
+
+aiAgentRouter.post('/regression/run-now', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const schema = z.object({
+    workspaceId: z.string().uuid(),
+    scheduleId: z.string().uuid().optional().nullable(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
+  const { workspaceId, scheduleId } = parsed.data;
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) {
+    return res.status(403).json({ error: 'owner_or_admin_required' });
+  }
+  try {
+    const batch = await e10_enqueueBatch(config, {
+      workspaceId,
+      scheduleId: scheduleId || null,
+      triggerType: 'manual',
+      actorId: auth.userId,
+    });
+    return res.json({ batch });
+  } catch (e: any) {
+    return res.status(500).json({ error: 'enqueue_failed', details: e?.message });
+  }
+});
+
+aiAgentRouter.post('/regression/batches/:id/run', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const id = String(req.params.id);
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'invalid_id' });
+  const sb = getServiceClient(config);
+  const { data: existing } = await sb.from('ai_agent_regression_batches').select('workspace_id,status').eq('id', id).maybeSingle();
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, existing.workspace_id);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) {
+    return res.status(403).json({ error: 'owner_or_admin_required' });
+  }
+  if (existing.status !== 'queued') {
+    return res.status(409).json({ error: 'batch_not_queued', status: existing.status });
+  }
+  const claimed = await e10_claimBatch(sb, id);
+  if (!claimed) return res.status(409).json({ error: 'claim_lost' });
+  try {
+    const result = await e10_runBatch(config, id);
+    return res.json({ ok: true, result });
+  } catch (e: any) {
+    await sb.from('ai_agent_regression_batches').update({
+      status: 'failed',
+      finished_at: new Date().toISOString(),
+      last_error: String(e?.message || 'unknown'),
+    }).eq('id', id);
+    return res.status(500).json({ error: 'run_failed', details: e?.message });
+  }
+});

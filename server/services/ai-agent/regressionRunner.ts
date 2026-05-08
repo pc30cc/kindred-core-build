@@ -750,4 +750,3 @@ export async function retryFailedRegressionBatch(
   if (error) return { ok: false, error: error.message };
   return { ok: true, batch: created as RegressionBatch };
 }
-}

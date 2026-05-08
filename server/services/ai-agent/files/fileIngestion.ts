@@ -67,6 +67,41 @@ export class IngestError extends Error {
   }
 }
 
+/**
+ * Race-safe guard. Throws IngestError with one of:
+ *   source_deleted | source_paused | source_not_found | not_a_file_source |
+ *   workspace_mismatch | job_cancelled
+ * Caller must treat these as cancellation, not failure.
+ */
+export async function assertFileIngestStillAllowed(
+  config: ServerConfig,
+  args: { workspaceId: string; sourceId: string; jobId: string; workerId?: string; phase: string },
+): Promise<void> {
+  const sb = getServiceClient(config);
+  const { data: source } = await sb
+    .from('ai_data_sources')
+    .select('id, source_type, workspace_id, status')
+    .eq('id', args.sourceId)
+    .maybeSingle();
+  if (!source) throw new IngestError('source_not_found', 404);
+  if ((source as any).source_type !== 'file') throw new IngestError('not_a_file_source', 400);
+  if ((source as any).workspace_id !== args.workspaceId) throw new IngestError('workspace_mismatch', 400);
+  if ((source as any).status === 'deleted') throw new IngestError('source_deleted', 400, `phase=${args.phase}`);
+  if ((source as any).status === 'paused') throw new IngestError('source_paused', 400, `phase=${args.phase}`);
+
+  const { data: job } = await sb
+    .from('ai_source_sync_jobs')
+    .select('id, status, job_type, locked_by')
+    .eq('id', args.jobId)
+    .maybeSingle();
+  if (!job) throw new IngestError('job_cancelled', 400, `phase=${args.phase}`);
+  if ((job as any).job_type !== 'file_ingest') throw new IngestError('job_cancelled', 400, 'wrong_job_type');
+  if ((job as any).status !== 'running') throw new IngestError('job_cancelled', 400, `phase=${args.phase}:status=${(job as any).status}`);
+  if (args.workerId && (job as any).locked_by && (job as any).locked_by !== args.workerId) {
+    throw new IngestError('job_cancelled', 400, 'worker_mismatch');
+  }
+}
+
 function safeFileName(name: string): string {
   const base = (name || 'file').split(/[\\/]/).pop() || 'file';
   const stripped = base.replace(/\u0000/g, '').replace(/[^\w.\-]+/g, '_').replace(/^\.+/, '');

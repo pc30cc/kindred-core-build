@@ -74,6 +74,8 @@ import {
   runRegressionBatch as e10_runBatch,
   cancelRegressionBatch as e10_cancelBatch,
   retryFailedRegressionBatch as e10_retryFailed,
+  getRegressionOverview as e11_getOverview,
+  exportRegressionBatchCsv as e11_exportBatchCsv,
 } from '../services/ai-agent/regressionRunner.js';
 
 export const aiAgentRouter: Router = express.Router();
@@ -4653,10 +4655,23 @@ aiAgentRouter.get('/regression/batches', async (req: Request, res: Response) => 
   if (!workspaceId) return res.status(400).json({ error: 'workspaceId_required' });
   const auth = await authorizeMember(req, res, config, workspaceId);
   if (!auth) return;
-  const limit = parseInt(String(req.query.limit || '50'), 10);
+  const limitRaw = parseInt(String(req.query.limit || '50'), 10);
+  const offsetRaw = parseInt(String(req.query.offset || '0'), 10);
+  const allowedStatus = new Set(['queued','running','completed','failed','cancelled']);
+  const allowedTrigger = new Set(['manual','scheduled']);
+  const status = allowedStatus.has(String(req.query.status)) ? String(req.query.status) as any : null;
+  const triggerType = allowedTrigger.has(String(req.query.trigger_type)) ? String(req.query.trigger_type) as any : null;
+  const scheduleId = typeof req.query.schedule_id === 'string' && /^[0-9a-f-]{36}$/i.test(req.query.schedule_id) ? req.query.schedule_id : null;
+  const dateFrom = typeof req.query.date_from === 'string' ? req.query.date_from : null;
+  const dateTo = typeof req.query.date_to === 'string' ? req.query.date_to : null;
+  const onlyFailed = String(req.query.only_failed || '') === 'true';
   try {
-    const items = await e10_listBatches(config, workspaceId, isFinite(limit) ? limit : 50);
-    return res.json({ items });
+    const r = await e10_listBatches(config, workspaceId, {
+      limit: isFinite(limitRaw) ? limitRaw : 50,
+      offset: isFinite(offsetRaw) ? offsetRaw : 0,
+      status, triggerType, scheduleId, dateFrom, dateTo, onlyFailed,
+    });
+    return res.json(r);
   } catch (e: any) {
     return res.status(500).json({ error: 'list_failed', details: e?.message });
   }
@@ -4674,6 +4689,7 @@ aiAgentRouter.get('/regression/batches/:id', async (req: Request, res: Response)
     return res.json({
       batch: detail.batch,
       runs: detail.runs,
+      retryChildren: (detail as any).retryChildren || [],
       summary: {
         total: detail.batch.total_cases,
         passed: detail.batch.passed,

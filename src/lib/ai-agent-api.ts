@@ -296,6 +296,14 @@ export const aiAgentApi = {
       method: 'POST',
       body: JSON.stringify(input),
     }) as Promise<OperatorSuggestReplyResponse>,
+  // Pass E8 — Operator Assist feedback + analytics
+  submitAssistFeedback: (runId: string, input: OperatorAssistFeedbackInput) =>
+    jsonFetch(`/api/ai-agent/operator-assist/${runId}/feedback`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }) as Promise<{ ok: boolean; feedback: any }>,
+  getAssistAnalytics: (workspaceId: string, range: '7d' | '30d' | '90d' = '7d') =>
+    jsonFetch(`/api/ai-agent/operator-assist/analytics?workspaceId=${workspaceId}&range=${range}`) as Promise<OperatorAssistAnalytics>,
   // Pass 2 — knowledge index
   getKnowledgeIndexStatus: (workspaceId: string) =>
     jsonFetch(`/api/ai-agent/knowledge-index/status?workspaceId=${workspaceId}`) as Promise<KnowledgeIndexStatus>,

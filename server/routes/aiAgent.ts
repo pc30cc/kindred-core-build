@@ -4743,3 +4743,40 @@ aiAgentRouter.post('/regression/batches/:id/run', async (req: Request, res: Resp
     return res.status(500).json({ error: 'run_failed', details: e?.message });
   }
 });
+
+aiAgentRouter.post('/regression/batches/:id/cancel', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const id = String(req.params.id);
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'invalid_id' });
+  const sb = getServiceClient(config);
+  const { data: existing } = await sb.from('ai_agent_regression_batches').select('workspace_id').eq('id', id).maybeSingle();
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, existing.workspace_id);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) {
+    return res.status(403).json({ error: 'owner_or_admin_required' });
+  }
+  const r = await e10_cancelBatch(config, id, auth.userId);
+  if (!r.ok) return res.status(400).json({ error: r.error || 'cancel_failed' });
+  return res.json({ ok: true, status: r.status, idempotent: !!r.idempotent });
+});
+
+aiAgentRouter.post('/regression/batches/:id/retry-failed', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const id = String(req.params.id);
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'invalid_id' });
+  const sb = getServiceClient(config);
+  const { data: existing } = await sb.from('ai_agent_regression_batches').select('workspace_id').eq('id', id).maybeSingle();
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, existing.workspace_id);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) {
+    return res.status(403).json({ error: 'owner_or_admin_required' });
+  }
+  const r = await e10_retryFailed(config, id, auth.userId);
+  if (!r.ok) {
+    const code = r.error === 'no_failed_cases' ? 400 : 500;
+    return res.status(code).json({ error: r.error || 'retry_failed' });
+  }
+  return res.json({ batch: r.batch });
+});

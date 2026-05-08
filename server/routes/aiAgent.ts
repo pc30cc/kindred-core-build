@@ -619,6 +619,32 @@ aiAgentRouter.get('/analytics', async (req: Request, res: Response) => {
   return res.json(summary);
 });
 
+// ─── E5-Final — Source Health ───
+// GET /api/ai-agent/source-health?workspaceId=...&sourceType=...&eligible=true|false&query=...&limit=...
+// Read-only. Workspace-member auth. Never exposes storage paths/URLs/credentials.
+aiAgentRouter.get('/source-health', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = requireWorkspace(req);
+  if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  const sourceType = (req.query.sourceType as string | undefined) as HealthSourceType | undefined;
+  const allowed: HealthSourceType[] = ['qna', 'learned_qna', 'kb_article', 'file', 'website', 'web_page'];
+  if (sourceType && !allowed.includes(sourceType)) {
+    return res.status(400).json({ error: 'invalid_source_type' });
+  }
+  const eligibleRaw = req.query.eligible as string | undefined;
+  const eligible = eligibleRaw === 'true' ? true : eligibleRaw === 'false' ? false : undefined;
+  const limit = Math.min(parseInt(String(req.query.limit || '200'), 10) || 200, 500);
+  const query = (req.query.query as string | undefined) || undefined;
+  try {
+    const result = await getSourceHealth(config, workspaceId, { sourceType, eligible, query, limit });
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ error: 'source_health_failed', details: err?.message });
+  }
+});
+
 // ─── Q&A CRUD ───
 aiAgentRouter.get('/qna', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;

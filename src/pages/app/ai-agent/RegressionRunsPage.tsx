@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Progress } from '@/components/ui/progress';
 import { toast } from '@/hooks/use-toast';
 
 function fmtDate(d: string | null | undefined) {
@@ -19,6 +20,15 @@ function fmtDate(d: string | null | undefined) {
 }
 function pct(n: number | null | undefined) {
   return n == null ? '—' : `${Math.round(n * 100)}%`;
+}
+function fmtDuration(ms: number | null | undefined) {
+  if (!ms || ms < 0) return '—';
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60), rem = s % 60;
+  if (m < 60) return `${m}m ${rem}s`;
+  const h = Math.floor(m / 60), mm = m % 60;
+  return `${h}h ${mm}m`;
 }
 
 export default function RegressionRunsPage() {
@@ -201,6 +211,7 @@ function BatchStatusBadge({ status }: { status: RegressionBatch['status'] }) {
   const variant: any =
     status === 'completed' ? 'default' :
     status === 'failed' ? 'destructive' :
+    status === 'cancelled' ? 'destructive' :
     status === 'running' ? 'secondary' :
     'outline';
   return <Badge variant={variant}>{status}</Badge>;

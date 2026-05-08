@@ -59,6 +59,7 @@ import AiAgentOverviewPage from "@/pages/app/ai-agent/OverviewPage";
 import AiAgentTrainPage from "@/pages/app/ai-agent/TrainPage";
 import AiAgentRunInspectorPage from "@/pages/app/ai-agent/RunInspectorPage";
 import AiAgentRetrievalDebuggerPage from "@/pages/app/ai-agent/RetrievalDebuggerPage";
+import AiAgentSourceHealthPage from "@/pages/app/ai-agent/SourceHealthPage";
 import EmailPage from "@/pages/app/EmailPage";
 import BillingPage from "@/pages/app/BillingPage";
 import SettingsGeneralPage from "@/pages/app/settings/GeneralPage";
@@ -249,6 +250,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                   <Route path="integrations" element={<AiAgentIntegrationsPage />} />
                   <Route path="runs/:id" element={<AiAgentRunInspectorPage />} />
                   <Route path="debug/retrieval" element={<AiAgentRetrievalDebuggerPage />} />
+                  <Route path="source-health" element={<AiAgentSourceHealthPage />} />
                 </Route>
                 {/* Backwards-compat redirects: legacy URLs → settings */}
                 <Route path="team" element={<Navigate to="../settings/team-departments" replace />} />

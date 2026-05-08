@@ -166,6 +166,10 @@ export const aiAgentApi = {
     jsonFetch(`/api/ai-agent/playground/test`, { method: 'POST', body: JSON.stringify(input) }) as Promise<PlaygroundResult>,
   getRuns: (workspaceId: string, limit = 50) =>
     jsonFetch(`/api/ai-agent/runs?workspaceId=${workspaceId}&limit=${limit}`) as Promise<{ runs: any[] }>,
+  inspectRun: (id: string) =>
+    jsonFetch(`/api/ai-agent/runs/${id}/inspect`) as Promise<any>,
+  debugRetrieval: (input: { workspaceId: string; message: string; locale?: string; pageContext?: { currentPageUrl?: string | null; currentPagePath?: string | null; currentPageOrigin?: string | null; currentPageTitle?: string | null } | null }) =>
+    jsonFetch(`/api/ai-agent/debug/retrieval`, { method: 'POST', body: JSON.stringify(input) }) as Promise<any>,
   getAnalytics: (workspaceId: string) =>
     jsonFetch(`/api/ai-agent/analytics?workspaceId=${workspaceId}`) as Promise<any>,
   generateBusinessDescription: (workspaceId: string) =>

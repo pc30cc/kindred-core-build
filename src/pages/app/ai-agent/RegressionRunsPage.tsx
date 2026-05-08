@@ -45,11 +45,6 @@ export default function RegressionRunsPage() {
     dateFrom: string; dateTo: string; onlyFailed: boolean;
   }>({ status: 'all', triggerType: 'all', scheduleId: 'all', dateFrom: '', dateTo: '', onlyFailed: false });
 
-  // Allow retry-child links inside the dialog to swap the open batch.
-  if (typeof window !== 'undefined') {
-    (window as any).__openRegressionBatch = (id: string) => setOpenBatch(id);
-  }
-
   const schedulesQ = useQuery({
     queryKey: ['ai-agent', 'regression-schedules', wsId],
     queryFn: () => aiAgentApi.listRegressionSchedules(wsId!),
@@ -321,6 +316,7 @@ export default function RegressionRunsPage() {
         wsPath={wsPath}
         canManage={isOwnerOrAdmin}
         onChanged={() => qc.invalidateQueries({ queryKey: ['ai-agent', 'regression-batches', wsId] })}
+        onOpenChild={(id) => setOpenBatch(id)}
       />
     </div>
   );
@@ -482,8 +478,8 @@ function ScheduleMeta({ schedule }: { schedule: RegressionSchedule }) {
 }
 
 function BatchDetailDialog({
-  batchId, onClose, wsPath, canManage, onChanged,
-}: { batchId: string | null; onClose: () => void; wsPath: (p: string) => string; canManage: boolean; onChanged: () => void }) {
+  batchId, onClose, wsPath, canManage, onChanged, onOpenChild,
+}: { batchId: string | null; onClose: () => void; wsPath: (p: string) => string; canManage: boolean; onChanged: () => void; onOpenChild?: (id: string) => void }) {
   const qc = useQueryClient();
   const q = useQuery({
     queryKey: ['ai-agent', 'regression-batch', batchId],
@@ -589,7 +585,7 @@ function BatchDetailDialog({
                       <span>{c.passed} passed · {c.failed} failed · {c.errored} errored</span>
                       <Button
                         size="sm" variant="ghost" className="ml-auto h-6"
-                        onClick={() => { (window as any).__openRegressionBatch?.(c.id); }}
+                        onClick={() => onOpenChild?.(c.id)}
                       >
                         Open
                       </Button>

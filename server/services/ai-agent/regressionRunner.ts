@@ -788,7 +788,9 @@ export async function runRegressionBatch(
   // Self-host only: writes to ai_agent_debug_events. NO external webhook,
   // NO email, NO MCP, NO Edge Function. UI/observability use only.
   try {
-    if ((failed + errored) > 0) {
+    // E11.1 — only emit for SCHEDULED batches with at least one failure/error.
+    // Manual batches must never trigger this alert.
+    if (batch.trigger_type === 'scheduled' && (failed + errored) > 0) {
       await sb.from('ai_agent_debug_events').insert({
         workspace_id: batch.workspace_id,
         event_type: 'regression_batch_failed',
@@ -883,7 +885,11 @@ export interface RegressionOverview {
   last_24h_batches: number;
   last_24h_pass_rate: number | null;
   last_7d_pass_rate: number | null;
-  failed_batches_count: number; // last 7d, status failed/cancelled or with failed/errored>0
+  // last 7d, status='failed' OR has failed/errored runs (cancelled NOT counted)
+  failed_batches_count: number;
+  cancelled_batches_count: number;
+  // failed + cancelled + with failed/errored runs (deduped)
+  problematic_batches_count: number;
   errored_runs_count: number;   // last 7d
   top_failure_reasons: { reason: string; count: number }[];
   coverage_by_source_type: { source_type: string; runs: number }[];
@@ -915,7 +921,21 @@ export async function getRegressionOverview(
     return t > 0 ? p / t : null;
   };
 
-  const failedBatchIds = all7d.filter((b) => b.status === 'failed' || b.status === 'cancelled' || (b.failed + b.errored) > 0).map((b) => b.id);
+  const failedSet = new Set<string>();
+  const cancelledSet = new Set<string>();
+  const problematicSet = new Set<string>();
+  for (const b of all7d) {
+    const hasFailedRuns = ((b.failed || 0) + (b.errored || 0)) > 0;
+    if (b.status === 'cancelled') {
+      cancelledSet.add(b.id);
+      problematicSet.add(b.id);
+      continue;
+    }
+    if (b.status === 'failed' || hasFailedRuns) {
+      failedSet.add(b.id);
+      problematicSet.add(b.id);
+    }
+  }
   const batchIds7d = all7d.map((b) => b.id);
 
   let topFailure: { reason: string; count: number }[] = [];
@@ -952,7 +972,9 @@ export async function getRegressionOverview(
     last_24h_batches: all24h.length,
     last_24h_pass_rate: computeRate(all24h),
     last_7d_pass_rate: computeRate(all7d),
-    failed_batches_count: failedBatchIds.length,
+    failed_batches_count: failedSet.size,
+    cancelled_batches_count: cancelledSet.size,
+    problematic_batches_count: problematicSet.size,
     errored_runs_count: erroredRunsCount,
     top_failure_reasons: topFailure,
     coverage_by_source_type: coverage,
@@ -960,9 +982,35 @@ export async function getRegressionOverview(
   };
 }
 
+// E11.1 — strip any value/key containing storage paths, URLs, tokens, or
+// credentials. Defense-in-depth so titles or future fields cannot leak file
+// URLs / signed URLs / secrets into exported CSV.
+const FORBIDDEN_RX = /(storage_path|storage_url|signed_url|public_url|token|secret|password|credential|api_key|access_key|bucket|x-amz|\/storage\/v1\/object)/i;
+function sanitizeString(s: string): string {
+  if (!s) return s;
+  if (FORBIDDEN_RX.test(s)) return '[redacted]';
+  // Strip any URL-ish path that looks like an object path even without keywords above.
+  if (/https?:\/\/\S+/i.test(s) && /\/(storage|object|sign)\//i.test(s)) return '[redacted]';
+  return s;
+}
+function sanitizeValue(v: unknown): unknown {
+  if (v === null || v === undefined) return v;
+  if (typeof v === 'string') return sanitizeString(v);
+  if (Array.isArray(v)) return v.map(sanitizeValue);
+  if (typeof v === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+      if (FORBIDDEN_RX.test(k)) { out[k] = '[redacted]'; continue; }
+      out[k] = sanitizeValue(val);
+    }
+    return out;
+  }
+  return v;
+}
 function csvEscape(v: unknown): string {
-  if (v === null || v === undefined) return '';
-  const s = typeof v === 'string' ? v : Array.isArray(v) ? v.join('|') : String(v);
+  const sv = sanitizeValue(v);
+  if (sv === null || sv === undefined) return '';
+  const s = typeof sv === 'string' ? sv : Array.isArray(sv) ? sv.map((x) => (typeof x === 'string' ? x : String(x))).join('|') : String(sv);
   if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
   return s;
 }

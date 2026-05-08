@@ -36,6 +36,12 @@ import { enqueueSourceSyncJob, cancelSourceSyncJob } from '../services/ai-agent/
 import { processOne as processOneSourceJob, getWorkerInfo } from '../services/ai-agent/sourceWorker.js';
 import { generatePendingCandidates } from '../services/ai-agent/learning/generator.js';
 import { normalizeQuestion } from '../services/ai-agent/learning/normalize.js';
+import {
+  ingestAiFile, reindexAiFile, deleteAiFile,
+  pauseAiFile, resumeAiFile, resolveFileLimits,
+  IngestError,
+} from '../services/ai-agent/files/fileIngestion.js';
+import { SUPPORTED_MIMES, isSupportedMime } from '../services/ai-agent/files/parsers.js';
 
 export const aiAgentRouter: Router = express.Router();
 
@@ -2021,6 +2027,182 @@ aiAgentRouter.get('/workspace-domain', async (req: Request, res: Response) => {
     .order('is_primary', { ascending: false });
   return res.json({ domains: data || [] });
 });
+
+// ============================================================
+// Pass E4-A — AI Agent Files (TXT, MD, CSV, PDF) ingestion
+// ============================================================
+
+const fileUploadSchema = z.object({
+  workspaceId: z.string().uuid(),
+  fileName: z.string().min(1).max(255),
+  mimeType: z.string().min(1).max(120),
+  sizeBytes: z.number().int().positive().max(60 * 1024 * 1024),
+  dataBase64: z.string().min(1),
+});
+
+function ingestErrorResponse(res: Response, e: any) {
+  if (e instanceof IngestError) {
+    return res.status(e.status).json({ error: e.code, details: e.details });
+  }
+  console.warn('[ai-agent files] error:', e?.message);
+  return res.status(500).json({ error: 'internal_error', message: e?.message });
+}
+
+function validateUploadFileName(name: string): string | null {
+  if (!name || name.length > 255) return 'invalid_file_name';
+  if (name.includes('\u0000')) return 'invalid_file_name';
+  if (name.includes('/') || name.includes('\\')) return 'invalid_file_name';
+  if (name.startsWith('.')) return 'invalid_file_name';
+  return null;
+}
+
+aiAgentRouter.post('/files/upload', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = fileUploadSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
+  const { workspaceId, fileName, mimeType, sizeBytes, dataBase64 } = parsed.data;
+
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+
+  const nameErr = validateUploadFileName(fileName);
+  if (nameErr) return res.status(400).json({ error: nameErr });
+  if (!isSupportedMime(mimeType)) return res.status(415).json({ error: 'unsupported_file_type', supported: SUPPORTED_MIMES });
+
+  let buffer: Buffer;
+  try {
+    buffer = Buffer.from(dataBase64, 'base64');
+  } catch {
+    return res.status(400).json({ error: 'invalid_base64' });
+  }
+  if (!buffer.length) return res.status(400).json({ error: 'empty_file' });
+  // sanity check: decoded size should be roughly within 1.5% of declared sizeBytes
+  if (Math.abs(buffer.length - sizeBytes) > Math.max(64, sizeBytes * 0.015)) {
+    return res.status(400).json({ error: 'size_mismatch', declared: sizeBytes, actual: buffer.length });
+  }
+
+  try {
+    const result = await ingestAiFile(config, {
+      workspaceId, userId: auth.userId, fileName, mimeType, buffer,
+    }, { bypassPlanLimits: !!auth.isAdmin });
+    return res.json({
+      ok: true,
+      source: result.source,
+      chunks_created: result.chunks_created,
+      embedded_chunks: result.embedded_chunks,
+      parser: result.parser,
+      warnings: result.warnings,
+      page_count: result.page_count ?? null,
+    });
+  } catch (e) { return ingestErrorResponse(res, e); }
+});
+
+aiAgentRouter.get('/files', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = requireWorkspace(req);
+  if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  const status = req.query.status ? String(req.query.status) : null;
+  const query = req.query.query ? String(req.query.query).trim().toLowerCase() : null;
+  const limit = Math.min(parseInt(String(req.query.limit || '100'), 10) || 100, 500);
+  const sb = getServiceClient(config);
+  let q = sb.from('ai_data_sources').select('*')
+    .eq('workspace_id', workspaceId)
+    .eq('source_type', 'file')
+    .neq('status', 'deleted')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (status) q = q.eq('status', status);
+  const { data, error } = await q;
+  if (error) return res.status(500).json({ error: error.message });
+  const items = query ? (data || []).filter((r: any) => (r.name || '').toLowerCase().includes(query)) : (data || []);
+  return res.json({ items });
+});
+
+aiAgentRouter.get('/files/limits', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = requireWorkspace(req);
+  if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  const limits = await resolveFileLimits(config, workspaceId);
+  const sb = getServiceClient(config);
+  const { count } = await sb.from('ai_data_sources')
+    .select('id', { count: 'exact', head: true })
+    .eq('workspace_id', workspaceId)
+    .eq('source_type', 'file')
+    .neq('status', 'deleted');
+  return res.json({
+    ...limits,
+    used: count || 0,
+    bypass: !!auth.isAdmin,
+    supported_mimes: SUPPORTED_MIMES,
+    hard_cap_mb: 50,
+  });
+});
+
+async function loadFileSource(config: ServerConfig, id: string) {
+  const sb = getServiceClient(config);
+  const { data } = await sb.from('ai_data_sources').select('workspace_id, source_type').eq('id', id).maybeSingle();
+  return data;
+}
+
+aiAgentRouter.post('/files/:id/reindex', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const src = await loadFileSource(config, req.params.id);
+  if (!src) return res.status(404).json({ error: 'not_found' });
+  if (src.source_type !== 'file') return res.status(400).json({ error: 'not_a_file_source' });
+  const auth = await authorizeMember(req, res, config, src.workspace_id);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  try {
+    const result = await reindexAiFile(config, req.params.id);
+    return res.json({ ok: true, source: result.source, chunks_created: result.chunks_created, embedded_chunks: result.embedded_chunks, parser: result.parser, warnings: result.warnings, page_count: result.page_count ?? null });
+  } catch (e) { return ingestErrorResponse(res, e); }
+});
+
+aiAgentRouter.delete('/files/:id', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const src = await loadFileSource(config, req.params.id);
+  if (!src) return res.status(404).json({ error: 'not_found' });
+  if (src.source_type !== 'file') return res.status(400).json({ error: 'not_a_file_source' });
+  const auth = await authorizeMember(req, res, config, src.workspace_id);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  try {
+    const r = await deleteAiFile(config, req.params.id);
+    return res.json({ ok: true, ...r });
+  } catch (e) { return ingestErrorResponse(res, e); }
+});
+
+aiAgentRouter.post('/files/:id/pause', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const src = await loadFileSource(config, req.params.id);
+  if (!src) return res.status(404).json({ error: 'not_found' });
+  if (src.source_type !== 'file') return res.status(400).json({ error: 'not_a_file_source' });
+  const auth = await authorizeMember(req, res, config, src.workspace_id);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  try { await pauseAiFile(config, req.params.id); return res.json({ ok: true }); }
+  catch (e) { return ingestErrorResponse(res, e); }
+});
+
+aiAgentRouter.post('/files/:id/resume', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const src = await loadFileSource(config, req.params.id);
+  if (!src) return res.status(404).json({ error: 'not_found' });
+  if (src.source_type !== 'file') return res.status(400).json({ error: 'not_a_file_source' });
+  const auth = await authorizeMember(req, res, config, src.workspace_id);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  try {
+    const result = await resumeAiFile(config, req.params.id);
+    return res.json({ ok: true, source: result.source, chunks_created: result.chunks_created, embedded_chunks: result.embedded_chunks, warnings: result.warnings });
+  } catch (e) { return ingestErrorResponse(res, e); }
+});
+
 // ============================================================
 // Pass B1 — Automate: Topics, Workflows, Message Triggers
 // ============================================================

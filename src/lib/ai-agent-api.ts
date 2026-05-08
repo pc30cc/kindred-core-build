@@ -294,6 +294,39 @@ export const aiAgentApi = {
     jsonFetch(`/api/ai-agent/data-sources/jobs/${jobId}/cancel`, { method: 'POST' }) as Promise<{ ok: boolean }>,
   getDataSourceLimits: (workspaceId: string) =>
     jsonFetch(`/api/ai-agent/data-sources/limits?workspaceId=${workspaceId}`) as Promise<{ planSlug: string | null; planName: string | null; limits: { ai_kb_max_pages: number; ai_kb_max_depth: number; ai_kb_jobs_per_month: number; ai_kb_file_count: number; ai_kb_file_size_mb: number }; jobs_used_this_month: number; bypass?: boolean; bypassReason?: string | null; worker: { workerId: string; inProcess: boolean; started: boolean } }>,
+  // Pass E4-A — AI Agent Files
+  listAiFiles: (workspaceId: string) =>
+    jsonFetch(`/api/ai-agent/files?workspaceId=${workspaceId}`) as Promise<{ items: DataSource[] }>,
+  getAiFileLimits: (workspaceId: string) =>
+    jsonFetch(`/api/ai-agent/files/limits?workspaceId=${workspaceId}`) as Promise<{ maxFiles: number; maxFileSizeMB: number; storageProvider: string | null; used: number; bypass: boolean; supported_mimes: string[]; hard_cap_mb: number }>,
+  uploadAiFile: async (workspaceId: string, file: File) => {
+    const buf = new Uint8Array(await file.arrayBuffer());
+    // Chunked base64 to avoid call-stack overflow on large files.
+    let bin = '';
+    const chunk = 0x8000;
+    for (let i = 0; i < buf.length; i += chunk) {
+      bin += String.fromCharCode.apply(null, Array.from(buf.subarray(i, i + chunk)) as any);
+    }
+    const dataBase64 = btoa(bin);
+    return jsonFetch(`/api/ai-agent/files/upload`, {
+      method: 'POST',
+      body: JSON.stringify({
+        workspaceId,
+        fileName: file.name,
+        mimeType: file.type || 'application/octet-stream',
+        sizeBytes: file.size,
+        dataBase64,
+      }),
+    }) as Promise<{ ok: boolean; source: DataSource; chunks_created: number; embedded_chunks: number; parser: string; warnings: string[]; page_count: number | null }>;
+  },
+  reindexAiFile: (id: string) =>
+    jsonFetch(`/api/ai-agent/files/${id}/reindex`, { method: 'POST' }) as Promise<{ ok: boolean; source: DataSource; chunks_created: number; embedded_chunks: number; warnings: string[]; page_count: number | null }>,
+  deleteAiFile: (id: string) =>
+    jsonFetch(`/api/ai-agent/files/${id}`, { method: 'DELETE' }) as Promise<{ ok: boolean; chunks_deleted: number; storage_deleted: boolean; storage_error?: string }>,
+  pauseAiFile: (id: string) =>
+    jsonFetch(`/api/ai-agent/files/${id}/pause`, { method: 'POST' }) as Promise<{ ok: boolean }>,
+  resumeAiFile: (id: string) =>
+    jsonFetch(`/api/ai-agent/files/${id}/resume`, { method: 'POST' }) as Promise<{ ok: boolean; source: DataSource }>,
   getWorkspaceDomains: (workspaceId: string) =>
     jsonFetch(`/api/ai-agent/workspace-domain?workspaceId=${workspaceId}`) as Promise<{ domains: Array<{ domain: string; is_primary: boolean; verified: boolean }> }>,
   // Pass B1 — Topics

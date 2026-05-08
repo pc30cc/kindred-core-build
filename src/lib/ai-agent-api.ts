@@ -153,6 +153,37 @@ export interface PlaygroundResult {
   debug: Record<string, unknown>;
 }
 
+export interface OperatorSuggestReplyResponse {
+  ok: boolean;
+  suggestion: string | null;
+  confidence: number;
+  tone: string | null;
+  provider: string | null;
+  model: string | null;
+  selected_sources: Array<{
+    id: string;
+    source_id: string;
+    source_type: string;
+    kind: string;
+    title: string;
+    source_url: string | null;
+    locale: string | null;
+    final_score: number;
+  }>;
+  retrieval_debug: any;
+  answer_strategy: {
+    action: 'answer' | 'handoff' | 'clarification' | 'no_answer';
+    decision_type: string;
+    reason: string;
+    retrieval_strength: string;
+    top_score: number;
+    handoff_required: boolean;
+    source_types_used: string[];
+  };
+  safety_notes: string[];
+  prompt_preview?: { system: string; user: string };
+}
+
 export const aiAgentApi = {
   getSettings: (workspaceId: string) =>
     jsonFetch(`/api/ai-agent/settings?workspaceId=${workspaceId}`) as Promise<{ settings: AgentSettings }>,

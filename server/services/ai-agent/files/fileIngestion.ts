@@ -1,0 +1,392 @@
+/**
+ * AI Agent — file ingestion service.
+ *
+ * Self-hosted, provider-driven. Uses the active workspace storage provider
+ * (server/services/storage) to persist the original file, then parses and
+ * indexes the extracted text into ai_knowledge_chunks (source_type='file').
+ *
+ * Pending/failed/deleted file sources never produce active chunks.
+ */
+
+import crypto from 'node:crypto';
+import type { ServerConfig } from '../../../config.js';
+import { getServiceClient } from '../../../supabase.js';
+import {
+  uploadFile, downloadFile, deleteFile, resolveStorageConfig,
+} from '../../storage/index.js';
+import { chunkText } from '../knowledgeIndex/chunker.js';
+import { indexSource, getEmbedderForWorkspace } from '../knowledgeIndex/indexer.js';
+import { resolveAiAgentDataLimits } from '../limits.js';
+import {
+  parseAiFile, isSupportedMime, parserFor, ParseError, type ParseResult,
+} from './parsers.js';
+
+const HARD_FILE_CAP_MB = 50;
+
+export interface IngestInput {
+  workspaceId: string;
+  userId: string;
+  fileName: string;
+  mimeType: string;
+  buffer: Buffer;
+}
+
+export interface IngestResult {
+  source: any;
+  chunks_created: number;
+  embedded_chunks: number;
+  parser: string;
+  warnings: string[];
+  page_count?: number;
+}
+
+export class IngestError extends Error {
+  code: string;
+  status: number;
+  details?: any;
+  constructor(code: string, status = 400, message?: string, details?: any) {
+    super(message || code);
+    this.code = code;
+    this.status = status;
+    this.details = details;
+  }
+}
+
+function safeFileName(name: string): string {
+  const base = (name || 'file').split(/[\\/]/).pop() || 'file';
+  const stripped = base.replace(/\u0000/g, '').replace(/[^\w.\-]+/g, '_').replace(/^\.+/, '');
+  const trimmed = stripped.slice(0, 180);
+  return trimmed || 'file';
+}
+
+function sha256Hex(buf: Buffer): string {
+  return crypto.createHash('sha256').update(buf).digest('hex');
+}
+
+export async function countActiveFileSources(
+  config: ServerConfig, workspaceId: string,
+): Promise<number> {
+  const sb = getServiceClient(config);
+  const { count } = await sb
+    .from('ai_data_sources')
+    .select('id', { count: 'exact', head: true })
+    .eq('workspace_id', workspaceId)
+    .eq('source_type', 'file')
+    .neq('status', 'deleted');
+  return count || 0;
+}
+
+export interface ResolvedFileLimits {
+  maxFiles: number;
+  maxFileSizeMB: number;
+  storageProvider: string | null;
+}
+
+export async function resolveFileLimits(
+  config: ServerConfig, workspaceId: string,
+): Promise<ResolvedFileLimits> {
+  const { limits } = await resolveAiAgentDataLimits(config, workspaceId);
+  const storage = await resolveStorageConfig(config, workspaceId);
+  const providerCap = storage?.maxFileSizeMB || HARD_FILE_CAP_MB;
+  return {
+    maxFiles: limits.ai_kb_file_count,
+    maxFileSizeMB: Math.min(limits.ai_kb_file_size_mb, providerCap, HARD_FILE_CAP_MB),
+    storageProvider: storage?.provider || null,
+  };
+}
+
+export async function ingestAiFile(
+  config: ServerConfig,
+  input: IngestInput,
+  opts: { bypassPlanLimits?: boolean } = {},
+): Promise<IngestResult> {
+  const { workspaceId, userId, fileName, mimeType, buffer } = input;
+
+  if (!isSupportedMime(mimeType)) {
+    throw new IngestError('unsupported_file_type', 415);
+  }
+  const parser = parserFor(mimeType)!;
+
+  // Resolve limits & storage provider
+  const limits = await resolveFileLimits(config, workspaceId);
+  if (!limits.storageProvider) {
+    throw new IngestError('storage_not_configured', 500);
+  }
+  const sizeMB = buffer.length / (1024 * 1024);
+  if (!opts.bypassPlanLimits && sizeMB > limits.maxFileSizeMB) {
+    throw new IngestError('file_size_limit_reached', 413, undefined, {
+      maxMB: limits.maxFileSizeMB, actualMB: Math.round(sizeMB * 100) / 100,
+    });
+  }
+  if (!opts.bypassPlanLimits) {
+    const used = await countActiveFileSources(config, workspaceId);
+    if (used >= limits.maxFiles) {
+      throw new IngestError('file_count_limit_reached', 403, undefined, {
+        used, limit: limits.maxFiles,
+      });
+    }
+  }
+
+  const sb = getServiceClient(config);
+  const safeName = safeFileName(fileName);
+  const sha = sha256Hex(buffer);
+
+  // 1. Insert ai_data_sources row first to get id (status='syncing').
+  const { data: source, error: insErr } = await sb
+    .from('ai_data_sources')
+    .insert({
+      workspace_id: workspaceId,
+      source_type: 'file',
+      name: fileName.slice(0, 240),
+      base_url: null,
+      status: 'syncing',
+      include_rules: [],
+      exclude_rules: [],
+      crawl_depth: 1,
+      max_pages: 1,
+      refresh_interval: 'manual',
+      metadata: {
+        original_file_name: fileName,
+        safe_file_name: safeName,
+        mime_type: mimeType,
+        size_bytes: buffer.length,
+        sha256: sha,
+        parser,
+        uploaded_by: userId,
+        uploaded_at: new Date().toISOString(),
+        storage_provider: limits.storageProvider,
+      },
+    })
+    .select('*')
+    .single();
+  if (insErr || !source) {
+    throw new IngestError('source_create_failed', 500, insErr?.message);
+  }
+
+  // 2. Build storage path (workspace-scoped, source-scoped).
+  const fileKey = `workspace/${workspaceId}/ai-agent/files/${source.id}/${crypto.randomUUID()}-${safeName}`;
+
+  // 3. Upload original file.
+  const upload = await uploadFile(config, {
+    workspaceId, fileKey, data: buffer, contentType: mimeType,
+  });
+  if (!upload.success) {
+    await sb.from('ai_data_sources').update({
+      status: 'failed',
+      last_error: 'upload_failed',
+      metadata: { ...(source.metadata as any || {}), upload_error: upload.error },
+    }).eq('id', source.id);
+    throw new IngestError('upload_failed', 500, upload.error);
+  }
+
+  // 4. Parse + index.
+  return finalizeIndex(config, source.id, workspaceId, fileName, mimeType, buffer, {
+    storage_path: fileKey,
+    storage_url: upload.url || null,
+    storage_provider: limits.storageProvider,
+    safe_file_name: safeName,
+    sha256: sha,
+    size_bytes: buffer.length,
+    uploaded_by: userId,
+    uploaded_at: (source.metadata as any)?.uploaded_at || new Date().toISOString(),
+    original_file_name: fileName,
+    mime_type: mimeType,
+    parser,
+  });
+}
+
+/** Parse + index an already-stored file. */
+export async function reindexAiFile(
+  config: ServerConfig, sourceId: string,
+): Promise<IngestResult> {
+  const sb = getServiceClient(config);
+  const { data: source } = await sb
+    .from('ai_data_sources').select('*').eq('id', sourceId).maybeSingle();
+  if (!source) throw new IngestError('not_found', 404);
+  if (source.source_type !== 'file') throw new IngestError('not_a_file_source', 400);
+
+  const meta = (source.metadata as any) || {};
+  const storagePath: string | undefined = meta.storage_path;
+  if (!storagePath) throw new IngestError('storage_path_missing', 400);
+
+  await sb.from('ai_data_sources').update({ status: 'syncing', last_error: null }).eq('id', sourceId);
+
+  const dl = await downloadFile(config, source.workspace_id, storagePath);
+  if (!dl.success || !dl.data) {
+    await sb.from('ai_data_sources').update({
+      status: 'failed', last_error: 'download_failed',
+      metadata: { ...meta, download_error: dl.error || 'unknown' },
+    }).eq('id', sourceId);
+    throw new IngestError('download_failed', 500, dl.error);
+  }
+
+  return finalizeIndex(
+    config, sourceId, source.workspace_id,
+    meta.original_file_name || source.name || 'file',
+    meta.mime_type || 'application/octet-stream',
+    dl.data,
+    meta,
+  );
+}
+
+async function finalizeIndex(
+  config: ServerConfig,
+  sourceId: string,
+  workspaceId: string,
+  fileName: string,
+  mimeType: string,
+  buffer: Buffer,
+  baseMeta: Record<string, any>,
+): Promise<IngestResult> {
+  const sb = getServiceClient(config);
+
+  // Parse text.
+  let parsed: ParseResult;
+  try {
+    parsed = await parseAiFile(mimeType, buffer);
+  } catch (e: any) {
+    const code = e instanceof ParseError ? e.code : 'parse_failed';
+    await sb.from('ai_data_sources').update({
+      status: 'failed', last_error: code,
+      metadata: { ...baseMeta, parse_error: code, parse_error_message: e?.message || null },
+    }).eq('id', sourceId);
+    // Deactivate any existing chunks (fail-closed retrieval).
+    await sb.from('ai_knowledge_chunks').update({ status: 'deleted' })
+      .eq('workspace_id', workspaceId).eq('source_type', 'file').eq('source_id', sourceId)
+      .neq('status', 'deleted');
+    throw new IngestError('parse_failed', 422, code);
+  }
+
+  // Chunk + index.
+  const chunks = chunkText(parsed.text);
+  const embedder = await getEmbedderForWorkspace(config, workspaceId);
+  let indexResult;
+  try {
+    indexResult = await indexSource(config, {
+      workspaceId,
+      sourceType: 'file',
+      sourceId,
+      title: fileName,
+      sourceUrl: baseMeta.storage_url || null,
+      locale: null,
+      chunks,
+      metadata: {
+        storage_path: baseMeta.storage_path,
+        original_file_name: baseMeta.original_file_name || fileName,
+        mime_type: mimeType,
+        sha256: baseMeta.sha256,
+        parser: parsed.parser,
+      },
+    }, embedder);
+  } catch (e: any) {
+    await sb.from('ai_data_sources').update({
+      status: 'failed', last_error: 'index_failed',
+      metadata: { ...baseMeta, index_error: e?.message || 'unknown' },
+    }).eq('id', sourceId);
+    throw new IngestError('index_failed', 500, e?.message);
+  }
+
+  const finalMeta = {
+    ...baseMeta,
+    parser: parsed.parser,
+    page_count: parsed.pageCount ?? baseMeta.page_count ?? null,
+    text_length: parsed.textLength,
+    warnings: parsed.warnings,
+    indexed_at: new Date().toISOString(),
+  };
+  // clear stale error fields
+  delete (finalMeta as any).parse_error;
+  delete (finalMeta as any).parse_error_message;
+  delete (finalMeta as any).upload_error;
+  delete (finalMeta as any).download_error;
+  delete (finalMeta as any).index_error;
+
+  const { data: updated } = await sb
+    .from('ai_data_sources')
+    .update({
+      status: 'active',
+      last_synced_at: new Date().toISOString(),
+      last_error: null,
+      last_warning: parsed.warnings[0] || null,
+      pages_found: parsed.pageCount || 1,
+      chunks_created: indexResult.chunksCreated + indexResult.chunksUpdated,
+      embedded_chunks: indexResult.embeddingsGenerated,
+      metadata: finalMeta,
+    })
+    .eq('id', sourceId)
+    .select('*')
+    .single();
+
+  return {
+    source: updated,
+    chunks_created: indexResult.chunksCreated + indexResult.chunksUpdated,
+    embedded_chunks: indexResult.embeddingsGenerated,
+    parser: parsed.parser,
+    warnings: parsed.warnings,
+    page_count: parsed.pageCount,
+  };
+}
+
+export async function deleteAiFile(
+  config: ServerConfig, sourceId: string,
+): Promise<{ chunks_deleted: number; storage_deleted: boolean; storage_error?: string }> {
+  const sb = getServiceClient(config);
+  const { data: source } = await sb
+    .from('ai_data_sources').select('*').eq('id', sourceId).maybeSingle();
+  if (!source) throw new IngestError('not_found', 404);
+  if (source.source_type !== 'file') throw new IngestError('not_a_file_source', 400);
+
+  // 1. Deactivate/delete chunks first.
+  const { data: deletedChunks } = await sb
+    .from('ai_knowledge_chunks')
+    .update({ status: 'deleted' })
+    .eq('workspace_id', source.workspace_id)
+    .eq('source_type', 'file')
+    .eq('source_id', sourceId)
+    .neq('status', 'deleted')
+    .select('id');
+
+  // 2. Mark source deleted.
+  const meta = (source.metadata as any) || {};
+  const storagePath: string | undefined = meta.storage_path;
+
+  // 3. Best-effort storage delete.
+  let storageDeleted = false;
+  let storageError: string | undefined;
+  if (storagePath) {
+    const r = await deleteFile(config, source.workspace_id, storagePath);
+    storageDeleted = !!r.success;
+    if (!r.success) storageError = r.error || 'storage_delete_failed';
+  }
+
+  await sb.from('ai_data_sources').update({
+    status: 'deleted',
+    metadata: { ...meta, deleted_at: new Date().toISOString(), storage_delete_error: storageError || null },
+  }).eq('id', sourceId);
+
+  return {
+    chunks_deleted: (deletedChunks || []).length,
+    storage_deleted: storageDeleted,
+    storage_error: storageError,
+  };
+}
+
+export async function pauseAiFile(config: ServerConfig, sourceId: string): Promise<void> {
+  const sb = getServiceClient(config);
+  const { data: source } = await sb
+    .from('ai_data_sources').select('workspace_id, source_type').eq('id', sourceId).maybeSingle();
+  if (!source) throw new IngestError('not_found', 404);
+  if (source.source_type !== 'file') throw new IngestError('not_a_file_source', 400);
+  await sb.from('ai_data_sources').update({ status: 'paused' }).eq('id', sourceId);
+  await sb.from('ai_knowledge_chunks')
+    .update({ status: 'inactive' })
+    .eq('workspace_id', source.workspace_id)
+    .eq('source_type', 'file')
+    .eq('source_id', sourceId)
+    .eq('status', 'active');
+}
+
+/** Resume by reindexing from stored original file (correctness over speed). */
+export async function resumeAiFile(config: ServerConfig, sourceId: string): Promise<IngestResult> {
+  return reindexAiFile(config, sourceId);
+}

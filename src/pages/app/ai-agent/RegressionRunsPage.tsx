@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Progress } from '@/components/ui/progress';
 import { toast } from '@/hooks/use-toast';
 
 function fmtDate(d: string | null | undefined) {
@@ -19,6 +20,15 @@ function fmtDate(d: string | null | undefined) {
 }
 function pct(n: number | null | undefined) {
   return n == null ? '—' : `${Math.round(n * 100)}%`;
+}
+function fmtDuration(ms: number | null | undefined) {
+  if (!ms || ms < 0) return '—';
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60), rem = s % 60;
+  if (m < 60) return `${m}m ${rem}s`;
+  const h = Math.floor(m / 60), mm = m % 60;
+  return `${h}h ${mm}m`;
 }
 
 export default function RegressionRunsPage() {
@@ -153,22 +163,36 @@ export default function RegressionRunsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {batches.map((b) => (
-                    <tr key={b.id} className="border-b border-border/30">
-                      <td className="py-1 pr-2"><BatchStatusBadge status={b.status} /></td>
-                      <td className="py-1 pr-2"><Badge variant="outline">{b.trigger_type}</Badge></td>
-                      <td className="py-1 pr-2">{b.total_cases}</td>
-                      <td className="py-1 pr-2 text-emerald-600">{b.passed}</td>
-                      <td className="py-1 pr-2 text-destructive">{b.failed}</td>
-                      <td className="py-1 pr-2 text-amber-600">{b.errored}</td>
-                      <td className="py-1 pr-2">{pct(b.pass_rate)}</td>
-                      <td className="py-1 pr-2">{fmtDate(b.started_at)}</td>
-                      <td className="py-1 pr-2">{fmtDate(b.finished_at)}</td>
-                      <td className="py-1 pr-2">
-                        <Button size="sm" variant="ghost" onClick={() => setOpenBatch(b.id)}>Open</Button>
-                      </td>
-                    </tr>
-                  ))}
+                  {batches.map((b) => {
+                    const meta = (b.metadata || {}) as Record<string, any>;
+                    const idx = typeof meta.current_case_index === 'number' ? meta.current_case_index : 0;
+                    const total = b.total_cases || 0;
+                    const showProgress = b.status === 'running' || b.status === 'queued';
+                    return (
+                      <tr key={b.id} className="border-b border-border/30">
+                        <td className="py-1 pr-2">
+                          <BatchStatusBadge status={b.status} />
+                          {showProgress && total > 0 && (
+                            <div className="mt-1 w-32">
+                              <Progress value={(idx / total) * 100} className="h-1" />
+                              <div className="text-[10px] text-muted-foreground">{idx}/{total}</div>
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-1 pr-2"><Badge variant="outline">{b.trigger_type}</Badge></td>
+                        <td className="py-1 pr-2">{b.total_cases}</td>
+                        <td className="py-1 pr-2 text-emerald-600">{b.passed}</td>
+                        <td className="py-1 pr-2 text-destructive">{b.failed}</td>
+                        <td className="py-1 pr-2 text-amber-600">{b.errored}</td>
+                        <td className="py-1 pr-2">{pct(b.pass_rate)}</td>
+                        <td className="py-1 pr-2">{fmtDate(b.started_at)}</td>
+                        <td className="py-1 pr-2">{fmtDate(b.finished_at)}</td>
+                        <td className="py-1 pr-2">
+                          <Button size="sm" variant="ghost" onClick={() => setOpenBatch(b.id)}>Open</Button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -180,6 +204,8 @@ export default function RegressionRunsPage() {
         batchId={openBatch}
         onClose={() => setOpenBatch(null)}
         wsPath={wsPath}
+        canManage={isOwnerOrAdmin}
+        onChanged={() => qc.invalidateQueries({ queryKey: ['ai-agent', 'regression-batches', wsId] })}
       />
     </div>
   );
@@ -201,6 +227,7 @@ function BatchStatusBadge({ status }: { status: RegressionBatch['status'] }) {
   const variant: any =
     status === 'completed' ? 'default' :
     status === 'failed' ? 'destructive' :
+    status === 'cancelled' ? 'destructive' :
     status === 'running' ? 'secondary' :
     'outline';
   return <Badge variant={variant}>{status}</Badge>;
@@ -293,22 +320,69 @@ function ScheduleEditor({
         <Button size="sm" variant="outline" disabled={!canEdit || runningNow} onClick={onRunNow}>
           {runningNow ? 'Queuing…' : 'Run now'}
         </Button>
-        <span className="text-xs text-muted-foreground">
-          Last run: {fmtDate(schedule.last_run_at)} · Next run: {fmtDate(schedule.next_run_at)}
-        </span>
+        <ScheduleMeta schedule={schedule} />
       </div>
     </div>
   );
 }
 
+function ScheduleMeta({ schedule }: { schedule: RegressionSchedule }) {
+  const meta = (schedule.metadata || {}) as Record<string, any>;
+  const resolvedTz = meta.resolved_timezone || schedule.timezone || 'UTC';
+  const warning = meta.warning as string | undefined;
+  return (
+    <div className="flex flex-col text-xs text-muted-foreground gap-0.5">
+      <span>
+        Last run: {fmtDate(schedule.last_run_at)} · Next run:{' '}
+        <span title={schedule.next_run_at ? `UTC: ${schedule.next_run_at}` : ''}>
+          {fmtDate(schedule.next_run_at)}
+        </span>
+      </span>
+      <span>Resolved timezone: <code>{resolvedTz}</code></span>
+      {warning && (
+        <span className="text-amber-600">
+          Warning: {warning === 'timezone_invalid_fallback_utc'
+            ? 'Timezone invalid — falling back.'
+            : warning === 'time_of_day_invalid_interval_fallback'
+              ? 'Time-of-day invalid — using interval math.'
+              : warning}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function BatchDetailDialog({
-  batchId, onClose, wsPath,
-}: { batchId: string | null; onClose: () => void; wsPath: (p: string) => string }) {
+  batchId, onClose, wsPath, canManage, onChanged,
+}: { batchId: string | null; onClose: () => void; wsPath: (p: string) => string; canManage: boolean; onChanged: () => void }) {
+  const qc = useQueryClient();
   const q = useQuery({
     queryKey: ['ai-agent', 'regression-batch', batchId],
     queryFn: () => aiAgentApi.getRegressionBatch(batchId!),
     enabled: !!batchId,
     refetchInterval: 5_000,
+  });
+  const cancelMut = useMutation({
+    mutationFn: () => aiAgentApi.cancelRegressionBatch(batchId!),
+    onSuccess: (r) => {
+      toast({ title: r.idempotent ? `Already ${r.status}` : 'Batch cancelled' });
+      qc.invalidateQueries({ queryKey: ['ai-agent', 'regression-batch', batchId] });
+      onChanged();
+    },
+    onError: (e: any) => toast({ title: 'Cancel failed', description: e?.message, variant: 'destructive' }),
+  });
+  const retryMut = useMutation({
+    mutationFn: () => aiAgentApi.retryFailedRegressionBatch(batchId!),
+    onSuccess: () => {
+      toast({ title: 'Retry batch queued' });
+      onChanged();
+      onClose();
+    },
+    onError: (e: any) => toast({
+      title: 'Retry failed',
+      description: e?.message?.includes('no_failed_cases') ? 'No failed/errored cases to retry.' : (e?.message || 'Failed'),
+      variant: 'destructive',
+    }),
   });
   const suggestMut = useMutation({
     mutationFn: (runId: string) => aiAgentApi.suggestTestCaseFromTestRun(runId),
@@ -325,7 +399,14 @@ function BatchDetailDialog({
         <DialogHeader><DialogTitle>Regression batch</DialogTitle></DialogHeader>
         {q.isLoading || !q.data ? (
           <div className="text-sm text-muted-foreground">Loading…</div>
-        ) : (
+        ) : (() => {
+          const batch = q.data.batch;
+          const meta = (batch.metadata || {}) as Record<string, any>;
+          const idx = typeof meta.current_case_index === 'number' ? meta.current_case_index : 0;
+          const total = batch.total_cases || 0;
+          const isActive = batch.status === 'queued' || batch.status === 'running';
+          const hasFailures = batch.status === 'completed' && (batch.failed + batch.errored) > 0;
+          return (
           <div className="space-y-4">
             <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-sm">
               <div><div className="text-xs text-muted-foreground">Status</div><BatchStatusBadge status={q.data.batch.status} /></div>
@@ -333,6 +414,35 @@ function BatchDetailDialog({
               <div><div className="text-xs text-muted-foreground">Passed</div><span className="text-emerald-600">{q.data.summary.passed}</span></div>
               <div><div className="text-xs text-muted-foreground">Failed</div><span className="text-destructive">{q.data.summary.failed}</span></div>
               <div><div className="text-xs text-muted-foreground">Errored</div><span className="text-amber-600">{q.data.summary.errored}</span></div>
+            </div>
+            {isActive && total > 0 && (
+              <div className="space-y-1">
+                <Progress value={(idx / total) * 100} />
+                <div className="text-xs text-muted-foreground">
+                  Processed {idx} / {total}
+                  {meta.current_test_case_name ? ` · current: ${meta.current_test_case_name}` : ''}
+                </div>
+              </div>
+            )}
+            <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+              <span>Duration: {fmtDuration(meta.duration_ms)}</span>
+              <span>Avg/case: {fmtDuration(meta.avg_case_duration_ms)}</span>
+              {meta.cancelled_at && <span>Cancelled: {fmtDate(meta.cancelled_at)}</span>}
+              {meta.retry_of_batch_id && <span>Retry of: <code className="text-[10px]">{String(meta.retry_of_batch_id).slice(0,8)}</code></span>}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {isActive && (
+                <Button size="sm" variant="destructive" disabled={!canManage || cancelMut.isPending}
+                  onClick={() => cancelMut.mutate()}>
+                  {cancelMut.isPending ? 'Cancelling…' : 'Cancel batch'}
+                </Button>
+              )}
+              {hasFailures && (
+                <Button size="sm" variant="outline" disabled={!canManage || retryMut.isPending}
+                  onClick={() => retryMut.mutate()}>
+                  {retryMut.isPending ? 'Queuing…' : 'Retry failed'}
+                </Button>
+              )}
             </div>
             <div className="overflow-x-auto">
               <table className="text-xs w-full">
@@ -371,7 +481,8 @@ function BatchDetailDialog({
               </table>
             </div>
           </div>
-        )}
+          );
+        })()}
       </DialogContent>
     </Dialog>
   );

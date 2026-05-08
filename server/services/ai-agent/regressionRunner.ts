@@ -61,13 +61,169 @@ export interface RegressionBatch {
   updated_at: string;
 }
 
-function computeNextRunAt(freq: Frequency, from: Date = new Date()): Date | null {
-  if (freq === 'manual') return null;
-  const ms =
-    freq === 'hourly' ? 60 * 60 * 1000 :
-    freq === 'daily' ? 24 * 60 * 60 * 1000 :
-    7 * 24 * 60 * 60 * 1000;
-  return new Date(from.getTime() + ms);
+// ──────────────────────────────────────────────────────────────────────
+// Timezone-aware schedule math.
+//
+// No hardcoded city/zone (no Istanbul, no server tz, no browser tz).
+// Resolution order: schedule.timezone → platform_settings.timezone → 'UTC'.
+// Invalid IANA strings fall back to UTC and emit metadata.warning.
+// ──────────────────────────────────────────────────────────────────────
+
+function isValidTimezone(tz: string | null | undefined): boolean {
+  if (!tz) return false;
+  try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); return true; }
+  catch { return false; }
+}
+
+function tzOffsetMinutes(date: Date, tz: string): number {
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz, hourCycle: 'h23',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
+  const parts = Object.fromEntries(dtf.formatToParts(date).map((p) => [p.type, p.value]));
+  const asUTC = Date.UTC(
+    parseInt(parts.year, 10), parseInt(parts.month, 10) - 1, parseInt(parts.day, 10),
+    parseInt(parts.hour, 10), parseInt(parts.minute, 10), parseInt(parts.second, 10),
+  );
+  return (asUTC - date.getTime()) / 60000;
+}
+
+function utcFromWallClock(year: number, month1: number, day: number, h: number, m: number, tz: string): Date {
+  const naiveUtc = Date.UTC(year, month1 - 1, day, h, m, 0);
+  let guess = new Date(naiveUtc);
+  const off1 = tzOffsetMinutes(guess, tz);
+  guess = new Date(naiveUtc - off1 * 60000);
+  const off2 = tzOffsetMinutes(guess, tz);
+  if (off2 !== off1) guess = new Date(naiveUtc - off2 * 60000);
+  return guess;
+}
+
+function partsInTz(date: Date, tz: string) {
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz, hourCycle: 'h23',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', weekday: 'short',
+  });
+  const p = Object.fromEntries(dtf.formatToParts(date).map((x) => [x.type, x.value]));
+  const wd = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(p.weekday);
+  return {
+    year: parseInt(p.year, 10), month: parseInt(p.month, 10), day: parseInt(p.day, 10),
+    hour: parseInt(p.hour, 10), minute: parseInt(p.minute, 10), weekday: wd,
+  };
+}
+
+function parseHHmm(s: string | null | undefined): { h: number; m: number } | null {
+  if (!s) return null;
+  const m = /^(\d{1,2}):(\d{2})$/.exec(s.trim());
+  if (!m) return null;
+  const hh = parseInt(m[1], 10), mm = parseInt(m[2], 10);
+  if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
+  return { h: hh, m: mm };
+}
+
+let _platformTzCache: { tz: string | null; ts: number } | null = null;
+async function getPlatformTimezone(sb: SupabaseClient): Promise<string | null> {
+  if (_platformTzCache && Date.now() - _platformTzCache.ts < 60_000) return _platformTzCache.tz;
+  try {
+    const { data } = await sb.from('platform_settings').select('timezone').limit(1).maybeSingle();
+    const tz = (data as any)?.timezone || null;
+    _platformTzCache = { tz, ts: Date.now() };
+    return tz;
+  } catch { return null; }
+}
+
+export interface ResolvedSchedule {
+  resolvedTimezone: string;
+  warning: string | null;
+}
+
+export async function resolveScheduleTimezone(
+  sb: SupabaseClient,
+  scheduleTz: string | null | undefined,
+): Promise<ResolvedSchedule> {
+  // 1) schedule
+  if (scheduleTz && scheduleTz.trim()) {
+    if (isValidTimezone(scheduleTz)) return { resolvedTimezone: scheduleTz, warning: null };
+    // Fall through with warning
+  }
+  // 2) platform default
+  const platformTz = await getPlatformTimezone(sb);
+  if (platformTz && isValidTimezone(platformTz)) {
+    return {
+      resolvedTimezone: platformTz,
+      warning: scheduleTz ? 'timezone_invalid_fallback_utc' : null,
+    };
+  }
+  // 3) UTC
+  return {
+    resolvedTimezone: 'UTC',
+    warning: scheduleTz && !isValidTimezone(scheduleTz) ? 'timezone_invalid_fallback_utc' : null,
+  };
+}
+
+export interface NextRunComputation {
+  next_run_at: Date | null;
+  resolved_timezone: string;
+  warning: string | null;
+}
+
+export async function computeNextRunAt(
+  sb: SupabaseClient,
+  schedule: Pick<RegressionSchedule, 'frequency' | 'time_of_day' | 'timezone' | 'metadata'>,
+  from: Date = new Date(),
+): Promise<NextRunComputation> {
+  if (schedule.frequency === 'manual') {
+    const r = await resolveScheduleTimezone(sb, schedule.timezone);
+    return { next_run_at: null, resolved_timezone: r.resolvedTimezone, warning: r.warning };
+  }
+  const tzInfo = await resolveScheduleTimezone(sb, schedule.timezone);
+  const tz = tzInfo.resolvedTimezone;
+  let warning = tzInfo.warning;
+
+  if (schedule.frequency === 'hourly') {
+    // Round up to next full hour boundary.
+    const next = new Date(Math.floor(from.getTime() / 3_600_000) * 3_600_000 + 3_600_000);
+    return { next_run_at: next, resolved_timezone: tz, warning };
+  }
+
+  const hhmm = parseHHmm(schedule.time_of_day);
+  if (!hhmm) {
+    // Fallback to interval math.
+    const ms = schedule.frequency === 'daily' ? 86_400_000 : 7 * 86_400_000;
+    warning = warning || 'time_of_day_invalid_interval_fallback';
+    return { next_run_at: new Date(from.getTime() + ms), resolved_timezone: tz, warning };
+  }
+
+  if (schedule.frequency === 'daily') {
+    const t = partsInTz(from, tz);
+    let candidate = utcFromWallClock(t.year, t.month, t.day, hhmm.h, hhmm.m, tz);
+    if (candidate.getTime() <= from.getTime()) {
+      const tomorrow = new Date(Date.UTC(t.year, t.month - 1, t.day) + 86_400_000);
+      const tt = partsInTz(tomorrow, tz);
+      candidate = utcFromWallClock(tt.year, tt.month, tt.day, hhmm.h, hhmm.m, tz);
+    }
+    return { next_run_at: candidate, resolved_timezone: tz, warning };
+  }
+
+  // weekly
+  const meta = (schedule.metadata || {}) as Record<string, unknown>;
+  const targetWeekday = typeof meta.weekday === 'number' && meta.weekday >= 0 && meta.weekday <= 6
+    ? (meta.weekday as number) : null;
+  const t = partsInTz(from, tz);
+  let candidate = utcFromWallClock(t.year, t.month, t.day, hhmm.h, hhmm.m, tz);
+  if (targetWeekday == null) {
+    if (candidate.getTime() <= from.getTime()) {
+      candidate = new Date(candidate.getTime() + 7 * 86_400_000);
+    }
+  } else {
+    let daysAhead = (targetWeekday - t.weekday + 7) % 7;
+    if (daysAhead === 0 && candidate.getTime() <= from.getTime()) daysAhead = 7;
+    const target = new Date(Date.UTC(t.year, t.month - 1, t.day) + daysAhead * 86_400_000);
+    const tt = partsInTz(target, tz);
+    candidate = utcFromWallClock(tt.year, tt.month, tt.day, hhmm.h, hhmm.m, tz);
+  }
+  return { next_run_at: candidate, resolved_timezone: tz, warning };
 }
 
 export async function listRegressionSchedules(
@@ -131,13 +287,24 @@ export async function updateRegressionSchedule(
     safe.max_cases_per_run = Math.max(1, Math.min(HARD_MAX_CASES, safe.max_cases_per_run as number));
   }
   safe.updated_by = actorId;
-  // Recompute next_run_at when enabled or frequency changes.
-  if ('enabled' in safe || 'frequency' in safe) {
+  // Recompute next_run_at + resolved_timezone metadata whenever scheduling
+  // inputs change (enabled, frequency, time_of_day, timezone).
+  const recomputeKeys = ['enabled', 'frequency', 'time_of_day', 'timezone'];
+  if (recomputeKeys.some((k) => k in safe)) {
     const { data: cur } = await sb.from('ai_agent_regression_schedules')
-      .select('frequency,enabled').eq('id', scheduleId).maybeSingle();
-    const enabled = (safe.enabled ?? cur?.enabled) as boolean;
-    const freq = (safe.frequency ?? cur?.frequency) as Frequency;
-    safe.next_run_at = enabled ? (computeNextRunAt(freq)?.toISOString() ?? null) : null;
+      .select('*').eq('id', scheduleId).maybeSingle();
+    const merged = { ...(cur || {}), ...safe } as RegressionSchedule;
+    if (merged.enabled) {
+      const c = await computeNextRunAt(sb, merged);
+      safe.next_run_at = c.next_run_at?.toISOString() ?? null;
+      const meta = { ...((cur as any)?.metadata || {}) };
+      meta.resolved_timezone = c.resolved_timezone;
+      if (c.warning) meta.warning = c.warning;
+      else delete meta.warning;
+      safe.metadata = meta;
+    } else {
+      safe.next_run_at = null;
+    }
   }
   const { data, error } = await sb
     .from('ai_agent_regression_schedules')
@@ -262,11 +429,15 @@ export async function claimDueSchedule(
     .maybeSingle();
   if (!cur || !cur.enabled || cur.frequency === 'manual') return null;
   const prevNext = cur.next_run_at;
-  const newNext = computeNextRunAt(cur.frequency as Frequency)?.toISOString() ?? null;
+  const c = await computeNextRunAt(sb, cur as RegressionSchedule);
+  const newNext = c.next_run_at?.toISOString() ?? null;
   const nowIso = new Date().toISOString();
+  const meta = { ...((cur as any).metadata || {}) };
+  meta.resolved_timezone = c.resolved_timezone;
+  if (c.warning) meta.warning = c.warning; else delete meta.warning;
   const { data: claimed } = await sb
     .from('ai_agent_regression_schedules')
-    .update({ next_run_at: newNext, last_run_at: nowIso })
+    .update({ next_run_at: newNext, last_run_at: nowIso, metadata: meta })
     .eq('id', scheduleId)
     .eq('next_run_at', prevNext)
     .select('*')
@@ -328,6 +499,9 @@ export async function runRegressionBatch(
 
   let q = sb.from('ai_agent_test_cases').select('*').eq('workspace_id', batch.workspace_id);
   if (includeEnabledOnly) q = q.eq('enabled', true);
+  const retryIds = Array.isArray((batch.metadata as any)?.retry_case_ids)
+    ? ((batch.metadata as any).retry_case_ids as string[]) : null;
+  if (retryIds && retryIds.length) q = q.in('id', retryIds);
   const { data: cases, error: casesErr } = await q.order('created_at', { ascending: true }).limit(maxCases);
   if (casesErr) {
     await sb.from('ai_agent_regression_batches').update({
@@ -338,10 +512,27 @@ export async function runRegressionBatch(
     return { ok: false, total: 0, passed: 0, failed: 0, errored: 0, error: casesErr.message };
   }
   const list = cases || [];
-  await sb.from('ai_agent_regression_batches').update({ total_cases: list.length }).eq('id', batchId);
+  const startedAtMs = Date.now();
+  const baseMeta = { ...((batch.metadata as Record<string, unknown>) || {}) };
+  baseMeta.current_case_index = 0;
+  baseMeta.current_test_case_id = null;
+  baseMeta.last_progress_at = new Date().toISOString();
+  await sb.from('ai_agent_regression_batches').update({
+    total_cases: list.length, metadata: baseMeta,
+  }).eq('id', batchId);
 
   let passed = 0, failed = 0, errored = 0;
-  for (const tc of list) {
+  let cancelled = false;
+  for (let i = 0; i < list.length; i++) {
+    const tc = list[i];
+    // Cooperative cancellation: re-check status before each case.
+    if (i > 0 && i % 1 === 0) {
+      const { data: cur } = await sb
+        .from('ai_agent_regression_batches')
+        .select('status,metadata')
+        .eq('id', batchId).maybeSingle();
+      if (cur?.status === 'cancelled') { cancelled = true; break; }
+    }
     try {
       let result: DryRunResult;
       try {
@@ -426,10 +617,21 @@ export async function runRegressionBatch(
 
       // Periodic counter update so progress is visible.
       const total = passed + failed + errored;
-      if (total % 5 === 0 || total === list.length) {
+      const elapsed = Date.now() - startedAtMs;
+      const avg = total > 0 ? Math.round(elapsed / total) : 0;
+      const progressMeta = {
+        ...baseMeta,
+        current_case_index: i + 1,
+        current_test_case_id: tc.id,
+        current_test_case_name: tc.name || null,
+        last_progress_at: new Date().toISOString(),
+        duration_ms: elapsed,
+        avg_case_duration_ms: avg,
+      };
+      if (total % 5 === 0 || total === list.length || i === 0) {
         const passRate = total > 0 ? passed / total : null;
         await sb.from('ai_agent_regression_batches').update({
-          passed, failed, errored, pass_rate: passRate,
+          passed, failed, errored, pass_rate: passRate, metadata: progressMeta,
         }).eq('id', batchId);
       }
     } catch (caseErr: any) {
@@ -456,12 +658,95 @@ export async function runRegressionBatch(
 
   const total = passed + failed + errored;
   const passRate = total > 0 ? passed / total : null;
+  const finalMeta = {
+    ...baseMeta,
+    current_case_index: total,
+    last_progress_at: new Date().toISOString(),
+    duration_ms: Date.now() - startedAtMs,
+    avg_case_duration_ms: total > 0 ? Math.round((Date.now() - startedAtMs) / total) : 0,
+  };
+  if (cancelled) {
+    // Preserve cancellation status; just update counters + final metadata.
+    await sb.from('ai_agent_regression_batches').update({
+      passed, failed, errored, pass_rate: passRate,
+      finished_at: new Date().toISOString(),
+      metadata: finalMeta,
+    }).eq('id', batchId);
+    return { ok: true, total, passed, failed, errored, error: 'cancelled' };
+  }
   await sb.from('ai_agent_regression_batches').update({
     status: 'completed',
     passed, failed, errored,
     pass_rate: passRate,
     finished_at: new Date().toISOString(),
+    metadata: finalMeta,
   }).eq('id', batchId);
 
   return { ok: true, total, passed, failed, errored };
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// E10.1 — Cancel + Retry-failed
+// ──────────────────────────────────────────────────────────────────────
+
+export async function cancelRegressionBatch(
+  config: ServerConfig,
+  batchId: string,
+  actorId: string,
+): Promise<{ ok: boolean; status: RegressionBatch['status']; idempotent?: boolean; error?: string }> {
+  const sb = getServiceClient(config);
+  const { data: cur } = await sb.from('ai_agent_regression_batches')
+    .select('id,status,metadata').eq('id', batchId).maybeSingle();
+  if (!cur) return { ok: false, status: 'failed', error: 'not_found' };
+  if (cur.status === 'completed' || cur.status === 'failed' || cur.status === 'cancelled') {
+    return { ok: true, status: cur.status as RegressionBatch['status'], idempotent: true };
+  }
+  const meta = { ...((cur.metadata as Record<string, unknown>) || {}) };
+  meta.cancelled_at = new Date().toISOString();
+  meta.cancelled_by = actorId;
+  const { data: upd, error } = await sb.from('ai_agent_regression_batches')
+    .update({ status: 'cancelled', finished_at: new Date().toISOString(), metadata: meta })
+    .eq('id', batchId)
+    .in('status', ['queued', 'running'])
+    .select('status').maybeSingle();
+  if (error) return { ok: false, status: cur.status as RegressionBatch['status'], error: error.message };
+  return { ok: true, status: (upd?.status as RegressionBatch['status']) || 'cancelled' };
+}
+
+export async function retryFailedRegressionBatch(
+  config: ServerConfig,
+  batchId: string,
+  actorId: string,
+): Promise<{ ok: boolean; batch?: RegressionBatch; error?: string }> {
+  const sb = getServiceClient(config);
+  const { data: orig } = await sb.from('ai_agent_regression_batches')
+    .select('*').eq('id', batchId).maybeSingle();
+  if (!orig) return { ok: false, error: 'not_found' };
+  // Find latest run per test_case in this batch where status is failed/errored.
+  const { data: runs } = await sb.from('ai_agent_test_runs')
+    .select('test_case_id,status,created_at')
+    .eq('regression_batch_id', batchId)
+    .order('created_at', { ascending: false });
+  const seen = new Set<string>();
+  const failedCaseIds: string[] = [];
+  for (const r of (runs || []) as any[]) {
+    if (!r.test_case_id || seen.has(r.test_case_id)) continue;
+    seen.add(r.test_case_id);
+    if (r.status === 'failed' || r.status === 'errored') failedCaseIds.push(r.test_case_id);
+  }
+  if (!failedCaseIds.length) return { ok: false, error: 'no_failed_cases' };
+  const { data: created, error } = await sb.from('ai_agent_regression_batches')
+    .insert({
+      workspace_id: orig.workspace_id,
+      schedule_id: orig.schedule_id || null,
+      status: 'queued',
+      trigger_type: 'manual',
+      created_by: actorId,
+      metadata: {
+        retry_of_batch_id: batchId,
+        retry_case_ids: failedCaseIds,
+      },
+    }).select('*').single();
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, batch: created as RegressionBatch };
 }

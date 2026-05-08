@@ -643,6 +643,10 @@ export const aiAgentApi = {
     jsonFetch(`/api/ai-agent/regression/batches/${id}`) as Promise<RegressionBatchDetail>,
   runRegressionBatch: (id: string) =>
     jsonFetch(`/api/ai-agent/regression/batches/${id}/run`, { method: 'POST' }) as Promise<{ ok: boolean; result: { total: number; passed: number; failed: number; errored: number } }>,
+  cancelRegressionBatch: (id: string) =>
+    jsonFetch(`/api/ai-agent/regression/batches/${id}/cancel`, { method: 'POST' }) as Promise<{ ok: boolean; status: RegressionBatch['status']; idempotent: boolean }>,
+  retryFailedRegressionBatch: (id: string) =>
+    jsonFetch(`/api/ai-agent/regression/batches/${id}/retry-failed`, { method: 'POST' }) as Promise<{ batch: RegressionBatch }>,
 };
 
 // ─── E10 types ───

@@ -170,6 +170,14 @@ export const aiAgentApi = {
     jsonFetch(`/api/ai-agent/runs/${id}/inspect`) as Promise<any>,
   debugRetrieval: (input: { workspaceId: string; message: string; locale?: string; pageContext?: { currentPageUrl?: string | null; currentPagePath?: string | null; currentPageOrigin?: string | null; currentPageTitle?: string | null } | null }) =>
     jsonFetch(`/api/ai-agent/debug/retrieval`, { method: 'POST', body: JSON.stringify(input) }) as Promise<any>,
+  getSourceHealth: (workspaceId: string, opts: { sourceType?: string; eligible?: boolean; query?: string; limit?: number } = {}) => {
+    const p = new URLSearchParams({ workspaceId });
+    if (opts.sourceType) p.set('sourceType', opts.sourceType);
+    if (typeof opts.eligible === 'boolean') p.set('eligible', String(opts.eligible));
+    if (opts.query) p.set('query', opts.query);
+    if (opts.limit) p.set('limit', String(opts.limit));
+    return jsonFetch(`/api/ai-agent/source-health?${p.toString()}`) as Promise<any>;
+  },
   getAnalytics: (workspaceId: string) =>
     jsonFetch(`/api/ai-agent/analytics?workspaceId=${workspaceId}`) as Promise<any>,
   generateBusinessDescription: (workspaceId: string) =>

@@ -622,7 +622,80 @@ export const aiAgentApi = {
     jsonFetch(`/api/ai-agent/suggested-test-cases/${id}/reject`, { method: 'POST', body: JSON.stringify({ reason: reason || null }) }) as Promise<{ ok: boolean }>,
   deleteSuggestedTestCase: (id: string) =>
     jsonFetch(`/api/ai-agent/suggested-test-cases/${id}`, { method: 'DELETE' }) as Promise<{ ok: boolean }>,
+  // ─── E10 — Scheduled regression runs ───
+  listRegressionSchedules: (workspaceId: string) =>
+    jsonFetch(`/api/ai-agent/regression/schedules?workspaceId=${workspaceId}`) as Promise<{ items: RegressionSchedule[] }>,
+  getOrCreateRegressionSchedule: (workspaceId: string) =>
+    jsonFetch(`/api/ai-agent/regression/schedules/default`, {
+      method: 'POST', body: JSON.stringify({ workspaceId }),
+    }) as Promise<{ item: RegressionSchedule }>,
+  updateRegressionSchedule: (id: string, patch: Partial<RegressionSchedule>) =>
+    jsonFetch(`/api/ai-agent/regression/schedules/${id}`, {
+      method: 'PATCH', body: JSON.stringify(patch),
+    }) as Promise<{ item: RegressionSchedule }>,
+  listRegressionBatches: (workspaceId: string, limit = 50) =>
+    jsonFetch(`/api/ai-agent/regression/batches?workspaceId=${workspaceId}&limit=${limit}`) as Promise<{ items: RegressionBatch[] }>,
+  runRegressionNow: (workspaceId: string, scheduleId?: string | null) =>
+    jsonFetch(`/api/ai-agent/regression/run-now`, {
+      method: 'POST', body: JSON.stringify({ workspaceId, scheduleId: scheduleId || null }),
+    }) as Promise<{ batch: RegressionBatch }>,
+  getRegressionBatch: (id: string) =>
+    jsonFetch(`/api/ai-agent/regression/batches/${id}`) as Promise<RegressionBatchDetail>,
+  runRegressionBatch: (id: string) =>
+    jsonFetch(`/api/ai-agent/regression/batches/${id}/run`, { method: 'POST' }) as Promise<{ ok: boolean; result: { total: number; passed: number; failed: number; errored: number } }>,
 };
+
+// ─── E10 types ───
+export type RegressionFrequency = 'hourly' | 'daily' | 'weekly' | 'manual';
+export interface RegressionSchedule {
+  id: string;
+  workspace_id: string;
+  enabled: boolean;
+  name: string;
+  frequency: RegressionFrequency;
+  time_of_day: string | null;
+  timezone: string;
+  include_enabled_cases_only: boolean;
+  max_cases_per_run: number;
+  call_llm: boolean;
+  last_run_at: string | null;
+  next_run_at: string | null;
+  created_by: string | null;
+  updated_by: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+export interface RegressionBatch {
+  id: string;
+  workspace_id: string;
+  schedule_id: string | null;
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+  trigger_type: 'manual' | 'scheduled';
+  total_cases: number;
+  passed: number;
+  failed: number;
+  errored: number;
+  pass_rate: number | null;
+  started_at: string | null;
+  finished_at: string | null;
+  last_error: string | null;
+  metadata: Record<string, unknown>;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+export interface RegressionBatchDetail {
+  batch: RegressionBatch;
+  runs: TestRun[];
+  summary: {
+    total: number;
+    passed: number;
+    failed: number;
+    errored: number;
+    pass_rate: number | null;
+  };
+}
 
 export interface TrainSourceTypeBreakdown {
   source_type: string;

@@ -317,9 +317,8 @@ async function finalizeIndex(
   // Chunk + index.
   const chunks = chunkText(parsed.text);
   const embedder = await getEmbedderForWorkspace(config, workspaceId);
-  let indexResult;
   try {
-    indexResult = await indexSource(config, {
+    await indexSource(config, {
       workspaceId,
       sourceType: 'file',
       sourceId,

@@ -39,6 +39,7 @@ import { normalizeQuestion } from '../services/ai-agent/learning/normalize.js';
 import {
   ingestAiFile, reindexAiFile, deleteAiFile,
   pauseAiFile, resumeAiFile, resolveFileLimits,
+  queueAiFileIngest, queueReindexAiFile,
   IngestError,
 } from '../services/ai-agent/files/fileIngestion.js';
 import { SUPPORTED_MIMES, isSupportedMime } from '../services/ai-agent/files/parsers.js';
@@ -2119,17 +2120,15 @@ aiAgentRouter.post('/files/upload', async (req: Request, res: Response) => {
   }
 
   try {
-    const result = await ingestAiFile(config, {
+    // Pass E4-C: queue background ingestion job; do NOT parse/index in request.
+    const result = await queueAiFileIngest(config, {
       workspaceId, userId: auth.userId, fileName, mimeType, buffer,
     }, { bypassPlanLimits: !!auth.isAdmin });
     return res.json({
       ok: true,
       source: result.source,
-      chunks_created: result.chunks_created,
-      embedded_chunks: result.embedded_chunks,
-      parser: result.parser,
-      warnings: result.warnings,
-      page_count: result.page_count ?? null,
+      jobId: result.jobId,
+      status: result.status,
     });
   } catch (e) { return ingestErrorResponse(res, e); }
 });
@@ -2201,8 +2200,8 @@ aiAgentRouter.post('/files/:id/reindex', async (req: Request, res: Response) => 
   if (!auth) return;
   if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
   try {
-    const result = await reindexAiFile(config, req.params.id);
-    return res.json({ ok: true, source: result.source, chunks_created: result.chunks_created, embedded_chunks: result.embedded_chunks, parser: result.parser, warnings: result.warnings, page_count: result.page_count ?? null });
+    const result = await queueReindexAiFile(config, req.params.id, auth.userId);
+    return res.json({ ok: true, source: result.source, jobId: result.jobId, status: result.status });
   } catch (e) { return ingestErrorResponse(res, e); }
 });
 
@@ -2241,9 +2240,88 @@ aiAgentRouter.post('/files/:id/resume', async (req: Request, res: Response) => {
   if (!auth) return;
   if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
   try {
-    const result = await resumeAiFile(config, req.params.id);
-    return res.json({ ok: true, source: result.source, chunks_created: result.chunks_created, embedded_chunks: result.embedded_chunks, warnings: result.warnings });
+    const result = await resumeAiFile(config, req.params.id, auth.userId);
+    return res.json({ ok: true, source: result.source, jobId: result.jobId, status: result.status });
   } catch (e) { return ingestErrorResponse(res, e); }
+});
+
+// ─── Pass E4-C: file preview (workspace-scoped, no storage URLs) ───
+aiAgentRouter.get('/files/:id/preview', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const src = await loadFileSource(config, req.params.id);
+  if (!src) return res.status(404).json({ error: 'not_found' });
+  if (src.source_type !== 'file') return res.status(400).json({ error: 'not_a_file_source' });
+  const auth = await authorizeMember(req, res, config, src.workspace_id);
+  if (!auth) return;
+  const sb = getServiceClient(config);
+  const { data: source } = await sb.from('ai_data_sources').select('*').eq('id', req.params.id).maybeSingle();
+  if (!source) return res.status(404).json({ error: 'not_found' });
+  const meta = (source.metadata as any) || {};
+  // Prefer active chunks; fall back to stale (paused) chunks.
+  const PREVIEW_CHUNK_LIMIT = 5;
+  const PREVIEW_TOTAL_BYTES = 10 * 1024;
+  const fetchChunks = async (status: 'active' | 'stale') => {
+    const { data } = await sb.from('ai_knowledge_chunks')
+      .select('chunk_index, content, status')
+      .eq('workspace_id', source.workspace_id)
+      .eq('source_type', 'file').eq('source_id', source.id)
+      .eq('status', status)
+      .order('chunk_index', { ascending: true })
+      .limit(PREVIEW_CHUNK_LIMIT);
+    return data || [];
+  };
+  let chunks = await fetchChunks('active');
+  if (chunks.length === 0 && source.status === 'paused') chunks = await fetchChunks('stale');
+  let used = 0;
+  const chunksPreview: Array<{ index: number; content: string; status: string }> = [];
+  for (const c of chunks) {
+    const remaining = Math.max(0, PREVIEW_TOTAL_BYTES - used);
+    if (remaining <= 0) break;
+    const text = String((c as any).content || '').slice(0, remaining);
+    used += text.length;
+    chunksPreview.push({ index: (c as any).chunk_index, content: text, status: (c as any).status });
+  }
+  const text_preview = chunksPreview.map(c => c.content).join('\n\n---\n\n');
+  return res.json({
+    source_id: source.id,
+    file_name: meta.original_file_name || source.name,
+    status: source.status,
+    job_status: meta.job_status || null,
+    parser: meta.parser || null,
+    page_count: meta.page_count ?? null,
+    text_length: meta.text_length ?? null,
+    text_preview,
+    chunks_preview: chunksPreview,
+    warnings: Array.isArray(meta.warnings) ? meta.warnings : [],
+    last_error: source.last_error || null,
+    last_warning: source.last_warning || null,
+  });
+});
+
+// ─── Pass E4-C: file ingestion logs ───
+aiAgentRouter.get('/files/:id/logs', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const src = await loadFileSource(config, req.params.id);
+  if (!src) return res.status(404).json({ error: 'not_found' });
+  if (src.source_type !== 'file') return res.status(400).json({ error: 'not_a_file_source' });
+  const auth = await authorizeMember(req, res, config, src.workspace_id);
+  if (!auth) return;
+  const sb = getServiceClient(config);
+  const { data, error } = await sb.from('ai_source_sync_logs')
+    .select('id, status, message, pages_found, chunks_created, embedded_chunks, errors, metadata, created_at')
+    .eq('workspace_id', src.workspace_id)
+    .eq('source_id', req.params.id)
+    .order('created_at', { ascending: false })
+    .limit(100);
+  if (error) return res.status(500).json({ error: error.message });
+  // Active jobs for this source.
+  const { data: jobs } = await sb.from('ai_source_sync_jobs')
+    .select('id, status, attempts, started_at, finished_at, last_error, created_at, job_type')
+    .eq('source_id', req.params.id)
+    .eq('job_type', 'file_ingest')
+    .order('created_at', { ascending: false })
+    .limit(20);
+  return res.json({ items: data || [], jobs: jobs || [] });
 });
 
 // ============================================================

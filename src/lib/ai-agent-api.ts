@@ -330,16 +330,29 @@ export const aiAgentApi = {
         sizeBytes: file.size,
         dataBase64,
       }),
-    }) as Promise<{ ok: boolean; source: DataSource; chunks_created: number; embedded_chunks: number; parser: string; warnings: string[]; page_count: number | null }>;
+    }) as Promise<{ ok: boolean; source: DataSource; jobId: string; status: 'queued' }>;
   },
   reindexAiFile: (id: string) =>
-    jsonFetch(`/api/ai-agent/files/${id}/reindex`, { method: 'POST' }) as Promise<{ ok: boolean; source: DataSource; chunks_created: number; embedded_chunks: number; warnings: string[]; page_count: number | null }>,
+    jsonFetch(`/api/ai-agent/files/${id}/reindex`, { method: 'POST' }) as Promise<{ ok: boolean; source: DataSource; jobId: string; status: 'queued' }>,
   deleteAiFile: (id: string) =>
     jsonFetch(`/api/ai-agent/files/${id}`, { method: 'DELETE' }) as Promise<{ ok: boolean; chunks_deleted: number; storage_deleted: boolean; storage_error?: string }>,
   pauseAiFile: (id: string) =>
     jsonFetch(`/api/ai-agent/files/${id}/pause`, { method: 'POST' }) as Promise<{ ok: boolean }>,
   resumeAiFile: (id: string) =>
-    jsonFetch(`/api/ai-agent/files/${id}/resume`, { method: 'POST' }) as Promise<{ ok: boolean; source: DataSource }>,
+    jsonFetch(`/api/ai-agent/files/${id}/resume`, { method: 'POST' }) as Promise<{ ok: boolean; source: DataSource; jobId: string; status: 'queued' }>,
+  getAiFilePreview: (id: string) =>
+    jsonFetch(`/api/ai-agent/files/${id}/preview`) as Promise<{
+      source_id: string; file_name: string; status: string; job_status: string | null;
+      parser: string | null; page_count: number | null; text_length: number | null;
+      text_preview: string;
+      chunks_preview: Array<{ index: number; content: string; status: string }>;
+      warnings: string[]; last_error: string | null; last_warning: string | null;
+    }>,
+  getAiFileLogs: (id: string) =>
+    jsonFetch(`/api/ai-agent/files/${id}/logs`) as Promise<{
+      items: Array<{ id: string; status: string; message: string | null; pages_found: number; chunks_created: number; embedded_chunks: number; errors: number; metadata: Record<string, unknown>; created_at: string }>;
+      jobs: Array<{ id: string; status: string; attempts: number; started_at: string | null; finished_at: string | null; last_error: string | null; created_at: string; job_type: string }>;
+    }>,
   getWorkspaceDomains: (workspaceId: string) =>
     jsonFetch(`/api/ai-agent/workspace-domain?workspaceId=${workspaceId}`) as Promise<{ domains: Array<{ domain: string; is_primary: boolean; verified: boolean }> }>,
   // Pass B1 — Topics

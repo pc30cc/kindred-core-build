@@ -132,7 +132,7 @@ const RUNTIME_PARITY: DryRunResult['runtime_parity'] = {
   learning_generation: 'disabled',
 };
 
-function redactDeep(obj: any, depth = 0): any {
+export function redactDeep(obj: any, depth = 0): any {
   if (obj == null || depth > 8) return obj;
   if (Array.isArray(obj)) return obj.map((v) => redactDeep(v, depth + 1));
   if (typeof obj === 'object') {

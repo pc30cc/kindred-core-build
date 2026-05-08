@@ -1630,6 +1630,69 @@ export type Database = {
         }
         Relationships: []
       }
+      ai_operator_assist_runs: {
+        Row: {
+          answer_strategy: Json
+          confidence: number | null
+          conversation_id: string
+          created_at: string
+          error: string | null
+          id: string
+          input_message: string | null
+          instruction: string | null
+          model: string | null
+          provider: string | null
+          requested_by: string | null
+          retrieval_debug: Json
+          safety_notes: Json
+          selected_sources: Json
+          status: string
+          suggestion: string | null
+          tone: string | null
+          workspace_id: string
+        }
+        Insert: {
+          answer_strategy?: Json
+          confidence?: number | null
+          conversation_id: string
+          created_at?: string
+          error?: string | null
+          id?: string
+          input_message?: string | null
+          instruction?: string | null
+          model?: string | null
+          provider?: string | null
+          requested_by?: string | null
+          retrieval_debug?: Json
+          safety_notes?: Json
+          selected_sources?: Json
+          status: string
+          suggestion?: string | null
+          tone?: string | null
+          workspace_id: string
+        }
+        Update: {
+          answer_strategy?: Json
+          confidence?: number | null
+          conversation_id?: string
+          created_at?: string
+          error?: string | null
+          id?: string
+          input_message?: string | null
+          instruction?: string | null
+          model?: string | null
+          provider?: string | null
+          requested_by?: string | null
+          retrieval_debug?: Json
+          safety_notes?: Json
+          selected_sources?: Json
+          status?: string
+          suggestion?: string | null
+          tone?: string | null
+          workspace_id?: string
+        }
+        Relationships: []
+      }
       ai_source_pages: {
         Row: {
           chunks_created: number | null

@@ -40,6 +40,7 @@ import { toast } from '@/hooks/use-toast';
 import { ConversationActionPanel } from '@/components/inbox/ConversationActionPanel';
 import { ConversationActivityPanel } from '@/components/inbox/ConversationActivityPanel';
 import { AiSuggestionCard } from '@/components/inbox/AiSuggestionCard';
+import { OperatorAssistPanel } from '@/components/inbox/OperatorAssistPanel';
 import { aiAgentApi } from '@/lib/ai-agent-api';
 import { SidebarCallCard } from '@/components/inbox/SidebarCallCard';
 import { CannedResponsePicker, type CannedPickerHandle } from '@/components/canned-responses/CannedResponsePicker';
@@ -1571,6 +1572,20 @@ export default function InboxPage() {
                       );
                     })
                   }
+                />
+              )}
+              {selectedId && workspace?.id && (
+                <OperatorAssistPanel
+                  workspaceId={workspace.id}
+                  conversationId={selectedId}
+                  composerHasText={!!message.trim()}
+                  dir={dir}
+                  onInsert={(text, mode) => {
+                    setMessage((prev) =>
+                      mode === 'append' && prev ? `${prev}\n\n${text}` : text,
+                    );
+                    requestAnimationFrame(() => messageInputRef.current?.focus());
+                  }}
                 />
               )}
               {/* Pending attachment chip */}

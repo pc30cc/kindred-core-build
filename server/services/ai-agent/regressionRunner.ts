@@ -65,7 +65,17 @@ export interface RegressionBatch {
 // Timezone-aware schedule math.
 //
 // No hardcoded city/zone (no Istanbul, no server tz, no browser tz).
-// Resolution order: schedule.timezone → platform_settings.timezone → 'UTC'.
+// Resolution order:
+//   1) schedule.timezone (if valid IANA)
+//   2) workspace-level timezone (if a `workspaces.timezone` column exists)
+//   3) platform_settings.timezone
+//   4) 'UTC'
+//
+// NOTE: As of E10.2 the public.workspaces table does NOT have a `timezone`
+// column. The lookup below probes for it and silently caches "unsupported"
+// after the first miss so we don't hammer the DB. If a future migration
+// adds workspaces.timezone, this code starts honouring it automatically
+// without further changes.
 // Invalid IANA strings fall back to UTC and emit metadata.warning.
 // ──────────────────────────────────────────────────────────────────────
 
@@ -133,33 +143,75 @@ async function getPlatformTimezone(sb: SupabaseClient): Promise<string | null> {
   } catch { return null; }
 }
 
+
+let _workspaceTzColumnSupported: boolean | null = null;
+const _workspaceTzCache = new Map<string, { tz: string | null; ts: number }>();
+async function getWorkspaceTimezone(
+  sb: SupabaseClient,
+  workspaceId: string | null | undefined,
+): Promise<string | null> {
+  if (!workspaceId) return null;
+  if (_workspaceTzColumnSupported === false) return null;
+  const cached = _workspaceTzCache.get(workspaceId);
+  if (cached && Date.now() - cached.ts < 60_000) return cached.tz;
+  try {
+    const { data, error } = await sb.from('workspaces')
+      .select('timezone').eq('id', workspaceId).maybeSingle();
+    if (error) {
+      // 42703 = undefined_column. Treat any column-missing error as "not supported".
+      const msg = (error.message || '').toLowerCase();
+      if (msg.includes('column') || (error as any).code === '42703') {
+        _workspaceTzColumnSupported = false;
+        return null;
+      }
+      return null;
+    }
+    _workspaceTzColumnSupported = true;
+    const tz = (data as any)?.timezone || null;
+    _workspaceTzCache.set(workspaceId, { tz, ts: Date.now() });
+    return tz;
+  } catch {
+    _workspaceTzColumnSupported = false;
+    return null;
+  }
+}
+
 export interface ResolvedSchedule {
   resolvedTimezone: string;
   warning: string | null;
 }
 
+/** Test-only: clear timezone caches between unit runs. */
+export function __resetTimezoneCachesForTests(): void {
+  _platformTzCache = null;
+  _workspaceTzColumnSupported = null;
+  _workspaceTzCache.clear();
+}
+
 export async function resolveScheduleTimezone(
   sb: SupabaseClient,
   scheduleTz: string | null | undefined,
+  workspaceId?: string | null,
 ): Promise<ResolvedSchedule> {
   // 1) schedule
   if (scheduleTz && scheduleTz.trim()) {
     if (isValidTimezone(scheduleTz)) return { resolvedTimezone: scheduleTz, warning: null };
     // Fall through with warning
   }
-  // 2) platform default
+  const invalidWarning = scheduleTz && !isValidTimezone(scheduleTz)
+    ? 'timezone_invalid_fallback_utc' : null;
+  // 2) workspace-level (if column exists)
+  const wsTz = await getWorkspaceTimezone(sb, workspaceId);
+  if (wsTz && isValidTimezone(wsTz)) {
+    return { resolvedTimezone: wsTz, warning: invalidWarning };
+  }
+  // 3) platform default
   const platformTz = await getPlatformTimezone(sb);
   if (platformTz && isValidTimezone(platformTz)) {
-    return {
-      resolvedTimezone: platformTz,
-      warning: scheduleTz ? 'timezone_invalid_fallback_utc' : null,
-    };
+    return { resolvedTimezone: platformTz, warning: invalidWarning };
   }
-  // 3) UTC
-  return {
-    resolvedTimezone: 'UTC',
-    warning: scheduleTz && !isValidTimezone(scheduleTz) ? 'timezone_invalid_fallback_utc' : null,
-  };
+  // 4) UTC
+  return { resolvedTimezone: 'UTC', warning: invalidWarning };
 }
 
 export interface NextRunComputation {
@@ -170,14 +222,14 @@ export interface NextRunComputation {
 
 export async function computeNextRunAt(
   sb: SupabaseClient,
-  schedule: Pick<RegressionSchedule, 'frequency' | 'time_of_day' | 'timezone' | 'metadata'>,
+  schedule: Pick<RegressionSchedule, 'frequency' | 'time_of_day' | 'timezone' | 'metadata'> & { workspace_id?: string | null },
   from: Date = new Date(),
 ): Promise<NextRunComputation> {
   if (schedule.frequency === 'manual') {
-    const r = await resolveScheduleTimezone(sb, schedule.timezone);
+    const r = await resolveScheduleTimezone(sb, schedule.timezone, schedule.workspace_id ?? null);
     return { next_run_at: null, resolved_timezone: r.resolvedTimezone, warning: r.warning };
   }
-  const tzInfo = await resolveScheduleTimezone(sb, schedule.timezone);
+  const tzInfo = await resolveScheduleTimezone(sb, schedule.timezone, schedule.workspace_id ?? null);
   const tz = tzInfo.resolvedTimezone;
   let warning = tzInfo.warning;
 
@@ -501,7 +553,18 @@ export async function runRegressionBatch(
   if (includeEnabledOnly) q = q.eq('enabled', true);
   const retryIds = Array.isArray((batch.metadata as any)?.retry_case_ids)
     ? ((batch.metadata as any).retry_case_ids as string[]) : null;
-  if (retryIds && retryIds.length) q = q.in('id', retryIds);
+  // Hard guard: a retry batch must NEVER fall back to the full enabled-case set.
+  if (retryIds !== null) {
+    if (retryIds.length === 0) {
+      await sb.from('ai_agent_regression_batches').update({
+        status: 'failed',
+        finished_at: new Date().toISOString(),
+        last_error: 'no_retry_cases_found',
+      }).eq('id', batchId);
+      return { ok: false, total: 0, passed: 0, failed: 0, errored: 0, error: 'no_retry_cases_found' };
+    }
+    q = q.in('id', retryIds);
+  }
   const { data: cases, error: casesErr } = await q.order('created_at', { ascending: true }).limit(maxCases);
   if (casesErr) {
     await sb.from('ai_agent_regression_batches').update({
@@ -512,6 +575,14 @@ export async function runRegressionBatch(
     return { ok: false, total: 0, passed: 0, failed: 0, errored: 0, error: casesErr.message };
   }
   const list = cases || [];
+  if (retryIds !== null && list.length === 0) {
+    await sb.from('ai_agent_regression_batches').update({
+      status: 'failed',
+      finished_at: new Date().toISOString(),
+      last_error: 'no_retry_cases_found',
+    }).eq('id', batchId);
+    return { ok: false, total: 0, passed: 0, failed: 0, errored: 0, error: 'no_retry_cases_found' };
+  }
   const startedAtMs = Date.now();
   const baseMeta = { ...((batch.metadata as Record<string, unknown>) || {}) };
   baseMeta.current_case_index = 0;

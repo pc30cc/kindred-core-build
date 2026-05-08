@@ -431,14 +431,14 @@ function BatchDetailDialog({
               {meta.retry_of_batch_id && <span>Retry of: <code className="text-[10px]">{String(meta.retry_of_batch_id).slice(0,8)}</code></span>}
             </div>
             <div className="flex flex-wrap gap-2">
-              {isActive && (
-                <Button size="sm" variant="destructive" disabled={!canManage || cancelMut.isPending}
+              {isActive && canManage && (
+                <Button size="sm" variant="destructive" disabled={cancelMut.isPending}
                   onClick={() => cancelMut.mutate()}>
                   {cancelMut.isPending ? 'Cancelling…' : 'Cancel batch'}
                 </Button>
               )}
-              {hasFailures && (
-                <Button size="sm" variant="outline" disabled={!canManage || retryMut.isPending}
+              {hasFailures && canManage && (
+                <Button size="sm" variant="outline" disabled={retryMut.isPending}
                   onClick={() => retryMut.mutate()}>
                   {retryMut.isPending ? 'Queuing…' : 'Retry failed'}
                 </Button>

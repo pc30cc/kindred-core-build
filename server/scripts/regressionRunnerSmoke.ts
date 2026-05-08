@@ -40,7 +40,9 @@ async function main() {
       workspace_id: wsId,
       name: 'smoke seed case',
       input_message: 'hello, what do you offer?',
-      expected_behavior: 'answer_with_kb',
+      // Must match public.ai_agent_test_cases.expected_behavior CHECK:
+      // ('answer','no_answer','handoff','clarification').
+      expected_behavior: 'answer',
       enabled: true,
     });
     assert(!error, `seed insert: ${error?.message}`);

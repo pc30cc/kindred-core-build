@@ -444,6 +444,40 @@ export const aiAgentApi = {
   },
   rebuildKnowledgeSource: (workspaceId: string, sourceType: 'kb_article' | 'qna' | 'business_profile', sourceId: string) =>
     jsonFetch(`/api/ai-agent/knowledge-index/rebuild-source`, { method: 'POST', body: JSON.stringify({ workspaceId, sourceType, sourceId }) }) as Promise<{ ok: boolean; reason?: string }>,
+  // ─── E6 — Test Harness ───
+  listTestCases: (workspaceId: string, opts: { enabled?: boolean; expected_behavior?: string; expected_source_type?: string; query?: string } = {}) => {
+    const p = new URLSearchParams({ workspaceId });
+    if (typeof opts.enabled === 'boolean') p.set('enabled', String(opts.enabled));
+    if (opts.expected_behavior) p.set('expected_behavior', opts.expected_behavior);
+    if (opts.expected_source_type) p.set('expected_source_type', opts.expected_source_type);
+    if (opts.query) p.set('query', opts.query);
+    return jsonFetch(`/api/ai-agent/test-cases?${p.toString()}`) as Promise<{ items: TestCase[] }>;
+  },
+  createTestCase: (workspaceId: string, payload: Partial<TestCase>) =>
+    jsonFetch(`/api/ai-agent/test-cases`, { method: 'POST', body: JSON.stringify({ workspaceId, ...payload }) }) as Promise<{ item: TestCase }>,
+  updateTestCase: (id: string, patch: Partial<TestCase>) =>
+    jsonFetch(`/api/ai-agent/test-cases/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }) as Promise<{ item: TestCase }>,
+  deleteTestCase: (id: string) =>
+    jsonFetch(`/api/ai-agent/test-cases/${id}`, { method: 'DELETE' }) as Promise<{ ok: boolean }>,
+  runTestCase: (id: string) =>
+    jsonFetch(`/api/ai-agent/test-cases/${id}/run`, { method: 'POST' }) as Promise<{ run: TestRun; result: any; evaluation: { passed: boolean; failure_reasons: string[] } }>,
+  runBulkTests: (workspaceId: string, ids?: string[]) =>
+    jsonFetch(`/api/ai-agent/test-cases/run-bulk`, { method: 'POST', body: JSON.stringify({ workspaceId, ids }) }) as Promise<{ total: number; passed: number; failed: number; errored: number; runs: any[] }>,
+  seedRecommendedTests: (workspaceId: string) =>
+    jsonFetch(`/api/ai-agent/test-cases/seed-recommended`, { method: 'POST', body: JSON.stringify({ workspaceId }) }) as Promise<{ inserted: number; skipped: number; created: Array<{ name: string; expected_source_type: string | null; expected_source_id: string | null }>; skipped_reasons: string[] }>,
+  listTestRuns: (workspaceId: string, opts: { testCaseId?: string; status?: string; limit?: number } = {}) => {
+    const p = new URLSearchParams({ workspaceId });
+    if (opts.testCaseId) p.set('testCaseId', opts.testCaseId);
+    if (opts.status) p.set('status', opts.status);
+    if (opts.limit) p.set('limit', String(opts.limit));
+    return jsonFetch(`/api/ai-agent/test-runs?${p.toString()}`) as Promise<{ items: TestRun[] }>;
+  },
+  getTestRun: (id: string) =>
+    jsonFetch(`/api/ai-agent/test-runs/${id}`) as Promise<{ item: TestRun; test_case: TestCase | null }>,
+  getTestSummary: (workspaceId: string) =>
+    jsonFetch(`/api/ai-agent/test-summary?workspaceId=${workspaceId}`) as Promise<TestSummary>,
+  debugRunTest: (input: { workspaceId: string; message: string; locale?: string; pageContext?: any; callLLM?: boolean }) =>
+    jsonFetch(`/api/ai-agent/debug/run-test`, { method: 'POST', body: JSON.stringify(input) }) as Promise<any>,
 };
 
 export interface TrainSourceTypeBreakdown {
@@ -886,37 +920,3 @@ export interface TestSummary {
   failures_by_reason: Record<string, number>;
   coverage_by_source_type: Record<string, number>;
 }
-
-Object.assign(aiAgentApi, {
-  listTestCases: (workspaceId: string, opts: { enabled?: boolean; expected_behavior?: string; expected_source_type?: string; query?: string } = {}) => {
-    const p = new URLSearchParams({ workspaceId });
-    if (typeof opts.enabled === 'boolean') p.set('enabled', String(opts.enabled));
-    if (opts.expected_behavior) p.set('expected_behavior', opts.expected_behavior);
-    if (opts.expected_source_type) p.set('expected_source_type', opts.expected_source_type);
-    if (opts.query) p.set('query', opts.query);
-    return jsonFetch(`/api/ai-agent/test-cases?${p.toString()}`) as Promise<{ items: TestCase[] }>;
-  },
-  createTestCase: (workspaceId: string, payload: Partial<TestCase>) =>
-    jsonFetch(`/api/ai-agent/test-cases`, { method: 'POST', body: JSON.stringify({ workspaceId, ...payload }) }) as Promise<{ item: TestCase }>,
-  updateTestCase: (id: string, patch: Partial<TestCase>) =>
-    jsonFetch(`/api/ai-agent/test-cases/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }) as Promise<{ item: TestCase }>,
-  deleteTestCase: (id: string) =>
-    jsonFetch(`/api/ai-agent/test-cases/${id}`, { method: 'DELETE' }),
-  runTestCase: (id: string) =>
-    jsonFetch(`/api/ai-agent/test-cases/${id}/run`, { method: 'POST' }) as Promise<{ run: TestRun; result: any; evaluation: any }>,
-  runBulkTests: (workspaceId: string, ids?: string[]) =>
-    jsonFetch(`/api/ai-agent/test-cases/run-bulk`, { method: 'POST', body: JSON.stringify({ workspaceId, ids }) }) as Promise<{ total: number; passed: number; failed: number; errored: number; runs: any[] }>,
-  seedRecommendedTests: (workspaceId: string) =>
-    jsonFetch(`/api/ai-agent/test-cases/seed-recommended`, { method: 'POST', body: JSON.stringify({ workspaceId }) }) as Promise<{ inserted: number; skipped: number }>,
-  listTestRuns: (workspaceId: string, opts: { testCaseId?: string; status?: string; limit?: number } = {}) => {
-    const p = new URLSearchParams({ workspaceId });
-    if (opts.testCaseId) p.set('testCaseId', opts.testCaseId);
-    if (opts.status) p.set('status', opts.status);
-    if (opts.limit) p.set('limit', String(opts.limit));
-    return jsonFetch(`/api/ai-agent/test-runs?${p.toString()}`) as Promise<{ items: TestRun[] }>;
-  },
-  getTestSummary: (workspaceId: string) =>
-    jsonFetch(`/api/ai-agent/test-summary?workspaceId=${workspaceId}`) as Promise<TestSummary>,
-  debugRunTest: (input: { workspaceId: string; message: string; locale?: string; pageContext?: any; callLLM?: boolean }) =>
-    jsonFetch(`/api/ai-agent/debug/run-test`, { method: 'POST', body: JSON.stringify(input) }) as Promise<any>,
-});

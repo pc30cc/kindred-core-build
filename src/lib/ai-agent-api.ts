@@ -647,6 +647,11 @@ export const aiAgentApi = {
     jsonFetch(`/api/ai-agent/regression/batches/${id}/cancel`, { method: 'POST' }) as Promise<{ ok: boolean; status: RegressionBatch['status']; idempotent: boolean }>,
   retryFailedRegressionBatch: (id: string) =>
     jsonFetch(`/api/ai-agent/regression/batches/${id}/retry-failed`, { method: 'POST' }) as Promise<{ batch: RegressionBatch }>,
+  // E10.2 short aliases (kept stable for tests/imports).
+  e10_cancelBatch: (id: string) =>
+    jsonFetch(`/api/ai-agent/regression/batches/${id}/cancel`, { method: 'POST' }) as Promise<{ ok: boolean; status: RegressionBatch['status']; idempotent: boolean }>,
+  e10_retryFailed: (id: string) =>
+    jsonFetch(`/api/ai-agent/regression/batches/${id}/retry-failed`, { method: 'POST' }) as Promise<{ batch: RegressionBatch }>,
 };
 
 // ─── E10 types ───

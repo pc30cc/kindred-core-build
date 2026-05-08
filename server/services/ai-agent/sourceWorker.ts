@@ -39,12 +39,40 @@ let stopping = false;
 
 export function startInProcessSourceWorker(config: ServerConfig): void {
   if (started) return;
-  if (process.env.AI_KB_WORKER_INPROC !== '1') return;
+  const legacy = process.env.AI_KB_WORKER_INPROC === '1';
+  const websiteInproc = process.env.AI_SOURCE_SYNC_WORKER_INPROC === '1';
+  const fileInproc = process.env.AI_FILE_INGEST_WORKER_INPROC === '1';
+  if (!legacy && !websiteInproc && !fileInproc) return;
   started = true;
-  console.log('[ai-kb worker] started in-process', { workerId: WORKER_ID, pollMs: POLL_INTERVAL_MS, lockTtl: LOCK_TTL_SECONDS });
+
+  // Resolve job-type filter. Explicit env override wins.
+  let jobTypes: string[] | undefined;
+  const envOverride = (process.env.AI_SOURCE_JOB_TYPES || '')
+    .split(',').map(s => s.trim()).filter(Boolean);
+  if (envOverride.length > 0 && !envOverride.includes('all')) {
+    jobTypes = envOverride;
+  } else if (envOverride.includes('all')) {
+    jobTypes = undefined;
+  } else if (websiteInproc && fileInproc) {
+    jobTypes = ['website_sync', 'website_rebuild', 'file_ingest'];
+  } else if (fileInproc) {
+    jobTypes = ['file_ingest'];
+  } else if (websiteInproc) {
+    jobTypes = ['website_sync', 'website_rebuild'];
+  } else if (legacy) {
+    // Legacy AI_KB_WORKER_INPROC: do NOT silently claim file_ingest in
+    // production. Default to website jobs only and warn loudly.
+    console.warn('[ai-kb worker] AI_KB_WORKER_INPROC=1 is legacy. Defaulting to website jobs only. Set AI_SOURCE_JOB_TYPES=file_ingest or AI_FILE_INGEST_WORKER_INPROC=1 to also process file ingestion in-process (NOT recommended in production).');
+    jobTypes = ['website_sync', 'website_rebuild'];
+  }
+
+  console.log('[ai-kb worker] started in-process', {
+    workerId: WORKER_ID, pollMs: POLL_INTERVAL_MS, lockTtl: LOCK_TTL_SECONDS,
+    jobTypes: jobTypes || 'all',
+  });
   const tick = async () => {
     if (stopping) return;
-    try { await processOne(config); } catch (e: any) {
+    try { await processOne(config, { jobTypes }); } catch (e: any) {
       console.warn('[ai-kb worker] tick error:', e?.message);
     } finally {
       setTimeout(tick, POLL_INTERVAL_MS).unref?.();

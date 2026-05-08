@@ -321,12 +321,26 @@ export default function RegressionRunsPage() {
   );
 }
 
-function SummaryCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
+type Tone = 'green' | 'red' | 'yellow' | 'blue' | undefined;
+const TONE_CLASS: Record<string, string> = {
+  green: 'text-emerald-600',
+  red: 'text-destructive',
+  yellow: 'text-amber-600',
+  blue: 'text-primary',
+};
+function statusTone(status: RegressionBatch['status']): Tone {
+  if (status === 'completed') return 'green';
+  if (status === 'failed') return 'red';
+  if (status === 'cancelled') return 'yellow';
+  if (status === 'running') return 'blue';
+  return undefined;
+}
+function SummaryCard({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: Tone }) {
   return (
     <Card>
       <CardContent className="p-4">
         <div className="text-xs text-muted-foreground">{label}</div>
-        <div className="text-xl font-semibold">{value}</div>
+        <div className={`text-xl font-semibold ${tone ? TONE_CLASS[tone] : ''}`}>{value}</div>
         {sub && <div className="text-xs text-muted-foreground mt-1">{sub}</div>}
       </CardContent>
     </Card>

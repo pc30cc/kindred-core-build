@@ -37,6 +37,7 @@ const FEATURE_DEFS = [
   { key: 'api_access', label: 'API Access', icon: Code2 },
   { key: 'voice_video', label: 'Voice & Video', icon: Phone },
   { key: 'help_center', label: 'Help Center', icon: HelpCircle },
+  { key: 'ai_operator_assist', label: 'AI Operator Assist', icon: Bot },
 ];
 
 const DEFAULT_LIMITS = [
@@ -46,6 +47,7 @@ const DEFAULT_LIMITS = [
   { key: 'conversations', label: 'Max Conversations/mo', default: 100 },
   { key: 'kb_articles', label: 'KB Articles', default: 10 },
   { key: 'file_storage_mb', label: 'Storage (MB)', default: 100 },
+  { key: 'ai_operator_suggestions', label: 'AI Operator Suggestions/mo', default: 0 },
 ];
 
 const CURRENCIES = ['USD', 'EUR', 'TRY', 'IRR'];

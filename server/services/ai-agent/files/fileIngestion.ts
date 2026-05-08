@@ -689,6 +689,11 @@ async function finalizeIndex(
         .update({ status: targetChunkStatus })
         .eq('workspace_id', workspaceId).eq('source_type', 'file').eq('source_id', sourceId)
         .eq('status', 'active');
+      await logFileEvent(config, {
+        workspaceId, sourceId, status: 'file_ingest_finalization_aborted',
+        message: e instanceof IngestError ? e.code : 'finalization_aborted',
+        metadata: { phase: 'pre_finalize', reason: (e as any)?.code || 'unknown' },
+      });
       throw e;
     }
   }
@@ -727,7 +732,11 @@ async function finalizeIndex(
   delete (finalMeta as any).download_error;
   delete (finalMeta as any).index_error;
 
-  const { data: updated } = await sb
+  // Conditional final update: only flip to 'active' if status is still
+  // 'syncing'. If admin paused/deleted/cancelled the source after the
+  // pre_finalize guard, the row count = 0 and we fail closed — never leave
+  // active chunks behind for a paused/deleted source.
+  let updateQuery = sb
     .from('ai_data_sources')
     .update({
       status: 'active',
@@ -740,8 +749,31 @@ async function finalizeIndex(
       metadata: finalMeta,
     })
     .eq('id', sourceId)
-    .select('*')
-    .single();
+    .eq('workspace_id', workspaceId)
+    .eq('source_type', 'file')
+    .eq('status', 'syncing');
+  const { data: updated } = await updateQuery.select('*').maybeSingle();
+
+  if (!updated) {
+    // Race lost. Reload to learn the actual terminal status.
+    const { data: cur } = await sb
+      .from('ai_data_sources').select('status, metadata').eq('id', sourceId).maybeSingle();
+    const curStatus = (cur as any)?.status as string | undefined;
+    const targetChunkStatus = curStatus === 'deleted' ? 'deleted' : 'stale';
+    await sb.from('ai_knowledge_chunks')
+      .update({ status: targetChunkStatus })
+      .eq('workspace_id', workspaceId).eq('source_type', 'file').eq('source_id', sourceId)
+      .eq('status', 'active');
+    const code = curStatus === 'deleted' ? 'source_deleted'
+               : curStatus === 'paused'  ? 'source_paused'
+               : 'job_cancelled';
+    await logFileEvent(config, {
+      workspaceId, sourceId, status: 'file_ingest_finalization_aborted',
+      message: `final_update_lost_race:${curStatus || 'unknown'}`,
+      metadata: { phase: 'final_update', current_status: curStatus || null },
+    });
+    throw new IngestError(code, 400, `final_update_lost_race:${curStatus || 'unknown'}`);
+  }
 
   return {
     source: updated,
@@ -762,7 +794,26 @@ export async function deleteAiFile(
   if (!source) throw new IngestError('not_found', 404);
   if (source.source_type !== 'file') throw new IngestError('not_a_file_source', 400);
 
-  // 1. Deactivate/delete chunks first.
+  const meta = (source.metadata as any) || {};
+
+  // Idempotent: if already deleted, do not re-run chunk/storage ops.
+  if (source.status === 'deleted') {
+    return { chunks_deleted: 0, storage_deleted: false, storage_error: 'already_deleted' };
+  }
+
+  // 1. Mark source deleted FIRST so concurrent workers' guards (which read
+  //    ai_data_sources.status) immediately see source_deleted and abort.
+  //    Preserve storage_path in metadata for the storage-cleanup step below.
+  await sb.from('ai_data_sources').update({
+    status: 'deleted',
+    metadata: { ...meta, deleted_at: new Date().toISOString(), job_status: 'cancelled' },
+  }).eq('id', sourceId);
+
+  // 2. Cancel queued/running file_ingest jobs for that source so the worker
+  //    wrapper bails out before reactivating anything.
+  await cancelFileIngestJobsForSource(config, sourceId);
+
+  // 3. Mark all chunks deleted (no active chunks may remain).
   const { data: deletedChunks } = await sb
     .from('ai_knowledge_chunks')
     .update({ status: 'deleted' })
@@ -772,11 +823,8 @@ export async function deleteAiFile(
     .neq('status', 'deleted')
     .select('id');
 
-  // 2. Mark source deleted.
-  const meta = (source.metadata as any) || {};
+  // 4. Best-effort storage delete using saved storage_path.
   const storagePath: string | undefined = meta.storage_path;
-
-  // 3. Best-effort storage delete.
   let storageDeleted = false;
   let storageError: string | undefined;
   if (storagePath) {
@@ -785,15 +833,18 @@ export async function deleteAiFile(
     if (!r.success) storageError = r.error || 'storage_delete_failed';
   }
 
-  await sb.from('ai_data_sources').update({
-    status: 'deleted',
-    metadata: { ...meta, deleted_at: new Date().toISOString(), storage_delete_error: storageError || null },
-  }).eq('id', sourceId);
+  // 5. Persist storage_delete_error if any (do not flip status away from 'deleted').
+  if (storageError) {
+    const { data: cur } = await sb.from('ai_data_sources').select('metadata').eq('id', sourceId).maybeSingle();
+    await sb.from('ai_data_sources').update({
+      metadata: { ...((cur?.metadata as any) || {}), storage_delete_error: storageError },
+    }).eq('id', sourceId);
+  }
 
-  await cancelFileIngestJobsForSource(config, sourceId);
   await logFileEvent(config, {
     workspaceId: source.workspace_id, sourceId, status: 'file_deleted',
     message: `Deleted; chunks_removed=${(deletedChunks || []).length}, storage_deleted=${storageDeleted}`,
+    metadata: { storage_delete_error: storageError || null },
   });
 
   return {

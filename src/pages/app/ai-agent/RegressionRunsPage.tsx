@@ -478,8 +478,8 @@ function ScheduleMeta({ schedule }: { schedule: RegressionSchedule }) {
 }
 
 function BatchDetailDialog({
-  batchId, onClose, wsPath, canManage, onChanged,
-}: { batchId: string | null; onClose: () => void; wsPath: (p: string) => string; canManage: boolean; onChanged: () => void }) {
+  batchId, onClose, wsPath, canManage, onChanged, onOpenChild,
+}: { batchId: string | null; onClose: () => void; wsPath: (p: string) => string; canManage: boolean; onChanged: () => void; onOpenChild?: (id: string) => void }) {
   const qc = useQueryClient();
   const q = useQuery({
     queryKey: ['ai-agent', 'regression-batch', batchId],
@@ -585,7 +585,7 @@ function BatchDetailDialog({
                       <span>{c.passed} passed · {c.failed} failed · {c.errored} errored</span>
                       <Button
                         size="sm" variant="ghost" className="ml-auto h-6"
-                        onClick={() => { (window as any).__openRegressionBatch?.(c.id); }}
+                        onClick={() => onOpenChild?.(c.id)}
                       >
                         Open
                       </Button>

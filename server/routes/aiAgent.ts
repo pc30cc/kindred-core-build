@@ -390,6 +390,221 @@ aiAgentRouter.get('/runs', async (req: Request, res: Response) => {
   return res.json({ runs });
 });
 
+// ─── E5 — Answer Inspector ───
+// GET /runs/:id/inspect — returns redacted, observable run details.
+// Strips storage paths, signed URLs, credentials, tokens. File source URLs are null.
+const SENSITIVE_KEY_PATTERNS = [
+  'storage_path','storage_url','signed_url','signedurl','signature','token','secret',
+  'password','credential','access_key','accesskey','api_key','apikey','authorization',
+];
+function redactDeep(obj: any, depth = 0): any {
+  if (obj == null || depth > 6) return obj;
+  if (Array.isArray(obj)) return obj.map((v) => redactDeep(v, depth + 1));
+  if (typeof obj === 'object') {
+    const out: any = {};
+    for (const [k, v] of Object.entries(obj)) {
+      const lk = k.toLowerCase();
+      if (SENSITIVE_KEY_PATTERNS.some((p) => lk.includes(p))) continue;
+      out[k] = redactDeep(v, depth + 1);
+    }
+    return out;
+  }
+  return obj;
+}
+function truncate(s: any, n: number): any {
+  if (typeof s !== 'string') return s;
+  return s.length > n ? s.slice(0, n) + '…' : s;
+}
+
+aiAgentRouter.get('/runs/:id/inspect', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const sb = getServiceClient(config);
+  const { data: run, error } = await sb.from('ai_agent_runs').select('*').eq('id', req.params.id).maybeSingle();
+  if (error || !run) return res.status(404).json({ error: 'run_not_found' });
+  const auth = await authorizeMember(req, res, config, run.workspace_id);
+  if (!auth) return;
+
+  const meta: any = run.metadata || {};
+  const retrieval = meta.retrieval || {};
+  const retrievalDebug = retrieval.retrieval_debug || null;
+  const answerStrategy = meta.answer_strategy || null;
+  const pageContext = meta.page_context || retrieval.page_context || null;
+
+  // Conversation + visitor/AI message context (best-effort).
+  let conversation: any = null;
+  let visitorMessage: any = null;
+  let aiMessage: any = null;
+  if (run.conversation_id) {
+    const { data: c } = await sb.from('conversations').select('id, status, channel, locale, created_at').eq('id', run.conversation_id).maybeSingle();
+    conversation = c || null;
+    if (run.visitor_message_id) {
+      const { data: vm } = await sb.from('conversation_messages').select('id, body, created_at, sender_kind').eq('id', run.visitor_message_id).maybeSingle();
+      visitorMessage = vm ? { id: vm.id, body: truncate(vm.body, 4000), created_at: vm.created_at } : null;
+    }
+    const { data: am } = await sb.from('conversation_messages')
+      .select('id, body, created_at, sender_kind, metadata')
+      .eq('conversation_id', run.conversation_id)
+      .gte('created_at', run.created_at)
+      .order('created_at', { ascending: true })
+      .limit(5);
+    const found = (am || []).find((m: any) => m?.metadata?.run_id === run.id || m?.metadata?.runId === run.id);
+    if (found) aiMessage = { id: found.id, body: truncate(found.body, 4000), created_at: found.created_at };
+  }
+
+  const promptPreview = meta.prompt_preview
+    ? { system: truncate(meta.prompt_preview.system, 2000), user: truncate(meta.prompt_preview.user, 4000) }
+    : null;
+
+  const safetyNotes: string[] = [];
+  const exc = retrieval.excluded_sources_summary || retrievalDebug?.excluded_sources_summary;
+  if (exc) {
+    if (exc.disabled_qna_excluded) safetyNotes.push(`disabled_qna_excluded=${exc.disabled_qna_excluded}`);
+    if (exc.draft_kb_excluded) safetyNotes.push(`draft_kb_excluded=${exc.draft_kb_excluded}`);
+    if (exc.inactive_file_excluded) safetyNotes.push(`inactive_file_excluded=${exc.inactive_file_excluded}`);
+  }
+
+  // Best-effort observability event.
+  try {
+    await sb.from('ai_source_sync_logs').insert({
+      workspace_id: run.workspace_id,
+      source_id: null,
+      event: 'answer_inspected',
+      level: 'info',
+      metadata: { run_id: run.id, by_user: auth.userId },
+    });
+  } catch { /* noop */ }
+
+  return res.json(redactDeep({
+    run: {
+      id: run.id,
+      workspace_id: run.workspace_id,
+      conversation_id: run.conversation_id,
+      run_type: run.run_type,
+      mode: run.mode,
+      status: run.status,
+      input_text: truncate(run.input_text, 4000),
+      output_text: truncate(run.output_text, 4000),
+      confidence: run.confidence,
+      provider: run.provider,
+      model: run.model,
+      created_at: run.created_at,
+    },
+    conversation,
+    visitor_message: visitorMessage,
+    ai_message: aiMessage,
+    retrieval_debug: retrievalDebug,
+    answer_strategy: answerStrategy,
+    page_context: pageContext,
+    selected_sources: retrievalDebug?.selected_sources || retrieval.selected_sources || [],
+    prompt_preview: promptPreview,
+    decision_timeline: meta.decision_timeline || [],
+    safety_notes: safetyNotes,
+  }));
+});
+
+// ─── E5 — Retrieval Debugger ───
+// POST /debug/retrieval — runs retrieval ONLY. No message insert, no workflows,
+// no MCP/tools, no learning, no handoff, no LLM call, no visitor side-effects.
+const debugRetrievalSchema = z.object({
+  workspaceId: z.string().uuid(),
+  message: z.string().min(1).max(2000),
+  locale: z.string().max(10).optional(),
+  pageContext: z.object({
+    currentPageUrl: z.string().max(2000).nullable().optional(),
+    currentPageOrigin: z.string().max(500).nullable().optional(),
+    currentPagePath: z.string().max(1000).nullable().optional(),
+    currentPageTitle: z.string().max(500).nullable().optional(),
+  }).nullish(),
+});
+const debugCounters = new Map<string, { count: number; windowStart: number }>();
+const DEBUG_LIMIT = 30;
+const DEBUG_WINDOW = 5 * 60_000;
+function checkDebugRateLimit(workspaceId: string, userId: string): boolean {
+  const key = `${workspaceId}:${userId}`;
+  const now = Date.now();
+  const c = debugCounters.get(key);
+  if (!c || now - c.windowStart > DEBUG_WINDOW) {
+    debugCounters.set(key, { count: 1, windowStart: now });
+    return true;
+  }
+  c.count += 1;
+  return c.count <= DEBUG_LIMIT;
+}
+
+aiAgentRouter.post('/debug/retrieval', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = debugRetrievalSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
+  const { workspaceId, message, locale, pageContext } = parsed.data;
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  if (!checkDebugRateLimit(workspaceId, auth.userId)) {
+    return res.status(429).json({ error: 'debug_rate_limited', message: `Limit ${DEBUG_LIMIT} runs per 5 minutes per user.` });
+  }
+
+  try {
+    const hybrid = await retrieveHybridSources(config, {
+      workspaceId,
+      originalMessage: message,
+      retrievalQuery: message,
+      expandedQuery: message,
+      responseLanguage: locale || 'en',
+      inputLanguage: locale || 'en',
+      limit: 8,
+      pageContext: pageContext ? {
+        currentPageUrl: pageContext.currentPageUrl ?? null,
+        currentPageOrigin: pageContext.currentPageOrigin ?? null,
+        currentPagePath: pageContext.currentPagePath ?? null,
+        currentPageTitle: pageContext.currentPageTitle ?? null,
+      } : null,
+    });
+
+    const top = hybrid.sources[0];
+    let recommendation: 'answer_possible' | 'needs_clarification' | 'handoff_likely' | 'no_answer_likely';
+    if (!top) recommendation = 'no_answer_likely';
+    else if (top.final_score >= 0.55) recommendation = 'answer_possible';
+    else if (top.final_score >= 0.3) recommendation = 'needs_clarification';
+    else recommendation = 'handoff_likely';
+
+    // Best-effort observability event (no visitor side-effect).
+    const sb = getServiceClient(config);
+    try {
+      await sb.from('ai_source_sync_logs').insert({
+        workspace_id: workspaceId,
+        source_id: null,
+        event: 'retrieval_debug_run',
+        level: 'info',
+        metadata: { by_user: auth.userId, top_score: top?.final_score ?? 0, count: hybrid.sources.length },
+      });
+    } catch { /* noop */ }
+
+    return res.json(redactDeep({
+      retrieval_debug: hybrid.retrievalDebug,
+      excluded_summary: hybrid.excludedSummary,
+      page_context_debug: hybrid.pageContextDebug,
+      recommendation,
+      // Sources without raw content (preview already capped in retrieval_debug.selected_sources).
+      sources: hybrid.sources.map((s) => ({
+        id: s.source_id,
+        source_type: s.source_type,
+        title: s.title,
+        source_url: s.source_type === 'file' ? null : (s.source_url || null),
+        locale: s.locale,
+        final_score: s.final_score,
+        keyword_score: s.keyword_score,
+        vector_score: s.vector_score,
+        topic_boost: s.topic_boost,
+        url_boost: s.url_boost,
+        locale_bonus: s.locale_bonus,
+        source_priority: s.source_priority,
+        content_preview: ((s.content || s.excerpt || '') as string).slice(0, 300),
+      })),
+    }));
+  } catch (err: any) {
+    return res.status(500).json({ error: 'retrieval_debug_failed', details: err?.message });
+  }
+});
+
 // ─── GET /analytics ───
 aiAgentRouter.get('/analytics', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;

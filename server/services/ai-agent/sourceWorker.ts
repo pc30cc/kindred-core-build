@@ -20,7 +20,7 @@ import {
 import { resolveAiAgentDataLimits } from './limits.js';
 import { crawlWebsiteSource } from './crawler/crawlWebsiteSource.js';
 import { normalizeHost, DEFAULT_INCLUDE, DEFAULT_EXCLUDE } from './crawler/urlRules.js';
-import { runFileIngestJob, IngestError } from './files/fileIngestion.js';
+import { runFileIngestJob, IngestError, logFileEvent } from './files/fileIngestion.js';
 
 const WORKER_ID =
   process.env.AI_KB_WORKER_ID ||
@@ -243,11 +243,23 @@ async function runFileIngestJobWrapper(config: ServerConfig, job: SourceSyncJob)
     if (cancelled.has(code)) {
       const { cancelSourceSyncJob } = await import('./sourceJobs.js');
       await cancelSourceSyncJob(config, { jobId: job.id });
+      const evt = code === 'source_deleted' ? 'file_ingest_skipped_source_deleted'
+               : code === 'source_paused'  ? 'file_ingest_skipped_source_paused'
+               : 'file_ingest_skipped_job_cancelled';
+      await logFileEvent(config, {
+        workspaceId: job.workspace_id, sourceId: job.source_id,
+        status: evt, message: code, metadata: { job_id: job.id, worker_id: WORKER_ID },
+      });
       console.log('[ai-kb worker] file_ingest job cancelled', { jobId: job.id, sourceId: job.source_id, reason: code });
       return;
     }
     const retryable = transient.has(code);
     await failSourceSyncJob(config, { jobId: job.id, error: code, retryable });
+    await logFileEvent(config, {
+      workspaceId: job.workspace_id, sourceId: job.source_id,
+      status: retryable ? 'file_job_retry_queued' : 'file_job_failed_non_retryable',
+      message: code, errors: 1, metadata: { job_id: job.id, worker_id: WORKER_ID, retryable },
+    });
     console.warn('[ai-kb worker] file_ingest job failed', {
       jobId: job.id, sourceId: job.source_id, error: code, retryable,
     });

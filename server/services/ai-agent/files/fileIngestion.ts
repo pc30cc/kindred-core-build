@@ -270,117 +270,17 @@ function checkStorageReadiness(
   return { ready: false, error: `unsupported_provider:${p}` };
 }
 
-export async function ingestAiFile(
-  config: ServerConfig,
-  input: IngestInput,
-  opts: { bypassPlanLimits?: boolean } = {},
-): Promise<IngestResult> {
-  const { workspaceId, userId, fileName, mimeType, buffer } = input;
-
-  if (!isSupportedMime(mimeType)) {
-    throw new IngestError('unsupported_file_type', 415);
-  }
-  const parser = parserFor(mimeType)!;
-
-  // Resolve limits & storage provider
-  const limits = await resolveFileLimits(config, workspaceId);
-  if (!limits.storageProvider) {
-    throw new IngestError('storage_not_configured', 500);
-  }
-  if (!limits.storageReady) {
-    throw new IngestError('storage_not_ready', 500, undefined, {
-      storageProvider: limits.storageProvider,
-      storageError: limits.storageError,
-    });
-  }
-  const sizeMB = buffer.length / (1024 * 1024);
-  // Transport cap (JSON base64) always enforced — admin bypass cannot exceed it.
-  if (sizeMB > limits.transportMaxFileSizeMB) {
-    throw new IngestError('file_size_limit_reached', 413, undefined, {
-      maxMB: limits.transportMaxFileSizeMB, actualMB: Math.round(sizeMB * 100) / 100,
-      reason: 'transport_cap',
-    });
-  }
-  if (!opts.bypassPlanLimits && sizeMB > limits.effectiveMaxFileSizeMB) {
-    throw new IngestError('file_size_limit_reached', 413, undefined, {
-      maxMB: limits.effectiveMaxFileSizeMB, actualMB: Math.round(sizeMB * 100) / 100,
-    });
-  }
-  if (!opts.bypassPlanLimits) {
-    const used = await countActiveFileSources(config, workspaceId);
-    if (used >= limits.maxFiles) {
-      throw new IngestError('file_count_limit_reached', 403, undefined, {
-        used, limit: limits.maxFiles,
-      });
-    }
-  }
-
-  const sb = getServiceClient(config);
-  const safeName = safeFileName(fileName);
-  const sha = sha256Hex(buffer);
-
-  // 1. Insert ai_data_sources row first to get id (status='syncing').
-  const { data: source, error: insErr } = await sb
-    .from('ai_data_sources')
-    .insert({
-      workspace_id: workspaceId,
-      source_type: 'file',
-      name: fileName.slice(0, 240),
-      base_url: null,
-      status: 'syncing',
-      include_rules: [],
-      exclude_rules: [],
-      crawl_depth: 1,
-      max_pages: 1,
-      refresh_interval: 'manual',
-      metadata: {
-        original_file_name: fileName,
-        safe_file_name: safeName,
-        mime_type: mimeType,
-        size_bytes: buffer.length,
-        sha256: sha,
-        parser,
-        uploaded_by: userId,
-        uploaded_at: new Date().toISOString(),
-        storage_provider: limits.storageProvider,
-      },
-    })
-    .select('*')
-    .single();
-  if (insErr || !source) {
-    throw new IngestError('source_create_failed', 500, insErr?.message);
-  }
-
-  // 2. Build storage path (workspace-scoped, source-scoped).
-  const fileKey = `workspace/${workspaceId}/ai-agent/files/${source.id}/${crypto.randomUUID()}-${safeName}`;
-
-  // 3. Upload original file.
-  const upload = await uploadFile(config, {
-    workspaceId, fileKey, data: buffer, contentType: mimeType,
-  });
-  if (!upload.success) {
-    await sb.from('ai_data_sources').update({
-      status: 'failed',
-      last_error: 'upload_failed',
-      metadata: { ...(source.metadata as any || {}), upload_error: upload.error },
-    }).eq('id', source.id);
-    throw new IngestError('upload_failed', 500, upload.error);
-  }
-
-  // 4. Parse + index.
-  return finalizeIndex(config, source.id, workspaceId, fileName, mimeType, buffer, {
-    storage_path: fileKey,
-    storage_url: upload.url || null,
-    storage_provider: limits.storageProvider,
-    safe_file_name: safeName,
-    sha256: sha,
-    size_bytes: buffer.length,
-    uploaded_by: userId,
-    uploaded_at: (source.metadata as any)?.uploaded_at || new Date().toISOString(),
-    original_file_name: fileName,
-    mime_type: mimeType,
-    parser,
-  });
+/**
+ * REMOVED in Pass E4-G. All production file ingestion MUST go through
+ * queueAiFileIngest / queueReindexAiFile + the file_ingest worker. Calling
+ * the legacy synchronous path bypassed the race-safe job state machine
+ * (cancel/pause guards, conditional finalize/complete).
+ */
+export async function ingestAiFile(): Promise<never> {
+  throw new IngestError(
+    'sync_file_ingestion_disabled', 410,
+    'ingestAiFile is removed. Use queueAiFileIngest.',
+  );
 }
 
 /**
@@ -647,37 +547,15 @@ export async function cancelFileIngestJobsForSource(
   return (data || []).length;
 }
 
-/** Parse + index an already-stored file. */
-export async function reindexAiFile(
-  config: ServerConfig, sourceId: string,
-): Promise<IngestResult> {
-  const sb = getServiceClient(config);
-  const { data: source } = await sb
-    .from('ai_data_sources').select('*').eq('id', sourceId).maybeSingle();
-  if (!source) throw new IngestError('not_found', 404);
-  if (source.source_type !== 'file') throw new IngestError('not_a_file_source', 400);
-
-  const meta = (source.metadata as any) || {};
-  const storagePath: string | undefined = meta.storage_path;
-  if (!storagePath) throw new IngestError('storage_path_missing', 400);
-
-  await sb.from('ai_data_sources').update({ status: 'syncing', last_error: null }).eq('id', sourceId);
-
-  const dl = await downloadFile(config, source.workspace_id, storagePath);
-  if (!dl.success || !dl.data) {
-    await sb.from('ai_data_sources').update({
-      status: 'failed', last_error: 'download_failed',
-      metadata: { ...meta, download_error: dl.error || 'unknown' },
-    }).eq('id', sourceId);
-    throw new IngestError('download_failed', 500, dl.error);
-  }
-
-  return finalizeIndex(
-    config, sourceId, source.workspace_id,
-    meta.original_file_name || source.name || 'file',
-    meta.mime_type || 'application/octet-stream',
-    dl.data,
-    meta,
+/**
+ * REMOVED in Pass E4-G. Use queueReindexAiFile instead. The legacy sync
+ * path bypassed cancel/pause guards and could leave active chunks for a
+ * paused/deleted source.
+ */
+export async function reindexAiFile(): Promise<never> {
+  throw new IngestError(
+    'sync_file_ingestion_disabled', 410,
+    'reindexAiFile is removed. Use queueReindexAiFile.',
   );
 }
 

@@ -130,35 +130,50 @@ export async function claimNextSourceSyncJob(
 export async function completeSourceSyncJob(
   config: ServerConfig,
   args: { jobId: string; summary?: Record<string, unknown> },
-): Promise<void> {
+): Promise<{ updated: boolean; finalStatus?: string }> {
   const sb = getServiceClient(config);
-  await sb.from('ai_source_sync_jobs').update({
+  const { data } = await sb.from('ai_source_sync_jobs').update({
     status: 'completed',
     finished_at: new Date().toISOString(),
     last_error: null,
     metadata: args.summary ? { ...args.summary } : undefined,
-  }).eq('id', args.jobId);
+  }).eq('id', args.jobId).eq('status', 'running').select('id, status').maybeSingle();
+  if (data) return { updated: true, finalStatus: 'completed' };
+  // Reload to report actual final status.
+  const { data: cur } = await sb
+    .from('ai_source_sync_jobs').select('status').eq('id', args.jobId).maybeSingle();
+  return { updated: false, finalStatus: (cur as any)?.status };
 }
 
 export async function failSourceSyncJob(
   config: ServerConfig,
   args: { jobId: string; error: string; retryable?: boolean },
-): Promise<void> {
+): Promise<{ updated: boolean; finalStatus?: string }> {
   const sb = getServiceClient(config);
   const { data: row } = await sb
     .from('ai_source_sync_jobs')
-    .select('attempts, max_attempts')
+    .select('attempts, max_attempts, status')
     .eq('id', args.jobId)
     .maybeSingle();
+  if (!row) return { updated: false };
+  const curStatus = (row as any).status as string;
+  // Never overwrite a terminal/cancelled state.
+  if (curStatus === 'cancelled' || curStatus === 'completed' || curStatus === 'failed') {
+    return { updated: false, finalStatus: curStatus };
+  }
   const canRetry = !!args.retryable && row && (row as any).attempts < (row as any).max_attempts;
-  await sb.from('ai_source_sync_jobs').update({
+  const { data: updated } = await sb.from('ai_source_sync_jobs').update({
     status: canRetry ? 'queued' : 'failed',
     last_error: (args.error || 'unknown_error').slice(0, 1000),
     finished_at: canRetry ? null : new Date().toISOString(),
     locked_by: null,
     locked_at: null,
     lock_expires_at: null,
-  }).eq('id', args.jobId);
+  }).eq('id', args.jobId).in('status', ['running', 'queued']).select('id, status').maybeSingle();
+  if (updated) return { updated: true, finalStatus: (updated as any).status };
+  const { data: cur } = await sb
+    .from('ai_source_sync_jobs').select('status').eq('id', args.jobId).maybeSingle();
+  return { updated: false, finalStatus: (cur as any)?.status };
 }
 
 export async function cancelSourceSyncJob(

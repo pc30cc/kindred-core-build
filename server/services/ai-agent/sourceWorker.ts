@@ -15,7 +15,8 @@ import os from 'node:os';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import {
-  claimNextSourceSyncJob, completeSourceSyncJob, failSourceSyncJob, type SourceSyncJob,
+  claimNextSourceSyncJob, completeSourceSyncJob, failSourceSyncJob,
+  cancelSourceSyncJob, type SourceSyncJob,
 } from './sourceJobs.js';
 import { resolveAiAgentDataLimits } from './limits.js';
 import { crawlWebsiteSource } from './crawler/crawlWebsiteSource.js';
@@ -99,7 +100,12 @@ export async function processOne(
   } catch (e: any) {
     const msg = e?.message || 'worker_error';
     console.warn('[ai-kb worker] source job failed', { jobId: job.id, error: msg });
-    await failSourceSyncJob(config, { jobId: job.id, error: msg, retryable: true });
+    const r = await failSourceSyncJob(config, { jobId: job.id, error: msg, retryable: true });
+    if (!r.updated) {
+      console.warn('[ai-kb worker] failSourceSyncJob skipped (terminal state)', {
+        jobId: job.id, finalStatus: r.finalStatus,
+      });
+    }
     return { processed: true };
   }
 }
@@ -195,7 +201,7 @@ async function runJob(config: ServerConfig, job: SourceSyncJob): Promise<void> {
     },
   });
 
-  await completeSourceSyncJob(config, {
+  const compRes = await completeSourceSyncJob(config, {
     jobId: job.id,
     summary: {
       pages_seen: summary.pages_seen,
@@ -206,6 +212,11 @@ async function runJob(config: ServerConfig, job: SourceSyncJob): Promise<void> {
       truncated: summary.truncated,
     },
   });
+  if (!compRes.updated) {
+    console.warn('[ai-kb worker] completeSourceSyncJob skipped (job not running)', {
+      jobId: job.id, finalStatus: compRes.finalStatus,
+    });
+  }
 
   console.log('[ai-kb worker] source job completed', {
     workerId: WORKER_ID, jobId: job.id, sourceId: source.id,
@@ -220,7 +231,47 @@ async function runFileIngestJobWrapper(config: ServerConfig, job: SourceSyncJob)
       workspaceId: job.workspace_id, sourceId: job.source_id,
       jobId: job.id, workerId: WORKER_ID,
     });
-    await completeSourceSyncJob(config, {
+    // Race-safe pre-completion guards. Admin may have paused/deleted/cancelled
+    // between finalizeIndex returning and our complete call.
+    const sb = getServiceClient(config);
+    const { data: jobRow } = await sb
+      .from('ai_source_sync_jobs').select('status').eq('id', job.id).maybeSingle();
+    const jobStatus = (jobRow as any)?.status;
+    if (jobStatus !== 'running') {
+      await logFileEvent(config, {
+        workspaceId: job.workspace_id, sourceId: job.source_id,
+        status: 'file_ingest_completion_skipped_job_cancelled',
+        message: `job_status=${jobStatus || 'missing'}`,
+        metadata: { job_id: job.id, worker_id: WORKER_ID, job_status: jobStatus || null },
+      });
+      console.warn('[ai-kb worker] file_ingest completion skipped — job not running', {
+        jobId: job.id, jobStatus,
+      });
+      return;
+    }
+    const { data: srcRow } = await sb
+      .from('ai_data_sources').select('status').eq('id', job.source_id).maybeSingle();
+    const srcStatus = (srcRow as any)?.status;
+    if (srcStatus !== 'active') {
+      const evt = srcStatus === 'deleted' ? 'file_ingest_completion_skipped_source_deleted'
+               : srcStatus === 'paused'  ? 'file_ingest_completion_skipped_source_paused'
+               : 'file_ingest_completion_skipped_source_not_active';
+      await cancelSourceSyncJob(config, { jobId: job.id });
+      await logFileEvent(config, {
+        workspaceId: job.workspace_id, sourceId: job.source_id,
+        status: evt,
+        message: `source_status=${srcStatus || 'missing'}`,
+        metadata: {
+          job_id: job.id, worker_id: WORKER_ID,
+          source_status: srcStatus || null, job_status: jobStatus,
+        },
+      });
+      console.warn('[ai-kb worker] file_ingest completion skipped — source not active', {
+        jobId: job.id, sourceId: job.source_id, srcStatus,
+      });
+      return;
+    }
+    const compRes = await completeSourceSyncJob(config, {
       jobId: job.id,
       summary: {
         chunks_created: result.chunks_created,
@@ -230,6 +281,18 @@ async function runFileIngestJobWrapper(config: ServerConfig, job: SourceSyncJob)
         warnings: result.warnings.slice(0, 10),
       },
     });
+    if (!compRes.updated) {
+      await logFileEvent(config, {
+        workspaceId: job.workspace_id, sourceId: job.source_id,
+        status: 'file_ingest_completion_skipped_job_cancelled',
+        message: `complete_lost_race:${compRes.finalStatus || 'unknown'}`,
+        metadata: { job_id: job.id, worker_id: WORKER_ID, job_status: compRes.finalStatus || null },
+      });
+      console.warn('[ai-kb worker] file_ingest complete lost race', {
+        jobId: job.id, finalStatus: compRes.finalStatus,
+      });
+      return;
+    }
     console.log('[ai-kb worker] file_ingest job completed', {
       workerId: WORKER_ID, jobId: job.id, sourceId: job.source_id,
       chunks_created: result.chunks_created,
@@ -241,7 +304,6 @@ async function runFileIngestJobWrapper(config: ServerConfig, job: SourceSyncJob)
     // Transient errors that may succeed on retry.
     const transient = new Set(['download_failed', 'storage_temporary_failure', 'embedder_temporary_failure']);
     if (cancelled.has(code)) {
-      const { cancelSourceSyncJob } = await import('./sourceJobs.js');
       await cancelSourceSyncJob(config, { jobId: job.id });
       const evt = code === 'source_deleted' ? 'file_ingest_skipped_source_deleted'
                : code === 'source_paused'  ? 'file_ingest_skipped_source_paused'
@@ -254,7 +316,19 @@ async function runFileIngestJobWrapper(config: ServerConfig, job: SourceSyncJob)
       return;
     }
     const retryable = transient.has(code);
-    await failSourceSyncJob(config, { jobId: job.id, error: code, retryable });
+    const failRes = await failSourceSyncJob(config, { jobId: job.id, error: code, retryable });
+    if (!failRes.updated) {
+      await logFileEvent(config, {
+        workspaceId: job.workspace_id, sourceId: job.source_id,
+        status: 'file_ingest_completion_skipped_job_cancelled',
+        message: `fail_lost_race:${failRes.finalStatus || 'unknown'}`,
+        metadata: { job_id: job.id, worker_id: WORKER_ID, job_status: failRes.finalStatus || null },
+      });
+      console.warn('[ai-kb worker] file_ingest fail skipped (terminal state)', {
+        jobId: job.id, finalStatus: failRes.finalStatus, error: code,
+      });
+      return;
+    }
     await logFileEvent(config, {
       workspaceId: job.workspace_id, sourceId: job.source_id,
       status: retryable ? 'file_job_retry_queued' : 'file_job_failed_non_retryable',

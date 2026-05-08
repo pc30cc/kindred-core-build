@@ -143,12 +143,6 @@ async function getPlatformTimezone(sb: SupabaseClient): Promise<string | null> {
   } catch { return null; }
 }
 
-/** Test-only: clear timezone caches between unit runs. */
-export function __resetTimezoneCachesForTests(): void {
-  _platformTzCache = null;
-  _workspaceTzColumnSupported = null;
-  _workspaceTzCache.clear();
-}
 
 let _workspaceTzColumnSupported: boolean | null = null;
 const _workspaceTzCache = new Map<string, { tz: string | null; ts: number }>();

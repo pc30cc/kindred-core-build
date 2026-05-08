@@ -20,6 +20,7 @@ import { getKnowledgeStatus } from '../services/ai-agent/retrieval.js';
 import { runPlayground } from '../services/ai-agent/playground.js';
 import { listRuns, summarize } from '../services/ai-agent/logs.js';
 import { retrieveHybridSources } from '../services/ai-agent/retrievalHybrid.js';
+import { getSourceHealth, type HealthSourceType } from '../services/ai-agent/sourceHealth.js';
 import { resolveAIConfig } from '../services/ai/index.js';
 import { getOperatorAvailability } from '../services/ai-agent/availability.js';
 import { markHumanTakeover } from '../services/ai-agent/handoffState.js';
@@ -462,6 +463,7 @@ aiAgentRouter.get('/runs/:id/inspect', async (req: Request, res: Response) => {
     if (exc.draft_kb_excluded) safetyNotes.push(`draft_kb_excluded=${exc.draft_kb_excluded}`);
     if (exc.inactive_file_excluded) safetyNotes.push(`inactive_file_excluded=${exc.inactive_file_excluded}`);
     if (exc.inactive_web_page_excluded) safetyNotes.push(`inactive_web_page_excluded=${exc.inactive_web_page_excluded}`);
+    if (exc.unapproved_learned_qna_excluded) safetyNotes.push(`unapproved_learned_qna_excluded=${exc.unapproved_learned_qna_excluded}`);
   }
 
   // Best-effort observability event.
@@ -615,6 +617,32 @@ aiAgentRouter.get('/analytics', async (req: Request, res: Response) => {
   if (!auth) return;
   const summary = await summarize(config, workspaceId);
   return res.json(summary);
+});
+
+// ─── E5-Final — Source Health ───
+// GET /api/ai-agent/source-health?workspaceId=...&sourceType=...&eligible=true|false&query=...&limit=...
+// Read-only. Workspace-member auth. Never exposes storage paths/URLs/credentials.
+aiAgentRouter.get('/source-health', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = requireWorkspace(req);
+  if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  const sourceType = (req.query.sourceType as string | undefined) as HealthSourceType | undefined;
+  const allowed: HealthSourceType[] = ['qna', 'learned_qna', 'kb_article', 'file', 'website', 'web_page'];
+  if (sourceType && !allowed.includes(sourceType)) {
+    return res.status(400).json({ error: 'invalid_source_type' });
+  }
+  const eligibleRaw = req.query.eligible as string | undefined;
+  const eligible = eligibleRaw === 'true' ? true : eligibleRaw === 'false' ? false : undefined;
+  const limit = Math.min(parseInt(String(req.query.limit || '200'), 10) || 200, 500);
+  const query = (req.query.query as string | undefined) || undefined;
+  try {
+    const result = await getSourceHealth(config, workspaceId, { sourceType, eligible, query, limit });
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ error: 'source_health_failed', details: err?.message });
+  }
 });
 
 // ─── Q&A CRUD ───

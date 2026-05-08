@@ -2035,7 +2035,7 @@ aiAgentRouter.get('/workspace-domain', async (req: Request, res: Response) => {
 const fileUploadSchema = z.object({
   workspaceId: z.string().uuid(),
   fileName: z.string().min(1).max(255),
-  mimeType: z.string().min(1).max(120),
+  mimeType: z.string().max(120).optional().default(''),
   sizeBytes: z.number().int().positive().max(60 * 1024 * 1024),
   dataBase64: z.string().min(1),
 });
@@ -2056,11 +2056,32 @@ function validateUploadFileName(name: string): string | null {
   return null;
 }
 
+/**
+ * Browsers may send empty file.type for .md/.csv. Infer from extension
+ * server-side — never trust browser-provided MIME alone.
+ */
+function resolveMimeFromName(fileName: string, browserMime: string): string {
+  const ext = (fileName.split('.').pop() || '').toLowerCase();
+  const byExt: Record<string, string> = {
+    txt: 'text/plain',
+    md: 'text/markdown',
+    markdown: 'text/markdown',
+    csv: 'text/csv',
+    pdf: 'application/pdf',
+  };
+  const inferred = byExt[ext];
+  const browser = (browserMime || '').toLowerCase().trim();
+  if (inferred) return inferred;
+  if (browser && browser !== 'application/octet-stream') return browser;
+  return browser || 'application/octet-stream';
+}
+
 aiAgentRouter.post('/files/upload', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
   const parsed = fileUploadSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
-  const { workspaceId, fileName, mimeType, sizeBytes, dataBase64 } = parsed.data;
+  const { workspaceId, fileName, sizeBytes, dataBase64 } = parsed.data;
+  const mimeType = resolveMimeFromName(fileName, parsed.data.mimeType || '');
 
   const auth = await authorizeMember(req, res, config, workspaceId);
   if (!auth) return;
@@ -2069,6 +2090,21 @@ aiAgentRouter.post('/files/upload', async (req: Request, res: Response) => {
   const nameErr = validateUploadFileName(fileName);
   if (nameErr) return res.status(400).json({ error: nameErr });
   if (!isSupportedMime(mimeType)) return res.status(415).json({ error: 'unsupported_file_type', supported: SUPPORTED_MIMES });
+
+  // Pre-decode size + storage gate to fail fast before base64 decode and
+  // before any ai_data_sources row is inserted.
+  const limits = await resolveFileLimits(config, workspaceId);
+  if (!limits.storageProvider) return res.status(500).json({ error: 'storage_not_configured' });
+  if (!limits.storageReady) {
+    return res.status(500).json({ error: 'storage_not_ready', storageProvider: limits.storageProvider, storageError: limits.storageError });
+  }
+  const declaredMB = sizeBytes / (1024 * 1024);
+  if (declaredMB > limits.transportMaxFileSizeMB) {
+    return res.status(413).json({ error: 'file_size_limit_reached', maxMB: limits.transportMaxFileSizeMB, actualMB: Math.round(declaredMB * 100) / 100, reason: 'transport_cap' });
+  }
+  if (!auth.isAdmin && declaredMB > limits.effectiveMaxFileSizeMB) {
+    return res.status(413).json({ error: 'file_size_limit_reached', maxMB: limits.effectiveMaxFileSizeMB, actualMB: Math.round(declaredMB * 100) / 100 });
+  }
 
   let buffer: Buffer;
   try {
@@ -2135,7 +2171,14 @@ aiAgentRouter.get('/files/limits', async (req: Request, res: Response) => {
     .eq('source_type', 'file')
     .neq('status', 'deleted');
   return res.json({
-    ...limits,
+    maxFiles: limits.maxFiles,
+    maxFileSizeMB: limits.maxFileSizeMB,
+    effectiveMaxFileSizeMB: limits.effectiveMaxFileSizeMB,
+    storageProvider: limits.storageProvider,
+    storageReady: limits.storageReady,
+    storageError: limits.storageError,
+    transport: limits.transport,
+    transportMaxFileSizeMB: limits.transportMaxFileSizeMB,
     used: count || 0,
     bypass: !!auth.isAdmin,
     supported_mimes: SUPPORTED_MIMES,

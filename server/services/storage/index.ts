@@ -61,6 +61,9 @@ const ALLOWED_TYPES = new Set([
   'application/javascript', 'application/json',
   'video/mp4', 'audio/mpeg', 'audio/wav',
   'application/zip', 'application/gzip',
+  // AI Agent file ingestion (Pass E4-A/B)
+  'text/markdown', 'text/x-markdown', 'application/x-markdown',
+  'text/csv', 'application/csv', 'application/vnd.ms-excel',
 ]);
 
 const MAX_FILE_SIZE_DEFAULT = 50 * 1024 * 1024; // 50MB

@@ -22,6 +22,12 @@ import {
 } from './parsers.js';
 
 const HARD_FILE_CAP_MB = 50;
+/**
+ * JSON base64 transport hard cap. Express JSON limit is 50MB and base64
+ * inflates payload by ~33%, so we cap raw file size at 25MB for the
+ * /files/upload JSON endpoint. Multipart/streaming is a future pass.
+ */
+export const JSON_TRANSPORT_MAX_FILE_MB = 25;
 
 export interface IngestInput {
   workspaceId: string;
@@ -79,7 +85,12 @@ export async function countActiveFileSources(
 export interface ResolvedFileLimits {
   maxFiles: number;
   maxFileSizeMB: number;
+  effectiveMaxFileSizeMB: number;
   storageProvider: string | null;
+  storageReady: boolean;
+  storageError: string | null;
+  transport: 'json_base64';
+  transportMaxFileSizeMB: number;
 }
 
 export async function resolveFileLimits(
@@ -88,11 +99,44 @@ export async function resolveFileLimits(
   const { limits } = await resolveAiAgentDataLimits(config, workspaceId);
   const storage = await resolveStorageConfig(config, workspaceId);
   const providerCap = storage?.maxFileSizeMB || HARD_FILE_CAP_MB;
+  const maxFileSizeMB = Math.min(limits.ai_kb_file_size_mb, providerCap, HARD_FILE_CAP_MB);
+  const effectiveMaxFileSizeMB = Math.min(maxFileSizeMB, JSON_TRANSPORT_MAX_FILE_MB);
+  const readiness = checkStorageReadiness(storage);
   return {
     maxFiles: limits.ai_kb_file_count,
-    maxFileSizeMB: Math.min(limits.ai_kb_file_size_mb, providerCap, HARD_FILE_CAP_MB),
+    maxFileSizeMB,
+    effectiveMaxFileSizeMB,
     storageProvider: storage?.provider || null,
+    storageReady: readiness.ready,
+    storageError: readiness.error,
+    transport: 'json_base64',
+    transportMaxFileSizeMB: JSON_TRANSPORT_MAX_FILE_MB,
   };
+}
+
+function checkStorageReadiness(
+  storage: Awaited<ReturnType<typeof resolveStorageConfig>>,
+): { ready: boolean; error: string | null } {
+  if (!storage) return { ready: false, error: 'storage_not_configured' };
+  const p = storage.provider;
+  if (p === 'local') {
+    if (!storage.publicUrl) return { ready: false, error: 'local_storage_public_url_unconfigured' };
+    return { ready: true, error: null };
+  }
+  if (p === 'bunny_storage') {
+    if (!storage.apiKey || !storage.storageZone) return { ready: false, error: 'bunny_missing_api_key_or_zone' };
+    return { ready: true, error: null };
+  }
+  if (['s3', 'cloudflare_r2', 'minio', 'do_spaces', 'gcs', 'azure_blob'].includes(p)) {
+    if (!storage.accessKeyId || !storage.secretAccessKey || !storage.bucket) {
+      return { ready: false, error: `${p}_missing_credentials_or_bucket` };
+    }
+    if (p !== 's3' && !storage.endpoint && !storage.s3Region) {
+      return { ready: false, error: `${p}_missing_endpoint_or_region` };
+    }
+    return { ready: true, error: null };
+  }
+  return { ready: false, error: `unsupported_provider:${p}` };
 }
 
 export async function ingestAiFile(
@@ -112,10 +156,23 @@ export async function ingestAiFile(
   if (!limits.storageProvider) {
     throw new IngestError('storage_not_configured', 500);
   }
+  if (!limits.storageReady) {
+    throw new IngestError('storage_not_ready', 500, undefined, {
+      storageProvider: limits.storageProvider,
+      storageError: limits.storageError,
+    });
+  }
   const sizeMB = buffer.length / (1024 * 1024);
-  if (!opts.bypassPlanLimits && sizeMB > limits.maxFileSizeMB) {
+  // Transport cap (JSON base64) always enforced — admin bypass cannot exceed it.
+  if (sizeMB > limits.transportMaxFileSizeMB) {
     throw new IngestError('file_size_limit_reached', 413, undefined, {
-      maxMB: limits.maxFileSizeMB, actualMB: Math.round(sizeMB * 100) / 100,
+      maxMB: limits.transportMaxFileSizeMB, actualMB: Math.round(sizeMB * 100) / 100,
+      reason: 'transport_cap',
+    });
+  }
+  if (!opts.bypassPlanLimits && sizeMB > limits.effectiveMaxFileSizeMB) {
+    throw new IngestError('file_size_limit_reached', 413, undefined, {
+      maxMB: limits.effectiveMaxFileSizeMB, actualMB: Math.round(sizeMB * 100) / 100,
     });
   }
   if (!opts.bypassPlanLimits) {
@@ -260,18 +317,18 @@ async function finalizeIndex(
   // Chunk + index.
   const chunks = chunkText(parsed.text);
   const embedder = await getEmbedderForWorkspace(config, workspaceId);
-  let indexResult;
   try {
-    indexResult = await indexSource(config, {
+    await indexSource(config, {
       workspaceId,
       sourceType: 'file',
       sourceId,
       title: fileName,
-      sourceUrl: baseMeta.storage_url || null,
+      // Never expose storage URLs in retrieval chunks. Storage path/URL
+      // live only on ai_data_sources.metadata for internal diagnostics.
+      sourceUrl: null,
       locale: null,
       chunks,
       metadata: {
-        storage_path: baseMeta.storage_path,
         original_file_name: baseMeta.original_file_name || fileName,
         mime_type: mimeType,
         sha256: baseMeta.sha256,
@@ -285,6 +342,24 @@ async function finalizeIndex(
     }).eq('id', sourceId);
     throw new IngestError('index_failed', 500, e?.message);
   }
+
+  // Recompute actual active chunk counts so reindex/idempotent runs reflect
+  // the real state of the index (not just embeddings produced this run).
+  const { count: activeCount } = await sb
+    .from('ai_knowledge_chunks')
+    .select('id', { count: 'exact', head: true })
+    .eq('workspace_id', workspaceId)
+    .eq('source_type', 'file')
+    .eq('source_id', sourceId)
+    .eq('status', 'active');
+  const { count: embeddedCount } = await sb
+    .from('ai_knowledge_chunks')
+    .select('id', { count: 'exact', head: true })
+    .eq('workspace_id', workspaceId)
+    .eq('source_type', 'file')
+    .eq('source_id', sourceId)
+    .eq('status', 'active')
+    .not('embedding', 'is', null);
 
   const finalMeta = {
     ...baseMeta,
@@ -309,8 +384,8 @@ async function finalizeIndex(
       last_error: null,
       last_warning: parsed.warnings[0] || null,
       pages_found: parsed.pageCount || 1,
-      chunks_created: indexResult.chunksCreated + indexResult.chunksUpdated,
-      embedded_chunks: indexResult.embeddingsGenerated,
+      chunks_created: activeCount || 0,
+      embedded_chunks: embeddedCount || 0,
       metadata: finalMeta,
     })
     .eq('id', sourceId)
@@ -319,8 +394,8 @@ async function finalizeIndex(
 
   return {
     source: updated,
-    chunks_created: indexResult.chunksCreated + indexResult.chunksUpdated,
-    embedded_chunks: indexResult.embeddingsGenerated,
+    chunks_created: activeCount || 0,
+    embedded_chunks: embeddedCount || 0,
     parser: parsed.parser,
     warnings: parsed.warnings,
     page_count: parsed.pageCount,

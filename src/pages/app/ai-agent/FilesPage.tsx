@@ -8,6 +8,34 @@ import { toast } from '@/hooks/use-toast';
 import { FileText, Loader2, RefreshCw, Pause, Play, Trash2, Upload, AlertTriangle } from 'lucide-react';
 
 const ACCEPT = '.txt,.md,.markdown,.csv,.pdf,text/plain,text/markdown,text/csv,application/pdf';
+const SUPPORTED_EXT = ['txt', 'md', 'markdown', 'csv', 'pdf'];
+
+function inferMime(file: File): string {
+  if (file.type) return file.type;
+  const ext = (file.name.split('.').pop() || '').toLowerCase();
+  switch (ext) {
+    case 'txt': return 'text/plain';
+    case 'md':
+    case 'markdown': return 'text/markdown';
+    case 'csv': return 'text/csv';
+    case 'pdf': return 'application/pdf';
+    default: return 'application/octet-stream';
+  }
+}
+
+function errorLabel(code?: string): string {
+  switch (code) {
+    case 'unsupported_file_type': return 'File type not supported. Use TXT, MD, CSV, or PDF.';
+    case 'file_size_limit_reached': return 'File exceeds the allowed size limit.';
+    case 'no_text_extracted': return 'This PDF has no extractable text. OCR is not enabled.';
+    case 'pdf_encrypted_or_unreadable': return 'PDF is encrypted or unreadable.';
+    case 'pdf_parse_failed': return 'Failed to parse PDF (file may be corrupted).';
+    case 'storage_not_ready':
+    case 'storage_not_configured': return 'Storage provider is not ready. Configure Storage Provider before uploading AI files.';
+    case 'local_storage_public_url_unconfigured': return 'Local storage requires a public URL.';
+    default: return code || 'Unknown error';
+  }
+}
 
 function fmtBytes(n?: number | null) {
   if (n === null || n === undefined) return '—';
@@ -44,15 +72,32 @@ export default function FilesPage() {
 
   async function handleFiles(files: FileList | null) {
     if (!wsId || !files || !files.length) return;
+    if (limits && !limits.storageReady) {
+      toast({ title: 'Storage not ready', description: errorLabel(limits.storageError || 'storage_not_ready'), variant: 'destructive' });
+      return;
+    }
     setUploading(true);
     try {
       for (const file of Array.from(files)) {
+        const ext = (file.name.split('.').pop() || '').toLowerCase();
+        if (!SUPPORTED_EXT.includes(ext)) {
+          toast({ title: `Skipped: ${file.name}`, description: errorLabel('unsupported_file_type'), variant: 'destructive' });
+          continue;
+        }
+        const cap = limits?.effectiveMaxFileSizeMB ?? 25;
+        if (file.size / (1024 * 1024) > cap) {
+          toast({ title: `Too large: ${file.name}`, description: `Max ${cap} MB`, variant: 'destructive' });
+          continue;
+        }
+        // Re-tag File with inferred mime when browser left it empty.
+        const mime = inferMime(file);
+        const tagged = file.type ? file : new File([file], file.name, { type: mime });
         try {
-          const r = await aiAgentApi.uploadAiFile(wsId, file);
+          const r = await aiAgentApi.uploadAiFile(wsId, tagged);
           const warn = r.warnings?.length ? ` (${r.warnings.join(', ')})` : '';
           toast({ title: `Uploaded: ${file.name}`, description: `${r.chunks_created} chunks indexed${warn}` });
         } catch (e: any) {
-          toast({ title: `Upload failed: ${file.name}`, description: e?.message || 'unknown_error', variant: 'destructive' });
+          toast({ title: `Upload failed: ${file.name}`, description: errorLabel(e?.message), variant: 'destructive' });
         }
       }
       await refresh();
@@ -90,6 +135,8 @@ export default function FilesPage() {
 
   if (!wsId) return null;
   const usagePct = limits ? Math.round((limits.used / Math.max(limits.maxFiles, 1)) * 100) : 0;
+  const storageReady = !limits || limits.storageReady;
+  const effectiveMax = limits?.effectiveMaxFileSizeMB ?? 25;
 
   return (
     <div className="space-y-6">
@@ -112,7 +159,7 @@ export default function FilesPage() {
             className="hidden"
             onChange={(e) => handleFiles(e.target.files)}
           />
-          <Button onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+          <Button onClick={() => fileInputRef.current?.click()} disabled={uploading || !storageReady}>
             {uploading ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Upload className="h-4 w-4 mr-1.5" />}
             Upload file
           </Button>
@@ -123,19 +170,35 @@ export default function FilesPage() {
         <Card>
           <CardContent className="p-4 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs">
             <div><span className="text-muted-foreground">Files:</span> <strong>{limits.used}/{limits.maxFiles}</strong> ({usagePct}%)</div>
-            <div><span className="text-muted-foreground">Max size:</span> <strong>{limits.maxFileSizeMB} MB</strong></div>
+            <div><span className="text-muted-foreground">Max size:</span> <strong>{limits.effectiveMaxFileSizeMB} MB</strong> <span className="text-muted-foreground">(plan {limits.maxFileSizeMB} MB · transport {limits.transportMaxFileSizeMB} MB)</span></div>
             <div><span className="text-muted-foreground">Storage provider:</span> <strong>{limits.storageProvider || 'not configured'}</strong></div>
+            {limits.storageReady
+              ? <Badge variant="default">storage ready</Badge>
+              : <Badge variant="destructive">{limits.storageError || 'storage not ready'}</Badge>}
             {limits.bypass && <Badge variant="secondary">admin bypass</Badge>}
-            {!limits.storageProvider && <Badge variant="destructive">storage_not_configured</Badge>}
+          </CardContent>
+        </Card>
+      )}
+
+      {limits && !limits.storageReady && (
+        <Card className="border-destructive/40 bg-destructive/5">
+          <CardContent className="p-4 text-sm flex items-start gap-2">
+            <AlertTriangle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
+            <div>
+              <p className="font-medium text-destructive">Storage provider is not ready</p>
+              <p className="text-muted-foreground mt-0.5">
+                {errorLabel(limits.storageError || 'storage_not_ready')} Configure the active Storage Provider in admin settings before uploading AI files.
+              </p>
+            </div>
           </CardContent>
         </Card>
       )}
 
       <Card
-        className="border-dashed cursor-pointer hover:border-primary/60 transition-colors"
-        onClick={() => fileInputRef.current?.click()}
+        className={`border-dashed transition-colors ${storageReady ? 'cursor-pointer hover:border-primary/60' : 'opacity-60 cursor-not-allowed'}`}
+        onClick={() => storageReady && fileInputRef.current?.click()}
         onDragOver={(e) => { e.preventDefault(); }}
-        onDrop={(e) => { e.preventDefault(); handleFiles(e.dataTransfer.files); }}
+        onDrop={(e) => { e.preventDefault(); if (storageReady) handleFiles(e.dataTransfer.files); }}
       >
         <CardContent className="p-8 text-center space-y-3">
           <div className="mx-auto h-14 w-14 rounded-full bg-muted text-muted-foreground flex items-center justify-center">
@@ -143,7 +206,7 @@ export default function FilesPage() {
           </div>
           <h3 className="text-base font-medium">Drag & drop files or click to browse</h3>
           <p className="text-sm text-muted-foreground max-w-md mx-auto">
-            Supported: .txt, .md, .csv, .pdf — up to {limits?.maxFileSizeMB ?? 50} MB each.
+            Supported: .txt, .md, .csv, .pdf — up to {effectiveMax} MB each.
             Scanned/image-only PDFs are not OCR&apos;d.
           </p>
           <div className="flex justify-center gap-1.5 flex-wrap pt-2">

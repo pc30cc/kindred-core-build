@@ -904,10 +904,55 @@ export interface TestRun {
   confidence: number | null;
   selected_sources: any[];
   retrieval_debug: any;
-  answer_strategy: any;
+  answer_strategy: TestAnswerStrategy | null;
   failure_reasons: string[];
-  metadata: any;
+  metadata: TestRunMetadata;
   created_at: string;
+}
+export interface TestAnswerStrategy {
+  action?: string;
+  decision_type?: string;
+  reason?: string;
+  retrieval_strength?: string;
+  top_score?: number;
+  handoff_required?: boolean;
+  source_types_used?: string[];
+}
+export interface TestRunRuntime {
+  conversation_created: boolean;
+  handoff_created: boolean;
+  workflow_executed: boolean;
+  learning_candidate_created: boolean;
+  llm_called: boolean;
+  ai_usage_logged: boolean | 'unknown';
+}
+export interface TestRunRuntimeParity {
+  retrieval: string;
+  query_expansion: string;
+  conversation_history: string;
+  workflow_execution: string;
+  handoff_execution: string;
+  learning_generation: string;
+}
+export interface TestRunMetadata {
+  provider?: string | null;
+  model?: string | null;
+  safety_notes?: string[];
+  runtime?: TestRunRuntime;
+  runtime_parity?: TestRunRuntimeParity;
+  excluded_summary?: Record<string, number> | null;
+  page_context?: any;
+  [k: string]: any;
+}
+export interface BulkRunResponse {
+  total: number;
+  passed: number;
+  failed: number;
+  errored: number;
+  capped: boolean;
+  max: number;
+  total_enabled: number | null;
+  runs: Array<{ test_case_id: string; name: string; status: string; failure_reasons: string[] }>;
 }
 export interface TestSummary {
   total_cases: number;

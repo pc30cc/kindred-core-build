@@ -838,3 +838,85 @@ export interface TestRunResult {
   runtime: { conversationCreated: boolean; workflowExecutionEnabled: boolean; mcpExecutionEnabled: boolean };
   warnings: Array<{ code: string; severity: 'info' | 'warn' | 'error'; message: string }>;
 }
+// ─── E6 — Test Harness ───
+export interface TestCase {
+  id: string;
+  workspace_id: string;
+  name: string;
+  input_message: string;
+  locale: string | null;
+  page_context: any;
+  expected_behavior: 'answer' | 'no_answer' | 'handoff' | 'clarification';
+  expected_source_type: string | null;
+  expected_source_url: string | null;
+  expected_source_id: string | null;
+  expected_contains: string[];
+  expected_not_contains: string[];
+  min_confidence: number | null;
+  enabled: boolean;
+  metadata: any;
+  created_at: string;
+  updated_at: string;
+}
+export interface TestRun {
+  id: string;
+  workspace_id: string;
+  test_case_id: string | null;
+  ai_agent_run_id?: string | null;
+  status: 'passed' | 'failed' | 'errored';
+  input_message: string;
+  actual_output: string | null;
+  actual_status: string | null;
+  confidence: number | null;
+  selected_sources: any[];
+  retrieval_debug: any;
+  answer_strategy: any;
+  failure_reasons: string[];
+  metadata: any;
+  created_at: string;
+}
+export interface TestSummary {
+  total_cases: number;
+  enabled_cases: number;
+  last_24h_runs: number;
+  last_24h_passed: number;
+  last_24h_failed: number;
+  last_24h_errored: number;
+  pass_rate: number | null;
+  failures_by_reason: Record<string, number>;
+  coverage_by_source_type: Record<string, number>;
+}
+
+Object.assign(aiAgentApi, {
+  listTestCases: (workspaceId: string, opts: { enabled?: boolean; expected_behavior?: string; expected_source_type?: string; query?: string } = {}) => {
+    const p = new URLSearchParams({ workspaceId });
+    if (typeof opts.enabled === 'boolean') p.set('enabled', String(opts.enabled));
+    if (opts.expected_behavior) p.set('expected_behavior', opts.expected_behavior);
+    if (opts.expected_source_type) p.set('expected_source_type', opts.expected_source_type);
+    if (opts.query) p.set('query', opts.query);
+    return jsonFetch(`/api/ai-agent/test-cases?${p.toString()}`) as Promise<{ items: TestCase[] }>;
+  },
+  createTestCase: (workspaceId: string, payload: Partial<TestCase>) =>
+    jsonFetch(`/api/ai-agent/test-cases`, { method: 'POST', body: JSON.stringify({ workspaceId, ...payload }) }) as Promise<{ item: TestCase }>,
+  updateTestCase: (id: string, patch: Partial<TestCase>) =>
+    jsonFetch(`/api/ai-agent/test-cases/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }) as Promise<{ item: TestCase }>,
+  deleteTestCase: (id: string) =>
+    jsonFetch(`/api/ai-agent/test-cases/${id}`, { method: 'DELETE' }),
+  runTestCase: (id: string) =>
+    jsonFetch(`/api/ai-agent/test-cases/${id}/run`, { method: 'POST' }) as Promise<{ run: TestRun; result: any; evaluation: any }>,
+  runBulkTests: (workspaceId: string, ids?: string[]) =>
+    jsonFetch(`/api/ai-agent/test-cases/run-bulk`, { method: 'POST', body: JSON.stringify({ workspaceId, ids }) }) as Promise<{ total: number; passed: number; failed: number; errored: number; runs: any[] }>,
+  seedRecommendedTests: (workspaceId: string) =>
+    jsonFetch(`/api/ai-agent/test-cases/seed-recommended`, { method: 'POST', body: JSON.stringify({ workspaceId }) }) as Promise<{ inserted: number; skipped: number }>,
+  listTestRuns: (workspaceId: string, opts: { testCaseId?: string; status?: string; limit?: number } = {}) => {
+    const p = new URLSearchParams({ workspaceId });
+    if (opts.testCaseId) p.set('testCaseId', opts.testCaseId);
+    if (opts.status) p.set('status', opts.status);
+    if (opts.limit) p.set('limit', String(opts.limit));
+    return jsonFetch(`/api/ai-agent/test-runs?${p.toString()}`) as Promise<{ items: TestRun[] }>;
+  },
+  getTestSummary: (workspaceId: string) =>
+    jsonFetch(`/api/ai-agent/test-summary?workspaceId=${workspaceId}`) as Promise<TestSummary>,
+  debugRunTest: (input: { workspaceId: string; message: string; locale?: string; pageContext?: any; callLLM?: boolean }) =>
+    jsonFetch(`/api/ai-agent/debug/run-test`, { method: 'POST', body: JSON.stringify(input) }) as Promise<any>,
+});

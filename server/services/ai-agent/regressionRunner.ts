@@ -61,13 +61,169 @@ export interface RegressionBatch {
   updated_at: string;
 }
 
-function computeNextRunAt(freq: Frequency, from: Date = new Date()): Date | null {
-  if (freq === 'manual') return null;
-  const ms =
-    freq === 'hourly' ? 60 * 60 * 1000 :
-    freq === 'daily' ? 24 * 60 * 60 * 1000 :
-    7 * 24 * 60 * 60 * 1000;
-  return new Date(from.getTime() + ms);
+// ──────────────────────────────────────────────────────────────────────
+// Timezone-aware schedule math.
+//
+// No hardcoded city/zone (no Istanbul, no server tz, no browser tz).
+// Resolution order: schedule.timezone → platform_settings.timezone → 'UTC'.
+// Invalid IANA strings fall back to UTC and emit metadata.warning.
+// ──────────────────────────────────────────────────────────────────────
+
+function isValidTimezone(tz: string | null | undefined): boolean {
+  if (!tz) return false;
+  try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); return true; }
+  catch { return false; }
+}
+
+function tzOffsetMinutes(date: Date, tz: string): number {
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz, hourCycle: 'h23',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
+  const parts = Object.fromEntries(dtf.formatToParts(date).map((p) => [p.type, p.value]));
+  const asUTC = Date.UTC(
+    parseInt(parts.year, 10), parseInt(parts.month, 10) - 1, parseInt(parts.day, 10),
+    parseInt(parts.hour, 10), parseInt(parts.minute, 10), parseInt(parts.second, 10),
+  );
+  return (asUTC - date.getTime()) / 60000;
+}
+
+function utcFromWallClock(year: number, month1: number, day: number, h: number, m: number, tz: string): Date {
+  const naiveUtc = Date.UTC(year, month1 - 1, day, h, m, 0);
+  let guess = new Date(naiveUtc);
+  const off1 = tzOffsetMinutes(guess, tz);
+  guess = new Date(naiveUtc - off1 * 60000);
+  const off2 = tzOffsetMinutes(guess, tz);
+  if (off2 !== off1) guess = new Date(naiveUtc - off2 * 60000);
+  return guess;
+}
+
+function partsInTz(date: Date, tz: string) {
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz, hourCycle: 'h23',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', weekday: 'short',
+  });
+  const p = Object.fromEntries(dtf.formatToParts(date).map((x) => [x.type, x.value]));
+  const wd = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(p.weekday);
+  return {
+    year: parseInt(p.year, 10), month: parseInt(p.month, 10), day: parseInt(p.day, 10),
+    hour: parseInt(p.hour, 10), minute: parseInt(p.minute, 10), weekday: wd,
+  };
+}
+
+function parseHHmm(s: string | null | undefined): { h: number; m: number } | null {
+  if (!s) return null;
+  const m = /^(\d{1,2}):(\d{2})$/.exec(s.trim());
+  if (!m) return null;
+  const hh = parseInt(m[1], 10), mm = parseInt(m[2], 10);
+  if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
+  return { h: hh, m: mm };
+}
+
+let _platformTzCache: { tz: string | null; ts: number } | null = null;
+async function getPlatformTimezone(sb: SupabaseClient): Promise<string | null> {
+  if (_platformTzCache && Date.now() - _platformTzCache.ts < 60_000) return _platformTzCache.tz;
+  try {
+    const { data } = await sb.from('platform_settings').select('timezone').limit(1).maybeSingle();
+    const tz = (data as any)?.timezone || null;
+    _platformTzCache = { tz, ts: Date.now() };
+    return tz;
+  } catch { return null; }
+}
+
+export interface ResolvedSchedule {
+  resolvedTimezone: string;
+  warning: string | null;
+}
+
+export async function resolveScheduleTimezone(
+  sb: SupabaseClient,
+  scheduleTz: string | null | undefined,
+): Promise<ResolvedSchedule> {
+  // 1) schedule
+  if (scheduleTz && scheduleTz.trim()) {
+    if (isValidTimezone(scheduleTz)) return { resolvedTimezone: scheduleTz, warning: null };
+    // Fall through with warning
+  }
+  // 2) platform default
+  const platformTz = await getPlatformTimezone(sb);
+  if (platformTz && isValidTimezone(platformTz)) {
+    return {
+      resolvedTimezone: platformTz,
+      warning: scheduleTz ? 'timezone_invalid_fallback_utc' : null,
+    };
+  }
+  // 3) UTC
+  return {
+    resolvedTimezone: 'UTC',
+    warning: scheduleTz && !isValidTimezone(scheduleTz) ? 'timezone_invalid_fallback_utc' : null,
+  };
+}
+
+export interface NextRunComputation {
+  next_run_at: Date | null;
+  resolved_timezone: string;
+  warning: string | null;
+}
+
+export async function computeNextRunAt(
+  sb: SupabaseClient,
+  schedule: Pick<RegressionSchedule, 'frequency' | 'time_of_day' | 'timezone' | 'metadata'>,
+  from: Date = new Date(),
+): Promise<NextRunComputation> {
+  if (schedule.frequency === 'manual') {
+    const r = await resolveScheduleTimezone(sb, schedule.timezone);
+    return { next_run_at: null, resolved_timezone: r.resolvedTimezone, warning: r.warning };
+  }
+  const tzInfo = await resolveScheduleTimezone(sb, schedule.timezone);
+  const tz = tzInfo.resolvedTimezone;
+  let warning = tzInfo.warning;
+
+  if (schedule.frequency === 'hourly') {
+    // Round up to next full hour boundary.
+    const next = new Date(Math.floor(from.getTime() / 3_600_000) * 3_600_000 + 3_600_000);
+    return { next_run_at: next, resolved_timezone: tz, warning };
+  }
+
+  const hhmm = parseHHmm(schedule.time_of_day);
+  if (!hhmm) {
+    // Fallback to interval math.
+    const ms = schedule.frequency === 'daily' ? 86_400_000 : 7 * 86_400_000;
+    warning = warning || 'time_of_day_invalid_interval_fallback';
+    return { next_run_at: new Date(from.getTime() + ms), resolved_timezone: tz, warning };
+  }
+
+  if (schedule.frequency === 'daily') {
+    const t = partsInTz(from, tz);
+    let candidate = utcFromWallClock(t.year, t.month, t.day, hhmm.h, hhmm.m, tz);
+    if (candidate.getTime() <= from.getTime()) {
+      const tomorrow = new Date(Date.UTC(t.year, t.month - 1, t.day) + 86_400_000);
+      const tt = partsInTz(tomorrow, tz);
+      candidate = utcFromWallClock(tt.year, tt.month, tt.day, hhmm.h, hhmm.m, tz);
+    }
+    return { next_run_at: candidate, resolved_timezone: tz, warning };
+  }
+
+  // weekly
+  const meta = (schedule.metadata || {}) as Record<string, unknown>;
+  const targetWeekday = typeof meta.weekday === 'number' && meta.weekday >= 0 && meta.weekday <= 6
+    ? (meta.weekday as number) : null;
+  const t = partsInTz(from, tz);
+  let candidate = utcFromWallClock(t.year, t.month, t.day, hhmm.h, hhmm.m, tz);
+  if (targetWeekday == null) {
+    if (candidate.getTime() <= from.getTime()) {
+      candidate = new Date(candidate.getTime() + 7 * 86_400_000);
+    }
+  } else {
+    let daysAhead = (targetWeekday - t.weekday + 7) % 7;
+    if (daysAhead === 0 && candidate.getTime() <= from.getTime()) daysAhead = 7;
+    const target = new Date(Date.UTC(t.year, t.month - 1, t.day) + daysAhead * 86_400_000);
+    const tt = partsInTz(target, tz);
+    candidate = utcFromWallClock(tt.year, tt.month, tt.day, hhmm.h, hhmm.m, tz);
+  }
+  return { next_run_at: candidate, resolved_timezone: tz, warning };
 }
 
 export async function listRegressionSchedules(

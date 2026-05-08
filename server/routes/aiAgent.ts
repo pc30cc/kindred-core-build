@@ -463,6 +463,7 @@ aiAgentRouter.get('/runs/:id/inspect', async (req: Request, res: Response) => {
     if (exc.draft_kb_excluded) safetyNotes.push(`draft_kb_excluded=${exc.draft_kb_excluded}`);
     if (exc.inactive_file_excluded) safetyNotes.push(`inactive_file_excluded=${exc.inactive_file_excluded}`);
     if (exc.inactive_web_page_excluded) safetyNotes.push(`inactive_web_page_excluded=${exc.inactive_web_page_excluded}`);
+    if (exc.unapproved_learned_qna_excluded) safetyNotes.push(`unapproved_learned_qna_excluded=${exc.unapproved_learned_qna_excluded}`);
   }
 
   // Best-effort observability event.

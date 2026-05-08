@@ -621,6 +621,72 @@ export async function retrieveHybridSources(
   result.sources = top as HybridSource[];
   result.retrievalResultsCount = top.length;
   result.pageContextDebug = pageDebug;
+  // ── 4) Standardized retrieval_debug payload (E5 Phase 2) ──────────────
+  // Safe to persist into ai_agent_runs.metadata. Never includes storage_path,
+  // signed_url, credentials, or full chunk content (preview capped at 300 chars).
+  result.retrievalDebug = {
+    query: {
+      original_message: input.originalMessage,
+      retrieval_query: input.retrievalQuery,
+      expanded_query: input.expandedQuery || null,
+      input_language: input.inputLanguage || null,
+      response_language: input.responseLanguage,
+    },
+    execution: {
+      hybrid_used: result.hybridUsed,
+      vector_used: result.vectorUsed,
+      keyword_used: result.keywordUsed,
+      embedding_provider: result.embeddingProvider,
+      embedding_model: result.embeddingModel,
+      fallback_reason: result.fallbackReason || null,
+      retrieval_results_count: result.retrievalResultsCount,
+    },
+    page_context: {
+      current_page_url: pageDebug.current_page_url,
+      current_page_path: input.pageContext?.currentPagePath || null,
+      current_page_title: pageDebug.current_page_title,
+      exact_page_match: pageDebug.exact_page_match,
+      same_path_match: pageDebug.same_path_match,
+      same_host_match: pageDebug.same_host_match,
+      page_url_boost_applied: pageDebug.page_url_boost_applied,
+      page_matched_source_ids: pageDebug.page_matched_source_ids,
+    },
+    ranking_weights: {
+      keyword_weight: 0.32,
+      vector_weight: 0.40,
+      source_priority_weight: 0.10,
+      locale_bonus_weight: 0.05,
+      topic_boost_weight: 0.08,
+      url_boost_weight: 0.05,
+      page_boost_weight: 0.55,
+    },
+    selected_sources: top.map((s: any, i: number) => ({
+      id: s.source_id,
+      source_type: s.source_type,
+      title: s.title,
+      // Files MUST never expose source_url / storage path.
+      source_url: s.source_type === 'file' ? null : (s.source_url || null),
+      locale: s.locale,
+      score: s.score,
+      final_score: s.final_score,
+      keyword_score: s.keyword_score,
+      vector_score: s.vector_score,
+      source_priority: s.source_priority,
+      locale_bonus: s.locale_bonus,
+      topic_boost: s.topic_boost,
+      url_boost: s.url_boost,
+      page_boost: pageBoosts.get(`${s.source_type}:${s.source_id}`) || 0,
+      matched_reason:
+        s.vector_score >= 0.5 && s.keyword_score >= 0.3 ? 'hybrid'
+        : s.vector_score >= 0.5 ? 'vector'
+        : s.keyword_score >= 0.3 ? 'keyword'
+        : (pageBoosts.get(`${s.source_type}:${s.source_id}`) || 0) > 0 ? 'page_context'
+        : 'priority',
+      included_in_prompt: i < 5,
+      content_preview: ((s.content || s.excerpt || '') as string).slice(0, 300),
+    })),
+    excluded_sources_summary: excludedSummary,
+  };
   return result;
 }
 

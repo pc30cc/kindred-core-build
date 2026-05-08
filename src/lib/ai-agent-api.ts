@@ -633,8 +633,34 @@ export const aiAgentApi = {
     jsonFetch(`/api/ai-agent/regression/schedules/${id}`, {
       method: 'PATCH', body: JSON.stringify(patch),
     }) as Promise<{ item: RegressionSchedule }>,
-  listRegressionBatches: (workspaceId: string, limit = 50) =>
-    jsonFetch(`/api/ai-agent/regression/batches?workspaceId=${workspaceId}&limit=${limit}`) as Promise<{ items: RegressionBatch[] }>,
+  listRegressionBatches: (workspaceId: string, opts: {
+    limit?: number;
+    offset?: number;
+    status?: RegressionBatch['status'] | null;
+    triggerType?: RegressionBatch['trigger_type'] | null;
+    scheduleId?: string | null;
+    dateFrom?: string | null;
+    dateTo?: string | null;
+    onlyFailed?: boolean;
+  } = {}) => {
+    const p = new URLSearchParams();
+    p.set('workspaceId', workspaceId);
+    p.set('limit', String(opts.limit ?? 50));
+    if (opts.offset) p.set('offset', String(opts.offset));
+    if (opts.status) p.set('status', opts.status);
+    if (opts.triggerType) p.set('trigger_type', opts.triggerType);
+    if (opts.scheduleId) p.set('schedule_id', opts.scheduleId);
+    if (opts.dateFrom) p.set('date_from', opts.dateFrom);
+    if (opts.dateTo) p.set('date_to', opts.dateTo);
+    if (opts.onlyFailed) p.set('only_failed', 'true');
+    return jsonFetch(`/api/ai-agent/regression/batches?${p.toString()}`) as Promise<{
+      items: RegressionBatch[]; total: number; limit: number; offset: number;
+    }>;
+  },
+  getRegressionOverview: (workspaceId: string) =>
+    jsonFetch(`/api/ai-agent/regression/overview?workspaceId=${workspaceId}`) as Promise<RegressionOverview>,
+  regressionBatchCsvUrl: (id: string) =>
+    `${API_BASE}/api/ai-agent/regression/batches/${id}/export.csv`,
   runRegressionNow: (workspaceId: string, scheduleId?: string | null) =>
     jsonFetch(`/api/ai-agent/regression/run-now`, {
       method: 'POST', body: JSON.stringify({ workspaceId, scheduleId: scheduleId || null }),

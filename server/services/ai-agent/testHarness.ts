@@ -76,12 +76,56 @@ export interface DryRunResult {
   provider: string | null;
   model: string | null;
   error?: string | null;
+  runtime: {
+    conversation_created: boolean;
+    handoff_created: boolean;
+    workflow_executed: boolean;
+    learning_candidate_created: boolean;
+    llm_called: boolean;
+    /**
+     * AI usage logging — when llm_called=true, executeAICompletion writes
+     * to ai_usage_logs (provider/token/cost). This is NOT a visitor
+     * conversation side effect; purely AI-cost telemetry.
+     */
+    ai_usage_logged: boolean;
+  };
+  runtime_parity: {
+    retrieval: 'real_hybrid_retrieval';
+    query_expansion: 'not_used' | 'used';
+    conversation_history: 'not_used';
+    workflow_execution: 'disabled';
+    handoff_execution: 'disabled';
+    learning_generation: 'disabled';
+  };
 }
 
 const SENSITIVE_KEY_PATTERNS = [
   'storage_path', 'storage_url', 'signed_url', 'public_url',
   'token', 'secret', 'api_key', 'apikey', 'credential', 'password',
 ];
+const SENSITIVE_VALUE_PATTERNS = [
+  'storage_path', 'storage_url', 'signed_url', 'public_url',
+  'token', 'secret', 'api_key', 'access_key',
+];
+
+function buildRuntime(llmCalled: boolean): DryRunResult['runtime'] {
+  return {
+    conversation_created: false,
+    handoff_created: false,
+    workflow_executed: false,
+    learning_candidate_created: false,
+    llm_called: llmCalled,
+    ai_usage_logged: llmCalled,
+  };
+}
+const RUNTIME_PARITY: DryRunResult['runtime_parity'] = {
+  retrieval: 'real_hybrid_retrieval',
+  query_expansion: 'not_used',
+  conversation_history: 'not_used',
+  workflow_execution: 'disabled',
+  handoff_execution: 'disabled',
+  learning_generation: 'disabled',
+};
 
 function redactDeep(obj: any, depth = 0): any {
   if (obj == null || depth > 8) return obj;
@@ -144,6 +188,8 @@ export async function runDryRunTest(
       prompt_preview: null,
       safety_notes: [`retrieval_error:${err?.message || 'unknown'}`],
       provider: null, model: null, error: err?.message || 'retrieval_failed',
+      runtime: buildRuntime(false),
+      runtime_parity: RUNTIME_PARITY,
     };
   }
 
@@ -229,6 +275,8 @@ export async function runDryRunTest(
       prompt_preview: promptPreview,
       safety_notes: safetyNotes,
       provider: null, model: null,
+      runtime: buildRuntime(false),
+      runtime_parity: RUNTIME_PARITY,
     };
   }
 
@@ -245,6 +293,8 @@ export async function runDryRunTest(
       prompt_preview: promptPreview,
       safety_notes: ['llm_call_skipped', ...safetyNotes],
       provider: null, model: null,
+      runtime: buildRuntime(false),
+      runtime_parity: RUNTIME_PARITY,
     };
   }
 
@@ -262,6 +312,8 @@ export async function runDryRunTest(
       safety_notes: ['no_ai_provider_configured', ...safetyNotes],
       provider: null, model: null,
       error: 'no_ai_provider_configured',
+      runtime: buildRuntime(false),
+      runtime_parity: RUNTIME_PARITY,
     };
   }
 
@@ -287,6 +339,8 @@ export async function runDryRunTest(
       safety_notes: safetyNotes,
       provider: result.provider,
       model: result.model,
+      runtime: buildRuntime(true),
+      runtime_parity: RUNTIME_PARITY,
     };
   } catch (err: any) {
     return {
@@ -301,6 +355,8 @@ export async function runDryRunTest(
       safety_notes: [`llm_error:${err?.message || 'unknown'}`, ...safetyNotes],
       provider: aiCfg.provider, model: aiCfg.model,
       error: err?.message || 'llm_call_failed',
+      runtime: buildRuntime(false),
+      runtime_parity: RUNTIME_PARITY,
     };
   }
 }
@@ -337,8 +393,14 @@ function deepHasSensitive(value: any, depth = 0): boolean {
       if (deepHasSensitive(v, depth + 1)) return true;
     }
   }
+  if (typeof value === 'string') {
+    const lv = value.toLowerCase();
+    if (SENSITIVE_VALUE_PATTERNS.some((p) => lv.includes(p))) return true;
+  }
   return false;
 }
+
+const SUPPORTED_EXPECTED_SOURCE_TYPES = new Set(['qna','learned_qna','kb_article','web_page','file']);
 
 export function evaluateExpectations(
   result: DryRunResult,
@@ -373,6 +435,9 @@ export function evaluateExpectations(
   }
 
   if (exp.expected_source_type) {
+    if (!SUPPORTED_EXPECTED_SOURCE_TYPES.has(exp.expected_source_type)) {
+      reasons.push(`unsupported_expected_source_type:${exp.expected_source_type}`);
+    }
     const has = result.selected_sources.some((s) => s.source_type === exp.expected_source_type);
     if (!has) reasons.push(`missing_expected_source_type:${exp.expected_source_type}`);
   }
@@ -412,8 +477,26 @@ export function evaluateExpectations(
     }
   }
 
+  // Check retrieval_debug.selected_sources for file source_url leaks too
+  const dbgSelected = (result.retrieval_debug && (result.retrieval_debug as any).selected_sources) || [];
+  if (Array.isArray(dbgSelected)) {
+    for (const s of dbgSelected) {
+      if (s && s.source_type === 'file' && s.source_url) {
+        reasons.push('file_url_leak_debug');
+        break;
+      }
+    }
+  }
+
   if (deepHasSensitive(result.retrieval_debug)) {
     reasons.push('sensitive_metadata_leak');
+  }
+
+  if (result.prompt_preview) {
+    const blob = `${result.prompt_preview.system}\n${result.prompt_preview.user}`.toLowerCase();
+    if (['storage_path','storage_url','signed_url'].some((p) => blob.includes(p))) {
+      reasons.push('prompt_preview_leak');
+    }
   }
 
   return { passed: reasons.length === 0, failure_reasons: reasons };

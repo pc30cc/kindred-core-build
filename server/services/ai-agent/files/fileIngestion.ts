@@ -714,6 +714,12 @@ export async function deleteAiFile(
     metadata: { ...meta, deleted_at: new Date().toISOString(), storage_delete_error: storageError || null },
   }).eq('id', sourceId);
 
+  await cancelFileIngestJobsForSource(config, sourceId);
+  await logFileEvent(config, {
+    workspaceId: source.workspace_id, sourceId, status: 'file_deleted',
+    message: `Deleted; chunks_removed=${(deletedChunks || []).length}, storage_deleted=${storageDeleted}`,
+  });
+
   return {
     chunks_deleted: (deletedChunks || []).length,
     storage_deleted: storageDeleted,

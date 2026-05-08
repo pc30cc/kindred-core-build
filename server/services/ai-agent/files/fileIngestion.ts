@@ -451,12 +451,9 @@ export async function runFileIngestJob(
   args: { workspaceId: string; sourceId: string; jobId: string; workerId: string },
 ): Promise<IngestResult> {
   const sb = getServiceClient(config);
+  await assertFileIngestStillAllowed(config, { ...args, phase: 'pre_download' });
   const { data: source } = await sb.from('ai_data_sources').select('*').eq('id', args.sourceId).maybeSingle();
   if (!source) throw new IngestError('source_not_found', 404);
-  if (source.source_type !== 'file') throw new IngestError('not_a_file_source', 400);
-  if (source.workspace_id !== args.workspaceId) throw new IngestError('workspace_mismatch', 400);
-  if (source.status === 'deleted') throw new IngestError('source_deleted', 400);
-  if (source.status === 'paused') throw new IngestError('source_paused', 400);
 
   const meta = (source.metadata as any) || {};
   const storagePath: string | undefined = meta.storage_path;
@@ -490,12 +487,28 @@ export async function runFileIngestJob(
     throw new IngestError(code, 500, dl.error);
   }
 
+  // Race-safe: source may have been paused/deleted while downloading.
+  await assertFileIngestStillAllowed(config, { ...args, phase: 'post_download_pre_parse' });
+
   const result = await finalizeIndex(
     config, args.sourceId, source.workspace_id,
     meta.original_file_name || source.name || 'file',
     meta.mime_type || 'application/octet-stream',
     dl.data, meta,
+    { jobId: args.jobId, workerId: args.workerId },
   ).catch(async (e) => {
+    // Cancellation codes — bubble up untouched so wrapper cancels (not fails) the job.
+    const cancellation = new Set(['source_paused', 'source_deleted', 'job_cancelled']);
+    if (e instanceof IngestError && cancellation.has(e.code)) {
+      await logFileEvent(config, {
+        workspaceId: args.workspaceId, sourceId: args.sourceId,
+        status: 'file_job_cancelled',
+        message: e.code === 'source_paused' ? 'file_ingest_skipped_source_paused'
+               : e.code === 'source_deleted' ? 'file_ingest_skipped_source_deleted'
+               : 'file_ingest_skipped_job_cancelled',
+      });
+      throw e;
+    }
     await logFileEvent(config, {
       workspaceId: args.workspaceId, sourceId: args.sourceId,
       status: e instanceof IngestError && e.code === 'index_failed' ? 'file_index_failed' : 'file_parse_failed',
@@ -604,6 +617,7 @@ async function finalizeIndex(
   mimeType: string,
   buffer: Buffer,
   baseMeta: Record<string, any>,
+  guard?: { jobId: string; workerId: string },
 ): Promise<IngestResult> {
   const sb = getServiceClient(config);
 
@@ -615,13 +629,20 @@ async function finalizeIndex(
     const code = e instanceof ParseError ? e.code : 'parse_failed';
     await sb.from('ai_data_sources').update({
       status: 'failed', last_error: code,
-      metadata: { ...baseMeta, parse_error: code, parse_error_message: e?.message || null },
+      metadata: { ...baseMeta, parse_error: code, parse_error_message: e?.message || null, job_status: 'failed' },
     }).eq('id', sourceId);
     // Deactivate any existing chunks (fail-closed retrieval).
     await sb.from('ai_knowledge_chunks').update({ status: 'deleted' })
       .eq('workspace_id', workspaceId).eq('source_type', 'file').eq('source_id', sourceId)
       .neq('status', 'deleted');
-    throw new IngestError('parse_failed', 422, code);
+    throw new IngestError(code, 422, e?.message || code);
+  }
+
+  // Race-safe: skip indexing if the source was paused/deleted while parsing.
+  if (guard) {
+    await assertFileIngestStillAllowed(config, {
+      workspaceId, sourceId, jobId: guard.jobId, workerId: guard.workerId, phase: 'post_parse_pre_index',
+    });
   }
 
   // Chunk + index.
@@ -648,9 +669,28 @@ async function finalizeIndex(
   } catch (e: any) {
     await sb.from('ai_data_sources').update({
       status: 'failed', last_error: 'index_failed',
-      metadata: { ...baseMeta, index_error: e?.message || 'unknown' },
+      metadata: { ...baseMeta, index_error: e?.message || 'unknown', job_status: 'failed' },
     }).eq('id', sourceId);
     throw new IngestError('index_failed', 500, e?.message);
+  }
+
+  // Race-safe: final guard before flipping source/chunks active.
+  if (guard) {
+    try {
+      await assertFileIngestStillAllowed(config, {
+        workspaceId, sourceId, jobId: guard.jobId, workerId: guard.workerId, phase: 'pre_finalize',
+      });
+    } catch (e) {
+      // Source paused/deleted between index and finalize: do NOT activate.
+      // Fail-closed: mark new chunks stale (paused) or deleted (deleted).
+      const { data: cur } = await sb.from('ai_data_sources').select('status').eq('id', sourceId).maybeSingle();
+      const targetChunkStatus = (cur as any)?.status === 'deleted' ? 'deleted' : 'stale';
+      await sb.from('ai_knowledge_chunks')
+        .update({ status: targetChunkStatus })
+        .eq('workspace_id', workspaceId).eq('source_type', 'file').eq('source_id', sourceId)
+        .eq('status', 'active');
+      throw e;
+    }
   }
 
   // Recompute actual active chunk counts so reindex/idempotent runs reflect
@@ -678,6 +718,7 @@ async function finalizeIndex(
     text_length: parsed.textLength,
     warnings: parsed.warnings,
     indexed_at: new Date().toISOString(),
+    job_status: 'completed',
   };
   // clear stale error fields
   delete (finalMeta as any).parse_error;

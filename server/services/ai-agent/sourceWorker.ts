@@ -20,6 +20,7 @@ import {
 import { resolveAiAgentDataLimits } from './limits.js';
 import { crawlWebsiteSource } from './crawler/crawlWebsiteSource.js';
 import { normalizeHost, DEFAULT_INCLUDE, DEFAULT_EXCLUDE } from './crawler/urlRules.js';
+import { runFileIngestJob, IngestError } from './files/fileIngestion.js';
 
 const WORKER_ID =
   process.env.AI_KB_WORKER_ID ||
@@ -71,6 +72,10 @@ export async function processOne(config: ServerConfig): Promise<{ processed: boo
 }
 
 async function runJob(config: ServerConfig, job: SourceSyncJob): Promise<void> {
+  // Dispatch by job_type. file_ingest jobs do parse+index; legacy jobs crawl.
+  if (job.job_type === 'file_ingest') {
+    return runFileIngestJobWrapper(config, job);
+  }
   const sb = getServiceClient(config);
 
   // Load source.
@@ -174,6 +179,35 @@ async function runJob(config: ServerConfig, job: SourceSyncJob): Promise<void> {
     pages_fetched: summary.pages_fetched, chunks_created: summary.chunks_created,
     embeddings_generated: summary.embeddings_generated,
   });
+}
+
+async function runFileIngestJobWrapper(config: ServerConfig, job: SourceSyncJob): Promise<void> {
+  try {
+    const result = await runFileIngestJob(config, {
+      workspaceId: job.workspace_id, sourceId: job.source_id,
+      jobId: job.id, workerId: WORKER_ID,
+    });
+    await completeSourceSyncJob(config, {
+      jobId: job.id,
+      summary: {
+        chunks_created: result.chunks_created,
+        embedded_chunks: result.embedded_chunks,
+        parser: result.parser,
+        page_count: result.page_count ?? null,
+        warnings: result.warnings.slice(0, 10),
+      },
+    });
+    console.log('[ai-kb worker] file_ingest job completed', {
+      workerId: WORKER_ID, jobId: job.id, sourceId: job.source_id,
+      chunks_created: result.chunks_created,
+    });
+  } catch (e: any) {
+    const code = e instanceof IngestError ? e.code : (e?.message || 'file_ingest_failed');
+    // Non-retryable for terminal parse errors (encrypted/no_text/etc.) — only retry transient errors.
+    const transient = new Set(['download_failed']);
+    await failSourceSyncJob(config, { jobId: job.id, error: code, retryable: transient.has(code) });
+    console.warn('[ai-kb worker] file_ingest job failed', { jobId: job.id, sourceId: job.source_id, error: code });
+  }
 }
 
 export function getWorkerInfo() {

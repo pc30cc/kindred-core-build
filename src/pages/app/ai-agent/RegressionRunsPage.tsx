@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Progress } from '@/components/ui/progress';
 import { toast } from '@/hooks/use-toast';
+import { Download } from 'lucide-react';
 
 function fmtDate(d: string | null | undefined) {
   return d ? new Date(d).toLocaleString() : '—';
@@ -39,6 +40,15 @@ export default function RegressionRunsPage() {
   const isOwnerOrAdmin = isWorkspaceAdmin(roleQ.data);
   const qc = useQueryClient();
   const [openBatch, setOpenBatch] = useState<string | null>(null);
+  const [filters, setFilters] = useState<{
+    status: string; triggerType: string; scheduleId: string;
+    dateFrom: string; dateTo: string; onlyFailed: boolean;
+  }>({ status: 'all', triggerType: 'all', scheduleId: 'all', dateFrom: '', dateTo: '', onlyFailed: false });
+
+  // Allow retry-child links inside the dialog to swap the open batch.
+  if (typeof window !== 'undefined') {
+    (window as any).__openRegressionBatch = (id: string) => setOpenBatch(id);
+  }
 
   const schedulesQ = useQuery({
     queryKey: ['ai-agent', 'regression-schedules', wsId],
@@ -46,10 +56,25 @@ export default function RegressionRunsPage() {
     enabled: !!wsId,
   });
   const batchesQ = useQuery({
-    queryKey: ['ai-agent', 'regression-batches', wsId],
-    queryFn: () => aiAgentApi.listRegressionBatches(wsId!, 50),
+    queryKey: ['ai-agent', 'regression-batches', wsId, filters],
+    queryFn: () => aiAgentApi.listRegressionBatches(wsId!, {
+      limit: 50,
+      status: filters.status !== 'all' ? (filters.status as any) : null,
+      triggerType: filters.triggerType !== 'all' ? (filters.triggerType as any) : null,
+      scheduleId: filters.scheduleId !== 'all' ? filters.scheduleId : null,
+      dateFrom: filters.dateFrom ? new Date(filters.dateFrom).toISOString() : null,
+      dateTo: filters.dateTo ? new Date(filters.dateTo + 'T23:59:59').toISOString() : null,
+      onlyFailed: filters.onlyFailed,
+    }),
     enabled: !!wsId,
     refetchInterval: 10_000,
+  });
+
+  const overviewQ = useQuery({
+    queryKey: ['ai-agent', 'regression-overview', wsId],
+    queryFn: () => aiAgentApi.getRegressionOverview(wsId!),
+    enabled: !!wsId,
+    refetchInterval: 30_000,
   });
 
   const schedule: RegressionSchedule | null = schedulesQ.data?.items?.[0] || null;
@@ -78,15 +103,8 @@ export default function RegressionRunsPage() {
   });
 
   const batches = batchesQ.data?.items || [];
-  const latest = batches[0];
-  const last24h = useMemo(() => {
-    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-    return batches.filter((b) => new Date(b.created_at).getTime() >= cutoff);
-  }, [batches]);
-  const last7d = useMemo(() => {
-    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
-    return batches.filter((b) => new Date(b.created_at).getTime() >= cutoff);
-  }, [batches]);
+  const overview = overviewQ.data;
+  const schedules = schedulesQ.data?.items || [];
 
   if (!wsId) return <div className="p-6 text-muted-foreground">Loading workspace…</div>;
 
@@ -126,21 +144,118 @@ export default function RegressionRunsPage() {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-        <SummaryCard label="Latest pass rate" value={pct(latest?.pass_rate ?? null)} />
-        <SummaryCard label="Latest result" value={latest ? `${latest.passed}/${latest.total_cases}` : '—'} sub={latest ? `${latest.failed} failed · ${latest.errored} errored` : undefined} />
-        <SummaryCard label="Last run" value={fmtDate(latest?.finished_at || latest?.started_at || latest?.created_at)} />
-        <SummaryCard label="Next run" value={fmtDate(schedule?.next_run_at)} />
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <SummaryCard
+          label="Enabled schedules"
+          value={`${overview?.enabled_schedules ?? 0}/${overview?.total_schedules ?? 0}`}
+        />
+        <SummaryCard
+          label="Next run"
+          value={fmtDate(overview?.next_due_schedule?.next_run_at || schedule?.next_run_at)}
+          sub={overview?.next_due_schedule?.timezone}
+        />
+        <SummaryCard
+          label="Last 24h pass rate"
+          value={pct(overview?.last_24h_pass_rate ?? null)}
+          sub={`${overview?.last_24h_batches ?? 0} batches`}
+        />
+        <SummaryCard
+          label="Failed batches (7d)"
+          value={String(overview?.failed_batches_count ?? 0)}
+          sub={`${overview?.errored_runs_count ?? 0} errored runs`}
+          tone={overview && overview.failed_batches_count > 0 ? 'red' : 'green'}
+        />
+        <SummaryCard
+          label="Last batch"
+          value={overview?.last_batch ? overview.last_batch.status : '—'}
+          sub={overview?.last_batch ? `${overview.last_batch.passed}/${overview.last_batch.total_cases} passed` : undefined}
+          tone={overview?.last_batch ? statusTone(overview.last_batch.status) : undefined}
+        />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <SummaryCard label="Last 24h batches" value={String(last24h.length)} sub={`${last24h.reduce((a,b)=>a+b.passed,0)} passed · ${last24h.reduce((a,b)=>a+b.failed,0)} failed`} />
-        <SummaryCard label="Last 7d batches" value={String(last7d.length)} sub={`${last7d.reduce((a,b)=>a+b.passed,0)} passed · ${last7d.reduce((a,b)=>a+b.failed,0)} failed`} />
-      </div>
+      {overview && overview.top_failure_reasons.length > 0 && (
+        <Card>
+          <CardHeader><CardTitle>Top failure reasons (7d)</CardTitle></CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-2">
+              {overview.top_failure_reasons.map((r) => (
+                <Badge key={r.reason} variant="outline" className="text-xs">
+                  <span className="font-mono mr-1">{r.reason}</span>
+                  <span className="text-muted-foreground">×{r.count}</span>
+                </Badge>
+              ))}
+            </div>
+            {overview.coverage_by_source_type.length > 0 && (
+              <div className="mt-3 text-xs text-muted-foreground">
+                Coverage by source type:{' '}
+                {overview.coverage_by_source_type.map((c) => `${c.source_type} (${c.runs})`).join(' · ')}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader><CardTitle>Batch history</CardTitle></CardHeader>
         <CardContent>
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-2 mb-3">
+            <div>
+              <Label className="text-xs">Status</Label>
+              <Select value={filters.status} onValueChange={(v) => setFilters((f) => ({ ...f, status: v }))}>
+                <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="queued">Queued</SelectItem>
+                  <SelectItem value="running">Running</SelectItem>
+                  <SelectItem value="completed">Completed</SelectItem>
+                  <SelectItem value="failed">Failed</SelectItem>
+                  <SelectItem value="cancelled">Cancelled</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Trigger</Label>
+              <Select value={filters.triggerType} onValueChange={(v) => setFilters((f) => ({ ...f, triggerType: v }))}>
+                <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="manual">Manual</SelectItem>
+                  <SelectItem value="scheduled">Scheduled</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Schedule</Label>
+              <Select value={filters.scheduleId} onValueChange={(v) => setFilters((f) => ({ ...f, scheduleId: v }))}>
+                <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  {schedules.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">From</Label>
+              <Input type="date" className="h-8" value={filters.dateFrom}
+                onChange={(e) => setFilters((f) => ({ ...f, dateFrom: e.target.value }))} />
+            </div>
+            <div>
+              <Label className="text-xs">To</Label>
+              <Input type="date" className="h-8" value={filters.dateTo}
+                onChange={(e) => setFilters((f) => ({ ...f, dateTo: e.target.value }))} />
+            </div>
+            <div className="flex items-end gap-2">
+              <div className="flex items-center gap-2">
+                <Switch checked={filters.onlyFailed}
+                  onCheckedChange={(v) => setFilters((f) => ({ ...f, onlyFailed: v }))} />
+                <Label className="text-xs">Only failed</Label>
+              </div>
+              <Button size="sm" variant="ghost" className="h-8"
+                onClick={() => setFilters({ status: 'all', triggerType: 'all', scheduleId: 'all', dateFrom: '', dateTo: '', onlyFailed: false })}>
+                Reset
+              </Button>
+            </div>
+          </div>
           {batchesQ.isLoading ? (
             <div className="text-sm text-muted-foreground">Loading…</div>
           ) : !batches.length ? (
@@ -211,12 +326,26 @@ export default function RegressionRunsPage() {
   );
 }
 
-function SummaryCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
+type Tone = 'green' | 'red' | 'yellow' | 'blue' | undefined;
+const TONE_CLASS: Record<string, string> = {
+  green: 'text-emerald-600',
+  red: 'text-destructive',
+  yellow: 'text-amber-600',
+  blue: 'text-primary',
+};
+function statusTone(status: RegressionBatch['status']): Tone {
+  if (status === 'completed') return 'green';
+  if (status === 'failed') return 'red';
+  if (status === 'cancelled') return 'yellow';
+  if (status === 'running') return 'blue';
+  return undefined;
+}
+function SummaryCard({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: Tone }) {
   return (
     <Card>
       <CardContent className="p-4">
         <div className="text-xs text-muted-foreground">{label}</div>
-        <div className="text-xl font-semibold">{value}</div>
+        <div className={`text-xl font-semibold ${tone ? TONE_CLASS[tone] : ''}`}>{value}</div>
         {sub && <div className="text-xs text-muted-foreground mt-1">{sub}</div>}
       </CardContent>
     </Card>
@@ -443,13 +572,39 @@ function BatchDetailDialog({
                   {retryMut.isPending ? 'Queuing…' : 'Retry failed'}
                 </Button>
               )}
+              <a href={aiAgentApi.regressionBatchCsvUrl(batch.id)} target="_blank" rel="noreferrer">
+                <Button size="sm" variant="outline">
+                  <Download className="h-3 w-3 mr-1" /> Export CSV
+                </Button>
+              </a>
             </div>
+            {Array.isArray((q.data as any).retryChildren) && (q.data as any).retryChildren.length > 0 && (
+              <div className="rounded border border-border/40 p-2 text-xs">
+                <div className="font-medium mb-1">Retry batches from this run:</div>
+                <ul className="space-y-1">
+                  {(q.data as any).retryChildren.map((c: any) => (
+                    <li key={c.id} className="flex items-center gap-2">
+                      <BatchStatusBadge status={c.status} />
+                      <span className="text-muted-foreground">{fmtDate(c.created_at)}</span>
+                      <span>{c.passed} passed · {c.failed} failed · {c.errored} errored</span>
+                      <Button
+                        size="sm" variant="ghost" className="ml-auto h-6"
+                        onClick={() => { (window as any).__openRegressionBatch?.(c.id); }}
+                      >
+                        Open
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <div className="overflow-x-auto">
               <table className="text-xs w-full">
                 <thead>
                   <tr className="text-left text-muted-foreground border-b border-border/40">
                     <th className="py-2 pr-2">Status</th>
-                    <th className="py-2 pr-2">Input</th>
+                    <th className="py-2 pr-2">Test / Input</th>
+                    <th className="py-2 pr-2">Expected vs Actual</th>
                     <th className="py-2 pr-2">Failure reasons</th>
                     <th className="py-2 pr-2">Sources</th>
                     <th className="py-2 pr-2"></th>
@@ -459,18 +614,43 @@ function BatchDetailDialog({
                   {q.data.runs.map((r: any) => {
                     const sourceTypes = Array.from(new Set((r.selected_sources || []).map((s: any) => s.source_type)));
                     const canSuggest = r.status === 'failed' || r.status === 'errored';
+                    const tc = r.test_case || {};
+                    const meta = (r.metadata || {}) as Record<string, any>;
+                    const aiRunId = r.ai_agent_run_id || meta.ai_agent_run_id || null;
+                    const params = new URLSearchParams({
+                      message: r.input_message || '',
+                      locale: tc.locale || '',
+                    });
                     return (
                       <tr key={r.id} className="border-b border-border/30 align-top">
                         <td className="py-1 pr-2"><Badge variant={r.status === 'passed' ? 'default' : r.status === 'failed' ? 'destructive' : 'secondary'}>{r.status}</Badge></td>
-                        <td className="py-1 pr-2 max-w-[280px] truncate" title={r.input_message}>{r.input_message}</td>
-                        <td className="py-1 pr-2 max-w-[260px]">{(r.failure_reasons || []).slice(0, 3).join(', ') || '—'}</td>
+                        <td className="py-1 pr-2 max-w-[260px]">
+                          {tc.name && <div className="font-medium truncate" title={tc.name}>{tc.name}</div>}
+                          <div className="text-muted-foreground truncate" title={r.input_message}>{r.input_message}</div>
+                        </td>
+                        <td className="py-1 pr-2 max-w-[200px] text-[11px]">
+                          <div><span className="text-muted-foreground">Exp:</span> <code>{tc.expected_behavior || '—'}</code></div>
+                          <div><span className="text-muted-foreground">Act:</span> <code>{r.actual_status || '—'}</code></div>
+                        </td>
+                        <td className="py-1 pr-2 max-w-[260px]">
+                          <div className="flex flex-wrap gap-1">
+                            {((r.failure_reasons || []) as string[]).slice(0, 4).map((reason, i) => (
+                              <Badge key={i} variant="outline" className="text-[10px] font-mono">{reason}</Badge>
+                            ))}
+                            {!(r.failure_reasons || []).length && <span className="text-muted-foreground">—</span>}
+                          </div>
+                        </td>
                         <td className="py-1 pr-2">{sourceTypes.join(', ') || '—'}</td>
-                        <td className="py-1 pr-2 whitespace-nowrap">
-                          <Link className="text-primary hover:underline mr-2" to={wsPath(`/ai-agent/test-runs/${r.id}`)}>Detail</Link>
-                          {canSuggest && (
+                        <td className="py-1 pr-2 whitespace-nowrap space-x-2">
+                          <Link className="text-primary hover:underline" to={wsPath(`/ai-agent/test-runs/${r.id}`)}>Detail</Link>
+                          <Link className="text-primary hover:underline" to={wsPath(`/ai-agent/debug/retrieval?${params.toString()}`)}>Retrieval</Link>
+                          {aiRunId && (
+                            <Link className="text-primary hover:underline" to={wsPath(`/ai-agent/runs/${aiRunId}`)}>Inspector</Link>
+                          )}
+                          {canSuggest && canManage && (
                             <Button size="sm" variant="outline" disabled={suggestMut.isPending}
                               onClick={() => suggestMut.mutate(r.id)}>
-                              Suggest test
+                              Suggest
                             </Button>
                           )}
                         </td>

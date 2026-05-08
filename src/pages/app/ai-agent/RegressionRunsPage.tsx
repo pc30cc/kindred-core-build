@@ -318,10 +318,34 @@ function ScheduleEditor({
         <Button size="sm" variant="outline" disabled={!canEdit || runningNow} onClick={onRunNow}>
           {runningNow ? 'Queuing…' : 'Run now'}
         </Button>
-        <span className="text-xs text-muted-foreground">
-          Last run: {fmtDate(schedule.last_run_at)} · Next run: {fmtDate(schedule.next_run_at)}
-        </span>
+        <ScheduleMeta schedule={schedule} />
       </div>
+    </div>
+  );
+}
+
+function ScheduleMeta({ schedule }: { schedule: RegressionSchedule }) {
+  const meta = (schedule.metadata || {}) as Record<string, any>;
+  const resolvedTz = meta.resolved_timezone || schedule.timezone || 'UTC';
+  const warning = meta.warning as string | undefined;
+  return (
+    <div className="flex flex-col text-xs text-muted-foreground gap-0.5">
+      <span>
+        Last run: {fmtDate(schedule.last_run_at)} · Next run:{' '}
+        <span title={schedule.next_run_at ? `UTC: ${schedule.next_run_at}` : ''}>
+          {fmtDate(schedule.next_run_at)}
+        </span>
+      </span>
+      <span>Resolved timezone: <code>{resolvedTz}</code></span>
+      {warning && (
+        <span className="text-amber-600">
+          Warning: {warning === 'timezone_invalid_fallback_utc'
+            ? 'Timezone invalid — falling back.'
+            : warning === 'time_of_day_invalid_interval_fallback'
+              ? 'Time-of-day invalid — using interval math.'
+              : warning}
+        </span>
+      )}
     </div>
   );
 }

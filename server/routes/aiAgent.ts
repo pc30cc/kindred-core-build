@@ -1479,6 +1479,7 @@ aiAgentRouter.post('/operator/suggest-reply', async (req: Request, res: Response
 
   const baseResponse = {
     ok: true,
+    assist_run_id: null as string | null,
     suggestion: null as string | null,
     confidence,
     tone: tone ?? null,
@@ -1494,27 +1495,28 @@ aiAgentRouter.post('/operator/suggest-reply', async (req: Request, res: Response
 
   if (!callLLM) {
     baseResponse.safety_notes = ['llm_call_skipped', ...safetyNotes];
-    await e7PersistAssistRun(config, {
+    const runId = await e7PersistAssistRun(config, {
       workspaceId, conversationId, requestedBy: auth.userId,
       status: 'skipped', inputMessage, instruction: instruction ?? null, tone: tone ?? null,
       suggestion: null, confidence, selectedSources, retrievalDebug: hybrid.retrievalDebug,
       answerStrategy, safetyNotes: baseResponse.safety_notes,
       provider: null, model: null, error: null,
     });
+    baseResponse.assist_run_id = runId;
     return res.json(baseResponse);
   }
 
   const aiCfg = await e7_resolveAIConfig(config, workspaceId);
   if (!aiCfg) {
     const notes = ['ai_provider_not_configured', ...safetyNotes];
-    await e7PersistAssistRun(config, {
+    const runId = await e7PersistAssistRun(config, {
       workspaceId, conversationId, requestedBy: auth.userId,
       status: 'failed', inputMessage, instruction: instruction ?? null, tone: tone ?? null,
       suggestion: null, confidence, selectedSources, retrievalDebug: hybrid.retrievalDebug,
       answerStrategy, safetyNotes: notes,
       provider: null, model: null, error: 'ai_provider_not_configured',
     });
-    return res.status(400).json({ error: 'ai_provider_not_configured' });
+    return res.status(400).json({ error: 'ai_provider_not_configured', assist_run_id: runId });
   }
 
   try {
@@ -1552,7 +1554,7 @@ aiAgentRouter.post('/operator/suggest-reply', async (req: Request, res: Response
       provider: result.provider,
       model: result.model,
     };
-    await e7PersistAssistRun(config, {
+    const runId = await e7PersistAssistRun(config, {
       workspaceId, conversationId, requestedBy: auth.userId,
       status: suggestion ? 'suggested' : 'failed', inputMessage,
       instruction: instruction ?? null, tone: tone ?? null,
@@ -1561,6 +1563,7 @@ aiAgentRouter.post('/operator/suggest-reply', async (req: Request, res: Response
       provider: result.provider, model: result.model,
       error: suggestion ? null : 'empty_completion',
     });
+    out.assist_run_id = runId;
     return res.json(out);
   } catch (err: any) {
     const notes = [`llm_error:${err?.message || 'unknown'}`, ...safetyNotes];

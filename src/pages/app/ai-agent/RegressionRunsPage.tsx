@@ -98,15 +98,8 @@ export default function RegressionRunsPage() {
   });
 
   const batches = batchesQ.data?.items || [];
-  const latest = batches[0];
-  const last24h = useMemo(() => {
-    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-    return batches.filter((b) => new Date(b.created_at).getTime() >= cutoff);
-  }, [batches]);
-  const last7d = useMemo(() => {
-    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
-    return batches.filter((b) => new Date(b.created_at).getTime() >= cutoff);
-  }, [batches]);
+  const overview = overviewQ.data;
+  const schedules = schedulesQ.data?.items || [];
 
   if (!wsId) return <div className="p-6 text-muted-foreground">Loading workspace…</div>;
 
@@ -146,21 +139,118 @@ export default function RegressionRunsPage() {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-        <SummaryCard label="Latest pass rate" value={pct(latest?.pass_rate ?? null)} />
-        <SummaryCard label="Latest result" value={latest ? `${latest.passed}/${latest.total_cases}` : '—'} sub={latest ? `${latest.failed} failed · ${latest.errored} errored` : undefined} />
-        <SummaryCard label="Last run" value={fmtDate(latest?.finished_at || latest?.started_at || latest?.created_at)} />
-        <SummaryCard label="Next run" value={fmtDate(schedule?.next_run_at)} />
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <SummaryCard
+          label="Enabled schedules"
+          value={`${overview?.enabled_schedules ?? 0}/${overview?.total_schedules ?? 0}`}
+        />
+        <SummaryCard
+          label="Next run"
+          value={fmtDate(overview?.next_due_schedule?.next_run_at || schedule?.next_run_at)}
+          sub={overview?.next_due_schedule?.timezone}
+        />
+        <SummaryCard
+          label="Last 24h pass rate"
+          value={pct(overview?.last_24h_pass_rate ?? null)}
+          sub={`${overview?.last_24h_batches ?? 0} batches`}
+        />
+        <SummaryCard
+          label="Failed batches (7d)"
+          value={String(overview?.failed_batches_count ?? 0)}
+          sub={`${overview?.errored_runs_count ?? 0} errored runs`}
+          tone={overview && overview.failed_batches_count > 0 ? 'red' : 'green'}
+        />
+        <SummaryCard
+          label="Last batch"
+          value={overview?.last_batch ? overview.last_batch.status : '—'}
+          sub={overview?.last_batch ? `${overview.last_batch.passed}/${overview.last_batch.total_cases} passed` : undefined}
+          tone={overview?.last_batch ? statusTone(overview.last_batch.status) : undefined}
+        />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <SummaryCard label="Last 24h batches" value={String(last24h.length)} sub={`${last24h.reduce((a,b)=>a+b.passed,0)} passed · ${last24h.reduce((a,b)=>a+b.failed,0)} failed`} />
-        <SummaryCard label="Last 7d batches" value={String(last7d.length)} sub={`${last7d.reduce((a,b)=>a+b.passed,0)} passed · ${last7d.reduce((a,b)=>a+b.failed,0)} failed`} />
-      </div>
+      {overview && overview.top_failure_reasons.length > 0 && (
+        <Card>
+          <CardHeader><CardTitle>Top failure reasons (7d)</CardTitle></CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-2">
+              {overview.top_failure_reasons.map((r) => (
+                <Badge key={r.reason} variant="outline" className="text-xs">
+                  <span className="font-mono mr-1">{r.reason}</span>
+                  <span className="text-muted-foreground">×{r.count}</span>
+                </Badge>
+              ))}
+            </div>
+            {overview.coverage_by_source_type.length > 0 && (
+              <div className="mt-3 text-xs text-muted-foreground">
+                Coverage by source type:{' '}
+                {overview.coverage_by_source_type.map((c) => `${c.source_type} (${c.runs})`).join(' · ')}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader><CardTitle>Batch history</CardTitle></CardHeader>
         <CardContent>
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-2 mb-3">
+            <div>
+              <Label className="text-xs">Status</Label>
+              <Select value={filters.status} onValueChange={(v) => setFilters((f) => ({ ...f, status: v }))}>
+                <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="queued">Queued</SelectItem>
+                  <SelectItem value="running">Running</SelectItem>
+                  <SelectItem value="completed">Completed</SelectItem>
+                  <SelectItem value="failed">Failed</SelectItem>
+                  <SelectItem value="cancelled">Cancelled</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Trigger</Label>
+              <Select value={filters.triggerType} onValueChange={(v) => setFilters((f) => ({ ...f, triggerType: v }))}>
+                <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="manual">Manual</SelectItem>
+                  <SelectItem value="scheduled">Scheduled</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Schedule</Label>
+              <Select value={filters.scheduleId} onValueChange={(v) => setFilters((f) => ({ ...f, scheduleId: v }))}>
+                <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  {schedules.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">From</Label>
+              <Input type="date" className="h-8" value={filters.dateFrom}
+                onChange={(e) => setFilters((f) => ({ ...f, dateFrom: e.target.value }))} />
+            </div>
+            <div>
+              <Label className="text-xs">To</Label>
+              <Input type="date" className="h-8" value={filters.dateTo}
+                onChange={(e) => setFilters((f) => ({ ...f, dateTo: e.target.value }))} />
+            </div>
+            <div className="flex items-end gap-2">
+              <div className="flex items-center gap-2">
+                <Switch checked={filters.onlyFailed}
+                  onCheckedChange={(v) => setFilters((f) => ({ ...f, onlyFailed: v }))} />
+                <Label className="text-xs">Only failed</Label>
+              </div>
+              <Button size="sm" variant="ghost" className="h-8"
+                onClick={() => setFilters({ status: 'all', triggerType: 'all', scheduleId: 'all', dateFrom: '', dateTo: '', onlyFailed: false })}>
+                Reset
+              </Button>
+            </div>
+          </div>
           {batchesQ.isLoading ? (
             <div className="text-sm text-muted-foreground">Loading…</div>
           ) : !batches.length ? (

@@ -567,13 +567,41 @@ function BatchDetailDialog({
                   {retryMut.isPending ? 'Queuing…' : 'Retry failed'}
                 </Button>
               )}
+              <a href={aiAgentApi.regressionBatchCsvUrl(batch.id)} target="_blank" rel="noreferrer">
+                <Button size="sm" variant="outline">
+                  <Download className="h-3 w-3 mr-1" /> Export CSV
+                </Button>
+              </a>
             </div>
+            {Array.isArray((q.data as any).retryChildren) && (q.data as any).retryChildren.length > 0 && (
+              <div className="rounded border border-border/40 p-2 text-xs">
+                <div className="font-medium mb-1">Retry batches from this run:</div>
+                <ul className="space-y-1">
+                  {(q.data as any).retryChildren.map((c: any) => (
+                    <li key={c.id} className="flex items-center gap-2">
+                      <BatchStatusBadge status={c.status} />
+                      <span className="text-muted-foreground">{fmtDate(c.created_at)}</span>
+                      <span>{c.passed} passed · {c.failed} failed · {c.errored} errored</span>
+                      <Button size="sm" variant="ghost" onClick={() => onChanged() /* triggers refetch list */}
+                        className="ml-auto h-6"
+                        // open the child by closing then re-opening (simple)
+                        >
+                        <Link to="#" onClick={(e) => { e.preventDefault(); window.dispatchEvent(new CustomEvent('open-regression-batch', { detail: c.id })); }}>
+                          Open
+                        </Link>
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <div className="overflow-x-auto">
               <table className="text-xs w-full">
                 <thead>
                   <tr className="text-left text-muted-foreground border-b border-border/40">
                     <th className="py-2 pr-2">Status</th>
-                    <th className="py-2 pr-2">Input</th>
+                    <th className="py-2 pr-2">Test / Input</th>
+                    <th className="py-2 pr-2">Expected vs Actual</th>
                     <th className="py-2 pr-2">Failure reasons</th>
                     <th className="py-2 pr-2">Sources</th>
                     <th className="py-2 pr-2"></th>
@@ -583,18 +611,43 @@ function BatchDetailDialog({
                   {q.data.runs.map((r: any) => {
                     const sourceTypes = Array.from(new Set((r.selected_sources || []).map((s: any) => s.source_type)));
                     const canSuggest = r.status === 'failed' || r.status === 'errored';
+                    const tc = r.test_case || {};
+                    const meta = (r.metadata || {}) as Record<string, any>;
+                    const aiRunId = r.ai_agent_run_id || meta.ai_agent_run_id || null;
+                    const params = new URLSearchParams({
+                      message: r.input_message || '',
+                      locale: tc.locale || '',
+                    });
                     return (
                       <tr key={r.id} className="border-b border-border/30 align-top">
                         <td className="py-1 pr-2"><Badge variant={r.status === 'passed' ? 'default' : r.status === 'failed' ? 'destructive' : 'secondary'}>{r.status}</Badge></td>
-                        <td className="py-1 pr-2 max-w-[280px] truncate" title={r.input_message}>{r.input_message}</td>
-                        <td className="py-1 pr-2 max-w-[260px]">{(r.failure_reasons || []).slice(0, 3).join(', ') || '—'}</td>
+                        <td className="py-1 pr-2 max-w-[260px]">
+                          {tc.name && <div className="font-medium truncate" title={tc.name}>{tc.name}</div>}
+                          <div className="text-muted-foreground truncate" title={r.input_message}>{r.input_message}</div>
+                        </td>
+                        <td className="py-1 pr-2 max-w-[200px] text-[11px]">
+                          <div><span className="text-muted-foreground">Exp:</span> <code>{tc.expected_behavior || '—'}</code></div>
+                          <div><span className="text-muted-foreground">Act:</span> <code>{r.actual_status || '—'}</code></div>
+                        </td>
+                        <td className="py-1 pr-2 max-w-[260px]">
+                          <div className="flex flex-wrap gap-1">
+                            {((r.failure_reasons || []) as string[]).slice(0, 4).map((reason, i) => (
+                              <Badge key={i} variant="outline" className="text-[10px] font-mono">{reason}</Badge>
+                            ))}
+                            {!(r.failure_reasons || []).length && <span className="text-muted-foreground">—</span>}
+                          </div>
+                        </td>
                         <td className="py-1 pr-2">{sourceTypes.join(', ') || '—'}</td>
-                        <td className="py-1 pr-2 whitespace-nowrap">
-                          <Link className="text-primary hover:underline mr-2" to={wsPath(`/ai-agent/test-runs/${r.id}`)}>Detail</Link>
-                          {canSuggest && (
+                        <td className="py-1 pr-2 whitespace-nowrap space-x-2">
+                          <Link className="text-primary hover:underline" to={wsPath(`/ai-agent/test-runs/${r.id}`)}>Detail</Link>
+                          <Link className="text-primary hover:underline" to={wsPath(`/ai-agent/debug/retrieval?${params.toString()}`)}>Retrieval</Link>
+                          {aiRunId && (
+                            <Link className="text-primary hover:underline" to={wsPath(`/ai-agent/runs/${aiRunId}`)}>Inspector</Link>
+                          )}
+                          {canSuggest && canManage && (
                             <Button size="sm" variant="outline" disabled={suggestMut.isPending}
                               onClick={() => suggestMut.mutate(r.id)}>
-                              Suggest test
+                              Suggest
                             </Button>
                           )}
                         </td>

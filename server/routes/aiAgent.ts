@@ -438,17 +438,17 @@ aiAgentRouter.get('/runs/:id/inspect', async (req: Request, res: Response) => {
     const { data: c } = await sb.from('conversations').select('id, status, channel, locale, created_at').eq('id', run.conversation_id).maybeSingle();
     conversation = c || null;
     if (run.visitor_message_id) {
-      const { data: vm } = await sb.from('conversation_messages').select('id, body, created_at, sender_kind').eq('id', run.visitor_message_id).maybeSingle();
-      visitorMessage = vm ? { id: vm.id, body: truncate(vm.body, 4000), created_at: vm.created_at } : null;
+      const { data: vm } = await sb.from('conversation_messages').select('id, body, created_at, sender_type').eq('id', run.visitor_message_id).maybeSingle();
+      visitorMessage = vm ? { id: vm.id, body: truncate(vm.body, 4000), sender_type: (vm as any).sender_type, created_at: vm.created_at } : null;
     }
     const { data: am } = await sb.from('conversation_messages')
-      .select('id, body, created_at, sender_kind, metadata')
+      .select('id, body, created_at, sender_type, metadata')
       .eq('conversation_id', run.conversation_id)
       .gte('created_at', run.created_at)
       .order('created_at', { ascending: true })
       .limit(5);
     const found = (am || []).find((m: any) => m?.metadata?.run_id === run.id || m?.metadata?.runId === run.id);
-    if (found) aiMessage = { id: found.id, body: truncate(found.body, 4000), created_at: found.created_at };
+    if (found) aiMessage = { id: found.id, body: truncate(found.body, 4000), sender_type: (found as any).sender_type, created_at: found.created_at };
   }
 
   const promptPreview = meta.prompt_preview
@@ -461,16 +461,17 @@ aiAgentRouter.get('/runs/:id/inspect', async (req: Request, res: Response) => {
     if (exc.disabled_qna_excluded) safetyNotes.push(`disabled_qna_excluded=${exc.disabled_qna_excluded}`);
     if (exc.draft_kb_excluded) safetyNotes.push(`draft_kb_excluded=${exc.draft_kb_excluded}`);
     if (exc.inactive_file_excluded) safetyNotes.push(`inactive_file_excluded=${exc.inactive_file_excluded}`);
+    if (exc.inactive_web_page_excluded) safetyNotes.push(`inactive_web_page_excluded=${exc.inactive_web_page_excluded}`);
   }
 
   // Best-effort observability event.
   try {
-    await sb.from('ai_source_sync_logs').insert({
+    await sb.from('ai_agent_debug_events').insert({
       workspace_id: run.workspace_id,
-      source_id: null,
-      event: 'answer_inspected',
-      level: 'info',
-      metadata: { run_id: run.id, by_user: auth.userId },
+      run_id: run.id,
+      event_type: 'answer_inspected',
+      actor_user_id: auth.userId,
+      metadata: { },
     });
   } catch { /* noop */ }
 
@@ -569,12 +570,12 @@ aiAgentRouter.post('/debug/retrieval', async (req: Request, res: Response) => {
     // Best-effort observability event (no visitor side-effect).
     const sb = getServiceClient(config);
     try {
-      await sb.from('ai_source_sync_logs').insert({
+      await sb.from('ai_agent_debug_events').insert({
         workspace_id: workspaceId,
-        source_id: null,
-        event: 'retrieval_debug_run',
-        level: 'info',
-        metadata: { by_user: auth.userId, top_score: top?.final_score ?? 0, count: hybrid.sources.length },
+        run_id: null,
+        event_type: 'retrieval_debug_run',
+        actor_user_id: auth.userId,
+        metadata: { top_score: top?.final_score ?? 0, count: hybrid.sources.length },
       });
     } catch { /* noop */ }
 

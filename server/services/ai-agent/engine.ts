@@ -682,7 +682,7 @@ async function runInternal(
       kind: (s.kind === 'qna' ? 'qna' : 'kb_article'),
       title: s.title,
       slug: s.slug ?? null,
-      source_url: s.source_url ?? null,
+      source_url: s.source_type === 'file' ? null : (s.source_url ?? null),
       score: s.final_score,
       locale: s.locale ?? null,
       keyword_score: s.keyword_score,
@@ -704,7 +704,7 @@ async function runInternal(
       score: s.final_score,
       // E2C — preserve original source_type + URL so prompt can label "Current page".
       source_type: s.source_type,
-      source_url: s.source_url ?? null,
+      source_url: s.source_type === 'file' ? null : (s.source_url ?? null),
       url_boost: s.url_boost,
     } as any));
     if (!sources.length && (vectorUsed || keywordUsed)) {
@@ -736,6 +736,12 @@ async function runInternal(
       topic_boost: 0, url_boost: 0, locale_bonus: 0, source_priority: 0,
       final_score: s.score,
     }));
+    retrievalDebug = {
+      execution: { fallback_reason: 'legacy_retriever_used', hybrid_used: false, vector_used: false, keyword_used: true },
+      selected_sources: [],
+      excluded_sources_summary: null,
+    };
+    excludedSummary = null;
   }
 
   const queryMeta = {

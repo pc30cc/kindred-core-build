@@ -160,7 +160,8 @@ export function buildUserPrompt(
     sources.forEach((s, i) => {
       const body = (s.content || s.excerpt || '').slice(0, 1200);
       const stype = (s as any).source_type || s.kind;
-      const surl = (s as any).source_url ? ` ${(s as any).source_url}` : '';
+      const rawUrl = (s as any).source_url;
+      const surl = (stype !== 'file' && rawUrl) ? ` ${rawUrl}` : '';
       lines.push(`---\n[${i + 1}] (${stype})${surl} ${s.title}\n${body}`);
     });
     lines.push('---');

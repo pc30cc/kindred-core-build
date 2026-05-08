@@ -203,6 +203,19 @@ export const aiAgentApi = {
       method: 'POST',
       body: JSON.stringify({ workspaceId, assign_to_me: assignToMe }),
     }) as Promise<{ ok: boolean }>,
+  // Pass E7 — Operator AI Suggest-Reply (read-only, manual)
+  suggestReply: (input: {
+    workspaceId: string;
+    conversationId: string;
+    locale?: string;
+    tone?: 'friendly' | 'professional' | 'short' | 'detailed';
+    instruction?: string;
+    callLLM?: boolean;
+  }) =>
+    jsonFetch(`/api/ai-agent/operator/suggest-reply`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }) as Promise<OperatorSuggestReplyResponse>,
   // Pass 2 — knowledge index
   getKnowledgeIndexStatus: (workspaceId: string) =>
     jsonFetch(`/api/ai-agent/knowledge-index/status?workspaceId=${workspaceId}`) as Promise<KnowledgeIndexStatus>,

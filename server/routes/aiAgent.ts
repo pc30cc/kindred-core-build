@@ -3425,7 +3425,15 @@ async function e6PersistTestRun(
     retrieval_debug: result.retrieval_debug,
     answer_strategy: result.answer_strategy,
     failure_reasons: failureReasons,
-    metadata: { provider: result.provider, model: result.model, safety_notes: result.safety_notes },
+    metadata: {
+      provider: result.provider,
+      model: result.model,
+      safety_notes: result.safety_notes,
+      runtime: result.runtime,
+      runtime_parity: result.runtime_parity,
+      page_context: result.page_context,
+      excluded_summary: result.excluded_summary,
+    },
     created_by: userId,
   }).select('*').single();
   return data;

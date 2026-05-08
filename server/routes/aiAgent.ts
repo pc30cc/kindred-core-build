@@ -2171,7 +2171,14 @@ aiAgentRouter.get('/files/limits', async (req: Request, res: Response) => {
     .eq('source_type', 'file')
     .neq('status', 'deleted');
   return res.json({
-    ...limits,
+    maxFiles: limits.maxFiles,
+    maxFileSizeMB: limits.maxFileSizeMB,
+    effectiveMaxFileSizeMB: limits.effectiveMaxFileSizeMB,
+    storageProvider: limits.storageProvider,
+    storageReady: limits.storageReady,
+    storageError: limits.storageError,
+    transport: limits.transport,
+    transportMaxFileSizeMB: limits.transportMaxFileSizeMB,
     used: count || 0,
     bypass: !!auth.isAdmin,
     supported_mimes: SUPPORTED_MIMES,

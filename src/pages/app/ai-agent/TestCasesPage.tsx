@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { aiAgentApi, type TestCase, type TestRun } from '@/lib/ai-agent-api';
-import { useWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
+import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -91,7 +91,7 @@ function StatusBadge({ s }: { s?: string }) {
 }
 
 export default function TestCasesPage() {
-  const { workspace } = useWorkspace();
+  const { workspace } = useActiveWorkspace();
   const wsPath = useWorkspacePath();
   const wsId = workspace?.id;
   const qc = useQueryClient();

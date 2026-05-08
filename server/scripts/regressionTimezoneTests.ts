@@ -7,7 +7,7 @@
  *
  * Usage: bun run server/scripts/regressionTimezoneTests.ts
  */
-import { computeNextRunAt } from '../services/ai-agent/regressionRunner.js';
+import { computeNextRunAt, __resetTimezoneCachesForTests } from '../services/ai-agent/regressionRunner.js';
 
 function makeStubSb(opts: { platformTz?: string | null; workspaceTz?: string | null } = {}) {
   const { platformTz = null, workspaceTz = null } = opts;
@@ -33,9 +33,11 @@ function assert(cond: any, msg: string) {
 
 async function main() {
   const from = new Date('2026-05-08T12:34:56Z');
+  const reset = () => __resetTimezoneCachesForTests();
 
   // 1) manual => null
   {
+    reset();
     const sb = makeStubSb();
     const r = await computeNextRunAt(sb, { frequency: 'manual', time_of_day: null, timezone: 'UTC', metadata: {} }, from);
     assert(r.next_run_at === null, 'manual => next_run_at null');
@@ -44,6 +46,7 @@ async function main() {
 
   // 2) hourly => next full hour
   {
+    reset();
     const sb = makeStubSb();
     const r = await computeNextRunAt(sb, { frequency: 'hourly', time_of_day: null, timezone: 'UTC', metadata: {} }, from);
     assert(r.next_run_at?.toISOString() === '2026-05-08T13:00:00.000Z', 'hourly => next full hour');
@@ -51,6 +54,7 @@ async function main() {
 
   // 3) daily valid tz + HH:mm
   {
+    reset();
     const sb = makeStubSb();
     const r = await computeNextRunAt(sb, { frequency: 'daily', time_of_day: '09:00', timezone: 'Europe/London', metadata: {} }, from);
     assert(!!r.next_run_at && r.next_run_at.getTime() > from.getTime(), 'daily => future timestamp');
@@ -60,6 +64,7 @@ async function main() {
 
   // 4) weekly with metadata.weekday
   {
+    reset();
     const sb = makeStubSb();
     const r = await computeNextRunAt(sb, { frequency: 'weekly', time_of_day: '08:00', timezone: 'America/New_York', metadata: { weekday: 1 } }, from);
     assert(!!r.next_run_at && r.next_run_at.getTime() > from.getTime(), 'weekly => future timestamp');
@@ -67,6 +72,7 @@ async function main() {
 
   // 5) invalid timezone => UTC + warning
   {
+    reset();
     const sb = makeStubSb();
     const r = await computeNextRunAt(sb, { frequency: 'daily', time_of_day: '09:00', timezone: 'Not/AZone', metadata: {} }, from);
     assert(r.resolved_timezone === 'UTC', 'invalid tz => UTC');
@@ -75,6 +81,7 @@ async function main() {
 
   // 6) invalid time_of_day => interval fallback
   {
+    reset();
     const sb = makeStubSb();
     const r = await computeNextRunAt(sb, { frequency: 'daily', time_of_day: 'nope', timezone: 'UTC', metadata: {} }, from);
     assert(r.warning === 'time_of_day_invalid_interval_fallback', 'invalid HH:mm => interval fallback warning');
@@ -83,6 +90,7 @@ async function main() {
 
   // 7) no schedule tz, platform tz exists
   {
+    reset();
     const sb = makeStubSb({ platformTz: 'Europe/London' });
     const r = await computeNextRunAt(sb, { frequency: 'daily', time_of_day: '09:00', timezone: '', metadata: {} }, from);
     assert(r.resolved_timezone === 'Europe/London', 'no schedule tz => platform tz used');
@@ -90,6 +98,7 @@ async function main() {
 
   // 8) no tz anywhere => UTC
   {
+    reset();
     const sb = makeStubSb();
     const r = await computeNextRunAt(sb, { frequency: 'daily', time_of_day: '09:00', timezone: '', metadata: {} }, from);
     assert(r.resolved_timezone === 'UTC', 'no tz anywhere => UTC');

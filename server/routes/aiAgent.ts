@@ -45,6 +45,11 @@ import {
   IngestError,
 } from '../services/ai-agent/files/fileIngestion.js';
 import { SUPPORTED_MIMES, isSupportedMime } from '../services/ai-agent/files/parsers.js';
+import {
+  runDryRunTest as e6_runDryRunTest,
+  evaluateExpectations as e6_evaluateExpectations,
+  type DryRunResult as E6DryRunResult,
+} from '../services/ai-agent/testHarness.js';
 
 export const aiAgentRouter: Router = express.Router();
 
@@ -64,6 +69,37 @@ function checkPlaygroundRateLimit(workspaceId: string, userId: string): boolean 
   }
   c.count += 1;
   return c.count <= PLAYGROUND_LIMIT;
+}
+
+// ─── E6 Test-Harness in-memory rate limits (workspace:user scope) ───
+const e6TestCounters = new Map<string, { count: number; windowStart: number }>();
+const E6_TEST_LIMIT = 30;
+const E6_TEST_WINDOW = 5 * 60_000;
+const e6BulkCounters = new Map<string, { count: number; windowStart: number }>();
+const E6_BULK_LIMIT = 3;
+const E6_BULK_WINDOW = 10 * 60_000;
+const E6_BULK_MAX_CASES = 50;
+function checkE6TestRateLimit(workspaceId: string, userId: string): boolean {
+  const key = `${workspaceId}:${userId}`;
+  const now = Date.now();
+  const c = e6TestCounters.get(key);
+  if (!c || now - c.windowStart > E6_TEST_WINDOW) {
+    e6TestCounters.set(key, { count: 1, windowStart: now });
+    return true;
+  }
+  c.count += 1;
+  return c.count <= E6_TEST_LIMIT;
+}
+function checkE6BulkRateLimit(workspaceId: string, userId: string): boolean {
+  const key = `${workspaceId}:${userId}`;
+  const now = Date.now();
+  const c = e6BulkCounters.get(key);
+  if (!c || now - c.windowStart > E6_BULK_WINDOW) {
+    e6BulkCounters.set(key, { count: 1, windowStart: now });
+    return true;
+  }
+  c.count += 1;
+  return c.count <= E6_BULK_LIMIT;
 }
 
 // ─── Auth: workspace member (or global admin) ───

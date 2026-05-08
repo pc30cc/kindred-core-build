@@ -67,6 +67,7 @@ export default function SourceHealthPage() {
         <Stat label="Learned approved / unapproved" value={`${summary.learned_qna_approved || 0} / ${summary.learned_qna_unapproved || 0}`} />
         <Stat label="Files active / not" value={`${summary.files_active || 0} / ${summary.files_not_active || 0}`} />
         <Stat label="Websites active / not" value={`${summary.websites_active || 0} / ${summary.websites_not_active || 0}`} />
+        <Stat label="Web pages eligible / not" value={`${summary.web_pages_eligible || 0} / ${summary.web_pages_not_eligible || 0}`} />
       </div>
 
       <Card>

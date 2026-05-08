@@ -587,13 +587,11 @@ function BatchDetailDialog({
                       <BatchStatusBadge status={c.status} />
                       <span className="text-muted-foreground">{fmtDate(c.created_at)}</span>
                       <span>{c.passed} passed · {c.failed} failed · {c.errored} errored</span>
-                      <Button size="sm" variant="ghost" onClick={() => onChanged() /* triggers refetch list */}
-                        className="ml-auto h-6"
-                        // open the child by closing then re-opening (simple)
-                        >
-                        <Link to="#" onClick={(e) => { e.preventDefault(); window.dispatchEvent(new CustomEvent('open-regression-batch', { detail: c.id })); }}>
-                          Open
-                        </Link>
+                      <Button
+                        size="sm" variant="ghost" className="ml-auto h-6"
+                        onClick={() => { (window as any).__openRegressionBatch?.(c.id); }}
+                      >
+                        Open
                       </Button>
                     </li>
                   ))}

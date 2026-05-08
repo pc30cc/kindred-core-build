@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { aiAgentApi } from '@/lib/ai-agent-api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -10,9 +11,10 @@ import { Badge } from '@/components/ui/badge';
 
 export default function RetrievalDebuggerPage() {
   const { workspace } = useActiveWorkspace();
-  const [message, setMessage] = useState('');
-  const [locale, setLocale] = useState('en');
-  const [pageUrl, setPageUrl] = useState('');
+  const [params] = useSearchParams();
+  const [message, setMessage] = useState(params.get('message') || '');
+  const [locale, setLocale] = useState(params.get('locale') || 'en');
+  const [pageUrl, setPageUrl] = useState(params.get('pageUrl') || '');
 
   const run = useMutation({
     mutationFn: () => aiAgentApi.debugRetrieval({

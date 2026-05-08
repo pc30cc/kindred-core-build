@@ -17,7 +17,8 @@ const RAW_KIND = (process.env.WORKER_KIND || 'intelligence').trim().toLowerCase(
 // public.ai_source_sync_jobs and dispatch by job_type. Operators run a
 // dedicated container with WORKER_KIND=file-ingest for production isolation,
 // or WORKER_KIND=source-sync to handle both website and file ingestion.
-const ALLOWED = new Set(['intelligence', 'source-sync', 'file-ingest', 'all']);
+// 'regression-runner' (E10) polls ai_agent_regression_batches and schedules.
+const ALLOWED = new Set(['intelligence', 'source-sync', 'file-ingest', 'regression-runner', 'all']);
 
 if (!ALLOWED.has(RAW_KIND)) {
   console.error(`[worker] invalid WORKER_KIND="${RAW_KIND}". Allowed: intelligence | source-sync | all`);
@@ -34,6 +35,10 @@ async function main() {
   if (RAW_KIND === 'source-sync' || RAW_KIND === 'file-ingest' || RAW_KIND === 'all') {
     const mod = await import('./source-sync/index.js');
     mod.startSourceSyncWorker?.();
+  }
+  if (RAW_KIND === 'regression-runner' || RAW_KIND === 'all') {
+    const mod = await import('./regression-runner/index.js');
+    mod.startRegressionWorker?.();
   }
   if (RAW_KIND === 'all') {
     console.warn('[worker] WORKER_KIND=all is allowed but not recommended for production isolation');

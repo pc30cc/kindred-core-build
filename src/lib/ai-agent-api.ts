@@ -723,6 +723,10 @@ export interface RegressionBatch {
 export interface RegressionBatchDetail {
   batch: RegressionBatch;
   runs: TestRun[];
+  retryChildren?: Array<{
+    id: string; status: RegressionBatch['status']; passed: number; failed: number; errored: number;
+    pass_rate: number | null; created_at: string; trigger_type: RegressionBatch['trigger_type'];
+  }>;
   summary: {
     total: number;
     passed: number;
@@ -730,6 +734,20 @@ export interface RegressionBatchDetail {
     errored: number;
     pass_rate: number | null;
   };
+}
+
+export interface RegressionOverview {
+  total_schedules: number;
+  enabled_schedules: number;
+  last_batch: RegressionBatch | null;
+  last_24h_batches: number;
+  last_24h_pass_rate: number | null;
+  last_7d_pass_rate: number | null;
+  failed_batches_count: number;
+  errored_runs_count: number;
+  top_failure_reasons: { reason: string; count: number }[];
+  coverage_by_source_type: { source_type: string; runs: number }[];
+  next_due_schedule: { id: string; name: string; next_run_at: string | null; timezone: string } | null;
 }
 
 export interface TrainSourceTypeBreakdown {

@@ -3538,6 +3538,22 @@ aiAgentRouter.get('/test-runs', async (req: Request, res: Response) => {
   return res.json({ items: data || [] });
 });
 
+// GET single run (with linked test case for context)
+aiAgentRouter.get('/test-runs/:id', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const sb = getServiceClient(config);
+  const { data: run } = await sb.from('ai_agent_test_runs').select('*').eq('id', req.params.id).maybeSingle();
+  if (!run) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, run.workspace_id);
+  if (!auth) return;
+  let testCase: any = null;
+  if (run.test_case_id) {
+    const { data: tc } = await sb.from('ai_agent_test_cases').select('*').eq('id', run.test_case_id).maybeSingle();
+    testCase = tc || null;
+  }
+  return res.json({ item: run, test_case: testCase });
+});
+
 // SEED recommended cases (idempotent on input_message + expected_behavior).
 aiAgentRouter.post('/test-cases/seed-recommended', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
@@ -3549,28 +3565,138 @@ aiAgentRouter.post('/test-cases/seed-recommended', async (req: Request, res: Res
   if (!auth) return;
   if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
   const sb = getServiceClient(config);
-  const recommended = [
-    { name: 'Pricing question (web page)', input_message: 'What is your pricing?', expected_behavior: 'answer', expected_source_type: 'web_page' },
-    { name: 'Explain this page (page context)', input_message: 'Can you explain this page?', expected_behavior: 'answer', expected_source_type: 'web_page', page_context: { currentPagePath: '/' } },
-    { name: 'Q&A coverage', input_message: 'How do I contact support?', expected_behavior: 'answer', expected_source_type: 'qna' },
-    { name: 'Learned answer coverage', input_message: 'What did you learn from previous chats?', expected_behavior: 'answer', expected_source_type: 'learned_qna' },
-    { name: 'KB article coverage', input_message: 'How does your product work?', expected_behavior: 'answer', expected_source_type: 'kb_article' },
-    { name: 'File/PDF coverage', input_message: 'Can you summarize the uploaded document?', expected_behavior: 'answer', expected_source_type: 'file' },
-    { name: 'Unknown question', input_message: 'What is the airspeed velocity of an unladen swallow on a Tuesday in 1842?', expected_behavior: 'no_answer' },
-  ];
-  const { data: existing } = await sb.from('ai_agent_test_cases').select('input_message,expected_behavior').eq('workspace_id', workspaceId);
-  const existingKeys = new Set((existing || []).map((r: any) => `${r.input_message.toLowerCase().trim()}|${r.expected_behavior}`));
-  const toInsert = recommended.filter((r) => !existingKeys.has(`${r.input_message.toLowerCase().trim()}|${r.expected_behavior}`)).map((r) => ({
-    workspace_id: workspaceId,
-    created_by: auth.userId,
-    enabled: true,
-    expected_contains: [], expected_not_contains: [], metadata: { seeded: true },
-    ...r,
-  }));
-  if (!toInsert.length) return res.json({ inserted: 0, skipped: recommended.length });
+
+  // Build a set of (source_type → set of source_ids) that have at least one
+  // active+embedded chunk in this workspace. Reuses runtime eligibility rules.
+  const { data: chunks } = await sb
+    .from('ai_knowledge_chunks')
+    .select('source_type, source_id, metadata')
+    .eq('workspace_id', workspaceId)
+    .eq('status', 'active')
+    .not('embedding', 'is', null)
+    .limit(2000);
+  const activeBy: Record<string, Set<string>> = { qna: new Set(), learned_qna: new Set(), kb_article: new Set(), file: new Set(), web_page: new Set() };
+  const webPageParents = new Map<string, { source_id: string; url: string | null; title: string | null }>();
+  for (const c of (chunks || []) as any[]) {
+    if (!activeBy[c.source_type]) continue;
+    activeBy[c.source_type].add(String(c.source_id));
+    if (c.source_type === 'web_page') {
+      const m = c.metadata || {};
+      const parent = String(m.parent_source_id || m.source_id || String(c.source_id).split(':')[0] || c.source_id);
+      if (!webPageParents.has(String(c.source_id))) {
+        webPageParents.set(String(c.source_id), {
+          source_id: parent,
+          url: (m.page_url || m.url || null) as string | null,
+          title: (m.page_title || m.title || null) as string | null,
+        });
+      }
+    }
+  }
+
+  const created: Array<{ name: string; expected_source_type: string | null; expected_source_id: string | null }> = [];
+  const skippedReasons: string[] = [];
+
+  // Existing dedup key: normalized message + behavior + source_type + source_id
+  const { data: existing } = await sb.from('ai_agent_test_cases')
+    .select('input_message,expected_behavior,expected_source_type,expected_source_id')
+    .eq('workspace_id', workspaceId);
+  const dedupKey = (m: string, b: string, st: string | null, sid: string | null) =>
+    `${m.toLowerCase().trim()}|${b}|${st || ''}|${sid || ''}`;
+  const existingKeys = new Set((existing || []).map((r: any) => dedupKey(r.input_message, r.expected_behavior, r.expected_source_type, r.expected_source_id)));
+
+  const toInsert: any[] = [];
+  function addCase(c: { name: string; input_message: string; expected_behavior: string; expected_source_type: string | null; expected_source_id: string | null; expected_source_url?: string | null; page_context?: any }) {
+    const k = dedupKey(c.input_message, c.expected_behavior, c.expected_source_type, c.expected_source_id);
+    if (existingKeys.has(k)) { skippedReasons.push(`duplicate:${c.name}`); return; }
+    existingKeys.add(k);
+    toInsert.push({
+      workspace_id: workspaceId,
+      created_by: auth.userId,
+      enabled: true,
+      name: c.name,
+      input_message: c.input_message,
+      expected_behavior: c.expected_behavior,
+      expected_source_type: c.expected_source_type,
+      expected_source_id: c.expected_source_id,
+      expected_source_url: c.expected_source_url || null,
+      page_context: c.page_context || null,
+      expected_contains: [], expected_not_contains: [],
+      metadata: { seeded: true, seed_version: 'e6h' },
+    });
+    created.push({ name: c.name, expected_source_type: c.expected_source_type, expected_source_id: c.expected_source_id });
+  }
+
+  // Q&A
+  if (activeBy.qna.size) {
+    const ids = Array.from(activeBy.qna).slice(0, 50);
+    const { data: qna } = await sb.from('ai_agent_qna')
+      .select('id, question').eq('workspace_id', workspaceId).neq('enabled', false).in('id', ids).limit(1);
+    const row = (qna || [])[0];
+    if (row) addCase({ name: `Q&A coverage: ${String(row.question).slice(0, 60)}`, input_message: row.question, expected_behavior: 'answer', expected_source_type: 'qna', expected_source_id: row.id });
+    else skippedReasons.push('qna:no_eligible_row');
+  } else { skippedReasons.push('qna:no_active_chunks'); }
+
+  // Learned Q&A
+  if (activeBy.learned_qna.size) {
+    const ids = Array.from(activeBy.learned_qna).slice(0, 50);
+    const { data: lq } = await sb.from('ai_agent_learning_candidates')
+      .select('id, question_text, suggested_title').eq('workspace_id', workspaceId).eq('status', 'approved').in('id', ids).limit(1);
+    const row = (lq || [])[0];
+    if (row) {
+      const msg = row.question_text || row.suggested_title || '';
+      if (msg) addCase({ name: `Learned answer: ${String(row.suggested_title || msg).slice(0, 60)}`, input_message: msg, expected_behavior: 'answer', expected_source_type: 'learned_qna', expected_source_id: row.id });
+      else skippedReasons.push('learned_qna:no_question_text');
+    } else { skippedReasons.push('learned_qna:no_approved_row'); }
+  } else { skippedReasons.push('learned_qna:no_active_chunks'); }
+
+  // KB Article
+  if (activeBy.kb_article.size) {
+    const ids = Array.from(activeBy.kb_article).slice(0, 50);
+    const { data: kb } = await sb.from('knowledge_base_articles')
+      .select('id, title').eq('workspace_id', workspaceId).eq('status', 'published').in('id', ids).limit(1);
+    const row = (kb || [])[0];
+    if (row && row.title) addCase({ name: `KB article: ${String(row.title).slice(0, 60)}`, input_message: `Tell me about ${row.title}`, expected_behavior: 'answer', expected_source_type: 'kb_article', expected_source_id: row.id });
+    else skippedReasons.push('kb_article:no_published_row');
+  } else { skippedReasons.push('kb_article:no_active_chunks'); }
+
+  // File
+  if (activeBy.file.size) {
+    const ids = Array.from(activeBy.file).slice(0, 50);
+    const { data: files } = await sb.from('ai_data_sources')
+      .select('id, name, metadata').eq('workspace_id', workspaceId).eq('source_type', 'file').eq('status', 'active').in('id', ids).limit(1);
+    const row = (files || [])[0];
+    if (row) {
+      const meta = row.metadata || {};
+      const title = row.name || meta.original_file_name || 'uploaded document';
+      addCase({ name: `File coverage: ${String(title).slice(0, 60)}`, input_message: `What does the document "${title}" say?`, expected_behavior: 'answer', expected_source_type: 'file', expected_source_id: row.id });
+    } else { skippedReasons.push('file:no_active_source_row'); }
+  } else { skippedReasons.push('file:no_active_chunks'); }
+
+  // Web page (chunk-level, parent must be active website)
+  if (webPageParents.size) {
+    const parentIds = Array.from(new Set(Array.from(webPageParents.values()).map((v) => v.source_id)));
+    const { data: parents } = await sb.from('ai_data_sources')
+      .select('id, name, status, metadata').eq('workspace_id', workspaceId).eq('source_type', 'website').eq('status', 'active').in('id', parentIds).limit(50);
+    const activeParentIds = new Set((parents || []).map((p: any) => p.id));
+    let chosen: { chunkSourceId: string; url: string | null; title: string | null } | null = null;
+    for (const [chunkSourceId, info] of webPageParents.entries()) {
+      if (activeParentIds.has(info.source_id)) { chosen = { chunkSourceId, url: info.url, title: info.title }; break; }
+    }
+    if (chosen) {
+      const t = chosen.title || chosen.url || 'this page';
+      addCase({ name: `Web page: ${String(t).slice(0, 60)}`, input_message: `Tell me about ${t}`, expected_behavior: 'answer', expected_source_type: 'web_page', expected_source_id: chosen.chunkSourceId, expected_source_url: chosen.url || null });
+    } else { skippedReasons.push('web_page:no_active_parent_website'); }
+  } else { skippedReasons.push('web_page:no_active_chunks'); }
+
+  // Unknown question (always seed)
+  addCase({ name: 'Unknown question (no answer expected)', input_message: 'What is the airspeed velocity of an unladen swallow on a Tuesday in 1842?', expected_behavior: 'no_answer', expected_source_type: null, expected_source_id: null });
+
+  if (!toInsert.length) {
+    return res.json({ inserted: 0, skipped: skippedReasons.length, created: [], skipped_reasons: skippedReasons });
+  }
   const { data, error } = await sb.from('ai_agent_test_cases').insert(toInsert).select('id');
   if (error) return res.status(500).json({ error: 'seed_failed', details: error.message });
-  return res.json({ inserted: data?.length || 0, skipped: recommended.length - (data?.length || 0) });
+  return res.json({ inserted: data?.length || 0, skipped: skippedReasons.length, created, skipped_reasons: skippedReasons });
 });
 
 // SUMMARY

@@ -37,7 +37,7 @@ import { processOne as processOneSourceJob, getWorkerInfo } from '../services/ai
 import { generatePendingCandidates } from '../services/ai-agent/learning/generator.js';
 import { normalizeQuestion } from '../services/ai-agent/learning/normalize.js';
 import {
-  ingestAiFile, reindexAiFile, deleteAiFile,
+  deleteAiFile,
   pauseAiFile, resumeAiFile, resolveFileLimits,
   queueAiFileIngest, queueReindexAiFile,
   IngestError,

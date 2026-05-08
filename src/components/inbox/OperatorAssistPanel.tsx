@@ -298,6 +298,14 @@ export function OperatorAssistPanel({
                   {JSON.stringify(result.retrieval_debug, null, 2)}
                 </pre>
               </section>
+              {result.excluded_summary && Object.keys(result.excluded_summary).length > 0 && (
+                <section>
+                  <div className="font-semibold mb-1">Excluded sources (summary)</div>
+                  <pre className="bg-muted/40 rounded p-2 overflow-x-auto">
+                    {JSON.stringify(result.excluded_summary, null, 2)}
+                  </pre>
+                </section>
+              )}
               {result.prompt_preview && (
                 <section>
                   <div className="font-semibold mb-1">Prompt preview (admin only)</div>

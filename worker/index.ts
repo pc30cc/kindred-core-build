@@ -13,7 +13,11 @@
  */
 
 const RAW_KIND = (process.env.WORKER_KIND || 'intelligence').trim().toLowerCase();
-const ALLOWED = new Set(['intelligence', 'source-sync', 'all']);
+// 'file-ingest' is an alias for 'source-sync' — both kinds poll
+// public.ai_source_sync_jobs and dispatch by job_type. Operators run a
+// dedicated container with WORKER_KIND=file-ingest for production isolation,
+// or WORKER_KIND=source-sync to handle both website and file ingestion.
+const ALLOWED = new Set(['intelligence', 'source-sync', 'file-ingest', 'all']);
 
 if (!ALLOWED.has(RAW_KIND)) {
   console.error(`[worker] invalid WORKER_KIND="${RAW_KIND}". Allowed: intelligence | source-sync | all`);
@@ -27,7 +31,7 @@ async function main() {
     const mod = await import('./intelligence/index.js');
     mod.startAiKbWorker?.();
   }
-  if (RAW_KIND === 'source-sync' || RAW_KIND === 'all') {
+  if (RAW_KIND === 'source-sync' || RAW_KIND === 'file-ingest' || RAW_KIND === 'all') {
     const mod = await import('./source-sync/index.js');
     mod.startSourceSyncWorker?.();
   }

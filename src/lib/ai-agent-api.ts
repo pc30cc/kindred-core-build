@@ -609,6 +609,19 @@ export const aiAgentApi = {
     jsonFetch(`/api/ai-agent/test-summary?workspaceId=${workspaceId}`) as Promise<TestSummary>,
   debugRunTest: (input: { workspaceId: string; message: string; locale?: string; pageContext?: any; callLLM?: boolean }) =>
     jsonFetch(`/api/ai-agent/debug/run-test`, { method: 'POST', body: JSON.stringify(input) }) as Promise<any>,
+  // ─── E9 — Suggested regression test cases ───
+  listSuggestedTestCases: (workspaceId: string, status: SuggestedTestCaseStatus | 'all' = 'pending') =>
+    jsonFetch(`/api/ai-agent/suggested-test-cases?workspaceId=${workspaceId}&status=${status}`) as Promise<{ items: SuggestedTestCase[] }>,
+  suggestTestCaseFromFeedback: (feedbackId: string) =>
+    jsonFetch(`/api/ai-agent/suggested-test-cases/from-feedback/${feedbackId}`, { method: 'POST' }) as Promise<{ ok: boolean; suggestion: SuggestedTestCase }>,
+  suggestTestCaseFromTestRun: (runId: string) =>
+    jsonFetch(`/api/ai-agent/suggested-test-cases/from-test-run/${runId}`, { method: 'POST' }) as Promise<{ ok: boolean; suggestion: SuggestedTestCase }>,
+  acceptSuggestedTestCase: (id: string, overrides: Partial<SuggestedTestCase> = {}) =>
+    jsonFetch(`/api/ai-agent/suggested-test-cases/${id}/accept`, { method: 'POST', body: JSON.stringify(overrides) }) as Promise<{ ok: boolean; test_case_id: string }>,
+  rejectSuggestedTestCase: (id: string, reason?: string) =>
+    jsonFetch(`/api/ai-agent/suggested-test-cases/${id}/reject`, { method: 'POST', body: JSON.stringify({ reason: reason || null }) }) as Promise<{ ok: boolean }>,
+  deleteSuggestedTestCase: (id: string) =>
+    jsonFetch(`/api/ai-agent/suggested-test-cases/${id}`, { method: 'DELETE' }) as Promise<{ ok: boolean }>,
 };
 
 export interface TrainSourceTypeBreakdown {

@@ -4796,3 +4796,32 @@ aiAgentRouter.post('/regression/batches/:id/retry-failed', async (req: Request, 
   }
   return res.json({ batch: r.batch });
 });
+
+// ─── E11 — Regression observability ───
+
+aiAgentRouter.get('/regression/overview', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = requireWorkspace(req);
+  if (!workspaceId) return res.status(400).json({ error: 'workspaceId_required' });
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  try {
+    const overview = await e11_getOverview(config, workspaceId);
+    return res.json(overview);
+  } catch (e: any) {
+    return res.status(500).json({ error: 'overview_failed', details: e?.message });
+  }
+});
+
+aiAgentRouter.get('/regression/batches/:id/export.csv', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const id = String(req.params.id);
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'invalid_id' });
+  const r = await e11_exportBatchCsv(config, id);
+  if (!r) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, r.workspaceId);
+  if (!auth) return;
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${r.filename}"`);
+  return res.send(r.csv);
+});

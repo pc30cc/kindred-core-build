@@ -545,7 +545,18 @@ export async function runRegressionBatch(
   if (includeEnabledOnly) q = q.eq('enabled', true);
   const retryIds = Array.isArray((batch.metadata as any)?.retry_case_ids)
     ? ((batch.metadata as any).retry_case_ids as string[]) : null;
-  if (retryIds && retryIds.length) q = q.in('id', retryIds);
+  // Hard guard: a retry batch must NEVER fall back to the full enabled-case set.
+  if (retryIds !== null) {
+    if (retryIds.length === 0) {
+      await sb.from('ai_agent_regression_batches').update({
+        status: 'failed',
+        finished_at: new Date().toISOString(),
+        last_error: 'no_retry_cases_found',
+      }).eq('id', batchId);
+      return { ok: false, total: 0, passed: 0, failed: 0, errored: 0, error: 'no_retry_cases_found' };
+    }
+    q = q.in('id', retryIds);
+  }
   const { data: cases, error: casesErr } = await q.order('created_at', { ascending: true }).limit(maxCases);
   if (casesErr) {
     await sb.from('ai_agent_regression_batches').update({
@@ -556,6 +567,14 @@ export async function runRegressionBatch(
     return { ok: false, total: 0, passed: 0, failed: 0, errored: 0, error: casesErr.message };
   }
   const list = cases || [];
+  if (retryIds !== null && list.length === 0) {
+    await sb.from('ai_agent_regression_batches').update({
+      status: 'failed',
+      finished_at: new Date().toISOString(),
+      last_error: 'no_retry_cases_found',
+    }).eq('id', batchId);
+    return { ok: false, total: 0, passed: 0, failed: 0, errored: 0, error: 'no_retry_cases_found' };
+  }
   const startedAtMs = Date.now();
   const baseMeta = { ...((batch.metadata as Record<string, unknown>) || {}) };
   baseMeta.current_case_index = 0;

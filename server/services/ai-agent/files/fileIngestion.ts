@@ -729,14 +729,31 @@ export async function pauseAiFile(config: ServerConfig, sourceId: string): Promi
   if (source.source_type !== 'file') throw new IngestError('not_a_file_source', 400);
   await sb.from('ai_data_sources').update({ status: 'paused' }).eq('id', sourceId);
   await sb.from('ai_knowledge_chunks')
-    .update({ status: 'inactive' })
+    // ai_knowledge_chunks CHECK allows active|stale|deleted only.
+    // 'stale' = retained but excluded from runtime retrieval.
+    .update({ status: 'stale' })
     .eq('workspace_id', source.workspace_id)
     .eq('source_type', 'file')
     .eq('source_id', sourceId)
     .eq('status', 'active');
+  await cancelFileIngestJobsForSource(config, sourceId);
+  await logFileEvent(config, {
+    workspaceId: source.workspace_id, sourceId, status: 'file_paused',
+    message: 'Source paused; chunks marked stale; queued jobs cancelled',
+  });
 }
 
-/** Resume by reindexing from stored original file (correctness over speed). */
-export async function resumeAiFile(config: ServerConfig, sourceId: string): Promise<IngestResult> {
-  return reindexAiFile(config, sourceId);
+/** Resume by re-queuing a file_ingest job (worker re-parses from stored original). */
+export async function resumeAiFile(
+  config: ServerConfig, sourceId: string, userId: string | null,
+): Promise<{ source: any; jobId: string; status: 'queued' }> {
+  const sb = getServiceClient(config);
+  const { data: source } = await sb.from('ai_data_sources').select('*').eq('id', sourceId).maybeSingle();
+  if (!source) throw new IngestError('not_found', 404);
+  if (source.source_type !== 'file') throw new IngestError('not_a_file_source', 400);
+  if (source.status === 'deleted') throw new IngestError('source_deleted', 400);
+  await logFileEvent(config, {
+    workspaceId: source.workspace_id, sourceId, status: 'file_resumed', message: 'Source resumed',
+  });
+  return queueReindexAiFile(config, sourceId, userId);
 }

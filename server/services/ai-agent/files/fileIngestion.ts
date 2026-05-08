@@ -540,10 +540,14 @@ export async function runFileIngestJob(
   const dl = await downloadFile(config, source.workspace_id, storagePath);
   if (!dl.success || !dl.data) {
     const code = 'download_failed';
-    await sb.from('ai_data_sources').update({
-      status: 'failed', last_error: code,
-      metadata: { ...meta, download_error: dl.error || 'unknown', job_status: 'failed' },
-    }).eq('id', args.sourceId);
+    // Race-safe: do not overwrite paused/deleted status. Reload first via helper.
+    await markFileSourceFailedIfStillSyncing(config, {
+      workspaceId: args.workspaceId,
+      sourceId: args.sourceId,
+      errorCode: code,
+      metadataPatch: { download_error: dl.error || 'unknown' },
+      chunkStatusOnFailure: 'deleted',
+    });
     await logFileEvent(config, {
       workspaceId: args.workspaceId, sourceId: args.sourceId,
       status: 'file_parse_failed', message: code, errors: 1,
@@ -581,11 +585,15 @@ export async function runFileIngestJob(
     throw e;
   });
 
-  // Mark job_status=completed on metadata (status='active' is set by finalizeIndex)
-  const { data: latest } = await sb.from('ai_data_sources').select('metadata').eq('id', args.sourceId).maybeSingle();
-  await sb.from('ai_data_sources').update({
-    metadata: { ...((latest?.metadata as any) || {}), job_status: 'completed' },
-  }).eq('id', args.sourceId);
+  // Mark job_status=completed on metadata only if source is still 'active'.
+  // If admin paused/deleted between finalizeIndex and here, do not overwrite.
+  const { data: latest } = await sb.from('ai_data_sources')
+    .select('status, metadata').eq('id', args.sourceId).maybeSingle();
+  if ((latest as any)?.status === 'active') {
+    await sb.from('ai_data_sources').update({
+      metadata: { ...(((latest as any)?.metadata as any) || {}), job_status: 'completed' },
+    }).eq('id', args.sourceId).eq('status', 'active');
+  }
 
   await logFileEvent(config, {
     workspaceId: args.workspaceId, sourceId: args.sourceId,

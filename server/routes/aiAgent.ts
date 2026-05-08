@@ -50,11 +50,12 @@ import {
   evaluateExpectations as e6_evaluateExpectations,
   type DryRunResult as E6DryRunResult,
   redactDeep as e7_redactDeep,
+  redactString as e7_redactString,
 } from '../services/ai-agent/testHarness.js';
 import { decideStrategy as e7_decideStrategy } from '../services/ai-agent/answerStrategy.js';
 import { buildSystemPrompt as e7_buildSystemPrompt, buildUserPrompt as e7_buildUserPrompt } from '../services/ai-agent/prompt.js';
 import { resolveAIConfig as e7_resolveAIConfig, executeAICompletion as e7_executeAICompletion } from '../services/ai/index.js';
-import { checkEntitlementFromDB, incrementUsage as e7_incrementUsage } from '../middleware/featureGating.js';
+import { checkEntitlementFromDB } from '../middleware/featureGating.js';
 
 export const aiAgentRouter: Router = express.Router();
 

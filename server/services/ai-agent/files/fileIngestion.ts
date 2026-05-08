@@ -113,7 +113,7 @@ function sha256Hex(buf: Buffer): string {
   return crypto.createHash('sha256').update(buf).digest('hex');
 }
 
-async function logFileEvent(
+export async function logFileEvent(
   config: ServerConfig,
   args: {
     workspaceId: string; sourceId: string; status: string; message?: string;
@@ -134,6 +134,70 @@ async function logFileEvent(
       metadata: { source_type: 'file', ...(args.metadata || {}) },
     });
   } catch {/* best-effort */}
+}
+
+/**
+ * Race-safe terminal failure updater. Only writes status='failed' if the
+ * source is STILL in 'syncing'. If admin paused/deleted in the meantime, we
+ * preserve that terminal status and surface a cancellation IngestError so the
+ * worker wrapper cancels (not fails) the job.
+ *
+ * Always deactivates any chunks belonging to this file source on failure
+ * (default chunkStatusOnFailure='deleted') so retrieval stays fail-closed.
+ */
+async function markFileSourceFailedIfStillSyncing(
+  config: ServerConfig,
+  args: {
+    workspaceId: string;
+    sourceId: string;
+    errorCode: string;
+    metadataPatch?: Record<string, unknown>;
+    chunkStatusOnFailure?: 'deleted' | 'stale';
+  },
+): Promise<void> {
+  const sb = getServiceClient(config);
+  const { data: cur } = await sb
+    .from('ai_data_sources')
+    .select('id, source_type, workspace_id, status, metadata')
+    .eq('id', args.sourceId)
+    .eq('workspace_id', args.workspaceId)
+    .maybeSingle();
+  if (!cur) throw new IngestError('source_not_found', 404);
+  if ((cur as any).source_type !== 'file') throw new IngestError('not_a_file_source', 400);
+  const status = (cur as any).status as string;
+  if (status === 'deleted') throw new IngestError('source_deleted', 400, args.errorCode);
+  if (status === 'paused')  throw new IngestError('source_paused', 400, args.errorCode);
+  if (status !== 'syncing') throw new IngestError('job_cancelled', 400, `status=${status}`);
+
+  const baseMeta = ((cur as any).metadata as Record<string, unknown>) || {};
+  const merged = { ...baseMeta, ...(args.metadataPatch || {}), job_status: 'failed' };
+  // Conditional update: still must be 'syncing' at write time.
+  const { data: updated } = await sb
+    .from('ai_data_sources')
+    .update({ status: 'failed', last_error: args.errorCode, metadata: merged })
+    .eq('id', args.sourceId)
+    .eq('workspace_id', args.workspaceId)
+    .eq('source_type', 'file')
+    .eq('status', 'syncing')
+    .select('id')
+    .maybeSingle();
+  if (!updated) {
+    // Lost the race between read and write.
+    const { data: re } = await sb
+      .from('ai_data_sources').select('status').eq('id', args.sourceId).maybeSingle();
+    const s = (re as any)?.status as string | undefined;
+    if (s === 'deleted') throw new IngestError('source_deleted', 400, args.errorCode);
+    if (s === 'paused')  throw new IngestError('source_paused', 400, args.errorCode);
+    throw new IngestError('job_cancelled', 400, `status=${s || 'unknown'}`);
+  }
+
+  const chunkStatus = args.chunkStatusOnFailure || 'deleted';
+  await sb.from('ai_knowledge_chunks')
+    .update({ status: chunkStatus })
+    .eq('workspace_id', args.workspaceId)
+    .eq('source_type', 'file')
+    .eq('source_id', args.sourceId)
+    .neq('status', 'deleted');
 }
 
 export async function countActiveFileSources(

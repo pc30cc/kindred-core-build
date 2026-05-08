@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
-import { aiAgentApi } from '@/lib/ai-agent-api';
+import { aiAgentApi, type TestRunMetadata } from '@/lib/ai-agent-api';
 import { useWorkspacePath } from '@/hooks/useWorkspace';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -21,12 +21,21 @@ export default function TestRunDetailPage() {
 
   const run = q.data.item;
   const tc = q.data.test_case;
-  const meta = (run.metadata || {}) as any;
+  const meta: TestRunMetadata = run.metadata || {};
   const safetyNotes: string[] = meta.safety_notes || [];
-  const runtime = (run as any).runtime || meta.runtime || null;
-  const aiRunId = (run as any).ai_agent_run_id;
+  const runtime = meta.runtime || null;
+  const runtimeParity = meta.runtime_parity || null;
+  const excludedSummary = meta.excluded_summary || null;
+  const aiRunId = run.ai_agent_run_id;
 
   const debugUrl = wsPath(`/ai-agent/debug/retrieval`);
+  const tcPC = (tc?.page_context || {}) as Record<string, string | undefined>;
+  const debugParams = new URLSearchParams();
+  debugParams.set('message', run.input_message);
+  if (tc?.locale) debugParams.set('locale', tc.locale);
+  if (tcPC.currentPageUrl) debugParams.set('pageUrl', tcPC.currentPageUrl);
+  if (tcPC.currentPagePath) debugParams.set('pagePath', tcPC.currentPagePath);
+  if (tcPC.currentPageTitle) debugParams.set('pageTitle', tcPC.currentPageTitle);
 
   const statusVariant = run.status === 'passed' ? 'default' : run.status === 'failed' ? 'destructive' : 'secondary';
 
@@ -121,6 +130,24 @@ export default function TestRunDetailPage() {
         </Card>
       )}
 
+      {runtimeParity && (
+        <Card>
+          <CardHeader><CardTitle>Runtime parity</CardTitle></CardHeader>
+          <CardContent>
+            <pre className="text-xs bg-muted/30 p-3 rounded overflow-auto">{JSON.stringify(runtimeParity, null, 2)}</pre>
+          </CardContent>
+        </Card>
+      )}
+
+      {excludedSummary && Object.keys(excludedSummary).length > 0 && (
+        <Card>
+          <CardHeader><CardTitle>Excluded summary</CardTitle></CardHeader>
+          <CardContent>
+            <pre className="text-xs bg-muted/30 p-3 rounded overflow-auto">{JSON.stringify(excludedSummary, null, 2)}</pre>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader><CardTitle>Answer strategy</CardTitle></CardHeader>
         <CardContent>
@@ -147,7 +174,7 @@ export default function TestRunDetailPage() {
       <div className="flex gap-3 pt-1">
         <Link
           className="text-primary hover:underline text-sm"
-          to={`${debugUrl}?message=${encodeURIComponent(run.input_message)}`}
+          to={`${debugUrl}?${debugParams.toString()}`}
         >
           Open Retrieval Debugger (prefilled)
         </Link>

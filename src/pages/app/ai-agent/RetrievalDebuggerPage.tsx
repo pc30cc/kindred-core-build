@@ -15,14 +15,22 @@ export default function RetrievalDebuggerPage() {
   const [message, setMessage] = useState(params.get('message') || '');
   const [locale, setLocale] = useState(params.get('locale') || 'en');
   const [pageUrl, setPageUrl] = useState(params.get('pageUrl') || '');
+  const [pagePath, setPagePath] = useState(params.get('pagePath') || '');
+  const [pageTitle, setPageTitle] = useState(params.get('pageTitle') || '');
 
   const run = useMutation({
-    mutationFn: () => aiAgentApi.debugRetrieval({
-      workspaceId: workspace!.id,
-      message,
-      locale,
-      pageContext: pageUrl ? { currentPageUrl: pageUrl } : null,
-    }),
+    mutationFn: () => {
+      const pc: Record<string, string> = {};
+      if (pageUrl) pc.currentPageUrl = pageUrl;
+      if (pagePath) pc.currentPagePath = pagePath;
+      if (pageTitle) pc.currentPageTitle = pageTitle;
+      return aiAgentApi.debugRetrieval({
+        workspaceId: workspace!.id,
+        message,
+        locale,
+        pageContext: Object.keys(pc).length ? pc : null,
+      });
+    },
   });
 
   return (
@@ -36,6 +44,10 @@ export default function RetrievalDebuggerPage() {
           <div className="grid grid-cols-2 gap-3">
             <Input value={locale} onChange={(e) => setLocale(e.target.value)} placeholder="locale (en, fa, tr)" />
             <Input value={pageUrl} onChange={(e) => setPageUrl(e.target.value)} placeholder="Page URL (optional)" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Input value={pagePath} onChange={(e) => setPagePath(e.target.value)} placeholder="Page path (optional)" />
+            <Input value={pageTitle} onChange={(e) => setPageTitle(e.target.value)} placeholder="Page title (optional)" />
           </div>
           <Button disabled={!message || run.isPending || !workspace?.id} onClick={() => run.mutate()}>
             {run.isPending ? 'Running…' : 'Run debug retrieval'}

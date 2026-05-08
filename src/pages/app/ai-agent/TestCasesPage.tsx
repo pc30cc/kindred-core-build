@@ -62,9 +62,9 @@ function formFromCase(c: TestCase): FormState {
   };
 }
 
-function formToPayload(f: FormState) {
+function formToPayload(f: FormState): Partial<TestCase> {
   const splitLines = (s: string) => s.split('\n').map((x) => x.trim()).filter(Boolean);
-  const pc: any = {};
+  const pc: Record<string, string> = {};
   if (f.page_currentPageUrl) pc.currentPageUrl = f.page_currentPageUrl;
   if (f.page_currentPagePath) pc.currentPagePath = f.page_currentPagePath;
   if (f.page_currentPageTitle) pc.currentPageTitle = f.page_currentPageTitle;
@@ -130,8 +130,8 @@ export default function TestCasesPage() {
 
   const saveMut = useMutation({
     mutationFn: async (f: FormState) => {
-      if (f.id) return aiAgentApi.updateTestCase(f.id, formToPayload(f) as any);
-      return aiAgentApi.createTestCase(wsId!, formToPayload(f) as any);
+      if (f.id) return aiAgentApi.updateTestCase(f.id, formToPayload(f));
+      return aiAgentApi.createTestCase(wsId!, formToPayload(f));
     },
     onSuccess: () => { setForm(null); invalidateAll(); toast({ title: 'Saved' }); },
     onError: (e: any) => toast({ title: 'Save failed', description: e?.message, variant: 'destructive' }),
@@ -142,7 +142,7 @@ export default function TestCasesPage() {
   });
   const runMut = useMutation({
     mutationFn: (id: string) => aiAgentApi.runTestCase(id),
-    onSuccess: (data: any) => {
+    onSuccess: (data) => {
       invalidateAll();
       toast({
         title: data.run?.status === 'passed' ? 'Test passed' : `Test ${data.run?.status}`,
@@ -153,9 +153,10 @@ export default function TestCasesPage() {
   });
   const bulkMut = useMutation({
     mutationFn: () => aiAgentApi.runBulkTests(wsId!),
-    onSuccess: (s: any) => {
+    onSuccess: (s) => {
       invalidateAll();
-      toast({ title: `Bulk: ${s.passed}/${s.total} passed`, description: `${s.failed} failed, ${s.errored} errored` });
+      const cappedNote = s.capped ? ` (capped at ${s.max} of ${s.total_enabled ?? '?'})` : '';
+      toast({ title: `Bulk: ${s.passed}/${s.total} passed${cappedNote}`, description: `${s.failed} failed, ${s.errored} errored` });
     },
   });
   const seedMut = useMutation({
@@ -246,15 +247,15 @@ export default function TestCasesPage() {
                     {isOpen && latest && (
                       <div className="mt-3 ml-7 space-y-2 text-xs">
                         <div><span className="text-muted-foreground">Actual output: </span>{latest.actual_output || '—'}</div>
-                        <div><span className="text-muted-foreground">Strategy: </span>{(latest.answer_strategy as any)?.action} / {(latest.answer_strategy as any)?.reason}</div>
+                        <div><span className="text-muted-foreground">Strategy: </span>{latest.answer_strategy?.action} / {latest.answer_strategy?.reason}</div>
                         <div><span className="text-muted-foreground">Selected sources: </span>{(latest.selected_sources || []).map((s: any, i: number) => (
                           <Badge key={i} variant="outline" className="mr-1">{s.source_type}: {String(s.title || '').slice(0, 40)}</Badge>
                         ))}</div>
                         <div className="flex gap-3 pt-1">
                           <Link className="text-primary hover:underline" to={wsPath(`/ai-agent/debug/retrieval`)}>Open Retrieval Debugger</Link>
                           <Link className="text-primary hover:underline" to={wsPath(`/ai-agent/test-runs/${latest.id}`)}>Open Run Detail</Link>
-                          {(latest as any).ai_agent_run_id && (
-                            <Link className="text-primary hover:underline" to={wsPath(`/ai-agent/runs/${(latest as any).ai_agent_run_id}`)}>Open Inspector</Link>
+                          {latest.ai_agent_run_id && (
+                            <Link className="text-primary hover:underline" to={wsPath(`/ai-agent/runs/${latest.ai_agent_run_id}`)}>Open Inspector</Link>
                           )}
                         </div>
                       </div>

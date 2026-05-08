@@ -163,22 +163,36 @@ export default function RegressionRunsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {batches.map((b) => (
-                    <tr key={b.id} className="border-b border-border/30">
-                      <td className="py-1 pr-2"><BatchStatusBadge status={b.status} /></td>
-                      <td className="py-1 pr-2"><Badge variant="outline">{b.trigger_type}</Badge></td>
-                      <td className="py-1 pr-2">{b.total_cases}</td>
-                      <td className="py-1 pr-2 text-emerald-600">{b.passed}</td>
-                      <td className="py-1 pr-2 text-destructive">{b.failed}</td>
-                      <td className="py-1 pr-2 text-amber-600">{b.errored}</td>
-                      <td className="py-1 pr-2">{pct(b.pass_rate)}</td>
-                      <td className="py-1 pr-2">{fmtDate(b.started_at)}</td>
-                      <td className="py-1 pr-2">{fmtDate(b.finished_at)}</td>
-                      <td className="py-1 pr-2">
-                        <Button size="sm" variant="ghost" onClick={() => setOpenBatch(b.id)}>Open</Button>
-                      </td>
-                    </tr>
-                  ))}
+                  {batches.map((b) => {
+                    const meta = (b.metadata || {}) as Record<string, any>;
+                    const idx = typeof meta.current_case_index === 'number' ? meta.current_case_index : 0;
+                    const total = b.total_cases || 0;
+                    const showProgress = b.status === 'running' || b.status === 'queued';
+                    return (
+                      <tr key={b.id} className="border-b border-border/30">
+                        <td className="py-1 pr-2">
+                          <BatchStatusBadge status={b.status} />
+                          {showProgress && total > 0 && (
+                            <div className="mt-1 w-32">
+                              <Progress value={(idx / total) * 100} className="h-1" />
+                              <div className="text-[10px] text-muted-foreground">{idx}/{total}</div>
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-1 pr-2"><Badge variant="outline">{b.trigger_type}</Badge></td>
+                        <td className="py-1 pr-2">{b.total_cases}</td>
+                        <td className="py-1 pr-2 text-emerald-600">{b.passed}</td>
+                        <td className="py-1 pr-2 text-destructive">{b.failed}</td>
+                        <td className="py-1 pr-2 text-amber-600">{b.errored}</td>
+                        <td className="py-1 pr-2">{pct(b.pass_rate)}</td>
+                        <td className="py-1 pr-2">{fmtDate(b.started_at)}</td>
+                        <td className="py-1 pr-2">{fmtDate(b.finished_at)}</td>
+                        <td className="py-1 pr-2">
+                          <Button size="sm" variant="ghost" onClick={() => setOpenBatch(b.id)}>Open</Button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

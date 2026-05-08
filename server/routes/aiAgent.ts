@@ -3270,7 +3270,6 @@ aiAgentRouter.post('/tool-servers/:id/test', async (req: Request, res: Response)
 // Self-host. No conversation side effects, no workflows, no MCP, no handoff,
 // no learning candidates. Workspace-scoped, status='active' chunks only.
 // ═══════════════════════════════════════════════════════════════════════
-import { runDryRunTest as e6_runDryRunTest, evaluateExpectations as e6_evaluateExpectations, type DryRunResult as E6DryRunResult } from '../services/ai-agent/testHarness.js';
 
 const e6PageContextSchema = z.object({
   currentPageUrl: z.string().max(2000).nullable().optional(),
@@ -3295,6 +3294,9 @@ aiAgentRouter.post('/debug/run-test', async (req: Request, res: Response) => {
   const { workspaceId, message, locale, pageContext, callLLM } = parsed.data;
   const auth = await authorizeMember(req, res, config, workspaceId);
   if (!auth) return;
+  if (!checkE6TestRateLimit(workspaceId, auth.userId)) {
+    return res.status(429).json({ error: 'test_rate_limited', limit: E6_TEST_LIMIT, window_ms: E6_TEST_WINDOW });
+  }
   try {
     const result = await e6_runDryRunTest(config, {
       workspaceId, message, locale: locale || undefined,
@@ -3437,6 +3439,9 @@ aiAgentRouter.post('/test-cases/:id/run', async (req: Request, res: Response) =>
   if (!tc) return res.status(404).json({ error: 'not_found' });
   const auth = await authorizeMember(req, res, config, tc.workspace_id);
   if (!auth) return;
+  if (!checkE6TestRateLimit(tc.workspace_id, auth.userId)) {
+    return res.status(429).json({ error: 'test_rate_limited', limit: E6_TEST_LIMIT, window_ms: E6_TEST_WINDOW });
+  }
   try {
     const pc = tc.page_context || null;
     const result = await e6_runDryRunTest(config, {
@@ -3474,11 +3479,17 @@ aiAgentRouter.post('/test-cases/run-bulk', async (req: Request, res: Response) =
   const { workspaceId, ids } = parsed.data;
   const auth = await authorizeMember(req, res, config, workspaceId);
   if (!auth) return;
+  if (!checkE6BulkRateLimit(workspaceId, auth.userId)) {
+    return res.status(429).json({ error: 'bulk_test_rate_limited', limit: E6_BULK_LIMIT, window_ms: E6_BULK_WINDOW });
+  }
   const sb = getServiceClient(config);
   let q = sb.from('ai_agent_test_cases').select('*').eq('workspace_id', workspaceId);
   if (ids && ids.length) q = q.in('id', ids); else q = q.eq('enabled', true);
-  const { data: cases, error } = await q.limit(200);
+  const { data: cases, error } = await q.limit(E6_BULK_MAX_CASES);
   if (error) return res.status(500).json({ error: 'list_failed', details: error.message });
+  if ((cases || []).length > E6_BULK_MAX_CASES) {
+    return res.status(400).json({ error: 'bulk_too_many_cases', max: E6_BULK_MAX_CASES });
+  }
   const summary = { total: 0, passed: 0, failed: 0, errored: 0, runs: [] as any[] };
   for (const tc of cases || []) {
     summary.total += 1;

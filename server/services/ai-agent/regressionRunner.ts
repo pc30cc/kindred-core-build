@@ -290,6 +290,18 @@ export async function runRegressionBatch(
     .maybeSingle();
   if (!batch) return { ok: false, total: 0, passed: 0, failed: 0, errored: 0, error: 'not_found' };
 
+  // Deterministic guard against re-running terminal/cancelled batches.
+  if (batch.status === 'completed' || batch.status === 'failed' || batch.status === 'cancelled') {
+    return {
+      ok: false,
+      total: batch.total_cases || 0,
+      passed: batch.passed || 0,
+      failed: batch.failed || 0,
+      errored: batch.errored || 0,
+      error: `batch_already_${batch.status}`,
+    };
+  }
+
   // Ensure status='running' even if caller forgot to claim.
   if (batch.status === 'queued') {
     await sb.from('ai_agent_regression_batches')

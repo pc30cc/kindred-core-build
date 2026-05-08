@@ -181,6 +181,13 @@ export interface ResolvedSchedule {
   warning: string | null;
 }
 
+/** Test-only: clear timezone caches between unit runs. */
+export function __resetTimezoneCachesForTests(): void {
+  _platformTzCache = null;
+  _workspaceTzColumnSupported = null;
+  _workspaceTzCache.clear();
+}
+
 export async function resolveScheduleTimezone(
   sb: SupabaseClient,
   scheduleTz: string | null | undefined,

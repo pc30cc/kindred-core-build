@@ -268,10 +268,10 @@ export async function suggestFromFailedTestRun(
   const expected_source_id = (typeof tc?.expected_source_id === 'string' ? tc.expected_source_id : inferred.expected_source_id) || null;
 
   const expected_contains: string[] = Array.isArray(tc?.expected_contains)
-    ? tc.expected_contains.slice(0, 20).map((s: any) => String(s).slice(0, 500))
+    ? tc.expected_contains.slice(0, 20).map((s: any) => redactString(String(s).slice(0, 500))).filter(Boolean)
     : [];
   const expected_not_contains: string[] = Array.isArray(tc?.expected_not_contains)
-    ? tc.expected_not_contains.slice(0, 20).map((s: any) => String(s).slice(0, 500))
+    ? tc.expected_not_contains.slice(0, 20).map((s: any) => redactString(String(s).slice(0, 500))).filter(Boolean)
     : [];
 
   const reason = (Array.isArray(run.failure_reasons) ? run.failure_reasons.slice(0, 5).join('; ') : null) || null;
@@ -354,6 +354,15 @@ export async function acceptSuggestedCase(
   const isFile = expected_source_type === 'file';
   const expected_source_url = isFile ? null : (merged.expected_source_url || null);
 
+  const expected_contains_clean = (Array.isArray(merged.expected_contains) ? merged.expected_contains : [])
+    .slice(0, 20)
+    .map((s: any) => redactString(String(s).slice(0, 500)))
+    .filter(Boolean);
+  const expected_not_contains_clean = (Array.isArray(merged.expected_not_contains) ? merged.expected_not_contains : [])
+    .slice(0, 20)
+    .map((s: any) => redactString(String(s).slice(0, 500)))
+    .filter(Boolean);
+
   const tcInsert = {
     workspace_id: s.workspace_id,
     name: String(merged.name || '').slice(0, 200),
@@ -364,8 +373,8 @@ export async function acceptSuggestedCase(
     expected_source_type,
     expected_source_url,
     expected_source_id: merged.expected_source_id || null,
-    expected_contains: Array.isArray(merged.expected_contains) ? merged.expected_contains : [],
-    expected_not_contains: Array.isArray(merged.expected_not_contains) ? merged.expected_not_contains : [],
+    expected_contains: expected_contains_clean,
+    expected_not_contains: expected_not_contains_clean,
     min_confidence: typeof merged.min_confidence === 'number' ? merged.min_confidence : null,
     enabled: true,
     metadata: redactDeep({

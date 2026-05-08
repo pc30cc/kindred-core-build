@@ -4537,9 +4537,10 @@ aiAgentRouter.post('/suggested-test-cases/:id/accept', async (req: Request, res:
   for (const k of ['id', 'workspace_id', 'status', 'source_type', 'source_id', 'created_by', 'reviewed_by', 'reviewed_at', 'created_at', 'updated_at']) {
     delete (safeOverrides as any)[k];
   }
-  const result = await e9_acceptSuggestedCase(sb, id, auth.userId, safeOverrides);
+  const result: any = await e9_acceptSuggestedCase(sb, id, auth.userId, safeOverrides);
   if (!result.ok) {
-    return res.status(result.reason === 'not_found' ? 404 : 400).json({ error: result.reason });
+    const r = result.reason as string | undefined;
+    return res.status(r === 'not_found' ? 404 : 400).json({ error: r });
   }
   return res.json({ ok: true, test_case_id: result.test_case_id });
 });

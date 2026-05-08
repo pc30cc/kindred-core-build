@@ -1784,10 +1784,12 @@ aiAgentRouter.get('/operator-assist/analytics', async (req: Request, res: Respon
     .map(([day, v]) => ({ day, ...v }));
 
   // Worst runs: latest negative-rated runs (or low confidence + negative action), redacted.
-  const negFeedbackByRun = new Map<string, { reason: string | null; comment_present: boolean }>();
+  // E9: include latest negative `feedback_id` per run so the UI can hand it to
+  // POST /suggested-test-cases/from-feedback/:feedbackId.
+  const negFeedbackByRun = new Map<string, { reason: string | null; comment_present: boolean; feedback_id: string }>();
   for (const f of feedback) {
     if (f.rating === 'negative' && !negFeedbackByRun.has(f.assist_run_id)) {
-      negFeedbackByRun.set(f.assist_run_id, { reason: f.reason || null, comment_present: false });
+      negFeedbackByRun.set(f.assist_run_id, { reason: f.reason || null, comment_present: false, feedback_id: f.id });
     }
   }
   const worst_runs = runs
@@ -1799,6 +1801,7 @@ aiAgentRouter.get('/operator-assist/analytics', async (req: Request, res: Respon
       const fb = negFeedbackByRun.get(r.id);
       return {
         run_id: r.id,
+        feedback_id: fb?.feedback_id || null,
         created_at: r.created_at,
         confidence: r.confidence,
         rating: 'negative' as const,

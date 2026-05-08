@@ -223,6 +223,7 @@ export interface OperatorAssistAnalytics {
   by_day: Array<{ day: string; suggestions: number; positive: number; negative: number; neutral: number }>;
   worst_runs: Array<{
     run_id: string;
+    feedback_id: string | null;
     created_at: string;
     confidence: number | null;
     rating: 'negative';
@@ -231,6 +232,35 @@ export interface OperatorAssistAnalytics {
     safety_notes: string[];
     suggestion_preview: string | null;
   }>;
+}
+
+// ─── E9 — Suggested regression test cases ───
+export type SuggestedTestCaseStatus = 'pending' | 'accepted' | 'rejected' | 'converted';
+export type SuggestedTestCaseSource = 'operator_assist_feedback' | 'test_run' | 'manual';
+export interface SuggestedTestCase {
+  id: string;
+  workspace_id: string;
+  source_type: SuggestedTestCaseSource;
+  source_id: string | null;
+  status: SuggestedTestCaseStatus;
+  name: string;
+  input_message: string;
+  locale: string | null;
+  page_context: any;
+  expected_behavior: 'answer' | 'no_answer' | 'handoff' | 'clarification';
+  expected_source_type: string | null;
+  expected_source_url: string | null;
+  expected_source_id: string | null;
+  expected_contains: string[];
+  expected_not_contains: string[];
+  min_confidence: number | null;
+  reason: string | null;
+  metadata: any;
+  created_by: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export const aiAgentApi = {

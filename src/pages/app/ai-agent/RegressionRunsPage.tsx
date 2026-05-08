@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Progress } from '@/components/ui/progress';
 import { toast } from '@/hooks/use-toast';
+import { Download } from 'lucide-react';
 
 function fmtDate(d: string | null | undefined) {
   return d ? new Date(d).toLocaleString() : '—';
@@ -39,6 +40,10 @@ export default function RegressionRunsPage() {
   const isOwnerOrAdmin = isWorkspaceAdmin(roleQ.data);
   const qc = useQueryClient();
   const [openBatch, setOpenBatch] = useState<string | null>(null);
+  const [filters, setFilters] = useState<{
+    status: string; triggerType: string; scheduleId: string;
+    dateFrom: string; dateTo: string; onlyFailed: boolean;
+  }>({ status: 'all', triggerType: 'all', scheduleId: 'all', dateFrom: '', dateTo: '', onlyFailed: false });
 
   const schedulesQ = useQuery({
     queryKey: ['ai-agent', 'regression-schedules', wsId],
@@ -46,10 +51,25 @@ export default function RegressionRunsPage() {
     enabled: !!wsId,
   });
   const batchesQ = useQuery({
-    queryKey: ['ai-agent', 'regression-batches', wsId],
-    queryFn: () => aiAgentApi.listRegressionBatches(wsId!, 50),
+    queryKey: ['ai-agent', 'regression-batches', wsId, filters],
+    queryFn: () => aiAgentApi.listRegressionBatches(wsId!, {
+      limit: 50,
+      status: filters.status !== 'all' ? (filters.status as any) : null,
+      triggerType: filters.triggerType !== 'all' ? (filters.triggerType as any) : null,
+      scheduleId: filters.scheduleId !== 'all' ? filters.scheduleId : null,
+      dateFrom: filters.dateFrom ? new Date(filters.dateFrom).toISOString() : null,
+      dateTo: filters.dateTo ? new Date(filters.dateTo + 'T23:59:59').toISOString() : null,
+      onlyFailed: filters.onlyFailed,
+    }),
     enabled: !!wsId,
     refetchInterval: 10_000,
+  });
+
+  const overviewQ = useQuery({
+    queryKey: ['ai-agent', 'regression-overview', wsId],
+    queryFn: () => aiAgentApi.getRegressionOverview(wsId!),
+    enabled: !!wsId,
+    refetchInterval: 30_000,
   });
 
   const schedule: RegressionSchedule | null = schedulesQ.data?.items?.[0] || null;

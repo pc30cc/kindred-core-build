@@ -402,6 +402,149 @@ export type Database = {
           },
         ]
       }
+      ai_agent_regression_batches: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          errored: number
+          failed: number
+          finished_at: string | null
+          id: string
+          last_error: string | null
+          metadata: Json
+          pass_rate: number | null
+          passed: number
+          schedule_id: string | null
+          started_at: string | null
+          status: string
+          total_cases: number
+          trigger_type: string
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          errored?: number
+          failed?: number
+          finished_at?: string | null
+          id?: string
+          last_error?: string | null
+          metadata?: Json
+          pass_rate?: number | null
+          passed?: number
+          schedule_id?: string | null
+          started_at?: string | null
+          status?: string
+          total_cases?: number
+          trigger_type?: string
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          errored?: number
+          failed?: number
+          finished_at?: string | null
+          id?: string
+          last_error?: string | null
+          metadata?: Json
+          pass_rate?: number | null
+          passed?: number
+          schedule_id?: string | null
+          started_at?: string | null
+          status?: string
+          total_cases?: number
+          trigger_type?: string
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_agent_regression_batches_schedule_id_fkey"
+            columns: ["schedule_id"]
+            isOneToOne: false
+            referencedRelation: "ai_agent_regression_schedules"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_agent_regression_batches_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_agent_regression_schedules: {
+        Row: {
+          call_llm: boolean
+          created_at: string
+          created_by: string | null
+          enabled: boolean
+          frequency: string
+          id: string
+          include_enabled_cases_only: boolean
+          last_run_at: string | null
+          max_cases_per_run: number
+          metadata: Json
+          name: string
+          next_run_at: string | null
+          time_of_day: string | null
+          timezone: string
+          updated_at: string
+          updated_by: string | null
+          workspace_id: string
+        }
+        Insert: {
+          call_llm?: boolean
+          created_at?: string
+          created_by?: string | null
+          enabled?: boolean
+          frequency?: string
+          id?: string
+          include_enabled_cases_only?: boolean
+          last_run_at?: string | null
+          max_cases_per_run?: number
+          metadata?: Json
+          name?: string
+          next_run_at?: string | null
+          time_of_day?: string | null
+          timezone?: string
+          updated_at?: string
+          updated_by?: string | null
+          workspace_id: string
+        }
+        Update: {
+          call_llm?: boolean
+          created_at?: string
+          created_by?: string | null
+          enabled?: boolean
+          frequency?: string
+          id?: string
+          include_enabled_cases_only?: boolean
+          last_run_at?: string | null
+          max_cases_per_run?: number
+          metadata?: Json
+          name?: string
+          next_run_at?: string | null
+          time_of_day?: string | null
+          timezone?: string
+          updated_at?: string
+          updated_by?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_agent_regression_schedules_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ai_agent_routing_rules: {
         Row: {
           action_json: Json
@@ -919,6 +1062,7 @@ export type Database = {
           id: string
           input_message: string
           metadata: Json
+          regression_batch_id: string | null
           retrieval_debug: Json | null
           selected_sources: Json
           status: string
@@ -937,6 +1081,7 @@ export type Database = {
           id?: string
           input_message: string
           metadata?: Json
+          regression_batch_id?: string | null
           retrieval_debug?: Json | null
           selected_sources?: Json
           status: string
@@ -955,6 +1100,7 @@ export type Database = {
           id?: string
           input_message?: string
           metadata?: Json
+          regression_batch_id?: string | null
           retrieval_debug?: Json | null
           selected_sources?: Json
           status?: string
@@ -962,6 +1108,13 @@ export type Database = {
           workspace_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "ai_agent_test_runs_regression_batch_id_fkey"
+            columns: ["regression_batch_id"]
+            isOneToOne: false
+            referencedRelation: "ai_agent_regression_batches"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "ai_agent_test_runs_test_case_id_fkey"
             columns: ["test_case_id"]

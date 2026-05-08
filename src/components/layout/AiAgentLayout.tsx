@@ -22,6 +22,7 @@ const groups: NavGroup[] = [
       { key: 'testCases', label: 'Test Cases', subPath: '/ai-agent/test-cases', icon: FlaskConical },
       { key: 'suggestedTests', label: 'Suggested Tests', subPath: '/ai-agent/suggested-tests', icon: FlaskConical },
       { key: 'assistAnalytics', label: 'Assist Analytics', subPath: '/ai-agent/operator-assist-analytics', icon: BarChart3 },
+      { key: 'regressionRuns', label: 'Regression Runs', subPath: '/ai-agent/regression-runs', icon: FlaskConical },
     ],
   },
   {

@@ -39,6 +39,7 @@ import { normalizeQuestion } from '../services/ai-agent/learning/normalize.js';
 import {
   ingestAiFile, reindexAiFile, deleteAiFile,
   pauseAiFile, resumeAiFile, resolveFileLimits,
+  queueAiFileIngest, queueReindexAiFile,
   IngestError,
 } from '../services/ai-agent/files/fileIngestion.js';
 import { SUPPORTED_MIMES, isSupportedMime } from '../services/ai-agent/files/parsers.js';

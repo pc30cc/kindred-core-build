@@ -750,3 +750,23 @@ function cosine(a: number[], b: number[]): number {
   if (!na || !nb) return 0;
   return dot / (Math.sqrt(na) * Math.sqrt(nb));
 }
+
+/**
+ * E5 — strip storage / credential / token leaks from chunk metadata before it
+ * is shipped through retrieval results, prompts, or run metadata.
+ */
+const SENSITIVE_META_KEYS = [
+  'storage_path','storage_url','signed_url','signedurl','public_url',
+  'token','secret','password','credential','credentials','api_key','apikey',
+  'access_key','accesskey','authorization','signature',
+];
+function sanitizeChunkMetadata(meta: any): Record<string, unknown> | undefined {
+  if (!meta || typeof meta !== 'object') return meta || undefined;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(meta)) {
+    const lk = k.toLowerCase();
+    if (SENSITIVE_META_KEYS.some((p) => lk.includes(p))) continue;
+    out[k] = v as unknown;
+  }
+  return out;
+}

@@ -1248,10 +1248,10 @@ async function e7PersistAssistRun(
     model: string | null;
     error: string | null;
   },
-): Promise<void> {
+): Promise<string | null> {
   try {
     const sb = getServiceClient(config);
-    await sb.from('ai_operator_assist_runs').insert({
+    const { data, error } = await sb.from('ai_operator_assist_runs').insert({
       workspace_id: payload.workspaceId,
       conversation_id: payload.conversationId,
       requested_by: payload.requestedBy,
@@ -1268,9 +1268,15 @@ async function e7PersistAssistRun(
       provider: payload.provider,
       model: payload.model,
       error: payload.error,
-    });
+    }).select('id').maybeSingle();
+    if (error) {
+      console.error('[ai-agent.e7] persist assist run error:', error.message);
+      return null;
+    }
+    return (data?.id as string) || null;
   } catch (err: any) {
     console.error('[ai-agent.e7] persist assist run failed:', err?.message);
+    return null;
   }
 }
 
@@ -1473,6 +1479,7 @@ aiAgentRouter.post('/operator/suggest-reply', async (req: Request, res: Response
 
   const baseResponse = {
     ok: true,
+    assist_run_id: null as string | null,
     suggestion: null as string | null,
     confidence,
     tone: tone ?? null,
@@ -1488,27 +1495,28 @@ aiAgentRouter.post('/operator/suggest-reply', async (req: Request, res: Response
 
   if (!callLLM) {
     baseResponse.safety_notes = ['llm_call_skipped', ...safetyNotes];
-    await e7PersistAssistRun(config, {
+    const runId = await e7PersistAssistRun(config, {
       workspaceId, conversationId, requestedBy: auth.userId,
       status: 'skipped', inputMessage, instruction: instruction ?? null, tone: tone ?? null,
       suggestion: null, confidence, selectedSources, retrievalDebug: hybrid.retrievalDebug,
       answerStrategy, safetyNotes: baseResponse.safety_notes,
       provider: null, model: null, error: null,
     });
+    baseResponse.assist_run_id = runId;
     return res.json(baseResponse);
   }
 
   const aiCfg = await e7_resolveAIConfig(config, workspaceId);
   if (!aiCfg) {
     const notes = ['ai_provider_not_configured', ...safetyNotes];
-    await e7PersistAssistRun(config, {
+    const runId = await e7PersistAssistRun(config, {
       workspaceId, conversationId, requestedBy: auth.userId,
       status: 'failed', inputMessage, instruction: instruction ?? null, tone: tone ?? null,
       suggestion: null, confidence, selectedSources, retrievalDebug: hybrid.retrievalDebug,
       answerStrategy, safetyNotes: notes,
       provider: null, model: null, error: 'ai_provider_not_configured',
     });
-    return res.status(400).json({ error: 'ai_provider_not_configured' });
+    return res.status(400).json({ error: 'ai_provider_not_configured', assist_run_id: runId });
   }
 
   try {
@@ -1546,7 +1554,7 @@ aiAgentRouter.post('/operator/suggest-reply', async (req: Request, res: Response
       provider: result.provider,
       model: result.model,
     };
-    await e7PersistAssistRun(config, {
+    const runId = await e7PersistAssistRun(config, {
       workspaceId, conversationId, requestedBy: auth.userId,
       status: suggestion ? 'suggested' : 'failed', inputMessage,
       instruction: instruction ?? null, tone: tone ?? null,
@@ -1555,6 +1563,7 @@ aiAgentRouter.post('/operator/suggest-reply', async (req: Request, res: Response
       provider: result.provider, model: result.model,
       error: suggestion ? null : 'empty_completion',
     });
+    out.assist_run_id = runId;
     return res.json(out);
   } catch (err: any) {
     const notes = [`llm_error:${err?.message || 'unknown'}`, ...safetyNotes];
@@ -1568,6 +1577,251 @@ aiAgentRouter.post('/operator/suggest-reply', async (req: Request, res: Response
     });
     return res.status(502).json({ error: 'llm_failed', details: err?.message });
   }
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// Pass E8 — Operator AI Assist feedback + analytics
+//   - feedback: persisted to ai_operator_assist_feedback
+//   - never auto-sends, never writes conversation_messages, no workflows
+//   - analytics is workspace-scoped and redacts source URLs
+// ─────────────────────────────────────────────────────────────────────
+
+const E8_FEEDBACK_REASONS = [
+  'helpful','wrong_answer','missing_context','bad_tone',
+  'too_long','too_short','unsafe','not_grounded','other',
+] as const;
+const E8_FEEDBACK_ACTIONS = [
+  'inserted','replaced','appended','copied','dismissed','regenerated','sent_after_edit','sent_as_is',
+] as const;
+
+const e8FeedbackSchema = z.object({
+  rating: z.enum(['positive','negative','neutral']),
+  reason: z.enum(E8_FEEDBACK_REASONS).optional().nullable(),
+  comment: z.string().max(2000).optional().nullable(),
+  operatorAction: z.enum(E8_FEEDBACK_ACTIONS).optional().nullable(),
+  finalComposerText: z.string().max(8000).optional().nullable(),
+  metadata: z.record(z.any()).optional(),
+});
+
+aiAgentRouter.post('/operator-assist/:runId/feedback', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const runId = String(req.params.runId || '');
+  if (!/^[0-9a-f-]{36}$/i.test(runId)) {
+    return res.status(400).json({ error: 'invalid_run_id' });
+  }
+  const parsed = e8FeedbackSchema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
+  const { rating, reason, comment, operatorAction, finalComposerText, metadata } = parsed.data;
+
+  const sb = getServiceClient(config);
+  const { data: run, error: runErr } = await sb
+    .from('ai_operator_assist_runs')
+    .select('id, workspace_id, conversation_id')
+    .eq('id', runId)
+    .maybeSingle();
+  if (runErr || !run) return res.status(404).json({ error: 'assist_run_not_found' });
+
+  const auth = await authorizeMember(req, res, config, run.workspace_id);
+  if (!auth) return;
+  if (!e7_isOperator(auth.role, auth.isAdmin)) {
+    return res.status(403).json({ error: 'operator_permission_required' });
+  }
+
+  // Dedupe identical operator action within 3s from same user.
+  if (operatorAction) {
+    const cutoff = new Date(Date.now() - 3_000).toISOString();
+    const { data: dup } = await sb
+      .from('ai_operator_assist_feedback')
+      .select('id')
+      .eq('assist_run_id', runId)
+      .eq('submitted_by', auth.userId)
+      .eq('operator_action', operatorAction)
+      .gte('created_at', cutoff)
+      .limit(1);
+    if (dup && dup.length > 0) {
+      return res.json({ ok: true, feedback: { id: dup[0].id, deduped: true } });
+    }
+  }
+
+  const safeComment = (comment || '').slice(0, 2000) || null;
+  const safeFinal = finalComposerText
+    ? (e7_redactString(finalComposerText.slice(0, 8000)) || null)
+    : null;
+  const safeMeta = e7_redactDeep(metadata || {}) || {};
+
+  const { data: inserted, error: insErr } = await sb
+    .from('ai_operator_assist_feedback')
+    .insert({
+      workspace_id: run.workspace_id,
+      assist_run_id: run.id,
+      conversation_id: run.conversation_id,
+      submitted_by: auth.userId,
+      rating,
+      reason: reason || null,
+      comment: safeComment,
+      operator_action: operatorAction || null,
+      final_composer_text: safeFinal,
+      metadata: safeMeta,
+    })
+    .select('*')
+    .maybeSingle();
+  if (insErr) {
+    console.error('[ai-agent.e8] feedback insert failed:', insErr.message);
+    return res.status(500).json({ error: 'feedback_insert_failed', details: insErr.message });
+  }
+  return res.json({ ok: true, feedback: inserted });
+});
+
+function e8RangeToDays(range: string | undefined): number {
+  if (range === '90d') return 90;
+  if (range === '30d') return 30;
+  return 7;
+}
+
+aiAgentRouter.get('/operator-assist/analytics', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = String(req.query.workspaceId || '');
+  if (!/^[0-9a-f-]{36}$/i.test(workspaceId)) {
+    return res.status(400).json({ error: 'invalid_workspace' });
+  }
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  if (!e7_isOperator(auth.role, auth.isAdmin)) {
+    return res.status(403).json({ error: 'operator_permission_required' });
+  }
+
+  const days = e8RangeToDays(String(req.query.range || '7d'));
+  const since = new Date(Date.now() - days * 86_400_000).toISOString();
+  const sb = getServiceClient(config);
+
+  const [runsRes, fbRes] = await Promise.all([
+    sb.from('ai_operator_assist_runs')
+      .select('id, created_at, status, confidence, suggestion, selected_sources, safety_notes')
+      .eq('workspace_id', workspaceId)
+      .gte('created_at', since)
+      .order('created_at', { ascending: false })
+      .limit(2000),
+    sb.from('ai_operator_assist_feedback')
+      .select('id, assist_run_id, rating, reason, operator_action, created_at')
+      .eq('workspace_id', workspaceId)
+      .gte('created_at', since)
+      .order('created_at', { ascending: false })
+      .limit(5000),
+  ]);
+  if (runsRes.error) return res.status(500).json({ error: 'analytics_runs_failed', details: runsRes.error.message });
+  if (fbRes.error) return res.status(500).json({ error: 'analytics_feedback_failed', details: fbRes.error.message });
+
+  const runs = runsRes.data || [];
+  const feedback = fbRes.data || [];
+
+  const total_suggestions = runs.length;
+  let positive = 0, negative = 0, neutral = 0;
+  const by_reason_map: Record<string, number> = {};
+  const by_action_map: Record<string, number> = {};
+  const ACCEPT_ACTIONS = new Set(['inserted','replaced','appended','copied','sent_after_edit','sent_as_is']);
+  let acceptedRuns = new Set<string>();
+  for (const f of feedback) {
+    if (f.rating === 'positive') positive++;
+    else if (f.rating === 'negative') negative++;
+    else if (f.rating === 'neutral') neutral++;
+    if (f.reason) by_reason_map[f.reason] = (by_reason_map[f.reason] || 0) + 1;
+    if (f.operator_action) {
+      by_action_map[f.operator_action] = (by_action_map[f.operator_action] || 0) + 1;
+      if (ACCEPT_ACTIONS.has(f.operator_action)) acceptedRuns.add(f.assist_run_id);
+    }
+  }
+  const total_feedback = feedback.length;
+
+  let confSum = 0, confN = 0;
+  let no_source_count = 0;
+  let usage_increment_failed_count = 0;
+  const sourceTypeAgg: Record<string, { runs: number }> = {};
+  for (const r of runs) {
+    if (typeof r.confidence === 'number') { confSum += r.confidence; confN++; }
+    const notes: string[] = Array.isArray(r.safety_notes) ? r.safety_notes : [];
+    if (notes.includes('no_eligible_knowledge_sources')) {
+      no_source_count++;
+      sourceTypeAgg['no_source'] = { runs: (sourceTypeAgg['no_source']?.runs || 0) + 1 };
+    }
+    if (notes.includes('usage_increment_failed')) usage_increment_failed_count++;
+    const sources: any[] = Array.isArray(r.selected_sources) ? r.selected_sources : [];
+    const seen = new Set<string>();
+    for (const s of sources) {
+      const t = String(s?.source_type || 'unknown');
+      if (seen.has(t)) continue;
+      seen.add(t);
+      sourceTypeAgg[t] = { runs: (sourceTypeAgg[t]?.runs || 0) + 1 };
+    }
+  }
+
+  const avg_confidence = confN > 0 ? confSum / confN : 0;
+  const acceptance_rate = total_suggestions > 0 ? acceptedRuns.size / total_suggestions : 0;
+  const negative_rate = total_feedback > 0 ? negative / total_feedback : 0;
+
+  // by_day buckets (UTC date).
+  const dayMap: Record<string, { suggestions: number; positive: number; negative: number; neutral: number }> = {};
+  for (const r of runs) {
+    const d = String(r.created_at).slice(0, 10);
+    dayMap[d] = dayMap[d] || { suggestions: 0, positive: 0, negative: 0, neutral: 0 };
+    dayMap[d].suggestions++;
+  }
+  for (const f of feedback) {
+    const d = String(f.created_at).slice(0, 10);
+    dayMap[d] = dayMap[d] || { suggestions: 0, positive: 0, negative: 0, neutral: 0 };
+    if (f.rating === 'positive') dayMap[d].positive++;
+    else if (f.rating === 'negative') dayMap[d].negative++;
+    else if (f.rating === 'neutral') dayMap[d].neutral++;
+  }
+  const by_day = Object.entries(dayMap)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([day, v]) => ({ day, ...v }));
+
+  // Worst runs: latest negative-rated runs (or low confidence + negative action), redacted.
+  const negFeedbackByRun = new Map<string, { reason: string | null; comment_present: boolean }>();
+  for (const f of feedback) {
+    if (f.rating === 'negative' && !negFeedbackByRun.has(f.assist_run_id)) {
+      negFeedbackByRun.set(f.assist_run_id, { reason: f.reason || null, comment_present: false });
+    }
+  }
+  const worst_runs = runs
+    .filter((r) => negFeedbackByRun.has(r.id))
+    .slice(0, 25)
+    .map((r) => {
+      const notes: string[] = Array.isArray(r.safety_notes) ? r.safety_notes : [];
+      const sources: any[] = Array.isArray(r.selected_sources) ? r.selected_sources : [];
+      const fb = negFeedbackByRun.get(r.id);
+      return {
+        run_id: r.id,
+        created_at: r.created_at,
+        confidence: r.confidence,
+        rating: 'negative' as const,
+        reason: fb?.reason || null,
+        source_types: Array.from(new Set(sources.map((s) => s?.source_type).filter(Boolean))),
+        safety_notes: notes,
+        suggestion_preview: e7_redactString((r.suggestion || '').slice(0, 240)) || null,
+      };
+    });
+
+  return res.json({
+    range: `${days}d`,
+    summary: {
+      total_suggestions,
+      total_feedback,
+      positive,
+      negative,
+      neutral,
+      acceptance_rate,
+      negative_rate,
+      avg_confidence,
+      no_source_count,
+      usage_increment_failed_count,
+    },
+    by_reason: Object.entries(by_reason_map).map(([reason, count]) => ({ reason, count })),
+    by_action: Object.entries(by_action_map).map(([action, count]) => ({ action, count })),
+    by_source_type: Object.entries(sourceTypeAgg).map(([source_type, v]) => ({ source_type, runs: v.runs })),
+    by_day,
+    worst_runs,
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────

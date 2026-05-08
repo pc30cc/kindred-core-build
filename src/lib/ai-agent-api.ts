@@ -155,6 +155,7 @@ export interface PlaygroundResult {
 
 export interface OperatorSuggestReplyResponse {
   ok: boolean;
+  assist_run_id: string | null;
   suggestion: string | null;
   confidence: number;
   tone: string | null;
@@ -183,6 +184,53 @@ export interface OperatorSuggestReplyResponse {
   safety_notes: string[];
   excluded_summary?: Record<string, number>;
   prompt_preview?: { system: string; user: string };
+}
+
+export type OperatorAssistFeedbackRating = 'positive' | 'negative' | 'neutral';
+export type OperatorAssistFeedbackReason =
+  | 'helpful' | 'wrong_answer' | 'missing_context' | 'bad_tone'
+  | 'too_long' | 'too_short' | 'unsafe' | 'not_grounded' | 'other';
+export type OperatorAssistFeedbackAction =
+  | 'inserted' | 'replaced' | 'appended' | 'copied' | 'dismissed'
+  | 'regenerated' | 'sent_after_edit' | 'sent_as_is';
+
+export interface OperatorAssistFeedbackInput {
+  rating: OperatorAssistFeedbackRating;
+  reason?: OperatorAssistFeedbackReason | null;
+  comment?: string | null;
+  operatorAction?: OperatorAssistFeedbackAction | null;
+  finalComposerText?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface OperatorAssistAnalytics {
+  range: string;
+  summary: {
+    total_suggestions: number;
+    total_feedback: number;
+    positive: number;
+    negative: number;
+    neutral: number;
+    acceptance_rate: number;
+    negative_rate: number;
+    avg_confidence: number;
+    no_source_count: number;
+    usage_increment_failed_count: number;
+  };
+  by_reason: Array<{ reason: string; count: number }>;
+  by_action: Array<{ action: string; count: number }>;
+  by_source_type: Array<{ source_type: string; runs: number }>;
+  by_day: Array<{ day: string; suggestions: number; positive: number; negative: number; neutral: number }>;
+  worst_runs: Array<{
+    run_id: string;
+    created_at: string;
+    confidence: number | null;
+    rating: 'negative';
+    reason: string | null;
+    source_types: string[];
+    safety_notes: string[];
+    suggestion_preview: string | null;
+  }>;
 }
 
 export const aiAgentApi = {
@@ -248,6 +296,14 @@ export const aiAgentApi = {
       method: 'POST',
       body: JSON.stringify(input),
     }) as Promise<OperatorSuggestReplyResponse>,
+  // Pass E8 — Operator Assist feedback + analytics
+  submitAssistFeedback: (runId: string, input: OperatorAssistFeedbackInput) =>
+    jsonFetch(`/api/ai-agent/operator-assist/${runId}/feedback`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }) as Promise<{ ok: boolean; feedback: any }>,
+  getAssistAnalytics: (workspaceId: string, range: '7d' | '30d' | '90d' = '7d') =>
+    jsonFetch(`/api/ai-agent/operator-assist/analytics?workspaceId=${workspaceId}&range=${range}`) as Promise<OperatorAssistAnalytics>,
   // Pass 2 — knowledge index
   getKnowledgeIndexStatus: (workspaceId: string) =>
     jsonFetch(`/api/ai-agent/knowledge-index/status?workspaceId=${workspaceId}`) as Promise<KnowledgeIndexStatus>,

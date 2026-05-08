@@ -8,13 +8,18 @@
  * shows pre-generated suggestions for visitor messages.
  */
 import { useState } from 'react';
-import { Sparkles, ArrowDownToLine, RefreshCw, X, Eye, Loader2 } from 'lucide-react';
+import { Sparkles, ArrowDownToLine, RefreshCw, X, Eye, Loader2, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { aiAgentApi, type OperatorSuggestReplyResponse } from '@/lib/ai-agent-api';
+import {
+  aiAgentApi,
+  type OperatorSuggestReplyResponse,
+  type OperatorAssistFeedbackAction,
+  type OperatorAssistFeedbackReason,
+} from '@/lib/ai-agent-api';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 
@@ -38,10 +43,53 @@ export function OperatorAssistPanel({
   const [result, setResult] = useState<OperatorSuggestReplyResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [debugOpen, setDebugOpen] = useState(false);
+  const [rating, setRating] = useState<'positive' | 'negative' | null>(null);
+  const [reason, setReason] = useState<OperatorAssistFeedbackReason | ''>('');
+  const [comment, setComment] = useState('');
+  const [feedbackSent, setFeedbackSent] = useState(false);
+
+  const sendFeedback = async (
+    payload: {
+      rating?: 'positive' | 'negative' | 'neutral';
+      reason?: OperatorAssistFeedbackReason | null;
+      comment?: string | null;
+      operatorAction?: OperatorAssistFeedbackAction;
+      finalComposerText?: string | null;
+    },
+    silent = true,
+  ) => {
+    const runId = result?.assist_run_id;
+    if (!runId) return;
+    try {
+      await aiAgentApi.submitAssistFeedback(runId, {
+        rating: payload.rating || 'neutral',
+        reason: payload.reason ?? null,
+        comment: payload.comment ?? null,
+        operatorAction: payload.operatorAction ?? null,
+        finalComposerText: payload.finalComposerText ?? null,
+      });
+      if (!silent) toast({ title: 'Feedback sent' });
+    } catch (e: any) {
+      if (!silent) {
+        toast({ title: 'Could not save feedback', description: e?.message || 'unknown', variant: 'destructive' });
+      } else {
+        // Non-blocking failure.
+        console.warn('[ai-assist] feedback failed:', e?.message);
+      }
+    }
+  };
 
   const run = async () => {
+    // If user is regenerating an existing suggestion, log that action.
+    if (result?.assist_run_id) {
+      void sendFeedback({ rating: 'neutral', operatorAction: 'regenerated' });
+    }
     setLoading(true);
     setError(null);
+    setRating(null);
+    setReason('');
+    setComment('');
+    setFeedbackSent(false);
     try {
       const r = await aiAgentApi.suggestReply({
         workspaceId, conversationId, tone,
@@ -65,6 +113,9 @@ export function OperatorAssistPanel({
   };
 
   const dismiss = () => {
+    if (result?.assist_run_id) {
+      void sendFeedback({ rating: 'neutral', operatorAction: 'dismissed' });
+    }
     setResult(null);
     setError(null);
     setOpen(false);
@@ -74,7 +125,32 @@ export function OperatorAssistPanel({
   const insert = (mode: 'replace' | 'append') => {
     if (!result?.suggestion) return;
     onInsert(result.suggestion, mode);
+    const action: OperatorAssistFeedbackAction =
+      mode === 'replace' ? (composerHasText ? 'replaced' : 'inserted') : 'appended';
+    void sendFeedback({
+      rating: 'neutral',
+      operatorAction: action,
+      finalComposerText: result.suggestion,
+    });
     toast({ title: mode === 'append' ? 'Appended to composer' : 'Inserted into composer' });
+  };
+
+  const submitRating = async (r: 'positive' | 'negative') => {
+    setRating(r);
+    if (r === 'positive') {
+      await sendFeedback({ rating: 'positive', reason: 'helpful' }, false);
+      setFeedbackSent(true);
+    }
+    // For negative, wait for the operator to optionally pick a reason / comment.
+  };
+
+  const submitNegativeDetails = async () => {
+    await sendFeedback({
+      rating: 'negative',
+      reason: (reason || 'other') as OperatorAssistFeedbackReason,
+      comment: comment.trim() || null,
+    }, false);
+    setFeedbackSent(true);
   };
 
   const confidencePct = result ? Math.round((result.confidence || 0) * 100) : null;
@@ -237,6 +313,7 @@ export function OperatorAssistPanel({
 
         {/* Actions */}
         {result?.suggestion && !loading && (
+          <>
           <div className="flex items-center gap-2 flex-wrap">
             <Button
               size="sm"
@@ -269,6 +346,70 @@ export function OperatorAssistPanel({
               Not visible to visitor until you send.
             </span>
           </div>
+
+          {/* Feedback row */}
+          <div className="flex items-center gap-2 flex-wrap pt-1 border-t border-border/40">
+            <span className="text-[11px] text-muted-foreground">Was this useful?</span>
+            <Button
+              type="button"
+              size="sm"
+              variant={rating === 'positive' ? 'default' : 'outline'}
+              className="h-7 gap-1.5 text-[12px]"
+              disabled={feedbackSent}
+              onClick={() => submitRating('positive')}
+            >
+              <ThumbsUp className="w-3.5 h-3.5" /> Useful
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={rating === 'negative' ? 'destructive' : 'outline'}
+              className="h-7 gap-1.5 text-[12px]"
+              disabled={feedbackSent}
+              onClick={() => submitRating('negative')}
+            >
+              <ThumbsDown className="w-3.5 h-3.5" /> Not useful
+            </Button>
+            {feedbackSent && (
+              <span className="text-[11px] text-success">Thanks for the feedback.</span>
+            )}
+          </div>
+
+          {rating === 'negative' && !feedbackSent && (
+            <div className="flex items-center gap-2 flex-wrap pt-1">
+              <Select value={reason} onValueChange={(v) => setReason(v as OperatorAssistFeedbackReason)}>
+                <SelectTrigger className="h-7 w-[170px] text-[12px]">
+                  <SelectValue placeholder="Reason (optional)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="wrong_answer">Wrong answer</SelectItem>
+                  <SelectItem value="missing_context">Missing context</SelectItem>
+                  <SelectItem value="bad_tone">Bad tone</SelectItem>
+                  <SelectItem value="too_long">Too long</SelectItem>
+                  <SelectItem value="too_short">Too short</SelectItem>
+                  <SelectItem value="unsafe">Unsafe</SelectItem>
+                  <SelectItem value="not_grounded">Not grounded</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+              <Input
+                placeholder="Optional comment…"
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                maxLength={2000}
+                className="h-7 text-[12px] flex-1 min-w-[160px]"
+              />
+              <Button
+                type="button"
+                size="sm"
+                className="h-7 text-[12px]"
+                onClick={submitNegativeDetails}
+              >
+                Submit
+              </Button>
+            </div>
+          )}
+          </>
         )}
       </div>
 

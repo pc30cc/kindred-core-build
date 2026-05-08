@@ -7,7 +7,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { useWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
+import { useCurrentWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import { aiAgentApi, type OperatorAssistAnalytics } from '@/lib/ai-agent-api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -22,14 +22,14 @@ type Range = '7d' | '30d' | '90d';
 function pct(n: number) { return `${Math.round(n * 100)}%`; }
 
 export default function OperatorAssistAnalyticsPage() {
-  const ws = useWorkspace();
+  const workspace = useCurrentWorkspace();
   const wsPath = useWorkspacePath();
   const [range, setRange] = useState<Range>('7d');
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ['ai-agent', 'assist-analytics', ws.workspace?.id, range],
-    queryFn: () => aiAgentApi.getAssistAnalytics(ws.workspace!.id, range),
-    enabled: !!ws.workspace?.id,
+    queryKey: ['ai-agent', 'assist-analytics', workspace?.id, range],
+    queryFn: () => aiAgentApi.getAssistAnalytics(workspace!.id, range),
+    enabled: !!workspace?.id,
   });
 
   const a = data as OperatorAssistAnalytics | undefined;

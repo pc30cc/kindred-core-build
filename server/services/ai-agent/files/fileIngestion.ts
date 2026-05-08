@@ -699,14 +699,18 @@ async function finalizeIndex(
     parsed = await parseAiFile(mimeType, buffer);
   } catch (e: any) {
     const code = e instanceof ParseError ? e.code : 'parse_failed';
-    await sb.from('ai_data_sources').update({
-      status: 'failed', last_error: code,
-      metadata: { ...baseMeta, parse_error: code, parse_error_message: e?.message || null, job_status: 'failed' },
-    }).eq('id', sourceId);
-    // Deactivate any existing chunks (fail-closed retrieval).
-    await sb.from('ai_knowledge_chunks').update({ status: 'deleted' })
-      .eq('workspace_id', workspaceId).eq('source_type', 'file').eq('source_id', sourceId)
-      .neq('status', 'deleted');
+    // Race-safe: only mark failed if source is still 'syncing'. If admin
+    // paused/deleted mid-parse, helper throws cancellation IngestError so the
+    // worker wrapper cancels the job rather than overwriting status.
+    await markFileSourceFailedIfStillSyncing(config, {
+      workspaceId, sourceId, errorCode: code,
+      metadataPatch: {
+        ...baseMeta,
+        parse_error: code,
+        parse_error_message: e?.message || null,
+      },
+      chunkStatusOnFailure: 'deleted',
+    });
     throw new IngestError(code, 422, e?.message || code);
   }
 
@@ -739,10 +743,12 @@ async function finalizeIndex(
       },
     }, embedder);
   } catch (e: any) {
-    await sb.from('ai_data_sources').update({
-      status: 'failed', last_error: 'index_failed',
-      metadata: { ...baseMeta, index_error: e?.message || 'unknown', job_status: 'failed' },
-    }).eq('id', sourceId);
+    // Race-safe: only mark failed if still 'syncing'.
+    await markFileSourceFailedIfStillSyncing(config, {
+      workspaceId, sourceId, errorCode: 'index_failed',
+      metadataPatch: { ...baseMeta, index_error: e?.message || 'unknown' },
+      chunkStatusOnFailure: 'deleted',
+    });
     throw new IngestError('index_failed', 500, e?.message);
   }
 

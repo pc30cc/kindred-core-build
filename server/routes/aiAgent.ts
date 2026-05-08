@@ -1248,10 +1248,10 @@ async function e7PersistAssistRun(
     model: string | null;
     error: string | null;
   },
-): Promise<void> {
+): Promise<string | null> {
   try {
     const sb = getServiceClient(config);
-    await sb.from('ai_operator_assist_runs').insert({
+    const { data, error } = await sb.from('ai_operator_assist_runs').insert({
       workspace_id: payload.workspaceId,
       conversation_id: payload.conversationId,
       requested_by: payload.requestedBy,
@@ -1268,9 +1268,15 @@ async function e7PersistAssistRun(
       provider: payload.provider,
       model: payload.model,
       error: payload.error,
-    });
+    }).select('id').maybeSingle();
+    if (error) {
+      console.error('[ai-agent.e7] persist assist run error:', error.message);
+      return null;
+    }
+    return (data?.id as string) || null;
   } catch (err: any) {
     console.error('[ai-agent.e7] persist assist run failed:', err?.message);
+    return null;
   }
 }
 

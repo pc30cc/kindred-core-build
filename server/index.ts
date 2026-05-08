@@ -336,6 +336,14 @@ app.listen(config.port, () => {
       .catch((e) => console.warn('[ai-kb worker] inproc start failed:', e?.message));
   }
 
+  // E10 — Scheduled regression worker (dev/local only).
+  // Production: run WORKER_KIND=regression-runner in a separate container.
+  if (process.env.AI_AGENT_REGRESSION_WORKER_INPROC === '1') {
+    import('../worker/regression-runner/index.js')
+      .then((m) => m.startRegressionWorker?.())
+      .catch((e) => console.warn('[regression-worker] inproc start failed:', e?.message));
+  }
+
   // ─── Post-deploy widget manifest invalidation ────────────────────
   // The in-memory widget manifest cache is per-process, so a fresh deploy
   // (which restarts this process) starts with an empty cache anyway. BUT:

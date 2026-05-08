@@ -1169,6 +1169,355 @@ aiAgentRouter.post(
 );
 
 // ─────────────────────────────────────────────────────────────────────
+// Pass E7 — Operator AI Suggest-Reply (read-only, no side effects).
+//
+// POST /api/ai-agent/operator/suggest-reply
+//   - workspace member required
+//   - feature gate: 'ai_operator_assist' (fail-closed if entitlement denied)
+//   - never inserts conversation_messages
+//   - never triggers workflows / handoffs / learning candidates / tools
+//   - never auto-sends; operator decides via inbox UI
+//   - file source_url always null; sensitive metadata redacted
+// ─────────────────────────────────────────────────────────────────────
+
+const e7AssistCounters = new Map<string, { count: number; windowStart: number }>();
+const E7_ASSIST_LIMIT = 30;
+const E7_ASSIST_WINDOW = 5 * 60_000;
+function checkE7AssistRateLimit(workspaceId: string, userId: string): boolean {
+  const key = `${workspaceId}:${userId}`;
+  const now = Date.now();
+  const c = e7AssistCounters.get(key);
+  if (!c || now - c.windowStart > E7_ASSIST_WINDOW) {
+    e7AssistCounters.set(key, { count: 1, windowStart: now });
+    return true;
+  }
+  c.count += 1;
+  return c.count <= E7_ASSIST_LIMIT;
+}
+
+const suggestReplySchema = z.object({
+  workspaceId: z.string().uuid(),
+  conversationId: z.string().uuid(),
+  locale: z.string().max(10).optional(),
+  tone: z.enum(['friendly', 'professional', 'short', 'detailed']).optional(),
+  instruction: z.string().max(1000).optional(),
+  callLLM: z.boolean().optional(),
+});
+
+const TONE_HINTS: Record<string, string> = {
+  friendly: 'Use a warm, friendly tone. Address the visitor casually but respectfully.',
+  professional: 'Use a professional, courteous tone. No slang.',
+  short: 'Keep the reply to 1–2 short sentences. No filler.',
+  detailed: 'Provide a thorough reply that covers the question completely while staying grounded in the sources.',
+};
+
+async function e7PersistAssistRun(
+  config: ServerConfig,
+  payload: {
+    workspaceId: string;
+    conversationId: string;
+    requestedBy: string | null;
+    status: 'suggested' | 'failed' | 'skipped';
+    inputMessage: string | null;
+    instruction: string | null;
+    tone: string | null;
+    suggestion: string | null;
+    confidence: number | null;
+    selectedSources: any[];
+    retrievalDebug: any;
+    answerStrategy: any;
+    safetyNotes: string[];
+    provider: string | null;
+    model: string | null;
+    error: string | null;
+  },
+): Promise<void> {
+  try {
+    const sb = getServiceClient(config);
+    await sb.from('ai_operator_assist_runs').insert({
+      workspace_id: payload.workspaceId,
+      conversation_id: payload.conversationId,
+      requested_by: payload.requestedBy,
+      status: payload.status,
+      input_message: payload.inputMessage,
+      instruction: payload.instruction,
+      tone: payload.tone,
+      suggestion: payload.suggestion,
+      confidence: payload.confidence,
+      selected_sources: e7_redactDeep(payload.selectedSources) || [],
+      retrieval_debug: e7_redactDeep(payload.retrievalDebug) || {},
+      answer_strategy: payload.answerStrategy || {},
+      safety_notes: payload.safetyNotes || [],
+      provider: payload.provider,
+      model: payload.model,
+      error: payload.error,
+    });
+  } catch (err: any) {
+    console.error('[ai-agent.e7] persist assist run failed:', err?.message);
+  }
+}
+
+aiAgentRouter.post('/operator/suggest-reply', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = suggestReplySchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
+  const { workspaceId, conversationId, locale, tone, instruction } = parsed.data;
+  const callLLM = parsed.data.callLLM !== false;
+
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+
+  if (!checkE7AssistRateLimit(workspaceId, auth.userId)) {
+    return res.status(429).json({ error: 'rate_limited' });
+  }
+
+  // Conversation must belong to workspace.
+  const sb = getServiceClient(config);
+  const { data: conv } = await sb
+    .from('conversations')
+    .select('id, workspace_id')
+    .eq('id', conversationId)
+    .maybeSingle();
+  if (!conv || conv.workspace_id !== workspaceId) {
+    return res.status(404).json({ error: 'conversation_not_found' });
+  }
+
+  // Feature gate: fail-closed if explicitly denied. If no plans defined
+  // (legacy/self-host), DB function returns allowed=true → fail-open.
+  const ent = await checkEntitlementFromDB(
+    config.supabaseUrl,
+    config.supabaseServiceRoleKey,
+    workspaceId,
+    'ai_operator_assist',
+  );
+  if (!ent.allowed) {
+    return res.status(403).json({
+      error: 'feature_not_available',
+      feature: 'ai_operator_assist',
+      plan: ent.plan,
+      reason: ent.reason,
+      upgrade_required: true,
+    });
+  }
+
+  // Load recent messages — last 20 / 12k chars cap.
+  const { data: msgs } = await sb
+    .from('conversation_messages')
+    .select('id, sender_type, body, created_at')
+    .eq('conversation_id', conversationId)
+    .order('created_at', { ascending: false })
+    .limit(20);
+  const ordered = (msgs || []).slice().reverse();
+  let totalChars = 0;
+  const trimmed: typeof ordered = [];
+  for (const m of ordered) {
+    const len = (m.body || '').length;
+    if (totalChars + len > 12_000) break;
+    trimmed.push(m);
+    totalChars += len;
+  }
+  const latestVisitor = [...trimmed].reverse().find((m) =>
+    m.sender_type === 'visitor' || m.sender_type === 'contact',
+  );
+  const inputMessage = latestVisitor?.body || '';
+
+  if (!inputMessage.trim()) {
+    return res.status(400).json({ error: 'no_visitor_message' });
+  }
+
+  // Build retrieval query: latest visitor message + tail context.
+  const tailContext = trimmed.slice(-4)
+    .map((m) => `${m.sender_type === 'visitor' || m.sender_type === 'contact' ? 'Visitor' : 'Agent'}: ${(m.body || '').slice(0, 400)}`)
+    .join('\n');
+
+  const settings = await getOrCreateSettings(config, workspaceId);
+  const responseLocale = locale || settings.allowed_locales?.[0] || 'en';
+
+  const safetyNotes: string[] = [];
+  let hybrid: any;
+  try {
+    hybrid = await retrieveHybridSources(config, {
+      workspaceId,
+      originalMessage: inputMessage,
+      retrievalQuery: inputMessage,
+      expandedQuery: inputMessage,
+      responseLanguage: responseLocale,
+      inputLanguage: responseLocale,
+      limit: 8,
+    });
+  } catch (err: any) {
+    await e7PersistAssistRun(config, {
+      workspaceId, conversationId, requestedBy: auth.userId,
+      status: 'failed', inputMessage, instruction: instruction ?? null, tone: tone ?? null,
+      suggestion: null, confidence: null, selectedSources: [], retrievalDebug: null,
+      answerStrategy: {}, safetyNotes: [`retrieval_error:${err?.message || 'unknown'}`],
+      provider: null, model: null, error: err?.message || 'retrieval_failed',
+    });
+    return res.status(500).json({ error: 'retrieval_failed', details: err?.message });
+  }
+
+  const sources = hybrid.sources || [];
+  const selectedSources = sources.map((s: any) => ({
+    id: s.source_id,
+    source_id: s.source_id,
+    source_type: s.source_type,
+    kind: s.kind,
+    title: s.title,
+    source_url: s.source_type === 'file' ? null : (s.source_url ?? null),
+    locale: s.locale ?? null,
+    final_score: s.final_score,
+  }));
+  if (sources.length === 0) safetyNotes.push('no_eligible_knowledge_sources');
+
+  const enginePromptSources = sources.map((s: any) => ({
+    kind: s.kind === 'qna' ? 'qna' : 'kb_article',
+    id: s.source_id,
+    title: s.title,
+    excerpt: s.excerpt ?? null,
+    content: s.content ?? null,
+    slug: s.slug ?? null,
+    locale: s.locale ?? null,
+    score: s.final_score,
+    source_type: s.source_type,
+    source_url: s.source_type === 'file' ? null : (s.source_url ?? null),
+    url_boost: s.url_boost,
+  } as any));
+
+  const strategy = e7_decideStrategy({
+    settings,
+    question: inputMessage,
+    sources: enginePromptSources,
+    clarificationAttemptCount: 0,
+    hybridUsed: hybrid.hybridUsed,
+  });
+
+  let confidence = strategy.confidence ?? 0;
+  if (sources.length === 0) confidence = Math.min(confidence, 0.25);
+
+  const answerStrategy = {
+    action: strategy.decisionType === 'handoff' ? 'handoff'
+      : strategy.decisionType === 'ask_clarifying_question' ? 'clarification'
+      : strategy.decisionType === 'no_answer_silent' ? 'no_answer'
+      : 'answer',
+    decision_type: strategy.decisionType,
+    reason: strategy.reason,
+    retrieval_strength: strategy.retrievalStrength,
+    top_score: strategy.topScore,
+    handoff_required: strategy.handoffRequired,
+    source_types_used: strategy.sourceTypesUsed,
+  };
+
+  // Build prompts. Append operator assist framing + recent conversation.
+  const baseSystem = e7_buildSystemPrompt(settings, responseLocale, {
+    responseLanguage: responseLocale,
+    inputLanguage: responseLocale,
+  });
+  const operatorFraming = [
+    '',
+    'OPERATOR-ASSIST MODE:',
+    '- You are drafting a reply that a HUMAN support operator will review before sending.',
+    '- Write the reply text directly, in the response language. No preamble like "Here is a draft".',
+    '- Never expose internal storage paths, signed URLs, tokens, or credentials. Cite sources only by title if needed.',
+    '- If the sources do not support a fact, do not invent it; suggest collecting more info instead.',
+    tone ? `- Operator-selected tone: ${tone}. ${TONE_HINTS[tone] || ''}` : '',
+    instruction ? `- Operator instruction: ${instruction}` : '',
+  ].filter(Boolean).join('\n');
+  const systemPrompt = `${baseSystem}\n${operatorFraming}`;
+
+  const baseUser = e7_buildUserPrompt(inputMessage, enginePromptSources, {
+    decisionType: strategy.decisionType,
+    clarificationHint: strategy.clarificationHint,
+    safeGuidanceTopic: strategy.safeGuidanceTopic,
+  });
+  const userPrompt = `${baseUser}\n\nRecent conversation (for context, do not quote verbatim):\n${tailContext}`;
+
+  const promptPreview = (auth.isAdmin || auth.role === 'owner' || auth.role === 'admin')
+    ? { system: systemPrompt, user: userPrompt }
+    : undefined;
+
+  const baseResponse = {
+    ok: true,
+    suggestion: null as string | null,
+    confidence,
+    tone: tone ?? null,
+    provider: null as string | null,
+    model: null as string | null,
+    selected_sources: e7_redactDeep(selectedSources),
+    retrieval_debug: e7_redactDeep(hybrid.retrievalDebug),
+    answer_strategy: answerStrategy,
+    safety_notes: safetyNotes,
+    prompt_preview: promptPreview,
+  };
+
+  if (!callLLM) {
+    baseResponse.safety_notes = ['llm_call_skipped', ...safetyNotes];
+    await e7PersistAssistRun(config, {
+      workspaceId, conversationId, requestedBy: auth.userId,
+      status: 'skipped', inputMessage, instruction: instruction ?? null, tone: tone ?? null,
+      suggestion: null, confidence, selectedSources, retrievalDebug: hybrid.retrievalDebug,
+      answerStrategy, safetyNotes: baseResponse.safety_notes,
+      provider: null, model: null, error: null,
+    });
+    return res.json(baseResponse);
+  }
+
+  const aiCfg = await e7_resolveAIConfig(config, workspaceId);
+  if (!aiCfg) {
+    const notes = ['ai_provider_not_configured', ...safetyNotes];
+    await e7PersistAssistRun(config, {
+      workspaceId, conversationId, requestedBy: auth.userId,
+      status: 'failed', inputMessage, instruction: instruction ?? null, tone: tone ?? null,
+      suggestion: null, confidence, selectedSources, retrievalDebug: hybrid.retrievalDebug,
+      answerStrategy, safetyNotes: notes,
+      provider: null, model: null, error: 'ai_provider_not_configured',
+    });
+    return res.status(400).json({ error: 'ai_provider_not_configured' });
+  }
+
+  try {
+    const result = await e7_executeAICompletion(config, {
+      workspaceId,
+      prompt: userPrompt,
+      systemPrompt,
+      maxTokens: tone === 'detailed' ? 800 : tone === 'short' ? 250 : 500,
+      temperature: settings.answer_guidance === 'creative' ? 0.6
+        : settings.answer_guidance === 'balanced' ? 0.4 : 0.25,
+    });
+    const suggestion = (result.text || '').trim() || null;
+    // Increment usage only on successful LLM call.
+    e7_incrementUsage(config.supabaseUrl, config.supabaseServiceRoleKey, workspaceId, 'ai_operator_suggestions');
+
+    const out = {
+      ...baseResponse,
+      suggestion,
+      provider: result.provider,
+      model: result.model,
+    };
+    await e7PersistAssistRun(config, {
+      workspaceId, conversationId, requestedBy: auth.userId,
+      status: suggestion ? 'suggested' : 'failed', inputMessage,
+      instruction: instruction ?? null, tone: tone ?? null,
+      suggestion, confidence, selectedSources, retrievalDebug: hybrid.retrievalDebug,
+      answerStrategy, safetyNotes,
+      provider: result.provider, model: result.model,
+      error: suggestion ? null : 'empty_completion',
+    });
+    return res.json(out);
+  } catch (err: any) {
+    const notes = [`llm_error:${err?.message || 'unknown'}`, ...safetyNotes];
+    await e7PersistAssistRun(config, {
+      workspaceId, conversationId, requestedBy: auth.userId,
+      status: 'failed', inputMessage, instruction: instruction ?? null, tone: tone ?? null,
+      suggestion: null, confidence, selectedSources, retrievalDebug: hybrid.retrievalDebug,
+      answerStrategy, safetyNotes: notes,
+      provider: aiCfg.provider, model: aiCfg.model,
+      error: err?.message || 'llm_failed',
+    });
+    return res.status(502).json({ error: 'llm_failed', details: err?.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────
 // Pass 2 — Knowledge index endpoints
 // ─────────────────────────────────────────────────────────────────────
 

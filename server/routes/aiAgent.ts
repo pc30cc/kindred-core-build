@@ -2192,6 +2192,34 @@ async function loadFileSource(config: ServerConfig, id: string) {
   return data;
 }
 
+/**
+ * Hardened sanitizer for any metadata/job payload returned to the admin UI.
+ * Strips storage paths, signed URLs, credentials, tokens, and secrets.
+ * Case-insensitive; matches snake_case, camelCase, and substring patterns.
+ */
+const SECRET_KEY_SUBSTRINGS = [
+  'storage_path', 'storagepath',
+  'storage_url', 'storageurl',
+  'signed_url', 'signedurl',
+  'public_url', 'publicurl',
+  'access_key', 'accesskey',
+  'secret_access_key', 'secretaccesskey',
+  'access_key_id', 'accesskeyid',
+  'api_key', 'apikey',
+  'token', 'secret', 'password', 'credential',
+];
+export function sanitizeAiFileMetadata(obj: any): any {
+  if (!obj || typeof obj !== 'object') return obj;
+  if (Array.isArray(obj)) return obj.map(sanitizeAiFileMetadata);
+  const out: Record<string, any> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    const lk = k.toLowerCase();
+    if (SECRET_KEY_SUBSTRINGS.some((s) => lk.includes(s))) continue;
+    out[k] = (v && typeof v === 'object') ? sanitizeAiFileMetadata(v) : v;
+  }
+  return out;
+}
+
 aiAgentRouter.post('/files/:id/reindex', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
   const src = await loadFileSource(config, req.params.id);

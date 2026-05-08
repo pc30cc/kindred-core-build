@@ -391,17 +391,38 @@ export async function enqueueRegressionBatch(
 export async function listRegressionBatches(
   config: ServerConfig,
   workspaceId: string,
-  limit = 50,
-): Promise<RegressionBatch[]> {
+  filters: {
+    limit?: number;
+    offset?: number;
+    status?: RegressionBatch['status'] | null;
+    triggerType?: RegressionBatch['trigger_type'] | null;
+    scheduleId?: string | null;
+    dateFrom?: string | null;
+    dateTo?: string | null;
+    onlyFailed?: boolean;
+  } = {},
+): Promise<{ items: RegressionBatch[]; total: number; limit: number; offset: number }> {
   const sb = getServiceClient(config);
-  const { data, error } = await sb
+  const limit = Math.min(200, Math.max(1, filters.limit ?? 50));
+  const offset = Math.max(0, filters.offset ?? 0);
+  let q = sb
     .from('ai_agent_regression_batches')
-    .select('*')
-    .eq('workspace_id', workspaceId)
+    .select('*', { count: 'exact' })
+    .eq('workspace_id', workspaceId);
+  if (filters.status) q = q.eq('status', filters.status);
+  if (filters.triggerType) q = q.eq('trigger_type', filters.triggerType);
+  if (filters.scheduleId) q = q.eq('schedule_id', filters.scheduleId);
+  if (filters.dateFrom) q = q.gte('created_at', filters.dateFrom);
+  if (filters.dateTo) q = q.lte('created_at', filters.dateTo);
+  if (filters.onlyFailed) {
+    // batches that have at least one failure or errored run, OR whose status is failed/cancelled.
+    q = q.or('failed.gt.0,errored.gt.0,status.eq.failed,status.eq.cancelled');
+  }
+  const { data, count, error } = await q
     .order('created_at', { ascending: false })
-    .limit(Math.min(200, Math.max(1, limit)));
+    .range(offset, offset + limit - 1);
   if (error) throw new Error(error.message);
-  return (data || []) as RegressionBatch[];
+  return { items: (data || []) as RegressionBatch[], total: count || 0, limit, offset };
 }
 
 export async function getRegressionBatchDetail(
@@ -417,10 +438,20 @@ export async function getRegressionBatchDetail(
   if (!batch) return null;
   const { data: runs } = await sb
     .from('ai_agent_test_runs')
-    .select('*')
+    .select('*, test_case:ai_agent_test_cases(id,name,expected_behavior)')
     .eq('regression_batch_id', batchId)
     .order('created_at', { ascending: true });
-  return { batch: batch as RegressionBatch, runs: runs || [] };
+  // Sort failed/errored first, then passed, preserving created_at order within group.
+  const order = (s: string) => (s === 'errored' ? 0 : s === 'failed' ? 1 : 2);
+  const sortedRuns = [...(runs || [])].sort((a: any, b: any) => order(a.status) - order(b.status));
+  // Find retry children (other batches whose metadata.retry_of_batch_id === this id).
+  const { data: children } = await sb
+    .from('ai_agent_regression_batches')
+    .select('id,status,passed,failed,errored,pass_rate,created_at,trigger_type')
+    .eq('workspace_id', (batch as any).workspace_id)
+    .contains('metadata', { retry_of_batch_id: batchId } as any)
+    .order('created_at', { ascending: false });
+  return { batch: batch as RegressionBatch, runs: sortedRuns, retryChildren: children || [] } as any;
 }
 
 /**

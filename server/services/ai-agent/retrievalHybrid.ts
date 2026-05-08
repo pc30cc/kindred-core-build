@@ -79,6 +79,17 @@ export interface HybridRetrievalResult {
     page_matched_source_ids: string[];
     page_url_boost_applied: boolean;
   };
+  /** E5 — counts of items dropped by defense-in-depth eligibility filters. */
+  excludedSummary?: {
+    inactive_chunks_excluded: number;
+    disabled_qna_excluded: number;
+    draft_kb_excluded: number;
+    pending_candidates_excluded: number;
+    cross_workspace_excluded: number;
+    inactive_file_excluded: number;
+  };
+  /** E5 — fully-formed debug payload, safe to persist to ai_agent_runs.metadata. */
+  retrievalDebug?: Record<string, unknown>;
 }
 
 const SOURCE_PRIORITY: Record<HybridSourceKind, number> = {

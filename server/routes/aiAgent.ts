@@ -3228,3 +3228,346 @@ aiAgentRouter.post('/tool-servers/:id/test', async (req: Request, res: Response)
     message: 'MCP execution is disabled until platform admin enables it.',
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════
+// E6 — Test Harness: dry-run runtime + test cases CRUD + bulk runs.
+// Self-host. No conversation side effects, no workflows, no MCP, no handoff,
+// no learning candidates. Workspace-scoped, status='active' chunks only.
+// ═══════════════════════════════════════════════════════════════════════
+import { runDryRunTest as e6_runDryRunTest, evaluateExpectations as e6_evaluateExpectations, type DryRunResult as E6DryRunResult } from '../services/ai-agent/testHarness.js';
+
+const e6PageContextSchema = z.object({
+  currentPageUrl: z.string().max(2000).nullable().optional(),
+  currentPageOrigin: z.string().max(500).nullable().optional(),
+  currentPagePath: z.string().max(1000).nullable().optional(),
+  currentPageTitle: z.string().max(500).nullable().optional(),
+}).nullish();
+
+const e6DebugRunSchema = z.object({
+  workspaceId: z.string().uuid(),
+  message: z.string().min(1).max(2000),
+  locale: z.string().max(10).optional(),
+  pageContext: e6PageContextSchema,
+  testCaseId: z.string().uuid().optional(),
+  callLLM: z.boolean().optional(),
+});
+
+aiAgentRouter.post('/debug/run-test', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = e6DebugRunSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
+  const { workspaceId, message, locale, pageContext, callLLM } = parsed.data;
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  try {
+    const result = await e6_runDryRunTest(config, {
+      workspaceId, message, locale: locale || undefined,
+      pageContext: pageContext || null,
+      callLLM: callLLM !== false,
+    });
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ error: 'dry_run_failed', details: err?.message });
+  }
+});
+
+const e6TestCaseFields = {
+  name: z.string().min(1).max(200),
+  input_message: z.string().min(1).max(2000),
+  locale: z.string().max(10).nullable().optional(),
+  page_context: z.record(z.any()).nullable().optional(),
+  expected_behavior: z.enum(['answer','no_answer','handoff','clarification']),
+  expected_source_type: z.enum(['qna','learned_qna','kb_article','web_page','file','business_profile']).nullable().optional(),
+  expected_source_url: z.string().max(2000).nullable().optional(),
+  expected_source_id: z.string().max(200).nullable().optional(),
+  expected_contains: z.array(z.string().max(500)).max(20).optional(),
+  expected_not_contains: z.array(z.string().max(500)).max(20).optional(),
+  min_confidence: z.number().min(0).max(1).nullable().optional(),
+  enabled: z.boolean().optional(),
+  metadata: z.record(z.any()).optional(),
+};
+
+const e6CreateCaseSchema = z.object({ workspaceId: z.string().uuid(), ...e6TestCaseFields });
+const e6PatchCaseSchema = z.object(Object.fromEntries(
+  Object.entries(e6TestCaseFields).map(([k, v]: any) => [k, v.optional()]),
+) as any);
+
+// LIST
+aiAgentRouter.get('/test-cases', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = requireWorkspace(req);
+  if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  const sb = getServiceClient(config);
+  let q = sb.from('ai_agent_test_cases').select('*').eq('workspace_id', workspaceId).order('created_at', { ascending: false });
+  if (req.query.enabled === 'true') q = q.eq('enabled', true);
+  if (req.query.enabled === 'false') q = q.eq('enabled', false);
+  if (req.query.expected_behavior) q = q.eq('expected_behavior', String(req.query.expected_behavior));
+  if (req.query.expected_source_type) q = q.eq('expected_source_type', String(req.query.expected_source_type));
+  if (req.query.query) q = q.ilike('name', `%${String(req.query.query)}%`);
+  const { data, error } = await q.limit(500);
+  if (error) return res.status(500).json({ error: 'list_failed', details: error.message });
+  return res.json({ items: data || [] });
+});
+
+// CREATE
+aiAgentRouter.post('/test-cases', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = e6CreateCaseSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
+  const { workspaceId, ...fields } = parsed.data;
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  const sb = getServiceClient(config);
+  const { data, error } = await sb.from('ai_agent_test_cases').insert({
+    workspace_id: workspaceId,
+    created_by: auth.userId,
+    expected_contains: fields.expected_contains || [],
+    expected_not_contains: fields.expected_not_contains || [],
+    metadata: fields.metadata || {},
+    enabled: fields.enabled ?? true,
+    ...fields,
+  }).select('*').single();
+  if (error) return res.status(500).json({ error: 'create_failed', details: error.message });
+  return res.json({ item: data });
+});
+
+// PATCH
+aiAgentRouter.patch('/test-cases/:id', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const sb = getServiceClient(config);
+  const { data: existing } = await sb.from('ai_agent_test_cases').select('workspace_id').eq('id', req.params.id).maybeSingle();
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, existing.workspace_id);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  const parsed = e6PatchCaseSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
+  const { data, error } = await sb.from('ai_agent_test_cases').update(parsed.data).eq('id', req.params.id).select('*').single();
+  if (error) return res.status(500).json({ error: 'update_failed', details: error.message });
+  return res.json({ item: data });
+});
+
+// DELETE
+aiAgentRouter.delete('/test-cases/:id', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const sb = getServiceClient(config);
+  const { data: existing } = await sb.from('ai_agent_test_cases').select('workspace_id').eq('id', req.params.id).maybeSingle();
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, existing.workspace_id);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  const { error } = await sb.from('ai_agent_test_cases').delete().eq('id', req.params.id);
+  if (error) return res.status(500).json({ error: 'delete_failed', details: error.message });
+  return res.json({ ok: true });
+});
+
+async function e6PersistTestRun(
+  sb: any, workspaceId: string, testCaseId: string | null, userId: string | null,
+  result: E6DryRunResult, evalResult: { passed: boolean; failure_reasons: string[] },
+  inputMessage: string,
+): Promise<any> {
+  const status = result.status === 'failed' && result.error
+    ? 'errored'
+    : (evalResult.passed ? 'passed' : 'failed');
+  const failureReasons = status === 'errored'
+    ? [result.error || 'errored', ...evalResult.failure_reasons]
+    : evalResult.failure_reasons;
+  const { data } = await sb.from('ai_agent_test_runs').insert({
+    workspace_id: workspaceId,
+    test_case_id: testCaseId,
+    status,
+    input_message: inputMessage,
+    actual_output: result.output_text,
+    actual_status: result.status,
+    confidence: result.confidence,
+    selected_sources: result.selected_sources,
+    retrieval_debug: result.retrieval_debug,
+    answer_strategy: result.answer_strategy,
+    failure_reasons: failureReasons,
+    metadata: { provider: result.provider, model: result.model, safety_notes: result.safety_notes },
+    created_by: userId,
+  }).select('*').single();
+  return data;
+}
+
+// RUN single test case
+aiAgentRouter.post('/test-cases/:id/run', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const sb = getServiceClient(config);
+  const { data: tc } = await sb.from('ai_agent_test_cases').select('*').eq('id', req.params.id).maybeSingle();
+  if (!tc) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, tc.workspace_id);
+  if (!auth) return;
+  try {
+    const pc = tc.page_context || null;
+    const result = await e6_runDryRunTest(config, {
+      workspaceId: tc.workspace_id,
+      message: tc.input_message,
+      locale: tc.locale || undefined,
+      pageContext: pc,
+    });
+    const evalResult = e6_evaluateExpectations(result, {
+      workspaceId: tc.workspace_id,
+      expected_behavior: tc.expected_behavior,
+      expected_source_type: tc.expected_source_type,
+      expected_source_url: tc.expected_source_url,
+      expected_source_id: tc.expected_source_id,
+      expected_contains: tc.expected_contains,
+      expected_not_contains: tc.expected_not_contains,
+      min_confidence: tc.min_confidence,
+    });
+    const run = await e6PersistTestRun(sb, tc.workspace_id, tc.id, auth.userId, result, evalResult, tc.input_message);
+    return res.json({ run, result, evaluation: evalResult });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'run_failed', details: err?.message });
+  }
+});
+
+// BULK run
+aiAgentRouter.post('/test-cases/run-bulk', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const schema = z.object({
+    workspaceId: z.string().uuid(),
+    ids: z.array(z.string().uuid()).optional(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
+  const { workspaceId, ids } = parsed.data;
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  const sb = getServiceClient(config);
+  let q = sb.from('ai_agent_test_cases').select('*').eq('workspace_id', workspaceId);
+  if (ids && ids.length) q = q.in('id', ids); else q = q.eq('enabled', true);
+  const { data: cases, error } = await q.limit(200);
+  if (error) return res.status(500).json({ error: 'list_failed', details: error.message });
+  const summary = { total: 0, passed: 0, failed: 0, errored: 0, runs: [] as any[] };
+  for (const tc of cases || []) {
+    summary.total += 1;
+    try {
+      const result = await e6_runDryRunTest(config, {
+        workspaceId, message: tc.input_message,
+        locale: tc.locale || undefined, pageContext: tc.page_context || null,
+      });
+      const evalResult = e6_evaluateExpectations(result, {
+        workspaceId,
+        expected_behavior: tc.expected_behavior,
+        expected_source_type: tc.expected_source_type,
+        expected_source_url: tc.expected_source_url,
+        expected_source_id: tc.expected_source_id,
+        expected_contains: tc.expected_contains,
+        expected_not_contains: tc.expected_not_contains,
+        min_confidence: tc.min_confidence,
+      });
+      const run = await e6PersistTestRun(sb, workspaceId, tc.id, auth.userId, result, evalResult, tc.input_message);
+      if (run?.status === 'passed') summary.passed += 1;
+      else if (run?.status === 'errored') summary.errored += 1;
+      else summary.failed += 1;
+      summary.runs.push({ test_case_id: tc.id, name: tc.name, status: run?.status, failure_reasons: run?.failure_reasons });
+    } catch (err: any) {
+      summary.errored += 1;
+      summary.runs.push({ test_case_id: tc.id, name: tc.name, status: 'errored', failure_reasons: [err?.message || 'errored'] });
+    }
+  }
+  return res.json(summary);
+});
+
+// LIST runs
+aiAgentRouter.get('/test-runs', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = requireWorkspace(req);
+  if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  const sb = getServiceClient(config);
+  let q = sb.from('ai_agent_test_runs').select('*').eq('workspace_id', workspaceId).order('created_at', { ascending: false });
+  if (req.query.testCaseId) q = q.eq('test_case_id', String(req.query.testCaseId));
+  if (req.query.status) q = q.eq('status', String(req.query.status));
+  const limit = Math.min(Number(req.query.limit) || 100, 500);
+  const { data, error } = await q.limit(limit);
+  if (error) return res.status(500).json({ error: 'list_failed', details: error.message });
+  return res.json({ items: data || [] });
+});
+
+// SEED recommended cases (idempotent on input_message + expected_behavior).
+aiAgentRouter.post('/test-cases/seed-recommended', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const schema = z.object({ workspaceId: z.string().uuid() });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
+  const { workspaceId } = parsed.data;
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
+  const sb = getServiceClient(config);
+  const recommended = [
+    { name: 'Pricing question (web page)', input_message: 'What is your pricing?', expected_behavior: 'answer', expected_source_type: 'web_page' },
+    { name: 'Explain this page (page context)', input_message: 'Can you explain this page?', expected_behavior: 'answer', expected_source_type: 'web_page', page_context: { currentPagePath: '/' } },
+    { name: 'Q&A coverage', input_message: 'How do I contact support?', expected_behavior: 'answer', expected_source_type: 'qna' },
+    { name: 'Learned answer coverage', input_message: 'What did you learn from previous chats?', expected_behavior: 'answer', expected_source_type: 'learned_qna' },
+    { name: 'KB article coverage', input_message: 'How does your product work?', expected_behavior: 'answer', expected_source_type: 'kb_article' },
+    { name: 'File/PDF coverage', input_message: 'Can you summarize the uploaded document?', expected_behavior: 'answer', expected_source_type: 'file' },
+    { name: 'Unknown question', input_message: 'What is the airspeed velocity of an unladen swallow on a Tuesday in 1842?', expected_behavior: 'no_answer' },
+  ];
+  const { data: existing } = await sb.from('ai_agent_test_cases').select('input_message,expected_behavior').eq('workspace_id', workspaceId);
+  const existingKeys = new Set((existing || []).map((r: any) => `${r.input_message.toLowerCase().trim()}|${r.expected_behavior}`));
+  const toInsert = recommended.filter((r) => !existingKeys.has(`${r.input_message.toLowerCase().trim()}|${r.expected_behavior}`)).map((r) => ({
+    workspace_id: workspaceId,
+    created_by: auth.userId,
+    enabled: true,
+    expected_contains: [], expected_not_contains: [], metadata: { seeded: true },
+    ...r,
+  }));
+  if (!toInsert.length) return res.json({ inserted: 0, skipped: recommended.length });
+  const { data, error } = await sb.from('ai_agent_test_cases').insert(toInsert).select('id');
+  if (error) return res.status(500).json({ error: 'seed_failed', details: error.message });
+  return res.json({ inserted: data?.length || 0, skipped: recommended.length - (data?.length || 0) });
+});
+
+// SUMMARY
+aiAgentRouter.get('/test-summary', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = requireWorkspace(req);
+  if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  const sb = getServiceClient(config);
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const [casesRes, recentRes] = await Promise.all([
+    sb.from('ai_agent_test_cases').select('id,enabled,expected_source_type').eq('workspace_id', workspaceId),
+    sb.from('ai_agent_test_runs').select('status,failure_reasons,selected_sources').eq('workspace_id', workspaceId).gte('created_at', since).limit(2000),
+  ]);
+  const cases = casesRes.data || [];
+  const recent = recentRes.data || [];
+  const last24Passed = recent.filter((r: any) => r.status === 'passed').length;
+  const last24Failed = recent.filter((r: any) => r.status === 'failed').length;
+  const last24Errored = recent.filter((r: any) => r.status === 'errored').length;
+  const failuresByReason: Record<string, number> = {};
+  for (const r of recent) {
+    if (r.status === 'passed') continue;
+    for (const reason of (r.failure_reasons || [])) {
+      const key = String(reason).split(':')[0];
+      failuresByReason[key] = (failuresByReason[key] || 0) + 1;
+    }
+  }
+  const coverageByType: Record<string, number> = { qna: 0, learned_qna: 0, kb_article: 0, web_page: 0, file: 0 };
+  for (const c of cases) {
+    if (c.expected_source_type && coverageByType[c.expected_source_type] !== undefined) {
+      coverageByType[c.expected_source_type] += 1;
+    }
+  }
+  const total24 = recent.length;
+  return res.json({
+    total_cases: cases.length,
+    enabled_cases: cases.filter((c: any) => c.enabled).length,
+    last_24h_runs: total24,
+    last_24h_passed: last24Passed,
+    last_24h_failed: last24Failed,
+    last_24h_errored: last24Errored,
+    pass_rate: total24 ? Number((last24Passed / total24).toFixed(3)) : null,
+    failures_by_reason: failuresByReason,
+    coverage_by_source_type: coverageByType,
+  });
+});

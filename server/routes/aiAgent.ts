@@ -4686,9 +4686,38 @@ aiAgentRouter.get('/regression/batches/:id', async (req: Request, res: Response)
     if (!detail) return res.status(404).json({ error: 'not_found' });
     const auth = await authorizeMember(req, res, config, detail.batch.workspace_id);
     if (!auth) return;
+    // E11.1 — enrich runs with selected_source_summary, build runs_by_status
+    // map, expose progress + retry_of_batch_id from batch metadata.
+    const rawRuns = (detail.runs || []) as any[];
+    const runs_by_status: { errored: any[]; failed: any[]; passed: any[] } = {
+      errored: [], failed: [], passed: [],
+    };
+    const enrichedRuns = rawRuns.map((r) => {
+      const ss: any[] = Array.isArray(r.selected_sources) ? r.selected_sources : [];
+      const source_types = Array.from(new Set(ss.map((s) => s?.source_type).filter(Boolean))) as string[];
+      const top_titles = ss.map((s) => (typeof s?.title === 'string' ? s.title : null)).filter(Boolean).slice(0, 8) as string[];
+      const selected_source_summary = { source_types, top_titles, count: ss.length };
+      return { ...r, selected_source_summary };
+    });
+    for (const r of enrichedRuns) {
+      if (r.status === 'errored') runs_by_status.errored.push(r);
+      else if (r.status === 'failed') runs_by_status.failed.push(r);
+      else if (r.status === 'passed') runs_by_status.passed.push(r);
+    }
+    const meta = ((detail.batch as any).metadata || {}) as Record<string, any>;
+    const progress = {
+      current_case_index: meta.current_case_index ?? null,
+      current_test_case_id: meta.current_test_case_id ?? null,
+      current_test_case_name: meta.current_test_case_name ?? null,
+      duration_ms: meta.duration_ms ?? null,
+      avg_case_duration_ms: meta.avg_case_duration_ms ?? null,
+    };
     return res.json({
       batch: detail.batch,
-      runs: detail.runs,
+      runs: enrichedRuns,
+      runs_by_status,
+      progress,
+      retry_of_batch_id: meta.retry_of_batch_id ?? null,
       retryChildren: (detail as any).retryChildren || [],
       summary: {
         total: detail.batch.total_cases,

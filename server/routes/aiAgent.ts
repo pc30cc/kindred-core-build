@@ -4435,3 +4435,145 @@ aiAgentRouter.get('/test-summary', async (req: Request, res: Response) => {
     coverage_by_source_type: coverageByType,
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────
+// E9 — Suggested regression test cases
+// (operator-assist feedback + failed test runs → draft test cases)
+//
+// Hard rules:
+//  - Workspace-scoped only.
+//  - Read: workspace members. Generate: operator roles.
+//    Accept/reject/delete: owner/admin only.
+//  - No conversation_messages / handoff / workflow / learning side effects.
+//  - No calls / LiveKit / widget-call code touched.
+//  - No MCP / webhooks / external HTTP / Edge Functions.
+//  - File expected_source_url is always null. All persisted text is redacted.
+// ─────────────────────────────────────────────────────────────────────
+const E9_OPERATOR_ROLES = new Set(['owner', 'admin', 'agent', 'support_agent', 'team_lead']);
+function e9_canGenerateSuggestion(role: string | null, isAdmin: boolean): boolean {
+  if (isAdmin) return true;
+  return !!(role && E9_OPERATOR_ROLES.has(role));
+}
+function e9_canManageSuggestion(role: string | null, isAdmin: boolean): boolean {
+  return isOwnerOrAdmin(role, isAdmin);
+}
+
+aiAgentRouter.get('/suggested-test-cases', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = String(req.query.workspaceId || '');
+  if (!/^[0-9a-f-]{36}$/i.test(workspaceId)) return res.status(400).json({ error: 'invalid_workspace' });
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  const status = req.query.status ? String(req.query.status) : 'pending';
+  const valid = new Set(['pending', 'accepted', 'rejected', 'converted', 'all']);
+  if (!valid.has(status)) return res.status(400).json({ error: 'invalid_status' });
+  const sb = getServiceClient(config);
+  try {
+    const items = await e9_listSuggestedCases(sb, workspaceId, { status: status as any });
+    return res.json({ items });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'list_failed', details: err?.message });
+  }
+});
+
+aiAgentRouter.post('/suggested-test-cases/from-feedback/:feedbackId', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const feedbackId = String(req.params.feedbackId);
+  if (!/^[0-9a-f-]{36}$/i.test(feedbackId)) return res.status(400).json({ error: 'invalid_id' });
+  const sb = getServiceClient(config);
+  const { data: fb } = await sb.from('ai_operator_assist_feedback').select('workspace_id').eq('id', feedbackId).maybeSingle();
+  if (!fb) return res.status(404).json({ error: 'feedback_not_found' });
+  const auth = await authorizeMember(req, res, config, fb.workspace_id);
+  if (!auth) return;
+  if (!e9_canGenerateSuggestion(auth.role, auth.isAdmin)) {
+    return res.status(403).json({ error: 'operator_permission_required' });
+  }
+  const result = await e9_suggestFromAssistFeedback(sb, fb.workspace_id, feedbackId, auth.userId);
+  if (!result.ok) {
+    const code = result.reason === 'duplicate' ? 409 : (result.reason?.startsWith('insert_failed') ? 500 : 400);
+    return res.status(code).json({ error: result.reason || 'suggest_failed', duplicate_of: result.duplicate_of });
+  }
+  return res.json({ ok: true, suggestion: result.suggestion });
+});
+
+aiAgentRouter.post('/suggested-test-cases/from-test-run/:runId', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const runId = String(req.params.runId);
+  if (!/^[0-9a-f-]{36}$/i.test(runId)) return res.status(400).json({ error: 'invalid_id' });
+  const sb = getServiceClient(config);
+  const { data: run } = await sb.from('ai_agent_test_runs').select('workspace_id').eq('id', runId).maybeSingle();
+  if (!run) return res.status(404).json({ error: 'run_not_found' });
+  const auth = await authorizeMember(req, res, config, run.workspace_id);
+  if (!auth) return;
+  if (!e9_canGenerateSuggestion(auth.role, auth.isAdmin)) {
+    return res.status(403).json({ error: 'operator_permission_required' });
+  }
+  const result = await e9_suggestFromFailedTestRun(sb, run.workspace_id, runId, auth.userId);
+  if (!result.ok) {
+    const code = result.reason === 'duplicate' ? 409 : (result.reason?.startsWith('insert_failed') ? 500 : 400);
+    return res.status(code).json({ error: result.reason || 'suggest_failed', duplicate_of: result.duplicate_of });
+  }
+  return res.json({ ok: true, suggestion: result.suggestion });
+});
+
+aiAgentRouter.post('/suggested-test-cases/:id/accept', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const id = String(req.params.id);
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'invalid_id' });
+  const sb = getServiceClient(config);
+  const { data: row } = await sb.from('ai_agent_suggested_test_cases').select('workspace_id').eq('id', id).maybeSingle();
+  if (!row) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, row.workspace_id);
+  if (!auth) return;
+  if (!e9_canManageSuggestion(auth.role, auth.isAdmin)) {
+    return res.status(403).json({ error: 'owner_or_admin_required' });
+  }
+  const overrides = (req.body && typeof req.body === 'object') ? req.body : {};
+  // Strip workspace_id / id / status / source_* from overrides.
+  const safeOverrides = { ...overrides };
+  for (const k of ['id', 'workspace_id', 'status', 'source_type', 'source_id', 'created_by', 'reviewed_by', 'reviewed_at', 'created_at', 'updated_at']) {
+    delete (safeOverrides as any)[k];
+  }
+  const result = await e9_acceptSuggestedCase(sb, id, auth.userId, safeOverrides);
+  if (!result.ok) {
+    return res.status(result.reason === 'not_found' ? 404 : 400).json({ error: result.reason });
+  }
+  return res.json({ ok: true, test_case_id: result.test_case_id });
+});
+
+aiAgentRouter.post('/suggested-test-cases/:id/reject', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const id = String(req.params.id);
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'invalid_id' });
+  const sb = getServiceClient(config);
+  const { data: row } = await sb.from('ai_agent_suggested_test_cases').select('workspace_id').eq('id', id).maybeSingle();
+  if (!row) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, row.workspace_id);
+  if (!auth) return;
+  if (!e9_canManageSuggestion(auth.role, auth.isAdmin)) {
+    return res.status(403).json({ error: 'owner_or_admin_required' });
+  }
+  const reason = req.body?.reason ? String(req.body.reason) : null;
+  const result = await e9_rejectSuggestedCase(sb, id, auth.userId, reason);
+  if (!result.ok) {
+    return res.status(result.reason === 'not_found' ? 404 : 400).json({ error: result.reason });
+  }
+  return res.json({ ok: true });
+});
+
+aiAgentRouter.delete('/suggested-test-cases/:id', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const id = String(req.params.id);
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'invalid_id' });
+  const sb = getServiceClient(config);
+  const { data: row } = await sb.from('ai_agent_suggested_test_cases').select('workspace_id').eq('id', id).maybeSingle();
+  if (!row) return res.status(404).json({ error: 'not_found' });
+  const auth = await authorizeMember(req, res, config, row.workspace_id);
+  if (!auth) return;
+  if (!e9_canManageSuggestion(auth.role, auth.isAdmin)) {
+    return res.status(403).json({ error: 'owner_or_admin_required' });
+  }
+  const { error } = await sb.from('ai_agent_suggested_test_cases').delete().eq('id', id);
+  if (error) return res.status(500).json({ error: 'delete_failed', details: error.message });
+  return res.json({ ok: true });
+});

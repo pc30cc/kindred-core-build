@@ -88,6 +88,8 @@ export interface HybridRetrievalResult {
     cross_workspace_excluded: number;
     inactive_file_excluded: number;
     inactive_web_page_excluded: number;
+    /** E5-Final — chunks for learned_qna whose candidate isn't approved (or missing/cross-workspace). */
+    unapproved_learned_qna_excluded: number;
   };
   /** E5 — fully-formed debug payload, safe to persist to ai_agent_runs.metadata. */
   retrievalDebug?: Record<string, unknown>;

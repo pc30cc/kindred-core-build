@@ -2322,7 +2322,24 @@ aiAgentRouter.get('/files/:id/logs', async (req: Request, res: Response) => {
     .eq('job_type', 'file_ingest')
     .order('created_at', { ascending: false })
     .limit(20);
-  return res.json({ items: data || [], jobs: jobs || [] });
+  // Sanitize metadata: never leak storage paths/URLs/credentials to admin UI.
+  const SECRET_KEYS = new Set([
+    'storage_path', 'storage_url', 'signed_url', 'public_url',
+    'bucket', 'token', 'access_token', 'secret', 'access_key',
+    'access_key_id', 'secret_access_key', 'api_key',
+  ]);
+  const sanitize = (obj: any): any => {
+    if (!obj || typeof obj !== 'object') return obj;
+    if (Array.isArray(obj)) return obj.map(sanitize);
+    const out: Record<string, any> = {};
+    for (const [k, v] of Object.entries(obj)) {
+      if (SECRET_KEYS.has(k)) continue;
+      out[k] = (v && typeof v === 'object') ? sanitize(v) : v;
+    }
+    return out;
+  };
+  const items = (data || []).map((r: any) => ({ ...r, metadata: sanitize(r.metadata) }));
+  return res.json({ items, jobs: jobs || [] });
 });
 
 // ============================================================

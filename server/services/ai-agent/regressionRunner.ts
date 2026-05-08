@@ -871,3 +871,141 @@ export async function retryFailedRegressionBatch(
   if (error) return { ok: false, error: error.message };
   return { ok: true, batch: created as RegressionBatch };
 }
+
+// ──────────────────────────────────────────────────────────────────────
+// E11 — Observability: overview + CSV export
+// ──────────────────────────────────────────────────────────────────────
+
+export interface RegressionOverview {
+  total_schedules: number;
+  enabled_schedules: number;
+  last_batch: RegressionBatch | null;
+  last_24h_batches: number;
+  last_24h_pass_rate: number | null;
+  last_7d_pass_rate: number | null;
+  failed_batches_count: number; // last 7d, status failed/cancelled or with failed/errored>0
+  errored_runs_count: number;   // last 7d
+  top_failure_reasons: { reason: string; count: number }[];
+  coverage_by_source_type: { source_type: string; runs: number }[];
+  next_due_schedule: { id: string; name: string; next_run_at: string | null; timezone: string } | null;
+}
+
+export async function getRegressionOverview(
+  config: ServerConfig,
+  workspaceId: string,
+): Promise<RegressionOverview> {
+  const sb = getServiceClient(config);
+  const now = Date.now();
+  const since24h = new Date(now - 24 * 3600 * 1000).toISOString();
+  const since7d = new Date(now - 7 * 24 * 3600 * 1000).toISOString();
+
+  const [{ data: schedules }, { data: lastBatchRow }, { data: batches7d }, { data: nextDue }] = await Promise.all([
+    sb.from('ai_agent_regression_schedules').select('id,enabled,name,next_run_at,timezone').eq('workspace_id', workspaceId),
+    sb.from('ai_agent_regression_batches').select('*').eq('workspace_id', workspaceId).order('created_at', { ascending: false }).limit(1).maybeSingle(),
+    sb.from('ai_agent_regression_batches').select('*').eq('workspace_id', workspaceId).gte('created_at', since7d).order('created_at', { ascending: false }).limit(500),
+    sb.from('ai_agent_regression_schedules').select('id,name,next_run_at,timezone').eq('workspace_id', workspaceId).eq('enabled', true).neq('frequency', 'manual').not('next_run_at', 'is', null).order('next_run_at', { ascending: true }).limit(1).maybeSingle(),
+  ]);
+
+  const schedList = (schedules || []) as any[];
+  const all7d = (batches7d || []) as RegressionBatch[];
+  const all24h = all7d.filter((b) => new Date(b.created_at).getTime() >= now - 24 * 3600 * 1000);
+  const computeRate = (rows: RegressionBatch[]) => {
+    let p = 0, t = 0;
+    for (const b of rows) { p += b.passed || 0; t += (b.passed || 0) + (b.failed || 0) + (b.errored || 0); }
+    return t > 0 ? p / t : null;
+  };
+
+  const failedBatchIds = all7d.filter((b) => b.status === 'failed' || b.status === 'cancelled' || (b.failed + b.errored) > 0).map((b) => b.id);
+  const batchIds7d = all7d.map((b) => b.id);
+
+  let topFailure: { reason: string; count: number }[] = [];
+  let coverage: { source_type: string; runs: number }[] = [];
+  let erroredRunsCount = 0;
+  if (batchIds7d.length) {
+    const { data: runs } = await sb
+      .from('ai_agent_test_runs')
+      .select('status,failure_reasons,selected_sources')
+      .in('regression_batch_id', batchIds7d)
+      .limit(2000);
+    const counts = new Map<string, number>();
+    const cov = new Map<string, number>();
+    for (const r of (runs || []) as any[]) {
+      if (r.status === 'errored') erroredRunsCount += 1;
+      for (const reason of (r.failure_reasons || []) as string[]) {
+        const key = String(reason).split(':')[0] || String(reason);
+        counts.set(key, (counts.get(key) || 0) + 1);
+      }
+      const seen = new Set<string>();
+      for (const s of (r.selected_sources || []) as any[]) {
+        const t = s?.source_type;
+        if (t && !seen.has(t)) { seen.add(t); cov.set(t, (cov.get(t) || 0) + 1); }
+      }
+    }
+    topFailure = [...counts.entries()].map(([reason, count]) => ({ reason, count })).sort((a, b) => b.count - a.count).slice(0, 8);
+    coverage = [...cov.entries()].map(([source_type, runs]) => ({ source_type, runs })).sort((a, b) => b.runs - a.runs);
+  }
+
+  return {
+    total_schedules: schedList.length,
+    enabled_schedules: schedList.filter((s) => s.enabled).length,
+    last_batch: (lastBatchRow as RegressionBatch) || null,
+    last_24h_batches: all24h.length,
+    last_24h_pass_rate: computeRate(all24h),
+    last_7d_pass_rate: computeRate(all7d),
+    failed_batches_count: failedBatchIds.length,
+    errored_runs_count: erroredRunsCount,
+    top_failure_reasons: topFailure,
+    coverage_by_source_type: coverage,
+    next_due_schedule: (nextDue as any) || null,
+  };
+}
+
+function csvEscape(v: unknown): string {
+  if (v === null || v === undefined) return '';
+  const s = typeof v === 'string' ? v : Array.isArray(v) ? v.join('|') : String(v);
+  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+export async function exportRegressionBatchCsv(
+  config: ServerConfig,
+  batchId: string,
+): Promise<{ workspaceId: string; filename: string; csv: string } | null> {
+  const sb = getServiceClient(config);
+  const { data: batch } = await sb.from('ai_agent_regression_batches').select('id,workspace_id,created_at').eq('id', batchId).maybeSingle();
+  if (!batch) return null;
+  const { data: runs } = await sb
+    .from('ai_agent_test_runs')
+    .select('test_case_id,status,actual_status,confidence,failure_reasons,selected_sources,created_at,test_case:ai_agent_test_cases(name,expected_behavior)')
+    .eq('regression_batch_id', batchId)
+    .order('created_at', { ascending: true })
+    .limit(2000);
+
+  const header = [
+    'test_case_id', 'test_name', 'status', 'expected_behavior', 'actual_status',
+    'confidence', 'failure_reasons', 'selected_source_types', 'selected_source_titles', 'created_at',
+  ];
+  const lines: string[] = [header.join(',')];
+  for (const r of (runs || []) as any[]) {
+    const tc = r.test_case || {};
+    const types = Array.from(new Set((r.selected_sources || []).map((s: any) => s?.source_type).filter(Boolean)));
+    const titles = (r.selected_sources || []).map((s: any) => s?.title).filter(Boolean).slice(0, 8);
+    lines.push([
+      csvEscape(r.test_case_id),
+      csvEscape(tc.name || ''),
+      csvEscape(r.status),
+      csvEscape(tc.expected_behavior || ''),
+      csvEscape(r.actual_status),
+      csvEscape(r.confidence ?? ''),
+      csvEscape(r.failure_reasons || []),
+      csvEscape(types),
+      csvEscape(titles),
+      csvEscape(r.created_at),
+    ].join(','));
+  }
+  return {
+    workspaceId: (batch as any).workspace_id,
+    filename: `regression-batch-${batchId.slice(0, 8)}.csv`,
+    csv: lines.join('\n'),
+  };
+}

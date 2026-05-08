@@ -490,6 +490,83 @@ export async function retrieveHybridSources(
 
   result.hybridUsed = result.keywordUsed && result.vectorUsed;
 
+  // ── 2.5) Defense-in-depth eligibility filter (E5 / Pass 3) ───────────
+  // Even if a chunk is status='active', re-verify the parent row is still
+  // eligible. Protects against drift between ai_knowledge_chunks and
+  // ai_data_sources / ai_agent_qna / knowledge_base_articles.
+  const excludedSummary = {
+    inactive_chunks_excluded: 0, // reserved (we already filter at query time)
+    disabled_qna_excluded: 0,
+    draft_kb_excluded: 0,
+    pending_candidates_excluded: 0,
+    cross_workspace_excluded: 0,
+    inactive_file_excluded: 0,
+  };
+  try {
+    const all = Array.from(aggregated.values());
+    const idsByKind: Record<string, Set<string>> = {};
+    for (const a of all) {
+      if (!idsByKind[a.source_type]) idsByKind[a.source_type] = new Set();
+      idsByKind[a.source_type].add(a.source_id);
+    }
+    const eligibleQna = new Set<string>();
+    const eligibleKb = new Set<string>();
+    const eligibleFiles = new Set<string>();
+    const eligibleWebPages = new Set<string>();
+    if (idsByKind['qna']?.size) {
+      const { data } = await sb
+        .from('ai_agent_qna')
+        .select('id, workspace_id, enabled')
+        .in('id', Array.from(idsByKind['qna']));
+      for (const r of data || []) {
+        if (r.workspace_id !== input.workspaceId) continue;
+        if (r.enabled === true) eligibleQna.add(r.id as string);
+      }
+    }
+    if (idsByKind['kb_article']?.size) {
+      const { data } = await sb
+        .from('knowledge_base_articles')
+        .select('id, workspace_id, status')
+        .in('id', Array.from(idsByKind['kb_article']));
+      for (const r of data || []) {
+        if (r.workspace_id !== input.workspaceId) continue;
+        if (r.status === 'published') eligibleKb.add(r.id as string);
+      }
+    }
+    const fileLikeIds = new Set<string>([
+      ...(idsByKind['file'] ? Array.from(idsByKind['file']) : []),
+      ...(idsByKind['web_page'] ? Array.from(idsByKind['web_page']) : []),
+    ]);
+    if (fileLikeIds.size) {
+      const { data } = await sb
+        .from('ai_data_sources')
+        .select('id, workspace_id, source_type, status')
+        .in('id', Array.from(fileLikeIds));
+      for (const r of data || []) {
+        if (r.workspace_id !== input.workspaceId) continue;
+        if (r.status !== 'active') continue;
+        if (r.source_type === 'file') eligibleFiles.add(r.id as string);
+        else eligibleWebPages.add(r.id as string);
+      }
+    }
+    for (const [key, a] of Array.from(aggregated.entries())) {
+      let drop = false;
+      if (a.source_type === 'qna' && !eligibleQna.has(a.source_id)) {
+        excludedSummary.disabled_qna_excluded += 1; drop = true;
+      } else if (a.source_type === 'kb_article' && !eligibleKb.has(a.source_id)) {
+        excludedSummary.draft_kb_excluded += 1; drop = true;
+      } else if (a.source_type === 'file' && !eligibleFiles.has(a.source_id)) {
+        excludedSummary.inactive_file_excluded += 1; drop = true;
+      } else if (a.source_type === 'web_page' && !eligibleWebPages.has(a.source_id)) {
+        excludedSummary.inactive_file_excluded += 1; drop = true;
+      }
+      if (drop) aggregated.delete(key);
+    }
+  } catch (err: any) {
+    console.warn('[ai-agent.retrievalHybrid] eligibility filter failed:', err?.message);
+  }
+  result.excludedSummary = excludedSummary;
+
   // ── 3) Score & rank ───────────────────────────────────────────────────
   const merged = Array.from(aggregated.values());
   for (const m of merged) {

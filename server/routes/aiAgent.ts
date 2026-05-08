@@ -63,6 +63,16 @@ import {
   acceptSuggestedCase as e9_acceptSuggestedCase,
   rejectSuggestedCase as e9_rejectSuggestedCase,
 } from '../services/ai-agent/regressionSuggestions.js';
+import {
+  listRegressionSchedules as e10_listSchedules,
+  getOrCreateDefaultRegressionSchedule as e10_getOrCreateSchedule,
+  updateRegressionSchedule as e10_updateSchedule,
+  enqueueRegressionBatch as e10_enqueueBatch,
+  listRegressionBatches as e10_listBatches,
+  getRegressionBatchDetail as e10_getBatchDetail,
+  claimQueuedBatch as e10_claimBatch,
+  runRegressionBatch as e10_runBatch,
+} from '../services/ai-agent/regressionRunner.js';
 
 export const aiAgentRouter: Router = express.Router();
 

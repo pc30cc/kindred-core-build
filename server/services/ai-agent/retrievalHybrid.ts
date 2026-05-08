@@ -10,6 +10,15 @@
  * Always returns a result. Falls back to keyword-only when vector unavailable
  * or fails. Never throws to the caller — engine treats failures as "use the
  * legacy retriever".
+ *
+ * NOTE: Runtime retrieval and Source Health (sourceHealth.ts) must stay aligned.
+ * If eligibility rules change here, update sourceHealth.ts too.
+ * Excluded counters here mirror Source Health reasons:
+ *   disabled_qna_excluded ↔ disabled_qna
+ *   draft_kb_excluded ↔ draft_kb
+ *   inactive_file_excluded ↔ file_not_active
+ *   inactive_web_page_excluded ↔ website_not_active
+ *   unapproved_learned_qna_excluded ↔ candidate_not_approved
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';

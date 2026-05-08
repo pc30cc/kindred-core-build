@@ -462,7 +462,7 @@ export const aiAgentApi = {
   runTestCase: (id: string) =>
     jsonFetch(`/api/ai-agent/test-cases/${id}/run`, { method: 'POST' }) as Promise<{ run: TestRun; result: any; evaluation: { passed: boolean; failure_reasons: string[] } }>,
   runBulkTests: (workspaceId: string, ids?: string[]) =>
-    jsonFetch(`/api/ai-agent/test-cases/run-bulk`, { method: 'POST', body: JSON.stringify({ workspaceId, ids }) }) as Promise<{ total: number; passed: number; failed: number; errored: number; runs: any[] }>,
+    jsonFetch(`/api/ai-agent/test-cases/run-bulk`, { method: 'POST', body: JSON.stringify({ workspaceId, ids }) }) as Promise<BulkRunResponse>,
   seedRecommendedTests: (workspaceId: string) =>
     jsonFetch(`/api/ai-agent/test-cases/seed-recommended`, { method: 'POST', body: JSON.stringify({ workspaceId }) }) as Promise<{ inserted: number; skipped: number; created: Array<{ name: string; expected_source_type: string | null; expected_source_id: string | null }>; skipped_reasons: string[] }>,
   listTestRuns: (workspaceId: string, opts: { testCaseId?: string; status?: string; limit?: number } = {}) => {

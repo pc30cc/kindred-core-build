@@ -1212,6 +1212,22 @@ const TONE_HINTS: Record<string, string> = {
   detailed: 'Provide a thorough reply that covers the question completely while staying grounded in the sources.',
 };
 
+/** Operator inbox permission: owner / admin / agent (or global admin). */
+function e7_isOperator(role: string | null, isGlobalAdmin: boolean): boolean {
+  if (isGlobalAdmin) return true;
+  return role === 'owner' || role === 'admin' || role === 'agent';
+}
+
+/** Schema-aware visitor message detection. Conversation messages use
+ *  `sender_type` in this app; visitor messages are stored as 'contact'
+ *  (see widgetIdentity / conversations routes). 'visitor'/'customer'/'user'
+ *  are accepted as forward-compat fallbacks but never as a guess. */
+function e7_isVisitorMessage(m: { sender_type?: string | null } | null | undefined): boolean {
+  if (!m) return false;
+  const t = (m.sender_type || '').toLowerCase();
+  return t === 'contact' || t === 'visitor' || t === 'customer';
+}
+
 async function e7PersistAssistRun(
   config: ServerConfig,
   payload: {

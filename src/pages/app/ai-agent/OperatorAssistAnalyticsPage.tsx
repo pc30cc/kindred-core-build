@@ -196,12 +196,25 @@ export default function OperatorAssistAnalyticsPage() {
                           {r.suggestion_preview || '—'}
                         </TableCell>
                         <TableCell>
-                          <Link
-                            to={wsPath(`/ai-agent/runs/${r.run_id}`)}
-                            className="text-xs text-primary hover:underline"
-                          >
-                            inspect
-                          </Link>
+                          <div className="flex items-center gap-2">
+                            <Link
+                              to={wsPath(`/ai-agent/runs/${r.run_id}`)}
+                              className="text-xs text-primary hover:underline"
+                            >
+                              inspect
+                            </Link>
+                            {r.feedback_id && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 text-xs"
+                                disabled={suggestMut.isPending}
+                                onClick={() => suggestMut.mutate(r.feedback_id!)}
+                              >
+                                Create suggested test
+                              </Button>
+                            )}
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}

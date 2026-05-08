@@ -499,6 +499,9 @@ export async function runRegressionBatch(
 
   let q = sb.from('ai_agent_test_cases').select('*').eq('workspace_id', batch.workspace_id);
   if (includeEnabledOnly) q = q.eq('enabled', true);
+  const retryIds = Array.isArray((batch.metadata as any)?.retry_case_ids)
+    ? ((batch.metadata as any).retry_case_ids as string[]) : null;
+  if (retryIds && retryIds.length) q = q.in('id', retryIds);
   const { data: cases, error: casesErr } = await q.order('created_at', { ascending: true }).limit(maxCases);
   if (casesErr) {
     await sb.from('ai_agent_regression_batches').update({

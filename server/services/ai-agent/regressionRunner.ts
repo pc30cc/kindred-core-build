@@ -784,6 +784,25 @@ export async function runRegressionBatch(
     metadata: finalMeta,
   }).eq('id', batchId);
 
+  // E11 — internal alert event for failed scheduled batches.
+  // Self-host only: writes to ai_agent_debug_events. NO external webhook,
+  // NO email, NO MCP, NO Edge Function. UI/observability use only.
+  try {
+    if ((failed + errored) > 0) {
+      await sb.from('ai_agent_debug_events').insert({
+        workspace_id: batch.workspace_id,
+        event_type: 'regression_batch_failed',
+        metadata: {
+          batch_id: batchId,
+          schedule_id: batch.schedule_id || null,
+          trigger_type: batch.trigger_type,
+          total, passed, failed, errored,
+          pass_rate: passRate,
+        },
+      });
+    }
+  } catch { /* best-effort, non-blocking */ }
+
   return { ok: true, total, passed, failed, errored };
 }
 

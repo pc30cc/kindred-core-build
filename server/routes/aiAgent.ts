@@ -3487,18 +3487,33 @@ aiAgentRouter.post('/test-cases/run-bulk', async (req: Request, res: Response) =
   const { workspaceId, ids } = parsed.data;
   const auth = await authorizeMember(req, res, config, workspaceId);
   if (!auth) return;
+  if (ids && ids.length > E6_BULK_MAX_CASES) {
+    return res.status(400).json({ error: 'bulk_too_many_cases', max: E6_BULK_MAX_CASES });
+  }
   if (!checkE6BulkRateLimit(workspaceId, auth.userId)) {
     return res.status(429).json({ error: 'bulk_test_rate_limited', limit: E6_BULK_LIMIT, window_ms: E6_BULK_WINDOW });
   }
   const sb = getServiceClient(config);
+  let totalEnabled: number | null = null;
+  let capped = false;
   let q = sb.from('ai_agent_test_cases').select('*').eq('workspace_id', workspaceId);
-  if (ids && ids.length) q = q.in('id', ids); else q = q.eq('enabled', true);
+  if (ids && ids.length) {
+    q = q.in('id', ids);
+  } else {
+    q = q.eq('enabled', true);
+    const { count } = await sb.from('ai_agent_test_cases')
+      .select('id', { count: 'exact', head: true })
+      .eq('workspace_id', workspaceId).eq('enabled', true);
+    totalEnabled = count ?? 0;
+    if (totalEnabled > E6_BULK_MAX_CASES) capped = true;
+  }
   const { data: cases, error } = await q.limit(E6_BULK_MAX_CASES);
   if (error) return res.status(500).json({ error: 'list_failed', details: error.message });
-  if ((cases || []).length > E6_BULK_MAX_CASES) {
-    return res.status(400).json({ error: 'bulk_too_many_cases', max: E6_BULK_MAX_CASES });
-  }
-  const summary = { total: 0, passed: 0, failed: 0, errored: 0, runs: [] as any[] };
+  const summary = {
+    total: 0, passed: 0, failed: 0, errored: 0,
+    capped, max: E6_BULK_MAX_CASES, total_enabled: totalEnabled,
+    runs: [] as any[],
+  };
   for (const tc of cases || []) {
     summary.total += 1;
     try {

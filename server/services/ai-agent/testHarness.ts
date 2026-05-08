@@ -86,8 +86,10 @@ export interface DryRunResult {
      * AI usage logging — when llm_called=true, executeAICompletion writes
      * to ai_usage_logs (provider/token/cost). This is NOT a visitor
      * conversation side effect; purely AI-cost telemetry.
+     * Value can be "unknown" when an LLM call was attempted but threw
+     * before the usage log path could complete deterministically.
      */
-    ai_usage_logged: boolean;
+    ai_usage_logged: boolean | 'unknown';
   };
   runtime_parity: {
     retrieval: 'real_hybrid_retrieval';
@@ -108,14 +110,17 @@ const SENSITIVE_VALUE_PATTERNS = [
   'token', 'secret', 'api_key', 'access_key',
 ];
 
-function buildRuntime(llmCalled: boolean): DryRunResult['runtime'] {
+function buildRuntime(
+  llmCalled: boolean,
+  aiUsageLogged: boolean | 'unknown' = llmCalled,
+): DryRunResult['runtime'] {
   return {
     conversation_created: false,
     handoff_created: false,
     workflow_executed: false,
     learning_candidate_created: false,
     llm_called: llmCalled,
-    ai_usage_logged: llmCalled,
+    ai_usage_logged: aiUsageLogged,
   };
 }
 const RUNTIME_PARITY: DryRunResult['runtime_parity'] = {

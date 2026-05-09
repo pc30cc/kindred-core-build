@@ -14,6 +14,7 @@ import type { ServerConfig } from '../../config.js';
 import { isGlobalAdmin } from '../../middleware/adminBypass.js';
 import { getServiceClient } from '../../supabase.js';
 import type { AgentSettings } from './settings.js';
+import { getPlatformAiAgentSettings } from './platformSettings.js';
 
 export interface CustomerSafeAgentSettings {
   id: string;
@@ -156,15 +157,12 @@ export async function isAiAgentPlatformEnabled(
   workspaceId: string,
 ): Promise<boolean> {
   try {
-    const sb = getServiceClient(config);
-    // Best-effort — if the table or row doesn't exist, treat as enabled.
-    const { data } = await sb
-      .from('platform_feature_flags' as any)
-      .select('value')
-      .eq('flag', 'ai_agent_enabled')
-      .maybeSingle();
-    if (data && (data as any).value === false) return false;
+    // Read platform-wide kill switch from the canonical Super Admin table.
+    // Defaults to enabled when the row/table is missing (fresh self-host).
+    const platform = await getPlatformAiAgentSettings(config);
+    if (!platform.ai_agent_enabled) return false;
     // Optional per-workspace override via ai_agent_settings.metadata.platform_disabled
+    const sb = getServiceClient(config);
     const { data: row } = await sb
       .from('ai_agent_settings')
       .select('metadata')

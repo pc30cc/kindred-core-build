@@ -213,10 +213,18 @@ export async function getWorkspaceAiAgentCapabilities(
   const s = await getPlatformAiAgentSettings(config);
   const isAdmin = userId ? await isGlobalAdmin(config, userId).catch(() => false) : false;
 
-  // Advanced visibility: admins always see; customers see only when the
-  // platform allows it.
-  const advVisible = (customerFlag: boolean) =>
-    isAdmin || (s.advanced_tools_enabled && customerFlag);
+  // Customer access requires:
+  //   ai_agent_enabled && customer_ai_agent_visible (& whatever feature flag)
+  // Super admin bypasses customer_ai_agent_visible and advanced flags BUT
+  // never bypasses ai_agent_enabled (the true kill switch).
+  const killOn = !s.ai_agent_enabled;
+  const customerCanSee = s.ai_agent_enabled && s.customer_ai_agent_visible;
+  const advVisible = (customerFlag: boolean) => {
+    if (killOn) return false;
+    if (isAdmin) return true;
+    return customerCanSee && s.advanced_tools_enabled && customerFlag;
+  };
+  const navOk = (flag: boolean) => !killOn && (isAdmin || (customerCanSee && flag));
 
   return {
     ai_agent_enabled: s.ai_agent_enabled,
@@ -229,20 +237,18 @@ export async function getWorkspaceAiAgentCapabilities(
     qna_enabled: s.qna_enabled,
     kb_enabled: s.kb_enabled,
     customer_nav: {
-      overview: true,
-      knowledge: s.files_enabled || s.websites_enabled || s.qna_enabled || s.kb_enabled,
-      behavior: true,
-      operatorAssist: s.operator_assist_enabled,
-      activity: true,
-      settings: true,
+      overview: !killOn && (isAdmin || customerCanSee),
+      knowledge: navOk(s.files_enabled || s.websites_enabled || s.qna_enabled || s.kb_enabled),
+      behavior: !killOn && (isAdmin || customerCanSee),
+      operatorAssist: navOk(s.operator_assist_enabled),
+      activity: !killOn && (isAdmin || customerCanSee),
+      settings: !killOn && (isAdmin || customerCanSee),
     },
     advanced: {
       debug_visible: advVisible(false),
-      regression_visible: isAdmin || (s.advanced_tools_enabled && s.regression_runner_enabled),
-      source_health_visible:
-        isAdmin || (s.advanced_tools_enabled && s.source_health_visible_to_customers),
-      test_harness_visible:
-        isAdmin || (s.advanced_tools_enabled && s.test_harness_visible_to_customers),
+      regression_visible: advVisible(s.regression_runner_enabled),
+      source_health_visible: advVisible(s.source_health_visible_to_customers),
+      test_harness_visible: advVisible(s.test_harness_visible_to_customers),
     },
     disabled_message: s.disabled_message,
     max_customer_visible_nav_items: s.max_customer_visible_nav_items,

@@ -1354,6 +1354,28 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       .update({ updated_at: new Date().toISOString() })
       .eq('id', convId);
 
+    // Pass E12-Hardening — when platform AI is OFF, ensure this conversation
+    // is NOT stuck in Automated. Clears AI-managed metadata defensively for
+    // both new and reused conversations (idempotent; no-op if nothing set).
+    if (platformAiOff && convId) {
+      try {
+        const restored = await clearAiManagementForPlatformOff(config, {
+          workspaceId,
+          conversationId: convId,
+          reason: platformAiOffReason,
+        });
+        console.log('[widget-message] platform_ai_disabled_restore', {
+          workspace_id: workspaceId,
+          conversation_id: convId,
+          reason: platformAiOffReason,
+          previous_ai_state: restored.previousAiState,
+          restored_to_main_inbox: restored.changed,
+        });
+      } catch (e: any) {
+        console.warn('[widget-message] platform_ai_disabled_restore_failed:', e?.message || e);
+      }
+    }
+
     // Realtime: broadcast the visitor message to the inbox subscriber.
     // Fire-and-forget — DB row is the source of truth.
     if (insertedMsg) {
@@ -1377,7 +1399,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
     //
     // Fire-and-forget: must never block the widget /message response.
     // ─────────────────────────────────────────────────────────────────────
-    if (insertedMsg?.id && convId) {
+    if (insertedMsg?.id && convId && !platformAiOff) {
       void maybeRunAiAssistantAfterVisitorMessage(config, {
         workspaceId,
         conversationId: convId,
@@ -1388,6 +1410,13 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       }).catch((e: any) =>
         console.warn('[widget-message] AI Agent engine error:', e?.message || e),
       );
+    }
+    if (platformAiOff && insertedMsg?.id && convId) {
+      console.log('[widget-message] ai_skipped_platform_disabled', {
+        workspace_id: workspaceId,
+        conversation_id: convId,
+        reason: platformAiOffReason,
+      });
     }
     const reply: string | null = null;
 

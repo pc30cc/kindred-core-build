@@ -1151,6 +1151,7 @@ export default function InboxPage() {
                                   await aiAgentApi.takeOverConversation(workspace.id, conv.id, true);
                                   toast({ title: 'Taken over', description: 'AI will stop auto-replying.' });
                                   qc.invalidateQueries({ queryKey: ['conversations', workspace.id] });
+                                  qc.invalidateQueries({ queryKey: ['inbox-counts', workspace.id] });
                                 } catch (err: any) {
                                   toast({ title: 'Take-over failed', description: err?.message || 'unknown', variant: 'destructive' });
                                 }
@@ -1279,6 +1280,7 @@ export default function InboxPage() {
                           await aiAgentApi.takeOverConversation(workspace.id, selectedId, true);
                           toast({ title: 'Conversation taken over', description: 'AI will stop auto-replying.' });
                           qc.invalidateQueries({ queryKey: ['conversations', workspace.id] });
+                          qc.invalidateQueries({ queryKey: ['inbox-counts', workspace.id] });
                         } catch (e: any) {
                           toast({ title: 'Take-over failed', description: e?.message || 'unknown', variant: 'destructive' });
                         }
@@ -1312,6 +1314,7 @@ export default function InboxPage() {
                           await aiAgentApi.takeOverConversation(workspace.id, selectedId, true);
                           toast({ title: 'Conversation taken over', description: 'Assigned to you.' });
                           qc.invalidateQueries({ queryKey: ['conversations', workspace.id] });
+                          qc.invalidateQueries({ queryKey: ['inbox-counts', workspace.id] });
                         } catch (e: any) {
                           toast({ title: 'Take-over failed', description: e?.message || 'unknown', variant: 'destructive' });
                         }

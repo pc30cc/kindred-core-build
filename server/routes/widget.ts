@@ -54,6 +54,8 @@ import {
   getRequestOrigin,
 } from '../services/widget/security.js';
 import { maybeRunAiAssistantAfterVisitorMessage } from '../services/ai-agent/engine.js';
+import { getPlatformAiAgentSettings } from '../services/ai-agent/platformSettings.js';
+import { clearAiManagementForPlatformOff } from '../services/ai-agent/handoffState.js';
 import { resolveVisitorIdentity, readVisitorCookie } from '../services/widget/visitorIdentity.js';
 import { widgetIdentityRouter } from './widgetIdentity.js';
 import { widgetAttachmentsRouter, attachUploadedFileToMessage, enrichMessagesWithAttachments } from './widgetAttachments.js';

@@ -290,6 +290,63 @@ aiAgentRouter.get('/settings', async (req: Request, res: Response) => {
   return res.json({ settings: toCustomerSafeAiAgentSettings(settings) });
 });
 
+// ─── E12 Super Admin: GET /platform/settings ───
+// Guarded by ADVANCED_PATH_PATTERNS middleware (admin-only).
+aiAgentRouter.get('/platform/settings', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  try {
+    const settings = await getPlatformAiAgentSettings(config);
+    return res.json({ settings });
+  } catch (e: any) {
+    return res.status(500).json({ error: e?.message || 'platform_settings_read_failed' });
+  }
+});
+
+// ─── E12 Super Admin: PATCH /platform/settings ───
+// Guarded by ADVANCED_PATH_PATTERNS middleware (admin-only). Sanitizes
+// the patch body to a whitelist; ignores unknown keys.
+aiAgentRouter.patch('/platform/settings', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const { userId } = await resolveCurrentUserId(req, config);
+  if (!userId) return res.status(401).json({ error: 'unauthenticated' });
+  try {
+    const settings = await updatePlatformAiAgentSettings(
+      config,
+      (req.body || {}) as Record<string, unknown>,
+      userId,
+    );
+    return res.json({ settings });
+  } catch (e: any) {
+    if (String(e?.message) === 'forbidden') {
+      return res.status(403).json({ error: 'forbidden' });
+    }
+    return res.status(500).json({ error: e?.message || 'platform_settings_update_failed' });
+  }
+});
+
+// ─── E12 GET /capabilities ───
+// Redacted capability snapshot for workspace UI. Reachable even when the
+// platform kill switch is on (so the UI can render the disabled state).
+// Requires the caller to be a workspace member of the requested workspace.
+aiAgentRouter.get('/capabilities', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = requireWorkspace(req);
+  if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  const { userId } = await resolveCurrentUserId(req, config);
+  try {
+    const capabilities = await getWorkspaceAiAgentCapabilities(
+      config,
+      workspaceId,
+      userId || null,
+    );
+    return res.json({ capabilities });
+  } catch (e: any) {
+    return res.status(500).json({ error: e?.message || 'capabilities_read_failed' });
+  }
+});
+
 // ─── PUT /settings ───
 const updateSchema = z.object({
   workspaceId: z.string().uuid(),

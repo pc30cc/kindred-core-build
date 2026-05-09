@@ -12,6 +12,7 @@ import {
   CheckCircle2, AlertCircle, Sparkles
 } from 'lucide-react';
 import AiKbBuilderTab from '@/components/app/knowledge/AiKbBuilderTab';
+import { useAiAgentCapabilities } from '@/hooks/useAiAgentCapabilities';
 
 type FormData = {
   title: string; slug: string; content: string; excerpt: string;
@@ -39,6 +40,8 @@ function calcSeoScore(form: FormData) {
 export default function KnowledgeBasePage() {
   const { t, dir } = useTranslation();
   const workspace = useCurrentWorkspace();
+  const { data: aiCapabilities } = useAiAgentCapabilities(workspace?.id);
+  const aiAgentEnabled = aiCapabilities?.ai_agent_enabled !== false;
   const [locale, setLocale] = useState('en');
   const [statusFilter, setStatusFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -46,6 +49,8 @@ export default function KnowledgeBasePage() {
   const [editId, setEditId] = useState<string | null>(null);
   const [editorTab, setEditorTab] = useState<'editor' | 'preview'>('editor');
   const [pageTab, setPageTab] = useState<'articles' | 'ai_builder'>('articles');
+  // If platform AI Agent is killed while user is on the AI Builder tab, fall back to Articles.
+  const effectivePageTab = pageTab === 'ai_builder' && !aiAgentEnabled ? 'articles' : pageTab;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const { data: articles, isLoading } = useKBArticles(workspace?.id, locale, statusFilter);
@@ -129,16 +134,18 @@ export default function KnowledgeBasePage() {
       {/* Page-level tabs */}
       <div className="inline-flex items-center gap-1 bg-secondary rounded-lg p-0.5">
         <button onClick={() => setPageTab('articles')}
-          className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${pageTab === 'articles' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground'}`}>
+          className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${effectivePageTab === 'articles' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground'}`}>
           Articles
         </button>
-        <button onClick={() => setPageTab('ai_builder')}
-          className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all flex items-center gap-1.5 ${pageTab === 'ai_builder' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground'}`}>
-          <Sparkles className="w-3.5 h-3.5" /> AI Builder
-        </button>
+        {aiAgentEnabled && (
+          <button onClick={() => setPageTab('ai_builder')}
+            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all flex items-center gap-1.5 ${effectivePageTab === 'ai_builder' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground'}`}>
+            <Sparkles className="w-3.5 h-3.5" /> AI Builder
+          </button>
+        )}
       </div>
 
-      {pageTab === 'ai_builder' ? <AiKbBuilderTab /> : (
+      {effectivePageTab === 'ai_builder' ? <AiKbBuilderTab /> : (
       <>
 
       {/* Stats */}

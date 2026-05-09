@@ -54,6 +54,8 @@ import {
   getRequestOrigin,
 } from '../services/widget/security.js';
 import { maybeRunAiAssistantAfterVisitorMessage } from '../services/ai-agent/engine.js';
+import { getPlatformAiAgentSettings } from '../services/ai-agent/platformSettings.js';
+import { clearAiManagementForPlatformOff } from '../services/ai-agent/handoffState.js';
 import { resolveVisitorIdentity, readVisitorCookie } from '../services/widget/visitorIdentity.js';
 import { widgetIdentityRouter } from './widgetIdentity.js';
 import { widgetAttachmentsRouter, attachUploadedFileToMessage, enrichMessagesWithAttachments } from './widgetAttachments.js';
@@ -1127,6 +1129,25 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       return res.status(403).json({ error: 'Chat not enabled' });
     }
 
+    // Pass E12-Hardening — compute platform-AI-off verdict once. When OFF,
+    // we must not run any AI side-effects and must restore conversations
+    // out of the Automated inbox so they appear in Main Inbox.
+    let platformAiOff = false;
+    let platformAiOffReason: 'platform_ai_disabled' | 'customer_ai_hidden' | 'auto_answer_disabled' = 'platform_ai_disabled';
+    try {
+      const platform = await getPlatformAiAgentSettings(config);
+      if (platform.ai_agent_enabled === false) {
+        platformAiOff = true;
+        platformAiOffReason = 'platform_ai_disabled';
+      } else if (platform.customer_ai_agent_visible === false) {
+        platformAiOff = true;
+        platformAiOffReason = 'customer_ai_hidden';
+      } else if (platform.auto_answer_enabled === false) {
+        platformAiOff = true;
+        platformAiOffReason = 'auto_answer_disabled';
+      }
+    } catch { /* fail-open if settings table missing */ }
+
     let convId = body.conversation_id || null;
 
     // Verify conversation ownership if provided
@@ -1333,6 +1354,28 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       .update({ updated_at: new Date().toISOString() })
       .eq('id', convId);
 
+    // Pass E12-Hardening — when platform AI is OFF, ensure this conversation
+    // is NOT stuck in Automated. Clears AI-managed metadata defensively for
+    // both new and reused conversations (idempotent; no-op if nothing set).
+    if (platformAiOff && convId) {
+      try {
+        const restored = await clearAiManagementForPlatformOff(config, {
+          workspaceId,
+          conversationId: convId,
+          reason: platformAiOffReason,
+        });
+        console.log('[widget-message] platform_ai_disabled_restore', {
+          workspace_id: workspaceId,
+          conversation_id: convId,
+          reason: platformAiOffReason,
+          previous_ai_state: restored.previousAiState,
+          restored_to_main_inbox: restored.changed,
+        });
+      } catch (e: any) {
+        console.warn('[widget-message] platform_ai_disabled_restore_failed:', e?.message || e);
+      }
+    }
+
     // Realtime: broadcast the visitor message to the inbox subscriber.
     // Fire-and-forget — DB row is the source of truth.
     if (insertedMsg) {
@@ -1356,7 +1399,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
     //
     // Fire-and-forget: must never block the widget /message response.
     // ─────────────────────────────────────────────────────────────────────
-    if (insertedMsg?.id && convId) {
+    if (insertedMsg?.id && convId && !platformAiOff) {
       void maybeRunAiAssistantAfterVisitorMessage(config, {
         workspaceId,
         conversationId: convId,
@@ -1367,6 +1410,13 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       }).catch((e: any) =>
         console.warn('[widget-message] AI Agent engine error:', e?.message || e),
       );
+    }
+    if (platformAiOff && insertedMsg?.id && convId) {
+      console.log('[widget-message] ai_skipped_platform_disabled', {
+        workspace_id: workspaceId,
+        conversation_id: convId,
+        reason: platformAiOffReason,
+      });
     }
     const reply: string | null = null;
 

@@ -40,6 +40,73 @@ export type HandoffReason =
   | 'fallback'
   | 'manual';
 
+export type PlatformOffReason =
+  | 'platform_ai_disabled'
+  | 'customer_ai_hidden'
+  | 'auto_answer_disabled';
+
+/**
+ * Pass E12-Hardening — Clear AI-management metadata when the platform-wide
+ * AI Agent is disabled so the conversation falls back to the Main Inbox.
+ *
+ * Idempotent. Preserves unrelated metadata. Does NOT mark needs_human,
+ * does NOT assign an operator, does NOT close the conversation.
+ */
+export async function clearAiManagementForPlatformOff(
+  config: ServerConfig,
+  args: {
+    workspaceId: string;
+    conversationId: string;
+    reason: PlatformOffReason;
+  },
+): Promise<{ changed: boolean; previousAiState: string | null }> {
+  const sb = getServiceClient(config);
+  const { data } = await sb
+    .from('conversations')
+    .select('metadata')
+    .eq('id', args.conversationId)
+    .maybeSingle();
+  const meta = (((data as any)?.metadata) || {}) as Record<string, unknown>;
+  const previousAiState = (meta.ai_state as string) || null;
+
+  // Build a new metadata object explicitly omitting `ai_state` so the
+  // generated `conversations.ai_state` column becomes NULL and Main Inbox
+  // surfaces this conversation again.
+  const next: Record<string, unknown> = { ...meta };
+  delete next.ai_state;
+  next.managed_by_ai = false;
+  next.ai_managed_by_ai = false;
+  next.ai_handoff_requested = false;
+  next.ai_handoff_reason = null;
+  next.ai_platform_disabled_at = new Date().toISOString();
+  next.ai_platform_disabled_reason = args.reason;
+
+  const wasManaged =
+    previousAiState === 'ai_managed' ||
+    meta.managed_by_ai === true ||
+    meta.ai_managed_by_ai === true ||
+    meta.ai_handoff_requested === true;
+
+  await sb
+    .from('conversations')
+    .update({ metadata: next, updated_at: new Date().toISOString() })
+    .eq('id', args.conversationId);
+
+  if (wasManaged) {
+    try {
+      await publishOperatorEvent(config, {
+        kind: 'conversation_updated' as any,
+        conversation_id: args.conversationId,
+        workspace_id: args.workspaceId,
+        actor_id: null,
+        reason: 'platform_ai_disabled_main_inbox_restore',
+      } as any);
+    } catch { /* best-effort */ }
+  }
+
+  return { changed: wasManaged, previousAiState };
+}
+
 /**
  * Read current AI/human state metadata from a conversation. Tolerant of
  * conversations that pre-date this feature (returns nulls).

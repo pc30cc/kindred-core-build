@@ -28,6 +28,7 @@ import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabase';
 import { useBranding } from '@/hooks/useBranding';
 import { useAiAgentCapabilities } from '@/hooks/useAiAgentCapabilities';
+import { useInboxCounts } from '@/hooks/useConversations';
 
 export function AppSidebar() {
   const { t, dir } = useTranslation();
@@ -42,6 +43,8 @@ export function AppSidebar() {
   const wsPath = useWorkspacePath();
   const { data: branding } = useBranding(workspace?.id);
   const { data: aiAgentCaps, isError: aiAgentCapsError } = useAiAgentCapabilities(workspace?.id || null);
+  const { data: inboxCounts } = useInboxCounts(workspace?.id);
+  const platformAiEnabled = !!aiAgentCaps?.ai_agent_enabled && !aiAgentCapsError;
 
   // Primary domain for the active workspace (display under the workspace name).
   const { data: wsPrimaryDomain } = useQuery({

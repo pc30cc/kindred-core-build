@@ -41,7 +41,7 @@ export function AppSidebar() {
   const { data: profile } = useProfile();
   const wsPath = useWorkspacePath();
   const { data: branding } = useBranding(workspace?.id);
-  const { data: aiAgentCaps } = useAiAgentCapabilities(workspace?.id || null);
+  const { data: aiAgentCaps, isError: aiAgentCapsError } = useAiAgentCapabilities(workspace?.id || null);
 
   // Primary domain for the active workspace (display under the workspace name).
   const { data: wsPrimaryDomain } = useQuery({
@@ -124,8 +124,14 @@ export function AppSidebar() {
     return location.pathname.includes(subPath);
   };
 
+  // Fail-CLOSED: hide on error or when caps explicitly say disabled.
+  // While loading (no data yet, no error), hide to avoid flashing a link
+  // that may immediately bounce out of the section.
   const aiAgentVisible =
-    !aiAgentCaps || (aiAgentCaps.ai_agent_enabled && aiAgentCaps.customer_ai_agent_visible);
+    !aiAgentCapsError &&
+    !!aiAgentCaps &&
+    aiAgentCaps.ai_agent_enabled &&
+    aiAgentCaps.customer_ai_agent_visible;
   const mainNav = [
     { key: 'ai', path: '/ai', icon: Bot },
     ...(aiAgentVisible

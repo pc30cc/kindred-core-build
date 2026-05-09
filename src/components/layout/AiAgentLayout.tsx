@@ -2,12 +2,7 @@ import { Outlet, NavLink, useLocation } from 'react-router-dom';
 import { useWorkspacePath } from '@/hooks/useWorkspace';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
-import {
-  Beaker, BarChart3, ToggleLeft, Settings, CreditCard,
-  Route, ScrollText, MessageCircleQuestion, Globe, FileText,
-  Tags, Workflow, Bell, Plug, Bot, LayoutDashboard, Compass, Database, GraduationCap, Search, ShieldAlert, FlaskConical,
-} from 'lucide-react';
-import { BookOpen, Sliders, Sparkles, Activity, Settings as SettingsIcon } from 'lucide-react';
+import { Bot, LayoutDashboard, BookOpen, Sliders, Sparkles, Activity, Settings as SettingsIcon } from 'lucide-react';
 
 interface NavItem { key: string; label: string; subPath: string; icon: React.ElementType; }
 interface NavGroup { key: string; label: string; items: NavItem[]; }

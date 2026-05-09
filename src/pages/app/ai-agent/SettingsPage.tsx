@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { useAiAgentSettings, useUpdateAiAgentSettings } from '@/hooks/useAiAgent';
 import { aiAgentApi } from '@/lib/ai-agent-api';
@@ -9,7 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { Sparkles, Bot, Loader2 } from 'lucide-react';
+import { Sparkles, Bot, Loader2, Upload, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function AiAgentSettingsPage() {
@@ -18,6 +18,8 @@ export default function AiAgentSettingsPage() {
   const update = useUpdateAiAgentSettings(workspace?.id);
   const [form, setForm] = useState<any>(null);
   const [generating, setGenerating] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { if (data?.settings) setForm(data.settings); }, [data]);
 
@@ -59,6 +61,46 @@ export default function AiAgentSettingsPage() {
     }
   };
 
+  const onPickAvatar = () => fileInputRef.current?.click();
+
+  const onAvatarSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !workspace?.id) return;
+    if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type)) {
+      toast.error('Only PNG, JPG, WebP or GIF images are supported');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Image is too large (max 5 MB)');
+      return;
+    }
+    setUploadingAvatar(true);
+    try {
+      const r = await aiAgentApi.uploadAvatar(workspace.id, file);
+      set({ agent_logo_url: r.avatar_url });
+      toast.success('Avatar updated');
+    } catch (err: any) {
+      toast.error(err?.message || 'Upload failed');
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
+  const onRemoveAvatar = async () => {
+    if (!workspace?.id) return;
+    setUploadingAvatar(true);
+    try {
+      await aiAgentApi.removeAvatar(workspace.id);
+      set({ agent_logo_url: null });
+      toast.success('Avatar removed');
+    } catch (err: any) {
+      toast.error(err?.message || 'Remove failed');
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div>
@@ -72,12 +114,37 @@ export default function AiAgentSettingsPage() {
             <CardHeader><CardTitle className="text-base">Identity</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               <div>
-                <Label>Agent name</Label>
-                <Input value={form.agent_name} onChange={(e) => set({ agent_name: e.target.value })} />
+                <Label>Avatar</Label>
+                <div className="mt-2 flex items-center gap-3">
+                  <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden border">
+                    {form.agent_logo_url
+                      ? <img src={form.agent_logo_url} alt="" className="h-full w-full object-cover" />
+                      : <Bot className="h-7 w-7 text-primary" />}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" variant="outline" onClick={onPickAvatar} disabled={uploadingAvatar}>
+                      {uploadingAvatar ? <Loader2 className="h-3.5 w-3.5 animate-spin me-1.5" /> : <Upload className="h-3.5 w-3.5 me-1.5" />}
+                      {form.agent_logo_url ? 'Change' : 'Upload'}
+                    </Button>
+                    {form.agent_logo_url && (
+                      <Button size="sm" variant="ghost" onClick={onRemoveAvatar} disabled={uploadingAvatar}>
+                        <Trash2 className="h-3.5 w-3.5 me-1.5" /> Remove
+                      </Button>
+                    )}
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/gif"
+                      className="hidden"
+                      onChange={onAvatarSelected}
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground mt-2">PNG, JPG, WebP or GIF. Max 5 MB.</p>
               </div>
               <div>
-                <Label>Agent logo URL</Label>
-                <Input placeholder="https://..." value={form.agent_logo_url || ''} onChange={(e) => set({ agent_logo_url: e.target.value || null })} />
+                <Label>Agent name</Label>
+                <Input value={form.agent_name} onChange={(e) => set({ agent_name: e.target.value })} />
               </div>
             </CardContent>
           </Card>

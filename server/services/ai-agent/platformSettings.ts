@@ -101,7 +101,7 @@ export async function getPlatformAiAgentSettings(
     const { data } = await sb
       .from('platform_ai_agent_settings' as any)
       .select('*')
-      .limit(1)
+      .eq('singleton_key', true)
       .maybeSingle();
     value = applyDefaults((data as any) || {});
   } catch {
@@ -131,23 +131,45 @@ export async function updatePlatformAiAgentSettings(
   if (Object.keys(sanitized).length === 0) {
     return getPlatformAiAgentSettings(config);
   }
-  sanitized.updated_at = new Date().toISOString();
 
   const sb = getServiceClient(config);
   const current = await getPlatformAiAgentSettings(config);
 
-  // Upsert by id when present, else insert a fresh singleton row.
-  if (current.id && current.id !== 'default') {
-    const { error } = await sb
+  // Build audit summary: only changed keys with old → new values.
+  const changes: Record<string, { old: unknown; new: unknown }> = {};
+  for (const [k, v] of Object.entries(sanitized)) {
+    const oldV = (current as any)[k];
+    if (JSON.stringify(oldV) !== JSON.stringify(v)) {
+      changes[k] = { old: oldV, new: v };
+    }
+  }
+  const mergedMetadata: Record<string, unknown> = {
+    ...(current.metadata || {}),
+    last_updated_by: actorUserId,
+    last_updated_at: new Date().toISOString(),
+    last_change_summary: changes,
+  };
+  sanitized.metadata = mergedMetadata;
+  sanitized.updated_at = new Date().toISOString();
+
+  // Upsert by singleton_key=true (table has UNIQUE(singleton_key)).
+  const { error } = await sb
+    .from('platform_ai_agent_settings' as any)
+    .update(sanitized)
+    .eq('singleton_key', true);
+  if (error) throw new Error(error.message);
+
+  // Belt-and-suspenders: insert canonical row if none exists.
+  const { data: post } = await sb
+    .from('platform_ai_agent_settings' as any)
+    .select('id')
+    .eq('singleton_key', true)
+    .maybeSingle();
+  if (!post) {
+    const { error: insErr } = await sb
       .from('platform_ai_agent_settings' as any)
-      .update(sanitized)
-      .eq('id', current.id);
-    if (error) throw new Error(error.message);
-  } else {
-    const { error } = await sb
-      .from('platform_ai_agent_settings' as any)
-      .insert([{ ...DEFAULTS, ...sanitized }]);
-    if (error) throw new Error(error.message);
+      .insert([{ ...DEFAULTS, ...sanitized, singleton_key: true }]);
+    if (insErr) throw new Error(insErr.message);
   }
 
   __resetPlatformAiAgentSettingsCache();

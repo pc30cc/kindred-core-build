@@ -20,6 +20,8 @@ import {
   useUseSuggestion,
   useDismissSuggestion,
 } from '@/hooks/useAiAgent';
+import { useAiAgentCapabilities } from '@/hooks/useAiAgentCapabilities';
+import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { toast } from '@/hooks/use-toast';
 
 interface Props {
@@ -33,11 +35,17 @@ interface Props {
 }
 
 export function AiSuggestionCard({ conversationId, onInsert, onSendNow, dir = 'ltr', t }: Props) {
+  const { workspace } = useActiveWorkspace();
+  const { data: capabilities } = useAiAgentCapabilities(workspace?.id);
   const { data, isLoading } = useConversationSuggestions(conversationId);
   const useMut = useUseSuggestion(conversationId);
   const dismissMut = useDismissSuggestion(conversationId);
   const [expanded, setExpanded] = useState(true);
   const [sending, setSending] = useState(false);
+
+  // Platform-wide AI Agent kill switch — when Super Admin disables AI Agent,
+  // hide the suggestion card entirely. Re-appears when re-enabled.
+  if (capabilities && !capabilities.ai_agent_enabled) return null;
 
   if (isLoading) return null;
   const suggestion = (data?.items || [])[0];

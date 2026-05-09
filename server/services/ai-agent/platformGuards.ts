@@ -176,6 +176,16 @@ async function resolveWorkspaceFromIdParam(
     'test-runs': 'ai_agent_test_runs',
     'suggested-test-cases': 'ai_agent_suggested_test_cases',
     'operator-assist': 'ai_agent_runs',
+    'conversations': 'conversations',
+    'suggestions': 'ai_agent_suggestions',
+    'guidance': 'ai_agent_guidance_rules',
+    'routing': 'ai_agent_routing_rules',
+    'topics': 'ai_agent_topics',
+    'workflows': 'ai_agent_workflows',
+    'message-triggers': 'ai_agent_message_triggers',
+    'tools': 'ai_agent_tools',
+    'tool-servers': 'ai_agent_tool_servers',
+    'runs': 'ai_agent_runs',
   } as any;
   const entry = (tableMap as any)[resource];
   if (!entry) return null;

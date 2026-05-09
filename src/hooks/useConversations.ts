@@ -147,7 +147,8 @@ export function useInboxCounts(workspaceId: string | undefined) {
         base()
           .eq('is_spam', false)
           .neq('status', 'closed')
-          .eq('ai_state', 'ai_managed'),
+          .eq('ai_state', 'ai_managed')
+          .is('assigned_to', null),
         base()
           .eq('is_spam', false)
           .neq('status', 'closed')

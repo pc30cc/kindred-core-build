@@ -163,6 +163,11 @@ aiAgentRouter.use(async (req: Request, res: Response, next) => {
     req.query.workspaceId || req.query.workspace_id || (req.body && req.body.workspaceId) || '',
   );
   if (!workspaceId) return next();
+  // The capabilities endpoint must remain reachable while the platform is
+  // disabled — that's the channel the workspace UI uses to learn that
+  // AI Agent is off and to read the operator-facing disabled_message.
+  // Platform admin settings are also exempt (managed by Super Admin).
+  if (req.path === '/capabilities' || req.path.startsWith('/platform/')) return next();
   try {
     const enabled = await isAiAgentPlatformEnabled(
       (req as any).serverConfig as ServerConfig,

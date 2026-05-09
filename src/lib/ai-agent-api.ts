@@ -268,6 +268,29 @@ export const aiAgentApi = {
     jsonFetch(`/api/ai-agent/settings?workspaceId=${workspaceId}`) as Promise<{ settings: AgentSettings }>,
   updateSettings: (workspaceId: string, patch: Partial<AgentSettings>) =>
     jsonFetch(`/api/ai-agent/settings`, { method: 'PUT', body: JSON.stringify({ workspaceId, ...patch }) }) as Promise<{ settings: AgentSettings }>,
+  uploadAvatar: async (workspaceId: string, file: File) => {
+    const dataBase64 = await new Promise<string>((resolve, reject) => {
+      const r = new FileReader();
+      r.onerror = () => reject(new Error('read_failed'));
+      r.onload = () => {
+        const s = String(r.result || '');
+        const i = s.indexOf(',');
+        resolve(i >= 0 ? s.slice(i + 1) : s);
+      };
+      r.readAsDataURL(file);
+    });
+    return jsonFetch(`/api/ai-agent/settings/avatar`, {
+      method: 'POST',
+      body: JSON.stringify({
+        workspaceId,
+        filename: file.name,
+        mimeType: file.type,
+        dataBase64,
+      }),
+    }) as Promise<{ avatar_url: string }>;
+  },
+  removeAvatar: (workspaceId: string) =>
+    jsonFetch(`/api/ai-agent/settings/avatar?workspaceId=${workspaceId}`, { method: 'DELETE' }) as Promise<{ ok: boolean }>,
   getKnowledgeStatus: (workspaceId: string) =>
     jsonFetch(`/api/ai-agent/knowledge-status?workspaceId=${workspaceId}`) as Promise<KnowledgeStatus>,
   getDiagnostics: (workspaceId: string) =>

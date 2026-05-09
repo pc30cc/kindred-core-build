@@ -77,6 +77,8 @@ import {
   getRegressionOverview as e11_getOverview,
   exportRegressionBatchCsv as e11_exportBatchCsv,
 } from '../services/ai-agent/regressionRunner.js';
+import { randomUUID } from 'crypto';
+import { uploadFile, deleteFile } from '../services/storage/index.js';
 
 export const aiAgentRouter: Router = express.Router();
 
@@ -291,6 +293,141 @@ aiAgentRouter.put('/settings', async (req: Request, res: Response) => {
   } catch (err: any) {
     return res.status(500).json({ error: 'update_failed', details: err?.message });
   }
+});
+
+// ─── POST /settings/avatar — upload AI agent avatar via active storage provider ───
+const ALLOWED_AVATAR_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+const AVATAR_MAX_BYTES = 5 * 1024 * 1024; // 5 MB
+
+const avatarUploadSchema = z.object({
+  workspaceId: z.string().uuid(),
+  filename: z.string().min(1).max(200),
+  mimeType: z.string().min(3).max(100),
+  dataBase64: z.string().min(1),
+});
+
+function safeAvatarFilename(name: string): string {
+  // strip path, keep ascii alnum + . _ -
+  const base = String(name).split(/[\\/]/).pop() || 'avatar';
+  const cleaned = base.replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 80);
+  return cleaned || 'avatar';
+}
+
+function avatarExtForMime(m: string): string {
+  if (m === 'image/png') return 'png';
+  if (m === 'image/jpeg') return 'jpg';
+  if (m === 'image/webp') return 'webp';
+  if (m === 'image/gif') return 'gif';
+  return 'bin';
+}
+
+aiAgentRouter.post('/settings/avatar', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = avatarUploadSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
+  }
+  const { workspaceId, filename, mimeType, dataBase64 } = parsed.data;
+
+  if (!ALLOWED_AVATAR_MIMES.has(mimeType)) {
+    return res.status(400).json({ error: 'unsupported_mime' });
+  }
+
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) {
+    return res.status(403).json({ error: 'owner_or_admin_required' });
+  }
+
+  let buf: Buffer;
+  try {
+    buf = Buffer.from(dataBase64, 'base64');
+  } catch {
+    return res.status(400).json({ error: 'invalid_base64' });
+  }
+  if (buf.length === 0) return res.status(400).json({ error: 'empty_file' });
+  if (buf.length > AVATAR_MAX_BYTES) {
+    return res.status(413).json({ error: 'file_too_large', maxBytes: AVATAR_MAX_BYTES });
+  }
+
+  const ext = avatarExtForMime(mimeType);
+  const safeName = safeAvatarFilename(filename);
+  // workspace-scoped path. NEVER returned to the client.
+  const fileKey = `workspace/${workspaceId}/ai-agent/avatar/${randomUUID()}-${safeName}${safeName.endsWith('.' + ext) ? '' : '.' + ext}`;
+
+  // Best-effort cleanup of previous avatar (if it was stored via our provider).
+  let oldKey: string | null = null;
+  try {
+    const prev = await getOrCreateSettings(config, workspaceId);
+    const meta = (prev.metadata || {}) as Record<string, unknown>;
+    const prevKey = typeof meta.ai_avatar_storage_key === 'string' ? meta.ai_avatar_storage_key : null;
+    if (prevKey) oldKey = prevKey;
+  } catch { /* ignore */ }
+
+  const uploaded = await uploadFile(config, {
+    workspaceId,
+    fileKey,
+    data: buf,
+    contentType: mimeType,
+  });
+  if (!uploaded.success || !uploaded.url) {
+    return res.status(502).json({ error: 'upload_failed', details: uploaded.error });
+  }
+
+  // Persist public URL on the existing settings.agent_logo_url column.
+  // Track internal storage key in metadata so we can clean up on replace.
+  try {
+    const current = await getOrCreateSettings(config, workspaceId);
+    const newMeta = {
+      ...((current.metadata || {}) as Record<string, unknown>),
+      ai_avatar_storage_key: fileKey,
+    };
+    await updateSettings(config, workspaceId, {
+      agent_logo_url: uploaded.url,
+      metadata: newMeta,
+    } as Partial<AgentSettings>);
+  } catch (err: any) {
+    return res.status(500).json({ error: 'persist_failed', details: err?.message });
+  }
+
+  if (oldKey && oldKey !== fileKey) {
+    // Best effort. Never fail the request if cleanup fails.
+    deleteFile(config, workspaceId, oldKey).catch(() => undefined);
+  }
+
+  // Only safe display URL is returned. Storage key stays server-side.
+  return res.json({ avatar_url: uploaded.url });
+});
+
+aiAgentRouter.delete('/settings/avatar', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = requireWorkspace(req);
+  if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) {
+    return res.status(403).json({ error: 'owner_or_admin_required' });
+  }
+
+  let oldKey: string | null = null;
+  try {
+    const current = await getOrCreateSettings(config, workspaceId);
+    const meta = (current.metadata || {}) as Record<string, unknown>;
+    if (typeof meta.ai_avatar_storage_key === 'string') oldKey = meta.ai_avatar_storage_key;
+    const newMeta = { ...meta };
+    delete (newMeta as any).ai_avatar_storage_key;
+    await updateSettings(config, workspaceId, {
+      agent_logo_url: null,
+      metadata: newMeta,
+    } as Partial<AgentSettings>);
+  } catch (err: any) {
+    return res.status(500).json({ error: 'persist_failed', details: err?.message });
+  }
+
+  if (oldKey) {
+    deleteFile(config, workspaceId, oldKey).catch(() => undefined);
+  }
+  return res.json({ ok: true });
 });
 
 // ─── GET /knowledge-status ───

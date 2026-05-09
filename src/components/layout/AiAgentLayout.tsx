@@ -1,8 +1,10 @@
-import { Outlet, NavLink, useLocation } from 'react-router-dom';
-import { useWorkspacePath } from '@/hooks/useWorkspace';
+import { Outlet, NavLink, useLocation, Navigate } from 'react-router-dom';
+import { useWorkspacePath, useActiveWorkspace } from '@/hooks/useWorkspace';
+import { useAiAgentCapabilities } from '@/hooks/useAiAgentCapabilities';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { Bot, LayoutDashboard, BookOpen, Sliders, Sparkles, Activity, Settings as SettingsIcon } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 
 interface NavItem { key: string; label: string; subPath: string; icon: React.ElementType; }
 interface NavGroup { key: string; label: string; items: NavItem[]; }
@@ -24,10 +26,34 @@ export function AiAgentLayout() {
   const wsPath = useWorkspacePath();
   const { t } = useTranslation();
   const location = useLocation();
+  const { workspace } = useActiveWorkspace();
+  const { data: capabilities, isLoading } = useAiAgentCapabilities(workspace?.id || null);
   const tr = (k: string, fb: string) => {
     const v = t(`aiAgent.${k}` as any);
     return !v || v === `aiAgent.${k}` ? fb : v;
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  // Platform kill switch — bounce out of the section entirely.
+  if (capabilities && (!capabilities.ai_agent_enabled || !capabilities.customer_ai_agent_visible)) {
+    return <Navigate to={wsPath('/inbox')} replace />;
+  }
+
+  const navKey = (k: string) => {
+    if (!capabilities) return true;
+    return (capabilities.customer_nav as Record<string, boolean>)[k] !== false;
+  };
+  const visibleGroups = groups.map((g) => ({
+    ...g,
+    items: g.items.filter((it) => navKey(it.key)),
+  }));
 
   return (
     <div className="flex h-full">
@@ -39,7 +65,7 @@ export function AiAgentLayout() {
           <h2 className="text-base font-semibold text-foreground">{tr('title', 'AI Agent')}</h2>
         </div>
         <nav className="p-3 space-y-3">
-          {groups.map((g) => (
+          {visibleGroups.map((g) => (
             <div key={g.key}>
               <p className="px-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70 mb-1">
                 {tr(`section.${g.key}`, g.label)}

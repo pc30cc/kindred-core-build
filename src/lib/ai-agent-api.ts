@@ -30,6 +30,57 @@ export type AgentMode = 'off' | 'suggest_only' | 'auto_reply_when_offline' | 'au
 export type AnswerGuidance = 'conservative' | 'balanced' | 'creative';
 export type EscalationStyle = 'conservative' | 'balanced' | 'helpful_first';
 
+// E12 — Platform AI Agent (Super Admin) settings.
+export interface PlatformAiAgentSettings {
+  id: string;
+  ai_agent_enabled: boolean;
+  customer_ai_agent_visible: boolean;
+  advanced_tools_enabled: boolean;
+  regression_runner_enabled: boolean;
+  source_health_visible_to_customers: boolean;
+  test_harness_visible_to_customers: boolean;
+  operator_assist_enabled: boolean;
+  auto_answer_enabled: boolean;
+  learning_enabled: boolean;
+  files_enabled: boolean;
+  websites_enabled: boolean;
+  qna_enabled: boolean;
+  kb_enabled: boolean;
+  max_customer_visible_nav_items: number;
+  disabled_message: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+// E12 — Redacted capability snapshot exposed to workspace customers.
+export interface AiAgentCapabilities {
+  ai_agent_enabled: boolean;
+  customer_ai_agent_visible: boolean;
+  operator_assist_enabled: boolean;
+  auto_answer_enabled: boolean;
+  learning_enabled: boolean;
+  files_enabled: boolean;
+  websites_enabled: boolean;
+  qna_enabled: boolean;
+  kb_enabled: boolean;
+  customer_nav: {
+    overview: boolean;
+    knowledge: boolean;
+    behavior: boolean;
+    operatorAssist: boolean;
+    activity: boolean;
+    settings: boolean;
+  };
+  advanced: {
+    debug_visible: boolean;
+    regression_visible: boolean;
+    source_health_visible: boolean;
+    test_harness_visible: boolean;
+  };
+  disabled_message: string | null;
+}
+
 export interface AgentSettings {
   id: string;
   workspace_id: string;
@@ -266,6 +317,19 @@ export interface SuggestedTestCase {
 export const aiAgentApi = {
   getSettings: (workspaceId: string) =>
     jsonFetch(`/api/ai-agent/settings?workspaceId=${workspaceId}`) as Promise<{ settings: AgentSettings }>,
+  // E12 — workspace-safe capability snapshot (kill switch + per-feature toggles)
+  getCapabilities: (workspaceId: string) =>
+    jsonFetch(`/api/ai-agent/capabilities?workspaceId=${workspaceId}`) as Promise<{
+      capabilities: AiAgentCapabilities;
+    }>,
+  // E12 — Super Admin only (backend admin guard enforced)
+  getPlatformSettings: () =>
+    jsonFetch(`/api/ai-agent/platform/settings`) as Promise<{ settings: PlatformAiAgentSettings }>,
+  updatePlatformSettings: (patch: Partial<PlatformAiAgentSettings>) =>
+    jsonFetch(`/api/ai-agent/platform/settings`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }) as Promise<{ settings: PlatformAiAgentSettings }>,
   updateSettings: (workspaceId: string, patch: Partial<AgentSettings>) =>
     jsonFetch(`/api/ai-agent/settings`, { method: 'PUT', body: JSON.stringify({ workspaceId, ...patch }) }) as Promise<{ settings: AgentSettings }>,
   uploadAvatar: async (workspaceId: string, file: File) => {

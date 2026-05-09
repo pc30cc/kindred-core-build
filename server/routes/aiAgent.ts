@@ -85,6 +85,11 @@ import {
   isAiAgentPlatformEnabled,
   validateAvatarBytes,
 } from '../services/ai-agent/customerSafe.js';
+import {
+  getPlatformAiAgentSettings,
+  updatePlatformAiAgentSettings,
+  getWorkspaceAiAgentCapabilities,
+} from '../services/ai-agent/platformSettings.js';
 
 export const aiAgentRouter: Router = express.Router();
 
@@ -136,6 +141,7 @@ const ADVANCED_PATH_PATTERNS: RegExp[] = [
   /^\/suggested-test-cases(\/|$)/,
   /^\/regression(\/|$)/,
   /^\/test-summary$/,
+  /^\/platform\/settings$/,
 ];
 aiAgentRouter.use(async (req: Request, res: Response, next) => {
   if (!ADVANCED_PATH_PATTERNS.some((rx) => rx.test(req.path))) return next();
@@ -157,6 +163,11 @@ aiAgentRouter.use(async (req: Request, res: Response, next) => {
     req.query.workspaceId || req.query.workspace_id || (req.body && req.body.workspaceId) || '',
   );
   if (!workspaceId) return next();
+  // The capabilities endpoint must remain reachable while the platform is
+  // disabled — that's the channel the workspace UI uses to learn that
+  // AI Agent is off and to read the operator-facing disabled_message.
+  // Platform admin settings are also exempt (managed by Super Admin).
+  if (req.path === '/capabilities' || req.path.startsWith('/platform/')) return next();
   try {
     const enabled = await isAiAgentPlatformEnabled(
       (req as any).serverConfig as ServerConfig,
@@ -277,6 +288,63 @@ aiAgentRouter.get('/settings', async (req: Request, res: Response) => {
   if (!auth) return;
   const settings = await getOrCreateSettings(config, workspaceId);
   return res.json({ settings: toCustomerSafeAiAgentSettings(settings) });
+});
+
+// ─── E12 Super Admin: GET /platform/settings ───
+// Guarded by ADVANCED_PATH_PATTERNS middleware (admin-only).
+aiAgentRouter.get('/platform/settings', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  try {
+    const settings = await getPlatformAiAgentSettings(config);
+    return res.json({ settings });
+  } catch (e: any) {
+    return res.status(500).json({ error: e?.message || 'platform_settings_read_failed' });
+  }
+});
+
+// ─── E12 Super Admin: PATCH /platform/settings ───
+// Guarded by ADVANCED_PATH_PATTERNS middleware (admin-only). Sanitizes
+// the patch body to a whitelist; ignores unknown keys.
+aiAgentRouter.patch('/platform/settings', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const { userId } = await resolveCurrentUserId(req, config);
+  if (!userId) return res.status(401).json({ error: 'unauthenticated' });
+  try {
+    const settings = await updatePlatformAiAgentSettings(
+      config,
+      (req.body || {}) as Record<string, unknown>,
+      userId,
+    );
+    return res.json({ settings });
+  } catch (e: any) {
+    if (String(e?.message) === 'forbidden') {
+      return res.status(403).json({ error: 'forbidden' });
+    }
+    return res.status(500).json({ error: e?.message || 'platform_settings_update_failed' });
+  }
+});
+
+// ─── E12 GET /capabilities ───
+// Redacted capability snapshot for workspace UI. Reachable even when the
+// platform kill switch is on (so the UI can render the disabled state).
+// Requires the caller to be a workspace member of the requested workspace.
+aiAgentRouter.get('/capabilities', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = requireWorkspace(req);
+  if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  const { userId } = await resolveCurrentUserId(req, config);
+  try {
+    const capabilities = await getWorkspaceAiAgentCapabilities(
+      config,
+      workspaceId,
+      userId || null,
+    );
+    return res.json({ capabilities });
+  } catch (e: any) {
+    return res.status(500).json({ error: e?.message || 'capabilities_read_failed' });
+  }
 });
 
 // ─── PUT /settings ───

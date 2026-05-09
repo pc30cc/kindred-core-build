@@ -36,7 +36,6 @@ import ContactDetailPage from "@/pages/app/ContactDetailPage";
 import VisitorsPage from "@/pages/app/VisitorsPage";
 import KnowledgeBasePage from "@/pages/app/KnowledgeBasePage";
 import WidgetPage from "@/pages/app/WidgetPage";
-import AIPage from "@/pages/app/AIPage";
 // AI Agent (Phase 1 foundation)
 import { AiAgentLayout } from "@/components/layout/AiAgentLayout";
 import AiAgentSettingsPage from "@/pages/app/ai-agent/SettingsPage";
@@ -237,7 +236,6 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                   <Route path="staff-access" element={<StaffAccessPage />} />
                   <Route path="privacy-requests" element={<PrivacyRequestsPage />} />
                   <Route path="knowledge-base" element={<KnowledgeBasePage />} />
-                  <Route path="ai" element={<AIPage />} />
                 </Route>
                 {/* AI Agent — Phase 1 foundation. Separate layout with its own sidebar. */}
                 <Route path="ai-agent" element={<AiAgentLayout />}>

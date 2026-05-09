@@ -128,10 +128,6 @@ export function AppSidebar() {
     if (subPath === '') return location.pathname === fullPath;
     if (subPath === '/settings') return location.pathname.includes('/settings');
     if (subPath === '/inbox') return location.pathname.includes('/inbox');
-    // /ai must NOT match /ai-agent (and vice versa).
-    if (subPath === '/ai') {
-      return /\/ai(?:\/|$)/.test(location.pathname) && !location.pathname.includes('/ai-agent');
-    }
     if (subPath === '/ai-agent') return location.pathname.includes('/ai-agent');
     return location.pathname.includes(subPath);
   };
@@ -145,7 +141,6 @@ export function AppSidebar() {
     aiAgentCaps.ai_agent_enabled &&
     aiAgentCaps.customer_ai_agent_visible;
   const mainNav = [
-    { key: 'ai', path: '/ai', icon: Bot },
     ...(aiAgentVisible
       ? [{ key: 'aiAgent', path: '/ai-agent', icon: Sparkles } as const]
       : []),

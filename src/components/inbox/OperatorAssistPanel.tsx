@@ -22,6 +22,7 @@ import {
 } from '@/lib/ai-agent-api';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import { useAiAgentCapabilities } from '@/hooks/useAiAgentCapabilities';
 
 type Tone = 'friendly' | 'professional' | 'short' | 'detailed';
 
@@ -36,6 +37,7 @@ interface Props {
 export function OperatorAssistPanel({
   workspaceId, conversationId, composerHasText, onInsert, dir = 'ltr',
 }: Props) {
+  const { data: capabilities } = useAiAgentCapabilities(workspaceId);
   const [open, setOpen] = useState(false);
   const [tone, setTone] = useState<Tone>('friendly');
   const [instruction, setInstruction] = useState('');
@@ -164,6 +166,9 @@ export function OperatorAssistPanel({
       (result.selected_sources?.length ?? 0) === 0 ||
       result.safety_notes?.includes('no_eligible_knowledge_sources')
     );
+
+  // Platform-wide AI Agent kill switch — hide entirely when Super Admin disables AI Agent.
+  if (capabilities && !capabilities.ai_agent_enabled) return null;
 
   if (!open && !result) {
     return (

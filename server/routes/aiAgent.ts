@@ -85,6 +85,11 @@ import {
   isAiAgentPlatformEnabled,
   validateAvatarBytes,
 } from '../services/ai-agent/customerSafe.js';
+import {
+  getPlatformAiAgentSettings,
+  updatePlatformAiAgentSettings,
+  getWorkspaceAiAgentCapabilities,
+} from '../services/ai-agent/platformSettings.js';
 
 export const aiAgentRouter: Router = express.Router();
 
@@ -136,6 +141,7 @@ const ADVANCED_PATH_PATTERNS: RegExp[] = [
   /^\/suggested-test-cases(\/|$)/,
   /^\/regression(\/|$)/,
   /^\/test-summary$/,
+  /^\/platform\/settings$/,
 ];
 aiAgentRouter.use(async (req: Request, res: Response, next) => {
   if (!ADVANCED_PATH_PATTERNS.some((rx) => rx.test(req.path))) return next();

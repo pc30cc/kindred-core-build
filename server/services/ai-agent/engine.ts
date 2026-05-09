@@ -100,7 +100,8 @@ async function runInternal(
   // flow normally to the operator inbox; we only short-circuit AI side
   // effects (LLM, AI reply, suggestion, handoff).
   const platformGate = await isAutoAnswerAllowedForWorkspace(config, workspaceId);
-  if (!platformGate.allowed) {
+  if (platformGate.allowed !== true) {
+    const reason = (platformGate as { allowed: false; reason: string }).reason;
     try {
       await logRun(config, {
         workspaceId,
@@ -110,10 +111,10 @@ async function runInternal(
         mode: 'off',
         status: 'skipped',
         inputText: input.question,
-        skipReason: platformGate.reason,
+        skipReason: reason,
       });
     } catch { /* never break visitor flow */ }
-    return { ran: false, action: 'skipped', reason: platformGate.reason };
+    return { ran: false, action: 'skipped', reason };
   }
 
   const pageContext = input.pageContext || null;

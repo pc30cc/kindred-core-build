@@ -65,6 +65,10 @@ import AiAgentTestRunDetailPage from "@/pages/app/ai-agent/TestRunDetailPage";
 import AiAgentOperatorAssistAnalyticsPage from "@/pages/app/ai-agent/OperatorAssistAnalyticsPage";
 import AiAgentSuggestedTestsPage from "@/pages/app/ai-agent/SuggestedTestsPage";
 import AiAgentRegressionRunsPage from "@/pages/app/ai-agent/RegressionRunsPage";
+import AiAgentKnowledgePage from "@/pages/app/ai-agent/KnowledgePage";
+import AiAgentBehaviorPage from "@/pages/app/ai-agent/BehaviorPage";
+import AiAgentOperatorAssistPage from "@/pages/app/ai-agent/OperatorAssistPage";
+import AiAgentActivityPage from "@/pages/app/ai-agent/ActivityPage";
 import EmailPage from "@/pages/app/EmailPage";
 import BillingPage from "@/pages/app/BillingPage";
 import SettingsGeneralPage from "@/pages/app/settings/GeneralPage";
@@ -236,6 +240,10 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <Route path="ai-agent" element={<AiAgentLayout />}>
                   <Route index element={<Navigate to="overview" replace />} />
                   <Route path="overview" element={<AiAgentOverviewPage />} />
+                  <Route path="knowledge" element={<AiAgentKnowledgePage />} />
+                  <Route path="behavior" element={<AiAgentBehaviorPage />} />
+                  <Route path="operator-assist" element={<AiAgentOperatorAssistPage />} />
+                  <Route path="activity" element={<AiAgentActivityPage />} />
                   <Route path="guidance" element={<AiAgentGuidancePage />} />
                   <Route path="playground" element={<AiAgentPlaygroundPage />} />
                   <Route path="analytics" element={<AiAgentAnalyticsPage />} />

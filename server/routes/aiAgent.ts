@@ -82,7 +82,6 @@ import { uploadFile, deleteFile } from '../services/storage/index.js';
 import {
   toCustomerSafeAiAgentSettings,
   canAccessAiAgentAdvancedToolsServer,
-  isAiAgentPlatformEnabled,
   validateAvatarBytes,
 } from '../services/ai-agent/customerSafe.js';
 import {

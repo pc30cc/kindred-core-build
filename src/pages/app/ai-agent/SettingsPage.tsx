@@ -204,6 +204,19 @@ export default function AiAgentSettingsPage() {
             </CardContent>
           </Card>
 
+          <Card>
+            <CardHeader><CardTitle className="text-base">Operator transparency</CardTitle></CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-between rounded-md border p-3">
+                <div>
+                  <p className="text-sm font-medium">Show sources to operators</p>
+                  <p className="text-xs text-muted-foreground">Operators can see which knowledge source helped create a suggestion.</p>
+                </div>
+                <Switch checked={!!form.show_sources_to_operator} onCheckedChange={(v) => set({ show_sources_to_operator: v })} />
+              </div>
+            </CardContent>
+          </Card>
+
           <div className="flex justify-end">
             <Button onClick={onSave} disabled={update.isPending}>
               {update.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin me-1.5" />}

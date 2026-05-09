@@ -7,7 +7,7 @@ import {
   Route, ScrollText, MessageCircleQuestion, Globe, FileText,
   Tags, Workflow, Bell, Plug, Bot, LayoutDashboard, Compass, Database, GraduationCap, Search, ShieldAlert, FlaskConical,
 } from 'lucide-react';
-import { BookOpen, Sliders, Sparkles, Activity } from 'lucide-react';
+import { BookOpen, Sliders, Sparkles, Activity, Settings as SettingsIcon } from 'lucide-react';
 
 interface NavItem { key: string; label: string; subPath: string; icon: React.ElementType; }
 interface NavGroup { key: string; label: string; items: NavItem[]; }
@@ -20,6 +20,7 @@ const groups: NavGroup[] = [
       { key: 'behavior', label: 'Behavior', subPath: '/ai-agent/behavior', icon: Sliders },
       { key: 'operatorAssist', label: 'Operator Assist', subPath: '/ai-agent/operator-assist', icon: Sparkles },
       { key: 'activity', label: 'Activity', subPath: '/ai-agent/activity', icon: Activity },
+      { key: 'settings', label: 'Settings', subPath: '/ai-agent/settings', icon: SettingsIcon },
     ],
   },
 ];

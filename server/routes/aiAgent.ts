@@ -5048,3 +5048,101 @@ aiAgentRouter.get('/regression/batches/:id/export.csv', async (req: Request, res
   res.setHeader('Content-Disposition', `attachment; filename="${r.filename}"`);
   return res.send(r.csv);
 });
+
+// ─── Customer-safe Test AI ───
+// Wraps runDryRunTest. Returns ONLY action/answer/confidence-bucket/source-titles.
+// Never returns retrieval_debug, prompt_preview, source ids, raw scores, chunks,
+// embeddings, or storage paths. Respects show_sources_to_operator.
+const customerTestAiSchema = z.object({
+  workspaceId: z.string().uuid(),
+  message: z.string().min(1).max(2000),
+  locale: z.string().max(10).optional(),
+  pageContext: z.object({
+    currentPageUrl: z.string().max(2000).nullable().optional(),
+    currentPageOrigin: z.string().max(500).nullable().optional(),
+    currentPagePath: z.string().max(1000).nullable().optional(),
+    currentPageTitle: z.string().max(500).nullable().optional(),
+  }).nullish(),
+});
+function confidenceBucketLabel(c: number): 'low' | 'medium' | 'high' {
+  if (c >= 0.7) return 'high';
+  if (c >= 0.4) return 'medium';
+  return 'low';
+}
+function friendlyTestAiReason(action: string, status: string): string {
+  if (action === 'answer') return 'A confident answer was generated from your knowledge.';
+  if (action === 'clarification') return 'The AI needs more details before it can answer.';
+  if (action === 'handoff') return 'The AI would transfer this conversation to a human operator.';
+  if (action === 'no_answer') return 'No matching knowledge was found.';
+  if (status === 'failed') return 'The test could not be completed. Please try again.';
+  return 'The AI evaluated this message.';
+}
+aiAgentRouter.post('/test-ai', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = customerTestAiSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
+  }
+  const { workspaceId, message, locale, pageContext } = parsed.data;
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  if (!checkPlaygroundRateLimit(workspaceId, auth.userId)) {
+    return res.status(429).json({ error: 'test_ai_rate_limited' });
+  }
+  try {
+    const settings = await getOrCreateSettings(config, workspaceId);
+    const result = await e6_runDryRunTest(config, {
+      workspaceId,
+      message,
+      locale: locale || undefined,
+      pageContext: pageContext || null,
+      callLLM: true,
+    });
+    const action = result.answer_strategy?.action || 'no_answer';
+    const showSources = !!settings.show_sources_to_operator;
+    const sources = showSources
+      ? (result.selected_sources || []).slice(0, 5).map((s) => ({
+          title: s.title || '(untitled)',
+          source_type: s.source_type,
+        }))
+      : [];
+    return res.json({
+      action,
+      answer: result.output_text || null,
+      confidence_bucket: confidenceBucketLabel(result.confidence || 0),
+      reason: friendlyTestAiReason(action, result.status),
+      sources,
+      sources_hidden: !showSources,
+      // explicit absence of internal fields
+      retrieval_debug: undefined,
+      prompt_preview: undefined,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'test_ai_failed', details: err?.message });
+  }
+});
+
+// ─── Customer-safe Knowledge summary ───
+// Returns the same friendly per-source items KnowledgePage needs, without
+// exposing any internal counts/metadata. Source-health remains advanced-only.
+aiAgentRouter.get('/knowledge/customer-summary', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = requireWorkspace(req);
+  if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  try {
+    const limit = Math.min(parseInt(String(req.query.limit || '200'), 10) || 200, 500);
+    const result = await getSourceHealth(config, workspaceId, { limit });
+    const items = (result.items || []).map((it: any) => ({
+      source_type: it.source_type,
+      title: it.title,
+      eligible: !!it.eligible,
+      reason: it.reason,
+      updated_at: it.last_indexed_at || null,
+    }));
+    return res.json({ items });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'knowledge_summary_failed', details: err?.message });
+  }
+});

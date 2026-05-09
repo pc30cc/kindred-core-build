@@ -367,6 +367,21 @@ export default function InboxPage() {
       : undefined
   );
 
+  // Selection safety — when the active conversation drops out of the
+  // current queue/filter (AI handoff, takeover, spam toggle, platform AI
+  // disabled repair, filter change), clear the selection on desktop and
+  // return to the list on mobile. We keep selection if the conversation
+  // is in an active call (handled by the snapshot fallback above).
+  useEffect(() => {
+    if (!selectedId) return;
+    if (!conversations) return; // still loading
+    const inList = conversations.some(c => c.id === selectedId);
+    if (inList) return;
+    if (activeCallConversationId === selectedId) return;
+    setSelectedId(null);
+    setShowMobileList(true);
+  }, [conversations, selectedId, activeCallConversationId]);
+
   // Auto-scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });

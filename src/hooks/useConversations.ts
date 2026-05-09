@@ -9,15 +9,14 @@ import { dedupeById } from '@/realtime/dedupe';
  *   - undefined/'main'   → status-based default inbox (existing behavior)
  *   - 'automated'        → ai_state='ai_managed' AND status != 'closed' AND
  *                          assigned_to IS NULL (AI-managed queue)
- *   - 'needs_human'      → ai_state='needs_human' AND status != 'closed'
- *                          (handoff queue waiting for an operator)
  *   - 'spam'             → is_spam=true (operator-flagged conversations)
  *
  * Routing rules:
  *   • Spam is excluded from EVERY non-spam queue.
  *   • Main Inbox excludes ai_state='ai_managed' (those live in Automated)
  *     but INCLUDES needs_human + human_active because those are
- *     human-actionable threads.
+ *     human-actionable threads. `needs_human` is NOT a separate queue —
+ *     it is exposed as a Main Inbox filter chip / badge / count.
  *
  * Queue mode bypasses the `status` argument so the AI / Spam queues are not
  * accidentally narrowed by the operator's open/pending/resolved chip.

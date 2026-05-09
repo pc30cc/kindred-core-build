@@ -4639,6 +4639,75 @@ export type Database = {
           },
         ]
       }
+      platform_ai_agent_settings: {
+        Row: {
+          advanced_tools_enabled: boolean
+          ai_agent_enabled: boolean
+          auto_answer_enabled: boolean
+          created_at: string
+          customer_ai_agent_visible: boolean
+          disabled_message: string | null
+          files_enabled: boolean
+          id: string
+          kb_enabled: boolean
+          learning_enabled: boolean
+          max_customer_visible_nav_items: number
+          metadata: Json
+          operator_assist_enabled: boolean
+          qna_enabled: boolean
+          regression_runner_enabled: boolean
+          singleton_key: boolean
+          source_health_visible_to_customers: boolean
+          test_harness_visible_to_customers: boolean
+          updated_at: string
+          websites_enabled: boolean
+        }
+        Insert: {
+          advanced_tools_enabled?: boolean
+          ai_agent_enabled?: boolean
+          auto_answer_enabled?: boolean
+          created_at?: string
+          customer_ai_agent_visible?: boolean
+          disabled_message?: string | null
+          files_enabled?: boolean
+          id?: string
+          kb_enabled?: boolean
+          learning_enabled?: boolean
+          max_customer_visible_nav_items?: number
+          metadata?: Json
+          operator_assist_enabled?: boolean
+          qna_enabled?: boolean
+          regression_runner_enabled?: boolean
+          singleton_key?: boolean
+          source_health_visible_to_customers?: boolean
+          test_harness_visible_to_customers?: boolean
+          updated_at?: string
+          websites_enabled?: boolean
+        }
+        Update: {
+          advanced_tools_enabled?: boolean
+          ai_agent_enabled?: boolean
+          auto_answer_enabled?: boolean
+          created_at?: string
+          customer_ai_agent_visible?: boolean
+          disabled_message?: string | null
+          files_enabled?: boolean
+          id?: string
+          kb_enabled?: boolean
+          learning_enabled?: boolean
+          max_customer_visible_nav_items?: number
+          metadata?: Json
+          operator_assist_enabled?: boolean
+          qna_enabled?: boolean
+          regression_runner_enabled?: boolean
+          singleton_key?: boolean
+          source_health_visible_to_customers?: boolean
+          test_harness_visible_to_customers?: boolean
+          updated_at?: string
+          websites_enabled?: boolean
+        }
+        Relationships: []
+      }
       platform_branding: {
         Row: {
           created_at: string | null

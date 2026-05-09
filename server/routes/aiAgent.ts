@@ -79,8 +79,64 @@ import {
 } from '../services/ai-agent/regressionRunner.js';
 import { randomUUID } from 'crypto';
 import { uploadFile, deleteFile } from '../services/storage/index.js';
+import {
+  toCustomerSafeAiAgentSettings,
+  canAccessAiAgentAdvancedToolsServer,
+  isAiAgentPlatformEnabled,
+  validateAvatarBytes,
+} from '../services/ai-agent/customerSafe.js';
 
 export const aiAgentRouter: Router = express.Router();
+
+// ─── Backend advanced-tools guard ───
+// Mirrors the frontend AdvancedAiAgentGuard. Endpoints that expose internal
+// QA/debug/regression data MUST go through this guard.
+const ADVANCED_PATH_PATTERNS: RegExp[] = [
+  /^\/runs\/[^/]+\/inspect$/,
+  /^\/debug\/retrieval$/,
+  /^\/debug\/run-test$/,
+  /^\/source-health$/,
+  /^\/test-cases(\/|$)/,
+  /^\/test-runs(\/|$)/,
+  /^\/suggested-test-cases(\/|$)/,
+  /^\/regression(\/|$)/,
+  /^\/test-summary$/,
+];
+aiAgentRouter.use(async (req: Request, res: Response, next) => {
+  if (!ADVANCED_PATH_PATTERNS.some((rx) => rx.test(req.path))) return next();
+  const config = (req as any).serverConfig as ServerConfig;
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Missing authorization' });
+  }
+  const token = authHeader.replace('Bearer ', '');
+  const sb = getServiceClient(config);
+  const { data: { user }, error } = await sb.auth.getUser(token);
+  if (error || !user) return res.status(401).json({ error: 'Invalid token' });
+  const workspaceId = String(
+    req.query.workspaceId || req.query.workspace_id || (req.body && req.body.workspaceId) || '',
+  );
+  const ok = await canAccessAiAgentAdvancedToolsServer(config, user.id, workspaceId);
+  if (!ok) return res.status(403).json({ error: 'advanced_ai_tools_not_available' });
+  return next();
+});
+
+// Platform kill-switch — applied to all customer-facing AI Agent endpoints.
+// Skips the avatar DELETE/health/static asset paths to avoid noise.
+aiAgentRouter.use(async (req: Request, res: Response, next) => {
+  const workspaceId = String(
+    req.query.workspaceId || req.query.workspace_id || (req.body && req.body.workspaceId) || '',
+  );
+  if (!workspaceId) return next();
+  try {
+    const enabled = await isAiAgentPlatformEnabled(
+      (req as any).serverConfig as ServerConfig,
+      workspaceId,
+    );
+    if (!enabled) return res.status(403).json({ error: 'ai_agent_platform_disabled' });
+  } catch { /* default open on lookup failure */ }
+  return next();
+});
 
 // ─── Phase 1 in-memory rate limit for playground tests ───
 // 30 tests / 5 min per (workspace,user). Documented as temporary safeguard
@@ -191,7 +247,7 @@ aiAgentRouter.get('/settings', async (req: Request, res: Response) => {
   const auth = await authorizeMember(req, res, config, workspaceId);
   if (!auth) return;
   const settings = await getOrCreateSettings(config, workspaceId);
-  return res.json({ settings });
+  return res.json({ settings: toCustomerSafeAiAgentSettings(settings) });
 });
 
 // ─── PUT /settings ───

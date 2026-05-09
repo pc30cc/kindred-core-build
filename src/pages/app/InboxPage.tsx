@@ -138,17 +138,56 @@ export default function InboxPage() {
   const { user } = useAuth();
   const workspace = useCurrentWorkspace();
   const { platformName } = useBrandingContext();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const queueParam = searchParams.get('queue');
-  // `queue=needs_human` is a legacy URL — it's now a Main Inbox filter chip.
-  const legacyNeedsHuman = queueParam === 'needs_human';
+  const filterParam = searchParams.get('filter');
+  const statusParam = searchParams.get('status');
+
+  // queue param is constrained to the real queues. Any other value (incl.
+  // the legacy `needs_human`) collapses to Main Inbox; the legacy URL is
+  // rewritten by the effect below into `?filter=needs_human`.
   const queue: InboxQueue =
     queueParam === 'automated' ? 'automated'
       : queueParam === 'spam' ? 'spam'
       : 'main';
   const isQueueMode = queue !== 'main';
-  const [filter, setFilter] = useState<FilterStatus>('open');
-  const [extraChip, setExtraChip] = useState<ExtraChip | null>(legacyNeedsHuman ? 'needs_human' : null);
+
+  const filter: FilterStatus =
+    statusParam === 'open' || statusParam === 'pending' ||
+    statusParam === 'resolved' || statusParam === 'closed' ||
+    statusParam === 'all'
+      ? statusParam
+      : 'open';
+  const extraChip: ExtraChip | null =
+    filterParam === 'needs_human' ? 'needs_human'
+      : filterParam === 'assigned_to_me' ? 'assigned_to_me'
+      : null;
+
+  // Legacy URL redirect: /inbox?queue=needs_human → /inbox?filter=needs_human.
+  useEffect(() => {
+    if (queueParam !== 'needs_human') return;
+    const next = new URLSearchParams(searchParams);
+    next.delete('queue');
+    next.set('filter', 'needs_human');
+    setSearchParams(next, { replace: true });
+  }, [queueParam, searchParams, setSearchParams]);
+
+  const updateUrl = useCallback((updates: Record<string, string | null>) => {
+    const next = new URLSearchParams(searchParams);
+    for (const [k, v] of Object.entries(updates)) {
+      if (v === null || v === '') next.delete(k);
+      else next.set(k, v);
+    }
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+
+  const setFilter = useCallback((s: FilterStatus) => {
+    // Default 'open' is implicit — keep the URL clean.
+    updateUrl({ status: s === 'open' ? null : s });
+  }, [updateUrl]);
+  const setExtraChip = useCallback((c: ExtraChip | null) => {
+    updateUrl({ filter: c });
+  }, [updateUrl]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [message, setMessage] = useState('');
   const [search, setSearch] = useState('');
@@ -327,6 +366,21 @@ export default function InboxPage() {
       ? selectedSnapshotRef.current
       : undefined
   );
+
+  // Selection safety — when the active conversation drops out of the
+  // current queue/filter (AI handoff, takeover, spam toggle, platform AI
+  // disabled repair, filter change), clear the selection on desktop and
+  // return to the list on mobile. We keep selection if the conversation
+  // is in an active call (handled by the snapshot fallback above).
+  useEffect(() => {
+    if (!selectedId) return;
+    if (!conversations) return; // still loading
+    const inList = conversations.some(c => c.id === selectedId);
+    if (inList) return;
+    if (activeCallConversationId === selectedId) return;
+    setSelectedId(null);
+    setShowMobileList(true);
+  }, [conversations, selectedId, activeCallConversationId]);
 
   // Auto-scroll
   useEffect(() => {

@@ -1,6 +1,7 @@
 import { Outlet, NavLink, useLocation, Navigate } from 'react-router-dom';
 import { useWorkspacePath, useActiveWorkspace } from '@/hooks/useWorkspace';
 import { useAiAgentCapabilities } from '@/hooks/useAiAgentCapabilities';
+import { useIsGlobalAdmin } from '@/hooks/useAdmin';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { Bot, LayoutDashboard, BookOpen, Sliders, Sparkles, Activity, Settings as SettingsIcon } from 'lucide-react';
@@ -27,7 +28,8 @@ export function AiAgentLayout() {
   const { t } = useTranslation();
   const location = useLocation();
   const { workspace } = useActiveWorkspace();
-  const { data: capabilities, isLoading } = useAiAgentCapabilities(workspace?.id || null);
+  const { data: capabilities, isLoading, isError } = useAiAgentCapabilities(workspace?.id || null);
+  const { data: isAdmin } = useIsGlobalAdmin();
   const tr = (k: string, fb: string) => {
     const v = t(`aiAgent.${k}` as any);
     return !v || v === `aiAgent.${k}` ? fb : v;
@@ -41,6 +43,11 @@ export function AiAgentLayout() {
     );
   }
 
+  // Fail-closed on capability lookup error.
+  if (isError) {
+    return <Navigate to={wsPath('/inbox')} replace />;
+  }
+
   // Platform kill switch — bounce out of the section entirely.
   if (capabilities && (!capabilities.ai_agent_enabled || !capabilities.customer_ai_agent_visible)) {
     return <Navigate to={wsPath('/inbox')} replace />;
@@ -50,10 +57,15 @@ export function AiAgentLayout() {
     if (!capabilities) return true;
     return (capabilities.customer_nav as Record<string, boolean>)[k] !== false;
   };
-  const visibleGroups = groups.map((g) => ({
-    ...g,
-    items: g.items.filter((it) => navKey(it.key)),
-  }));
+  // Apply max_customer_visible_nav_items cap (super admins ignore the cap).
+  const cap = (capabilities as any)?.max_customer_visible_nav_items as number | undefined;
+  const visibleGroups = groups.map((g) => {
+    const filtered = g.items.filter((it) => navKey(it.key));
+    if (!isAdmin && typeof cap === 'number' && cap > 0) {
+      return { ...g, items: filtered.slice(0, cap) };
+    }
+    return { ...g, items: filtered };
+  });
 
   return (
     <div className="flex h-full">

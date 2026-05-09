@@ -202,6 +202,7 @@ export interface WorkspaceAiAgentCapabilities {
     test_harness_visible: boolean;
   };
   disabled_message: string | null;
+  max_customer_visible_nav_items: number;
 }
 
 export async function getWorkspaceAiAgentCapabilities(
@@ -244,5 +245,6 @@ export async function getWorkspaceAiAgentCapabilities(
         isAdmin || (s.advanced_tools_enabled && s.test_harness_visible_to_customers),
     },
     disabled_message: s.disabled_message,
+    max_customer_visible_nav_items: s.max_customer_visible_nav_items,
   };
 }

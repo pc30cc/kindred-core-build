@@ -88,9 +88,44 @@ import {
 
 export const aiAgentRouter: Router = express.Router();
 
+// ─── Shared auth resolution ───
+// Resolves the current user from either the standard `Authorization: Bearer`
+// header used by the SPA, or the `sb-access-token` HTTP-only cookie fallback.
+// Mirrors the auth pattern used elsewhere in the AI Agent router so that
+// middleware (advanced-tools guard, kill switch) and per-route handlers
+// authenticate the same way.
+async function resolveCurrentUserId(
+  req: Request,
+  config: ServerConfig,
+): Promise<{ userId: string | null; reason?: 'missing' | 'invalid' }> {
+  let token: string | null = null;
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith('Bearer ')) {
+    token = authHeader.replace('Bearer ', '').trim() || null;
+  }
+  if (!token) {
+    const cookieToken =
+      (req as any).cookies?.['sb-access-token'] ||
+      (req as any).cookies?.['sb:token'] ||
+      null;
+    if (cookieToken && typeof cookieToken === 'string') token = cookieToken;
+  }
+  if (!token) return { userId: null, reason: 'missing' };
+  try {
+    const sb = getServiceClient(config);
+    const { data: { user }, error } = await sb.auth.getUser(token);
+    if (error || !user) return { userId: null, reason: 'invalid' };
+    return { userId: user.id };
+  } catch {
+    return { userId: null, reason: 'invalid' };
+  }
+}
+
 // ─── Backend advanced-tools guard ───
 // Mirrors the frontend AdvancedAiAgentGuard. Endpoints that expose internal
 // QA/debug/regression data MUST go through this guard.
+// Registered IMMEDIATELY after router creation so it runs before every
+// matching route handler.
 const ADVANCED_PATH_PATTERNS: RegExp[] = [
   /^\/runs\/[^/]+\/inspect$/,
   /^\/debug\/retrieval$/,
@@ -105,18 +140,12 @@ const ADVANCED_PATH_PATTERNS: RegExp[] = [
 aiAgentRouter.use(async (req: Request, res: Response, next) => {
   if (!ADVANCED_PATH_PATTERNS.some((rx) => rx.test(req.path))) return next();
   const config = (req as any).serverConfig as ServerConfig;
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Missing authorization' });
-  }
-  const token = authHeader.replace('Bearer ', '');
-  const sb = getServiceClient(config);
-  const { data: { user }, error } = await sb.auth.getUser(token);
-  if (error || !user) return res.status(401).json({ error: 'Invalid token' });
+  const { userId } = await resolveCurrentUserId(req, config);
+  if (!userId) return res.status(401).json({ error: 'unauthenticated' });
   const workspaceId = String(
     req.query.workspaceId || req.query.workspace_id || (req.body && req.body.workspaceId) || '',
   );
-  const ok = await canAccessAiAgentAdvancedToolsServer(config, user.id, workspaceId);
+  const ok = await canAccessAiAgentAdvancedToolsServer(config, userId, workspaceId);
   if (!ok) return res.status(403).json({ error: 'advanced_ai_tools_not_available' });
   return next();
 });

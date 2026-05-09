@@ -10,6 +10,7 @@ import {
   LayoutDashboard, AlertTriangle, CheckCircle2, AlertCircle, Loader2,
   RefreshCw, Plus, Globe, Beaker, GraduationCap, Tags, Workflow,
 } from 'lucide-react';
+import TestAiPanel from './TestAiPanel';
 
 const SEVERITY_STYLES: Record<string, string> = {
   info: 'border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300',
@@ -148,6 +149,8 @@ export default function OverviewPage() {
           </CardContent>
         </Card>
       </div>
+
+      <TestAiPanel />
     </div>
   );
 }

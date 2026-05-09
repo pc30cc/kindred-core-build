@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
-import { aiAgentApi, type PlaygroundResult } from '@/lib/ai-agent-api';
+import { aiAgentApi } from '@/lib/ai-agent-api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -8,33 +8,39 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Beaker, Loader2 } from 'lucide-react';
 
-function confidenceBucket(c: number): { label: string; tone: string } {
-  if (c >= 0.7) return { label: 'High', tone: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' };
-  if (c >= 0.4) return { label: 'Medium', tone: 'bg-amber-500/10 text-amber-700 dark:text-amber-300' };
-  return { label: 'Low', tone: 'bg-muted text-muted-foreground' };
-}
+const BUCKET_TONE: Record<string, string> = {
+  high: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+  medium: 'bg-amber-500/10 text-amber-700 dark:text-amber-300',
+  low: 'bg-muted text-muted-foreground',
+};
 
 function actionLabel(a: string): string {
   if (a === 'answer') return 'AI would answer';
   if (a === 'handoff') return 'AI would transfer to operator';
   if (a === 'no_answer') return 'AI would not answer';
-  if (a === 'blocked') return 'AI is blocked';
+  if (a === 'clarification') return 'AI would ask a clarifying question';
   return a;
 }
+
+type TestAiResult = Awaited<ReturnType<typeof aiAgentApi.testAi>>;
 
 export default function TestAiPanel() {
   const { workspace } = useActiveWorkspace();
   const [message, setMessage] = useState('');
   const [pageUrl, setPageUrl] = useState('');
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<PlaygroundResult | null>(null);
+  const [result, setResult] = useState<TestAiResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const onTest = async () => {
     if (!workspace?.id || !message.trim()) return;
     setLoading(true); setError(null); setResult(null);
     try {
-      const r = await aiAgentApi.playground({ workspaceId: workspace.id, question: message.trim() });
+      const r = await aiAgentApi.testAi({
+        workspaceId: workspace.id,
+        message: message.trim(),
+        pageContext: pageUrl.trim() ? { currentPageUrl: pageUrl.trim() } : null,
+      });
       setResult(r);
     } catch (e: any) {
       setError(e?.message || 'Test failed');
@@ -62,8 +68,8 @@ export default function TestAiPanel() {
           <div className="rounded-md border p-3 space-y-2 bg-muted/30">
             <div className="flex items-center gap-2">
               <Badge variant="outline">{actionLabel(result.action)}</Badge>
-              <Badge variant="outline" className={confidenceBucket(result.confidence).tone}>
-                Confidence: {confidenceBucket(result.confidence).label}
+              <Badge variant="outline" className={BUCKET_TONE[result.confidence_bucket]}>
+                Confidence: {result.confidence_bucket.charAt(0).toUpperCase() + result.confidence_bucket.slice(1)}
               </Badge>
             </div>
             {result.answer && (
@@ -73,17 +79,20 @@ export default function TestAiPanel() {
               </div>
             )}
             {!result.answer && result.action !== 'answer' && (
-              <p className="text-xs text-muted-foreground">{result.fallbackMessage}</p>
+              <p className="text-xs text-muted-foreground">{result.reason}</p>
             )}
-            {result.retrievedArticles?.length > 0 && (
+            {result.sources?.length > 0 && (
               <div>
                 <p className="text-xs text-muted-foreground mb-1">Sources used</p>
                 <ul className="text-sm list-disc pl-5 space-y-0.5">
-                  {result.retrievedArticles.slice(0, 5).map((a) => (
-                    <li key={a.id}>{a.title}</li>
+                  {result.sources.map((a, i) => (
+                    <li key={i}>{a.title}</li>
                   ))}
                 </ul>
               </div>
+            )}
+            {result.sources_hidden && (
+              <p className="text-[11px] text-muted-foreground">Source list hidden by your settings.</p>
             )}
           </div>
         )}

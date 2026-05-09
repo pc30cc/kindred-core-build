@@ -352,13 +352,15 @@ aiAgentRouter.put('/settings', async (req: Request, res: Response) => {
 });
 
 // ─── POST /settings/avatar — upload AI agent avatar via active storage provider ───
-const ALLOWED_AVATAR_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
 const AVATAR_MAX_BYTES = 5 * 1024 * 1024; // 5 MB
+// Reject base64 payloads that decode larger than the limit. base64 expands
+// bytes by ~4/3, so cap the encoded string roughly here as a fast pre-check.
+const AVATAR_MAX_BASE64_LEN = Math.ceil((AVATAR_MAX_BYTES * 4) / 3) + 32;
 
 const avatarUploadSchema = z.object({
   workspaceId: z.string().uuid(),
   filename: z.string().min(1).max(200),
-  mimeType: z.string().min(3).max(100),
+  mimeType: z.string().max(100).optional(),
   dataBase64: z.string().min(1),
 });
 
@@ -369,14 +371,6 @@ function safeAvatarFilename(name: string): string {
   return cleaned || 'avatar';
 }
 
-function avatarExtForMime(m: string): string {
-  if (m === 'image/png') return 'png';
-  if (m === 'image/jpeg') return 'jpg';
-  if (m === 'image/webp') return 'webp';
-  if (m === 'image/gif') return 'gif';
-  return 'bin';
-}
-
 aiAgentRouter.post('/settings/avatar', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
   const parsed = avatarUploadSchema.safeParse(req.body);
@@ -385,8 +379,8 @@ aiAgentRouter.post('/settings/avatar', async (req: Request, res: Response) => {
   }
   const { workspaceId, filename, mimeType, dataBase64 } = parsed.data;
 
-  if (!ALLOWED_AVATAR_MIMES.has(mimeType)) {
-    return res.status(400).json({ error: 'unsupported_mime' });
+  if (dataBase64.length > AVATAR_MAX_BASE64_LEN) {
+    return res.status(413).json({ error: 'file_too_large', maxBytes: AVATAR_MAX_BYTES });
   }
 
   const auth = await authorizeMember(req, res, config, workspaceId);
@@ -401,12 +395,19 @@ aiAgentRouter.post('/settings/avatar', async (req: Request, res: Response) => {
   } catch {
     return res.status(400).json({ error: 'invalid_base64' });
   }
-  if (buf.length === 0) return res.status(400).json({ error: 'empty_file' });
-  if (buf.length > AVATAR_MAX_BYTES) {
-    return res.status(413).json({ error: 'file_too_large', maxBytes: AVATAR_MAX_BYTES });
+  const v = validateAvatarBytes({
+    filename,
+    declaredMime: mimeType,
+    buf,
+    maxBytes: AVATAR_MAX_BYTES,
+  });
+  if (!v.ok) {
+    const code = v.error === 'file_too_large' ? 413 : 400;
+    return res.status(code).json({ error: v.error || 'invalid_image' });
   }
+  const ext = v.ext!;
+  const finalMime = v.mime!;
 
-  const ext = avatarExtForMime(mimeType);
   const safeName = safeAvatarFilename(filename);
   // workspace-scoped path. NEVER returned to the client.
   const fileKey = `workspace/${workspaceId}/ai-agent/avatar/${randomUUID()}-${safeName}${safeName.endsWith('.' + ext) ? '' : '.' + ext}`;
@@ -424,7 +425,7 @@ aiAgentRouter.post('/settings/avatar', async (req: Request, res: Response) => {
     workspaceId,
     fileKey,
     data: buf,
-    contentType: mimeType,
+    contentType: finalMime,
   });
   if (!uploaded.success || !uploaded.url) {
     return res.status(502).json({ error: 'upload_failed', details: uploaded.error });

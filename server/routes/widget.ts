@@ -497,6 +497,8 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       suppressGreeting: boolean;
       agentName: string | null;
       agentLogoUrl: string | null;
+      disabledByPlatform: boolean;
+      disabledMessage: string | null;
     } = {
       enabled: false,
       mode: 'off',
@@ -504,8 +506,29 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       suppressGreeting: false,
       agentName: null,
       agentLogoUrl: null,
+      disabledByPlatform: false,
+      disabledMessage: null,
     };
     try {
+      // E12 — platform kill switch wins over workspace AI settings.
+      // When the platform disables AI Agent globally we MUST advertise
+      // it as disabled to the widget so it stops suppressing the generic
+      // greeting and never requests the AI intro.
+      const { getPlatformAiAgentSettings } = await import('../services/ai-agent/platformSettings.js');
+      const platform = await getPlatformAiAgentSettings(config).catch(() => null);
+      const platformDisabled = !!platform && platform.ai_agent_enabled === false;
+      if (platformDisabled) {
+        aiAgentInfo = {
+          enabled: false,
+          mode: 'off',
+          introEnabled: false,
+          suppressGreeting: false,
+          agentName: null,
+          agentLogoUrl: null,
+          disabledByPlatform: true,
+          disabledMessage: platform?.disabled_message || null,
+        };
+      } else {
       const { data: aiSettings } = await supabase
         .from('ai_agent_settings')
         .select('enabled, mode, ai_intro_enabled, agent_name, agent_logo_url')
@@ -526,7 +549,10 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
           suppressGreeting: !!aiSettings.enabled && isAuto && introEnabled,
           agentName: aiSettings.agent_name || null,
           agentLogoUrl: aiSettings.agent_logo_url || null,
+          disabledByPlatform: false,
+          disabledMessage: null,
         };
+      }
       }
     } catch (e: any) {
       console.warn('[widget-config] ai_agent_settings lookup failed:', e?.message || e);

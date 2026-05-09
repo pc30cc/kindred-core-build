@@ -10,6 +10,7 @@ import { getServiceClient } from '../../supabase.js';
 import { getOrCreateSettings, type AgentSettings } from './settings.js';
 import { insertAiMessage, deriveAgentDisplay } from './responder.js';
 import { logRun } from './logs.js';
+import { isAutoAnswerAllowedForWorkspace } from './platformGuards.js';
 
 export interface IntroInput {
   workspaceId: string;
@@ -107,6 +108,16 @@ export async function maybeSendIntro(
   input: IntroInput,
 ): Promise<IntroResult> {
   try {
+    // E12 — Platform kill switch must short-circuit the visitor-facing
+    // intro before any settings load, conversation creation, or AI
+    // message insert. When disabled the widget gets a graceful no-op so
+    // it falls back to the normal generic greeting / live-chat flow and
+    // no AI side effects (rows, runs, LLM calls) happen.
+    const platformGate = await isAutoAnswerAllowedForWorkspace(config, input.workspaceId);
+    if (platformGate.allowed !== true) {
+      const reason = (platformGate as { allowed: false; reason: string }).reason;
+      return { sent: false, reason };
+    }
     const settings = await getOrCreateSettings(config, input.workspaceId);
     if (!settings.enabled || settings.mode === 'off') {
       return { sent: false, reason: 'disabled_or_off' };

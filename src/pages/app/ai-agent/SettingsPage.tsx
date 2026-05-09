@@ -40,6 +40,7 @@ export default function AiAgentSettingsPage() {
         fallback_message: form.fallback_message,
         answer_only_from_kb: form.answer_only_from_kb,
         allowed_locales: form.allowed_locales,
+        show_sources_to_operator: form.show_sources_to_operator,
       });
       toast.success('Settings saved');
     } catch (e: any) {

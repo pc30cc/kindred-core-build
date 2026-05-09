@@ -75,10 +75,6 @@ const settingsGroupsDef: SettingsGroup[] = [
       { key: 'translations', label: 'Translations', subPath: '/settings/translations' },
     ],
   },
-  {
-    key: 'ai', label: 'AI', icon: Bot,
-    items: [{ key: 'ai', label: 'AI Settings', subPath: '/settings/ai' }],
-  },
 ];
 
 export function SettingsLayout() {

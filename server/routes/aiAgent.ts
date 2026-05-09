@@ -345,7 +345,7 @@ aiAgentRouter.put('/settings', async (req: Request, res: Response) => {
 
   try {
     const updated = await updateSettings(config, workspaceId, patch as Partial<AgentSettings>);
-    return res.json({ settings: updated });
+    return res.json({ settings: toCustomerSafeAiAgentSettings(updated) });
   } catch (err: any) {
     return res.status(500).json({ error: 'update_failed', details: err?.message });
   }

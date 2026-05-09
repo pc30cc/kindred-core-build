@@ -7,7 +7,7 @@ import {
   User, CreditCard, Settings, MessageSquare, Inbox, Mail,
   BookOpen, BarChart3, ChevronDown, ChevronLeft, ChevronRight,
   Globe, Palette, Languages, Plug, Shield, Users,
-  MessageCircleReply, ShieldCheck, Monitor, Bot, UserCog,
+  MessageCircleReply, ShieldCheck, Monitor, UserCog,
 } from 'lucide-react';
 
 interface SettingsGroup {

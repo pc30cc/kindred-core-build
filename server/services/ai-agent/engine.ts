@@ -46,6 +46,7 @@ import { evaluateWorkflows, buildWorkflowMetadata, type WorkflowEvaluationResult
 import { evaluateInternalTools, buildToolMetadata, type ToolEvaluationResult } from './runtime/toolRuntime.js';
 import { executeRuntimeActions } from './runtime/actionExecutor.js';
 import { executeMatchedWorkflows, buildExecutedWorkflowMetadata, type WorkflowExecutionResult } from './runtime/workflowExecutor.js';
+import { isAutoAnswerAllowedForWorkspace } from './platformGuards.js';
 
 export interface MaybeRunInput {
   workspaceId: string;
@@ -94,6 +95,27 @@ async function runInternal(
   if (!question) {
     return { ran: false, action: 'skipped', reason: 'empty_question' };
   }
+
+  // E12 Platform kill switch + auto_answer toggle. Visitor messages still
+  // flow normally to the operator inbox; we only short-circuit AI side
+  // effects (LLM, AI reply, suggestion, handoff).
+  const platformGate = await isAutoAnswerAllowedForWorkspace(config, workspaceId);
+  if (!platformGate.allowed) {
+    try {
+      await logRun(config, {
+        workspaceId,
+        conversationId,
+        visitorMessageId,
+        runType: 'skip',
+        mode: 'off',
+        status: 'skipped',
+        inputText: input.question,
+        skipReason: platformGate.reason,
+      });
+    } catch { /* never break visitor flow */ }
+    return { ran: false, action: 'skipped', reason: platformGate.reason };
+  }
+
   const pageContext = input.pageContext || null;
   // E2C — lightweight intent detector for "what is this page" questions.
   const isPageIntent = detectPageIntent(question);

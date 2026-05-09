@@ -266,6 +266,19 @@ export interface SuggestedTestCase {
 export const aiAgentApi = {
   getSettings: (workspaceId: string) =>
     jsonFetch(`/api/ai-agent/settings?workspaceId=${workspaceId}`) as Promise<{ settings: AgentSettings }>,
+  // E12 — workspace-safe capability snapshot (kill switch + per-feature toggles)
+  getCapabilities: (workspaceId: string) =>
+    jsonFetch(`/api/ai-agent/capabilities?workspaceId=${workspaceId}`) as Promise<{
+      capabilities: AiAgentCapabilities;
+    }>,
+  // E12 — Super Admin only (backend admin guard enforced)
+  getPlatformSettings: () =>
+    jsonFetch(`/api/ai-agent/platform/settings`) as Promise<{ settings: PlatformAiAgentSettings }>,
+  updatePlatformSettings: (patch: Partial<PlatformAiAgentSettings>) =>
+    jsonFetch(`/api/ai-agent/platform/settings`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }) as Promise<{ settings: PlatformAiAgentSettings }>,
   updateSettings: (workspaceId: string, patch: Partial<AgentSettings>) =>
     jsonFetch(`/api/ai-agent/settings`, { method: 'PUT', body: JSON.stringify({ workspaceId, ...patch }) }) as Promise<{ settings: AgentSettings }>,
   uploadAvatar: async (workspaceId: string, file: File) => {

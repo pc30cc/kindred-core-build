@@ -52,14 +52,14 @@ export async function assertAiAgentPlatformEnabledForWorkspace(
   config: ServerConfig,
   workspaceId: string,
   opts: { customerFacing?: boolean } = {},
-): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+): Promise<{ ok: true } | { ok: false; status: number; error: string; reason?: 'kill_switch' | 'customer_hidden' | 'workspace_disabled' }> {
   try {
     const platform = await getPlatformAiAgentSettings(config);
     if (!platform.ai_agent_enabled) {
-      return { ok: false, status: 403, error: 'ai_agent_platform_disabled' };
+      return { ok: false, status: 403, error: 'ai_agent_platform_disabled', reason: 'kill_switch' };
     }
     if (opts.customerFacing && !platform.customer_ai_agent_visible) {
-      return { ok: false, status: 403, error: 'ai_agent_platform_disabled' };
+      return { ok: false, status: 403, error: 'ai_agent_platform_disabled', reason: 'customer_hidden' };
     }
     if (workspaceId) {
       const sb = getServiceClient(config);
@@ -70,7 +70,7 @@ export async function assertAiAgentPlatformEnabledForWorkspace(
         .maybeSingle();
       const meta = ((row as any)?.metadata || {}) as Record<string, unknown>;
       if (meta.platform_disabled === true) {
-        return { ok: false, status: 403, error: 'ai_agent_platform_disabled' };
+        return { ok: false, status: 403, error: 'ai_agent_platform_disabled', reason: 'workspace_disabled' };
       }
     }
     return { ok: true };
@@ -151,6 +151,8 @@ const FEATURE_ROUTES: Array<{ rx: RegExp; feature: PlatformFeatureKey }> = [
   { rx: /^\/source-health$/, feature: 'source_health' },
   // Retrieval debug
   { rx: /^\/debug\/retrieval$/, feature: 'test_harness' },
+  // Suggested test cases
+  { rx: /^\/suggested-test-cases(\/|$)/, feature: 'test_harness' },
 ];
 
 /** Best-effort workspace_id resolver from common `:id` route params. */
@@ -163,24 +165,30 @@ async function resolveWorkspaceFromIdParam(
   if (!m) return null;
   const resource = m[1];
   const id = m[2];
-  const tableMap: Record<string, string> = {
-    'files': 'ai_agent_files',
-    'data-sources': 'ai_data_sources',
+  // NOTE: file uploads live in ai_data_sources with source_type='file'.
+  // There is no separate ai_agent_files table in this schema.
+  const tableMap: Record<string, { table: string; filter?: { col: string; eq: string } }> = {
+    'files': { table: 'ai_data_sources', filter: { col: 'source_type', eq: 'file' } },
+    'data-sources': { table: 'ai_data_sources' },
     'qna': 'ai_agent_qna',
     'learning-candidates': 'ai_agent_learning_candidates',
     'test-cases': 'ai_agent_test_cases',
     'test-runs': 'ai_agent_test_runs',
+    'suggested-test-cases': 'ai_agent_suggested_test_cases',
     'operator-assist': 'ai_agent_runs',
-  };
-  const table = tableMap[resource];
-  if (!table) return null;
+  } as any;
+  const entry = (tableMap as any)[resource];
+  if (!entry) return null;
+  const table = typeof entry === 'string' ? entry : entry.table;
+  const filter = typeof entry === 'string' ? null : entry.filter || null;
   try {
     const sb = getServiceClient(config);
-    const { data } = await sb
+    let q: any = sb
       .from(table as any)
       .select('workspace_id')
-      .eq('id', id)
-      .maybeSingle();
+      .eq('id', id);
+    if (filter) q = q.eq(filter.col, filter.eq);
+    const { data } = await q.maybeSingle();
     return ((data as any)?.workspace_id as string) || null;
   } catch {
     return null;
@@ -215,6 +223,26 @@ export function aiAgentPlatformGuard() {
       if (fromId) workspaceId = fromId;
     }
 
+    // Resolve caller user (best-effort) early so we can:
+    //   1. let super admins bypass `customer_ai_agent_visible=false` for diagnostics
+    //   2. let super admins bypass advanced/regression/test_harness gates
+    // BUT: super admins NEVER bypass `ai_agent_enabled=false` (true kill switch).
+    let userId: string | null = null;
+    try {
+      const authHeader = req.headers.authorization;
+      if (authHeader?.startsWith('Bearer ')) {
+        const token = authHeader.replace('Bearer ', '').trim();
+        if (token) {
+          const sb = getServiceClient(config);
+          const { data: { user } } = await sb.auth.getUser(token);
+          userId = user?.id || null;
+        }
+      }
+    } catch { /* ignore */ }
+    const isAdmin = userId
+      ? await isGlobalAdmin(config, userId).catch(() => false)
+      : false;
+
     // Kill switch: applies whenever we have any AI Agent context.
     const killCheck = await assertAiAgentPlatformEnabledForWorkspace(
       config,
@@ -222,26 +250,19 @@ export function aiAgentPlatformGuard() {
       { customerFacing: true },
     );
     if (!('ok' in killCheck) || killCheck.ok !== true) {
-      const err = killCheck as { status: number; error: string };
-      return res.status(err.status).json({ error: err.error });
+      const err = killCheck as { status: number; error: string; reason?: string };
+      // Super admin diagnostic bypass: customer-hidden only, never the
+      // hard kill-switch and never workspace-level disable.
+      if (isAdmin && err.reason === 'customer_hidden') {
+        // fall through
+      } else {
+        return res.status(err.status).json({ error: err.error });
+      }
     }
 
     // Per-feature toggle.
     const matched = FEATURE_ROUTES.find((r) => r.rx.test(req.path));
     if (matched) {
-      // Resolve user (best-effort) for super-admin bypass on advanced features.
-      let userId: string | null = null;
-      try {
-        const authHeader = req.headers.authorization;
-        if (authHeader?.startsWith('Bearer ')) {
-          const token = authHeader.replace('Bearer ', '').trim();
-          if (token) {
-            const sb = getServiceClient(config);
-            const { data: { user } } = await sb.auth.getUser(token);
-            userId = user?.id || null;
-          }
-        }
-      } catch { /* ignore */ }
       const featCheck = await assertFeatureEnabled(config, matched.feature, { userId });
       if (!('ok' in featCheck) || featCheck.ok !== true) {
         const err = featCheck as { status: number; error: string };
@@ -250,4 +271,40 @@ export function aiAgentPlatformGuard() {
     }
     return next();
   };
+}
+
+/**
+ * Visitor-runtime helper (used by the engine, not by the Express middleware).
+ * Returns whether AI auto-answer is allowed RIGHT NOW for this workspace.
+ * Honors the global kill switch AND the auto_answer feature toggle. Never
+ * throws — always returns a verdict so the engine can record skip reasons.
+ */
+export async function isAutoAnswerAllowedForWorkspace(
+  config: ServerConfig,
+  workspaceId: string,
+): Promise<{ allowed: true } | { allowed: false; reason: string }> {
+  try {
+    const platform = await getPlatformAiAgentSettings(config) as any;
+    if (!platform.ai_agent_enabled) {
+      return { allowed: false, reason: 'ai_agent_platform_disabled' };
+    }
+    if (!platform.auto_answer_enabled) {
+      return { allowed: false, reason: 'auto_answer_disabled_by_platform' };
+    }
+    if (workspaceId) {
+      const sb = getServiceClient(config);
+      const { data: row } = await sb
+        .from('ai_agent_settings')
+        .select('metadata')
+        .eq('workspace_id', workspaceId)
+        .maybeSingle();
+      const meta = ((row as any)?.metadata || {}) as Record<string, unknown>;
+      if (meta.platform_disabled === true) {
+        return { allowed: false, reason: 'ai_agent_platform_disabled' };
+      }
+    }
+    return { allowed: true };
+  } catch {
+    return { allowed: true };
+  }
 }

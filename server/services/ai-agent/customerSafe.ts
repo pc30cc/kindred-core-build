@@ -130,7 +130,15 @@ export async function canAccessAiAgentAdvancedToolsServer(
   userId: string,
   _workspaceId: string,
 ): Promise<boolean> {
-  if (process.env.ENABLE_AI_ADVANCED_TOOLS === 'true') return true;
+  // Dev-only override. MUST NOT take effect in production builds — in
+  // production only verified global admins (or future platform config) may
+  // access advanced QA/debug/regression tools.
+  if (
+    process.env.NODE_ENV !== 'production' &&
+    process.env.ENABLE_AI_ADVANCED_TOOLS === 'true'
+  ) {
+    return true;
+  }
   try {
     return await isGlobalAdmin(config, userId);
   } catch {

@@ -976,6 +976,7 @@ const en = {
       mapGeo: 'Map & Geo',
       widgetSettings: 'Widget Settings',
       voiceVideo: 'Voice & Video',
+      aiAgent: 'AI Agent',
       advancedRouting: 'Advanced Routing',
       system: 'System',
       observability: 'Observability',

@@ -964,6 +964,7 @@ const tr: TranslationKeys = {
       mapGeo: 'Harita ve Konum',
       widgetSettings: 'Widget Ayarları',
       voiceVideo: 'Ses ve Video',
+      aiAgent: 'AI Ajanı',
       advancedRouting: 'Gelişmiş Yönlendirme',
       system: 'Sistem',
       observability: 'Gözlemlenebilirlik',

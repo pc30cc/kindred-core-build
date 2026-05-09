@@ -1129,6 +1129,25 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       return res.status(403).json({ error: 'Chat not enabled' });
     }
 
+    // Pass E12-Hardening — compute platform-AI-off verdict once. When OFF,
+    // we must not run any AI side-effects and must restore conversations
+    // out of the Automated inbox so they appear in Main Inbox.
+    let platformAiOff = false;
+    let platformAiOffReason: 'platform_ai_disabled' | 'customer_ai_hidden' | 'auto_answer_disabled' = 'platform_ai_disabled';
+    try {
+      const platform = await getPlatformAiAgentSettings(config);
+      if (platform.ai_agent_enabled === false) {
+        platformAiOff = true;
+        platformAiOffReason = 'platform_ai_disabled';
+      } else if (platform.customer_ai_agent_visible === false) {
+        platformAiOff = true;
+        platformAiOffReason = 'customer_ai_hidden';
+      } else if (platform.auto_answer_enabled === false) {
+        platformAiOff = true;
+        platformAiOffReason = 'auto_answer_disabled';
+      }
+    } catch { /* fail-open if settings table missing */ }
+
     let convId = body.conversation_id || null;
 
     // Verify conversation ownership if provided

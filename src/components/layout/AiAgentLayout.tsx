@@ -58,7 +58,7 @@ export function AiAgentLayout() {
     return (capabilities.customer_nav as Record<string, boolean>)[k] !== false;
   };
   // Apply max_customer_visible_nav_items cap (super admins ignore the cap).
-  const cap = (capabilities as any)?.max_customer_visible_nav_items as number | undefined;
+  const cap = capabilities?.max_customer_visible_nav_items;
   const visibleGroups = groups.map((g) => {
     const filtered = g.items.filter((it) => navKey(it.key));
     if (!isAdmin && typeof cap === 'number' && cap > 0) {

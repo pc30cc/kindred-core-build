@@ -120,6 +120,52 @@ export function useConversations(
 }
 
 /**
+ * Sidebar inbox counters — single hook, four small head-only queries.
+ *
+ * Counts are scoped to the workspace and align with the queue model:
+ *   - main:        is_spam=false AND (ai_state IS NULL OR ai_state != 'ai_managed')
+ *                  AND status != 'closed'
+ *   - automated:   is_spam=false AND ai_state='ai_managed' AND status != 'closed'
+ *   - needs_human: is_spam=false AND ai_state='needs_human' AND status != 'closed'
+ *   - spam:        is_spam=true
+ */
+export function useInboxCounts(workspaceId: string | undefined) {
+  return useQuery({
+    queryKey: ['inbox-counts', workspaceId],
+    enabled: !!workspaceId,
+    staleTime: 15_000,
+    queryFn: async () => {
+      const base = () =>
+        supabase
+          .from('conversations')
+          .select('id', { count: 'exact', head: true })
+          .eq('workspace_id', workspaceId!);
+      const [mainRes, autoRes, needsRes, spamRes] = await Promise.all([
+        base()
+          .eq('is_spam', false)
+          .neq('status', 'closed')
+          .or('ai_state.is.null,ai_state.neq.ai_managed'),
+        base()
+          .eq('is_spam', false)
+          .neq('status', 'closed')
+          .eq('ai_state', 'ai_managed'),
+        base()
+          .eq('is_spam', false)
+          .neq('status', 'closed')
+          .eq('ai_state', 'needs_human'),
+        base().eq('is_spam', true),
+      ]);
+      return {
+        main: mainRes.count ?? 0,
+        automated: autoRes.count ?? 0,
+        needs_human: needsRes.count ?? 0,
+        spam: spamRes.count ?? 0,
+      };
+    },
+  });
+}
+
+/**
  * Public-safe attachment shape mirrored from the server's
  * `enrichMessagesWithAttachments`. Provider URLs never reach the client —
  * the Inbox loads files via the same backend proxy as the widget:

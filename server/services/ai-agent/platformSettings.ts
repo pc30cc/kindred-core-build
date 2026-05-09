@@ -173,7 +173,63 @@ export async function updatePlatformAiAgentSettings(
   }
 
   __resetPlatformAiAgentSettingsCache();
-  return getPlatformAiAgentSettings(config);
+  const next = await getPlatformAiAgentSettings(config);
+
+  // Pass E12-Hardening — when the platform kill switch (or customer
+  // visibility, or auto-answer) just transitioned OFF, scrub
+  // ai_state='ai_managed' from open conversations so they re-appear in
+  // Main Inbox without waiting for a fresh visitor message.
+  try {
+    const wentOff =
+      (current.ai_agent_enabled === true && next.ai_agent_enabled === false) ||
+      (current.customer_ai_agent_visible === true && next.customer_ai_agent_visible === false) ||
+      (current.auto_answer_enabled === true && next.auto_answer_enabled === false);
+    if (wentOff) {
+      const reason = !next.ai_agent_enabled
+        ? 'platform_ai_disabled'
+        : !next.customer_ai_agent_visible
+          ? 'customer_ai_hidden'
+          : 'auto_answer_disabled';
+      await repairPlatformOffConversations(config, reason as any);
+    }
+  } catch (e) {
+    console.warn('[platformSettings] repair after toggle-off failed:', (e as any)?.message || e);
+  }
+  return next;
+}
+
+/**
+ * Pass E12-Hardening — sweep open conversations stuck in ai_managed and
+ * restore them to Main Inbox. Idempotent. Service-role only.
+ */
+export async function repairPlatformOffConversations(
+  config: ServerConfig,
+  reason: 'platform_ai_disabled' | 'customer_ai_hidden' | 'auto_answer_disabled',
+  opts?: { workspaceId?: string },
+): Promise<{ scanned: number; repaired: number; skipped_closed: number }> {
+  const sb = getServiceClient(config);
+  const { clearAiManagementForPlatformOff } = await import('./handoffState.js');
+  let q: any = sb
+    .from('conversations')
+    .select('id, workspace_id, status, metadata, ai_state')
+    .eq('ai_state', 'ai_managed');
+  if (opts?.workspaceId) q = q.eq('workspace_id', opts.workspaceId);
+  const { data } = await q;
+  const rows = (data as any[]) || [];
+  let repaired = 0;
+  let skipped_closed = 0;
+  for (const r of rows) {
+    if (r.status === 'closed') { skipped_closed++; continue; }
+    try {
+      const out = await clearAiManagementForPlatformOff(config, {
+        workspaceId: r.workspace_id,
+        conversationId: r.id,
+        reason,
+      });
+      if (out.changed) repaired++;
+    } catch { /* best-effort */ }
+  }
+  return { scanned: rows.length, repaired, skipped_closed };
 }
 
 /** Redacted capability snapshot intended for workspace customers. */

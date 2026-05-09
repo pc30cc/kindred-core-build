@@ -218,6 +218,13 @@ export function aiAgentPlatformGuard() {
       return next();
     }
 
+    // Routes that legitimately don't need a workspace context.
+    // Anything not on this list MUST resolve a workspaceId or fail closed.
+    const WORKSPACE_EXEMPT: RegExp[] = [
+      /^\/workflows\/_meta$/,
+    ];
+    const isWorkspaceExempt = WORKSPACE_EXEMPT.some((rx) => rx.test(req.path));
+
     const config = (req as any).serverConfig as ServerConfig;
 
     // Resolve workspaceId: prefer query/body, else look up by :id.
@@ -231,6 +238,14 @@ export function aiAgentPlatformGuard() {
     if (!workspaceId) {
       const fromId = await resolveWorkspaceFromIdParam(config, req.path);
       if (fromId) workspaceId = fromId;
+    }
+
+    // Phase 1 — strict resolution. Workspace-scoped routes that cannot
+    // resolve a workspaceId must NEVER fall through silently; treat as
+    // a controlled error so the platform kill-switch + per-feature gates
+    // cannot be bypassed via missing context.
+    if (!workspaceId && !isWorkspaceExempt) {
+      return res.status(400).json({ error: 'ai_agent_workspace_unresolved' });
     }
 
     // Resolve caller user (best-effort) early so we can:

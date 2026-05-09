@@ -130,6 +130,7 @@ const priorityColors: Record<string, string> = {
 };
 
 type FilterStatus = 'all' | 'open' | 'pending' | 'resolved' | 'closed';
+type ExtraChip = 'needs_human' | 'assigned_to_me';
 type SidebarTab = 'info' | 'activity';
 
 export default function InboxPage() {
@@ -139,13 +140,15 @@ export default function InboxPage() {
   const { platformName } = useBrandingContext();
   const [searchParams] = useSearchParams();
   const queueParam = searchParams.get('queue');
+  // `queue=needs_human` is a legacy URL — it's now a Main Inbox filter chip.
+  const legacyNeedsHuman = queueParam === 'needs_human';
   const queue: InboxQueue =
     queueParam === 'automated' ? 'automated'
-      : queueParam === 'needs_human' ? 'needs_human'
       : queueParam === 'spam' ? 'spam'
       : 'main';
   const isQueueMode = queue !== 'main';
   const [filter, setFilter] = useState<FilterStatus>('open');
+  const [extraChip, setExtraChip] = useState<ExtraChip | null>(legacyNeedsHuman ? 'needs_human' : null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [message, setMessage] = useState('');
   const [search, setSearch] = useState('');
@@ -161,6 +164,12 @@ export default function InboxPage() {
     workspace?.id,
     filter === 'all' ? undefined : filter,
     queue,
+    queue === 'main'
+      ? {
+          needsHuman: extraChip === 'needs_human',
+          assignedToMe: extraChip === 'assigned_to_me' ? (user?.id ?? null) : null,
+        }
+      : {},
   );
   const { data: rawMessages } = useConversationMessages(selectedId ?? undefined);
   const sendMessage = useSendMessage(selectedId ?? undefined, workspace?.id);

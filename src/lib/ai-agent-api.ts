@@ -297,6 +297,19 @@ export const aiAgentApi = {
     jsonFetch(`/api/ai-agent/diagnostics?workspaceId=${workspaceId}`) as Promise<DiagnosticsResponse>,
   playground: (input: { workspaceId: string; question: string; locale?: string; guidanceOverride?: AnswerGuidance; modelOverride?: string }) =>
     jsonFetch(`/api/ai-agent/playground/test`, { method: 'POST', body: JSON.stringify(input) }) as Promise<PlaygroundResult>,
+  testAi: (input: { workspaceId: string; message: string; locale?: string; pageContext?: { currentPageUrl?: string | null; currentPagePath?: string | null; currentPageOrigin?: string | null; currentPageTitle?: string | null } | null }) =>
+    jsonFetch(`/api/ai-agent/test-ai`, { method: 'POST', body: JSON.stringify(input) }) as Promise<{
+      action: 'answer' | 'handoff' | 'clarification' | 'no_answer';
+      answer: string | null;
+      confidence_bucket: 'low' | 'medium' | 'high';
+      reason: string;
+      sources: Array<{ title: string; source_type: string }>;
+      sources_hidden: boolean;
+    }>,
+  knowledgeCustomerSummary: (workspaceId: string) =>
+    jsonFetch(`/api/ai-agent/knowledge/customer-summary?workspaceId=${workspaceId}`) as Promise<{
+      items: Array<{ source_type: string; title: string; eligible: boolean; reason: string; updated_at: string | null }>;
+    }>,
   getRuns: (workspaceId: string, limit = 50) =>
     jsonFetch(`/api/ai-agent/runs?workspaceId=${workspaceId}&limit=${limit}`) as Promise<{ runs: any[] }>,
   inspectRun: (id: string) =>

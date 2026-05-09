@@ -1,10 +1,8 @@
-import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
+import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { aiAgentApi } from '@/lib/ai-agent-api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Loader2, BookOpen, MessageCircleQuestion, Globe, FileText, GraduationCap, BookMarked } from 'lucide-react';
 
 const FRIENDLY_REASONS: Record<string, string> = {
@@ -51,18 +49,16 @@ const SOURCE_GROUPS: Array<{ key: string; title: string; icon: any }> = [
 
 export default function KnowledgePage() {
   const { workspace } = useActiveWorkspace();
-  const wsPath = useWorkspacePath();
-  const navigate = useNavigate();
   const wsId = workspace?.id;
 
   const health = useQuery({
     queryKey: ['ai-knowledge', wsId],
-    queryFn: () => aiAgentApi.getSourceHealth(wsId!, { limit: 200 }),
+    queryFn: () => aiAgentApi.knowledgeCustomerSummary(wsId!),
     enabled: !!wsId,
     staleTime: 30_000,
   });
 
-  const items: any[] = (health.data?.items || health.data?.sources || []) as any[];
+  const items: any[] = (health.data?.items || []) as any[];
 
   return (
     <div className="space-y-6">
@@ -75,13 +71,12 @@ export default function KnowledgePage() {
         </p>
       </div>
 
-      <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-2">
-        <Button variant="outline" size="sm" onClick={() => navigate(wsPath('/ai-agent/qna'))}>Manage Q&A</Button>
-        <Button variant="outline" size="sm" onClick={() => navigate(wsPath('/ai-agent/web-pages'))}>Manage Web Pages</Button>
-        <Button variant="outline" size="sm" onClick={() => navigate(wsPath('/ai-agent/files'))}>Manage Files</Button>
-        <Button variant="outline" size="sm" onClick={() => navigate(wsPath('/settings/knowledge-base'))}>KB Articles</Button>
-        <Button variant="outline" size="sm" onClick={() => navigate(wsPath('/ai-agent/learning-candidates'))}>Learned Answers</Button>
-      </div>
+      <Card>
+        <CardContent className="py-4 text-sm text-muted-foreground">
+          To add or change knowledge sources, contact your platform admin. Advanced
+          knowledge management is available from the admin tools.
+        </CardContent>
+      </Card>
 
       {health.isLoading ? (
         <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>

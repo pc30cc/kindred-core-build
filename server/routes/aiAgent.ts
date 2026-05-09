@@ -79,8 +79,64 @@ import {
 } from '../services/ai-agent/regressionRunner.js';
 import { randomUUID } from 'crypto';
 import { uploadFile, deleteFile } from '../services/storage/index.js';
+import {
+  toCustomerSafeAiAgentSettings,
+  canAccessAiAgentAdvancedToolsServer,
+  isAiAgentPlatformEnabled,
+  validateAvatarBytes,
+} from '../services/ai-agent/customerSafe.js';
 
 export const aiAgentRouter: Router = express.Router();
+
+// ─── Backend advanced-tools guard ───
+// Mirrors the frontend AdvancedAiAgentGuard. Endpoints that expose internal
+// QA/debug/regression data MUST go through this guard.
+const ADVANCED_PATH_PATTERNS: RegExp[] = [
+  /^\/runs\/[^/]+\/inspect$/,
+  /^\/debug\/retrieval$/,
+  /^\/debug\/run-test$/,
+  /^\/source-health$/,
+  /^\/test-cases(\/|$)/,
+  /^\/test-runs(\/|$)/,
+  /^\/suggested-test-cases(\/|$)/,
+  /^\/regression(\/|$)/,
+  /^\/test-summary$/,
+];
+aiAgentRouter.use(async (req: Request, res: Response, next) => {
+  if (!ADVANCED_PATH_PATTERNS.some((rx) => rx.test(req.path))) return next();
+  const config = (req as any).serverConfig as ServerConfig;
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Missing authorization' });
+  }
+  const token = authHeader.replace('Bearer ', '');
+  const sb = getServiceClient(config);
+  const { data: { user }, error } = await sb.auth.getUser(token);
+  if (error || !user) return res.status(401).json({ error: 'Invalid token' });
+  const workspaceId = String(
+    req.query.workspaceId || req.query.workspace_id || (req.body && req.body.workspaceId) || '',
+  );
+  const ok = await canAccessAiAgentAdvancedToolsServer(config, user.id, workspaceId);
+  if (!ok) return res.status(403).json({ error: 'advanced_ai_tools_not_available' });
+  return next();
+});
+
+// Platform kill-switch — applied to all customer-facing AI Agent endpoints.
+// Skips the avatar DELETE/health/static asset paths to avoid noise.
+aiAgentRouter.use(async (req: Request, res: Response, next) => {
+  const workspaceId = String(
+    req.query.workspaceId || req.query.workspace_id || (req.body && req.body.workspaceId) || '',
+  );
+  if (!workspaceId) return next();
+  try {
+    const enabled = await isAiAgentPlatformEnabled(
+      (req as any).serverConfig as ServerConfig,
+      workspaceId,
+    );
+    if (!enabled) return res.status(403).json({ error: 'ai_agent_platform_disabled' });
+  } catch { /* default open on lookup failure */ }
+  return next();
+});
 
 // ─── Phase 1 in-memory rate limit for playground tests ───
 // 30 tests / 5 min per (workspace,user). Documented as temporary safeguard
@@ -191,7 +247,7 @@ aiAgentRouter.get('/settings', async (req: Request, res: Response) => {
   const auth = await authorizeMember(req, res, config, workspaceId);
   if (!auth) return;
   const settings = await getOrCreateSettings(config, workspaceId);
-  return res.json({ settings });
+  return res.json({ settings: toCustomerSafeAiAgentSettings(settings) });
 });
 
 // ─── PUT /settings ───
@@ -289,20 +345,22 @@ aiAgentRouter.put('/settings', async (req: Request, res: Response) => {
 
   try {
     const updated = await updateSettings(config, workspaceId, patch as Partial<AgentSettings>);
-    return res.json({ settings: updated });
+    return res.json({ settings: toCustomerSafeAiAgentSettings(updated) });
   } catch (err: any) {
     return res.status(500).json({ error: 'update_failed', details: err?.message });
   }
 });
 
 // ─── POST /settings/avatar — upload AI agent avatar via active storage provider ───
-const ALLOWED_AVATAR_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
 const AVATAR_MAX_BYTES = 5 * 1024 * 1024; // 5 MB
+// Reject base64 payloads that decode larger than the limit. base64 expands
+// bytes by ~4/3, so cap the encoded string roughly here as a fast pre-check.
+const AVATAR_MAX_BASE64_LEN = Math.ceil((AVATAR_MAX_BYTES * 4) / 3) + 32;
 
 const avatarUploadSchema = z.object({
   workspaceId: z.string().uuid(),
   filename: z.string().min(1).max(200),
-  mimeType: z.string().min(3).max(100),
+  mimeType: z.string().max(100).optional(),
   dataBase64: z.string().min(1),
 });
 
@@ -313,14 +371,6 @@ function safeAvatarFilename(name: string): string {
   return cleaned || 'avatar';
 }
 
-function avatarExtForMime(m: string): string {
-  if (m === 'image/png') return 'png';
-  if (m === 'image/jpeg') return 'jpg';
-  if (m === 'image/webp') return 'webp';
-  if (m === 'image/gif') return 'gif';
-  return 'bin';
-}
-
 aiAgentRouter.post('/settings/avatar', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
   const parsed = avatarUploadSchema.safeParse(req.body);
@@ -329,8 +379,8 @@ aiAgentRouter.post('/settings/avatar', async (req: Request, res: Response) => {
   }
   const { workspaceId, filename, mimeType, dataBase64 } = parsed.data;
 
-  if (!ALLOWED_AVATAR_MIMES.has(mimeType)) {
-    return res.status(400).json({ error: 'unsupported_mime' });
+  if (dataBase64.length > AVATAR_MAX_BASE64_LEN) {
+    return res.status(413).json({ error: 'file_too_large', maxBytes: AVATAR_MAX_BYTES });
   }
 
   const auth = await authorizeMember(req, res, config, workspaceId);
@@ -345,12 +395,19 @@ aiAgentRouter.post('/settings/avatar', async (req: Request, res: Response) => {
   } catch {
     return res.status(400).json({ error: 'invalid_base64' });
   }
-  if (buf.length === 0) return res.status(400).json({ error: 'empty_file' });
-  if (buf.length > AVATAR_MAX_BYTES) {
-    return res.status(413).json({ error: 'file_too_large', maxBytes: AVATAR_MAX_BYTES });
+  const v = validateAvatarBytes({
+    filename,
+    declaredMime: mimeType,
+    buf,
+    maxBytes: AVATAR_MAX_BYTES,
+  });
+  if (!v.ok) {
+    const code = v.error === 'file_too_large' ? 413 : 400;
+    return res.status(code).json({ error: v.error || 'invalid_image' });
   }
+  const ext = v.ext!;
+  const finalMime = v.mime!;
 
-  const ext = avatarExtForMime(mimeType);
   const safeName = safeAvatarFilename(filename);
   // workspace-scoped path. NEVER returned to the client.
   const fileKey = `workspace/${workspaceId}/ai-agent/avatar/${randomUUID()}-${safeName}${safeName.endsWith('.' + ext) ? '' : '.' + ext}`;
@@ -368,7 +425,7 @@ aiAgentRouter.post('/settings/avatar', async (req: Request, res: Response) => {
     workspaceId,
     fileKey,
     data: buf,
-    contentType: mimeType,
+    contentType: finalMime,
   });
   if (!uploaded.success || !uploaded.url) {
     return res.status(502).json({ error: 'upload_failed', details: uploaded.error });
@@ -4990,4 +5047,102 @@ aiAgentRouter.get('/regression/batches/:id/export.csv', async (req: Request, res
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="${r.filename}"`);
   return res.send(r.csv);
+});
+
+// ─── Customer-safe Test AI ───
+// Wraps runDryRunTest. Returns ONLY action/answer/confidence-bucket/source-titles.
+// Never returns retrieval_debug, prompt_preview, source ids, raw scores, chunks,
+// embeddings, or storage paths. Respects show_sources_to_operator.
+const customerTestAiSchema = z.object({
+  workspaceId: z.string().uuid(),
+  message: z.string().min(1).max(2000),
+  locale: z.string().max(10).optional(),
+  pageContext: z.object({
+    currentPageUrl: z.string().max(2000).nullable().optional(),
+    currentPageOrigin: z.string().max(500).nullable().optional(),
+    currentPagePath: z.string().max(1000).nullable().optional(),
+    currentPageTitle: z.string().max(500).nullable().optional(),
+  }).nullish(),
+});
+function confidenceBucketLabel(c: number): 'low' | 'medium' | 'high' {
+  if (c >= 0.7) return 'high';
+  if (c >= 0.4) return 'medium';
+  return 'low';
+}
+function friendlyTestAiReason(action: string, status: string): string {
+  if (action === 'answer') return 'A confident answer was generated from your knowledge.';
+  if (action === 'clarification') return 'The AI needs more details before it can answer.';
+  if (action === 'handoff') return 'The AI would transfer this conversation to a human operator.';
+  if (action === 'no_answer') return 'No matching knowledge was found.';
+  if (status === 'failed') return 'The test could not be completed. Please try again.';
+  return 'The AI evaluated this message.';
+}
+aiAgentRouter.post('/test-ai', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsed = customerTestAiSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
+  }
+  const { workspaceId, message, locale, pageContext } = parsed.data;
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  if (!checkPlaygroundRateLimit(workspaceId, auth.userId)) {
+    return res.status(429).json({ error: 'test_ai_rate_limited' });
+  }
+  try {
+    const settings = await getOrCreateSettings(config, workspaceId);
+    const result = await e6_runDryRunTest(config, {
+      workspaceId,
+      message,
+      locale: locale || undefined,
+      pageContext: pageContext || null,
+      callLLM: true,
+    });
+    const action = result.answer_strategy?.action || 'no_answer';
+    const showSources = !!settings.show_sources_to_operator;
+    const sources = showSources
+      ? (result.selected_sources || []).slice(0, 5).map((s) => ({
+          title: s.title || '(untitled)',
+          source_type: s.source_type,
+        }))
+      : [];
+    return res.json({
+      action,
+      answer: result.output_text || null,
+      confidence_bucket: confidenceBucketLabel(result.confidence || 0),
+      reason: friendlyTestAiReason(action, result.status),
+      sources,
+      sources_hidden: !showSources,
+      // explicit absence of internal fields
+      retrieval_debug: undefined,
+      prompt_preview: undefined,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'test_ai_failed', details: err?.message });
+  }
+});
+
+// ─── Customer-safe Knowledge summary ───
+// Returns the same friendly per-source items KnowledgePage needs, without
+// exposing any internal counts/metadata. Source-health remains advanced-only.
+aiAgentRouter.get('/knowledge/customer-summary', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = requireWorkspace(req);
+  if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
+  const auth = await authorizeMember(req, res, config, workspaceId);
+  if (!auth) return;
+  try {
+    const limit = Math.min(parseInt(String(req.query.limit || '200'), 10) || 200, 500);
+    const result = await getSourceHealth(config, workspaceId, { limit });
+    const items = (result.items || []).map((it: any) => ({
+      source_type: it.source_type,
+      title: it.title,
+      eligible: !!it.eligible,
+      reason: it.reason,
+      updated_at: it.last_indexed_at || null,
+    }));
+    return res.json({ items });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'knowledge_summary_failed', details: err?.message });
+  }
 });

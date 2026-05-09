@@ -44,7 +44,16 @@ export function AppSidebar() {
   const { data: branding } = useBranding(workspace?.id);
   const { data: aiAgentCaps, isError: aiAgentCapsError } = useAiAgentCapabilities(workspace?.id || null);
   const { data: inboxCounts } = useInboxCounts(workspace?.id);
-  const platformAiEnabled = !!aiAgentCaps?.ai_agent_enabled && !aiAgentCapsError;
+  // Automated inbox is shown only when EVERY layer that gates AI replies is
+  // on. Platform kill-switch alone is not enough — workspace must also have
+  // the AI Agent surface enabled and auto-answer capability available.
+  // Fail-CLOSED on error.
+  const automatedInboxVisible =
+    !aiAgentCapsError &&
+    !!aiAgentCaps &&
+    aiAgentCaps.ai_agent_enabled === true &&
+    aiAgentCaps.customer_ai_agent_visible === true &&
+    aiAgentCaps.auto_answer_enabled === true;
 
   // Primary domain for the active workspace (display under the workspace name).
   const { data: wsPrimaryDomain } = useQuery({
@@ -315,7 +324,7 @@ export function AppSidebar() {
               )}
             </Link>
 
-            {platformAiEnabled && (
+            {automatedInboxVisible && (
               <>
                 <p className="text-[11px] font-medium text-sidebar-muted-foreground uppercase tracking-wider px-2 pt-2 pb-1">AI Inboxes</p>
                 <Link

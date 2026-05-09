@@ -779,12 +779,6 @@ export default function InboxPage() {
                   <span className="text-[11px] font-semibold text-foreground">Automated</span>
                   <span className="text-[10px] text-muted-foreground">AI-managed conversations</span>
                 </>
-              ) : queue === 'needs_human' ? (
-                <>
-                  <AlertCircle className="w-3.5 h-3.5 text-destructive" />
-                  <span className="text-[11px] font-semibold text-foreground">Needs human</span>
-                  <span className="text-[10px] text-muted-foreground">Handed off by AI</span>
-                </>
               ) : (
                 <>
                   <Ban className="w-3.5 h-3.5 text-warning" />
@@ -797,7 +791,7 @@ export default function InboxPage() {
               </span>
             </div>
           ) : (
-          /* Filter tabs */
+          /* Filter tabs (status + extra chips) */
           <div
             role="tablist"
             aria-label={t('inbox.title') || 'Inbox'}
@@ -832,6 +826,41 @@ export default function InboxPage() {
                 </button>
               );
             })}
+            {/* Extra chips: Needs human + Assigned to me. Mutually exclusive,
+                toggle-off on second click. Compose with the status filter. */}
+            <button
+              role="tab"
+              aria-selected={extraChip === 'needs_human'}
+              onClick={() => setExtraChip(extraChip === 'needs_human' ? null : 'needs_human')}
+              className={cn(
+                'flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[10px] font-semibold transition-all whitespace-nowrap border',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-card',
+                extraChip === 'needs_human'
+                  ? 'bg-destructive/10 text-destructive border-destructive/25 shadow-sm'
+                  : 'bg-transparent text-muted-foreground border-transparent hover:bg-secondary/60 hover:text-foreground'
+              )}
+              title="Show only conversations the AI handed off to a human"
+            >
+              <AlertCircle className="w-3 h-3" />
+              Needs human
+            </button>
+            <button
+              role="tab"
+              aria-selected={extraChip === 'assigned_to_me'}
+              onClick={() => setExtraChip(extraChip === 'assigned_to_me' ? null : 'assigned_to_me')}
+              disabled={!user?.id}
+              className={cn(
+                'flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[10px] font-semibold transition-all whitespace-nowrap border',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-card',
+                extraChip === 'assigned_to_me'
+                  ? 'bg-primary/10 text-primary border-primary/25 shadow-sm'
+                  : 'bg-transparent text-muted-foreground border-transparent hover:bg-secondary/60 hover:text-foreground'
+              )}
+              title="Show only conversations assigned to me"
+            >
+              <UserCheck className="w-3 h-3" />
+              Assigned to me
+            </button>
           </div>
           )}
         </div>
@@ -855,10 +884,10 @@ export default function InboxPage() {
               <div className="w-14 h-14 rounded-2xl bg-secondary/40 flex items-center justify-center">
                 {queue === 'automated' ? (
                   <Bot className="w-7 h-7 text-muted-foreground/40" />
-                ) : queue === 'needs_human' ? (
-                  <AlertCircle className="w-7 h-7 text-muted-foreground/40" />
                 ) : queue === 'spam' ? (
                   <Ban className="w-7 h-7 text-muted-foreground/40" />
+                ) : extraChip === 'needs_human' ? (
+                  <AlertCircle className="w-7 h-7 text-muted-foreground/40" />
                 ) : (
                   <MessageSquare className="w-7 h-7 text-muted-foreground/40" />
                 )}
@@ -869,22 +898,22 @@ export default function InboxPage() {
                     ? 'No matches found'
                     : queue === 'automated'
                       ? 'No AI-managed conversations'
-                      : queue === 'needs_human'
-                        ? 'No conversations need a human'
-                        : queue === 'spam'
-                          ? 'No spam'
-                        : (t('inbox.noMessages') || 'No conversations')}
+                      : queue === 'spam'
+                        ? 'No spam'
+                        : extraChip === 'needs_human'
+                          ? 'No conversations need a human'
+                          : (t('inbox.noMessages') || 'No conversations')}
                 </p>
                 <p className="text-[11px] text-muted-foreground mt-1">
                   {search
                     ? `"${search}"`
                     : queue === 'automated'
                       ? 'AI replies will appear here'
-                      : queue === 'needs_human'
-                        ? 'AI handoffs will appear here'
-                        : queue === 'spam'
-                          ? 'Conversations you mark as spam will appear here'
-                        : (filter !== 'all' ? statusLabels[filter] : '')}
+                      : queue === 'spam'
+                        ? 'Conversations you mark as spam will appear here'
+                        : extraChip === 'needs_human'
+                          ? 'AI handoffs will appear here'
+                          : (filter !== 'all' ? statusLabels[filter] : '')}
                 </p>
               </div>
             </div>

@@ -79,6 +79,7 @@ export interface AiAgentCapabilities {
     test_harness_visible: boolean;
   };
   disabled_message: string | null;
+  max_customer_visible_nav_items?: number;
 }
 
 export interface AgentSettings {

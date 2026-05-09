@@ -82,7 +82,6 @@ import { uploadFile, deleteFile } from '../services/storage/index.js';
 import {
   toCustomerSafeAiAgentSettings,
   canAccessAiAgentAdvancedToolsServer,
-  isAiAgentPlatformEnabled,
   validateAvatarBytes,
 } from '../services/ai-agent/customerSafe.js';
 import {
@@ -90,6 +89,7 @@ import {
   updatePlatformAiAgentSettings,
   getWorkspaceAiAgentCapabilities,
 } from '../services/ai-agent/platformSettings.js';
+import { aiAgentPlatformGuard } from '../services/ai-agent/platformGuards.js';
 
 export const aiAgentRouter: Router = express.Router();
 
@@ -156,27 +156,13 @@ aiAgentRouter.use(async (req: Request, res: Response, next) => {
   return next();
 });
 
-// Platform kill-switch — applied to all customer-facing AI Agent endpoints.
-// Skips the avatar DELETE/health/static asset paths to avoid noise.
-aiAgentRouter.use(async (req: Request, res: Response, next) => {
-  const workspaceId = String(
-    req.query.workspaceId || req.query.workspace_id || (req.body && req.body.workspaceId) || '',
-  );
-  if (!workspaceId) return next();
-  // The capabilities endpoint must remain reachable while the platform is
-  // disabled — that's the channel the workspace UI uses to learn that
-  // AI Agent is off and to read the operator-facing disabled_message.
-  // Platform admin settings are also exempt (managed by Super Admin).
-  if (req.path === '/capabilities' || req.path.startsWith('/platform/')) return next();
-  try {
-    const enabled = await isAiAgentPlatformEnabled(
-      (req as any).serverConfig as ServerConfig,
-      workspaceId,
-    );
-    if (!enabled) return res.status(403).json({ error: 'ai_agent_platform_disabled' });
-  } catch { /* default open on lookup failure */ }
-  return next();
-});
+// Combined platform kill-switch + per-feature platform guard. Resolves
+// workspaceId from query/body OR from :id route params, then enforces:
+//   - global kill switch (ai_agent_enabled / customer_ai_agent_visible)
+//   - per-feature platform toggles (files/websites/qna/operator-assist/
+//     learning/regression/test-harness/source-health/kb)
+// Super admins bypass the advanced/regression/test/source-health gates.
+aiAgentRouter.use(aiAgentPlatformGuard());
 
 // ─── Phase 1 in-memory rate limit for playground tests ───
 // 30 tests / 5 min per (workspace,user). Documented as temporary safeguard

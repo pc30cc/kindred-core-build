@@ -6,23 +6,27 @@
 import { useQuery } from '@tanstack/react-query';
 import { aiAgentApi, type AiAgentCapabilities } from '@/lib/ai-agent-api';
 
-const FALLBACK: AiAgentCapabilities = {
-  ai_agent_enabled: true,
-  customer_ai_agent_visible: true,
-  operator_assist_enabled: true,
-  auto_answer_enabled: true,
-  learning_enabled: true,
-  files_enabled: true,
-  websites_enabled: true,
-  qna_enabled: true,
-  kb_enabled: true,
+/**
+ * Fail-closed safe snapshot. Used only when we have NO information yet
+ * (initial mount). On error, do NOT pretend the platform is enabled.
+ */
+const DISABLED_SAFE: AiAgentCapabilities = {
+  ai_agent_enabled: false,
+  customer_ai_agent_visible: false,
+  operator_assist_enabled: false,
+  auto_answer_enabled: false,
+  learning_enabled: false,
+  files_enabled: false,
+  websites_enabled: false,
+  qna_enabled: false,
+  kb_enabled: false,
   customer_nav: {
-    overview: true,
-    knowledge: true,
-    behavior: true,
-    operatorAssist: true,
-    activity: true,
-    settings: true,
+    overview: false,
+    knowledge: false,
+    behavior: false,
+    operatorAssist: false,
+    activity: false,
+    settings: false,
   },
   advanced: {
     debug_visible: false,
@@ -33,21 +37,22 @@ const FALLBACK: AiAgentCapabilities = {
   disabled_message: null,
 };
 
+/**
+ * E12-Fix Phase 5 — fail-CLOSED capability snapshot.
+ * On error: throw → callers must handle isError separately and hide UI.
+ * Never returns an "enabled" guess to the UI.
+ */
 export function useAiAgentCapabilities(workspaceId: string | null | undefined) {
   return useQuery({
     queryKey: ['ai-agent-capabilities', workspaceId],
     enabled: !!workspaceId,
     staleTime: 30_000,
+    retry: 1,
     queryFn: async (): Promise<AiAgentCapabilities> => {
-      try {
-        const { capabilities } = await aiAgentApi.getCapabilities(workspaceId!);
-        return capabilities;
-      } catch {
-        // Fail-open so a broken backend never traps the user out of the UI.
-        return FALLBACK;
-      }
+      const { capabilities } = await aiAgentApi.getCapabilities(workspaceId!);
+      return capabilities;
     },
   });
 }
 
-export const AI_AGENT_CAPABILITIES_FALLBACK = FALLBACK;
+export const AI_AGENT_CAPABILITIES_DISABLED_SAFE = DISABLED_SAFE;

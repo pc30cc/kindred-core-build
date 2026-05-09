@@ -50,8 +50,12 @@ export function useConversations(
       } else {
         // Main Inbox — human-actionable. Exclude spam and AI-managed
         // threads; needs_human + human_active stay visible because the
-        // operator should act on them.
-        q = q.eq('is_spam', false).neq('ai_state', 'ai_managed');
+        // operator should act on them. Include rows where ai_state IS NULL
+        // (e.g. classic conversations, or ones restored after platform AI
+        // was disabled) — PostgREST .neq() filters NULL out otherwise.
+        q = q
+          .eq('is_spam', false)
+          .or('ai_state.is.null,ai_state.neq.ai_managed');
         if (status && status !== 'all') q = q.eq('status', status);
       }
       const { data, error } = await q;

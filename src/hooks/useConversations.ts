@@ -22,15 +22,25 @@ import { dedupeById } from '@/realtime/dedupe';
  * Queue mode bypasses the `status` argument so the AI / Spam queues are not
  * accidentally narrowed by the operator's open/pending/resolved chip.
  */
-export type InboxQueue = 'main' | 'automated' | 'needs_human' | 'spam';
+export type InboxQueue = 'main' | 'automated' | 'spam';
+
+export interface InboxExtraFilter {
+  /** Restrict Main Inbox to ai_state='needs_human'. */
+  needsHuman?: boolean;
+  /** Restrict Main Inbox to conversations assigned to this user id. */
+  assignedToMe?: string | null;
+}
 
 export function useConversations(
   workspaceId: string | undefined,
   status?: string,
   queue: InboxQueue = 'main',
+  extra: InboxExtraFilter = {},
 ) {
+  const needsHuman = !!extra.needsHuman;
+  const assignedToMe = extra.assignedToMe || null;
   return useQuery({
-    queryKey: ['conversations', workspaceId, queue, status],
+    queryKey: ['conversations', workspaceId, queue, status, needsHuman, assignedToMe],
     queryFn: async () => {
       let q = supabase
         .from('conversations')
@@ -43,8 +53,6 @@ export function useConversations(
           .neq('status', 'closed')
           .is('assigned_to', null)
           .eq('is_spam', false);
-      } else if (queue === 'needs_human') {
-        q = q.eq('ai_state', 'needs_human').neq('status', 'closed').eq('is_spam', false);
       } else if (queue === 'spam') {
         q = q.eq('is_spam', true);
       } else {
@@ -53,9 +61,13 @@ export function useConversations(
         // operator should act on them. Include rows where ai_state IS NULL
         // (e.g. classic conversations, or ones restored after platform AI
         // was disabled) — PostgREST .neq() filters NULL out otherwise.
-        q = q
-          .eq('is_spam', false)
-          .or('ai_state.is.null,ai_state.neq.ai_managed');
+        q = q.eq('is_spam', false);
+        if (needsHuman) {
+          q = q.eq('ai_state', 'needs_human');
+        } else {
+          q = q.or('ai_state.is.null,ai_state.neq.ai_managed');
+        }
+        if (assignedToMe) q = q.eq('assigned_to', assignedToMe);
         if (status && status !== 'all') q = q.eq('status', status);
       }
       const { data, error } = await q;
@@ -104,6 +116,52 @@ export function useConversations(
       return convos;
     },
     enabled: !!workspaceId,
+  });
+}
+
+/**
+ * Sidebar inbox counters — single hook, four small head-only queries.
+ *
+ * Counts are scoped to the workspace and align with the queue model:
+ *   - main:        is_spam=false AND (ai_state IS NULL OR ai_state != 'ai_managed')
+ *                  AND status != 'closed'
+ *   - automated:   is_spam=false AND ai_state='ai_managed' AND status != 'closed'
+ *   - needs_human: is_spam=false AND ai_state='needs_human' AND status != 'closed'
+ *   - spam:        is_spam=true
+ */
+export function useInboxCounts(workspaceId: string | undefined) {
+  return useQuery({
+    queryKey: ['inbox-counts', workspaceId],
+    enabled: !!workspaceId,
+    staleTime: 15_000,
+    queryFn: async () => {
+      const base = () =>
+        supabase
+          .from('conversations')
+          .select('id', { count: 'exact', head: true })
+          .eq('workspace_id', workspaceId!);
+      const [mainRes, autoRes, needsRes, spamRes] = await Promise.all([
+        base()
+          .eq('is_spam', false)
+          .neq('status', 'closed')
+          .or('ai_state.is.null,ai_state.neq.ai_managed'),
+        base()
+          .eq('is_spam', false)
+          .neq('status', 'closed')
+          .eq('ai_state', 'ai_managed'),
+        base()
+          .eq('is_spam', false)
+          .neq('status', 'closed')
+          .eq('ai_state', 'needs_human'),
+        base().eq('is_spam', true),
+      ]);
+      return {
+        main: mainRes.count ?? 0,
+        automated: autoRes.count ?? 0,
+        needs_human: needsRes.count ?? 0,
+        spam: spamRes.count ?? 0,
+      };
+    },
   });
 }
 

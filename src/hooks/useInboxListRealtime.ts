@@ -95,6 +95,7 @@ export function useInboxListRealtime(workspaceId: string | undefined) {
             const senderType = (payload as { sender_type?: string })?.sender_type;
             rtDebug('inbox-list', 'event:message', { conv: convId, sender_type: senderType });
             qc.invalidateQueries({ queryKey: ['conversations', workspaceId] });
+            qc.invalidateQueries({ queryKey: ['inbox-counts', workspaceId] });
             // Surface to subscribers (e.g. notification chime).
             try {
               window.dispatchEvent(new CustomEvent('inbox:new-message', {
@@ -133,6 +134,7 @@ export function useInboxListRealtime(workspaceId: string | undefined) {
             ) {
               qc.invalidateQueries({ queryKey: ['conversations', workspaceId] });
               qc.invalidateQueries({ queryKey: ['conversation', payload.conversation_id] });
+              qc.invalidateQueries({ queryKey: ['inbox-counts', workspaceId] });
               return;
             }
 
@@ -153,6 +155,7 @@ export function useInboxListRealtime(workspaceId: string | undefined) {
             }
             // Always refresh the per-conversation cache key if present.
             qc.invalidateQueries({ queryKey: ['conversation', payload.conversation_id] });
+            qc.invalidateQueries({ queryKey: ['inbox-counts', workspaceId] });
           },
           onStatus: (status, info) => {
             if (status === 'error') rtWarn('inbox-list', 'status=error', { reason: info?.reason });

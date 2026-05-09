@@ -28,6 +28,7 @@ import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabase';
 import { useBranding } from '@/hooks/useBranding';
 import { useAiAgentCapabilities } from '@/hooks/useAiAgentCapabilities';
+import { useInboxCounts } from '@/hooks/useConversations';
 
 export function AppSidebar() {
   const { t, dir } = useTranslation();
@@ -42,6 +43,8 @@ export function AppSidebar() {
   const wsPath = useWorkspacePath();
   const { data: branding } = useBranding(workspace?.id);
   const { data: aiAgentCaps, isError: aiAgentCapsError } = useAiAgentCapabilities(workspace?.id || null);
+  const { data: inboxCounts } = useInboxCounts(workspace?.id);
+  const platformAiEnabled = !!aiAgentCaps?.ai_agent_enabled && !aiAgentCapsError;
 
   // Primary domain for the active workspace (display under the workspace name).
   const { data: wsPrimaryDomain } = useQuery({
@@ -302,33 +305,38 @@ export function AppSidebar() {
             >
               <MessageSquare className="h-3.5 w-3.5 shrink-0" />
               <span>Main Inbox</span>
+              {(inboxCounts?.needs_human ?? 0) > 0 && (
+                <span
+                  className="ms-auto bg-destructive text-destructive-foreground text-[10px] font-bold rounded-full min-w-[18px] h-[18px] px-1 flex items-center justify-center"
+                  title="Conversations needing a human"
+                >
+                  {inboxCounts!.needs_human}
+                </span>
+              )}
             </Link>
 
-            <p className="text-[11px] font-medium text-sidebar-muted-foreground uppercase tracking-wider px-2 pt-2 pb-1">AI Inboxes</p>
-            <Link
-              to={wsPath('/inbox?queue=automated')}
-              className={cn(
-                'flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] transition-colors',
-                location.pathname === wsPath('/inbox') && location.search.includes('queue=automated')
-                  ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
-                  : 'text-sidebar-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground'
-              )}
-            >
-              <Bot className="h-3.5 w-3.5 shrink-0" />
-              <span>Automated</span>
-            </Link>
-            <Link
-              to={wsPath('/inbox?queue=needs_human')}
-              className={cn(
-                'flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] transition-colors',
-                location.pathname === wsPath('/inbox') && location.search.includes('queue=needs_human')
-                  ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
-                  : 'text-sidebar-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground'
-              )}
-            >
-              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-              <span>Needs human</span>
-            </Link>
+            {platformAiEnabled && (
+              <>
+                <p className="text-[11px] font-medium text-sidebar-muted-foreground uppercase tracking-wider px-2 pt-2 pb-1">AI Inboxes</p>
+                <Link
+                  to={wsPath('/inbox?queue=automated')}
+                  className={cn(
+                    'flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] transition-colors',
+                    location.pathname === wsPath('/inbox') && location.search.includes('queue=automated')
+                      ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
+                      : 'text-sidebar-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground'
+                  )}
+                >
+                  <Bot className="h-3.5 w-3.5 shrink-0" />
+                  <span>Automated</span>
+                  {(inboxCounts?.automated ?? 0) > 0 && (
+                    <span className="ms-auto bg-secondary text-foreground/70 text-[10px] font-bold rounded-full min-w-[18px] h-[18px] px-1 flex items-center justify-center">
+                      {inboxCounts!.automated}
+                    </span>
+                  )}
+                </Link>
+              </>
+            )}
 
             <p className="text-[11px] font-medium text-sidebar-muted-foreground uppercase tracking-wider px-2 pt-2 pb-1">Other Inboxes</p>
             <Link
@@ -342,6 +350,11 @@ export function AppSidebar() {
             >
               <Ban className="h-3.5 w-3.5 shrink-0" />
               <span>Spam</span>
+              {(inboxCounts?.spam ?? 0) > 0 && (
+                <span className="ms-auto bg-secondary text-foreground/70 text-[10px] font-bold rounded-full min-w-[18px] h-[18px] px-1 flex items-center justify-center">
+                  {inboxCounts!.spam}
+                </span>
+              )}
             </Link>
           </div>
         )}

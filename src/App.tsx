@@ -69,6 +69,7 @@ import AiAgentKnowledgePage from "@/pages/app/ai-agent/KnowledgePage";
 import AiAgentBehaviorPage from "@/pages/app/ai-agent/BehaviorPage";
 import AiAgentOperatorAssistPage from "@/pages/app/ai-agent/OperatorAssistPage";
 import AiAgentActivityPage from "@/pages/app/ai-agent/ActivityPage";
+import { AdvancedAiAgentGuard } from "@/features/ai-agent/AdvancedAiAgentGuard";
 import EmailPage from "@/pages/app/EmailPage";
 import BillingPage from "@/pages/app/BillingPage";
 import SettingsGeneralPage from "@/pages/app/settings/GeneralPage";
@@ -244,31 +245,35 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                   <Route path="behavior" element={<AiAgentBehaviorPage />} />
                   <Route path="operator-assist" element={<AiAgentOperatorAssistPage />} />
                   <Route path="activity" element={<AiAgentActivityPage />} />
-                  <Route path="guidance" element={<AiAgentGuidancePage />} />
-                  <Route path="playground" element={<AiAgentPlaygroundPage />} />
-                  <Route path="analytics" element={<AiAgentAnalyticsPage />} />
-                  <Route path="activation" element={<AiAgentActivationPage />} />
                   <Route path="settings" element={<AiAgentSettingsPage />} />
-                  <Route path="billing" element={<AiAgentBillingPage />} />
-                  <Route path="routing" element={<AiAgentRoutingPage />} />
-                  <Route path="instructions" element={<AiAgentInstructionsPage />} />
-                  <Route path="qna" element={<AiAgentQnaPage />} />
-                  <Route path="learning-candidates" element={<AiAgentLearningCandidatesPage />} />
-                  <Route path="train" element={<AiAgentTrainPage />} />
-                  <Route path="web-pages" element={<AiAgentWebPagesPage />} />
-                  <Route path="files" element={<AiAgentFilesPage />} />
-                  <Route path="topics" element={<AiAgentTopicsPage />} />
-                  <Route path="workflow" element={<AiAgentWorkflowPage />} />
-                  <Route path="triggers" element={<AiAgentTriggersPage />} />
-                  <Route path="integrations" element={<AiAgentIntegrationsPage />} />
-                  <Route path="runs/:id" element={<AiAgentRunInspectorPage />} />
-                  <Route path="debug/retrieval" element={<AiAgentRetrievalDebuggerPage />} />
-                  <Route path="source-health" element={<AiAgentSourceHealthPage />} />
-                  <Route path="test-cases" element={<AiAgentTestCasesPage />} />
-                  <Route path="test-runs/:id" element={<AiAgentTestRunDetailPage />} />
-                  <Route path="operator-assist-analytics" element={<AiAgentOperatorAssistAnalyticsPage />} />
-                  <Route path="suggested-tests" element={<AiAgentSuggestedTestsPage />} />
-                  <Route path="regression-runs" element={<AiAgentRegressionRunsPage />} />
+                  {/* Advanced / internal QA / debug routes — guarded.
+                      Customer workspaces never see these in the sidebar; direct
+                      URL access is blocked unless the user is a platform admin
+                      (or a dev override is enabled). */}
+                  <Route path="guidance" element={<AdvancedAiAgentGuard><AiAgentGuidancePage /></AdvancedAiAgentGuard>} />
+                  <Route path="playground" element={<AdvancedAiAgentGuard><AiAgentPlaygroundPage /></AdvancedAiAgentGuard>} />
+                  <Route path="analytics" element={<AdvancedAiAgentGuard><AiAgentAnalyticsPage /></AdvancedAiAgentGuard>} />
+                  <Route path="activation" element={<AdvancedAiAgentGuard><AiAgentActivationPage /></AdvancedAiAgentGuard>} />
+                  <Route path="billing" element={<AdvancedAiAgentGuard><AiAgentBillingPage /></AdvancedAiAgentGuard>} />
+                  <Route path="routing" element={<AdvancedAiAgentGuard><AiAgentRoutingPage /></AdvancedAiAgentGuard>} />
+                  <Route path="instructions" element={<AdvancedAiAgentGuard><AiAgentInstructionsPage /></AdvancedAiAgentGuard>} />
+                  <Route path="qna" element={<AdvancedAiAgentGuard><AiAgentQnaPage /></AdvancedAiAgentGuard>} />
+                  <Route path="learning-candidates" element={<AdvancedAiAgentGuard><AiAgentLearningCandidatesPage /></AdvancedAiAgentGuard>} />
+                  <Route path="train" element={<AdvancedAiAgentGuard><AiAgentTrainPage /></AdvancedAiAgentGuard>} />
+                  <Route path="web-pages" element={<AdvancedAiAgentGuard><AiAgentWebPagesPage /></AdvancedAiAgentGuard>} />
+                  <Route path="files" element={<AdvancedAiAgentGuard><AiAgentFilesPage /></AdvancedAiAgentGuard>} />
+                  <Route path="topics" element={<AdvancedAiAgentGuard><AiAgentTopicsPage /></AdvancedAiAgentGuard>} />
+                  <Route path="workflow" element={<AdvancedAiAgentGuard><AiAgentWorkflowPage /></AdvancedAiAgentGuard>} />
+                  <Route path="triggers" element={<AdvancedAiAgentGuard><AiAgentTriggersPage /></AdvancedAiAgentGuard>} />
+                  <Route path="integrations" element={<AdvancedAiAgentGuard><AiAgentIntegrationsPage /></AdvancedAiAgentGuard>} />
+                  <Route path="runs/:id" element={<AdvancedAiAgentGuard><AiAgentRunInspectorPage /></AdvancedAiAgentGuard>} />
+                  <Route path="debug/retrieval" element={<AdvancedAiAgentGuard><AiAgentRetrievalDebuggerPage /></AdvancedAiAgentGuard>} />
+                  <Route path="source-health" element={<AdvancedAiAgentGuard><AiAgentSourceHealthPage /></AdvancedAiAgentGuard>} />
+                  <Route path="test-cases" element={<AdvancedAiAgentGuard><AiAgentTestCasesPage /></AdvancedAiAgentGuard>} />
+                  <Route path="test-runs/:id" element={<AdvancedAiAgentGuard><AiAgentTestRunDetailPage /></AdvancedAiAgentGuard>} />
+                  <Route path="operator-assist-analytics" element={<AdvancedAiAgentGuard><AiAgentOperatorAssistAnalyticsPage /></AdvancedAiAgentGuard>} />
+                  <Route path="suggested-tests" element={<AdvancedAiAgentGuard><AiAgentSuggestedTestsPage /></AdvancedAiAgentGuard>} />
+                  <Route path="regression-runs" element={<AdvancedAiAgentGuard><AiAgentRegressionRunsPage /></AdvancedAiAgentGuard>} />
                 </Route>
                 {/* Backwards-compat redirects: legacy URLs → settings */}
                 <Route path="team" element={<Navigate to="../settings/team-departments" replace />} />

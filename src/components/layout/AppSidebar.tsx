@@ -11,6 +11,7 @@ import {
   Zap, ShieldAlert, ExternalLink, Bell, EyeOff,
   Clock, UserCog, Building2, HelpCircle, Sparkles,
   AlertCircle, Check, Ban,
+  PhoneCall,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -29,6 +30,7 @@ import { supabase } from '@/lib/supabase';
 import { useBranding } from '@/hooks/useBranding';
 import { useAiAgentCapabilities } from '@/hooks/useAiAgentCapabilities';
 import { useInboxCounts } from '@/hooks/useConversations';
+import { useCallCenterSettings } from '@/hooks/useCallCenter';
 
 export function AppSidebar() {
   const { t, dir } = useTranslation();
@@ -44,6 +46,8 @@ export function AppSidebar() {
   const { data: branding } = useBranding(workspace?.id);
   const { data: aiAgentCaps, isError: aiAgentCapsError } = useAiAgentCapabilities(workspace?.id || null);
   const { data: inboxCounts } = useInboxCounts(workspace?.id);
+  const { data: callCenterData } = useCallCenterSettings(workspace?.id);
+  const callCenterVisible = !!callCenterData?.effective?.workspace_call_center_visible;
   // Automated inbox is shown only when EVERY layer that gates AI replies is
   // on. Platform kill-switch alone is not enough — workspace must also have
   // the AI Agent surface enabled and auto-answer capability available.
@@ -143,6 +147,9 @@ export function AppSidebar() {
   const mainNav = [
     ...(aiAgentVisible
       ? [{ key: 'aiAgent', path: '/ai-agent', icon: Sparkles } as const]
+      : []),
+    ...(callCenterVisible
+      ? [{ key: 'callCenter', path: '/call-center', icon: PhoneCall } as const]
       : []),
     { key: 'visitors', path: '/visitors', icon: Eye },
     { key: 'contacts', path: '/contacts', icon: Users },

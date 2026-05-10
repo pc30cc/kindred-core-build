@@ -107,6 +107,15 @@ import AdminWidgetSettingsPage from "@/pages/admin/WidgetSettingsPage";
 import AdminMapGeoPage from "@/pages/admin/MapGeoPage";
 import AdminVoiceVideoPage from "@/pages/admin/VoiceVideoPage";
 import AdminAiAgentControlPage from "@/pages/admin/AiAgentControlPage";
+import AdminCallCenterPage from "@/pages/admin/CallCenterPage";
+
+import { CallCenterLayout } from "@/components/layout/CallCenterLayout";
+import CallCenterOverviewPage from "@/pages/app/call-center/OverviewPage";
+import CallCenterLiveQueuePage from "@/pages/app/call-center/LiveQueuePage";
+import CallCenterCallsPage from "@/pages/app/call-center/CallsPage";
+import CallCenterCallbacksPage from "@/pages/app/call-center/CallbacksPage";
+import CallCenterInstallPage from "@/pages/app/call-center/InstallPage";
+import CallCenterSettingsPage from "@/pages/app/call-center/SettingsPage";
 
 import NotFound from "@/pages/NotFound";
 
@@ -180,6 +189,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <Route path="/admin/widget-settings" element={<AdminWidgetSettingsPage />} />
                 <Route path="/admin/voice-video" element={<AdminVoiceVideoPage />} />
                 <Route path="/admin/ai-agent" element={<AdminAiAgentControlPage />} />
+                <Route path="/admin/call-center" element={<AdminCallCenterPage />} />
                 {/* Legacy Advanced Routing page replaced by Widget Settings → Advanced Routing tab. */}
                 <Route
                   path="/admin/advanced-routing"
@@ -212,6 +222,14 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <Route path="widget" element={<WidgetPage />} />
                 <Route path="email" element={<EmailPage />} />
                 <Route path="billing" element={<BillingPage />} />
+                <Route path="call-center" element={<CallCenterLayout />}>
+                  <Route index element={<CallCenterOverviewPage />} />
+                  <Route path="queue" element={<CallCenterLiveQueuePage />} />
+                  <Route path="calls" element={<CallCenterCallsPage />} />
+                  <Route path="callbacks" element={<CallCenterCallbacksPage />} />
+                  <Route path="install" element={<CallCenterInstallPage />} />
+                  <Route path="settings" element={<CallCenterSettingsPage />} />
+                </Route>
                 <Route path="settings" element={<SettingsLayout />}>
                   <Route index element={<Navigate to="general" replace />} />
                   <Route path="general" element={<SettingsGeneralPage />} />

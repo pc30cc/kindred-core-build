@@ -18,6 +18,8 @@ import {
 import { isGlobalAdmin } from '../middleware/adminBypass.js';
 import { resolveEffectiveCallProvider } from '../services/calls/providerResolver.js';
 import { publishQueueEvent, publishCallEvent } from '../services/callCenter/realtime.js';
+import { uploadFile } from '../services/storage/index.js';
+import crypto from 'crypto';
 
 export const callCenterRouter = Router();
 
@@ -106,6 +108,33 @@ callCenterRouter.put('/settings', async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: 'invalid_body', details: parsed.error.flatten() });
   const settings = await updateWorkspaceSettings(ctx.config, wid, parsed.data as any);
   res.json({ settings });
+});
+
+// ── Avatar upload (owner/admin only) ──────────────────────────────────────
+const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
+const ALLOWED_AVATAR_MIME = ['image/png', 'image/jpeg', 'image/webp'];
+
+callCenterRouter.post('/settings/avatar', async (req, res) => {
+  const wid = String(req.query.workspaceId || req.body?.workspaceId || '');
+  if (!wid) return res.status(400).json({ error: 'workspaceId_required' });
+  const ctx = await requireWorkspaceAdmin(req, res, wid);
+  if (!ctx) return;
+  const { fileName, contentType, data } = req.body || {};
+  if (!fileName || !contentType || !data) return res.status(400).json({ error: 'fileName_contentType_data_required' });
+  if (!ALLOWED_AVATAR_MIME.includes(String(contentType))) return res.status(415).json({ error: 'unsupported_media_type' });
+  let buffer: Buffer;
+  try { buffer = Buffer.from(String(data), 'base64'); } catch { return res.status(400).json({ error: 'invalid_data' }); }
+  if (buffer.length === 0 || buffer.length > MAX_AVATAR_BYTES) return res.status(413).json({ error: 'file_too_large' });
+  const safe = String(fileName).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80);
+  const fileKey = `workspace/${wid}/call-center/avatar/${crypto.randomUUID()}-${safe}`;
+  const result = await uploadFile(ctx.config, {
+    workspaceId: wid, fileKey, data: buffer, contentType: String(contentType),
+  });
+  if (!result.success || !result.url) return res.status(500).json({ error: 'upload_failed', details: (result as any).error });
+  const updated = await updateWorkspaceSettings(ctx.config, wid, {
+    avatar_url: result.url, avatar_storage_path: fileKey,
+  } as any);
+  res.json({ avatar_url: updated.avatar_url, avatar_storage_path: updated.avatar_storage_path });
 });
 
 // ── Overview / metrics ────────────────────────────────────────────────────

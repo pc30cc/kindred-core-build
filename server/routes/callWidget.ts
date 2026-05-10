@@ -18,6 +18,7 @@ import {
 import { signWidgetSession, verifyWidgetSession } from '../services/callCenter/widgetSession.js';
 import { resolveEffectiveCallProvider } from '../services/calls/providerResolver.js';
 import { publishQueueEvent, publishCallEvent } from '../services/callCenter/realtime.js';
+import { buildClientConnectInfo } from '../services/callCenter/connectInfo.js';
 
 export const callWidgetRouter = Router();
 
@@ -279,15 +280,23 @@ callWidgetRouter.post('/calls/:id/join-token', async (req, res) => {
   if (!c.provider_room_id || !c.provider) return res.status(409).json({ error: 'not_ready' });
   if (!['active', 'ringing', 'connecting'].includes(c.state)) return res.status(409).json({ error: 'not_active' });
   const { provider } = await resolveEffectiveCallProvider(config, c.workspace_id);
+  const identity = `visitor:${c.id}`;
   const tok = await provider.createParticipantToken(config, {
     callSessionId: c.id,
     providerRoomId: c.provider_room_id,
-    participantId: `visitor:${c.id}`,
+    participantId: c.id,
     participantType: 'visitor',
     canPublish: true, canSubscribe: true, canPublishData: true,
     ttlSeconds: 60 * 60,
   });
-  res.json({ token: tok.token, provider: c.provider, provider_room_id: c.provider_room_id, expires_at: tok.expiresAt });
+  const connect = await buildClientConnectInfo(config, c.provider, c.provider_room_id, identity);
+  res.json({
+    token: tok.token,
+    provider: c.provider,
+    provider_room_id: c.provider_room_id,
+    expires_at: tok.expiresAt,
+    connect,
+  });
 });
 
 // ── Callback request ──────────────────────────────────────────────────────

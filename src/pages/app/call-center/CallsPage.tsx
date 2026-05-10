@@ -9,7 +9,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { callCenterApi } from '@/lib/call-center-api';
 import { useQueryClient } from '@tanstack/react-query';
 import { Phone, Video, Search, Copy } from 'lucide-react';
-import { Button as Btn } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 
@@ -74,13 +73,13 @@ export default function CallsPage() {
         <div className="flex flex-wrap items-center gap-2">
           <div className="text-xs text-muted-foreground me-1">Status:</div>
           {STATUS.map((s) => (
-            <Btn key={s} size="sm" variant={status === s ? 'default' : 'outline'} className="h-7 text-xs capitalize" onClick={() => setStatus(s)}>{s}</Btn>
+            <Button key={s} size="sm" variant={status === s ? 'default' : 'outline'} className="h-7 text-xs capitalize" onClick={() => setStatus(s)}>{s}</Button>
           ))}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="text-xs text-muted-foreground me-1">Type:</div>
           {TYPES.map((s) => (
-            <Btn key={s} size="sm" variant={type === s ? 'default' : 'outline'} className="h-7 text-xs capitalize" onClick={() => setType(s)}>{s}</Btn>
+            <Button key={s} size="sm" variant={type === s ? 'default' : 'outline'} className="h-7 text-xs capitalize" onClick={() => setType(s)}>{s}</Button>
           ))}
           <div className="relative flex-1 min-w-[200px] ms-auto max-w-sm">
             <Search className="h-3.5 w-3.5 absolute start-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />

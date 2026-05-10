@@ -170,6 +170,8 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
     entry_source: 'call_widget',
     direction: 'inbound',
     call_type: dbCallType,
+    context_type: 'internal',
+    context_id: null,
     state: 'pending',
     initiated_by_type: 'visitor',
     visitor_name: parsed.data.visitor_name || null,
@@ -180,6 +182,11 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
     page_title: parsed.data.page_title || null,
     origin: getOrigin(req),
     provider: providerId,
+    metadata: {
+      call_center: true,
+      form_data: parsed.data.form_data || null,
+      consent_recording: !!parsed.data.consent_recording,
+    },
   }).select('*').maybeSingle();
   if (callErr) return res.status(500).json({ error: 'call_create_failed', message: callErr.message });
 
@@ -225,14 +232,22 @@ callWidgetRouter.post('/calls/:id/cancel', async (req, res) => {
   if (!session) return res.status(401).json({ error: 'invalid_session' });
   if (session.call_id !== req.params.id) return res.status(403).json({ error: 'forbidden' });
   const sb = getServiceClient(config);
+  // Preserve detailed reason in metadata; constraint allows only the four canonical end_reason values.
+  const { data: prev } = await sb.from('call_sessions').select('metadata').eq('id', req.params.id).maybeSingle();
+  const prevMeta = (prev?.metadata as any) || {};
   await sb.from('call_sessions').update({
-    state: 'cancelled', ended_at: new Date().toISOString(), end_reason: 'visitor_cancelled',
+    state: 'cancelled',
+    ended_at: new Date().toISOString(),
+    end_reason: 'visitor_ended',
+    ended_by: 'visitor',
+    metadata: { ...prevMeta, call_center_reason: 'visitor_cancelled' },
   }).eq('id', req.params.id).eq('workspace_id', session.workspace_id);
   await sb.from('call_queue_entries').update({
     state: 'cancelled', ended_at: new Date().toISOString(), ended_reason: 'visitor_cancelled',
   }).eq('call_session_id', req.params.id).eq('workspace_id', session.workspace_id);
   await sb.from('call_events').insert({
-    call_session_id: req.params.id, event_type: 'call_cancelled', actor_type: 'visitor', payload: {},
+    call_session_id: req.params.id, event_type: 'call_cancelled', actor_type: 'visitor',
+    payload: { reason: 'visitor_cancelled' },
   });
   await publishQueueEvent(config, session.workspace_id, 'call_cancelled', { call_id: req.params.id });
   await publishCallEvent(config, session.workspace_id, req.params.id, 'call_cancelled', {});
@@ -298,13 +313,18 @@ callWidgetRouter.post('/callbacks/request', async (req, res) => {
   const sb = getServiceClient(config);
   const { data, error } = await sb.from('callback_requests').insert({
     workspace_id: ws.workspace_id,
-    name: parsed.data.name || null,
-    email: parsed.data.email || null,
-    phone: parsed.data.phone || null,
-    subject: parsed.data.subject || null,
-    preferred_time: parsed.data.preferred_time || null,
-    page_url: parsed.data.page_url || null,
-    status: 'pending',
+    channel: 'audio',
+    status: 'requested',
+    contact_phone: parsed.data.phone || null,
+    contact_email: parsed.data.email || null,
+    notes: parsed.data.subject || null,
+    scheduled_for: parsed.data.preferred_time || null,
+    metadata: {
+      source: 'call_widget',
+      name: parsed.data.name || null,
+      subject: parsed.data.subject || null,
+      page_url: parsed.data.page_url || null,
+    },
   }).select('*').maybeSingle();
   if (error) return res.status(500).json({ error: 'callback_create_failed', message: error.message });
   await publishQueueEvent(config, ws.workspace_id, 'callback_requested', { callback_id: data!.id });

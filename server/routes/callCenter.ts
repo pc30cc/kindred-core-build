@@ -57,6 +57,28 @@ async function requireWorkspaceAdmin(req: any, res: any, workspaceId: string) {
   return ctx;
 }
 
+// Roles allowed to operate calls (accept/reject/end/availability).
+// Viewer/analyst/billing/seo/marketing are explicitly denied.
+const OPERATOR_ROLES = new Set([
+  'owner', 'admin', 'agent', 'support_agent', 'team_lead',
+]);
+
+async function requireCallOperator(req: any, res: any, workspaceId: string) {
+  const ctx = await requireMember(req, res, workspaceId);
+  if (!ctx) return null;
+  // Global admin bypass
+  if (await isGlobalAdmin(ctx.config, ctx.userId)) return ctx;
+  const sb = getServiceClient(ctx.config);
+  const { data: role } = await sb.rpc('get_workspace_role', {
+    _workspace_id: workspaceId, _user_id: ctx.userId,
+  });
+  if (!OPERATOR_ROLES.has(String(role))) {
+    res.status(403).json({ error: 'operator_permission_required' });
+    return null;
+  }
+  return ctx;
+}
+
 async function requireGlobalAdmin(req: any, res: any) {
   const config = (req as any).serverConfig as ServerConfig;
   const user = await getUser(req, config);
@@ -67,6 +89,43 @@ async function requireGlobalAdmin(req: any, res: any) {
 }
 
 // ── Workspace settings ─────────────────────────────────────────────────────
+// Lightweight capabilities endpoint — does NOT create a settings row.
+// Used by sidebar to decide whether to show the Call Center entry.
+callCenterRouter.get('/capabilities', async (req, res) => {
+  const wid = String(req.query.workspaceId || '');
+  if (!wid) return res.status(400).json({ error: 'workspaceId_required' });
+  const ctx = await requireMember(req, res, wid);
+  if (!ctx) return;
+  const sb = getServiceClient(ctx.config);
+  const platform = await getPlatformCallCenterSettings(ctx.config);
+  const { data: row } = await sb
+    .from('call_center_settings')
+    .select('*')
+    .eq('workspace_id', wid)
+    .maybeSingle();
+  const wsEnabled = !!row?.enabled;
+  const effective = row
+    ? computeEffectiveCallCenterCaps(platform, row as any)
+    : {
+        call_center_enabled: false,
+        workspace_call_center_visible: platform.call_center_enabled,
+        voice_enabled: false,
+        video_enabled: false,
+        callback_enabled: false,
+        recording_enabled: false,
+        max_concurrent_calls: platform.max_concurrent_calls_per_workspace,
+        max_monthly_call_minutes: platform.max_monthly_call_minutes_per_workspace,
+        max_queue_size: platform.max_queue_size_per_workspace,
+      };
+  res.json({
+    platform_enabled: platform.call_center_enabled,
+    workspace_enabled: wsEnabled,
+    workspace_call_center_visible: effective.workspace_call_center_visible,
+    settings_exists: !!row,
+    effective,
+  });
+});
+
 callCenterRouter.get('/settings', async (req, res) => {
   const wid = String(req.query.workspaceId || '');
   if (!wid) return res.status(400).json({ error: 'workspaceId_required' });
@@ -154,7 +213,7 @@ callCenterRouter.get('/overview', async (req, res) => {
     sb.from('call_sessions').select('id', { count: 'exact', head: true })
       .eq('workspace_id', wid).eq('entry_source', 'call_widget').eq('state', 'missed').gte('created_at', startOfDay.toISOString()),
     sb.from('callback_requests').select('id', { count: 'exact', head: true })
-      .eq('workspace_id', wid).in('status', ['pending', 'requested', 'open']),
+      .eq('workspace_id', wid).in('status', ['requested', 'scheduled']),
     resolveEffectiveCallProvider(ctx.config, wid).then(p => ({ provider: p.id, ready: true })).catch(e => ({ provider: 'none', ready: false, error: String(e?.message || e) })),
   ]);
   res.json({
@@ -234,7 +293,7 @@ async function transitionCall(
 
 callCenterRouter.post('/calls/:id/accept', async (req, res) => {
   const wid = String(req.query.workspaceId || req.body?.workspaceId || '');
-  const ctx = await requireMember(req, res, wid);
+  const ctx = await requireCallOperator(req, res, wid);
   if (!ctx) return;
   try {
     const sb = getServiceClient(ctx.config);
@@ -279,13 +338,25 @@ callCenterRouter.post('/calls/:id/accept', async (req, res) => {
 
 callCenterRouter.post('/calls/:id/reject', async (req, res) => {
   const wid = String(req.query.workspaceId || req.body?.workspaceId || '');
-  const ctx = await requireMember(req, res, wid);
+  const ctx = await requireCallOperator(req, res, wid);
   if (!ctx) return;
   try {
     const sb = getServiceClient(ctx.config);
     await transitionCall(ctx.config, wid, req.params.id, {
-      state: 'cancelled', ended_at: new Date().toISOString(), end_reason: 'agent_rejected',
+      state: 'cancelled',
+      ended_at: new Date().toISOString(),
+      end_reason: 'operator_ended',
+      ended_by: 'operator',
+      ended_by_user_id: ctx.userId,
     }, 'call_rejected', ctx.userId);
+    // Annotate detailed reason in metadata (constraint allows 4 canonical values only).
+    try {
+      const { data: prev } = await sb.from('call_sessions').select('metadata').eq('id', req.params.id).maybeSingle();
+      const meta = (prev?.metadata as any) || {};
+      await sb.from('call_sessions').update({
+        metadata: { ...meta, call_center_reason: 'operator_rejected' },
+      }).eq('id', req.params.id);
+    } catch {/* best-effort */}
     await sb.from('call_queue_entries').update({
       state: 'cancelled', ended_at: new Date().toISOString(), ended_reason: 'rejected',
     }).eq('call_session_id', req.params.id).eq('workspace_id', wid);
@@ -297,7 +368,7 @@ callCenterRouter.post('/calls/:id/reject', async (req, res) => {
 
 callCenterRouter.post('/calls/:id/end', async (req, res) => {
   const wid = String(req.query.workspaceId || req.body?.workspaceId || '');
-  const ctx = await requireMember(req, res, wid);
+  const ctx = await requireCallOperator(req, res, wid);
   if (!ctx) return;
   try {
     const sb = getServiceClient(ctx.config);
@@ -312,8 +383,12 @@ callCenterRouter.post('/calls/:id/end', async (req, res) => {
       } catch {/* best effort */}
     }
     await transitionCall(ctx.config, wid, req.params.id, {
-      state: 'ended', ended_at: new Date().toISOString(),
-      duration_seconds: duration, end_reason: 'agent_ended',
+      state: 'ended',
+      ended_at: new Date().toISOString(),
+      duration_seconds: duration,
+      end_reason: 'operator_ended',
+      ended_by: 'operator',
+      ended_by_user_id: ctx.userId,
     }, 'call_ended', ctx.userId);
     res.json({ ok: true });
   } catch (e: any) {
@@ -333,7 +408,7 @@ callCenterRouter.get('/agent-status', async (req, res) => {
 
 callCenterRouter.post('/agent-status', async (req, res) => {
   const wid = String(req.query.workspaceId || req.body?.workspaceId || '');
-  const ctx = await requireMember(req, res, wid);
+  const ctx = await requireCallOperator(req, res, wid);
   if (!ctx) return;
   const status = String(req.body?.status || 'available');
   const sb = getServiceClient(ctx.config);
@@ -359,33 +434,35 @@ callCenterRouter.get('/callbacks', async (req, res) => {
 
 callCenterRouter.post('/callbacks/:id/assign', async (req, res) => {
   const wid = String(req.query.workspaceId || req.body?.workspaceId || '');
-  const ctx = await requireMember(req, res, wid);
+  const ctx = await requireCallOperator(req, res, wid);
   if (!ctx) return;
   const sb = getServiceClient(ctx.config);
   await sb.from('callback_requests').update({
-    status: 'assigned', assigned_agent_id: ctx.userId, updated_at: new Date().toISOString(),
+    status: 'in_progress', handled_by: ctx.userId, updated_at: new Date().toISOString(),
   }).eq('id', req.params.id).eq('workspace_id', wid);
   res.json({ ok: true });
 });
 
 callCenterRouter.post('/callbacks/:id/complete', async (req, res) => {
   const wid = String(req.query.workspaceId || req.body?.workspaceId || '');
-  const ctx = await requireMember(req, res, wid);
+  const ctx = await requireCallOperator(req, res, wid);
   if (!ctx) return;
   const sb = getServiceClient(ctx.config);
+  const now = new Date().toISOString();
   await sb.from('callback_requests').update({
-    status: 'called', updated_at: new Date().toISOString(),
+    status: 'completed', completed_at: now, handled_by: ctx.userId, updated_at: now,
   }).eq('id', req.params.id).eq('workspace_id', wid);
   res.json({ ok: true });
 });
 
 callCenterRouter.post('/callbacks/:id/cancel', async (req, res) => {
   const wid = String(req.query.workspaceId || req.body?.workspaceId || '');
-  const ctx = await requireMember(req, res, wid);
+  const ctx = await requireCallOperator(req, res, wid);
   if (!ctx) return;
   const sb = getServiceClient(ctx.config);
+  const now = new Date().toISOString();
   await sb.from('callback_requests').update({
-    status: 'cancelled', updated_at: new Date().toISOString(),
+    status: 'cancelled', cancelled_at: now, updated_at: now,
   }).eq('id', req.params.id).eq('workspace_id', wid);
   res.json({ ok: true });
 });

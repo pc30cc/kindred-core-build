@@ -156,20 +156,22 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
   const sb = getServiceClient(config);
   const [{ count: active }, { count: queued }] = await Promise.all([
     sb.from('call_sessions').select('id', { count: 'exact', head: true })
-      .eq('workspace_id', ws.workspace_id).eq('entry_source', 'call_widget').in('status', ['active', 'ringing']),
+      .eq('workspace_id', ws.workspace_id).eq('entry_source', 'call_widget').in('state', ['active', 'ringing', 'connecting']),
     sb.from('call_queue_entries').select('id', { count: 'exact', head: true })
-      .eq('workspace_id', ws.workspace_id).eq('entry_source', 'call_widget').in('state', ['waiting', 'offered']),
+      .eq('workspace_id', ws.workspace_id).eq('entry_source', 'call_widget').in('state', ['queued', 'offered']),
   ]);
   if ((active || 0) >= effective.max_concurrent_calls) return res.status(429).json({ error: 'limit_reached', kind: 'concurrent' });
   if ((queued || 0) >= effective.max_queue_size) return res.status(429).json({ error: 'limit_reached', kind: 'queue' });
 
   // Create call session + queue entry
+  const dbCallType = parsed.data.call_type === 'voice' ? 'audio' : 'video';
   const { data: call, error: callErr } = await sb.from('call_sessions').insert({
     workspace_id: ws.workspace_id,
     entry_source: 'call_widget',
     direction: 'inbound',
-    call_type: parsed.data.call_type,
-    status: 'requested',
+    call_type: dbCallType,
+    state: 'pending',
+    initiated_by_type: 'visitor',
     visitor_name: parsed.data.visitor_name || null,
     visitor_email: parsed.data.visitor_email || null,
     visitor_phone: parsed.data.visitor_phone || null,
@@ -184,8 +186,8 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
   await sb.from('call_queue_entries').insert({
     workspace_id: ws.workspace_id,
     entry_source: 'call_widget',
-    channel: parsed.data.call_type === 'video' ? 'video' : 'audio',
-    state: 'waiting',
+    channel: dbCallType,
+    state: 'queued',
     call_session_id: call!.id,
     requested_by: 'visitor',
     priority: 100,
@@ -224,7 +226,7 @@ callWidgetRouter.post('/calls/:id/cancel', async (req, res) => {
   if (session.call_id !== req.params.id) return res.status(403).json({ error: 'forbidden' });
   const sb = getServiceClient(config);
   await sb.from('call_sessions').update({
-    status: 'cancelled', ended_at: new Date().toISOString(), end_reason: 'visitor_cancelled',
+    state: 'cancelled', ended_at: new Date().toISOString(), end_reason: 'visitor_cancelled',
   }).eq('id', req.params.id).eq('workspace_id', session.workspace_id);
   await sb.from('call_queue_entries').update({
     state: 'cancelled', ended_at: new Date().toISOString(), ended_reason: 'visitor_cancelled',
@@ -244,7 +246,7 @@ callWidgetRouter.get('/calls/:id/status', async (req, res) => {
   if (!session) return res.status(401).json({ error: 'invalid_session' });
   if (session.call_id !== req.params.id) return res.status(403).json({ error: 'forbidden' });
   const sb = getServiceClient(config);
-  const { data: call } = await sb.from('call_sessions').select('id,status,ended_at,end_reason,provider,provider_room_id,call_type').eq('id', req.params.id).maybeSingle();
+  const { data: call } = await sb.from('call_sessions').select('id,state,ended_at,end_reason,provider,provider_room_id,call_type').eq('id', req.params.id).maybeSingle();
   if (!call) return res.status(404).json({ error: 'not_found' });
   res.json({ call });
 });
@@ -260,7 +262,7 @@ callWidgetRouter.post('/calls/:id/join-token', async (req, res) => {
   if (!call) return res.status(404).json({ error: 'not_found' });
   const c = call as any;
   if (!c.provider_room_id || !c.provider) return res.status(409).json({ error: 'not_ready' });
-  if (!['active', 'ringing'].includes(c.status)) return res.status(409).json({ error: 'not_active' });
+  if (!['active', 'ringing', 'connecting'].includes(c.state)) return res.status(409).json({ error: 'not_active' });
   const { provider } = await resolveEffectiveCallProvider(config, c.workspace_id);
   const tok = await provider.createParticipantToken(config, {
     callSessionId: c.id,

@@ -175,7 +175,9 @@ export function computeEffectiveCallCenterCaps(
   const enabled = platform.call_center_enabled && workspace.enabled;
   return {
     call_center_enabled: enabled,
-    workspace_call_center_visible: enabled,
+    // Visibility depends only on the platform kill switch so workspace
+    // owners can still open Settings to enable/disable their workspace.
+    workspace_call_center_visible: platform.call_center_enabled,
     voice_enabled: enabled && platform.voice_calls_enabled && workspace.voice_enabled,
     video_enabled: enabled && platform.video_calls_enabled && workspace.video_enabled,
     callback_enabled:

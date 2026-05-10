@@ -215,39 +215,13 @@
   };
 
   CallCenterWidgetCtor.prototype.connectMedia = function () {
-    // Provider client connection: only LiveKit supported as in-page connection
-    // here. If the provider/SDK isn't usable safely, we degrade to "Call accepted,
-    // connecting..." so the visitor sees a clear state instead of an error.
-    var self = this;
-    var info = self.joinInfo;
-    if (!info || info.provider !== 'livekit') {
-      self.connectStatus = 'fallback';
-      self.render();
-      return;
-    }
-    // Lazy-load LiveKit client UMD if available; else degrade gracefully.
-    if (window.LivekitClient && window.LivekitClient.Room) {
-      try {
-        var Room = window.LivekitClient.Room;
-        var room = new Room({ adaptiveStream: true, dynacast: true });
-        room.connect(info.provider_room_id ? '' : '', info.token).then(function () {
-          self.connectStatus = 'connected';
-          self.render();
-        }).catch(function (e) {
-          self.connectStatus = 'failed';
-          self.error = String(e && e.message || e);
-          self.render();
-        });
-      } catch (e) {
-        self.connectStatus = 'failed';
-        self.error = String(e && e.message || e);
-        self.render();
-      }
-    } else {
-      // No SDK present — show accepted state without auto-connecting.
-      self.connectStatus = 'accepted_no_sdk';
-      self.render();
-    }
+    // Media connection is not configured yet. The backend /join-token endpoint
+    // returns a provider token and room id, but does NOT (yet) return a usable
+    // provider server URL (e.g. LiveKit wss URL). We therefore must NOT attempt
+    // room.connect with an empty URL — that would crash the SDK. Until the
+    // backend exposes a server URL safely, show an explicit placeholder state.
+    this.connectStatus = 'media_not_configured';
+    this.render();
   };
 
   CallCenterWidgetCtor.prototype.cancelCall = function () {

@@ -65,7 +65,10 @@ export default function LiveQueuePage() {
       return;
     }
     const stillThere = selectedCallId && queue.some((q) => q.call_session_id === selectedCallId);
-    if (!stillThere) setSelectedCallId(queue[0].call_session_id);
+    if (!stillThere) {
+      const next = queue[0]?.call_session_id ?? null;
+      setSelectedCallId(next);
+    }
   }, [queue, selectedCallId]);
 
   async function accept(callId: string) {

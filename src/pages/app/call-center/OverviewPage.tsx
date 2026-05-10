@@ -1,5 +1,7 @@
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { useCallCenterOverview, useCallCenterSettings } from '@/hooks/useCallCenter';
+import { Link } from 'react-router-dom';
+import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { AlertCircle, CheckCircle2 } from 'lucide-react';
 
@@ -34,10 +36,11 @@ export default function CallCenterOverviewPage() {
       {!platformDisabled && wsDisabled && (
         <Card className="p-4 border-warning/50 bg-warning/5 flex gap-3 items-start">
           <AlertCircle className="h-5 w-5 text-warning shrink-0" />
-          <div>
-            <p className="font-medium">Call Center disabled for this workspace</p>
-            <p className="text-sm text-muted-foreground">Enable it from Settings.</p>
+          <div className="flex-1">
+            <p className="font-medium">Call Center is available on your plan but disabled for this workspace.</p>
+            <p className="text-sm text-muted-foreground">Enable it in Settings to start receiving calls.</p>
           </div>
+          <Button asChild size="sm" variant="outline"><Link to="settings">Open Settings</Link></Button>
         </Card>
       )}
       {!platformDisabled && providerNotReady && (

@@ -137,17 +137,33 @@ export interface CallbackRequest {
   id: string;
   workspace_id: string;
   status: string;
-  name?: string | null;
-  email?: string | null;
-  phone?: string | null;
-  subject?: string | null;
-  preferred_time?: string | null;
-  page_url?: string | null;
+  channel: string;
+  contact_phone?: string | null;
+  contact_email?: string | null;
+  notes?: string | null;
+  metadata?: Record<string, any> | null;
+  scheduled_for?: string | null;
+  requested_at?: string | null;
+  completed_at?: string | null;
+  cancelled_at?: string | null;
+  handled_by?: string | null;
   created_at: string;
+}
+
+export interface CallCenterCapabilities {
+  platform_enabled: boolean;
+  workspace_enabled: boolean;
+  workspace_call_center_visible: boolean;
+  settings_exists: boolean;
+  effective: CallCenterEffectiveCaps;
 }
 
 // ── Workspace API ────────────────────────────────────────────────
 export const callCenterApi = {
+  getCapabilities: (workspaceId: string) =>
+    jsonFetch<CallCenterCapabilities>(
+      `/api/call-center/capabilities?workspaceId=${encodeURIComponent(workspaceId)}`,
+    ),
   getSettings: (workspaceId: string) =>
     jsonFetch<{ settings: CallCenterWorkspaceSettings; platform: CallCenterPlatformSettings; effective: CallCenterEffectiveCaps }>(
       `/api/call-center/settings?workspaceId=${encodeURIComponent(workspaceId)}`,

@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { callCenterApi } from '@/lib/call-center-api';
 import { useQueryClient } from '@tanstack/react-query';
 import { Phone, Video, Search, Copy } from 'lucide-react';
+import { Button as Btn } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 
@@ -69,27 +70,22 @@ export default function CallsPage() {
 
   return (
     <div className="space-y-4">
-      <Card className="p-4 flex flex-wrap gap-3 items-end">
-        <div className="flex-1 min-w-[200px]">
-          <label className="text-xs text-muted-foreground">Search</label>
-          <div className="relative">
+      <Card className="p-4 space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="text-xs text-muted-foreground me-1">Status:</div>
+          {STATUS.map((s) => (
+            <Btn key={s} size="sm" variant={status === s ? 'default' : 'outline'} className="h-7 text-xs capitalize" onClick={() => setStatus(s)}>{s}</Btn>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="text-xs text-muted-foreground me-1">Type:</div>
+          {TYPES.map((s) => (
+            <Btn key={s} size="sm" variant={type === s ? 'default' : 'outline'} className="h-7 text-xs capitalize" onClick={() => setType(s)}>{s}</Btn>
+          ))}
+          <div className="relative flex-1 min-w-[200px] ms-auto max-w-sm">
             <Search className="h-3.5 w-3.5 absolute start-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input className="ps-8" placeholder="Visitor, email, phone…" value={search} onChange={(e) => setSearch(e.target.value)} />
+            <Input className="ps-8 h-8 text-sm" placeholder="Visitor, email, phone…" value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
-        </div>
-        <div>
-          <label className="text-xs text-muted-foreground">Status</label>
-          <Select value={status} onValueChange={setStatus}>
-            <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
-            <SelectContent>{STATUS.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
-          </Select>
-        </div>
-        <div>
-          <label className="text-xs text-muted-foreground">Type</label>
-          <Select value={type} onValueChange={setType}>
-            <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
-            <SelectContent>{TYPES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
-          </Select>
         </div>
       </Card>
 
@@ -113,9 +109,17 @@ export default function CallsPage() {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((c) => (
+            {filtered.map((c) => {
+              const display = c.visitor_name || c.visitor_email || c.visitor_phone || 'Anonymous';
+              const initials = display.slice(0, 1).toUpperCase();
+              return (
               <tr key={c.id} onClick={() => setSelected(c.id)} className="border-b cursor-pointer hover:bg-muted/40">
-                <td className="py-2 px-3 font-medium">{c.visitor_name || c.visitor_email || c.visitor_phone || 'Anonymous'}</td>
+                <td className="py-2 px-3">
+                  <div className="flex items-center gap-2">
+                    <div className="h-7 w-7 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-semibold">{initials}</div>
+                    <span className="font-medium">{display}</span>
+                  </div>
+                </td>
                 <td className="py-2 px-3">
                   <span className="inline-flex items-center gap-1 text-xs">
                     {c.call_type === 'video' ? <Video className="h-3 w-3" /> : <Phone className="h-3 w-3" />}
@@ -127,7 +131,8 @@ export default function CallsPage() {
                 <td className="py-2 px-3 text-xs text-muted-foreground truncate max-w-[200px]">{c.page_title || c.page_url || '—'}</td>
                 <td className="py-2 px-3 text-xs text-muted-foreground">{new Date(c.created_at).toLocaleString()}</td>
               </tr>
-            ))}
+              );
+            })}
             {filtered.length === 0 && (<tr><td colSpan={6} className="py-8 text-center text-sm text-muted-foreground">No calls match your filters.</td></tr>)}
           </tbody>
         </table>

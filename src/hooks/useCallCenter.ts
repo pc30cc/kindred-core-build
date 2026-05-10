@@ -2,6 +2,15 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { callCenterApi, callCenterAdminApi } from '@/lib/call-center-api';
 import type { CallCenterWorkspaceSettings, CallCenterPlatformSettings } from '@/lib/call-center-api';
 
+export function useCallCenterCapabilities(workspaceId?: string | null) {
+  return useQuery({
+    queryKey: ['call-center', 'capabilities', workspaceId],
+    enabled: !!workspaceId,
+    queryFn: () => callCenterApi.getCapabilities(workspaceId!),
+    staleTime: 30_000,
+  });
+}
+
 export function useCallCenterSettings(workspaceId?: string | null) {
   return useQuery({
     queryKey: ['call-center', 'settings', workspaceId],

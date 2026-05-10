@@ -1,13 +1,18 @@
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
-import { useCallCenterQueue, useCallCenterCall } from '@/hooks/useCallCenter';
+import { useCallCenterQueue, useCallCenterCall, useCallCenterOverview } from '@/hooks/useCallCenter';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
 import { callCenterApi } from '@/lib/call-center-api';
 import { useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { toast } from '@/hooks/use-toast';
-import { Phone, Video, Globe, Headphones, RadioTower, Inbox } from 'lucide-react';
+import {
+  Phone, Video, Globe, Headphones, RadioTower, Inbox, PhoneOff, Mic, MicOff,
+  CameraOff, ArrowRightLeft, PhoneCall, AlertTriangle,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Link, useParams } from 'react-router-dom';
 
 function waitTime(iso: string) {
   const ms = Date.now() - new Date(iso).getTime();
@@ -22,16 +27,49 @@ function urgencyTone(iso: string): 'neutral' | 'warn' | 'danger' {
   return 'neutral';
 }
 
+function StatChip({ label, value, tone = 'muted' }: { label: string; value: React.ReactNode; tone?: 'muted' | 'ok' | 'warn' | 'danger' }) {
+  const map = {
+    muted: 'bg-muted/60 text-foreground',
+    ok: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+    warn: 'bg-amber-500/10 text-amber-700 dark:text-amber-300',
+    danger: 'bg-destructive/10 text-destructive',
+  } as const;
+  return (
+    <div className={cn('rounded-md px-2.5 py-1.5 text-xs flex items-center gap-1.5', map[tone])}>
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-semibold">{value}</span>
+    </div>
+  );
+}
+
 export default function LiveQueuePage() {
   const { workspace } = useActiveWorkspace();
+  const { slug } = useParams();
+  const base = `/app/w/${slug}/call-center`;
   const { data, isLoading } = useCallCenterQueue(workspace?.id);
+  const { data: overview } = useCallCenterOverview(workspace?.id);
   const qc = useQueryClient();
   const [busy, setBusy] = useState<string | null>(null);
   const [selectedCallId, setSelectedCallId] = useState<string | null>(null);
+  const [notes, setNotes] = useState('');
   const { data: detail } = useCallCenterCall(workspace?.id, selectedCallId);
-  // Tick to refresh wait timers
   const [, force] = useState(0);
   useEffect(() => { const t = setInterval(() => force((n) => n + 1), 1000); return () => clearInterval(t); }, []);
+
+  const queue = data?.queue || [];
+
+  // Auto-select first queue item — done in effect, not during render
+  useEffect(() => {
+    if (queue.length === 0) {
+      if (selectedCallId) setSelectedCallId(null);
+      return;
+    }
+    const stillThere = selectedCallId && queue.some((q) => q.call_session_id === selectedCallId);
+    if (!stillThere) {
+      const next = queue[0]?.call_session_id ?? null;
+      setSelectedCallId(next);
+    }
+  }, [queue, selectedCallId]);
 
   async function accept(callId: string) {
     if (!workspace) return;
@@ -54,127 +92,247 @@ export default function LiveQueuePage() {
       toast({ title: 'Reject failed', description: e.message, variant: 'destructive' });
     } finally { setBusy(null); }
   }
-
-  const queue = data?.queue || [];
-  if (!selectedCallId && queue.length > 0) {
-    // auto-select top of queue
-    setTimeout(() => setSelectedCallId(queue[0].call_session_id), 0);
+  async function endActive(callId: string) {
+    if (!workspace) return;
+    try { await callCenterApi.endCall(workspace.id, callId); qc.invalidateQueries({ queryKey: ['call-center'] }); }
+    catch (e: any) { toast({ title: 'End failed', description: e.message, variant: 'destructive' }); }
   }
 
+  const meta = (detail?.call as any)?.metadata || {};
+  const preCall = meta?.pre_call_form || meta?.preCallForm || null;
+  const isActive = detail && ['active', 'ringing', 'connecting'].includes(detail.call.state);
+
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-4 h-full">
-      {/* Queue column */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold flex items-center gap-2">
-            <Inbox className="h-4 w-4" /> Incoming queue
-            <span className="text-xs font-normal text-muted-foreground">({queue.length})</span>
-          </h2>
-          <span className="text-[11px] text-muted-foreground flex items-center gap-1">
-            <RadioTower className="h-3 w-3" /> Polling 5s
-          </span>
+    <div className="flex flex-col h-full gap-4">
+      {/* Command bar */}
+      <Card className="p-3 flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-2 me-2">
+          <div className="h-8 w-8 rounded-md bg-primary/10 text-primary flex items-center justify-center">
+            <Headphones className="h-4 w-4" />
+          </div>
+          <div>
+            <div className="text-sm font-semibold leading-tight">Live Desk</div>
+            <div className="text-[11px] text-muted-foreground flex items-center gap-1">
+              <RadioTower className="h-3 w-3" /> Polling 5s
+            </div>
+          </div>
         </div>
-        {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
-        {!isLoading && queue.length === 0 && (
-          <Card className="p-6 text-center space-y-2">
-            <Headphones className="h-7 w-7 mx-auto text-muted-foreground" />
-            <p className="text-sm font-medium">No calls waiting</p>
-            <p className="text-xs text-muted-foreground">When a visitor calls, they'll appear here.</p>
-          </Card>
-        )}
-        {queue.map((q, idx) => {
-          const c = q.call_session;
-          const tone = urgencyTone(q.created_at);
-          const isSel = selectedCallId === q.call_session_id;
-          return (
-            <Card
-              key={q.id}
-              onClick={() => setSelectedCallId(q.call_session_id)}
-              className={cn(
-                'p-3 cursor-pointer transition-all border-2',
-                isSel ? 'border-primary shadow-md' : 'border-transparent hover:border-border',
-                tone === 'warn' && !isSel && 'border-amber-500/30',
-                tone === 'danger' && !isSel && 'border-destructive/40 bg-destructive/5',
-              )}
-            >
-              <div className="flex items-start gap-3">
-                <div className="rounded-lg bg-primary/10 text-primary p-2">
-                  {q.channel === 'video' ? <Video className="h-4 w-4" /> : <Phone className="h-4 w-4" />}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <div className="font-medium truncate text-sm">
-                      {c?.visitor_name || c?.visitor_email || c?.visitor_phone || 'Anonymous visitor'}
-                    </div>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted">#{idx + 1}</span>
-                  </div>
-                  <div className={cn('text-xs mt-0.5',
-                    tone === 'danger' ? 'text-destructive font-medium' : tone === 'warn' ? 'text-amber-600' : 'text-muted-foreground',
-                  )}>
-                    waiting {waitTime(q.created_at)} · {q.channel}
-                  </div>
-                  {c?.subject && <div className="text-xs text-muted-foreground truncate mt-0.5">{c.subject}</div>}
-                </div>
+        <div className="flex flex-wrap gap-2 ms-auto">
+          <StatChip label="Waiting" value={overview?.waiting_calls ?? queue.length} tone={(overview?.waiting_calls ?? 0) > 0 ? 'warn' : 'muted'} />
+          <StatChip label="Active" value={overview?.active_calls ?? 0} tone={(overview?.active_calls ?? 0) > 0 ? 'ok' : 'muted'} />
+          <StatChip label="Missed today" value={overview?.missed_today ?? 0} tone={(overview?.missed_today ?? 0) > 0 ? 'danger' : 'muted'} />
+          <StatChip label="Provider" value={overview?.provider?.ready ? 'Ready' : 'Down'} tone={overview?.provider?.ready ? 'ok' : 'warn'} />
+        </div>
+      </Card>
+
+      <div className="grid grid-cols-1 lg:grid-cols-[320px_minmax(0,1fr)_320px] gap-4 flex-1 min-h-0">
+        {/* Queue column */}
+        <div className="space-y-2 overflow-y-auto pr-1">
+          <div className="flex items-center justify-between sticky top-0 bg-background py-1 z-10">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-2">
+              <Inbox className="h-3.5 w-3.5" /> Queue ({queue.length})
+            </h2>
+          </div>
+          {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
+          {!isLoading && queue.length === 0 && (
+            <Card className="p-6 text-center space-y-3">
+              <Headphones className="h-8 w-8 mx-auto text-muted-foreground" />
+              <div>
+                <p className="text-sm font-medium">No calls waiting</p>
+                <p className="text-xs text-muted-foreground">When a visitor calls, they'll appear here.</p>
               </div>
-              <div className="flex gap-2 mt-3">
-                <Button variant="outline" size="sm" className="flex-1" onClick={(e) => { e.stopPropagation(); reject(q.call_session_id); }} disabled={busy === q.call_session_id}>Reject</Button>
-                <Button size="sm" className="flex-1" onClick={(e) => { e.stopPropagation(); accept(q.call_session_id); }} disabled={busy === q.call_session_id}>Accept</Button>
+              <div className="flex flex-col gap-2">
+                <Button asChild size="sm" variant="outline"><Link to={`${base}/install`}>Install widget</Link></Button>
+                <Button asChild size="sm" variant="ghost"><Link to={`${base}/settings`}>Open settings</Link></Button>
               </div>
             </Card>
-          );
-        })}
-      </div>
+          )}
+          {queue.map((q, idx) => {
+            const c = q.call_session;
+            const tone = urgencyTone(q.created_at);
+            const isSel = selectedCallId === q.call_session_id;
+            return (
+              <Card
+                key={q.id}
+                onClick={() => setSelectedCallId(q.call_session_id)}
+                className={cn(
+                  'p-3 cursor-pointer transition-all border-2',
+                  isSel ? 'border-primary shadow-md' : 'border-transparent hover:border-border',
+                  tone === 'warn' && !isSel && 'border-amber-500/30',
+                  tone === 'danger' && !isSel && 'border-destructive/40 bg-destructive/5',
+                )}
+              >
+                <div className="flex items-start gap-2.5">
+                  <div className="rounded-lg bg-primary/10 text-primary p-1.5">
+                    {q.channel === 'video' ? <Video className="h-3.5 w-3.5" /> : <Phone className="h-3.5 w-3.5" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <div className="font-medium truncate text-sm">
+                        {c?.visitor_name || c?.visitor_email || c?.visitor_phone || 'Anonymous'}
+                      </div>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted ms-auto">#{idx + 1}</span>
+                    </div>
+                    <div className={cn('text-[11px] mt-0.5',
+                      tone === 'danger' ? 'text-destructive font-medium' : tone === 'warn' ? 'text-amber-600' : 'text-muted-foreground',
+                    )}>
+                      waiting {waitTime(q.created_at)}
+                    </div>
+                    {c?.subject && <div className="text-[11px] text-muted-foreground truncate mt-0.5">{c.subject}</div>}
+                  </div>
+                </div>
+                <div className="flex gap-1.5 mt-2.5">
+                  <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={(e) => { e.stopPropagation(); reject(q.call_session_id); }} disabled={busy === q.call_session_id}>Reject</Button>
+                  <Button size="sm" className="flex-1 h-7 text-xs" onClick={(e) => { e.stopPropagation(); accept(q.call_session_id); }} disabled={busy === q.call_session_id}>Accept</Button>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
 
-      {/* Detail column */}
-      <Card className="p-5 h-fit lg:sticky lg:top-0">
-        {!detail ? (
-          <div className="text-sm text-muted-foreground text-center py-12">
-            Select a call to view details.
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <div>
-              <div className="text-xs text-muted-foreground">Caller</div>
-              <div className="text-lg font-semibold">
-                {detail.call.visitor_name || detail.call.visitor_email || detail.call.visitor_phone || 'Anonymous'}
-              </div>
-              <div className="text-xs text-muted-foreground space-y-0.5 mt-1">
-                {detail.call.visitor_email && <div>✉ {detail.call.visitor_email}</div>}
-                {detail.call.visitor_phone && <div>📞 {detail.call.visitor_phone}</div>}
-              </div>
-            </div>
-            {detail.call.subject && (
-              <div>
-                <div className="text-xs text-muted-foreground">Subject</div>
-                <div className="text-sm">{detail.call.subject}</div>
-              </div>
-            )}
-            {detail.call.page_url && (
-              <div>
-                <div className="text-xs text-muted-foreground">Page context</div>
-                <div className="text-sm flex items-center gap-1.5"><Globe className="h-3.5 w-3.5" /> {detail.call.page_title || detail.call.page_url}</div>
-              </div>
-            )}
-            <div className="grid grid-cols-2 gap-2 text-sm">
-              <div><div className="text-xs text-muted-foreground">Type</div>{detail.call.call_type}</div>
-              <div><div className="text-xs text-muted-foreground">State</div>{detail.call.state}</div>
-              <div><div className="text-xs text-muted-foreground">Provider</div>{detail.call.provider || '—'}</div>
-              <div><div className="text-xs text-muted-foreground">Source</div>Call Widget</div>
-            </div>
-            <div>
-              <div className="text-xs text-muted-foreground mb-1">Timeline</div>
-              <ol className="space-y-1 text-xs max-h-40 overflow-y-auto">
-                {detail.events.map((e) => (
-                  <li key={e.id} className="flex gap-2">
-                    <span className="text-muted-foreground shrink-0">{new Date(e.created_at).toLocaleTimeString()}</span>
-                    <span>{e.event_type}</span>
-                  </li>
-                ))}
-              </ol>
-            </div>
-          </div>
-        )}
-      </Card>
+        {/* Workspace column */}
+        <div className="space-y-3 overflow-y-auto">
+          {!detail ? (
+            <Card className="p-12 text-center">
+              <PhoneCall className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+              <p className="text-sm font-medium">No call selected</p>
+              <p className="text-xs text-muted-foreground">Pick a call from the queue to start handling it.</p>
+            </Card>
+          ) : (
+            <>
+              <Card className="p-5 bg-gradient-to-br from-primary/5 to-transparent border-primary/20">
+                <div className="flex items-start gap-4 flex-wrap">
+                  <div className="h-14 w-14 rounded-full bg-primary/15 text-primary flex items-center justify-center text-lg font-semibold">
+                    {(detail.call.visitor_name || detail.call.visitor_email || 'A').slice(0, 1).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xl font-semibold leading-tight">
+                      {detail.call.visitor_name || detail.call.visitor_email || detail.call.visitor_phone || 'Anonymous visitor'}
+                    </div>
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-background border">{detail.call.call_type === 'video' ? 'Video' : 'Voice'}</span>
+                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-background border">{detail.call.state}</span>
+                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-background border">{detail.call.provider || 'no provider'}</span>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    {detail.call.state === 'pending' && (
+                      <>
+                        <Button variant="outline" onClick={() => reject(detail.call.id)}>Reject</Button>
+                        <Button onClick={() => accept(detail.call.id)}>Accept</Button>
+                      </>
+                    )}
+                    {isActive && (
+                      <Button variant="destructive" onClick={() => endActive(detail.call.id)}>
+                        <PhoneOff className="h-4 w-4 me-1" /> End
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </Card>
+
+              {/* Media placeholder */}
+              <Card className="p-5 border-dashed">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
+                  <div className="text-sm">
+                    <div className="font-medium">Media connection not wired</div>
+                    <p className="text-xs text-muted-foreground mt-0.5">CC-2B will connect the provider room. Controls below are placeholders.</p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2 mt-4">
+                  {[
+                    { icon: MicOff, label: 'Mute' },
+                    { icon: CameraOff, label: 'Camera' },
+                    { icon: ArrowRightLeft, label: 'Transfer' },
+                    { icon: PhoneOff, label: 'End' },
+                  ].map((b) => (
+                    <Button key={b.label} variant="outline" size="sm" disabled title="Coming next (CC-2B)">
+                      <b.icon className="h-3.5 w-3.5 me-1.5" />{b.label}
+                    </Button>
+                  ))}
+                </div>
+              </Card>
+
+              {/* Page context */}
+              {(detail.call.page_url || detail.call.subject) && (
+                <Card className="p-4 space-y-2">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Page context</div>
+                  {detail.call.subject && <div className="text-sm"><span className="text-muted-foreground">Subject: </span>{detail.call.subject}</div>}
+                  {detail.call.page_url && (
+                    <div className="text-sm flex items-center gap-1.5">
+                      <Globe className="h-3.5 w-3.5 text-muted-foreground" />
+                      <a href={detail.call.page_url} target="_blank" rel="noreferrer" className="underline truncate">
+                        {detail.call.page_title || detail.call.page_url}
+                      </a>
+                    </div>
+                  )}
+                </Card>
+              )}
+
+              {/* Pre-call form */}
+              {preCall && typeof preCall === 'object' && (
+                <Card className="p-4 space-y-2">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pre-call form</div>
+                  <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                    {Object.entries(preCall).map(([k, v]) => (
+                      <div key={k} className="contents">
+                        <dt className="text-muted-foreground capitalize">{k}</dt>
+                        <dd className="truncate">{String(v ?? '—')}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </Card>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Context column */}
+        <div className="space-y-3 overflow-y-auto">
+          {detail ? (
+            <>
+              <Card className="p-4 space-y-2">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Contact</div>
+                <div className="text-sm space-y-1">
+                  <div className="font-medium">{detail.call.visitor_name || 'Anonymous'}</div>
+                  {detail.call.visitor_email && <div className="text-muted-foreground">{detail.call.visitor_email}</div>}
+                  {detail.call.visitor_phone && <div className="text-muted-foreground">{detail.call.visitor_phone}</div>}
+                </div>
+              </Card>
+              <Card className="p-4 space-y-2">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Timeline</div>
+                <ol className="space-y-1 text-xs max-h-56 overflow-y-auto">
+                  {detail.events.length === 0 && <li className="text-muted-foreground">No events.</li>}
+                  {detail.events.map((e) => (
+                    <li key={e.id} className="flex gap-2">
+                      <span className="text-muted-foreground shrink-0">{new Date(e.created_at).toLocaleTimeString()}</span>
+                      <span className="truncate">{e.event_type}</span>
+                    </li>
+                  ))}
+                </ol>
+              </Card>
+              <Card className="p-4 space-y-2">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Private notes</div>
+                <Textarea
+                  placeholder="Private call notes — coming soon"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  rows={4}
+                  disabled
+                  className="text-sm"
+                />
+              </Card>
+              <Card className="p-4">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Previous calls</div>
+                <p className="text-xs text-muted-foreground">Call history will appear here.</p>
+              </Card>
+            </>
+          ) : (
+            <Card className="p-6 text-center text-xs text-muted-foreground">Select a call to view context.</Card>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

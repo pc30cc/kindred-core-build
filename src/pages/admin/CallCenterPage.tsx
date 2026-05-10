@@ -4,6 +4,7 @@ import {
 } from '@/hooks/useCallCenter';
 import { callCenterAdminApi, type CallCenterPlatformSettings } from '@/lib/call-center-api';
 import { Card } from '@/components/ui/card';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
@@ -11,15 +12,28 @@ import { Label } from '@/components/ui/label';
 import { toast } from '@/hooks/use-toast';
 import { AlertCircle, ShieldCheck, Server, Building2, Search } from 'lucide-react';
 
-const TOGGLES: Array<[keyof CallCenterPlatformSettings, string, boolean?]> = [
-  ['voice_calls_enabled', 'Voice calls'],
-  ['video_calls_enabled', 'Video calls'],
-  ['callback_requests_enabled', 'Callback requests'],
-  ['call_recording_enabled', 'Call recording'],
-  ['screen_share_enabled', 'Screen share', true],
-  ['call_transfer_enabled', 'Call transfer', true],
-  ['departments_enabled', 'Departments', true],
-  ['advanced_routing_enabled', 'Advanced routing', true],
+const TOGGLE_GROUPS: Array<{ title: string; items: Array<[keyof CallCenterPlatformSettings, string, boolean?]> }> = [
+  { title: 'Core', items: [
+    ['voice_calls_enabled', 'Voice calls'],
+    ['video_calls_enabled', 'Video calls'],
+    ['callback_requests_enabled', 'Callback requests'],
+  ] },
+  { title: 'Recording', items: [
+    ['call_recording_enabled', 'Call recording'],
+  ] },
+  { title: 'Future', items: [
+    ['screen_share_enabled', 'Screen share', true],
+    ['call_transfer_enabled', 'Call transfer', true],
+    ['departments_enabled', 'Departments', true],
+    ['advanced_routing_enabled', 'Advanced routing', true],
+  ] },
+];
+
+const LOCALES: Array<{ key: string; label: string; placeholder: string }> = [
+  { key: 'default', label: 'Default', placeholder: 'Call center is currently unavailable.' },
+  { key: 'en', label: 'English', placeholder: 'Call center is currently unavailable.' },
+  { key: 'tr', label: 'Türkçe', placeholder: 'Çağrı merkezi şu anda kullanılamıyor.' },
+  { key: 'fa', label: 'فارسی', placeholder: 'مرکز تماس در حال حاضر در دسترس نیست.' },
 ];
 
 const LIMITS: Array<[keyof CallCenterPlatformSettings, string]> = [
@@ -48,15 +62,32 @@ export default function AdminCallCenterPage() {
   const { data: ws } = useCallCenterAdminWorkspaces();
   const [draft, setDraft] = useState<Partial<CallCenterPlatformSettings>>({});
   const [jsonText, setJsonText] = useState('{}');
+  const [messages, setMessages] = useState<Record<string, string>>({});
   const [jsonError, setJsonError] = useState<string | null>(null);
   const [wsSearch, setWsSearch] = useState('');
 
   useEffect(() => {
     if (data?.settings) {
       setDraft({ ...data.settings });
-      setJsonText(JSON.stringify(data.settings.disabled_message || {}, null, 2));
+      const dm = (data.settings.disabled_message || {}) as Record<string, string>;
+      setJsonText(JSON.stringify(dm, null, 2));
+      setMessages({
+        default: dm.default || '',
+        en: dm.en || '',
+        tr: dm.tr || '',
+        fa: dm.fa || '',
+      });
     }
   }, [data?.settings]);
+
+  function updateMessage(key: string, value: string) {
+    const next = { ...messages, [key]: value };
+    setMessages(next);
+    const cleaned = Object.fromEntries(Object.entries(next).filter(([, v]) => v.trim()));
+    setDraft((d) => ({ ...d, disabled_message: cleaned }));
+    setJsonText(JSON.stringify(cleaned, null, 2));
+    setJsonError(null);
+  }
   if (isLoading || !data) return <p className="text-sm text-muted-foreground">Loading…</p>;
 
   async function save() {
@@ -97,37 +128,56 @@ export default function AdminCallCenterPage() {
           <Switch checked={!!draft.call_center_enabled} onCheckedChange={(v) => setDraft({ ...draft, call_center_enabled: v })} />
         </div>
         <div>
-          <Label>Disabled message (JSON)</Label>
-          <p className="text-xs text-muted-foreground mb-1">Localized strings shown in the widget when disabled, e.g. <code>{'{ "default": "...", "en": "...", "fa": "..." }'}</code></p>
-          <textarea
-            className={`w-full min-h-[100px] rounded border bg-background p-2 text-xs font-mono ${jsonError ? 'border-destructive' : 'border-input'}`}
-            value={jsonText}
-            onChange={(e) => {
-              const v = e.target.value;
-              setJsonText(v);
-              try { const parsed = JSON.parse(v); setDraft((d) => ({ ...d, disabled_message: parsed })); setJsonError(null); }
-              catch (err: any) { setJsonError(err.message); }
-            }}
-          />
-          {jsonError && <p className="text-xs text-destructive mt-1">JSON error: {jsonError}</p>}
+          <Label>Disabled message</Label>
+          <p className="text-xs text-muted-foreground mb-2">Shown in the widget when the Call Center is disabled. Provide per-locale text.</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {LOCALES.map((l) => (
+              <div key={l.key}>
+                <Label className="text-xs">{l.label}</Label>
+                <Input value={messages[l.key] || ''} onChange={(e) => updateMessage(l.key, e.target.value)} placeholder={l.placeholder} />
+              </div>
+            ))}
+          </div>
+          <Collapsible className="mt-3">
+            <CollapsibleTrigger className="text-xs text-muted-foreground hover:text-foreground">Advanced JSON editor</CollapsibleTrigger>
+            <CollapsibleContent>
+              <textarea
+                className={`w-full min-h-[100px] rounded border bg-background p-2 text-xs font-mono mt-2 ${jsonError ? 'border-destructive' : 'border-input'}`}
+                value={jsonText}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setJsonText(v);
+                  try { const parsed = JSON.parse(v); setDraft((d) => ({ ...d, disabled_message: parsed })); setJsonError(null); }
+                  catch (err: any) { setJsonError(err.message); }
+                }}
+              />
+              {jsonError && <p className="text-xs text-destructive mt-1">JSON error: {jsonError}</p>}
+            </CollapsibleContent>
+          </Collapsible>
         </div>
       </Card>
 
-      <Card className="p-5 space-y-3">
+      <Card className="p-5 space-y-5">
         <h2 className="font-semibold">Feature toggles</h2>
-        {TOGGLES.map(([k, label, isPlaceholder]) => (
-          <div key={k as string} className="flex items-center justify-between">
-            <div>
-              <Label>{label}</Label>
-              {isPlaceholder && <p className="text-[11px] text-muted-foreground flex items-center gap-1"><AlertCircle className="h-3 w-3" /> Placeholder — not implemented yet</p>}
-            </div>
-            <Switch checked={!!(draft as any)[k]} disabled={!!isPlaceholder} onCheckedChange={(v) => setDraft({ ...draft, [k]: v } as any)} />
+        {TOGGLE_GROUPS.map((group) => (
+          <div key={group.title} className="space-y-2">
+            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{group.title}</div>
+            {group.items.map(([k, label, isPlaceholder]) => (
+              <div key={k as string} className="flex items-center justify-between py-1">
+                <div className="flex items-center gap-2">
+                  <Label>{label}</Label>
+                  {isPlaceholder && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 border border-amber-500/30">Placeholder</span>}
+                </div>
+                <Switch checked={!!(draft as any)[k]} disabled={!!isPlaceholder} onCheckedChange={(v) => setDraft({ ...draft, [k]: v } as any)} />
+              </div>
+            ))}
           </div>
         ))}
       </Card>
 
       <Card className="p-5 space-y-3">
         <h2 className="font-semibold">Platform limits</h2>
+        <p className="text-xs text-muted-foreground">Effective limit = min(platform cap, plan limit, workspace override).</p>
         <div className="grid grid-cols-2 gap-3">
           {LIMITS.map(([k, label]) => (
             <div key={k as string}>

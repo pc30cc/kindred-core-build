@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   useCallCenterAdminPlatform, useUpdateCallCenterAdminPlatform, useCallCenterAdminWorkspaces,
 } from '@/hooks/useCallCenter';
@@ -9,7 +9,7 @@ import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from '@/hooks/use-toast';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, ShieldCheck, Server, Building2, Search } from 'lucide-react';
 
 const TOGGLES: Array<[keyof CallCenterPlatformSettings, string, boolean?]> = [
   ['voice_calls_enabled', 'Voice calls'],
@@ -30,11 +30,14 @@ const LIMITS: Array<[keyof CallCenterPlatformSettings, string]> = [
   ['max_recording_storage_mb', 'Max recording storage (MB)'],
 ];
 
-function Stat({ label, value }: { label: string; value: number }) {
+function Stat({ label, value, icon: Icon }: { label: string; value: number | string; icon?: any }) {
   return (
-    <div className="rounded-lg bg-muted/40 p-3">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="text-xl font-semibold">{value}</div>
+    <div className="rounded-lg bg-muted/40 p-3 flex items-center gap-3">
+      {Icon && <div className="h-9 w-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center"><Icon className="h-4 w-4" /></div>}
+      <div className="min-w-0">
+        <div className="text-xs text-muted-foreground">{label}</div>
+        <div className="text-xl font-semibold">{value}</div>
+      </div>
     </div>
   );
 }
@@ -44,14 +47,23 @@ export default function AdminCallCenterPage() {
   const update = useUpdateCallCenterAdminPlatform();
   const { data: ws } = useCallCenterAdminWorkspaces();
   const [draft, setDraft] = useState<Partial<CallCenterPlatformSettings>>({});
+  const [jsonText, setJsonText] = useState('{}');
+  const [jsonError, setJsonError] = useState<string | null>(null);
+  const [wsSearch, setWsSearch] = useState('');
 
-  useEffect(() => { if (data?.settings) setDraft({ ...data.settings }); }, [data?.settings]);
+  useEffect(() => {
+    if (data?.settings) {
+      setDraft({ ...data.settings });
+      setJsonText(JSON.stringify(data.settings.disabled_message || {}, null, 2));
+    }
+  }, [data?.settings]);
   if (isLoading || !data) return <p className="text-sm text-muted-foreground">Loading…</p>;
 
   async function save() {
+    if (jsonError) { toast({ title: 'Disabled message JSON is invalid', variant: 'destructive' }); return; }
     try {
       await update.mutateAsync(draft);
-      toast({ title: 'Saved' });
+      toast({ title: 'Saved', description: 'Cache invalidated.' });
     } catch (e: any) {
       toast({ title: 'Save failed', description: e.message, variant: 'destructive' });
     }
@@ -63,9 +75,17 @@ export default function AdminCallCenterPage() {
 
   return (
     <div className="space-y-6 max-w-5xl">
-      <header>
-        <h1 className="text-2xl font-semibold">Call Center</h1>
-        <p className="text-sm text-muted-foreground">Platform-wide controls for the standalone Call Center module.</p>
+      <header className="flex items-start gap-4 flex-wrap">
+        <div className="flex-1 min-w-[260px]">
+          <h1 className="text-2xl font-semibold">Call Center</h1>
+          <p className="text-sm text-muted-foreground">Platform-wide controls for the standalone Call Center module.</p>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 w-full sm:w-auto">
+          <Stat label="Kill switch" value={draft.call_center_enabled ? 'On' : 'Off'} icon={ShieldCheck} />
+          <Stat label="Enabled WS" value={data.stats.enabled_workspaces} icon={Building2} />
+          <Stat label="Active calls" value={data.stats.active_calls} icon={Server} />
+          <Stat label="Waiting" value={data.stats.waiting_calls} icon={AlertCircle} />
+        </div>
       </header>
 
       <Card className="p-5 space-y-4">
@@ -78,16 +98,18 @@ export default function AdminCallCenterPage() {
         </div>
         <div>
           <Label>Disabled message (JSON)</Label>
+          <p className="text-xs text-muted-foreground mb-1">Localized strings shown in the widget when disabled, e.g. <code>{'{ "default": "...", "en": "...", "fa": "..." }'}</code></p>
           <textarea
-            className="w-full min-h-[80px] rounded border border-input bg-background p-2 text-xs font-mono"
-            value={JSON.stringify(draft.disabled_message || {}, null, 2)}
-            onChange={(e) => { try { setDraft({ ...draft, disabled_message: JSON.parse(e.target.value) }); } catch {} }}
+            className={`w-full min-h-[100px] rounded border bg-background p-2 text-xs font-mono ${jsonError ? 'border-destructive' : 'border-input'}`}
+            value={jsonText}
+            onChange={(e) => {
+              const v = e.target.value;
+              setJsonText(v);
+              try { const parsed = JSON.parse(v); setDraft((d) => ({ ...d, disabled_message: parsed })); setJsonError(null); }
+              catch (err: any) { setJsonError(err.message); }
+            }}
           />
-        </div>
-        <div className="grid grid-cols-3 gap-3 text-sm">
-          <Stat label="Enabled workspaces" value={data.stats.enabled_workspaces} />
-          <Stat label="Active calls" value={data.stats.active_calls} />
-          <Stat label="Waiting calls" value={data.stats.waiting_calls} />
+          {jsonError && <p className="text-xs text-destructive mt-1">JSON error: {jsonError}</p>}
         </div>
       </Card>
 
@@ -122,7 +144,13 @@ export default function AdminCallCenterPage() {
       </div>
 
       <Card className="p-5">
-        <h2 className="font-semibold mb-3">Workspaces</h2>
+        <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
+          <h2 className="font-semibold">Workspaces</h2>
+          <div className="relative w-64 max-w-full">
+            <Search className="h-3.5 w-3.5 absolute start-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input className="ps-8 h-8 text-sm" placeholder="Search…" value={wsSearch} onChange={(e) => setWsSearch(e.target.value)} />
+          </div>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -138,7 +166,11 @@ export default function AdminCallCenterPage() {
               </tr>
             </thead>
             <tbody>
-              {(ws?.workspaces || []).map((w: any) => (
+              {(ws?.workspaces || []).filter((w: any) => {
+                if (!wsSearch) return true;
+                const s = wsSearch.toLowerCase();
+                return (w.workspaces?.name || '').toLowerCase().includes(s) || (w.workspaces?.slug || '').toLowerCase().includes(s);
+              }).map((w: any) => (
                 <tr key={w.workspace_id} className="border-b">
                   <td className="py-2 px-2">{w.workspaces?.name || w.workspace_id}</td>
                   <td className="py-2 px-2 text-muted-foreground">{w.workspaces?.slug || '—'}</td>

@@ -296,7 +296,7 @@ const callbackSchema = z.object({
   email: z.string().email().max(200).optional().nullable(),
   phone: z.string().max(40).optional().nullable(),
   subject: z.string().max(500).optional().nullable(),
-  preferred_time: z.string().datetime().optional().nullable(),
+  scheduled_for: z.string().datetime().optional().nullable(),
   page_url: z.string().max(2000).optional().nullable(),
 });
 
@@ -318,7 +318,7 @@ callWidgetRouter.post('/callbacks/request', async (req, res) => {
     contact_phone: parsed.data.phone || null,
     contact_email: parsed.data.email || null,
     notes: parsed.data.subject || null,
-    scheduled_for: parsed.data.preferred_time || null,
+    scheduled_for: parsed.data.scheduled_for || null,
     metadata: {
       source: 'call_widget',
       name: parsed.data.name || null,

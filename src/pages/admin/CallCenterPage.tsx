@@ -178,10 +178,6 @@ export default function AdminCallCenterPage() {
       <Card className="p-5 space-y-3">
         <h2 className="font-semibold">Platform limits</h2>
         <p className="text-xs text-muted-foreground">Effective limit = min(platform cap, plan limit, workspace override).</p>
-      </Card>
-
-      <Card className="p-5 space-y-3">
-        <h2 className="font-semibold">Platform limits</h2>
         <div className="grid grid-cols-2 gap-3">
           {LIMITS.map(([k, label]) => (
             <div key={k as string}>

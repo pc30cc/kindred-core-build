@@ -71,11 +71,6 @@ export default function LiveQueuePage() {
     }
   }, [queue, selectedCallId]);
 
-  const [lastAccept, setLastAccept] = (function () {
-    // hoisted via React
-    return [null, null] as any;
-  })();
-
   async function accept(callId: string) {
     if (!workspace) return;
     setBusy(callId);

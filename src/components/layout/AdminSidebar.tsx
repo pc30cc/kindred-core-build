@@ -2,7 +2,7 @@ import { Link, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Users, Building2, Plug, Server,
   Flag, Palette, Globe, FileText, CreditCard, Shield,
-  Database, Crown, MessageSquare, MapPin,
+  Database, Crown, MessageSquare, MapPin, PhoneCall,
   ChevronLeft, ChevronRight, LogOut, ArrowLeft, ArrowRight, Activity, Video, Sparkles,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -19,6 +19,7 @@ const adminNav = [
   { key: 'mapGeo', path: '/admin/map-geo', icon: MapPin },
   { key: 'widgetSettings', path: '/admin/widget-settings', icon: MessageSquare },
   { key: 'voiceVideo', path: '/admin/voice-video', icon: Video },
+  { key: 'callCenter', path: '/admin/call-center', icon: PhoneCall },
   { key: 'aiAgent', path: '/admin/ai-agent', icon: Sparkles },
   { key: 'system', path: '/admin/system', icon: Server },
   { key: 'observability', path: '/admin/observability', icon: Activity },

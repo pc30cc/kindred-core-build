@@ -189,7 +189,21 @@ export const callCenterApi = {
       `/api/call-center/calls/${callId}?workspaceId=${encodeURIComponent(workspaceId)}`,
     ),
   acceptCall: (workspaceId: string, callId: string) =>
-    jsonFetch<{ ok: boolean; provider: string; provider_room_id: string; token: string; expires_at: string }>(
+    jsonFetch<{
+      ok: boolean;
+      provider: string;
+      provider_room_id: string;
+      token: string;
+      expires_at: string;
+      connect?: {
+        supported: boolean;
+        provider: string;
+        server_url: string | null;
+        room_id: string | null;
+        identity: string | null;
+        reason?: string;
+      };
+    }>(
       `/api/call-center/calls/${callId}/accept?workspaceId=${encodeURIComponent(workspaceId)}`,
       { method: 'POST', body: JSON.stringify({ workspaceId }) },
     ),

@@ -76,7 +76,15 @@ export default function LiveQueuePage() {
     setBusy(callId);
     try {
       const r = await callCenterApi.acceptCall(workspace.id, callId);
-      toast({ title: 'Call accepted', description: `Provider: ${r.provider}` });
+      const cn = (r as any).connect;
+      const supported = cn && cn.supported;
+      toast({
+        title: 'Call accepted',
+        description: supported
+          ? `Room ready on ${r.provider}. Operator media console arrives in CC-2C.`
+          : `Provider: ${r.provider} — ${cn?.reason || 'media client not configured'}.`,
+        variant: supported ? 'default' : 'destructive',
+      });
       qc.invalidateQueries({ queryKey: ['call-center'] });
     } catch (e: any) {
       toast({ title: 'Accept failed', description: e.message, variant: 'destructive' });

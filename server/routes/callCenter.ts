@@ -18,6 +18,7 @@ import {
 import { isGlobalAdmin } from '../middleware/adminBypass.js';
 import { resolveEffectiveCallProvider } from '../services/calls/providerResolver.js';
 import { publishQueueEvent, publishCallEvent } from '../services/callCenter/realtime.js';
+import { buildClientConnectInfo } from '../services/callCenter/connectInfo.js';
 import { uploadFile } from '../services/storage/index.js';
 import crypto from 'crypto';
 
@@ -330,7 +331,16 @@ callCenterRouter.post('/calls/:id/accept', async (req, res) => {
     await sb.from('call_queue_entries').update({
       state: 'accepted', accepted_at: new Date().toISOString(), offered_to_user_id: ctx.userId,
     }).eq('call_session_id', req.params.id).eq('workspace_id', wid);
-    res.json({ ok: true, provider: providerId, provider_room_id: providerRoomId, token: tok.token, expires_at: tok.expiresAt });
+    const identity = `operator:${ctx.userId}`;
+    const connect = await buildClientConnectInfo(ctx.config, providerId, providerRoomId, identity);
+    res.json({
+      ok: true,
+      provider: providerId,
+      provider_room_id: providerRoomId,
+      token: tok.token,
+      expires_at: tok.expiresAt,
+      connect,
+    });
   } catch (e: any) {
     res.status(500).json({ error: 'accept_failed', message: String(e?.message || e) });
   }

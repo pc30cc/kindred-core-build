@@ -215,17 +215,107 @@
   };
 
   CallCenterWidgetCtor.prototype.connectMedia = function () {
-    // Media connection is not configured yet. The backend /join-token endpoint
-    // returns a provider token and room id, but does NOT (yet) return a usable
-    // provider server URL (e.g. LiveKit wss URL). We therefore must NOT attempt
-    // room.connect with an empty URL — that would crash the SDK. Until the
-    // backend exposes a server URL safely, show an explicit placeholder state.
-    this.connectStatus = 'media_not_configured';
-    this.render();
+    var self = this;
+    var info = this.joinInfo || {};
+    var connect = info.connect || {};
+    if (!connect.supported || !connect.server_url || !info.token) {
+      var reason = connect.reason || 'media_not_configured';
+      self.connectStatus = reason === 'livekit_url_missing' ? 'provider_client_not_configured'
+        : reason === 'provider_client_not_supported' ? 'provider_client_not_supported'
+        : 'media_not_configured';
+      self.render();
+      return;
+    }
+    if (connect.provider !== 'livekit') {
+      self.connectStatus = 'provider_client_not_supported';
+      self.render();
+      return;
+    }
+    var LK = window.LivekitClient || window.LiveKit || null;
+    if (!LK || !LK.Room) {
+      self.connectStatus = 'media_client_missing';
+      self.render();
+      return;
+    }
+    self.connectStatus = 'connecting_media';
+    self.render();
+    try {
+      var room = new LK.Room({ adaptiveStream: true, dynacast: true });
+      self.lkRoom = room;
+      var wantVideo = (self.call && self.call.call_type === 'video') || self.formData.call_type === 'video';
+      room.on(LK.RoomEvent ? LK.RoomEvent.Disconnected : 'disconnected', function () {
+        self.connectStatus = 'ended'; self.render();
+      });
+      room.on(LK.RoomEvent ? LK.RoomEvent.TrackSubscribed : 'trackSubscribed', function (track) {
+        try {
+          if (track.kind === 'audio') {
+            var au = track.attach(); au.autoplay = true;
+            self._remoteHolder && self._remoteHolder.appendChild(au);
+          } else if (track.kind === 'video') {
+            var v = track.attach(); v.autoplay = true; v.playsInline = true;
+            self._remoteHolder && self._remoteHolder.appendChild(v);
+          }
+        } catch (_) {}
+      });
+      room.connect(connect.server_url, info.token).then(function () {
+        return room.localParticipant.setMicrophoneEnabled(true).catch(function (err) {
+          self.connectStatus = 'microphone_permission_denied';
+          self.error = String(err && err.message || err);
+          self.render();
+          throw err;
+        });
+      }).then(function () {
+        if (wantVideo) {
+          return room.localParticipant.setCameraEnabled(true).catch(function (err) {
+            self.connectStatus = 'camera_permission_denied';
+            self.error = String(err && err.message || err);
+            self.render();
+          });
+        }
+      }).then(function () {
+        if (self.connectStatus !== 'microphone_permission_denied' && self.connectStatus !== 'camera_permission_denied') {
+          self.connectStatus = 'in_call';
+          self.micOn = true; self.camOn = !!wantVideo;
+          self.render();
+        }
+      }).catch(function (err) {
+        if (self.connectStatus !== 'microphone_permission_denied' && self.connectStatus !== 'camera_permission_denied') {
+          self.connectStatus = 'room_connect_failed';
+          self.error = String(err && err.message || err);
+          self.render();
+        }
+      });
+    } catch (err) {
+      self.connectStatus = 'room_connect_failed';
+      self.error = String(err && err.message || err);
+      self.render();
+    }
+  };
+
+  CallCenterWidgetCtor.prototype.toggleMic = function () {
+    if (!this.lkRoom) return;
+    var next = !this.micOn;
+    var self = this;
+    this.lkRoom.localParticipant.setMicrophoneEnabled(next).then(function () {
+      self.micOn = next; self.render();
+    });
+  };
+  CallCenterWidgetCtor.prototype.toggleCam = function () {
+    if (!this.lkRoom) return;
+    var next = !this.camOn;
+    var self = this;
+    this.lkRoom.localParticipant.setCameraEnabled(next).then(function () {
+      self.camOn = next; self.render();
+    });
+  };
+  CallCenterWidgetCtor.prototype.disconnectRoom = function () {
+    try { if (this.lkRoom) this.lkRoom.disconnect(); } catch (_) {}
+    this.lkRoom = null;
   };
 
   CallCenterWidgetCtor.prototype.cancelCall = function () {
     var self = this;
+    this.disconnectRoom();
     if (!this.callId) { this.reset(); return; }
     this.api('/api/call-widget/calls/' + this.callId + '/cancel', { method: 'POST' }).then(function () {
       self.stopPolling(); self.stopTimer();
@@ -234,8 +324,10 @@
   };
 
   CallCenterWidgetCtor.prototype.reset = function () {
+    this.disconnectRoom();
     this.callId = null; this.call = null; this.queueStartedAt = null;
     this.connectStatus = null; this.joinInfo = null; this.error = null;
+    this.micOn = false; this.camOn = false; this._remoteHolder = null;
     this.state = this.isOnline() ? STATES.ONLINE : STATES.OFFLINE;
     this.render();
   };
@@ -346,18 +438,35 @@
       case STATES.IN_CALL: {
         var status = self.connectStatus || 'connecting';
         var msg = 'Call accepted, connecting…';
-        if (status === 'connected') msg = 'Connected';
+        if (status === 'in_call') msg = 'Connected';
+        if (status === 'connecting_media') msg = 'Connecting audio/video…';
         if (status === 'fallback') msg = 'Call accepted. Please continue on the operator side.';
         if (status === 'accepted_no_sdk') msg = 'Call accepted. Audio/video client unavailable on this page.';
         if (status === 'media_not_configured') msg = 'Call accepted, media connection is not configured yet.';
-        if (status === 'failed') msg = 'Connection failed: ' + (self.error || 'unknown');
-        return el('div', { class: 'ccw-stack' }, [
-          el('div', { class: 'ccw-card' }, [
-            el('div', { class: 'ccw-pill' }, ['In call']),
-            el('div', { class: 'ccw-label' }, [msg]),
-          ]),
-          el('button', { class: 'ccw-btn danger', on: { click: function () { self.cancelCall(); } } }, ['End']),
+        if (status === 'provider_client_not_configured') msg = 'Call accepted, but the media server URL is not configured. Please request a callback.';
+        if (status === 'provider_client_not_supported') msg = 'Call accepted, but this provider has no in-browser client.';
+        if (status === 'media_client_missing') msg = 'Media client is not loaded. Call room is ready but the browser client is missing.';
+        if (status === 'microphone_permission_denied') msg = 'Microphone permission denied. Please allow access and try again.';
+        if (status === 'camera_permission_denied') msg = 'Camera permission denied. Audio call continues without video.';
+        if (status === 'room_connect_failed') msg = 'Failed to connect to the call room: ' + (self.error || 'unknown');
+        if (status === 'token_expired') msg = 'Your session expired. Please rejoin.';
+        var card = el('div', { class: 'ccw-card' }, [
+          el('div', { class: 'ccw-pill' }, ['In call']),
+          el('div', { class: 'ccw-label' }, [msg]),
         ]);
+        var media = el('div', { class: 'ccw-media' });
+        self._remoteHolder = media;
+        card.appendChild(media);
+        var controls = el('div', { class: 'ccw-row' });
+        if (status === 'in_call') {
+          controls.appendChild(el('button', { class: 'ccw-btn secondary', on: { click: function () { self.toggleMic(); } } }, [self.micOn ? '🎙 Mute' : '🎙 Unmute']));
+          var wantVideo = (self.call && self.call.call_type === 'video') || self.formData.call_type === 'video';
+          if (wantVideo) {
+            controls.appendChild(el('button', { class: 'ccw-btn secondary', on: { click: function () { self.toggleCam(); } } }, [self.camOn ? '🎥 Camera off' : '🎥 Camera on']));
+          }
+        }
+        controls.appendChild(el('button', { class: 'ccw-btn danger', on: { click: function () { self.cancelCall(); } } }, ['End']));
+        return el('div', { class: 'ccw-stack' }, [card, controls]);
       }
 
       case STATES.ENDED: {

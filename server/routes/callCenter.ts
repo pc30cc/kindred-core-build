@@ -119,13 +119,13 @@ callCenterRouter.get('/overview', async (req, res) => {
     sb.from('call_sessions').select('id', { count: 'exact', head: true })
       .eq('workspace_id', wid).eq('entry_source', 'call_widget').gte('created_at', startOfDay.toISOString()),
     sb.from('call_queue_entries').select('id', { count: 'exact', head: true })
-      .eq('workspace_id', wid).eq('entry_source', 'call_widget').in('state', ['waiting', 'offered']),
+      .eq('workspace_id', wid).eq('entry_source', 'call_widget').in('state', ['queued', 'offered']),
     sb.from('call_sessions').select('id', { count: 'exact', head: true })
-      .eq('workspace_id', wid).eq('entry_source', 'call_widget').in('status', ['active', 'ringing']),
+      .eq('workspace_id', wid).eq('entry_source', 'call_widget').in('state', ['active', 'ringing', 'connecting']),
     sb.from('call_sessions').select('id', { count: 'exact', head: true })
-      .eq('workspace_id', wid).eq('entry_source', 'call_widget').eq('status', 'missed').gte('created_at', startOfDay.toISOString()),
+      .eq('workspace_id', wid).eq('entry_source', 'call_widget').eq('state', 'missed').gte('created_at', startOfDay.toISOString()),
     sb.from('callback_requests').select('id', { count: 'exact', head: true })
-      .eq('workspace_id', wid).eq('status', 'pending'),
+      .eq('workspace_id', wid).in('status', ['pending', 'requested', 'open']),
     resolveEffectiveCallProvider(ctx.config, wid).then(p => ({ provider: p.id, ready: true })).catch(e => ({ provider: 'none', ready: false, error: String(e?.message || e) })),
   ]);
   res.json({
@@ -151,7 +151,7 @@ callCenterRouter.get('/calls', async (req, res) => {
     .eq('entry_source', 'call_widget')
     .order('created_at', { ascending: false })
     .range(offset, offset + limit - 1);
-  if (status) q = q.eq('status', status);
+  if (status) q = q.eq('state', status);
   const { data, error } = await q;
   if (error) return res.status(500).json({ error: error.message });
   res.json({ calls: data || [] });
@@ -177,7 +177,7 @@ callCenterRouter.get('/queue', async (req, res) => {
   const { data: queue } = await sb.from('call_queue_entries')
     .select('*, call_session:call_session_id(*)')
     .eq('workspace_id', wid).eq('entry_source', 'call_widget')
-    .in('state', ['waiting', 'offered'])
+    .in('state', ['queued', 'offered'])
     .order('priority', { ascending: false }).order('created_at', { ascending: true });
   res.json({ queue: queue || [] });
 });
@@ -196,7 +196,7 @@ async function transitionCall(
     .update(patch).eq('id', callId).eq('workspace_id', wid).select('*').maybeSingle();
   if (error) throw error;
   await sb.from('call_events').insert({
-    call_session_id: callId, event_type: eventType, actor_type: 'agent', actor_id: actorId, payload: patch,
+    call_session_id: callId, event_type: eventType, actor_type: 'operator', actor_id: actorId, payload: patch,
   });
   await publishQueueEvent(config, wid, eventType, { call_id: callId });
   await publishCallEvent(config, wid, callId, eventType, { call_id: callId });
@@ -233,8 +233,8 @@ callCenterRouter.post('/calls/:id/accept', async (req, res) => {
       ttlSeconds: 60 * 60,
     });
     await transitionCall(ctx.config, wid, req.params.id, {
-      status: 'active',
-      answered_at: new Date().toISOString(),
+      state: 'active',
+      connected_at: new Date().toISOString(),
       provider: providerId,
       provider_room_id: providerRoomId,
     }, 'call_accepted', ctx.userId);
@@ -255,10 +255,10 @@ callCenterRouter.post('/calls/:id/reject', async (req, res) => {
   try {
     const sb = getServiceClient(ctx.config);
     await transitionCall(ctx.config, wid, req.params.id, {
-      status: 'rejected', ended_at: new Date().toISOString(), end_reason: 'agent_rejected',
+      state: 'cancelled', ended_at: new Date().toISOString(), end_reason: 'agent_rejected',
     }, 'call_rejected', ctx.userId);
     await sb.from('call_queue_entries').update({
-      state: 'abandoned', ended_at: new Date().toISOString(), ended_reason: 'rejected',
+      state: 'cancelled', ended_at: new Date().toISOString(), ended_reason: 'rejected',
     }).eq('call_session_id', req.params.id).eq('workspace_id', wid);
     res.json({ ok: true });
   } catch (e: any) {
@@ -274,7 +274,7 @@ callCenterRouter.post('/calls/:id/end', async (req, res) => {
     const sb = getServiceClient(ctx.config);
     const { data: call } = await sb.from('call_sessions').select('*').eq('id', req.params.id).eq('workspace_id', wid).maybeSingle();
     if (!call) return res.status(404).json({ error: 'not_found' });
-    const startedAt = (call as any).answered_at || (call as any).created_at;
+    const startedAt = (call as any).connected_at || (call as any).started_at || (call as any).created_at;
     const duration = startedAt ? Math.max(0, Math.round((Date.now() - new Date(startedAt).getTime()) / 1000)) : 0;
     if ((call as any).provider && (call as any).provider_room_id) {
       try {
@@ -283,7 +283,7 @@ callCenterRouter.post('/calls/:id/end', async (req, res) => {
       } catch {/* best effort */}
     }
     await transitionCall(ctx.config, wid, req.params.id, {
-      status: 'ended', ended_at: new Date().toISOString(),
+      state: 'ended', ended_at: new Date().toISOString(),
       duration_seconds: duration, end_reason: 'agent_ended',
     }, 'call_ended', ctx.userId);
     res.json({ ok: true });
@@ -370,8 +370,8 @@ callCenterRouter.get('/admin/platform', async (req, res) => {
   const sb = getServiceClient(ctx.config);
   const [{ count: enabledWorkspaces }, { count: activeCalls }, { count: waitingCalls }] = await Promise.all([
     sb.from('call_center_settings').select('id', { count: 'exact', head: true }).eq('enabled', true),
-    sb.from('call_sessions').select('id', { count: 'exact', head: true }).eq('entry_source', 'call_widget').in('status', ['active', 'ringing']),
-    sb.from('call_queue_entries').select('id', { count: 'exact', head: true }).eq('entry_source', 'call_widget').in('state', ['waiting', 'offered']),
+    sb.from('call_sessions').select('id', { count: 'exact', head: true }).eq('entry_source', 'call_widget').in('state', ['active', 'ringing', 'connecting']),
+    sb.from('call_queue_entries').select('id', { count: 'exact', head: true }).eq('entry_source', 'call_widget').in('state', ['queued', 'offered']),
   ]);
   res.json({
     settings,
@@ -411,11 +411,11 @@ callCenterRouter.put('/admin/platform', async (req, res) => {
   try {
     const sb = getServiceClient(ctx.config);
     await sb.from('audit_logs').insert({
-      actor_user_id: ctx.userId,
+      user_id: ctx.userId,
       action: 'platform_call_center.update',
-      resource_type: 'platform_call_center_settings',
-      resource_id: updated.id ?? null,
-      metadata: parsed.data,
+      entity_type: 'platform_call_center_settings',
+      entity_id: (updated as any).id ?? null,
+      new_value: parsed.data,
     } as any);
   } catch {/* audit_logs may not exist; ignore */}
   res.json({ settings: updated });

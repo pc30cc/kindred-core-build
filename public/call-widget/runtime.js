@@ -349,6 +349,7 @@
         if (status === 'connected') msg = 'Connected';
         if (status === 'fallback') msg = 'Call accepted. Please continue on the operator side.';
         if (status === 'accepted_no_sdk') msg = 'Call accepted. Audio/video client unavailable on this page.';
+        if (status === 'media_not_configured') msg = 'Call accepted, media connection is not configured yet.';
         if (status === 'failed') msg = 'Connection failed: ' + (self.error || 'unknown');
         return el('div', { class: 'ccw-stack' }, [
           el('div', { class: 'ccw-card' }, [

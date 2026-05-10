@@ -36,6 +36,8 @@ import { workspaceDepartmentsRouter } from './routes/workspaceDepartments.js';
 import { callInvitationsRouter } from './routes/callInvitations.js';
 import { aiKbRouter } from './routes/aiKb.js';
 import { aiAgentRouter } from './routes/aiAgent.js';
+import { callCenterRouter } from './routes/callCenter.js';
+import { callWidgetRouter } from './routes/callWidget.js';
 import { startInProcessSourceWorker } from './services/ai-agent/sourceWorker.js';
 import { startCallQueueTicker } from './services/calls/queueTicker.js';
 import { startInvitationExpirySweeper } from './services/calls/invitations.js';
@@ -251,6 +253,13 @@ app.use('/api/ai-kb', aiKbRouter);
 // playground, analytics, Q&A, diagnostics. Auth + membership enforced inside.
 // Phase 2 will wire the engine into widget.ts to replace the primitive auto-reply.
 app.use('/api/ai-agent', aiAgentRouter);
+
+// Call Center — operator/admin (workspace-scoped) and platform admin endpoints.
+app.use('/api/call-center', callCenterRouter);
+
+// Call Widget — public visitor-facing standalone widget endpoints.
+// Dynamic per-workspace CORS handled inside the router.
+app.use('/api/call-widget', callWidgetRouter);
 
 // 404
 app.use((_req, res) => {

@@ -1,0 +1,214 @@
+/**
+ * Call Center — workspace + platform settings helpers.
+ * Self-hosted, provider-driven, additive on top of existing call infra.
+ */
+import crypto from 'crypto';
+import type { ServerConfig } from '../../config.js';
+import { getServiceClient } from '../../supabase.js';
+
+export interface PlatformCallCenterSettings {
+  call_center_enabled: boolean;
+  voice_calls_enabled: boolean;
+  video_calls_enabled: boolean;
+  callback_requests_enabled: boolean;
+  call_recording_enabled: boolean;
+  screen_share_enabled: boolean;
+  call_transfer_enabled: boolean;
+  departments_enabled: boolean;
+  advanced_routing_enabled: boolean;
+  max_concurrent_calls_per_workspace: number;
+  max_queue_size_per_workspace: number;
+  max_monthly_call_minutes_per_workspace: number;
+  max_callback_requests_per_month: number;
+  max_recording_storage_mb: number;
+  disabled_message: Record<string, unknown>;
+  updated_at: string;
+}
+
+export interface WorkspaceCallCenterSettings {
+  id: string;
+  workspace_id: string;
+  enabled: boolean;
+  public_key: string | null;
+  allowed_domains: string[];
+  widget_position: string;
+  widget_theme: Record<string, unknown>;
+  display_name: string | null;
+  avatar_url: string | null;
+  avatar_storage_path: string | null;
+  voice_enabled: boolean;
+  video_enabled: boolean;
+  callback_enabled: boolean;
+  pre_call_form_enabled: boolean;
+  pre_call_form_schema: unknown[];
+  business_hours: Record<string, unknown>;
+  offline_behavior: string;
+  recording_enabled: boolean;
+  recording_consent_required: boolean;
+  routing_mode: string;
+  default_department_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+let _platformCache: { value: PlatformCallCenterSettings; at: number } | null = null;
+const PLATFORM_CACHE_MS = 30_000;
+
+export function invalidatePlatformCallCenterCache() {
+  _platformCache = null;
+}
+
+export async function getPlatformCallCenterSettings(
+  config: ServerConfig,
+): Promise<PlatformCallCenterSettings> {
+  if (_platformCache && Date.now() - _platformCache.at < PLATFORM_CACHE_MS) {
+    return _platformCache.value;
+  }
+  const sb = getServiceClient(config);
+  const { data, error } = await sb
+    .from('platform_call_center_settings')
+    .select('*')
+    .eq('singleton', true)
+    .maybeSingle();
+  if (error) throw error;
+  let row = data;
+  if (!row) {
+    // Fail-closed: ensure singleton exists
+    const ins = await sb
+      .from('platform_call_center_settings')
+      .insert({ singleton: true, call_center_enabled: false })
+      .select('*')
+      .maybeSingle();
+    row = ins.data;
+  }
+  const value = row as PlatformCallCenterSettings;
+  _platformCache = { value, at: Date.now() };
+  return value;
+}
+
+export async function updatePlatformCallCenterSettings(
+  config: ServerConfig,
+  patch: Partial<PlatformCallCenterSettings>,
+): Promise<PlatformCallCenterSettings> {
+  const sb = getServiceClient(config);
+  const { data, error } = await sb
+    .from('platform_call_center_settings')
+    .update(patch)
+    .eq('singleton', true)
+    .select('*')
+    .maybeSingle();
+  if (error) throw error;
+  invalidatePlatformCallCenterCache();
+  return data as PlatformCallCenterSettings;
+}
+
+function generatePublicKey(): string {
+  return 'cck_' + crypto.randomBytes(18).toString('base64url');
+}
+
+export async function getOrCreateWorkspaceSettings(
+  config: ServerConfig,
+  workspaceId: string,
+): Promise<WorkspaceCallCenterSettings> {
+  const sb = getServiceClient(config);
+  const { data } = await sb
+    .from('call_center_settings')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .maybeSingle();
+  if (data) return data as WorkspaceCallCenterSettings;
+  const { data: created, error } = await sb
+    .from('call_center_settings')
+    .insert({ workspace_id: workspaceId, public_key: generatePublicKey() })
+    .select('*')
+    .maybeSingle();
+  if (error) throw error;
+  return created as WorkspaceCallCenterSettings;
+}
+
+export async function updateWorkspaceSettings(
+  config: ServerConfig,
+  workspaceId: string,
+  patch: Partial<WorkspaceCallCenterSettings>,
+): Promise<WorkspaceCallCenterSettings> {
+  const sb = getServiceClient(config);
+  // Ensure row exists
+  await getOrCreateWorkspaceSettings(config, workspaceId);
+  // Strip immutable
+  const safe: Record<string, unknown> = { ...patch };
+  delete safe.id;
+  delete safe.workspace_id;
+  delete safe.public_key;
+  delete safe.created_at;
+  delete safe.updated_at;
+  const { data, error } = await sb
+    .from('call_center_settings')
+    .update(safe)
+    .eq('workspace_id', workspaceId)
+    .select('*')
+    .maybeSingle();
+  if (error) throw error;
+  return data as WorkspaceCallCenterSettings;
+}
+
+export async function findWorkspaceByPublicKey(
+  config: ServerConfig,
+  publicKey: string,
+): Promise<WorkspaceCallCenterSettings | null> {
+  const sb = getServiceClient(config);
+  const { data } = await sb
+    .from('call_center_settings')
+    .select('*')
+    .eq('public_key', publicKey)
+    .maybeSingle();
+  return (data as WorkspaceCallCenterSettings | null) ?? null;
+}
+
+/**
+ * Effective capabilities = platform AND workspace AND plan.
+ * (Plan layer is hookable later; we use platform AND workspace for now.)
+ */
+export function computeEffectiveCallCenterCaps(
+  platform: PlatformCallCenterSettings,
+  workspace: WorkspaceCallCenterSettings,
+) {
+  const enabled = platform.call_center_enabled && workspace.enabled;
+  return {
+    call_center_enabled: enabled,
+    workspace_call_center_visible: enabled,
+    voice_enabled: enabled && platform.voice_calls_enabled && workspace.voice_enabled,
+    video_enabled: enabled && platform.video_calls_enabled && workspace.video_enabled,
+    callback_enabled:
+      platform.call_center_enabled &&
+      platform.callback_requests_enabled &&
+      workspace.enabled &&
+      workspace.callback_enabled,
+    recording_enabled:
+      enabled && platform.call_recording_enabled && workspace.recording_enabled,
+    max_concurrent_calls: platform.max_concurrent_calls_per_workspace,
+    max_monthly_call_minutes: platform.max_monthly_call_minutes_per_workspace,
+    max_queue_size: platform.max_queue_size_per_workspace,
+  };
+}
+
+export function originAllowed(
+  workspace: WorkspaceCallCenterSettings,
+  origin: string | null,
+): boolean {
+  if (!origin) return false;
+  const list = workspace.allowed_domains || [];
+  if (list.length === 0) return false;
+  let host: string;
+  try {
+    host = new URL(origin).host.toLowerCase();
+  } catch {
+    return false;
+  }
+  return list.some((d) => {
+    const dn = d.trim().toLowerCase();
+    if (!dn) return false;
+    if (dn === host) return true;
+    if (dn.startsWith('*.')) return host.endsWith(dn.slice(1));
+    return false;
+  });
+}

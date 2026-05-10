@@ -2828,6 +2828,92 @@ export type Database = {
         }
         Relationships: []
       }
+      call_center_settings: {
+        Row: {
+          allowed_domains: string[]
+          avatar_storage_path: string | null
+          avatar_url: string | null
+          business_hours: Json
+          callback_enabled: boolean
+          created_at: string
+          default_department_id: string | null
+          display_name: string | null
+          enabled: boolean
+          id: string
+          offline_behavior: string
+          pre_call_form_enabled: boolean
+          pre_call_form_schema: Json
+          public_key: string | null
+          recording_consent_required: boolean
+          recording_enabled: boolean
+          routing_mode: string
+          updated_at: string
+          video_enabled: boolean
+          voice_enabled: boolean
+          widget_position: string
+          widget_theme: Json
+          workspace_id: string
+        }
+        Insert: {
+          allowed_domains?: string[]
+          avatar_storage_path?: string | null
+          avatar_url?: string | null
+          business_hours?: Json
+          callback_enabled?: boolean
+          created_at?: string
+          default_department_id?: string | null
+          display_name?: string | null
+          enabled?: boolean
+          id?: string
+          offline_behavior?: string
+          pre_call_form_enabled?: boolean
+          pre_call_form_schema?: Json
+          public_key?: string | null
+          recording_consent_required?: boolean
+          recording_enabled?: boolean
+          routing_mode?: string
+          updated_at?: string
+          video_enabled?: boolean
+          voice_enabled?: boolean
+          widget_position?: string
+          widget_theme?: Json
+          workspace_id: string
+        }
+        Update: {
+          allowed_domains?: string[]
+          avatar_storage_path?: string | null
+          avatar_url?: string | null
+          business_hours?: Json
+          callback_enabled?: boolean
+          created_at?: string
+          default_department_id?: string | null
+          display_name?: string | null
+          enabled?: boolean
+          id?: string
+          offline_behavior?: string
+          pre_call_form_enabled?: boolean
+          pre_call_form_schema?: Json
+          public_key?: string | null
+          recording_consent_required?: boolean
+          recording_enabled?: boolean
+          routing_mode?: string
+          updated_at?: string
+          video_enabled?: boolean
+          voice_enabled?: boolean
+          widget_position?: string
+          widget_theme?: Json
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "call_center_settings_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: true
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       call_events: {
         Row: {
           actor_id: string | null
@@ -3026,6 +3112,7 @@ export type Database = {
           created_at: string
           ended_at: string | null
           ended_reason: string | null
+          entry_source: string
           expires_at: string
           id: string
           last_offer_expires_at: string | null
@@ -3053,6 +3140,7 @@ export type Database = {
           created_at?: string
           ended_at?: string | null
           ended_reason?: string | null
+          entry_source?: string
           expires_at?: string
           id?: string
           last_offer_expires_at?: string | null
@@ -3080,6 +3168,7 @@ export type Database = {
           created_at?: string
           ended_at?: string | null
           ended_reason?: string | null
+          entry_source?: string
           expires_at?: string
           id?: string
           last_offer_expires_at?: string | null
@@ -3201,22 +3290,32 @@ export type Database = {
           context_id: string | null
           context_type: Database["public"]["Enums"]["call_context_type"]
           created_at: string
+          direction: string
           duration_seconds: number | null
           end_reason: string | null
           ended_at: string | null
           ended_by: string | null
           ended_by_user_id: string | null
+          entry_source: string
           id: string
           initiated_by: string | null
           initiated_by_type: Database["public"]["Enums"]["call_participant_type"]
           metadata: Json
+          origin: string | null
+          page_title: string | null
+          page_url: string | null
           provider: string
           provider_room_id: string | null
           recording_enabled: boolean
           recording_state: Database["public"]["Enums"]["call_recording_state"]
           started_at: string | null
           state: Database["public"]["Enums"]["call_state"]
+          subject: string | null
           updated_at: string
+          visitor_email: string | null
+          visitor_name: string | null
+          visitor_phone: string | null
+          wait_seconds: number
           workspace_id: string
         }
         Insert: {
@@ -3225,22 +3324,32 @@ export type Database = {
           context_id?: string | null
           context_type: Database["public"]["Enums"]["call_context_type"]
           created_at?: string
+          direction?: string
           duration_seconds?: number | null
           end_reason?: string | null
           ended_at?: string | null
           ended_by?: string | null
           ended_by_user_id?: string | null
+          entry_source?: string
           id?: string
           initiated_by?: string | null
           initiated_by_type?: Database["public"]["Enums"]["call_participant_type"]
           metadata?: Json
+          origin?: string | null
+          page_title?: string | null
+          page_url?: string | null
           provider: string
           provider_room_id?: string | null
           recording_enabled?: boolean
           recording_state?: Database["public"]["Enums"]["call_recording_state"]
           started_at?: string | null
           state?: Database["public"]["Enums"]["call_state"]
+          subject?: string | null
           updated_at?: string
+          visitor_email?: string | null
+          visitor_name?: string | null
+          visitor_phone?: string | null
+          wait_seconds?: number
           workspace_id: string
         }
         Update: {
@@ -3249,22 +3358,32 @@ export type Database = {
           context_id?: string | null
           context_type?: Database["public"]["Enums"]["call_context_type"]
           created_at?: string
+          direction?: string
           duration_seconds?: number | null
           end_reason?: string | null
           ended_at?: string | null
           ended_by?: string | null
           ended_by_user_id?: string | null
+          entry_source?: string
           id?: string
           initiated_by?: string | null
           initiated_by_type?: Database["public"]["Enums"]["call_participant_type"]
           metadata?: Json
+          origin?: string | null
+          page_title?: string | null
+          page_url?: string | null
           provider?: string
           provider_room_id?: string | null
           recording_enabled?: boolean
           recording_state?: Database["public"]["Enums"]["call_recording_state"]
           started_at?: string | null
           state?: Database["public"]["Enums"]["call_state"]
+          subject?: string | null
           updated_at?: string
+          visitor_email?: string | null
+          visitor_name?: string | null
+          visitor_phone?: string | null
+          wait_seconds?: number
           workspace_id?: string
         }
         Relationships: [
@@ -4795,6 +4914,72 @@ export type Database = {
           support_label?: string | null
           updated_at?: string | null
           widget_display_name?: string | null
+        }
+        Relationships: []
+      }
+      platform_call_center_settings: {
+        Row: {
+          advanced_routing_enabled: boolean
+          call_center_enabled: boolean
+          call_recording_enabled: boolean
+          call_transfer_enabled: boolean
+          callback_requests_enabled: boolean
+          created_at: string
+          departments_enabled: boolean
+          disabled_message: Json
+          id: string
+          max_callback_requests_per_month: number
+          max_concurrent_calls_per_workspace: number
+          max_monthly_call_minutes_per_workspace: number
+          max_queue_size_per_workspace: number
+          max_recording_storage_mb: number
+          screen_share_enabled: boolean
+          singleton: boolean
+          updated_at: string
+          video_calls_enabled: boolean
+          voice_calls_enabled: boolean
+        }
+        Insert: {
+          advanced_routing_enabled?: boolean
+          call_center_enabled?: boolean
+          call_recording_enabled?: boolean
+          call_transfer_enabled?: boolean
+          callback_requests_enabled?: boolean
+          created_at?: string
+          departments_enabled?: boolean
+          disabled_message?: Json
+          id?: string
+          max_callback_requests_per_month?: number
+          max_concurrent_calls_per_workspace?: number
+          max_monthly_call_minutes_per_workspace?: number
+          max_queue_size_per_workspace?: number
+          max_recording_storage_mb?: number
+          screen_share_enabled?: boolean
+          singleton?: boolean
+          updated_at?: string
+          video_calls_enabled?: boolean
+          voice_calls_enabled?: boolean
+        }
+        Update: {
+          advanced_routing_enabled?: boolean
+          call_center_enabled?: boolean
+          call_recording_enabled?: boolean
+          call_transfer_enabled?: boolean
+          callback_requests_enabled?: boolean
+          created_at?: string
+          departments_enabled?: boolean
+          disabled_message?: Json
+          id?: string
+          max_callback_requests_per_month?: number
+          max_concurrent_calls_per_workspace?: number
+          max_monthly_call_minutes_per_workspace?: number
+          max_queue_size_per_workspace?: number
+          max_recording_storage_mb?: number
+          screen_share_enabled?: boolean
+          singleton?: boolean
+          updated_at?: string
+          video_calls_enabled?: boolean
+          voice_calls_enabled?: boolean
         }
         Relationships: []
       }

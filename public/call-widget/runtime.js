@@ -610,14 +610,21 @@
       box.appendChild(label);
       box.appendChild(input);
     });
-    if (forCall && cfg.recording_consent_required) {
-      var cb = el('label', { class: 'ccw-checkbox' });
-      var ci = el('input', { type: 'checkbox' });
-      ci.checked = !!self.formData.consent;
-      ci.addEventListener('change', function (e) { self.formData.consent = !!e.target.checked; });
-      cb.appendChild(ci);
-      cb.appendChild(document.createTextNode(' I consent to call recording.'));
-      box.appendChild(cb);
+    if (forCall) {
+      var rec = (self.bootstrap && self.bootstrap.recording) || {};
+      if (rec.effective_enabled && rec.consent_required) {
+        var cb = el('label', { class: 'ccw-checkbox' });
+        var ci = el('input', { type: 'checkbox' });
+        ci.checked = !!self.formData.consent;
+        ci.addEventListener('change', function (e) { self.formData.consent = !!e.target.checked; });
+        cb.appendChild(ci);
+        cb.appendChild(document.createTextNode(' I consent to this call being recorded for quality and security. (required)'));
+        box.appendChild(cb);
+      } else if (rec.effective_enabled) {
+        box.appendChild(el('div', { class: 'ccw-muted' }, [
+          'This call may be recorded for quality and security.',
+        ]));
+      }
     }
     if (self.error) box.appendChild(el('div', { class: 'ccw-error' }, [self.error]));
     var actions = el('div', { class: 'ccw-row' }, [

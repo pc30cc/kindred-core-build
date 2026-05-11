@@ -54,9 +54,12 @@ export async function computeRecordingCapability(
   try {
     const r = await resolveEffectiveCallProvider(config, workspaceId);
     providerId = r.id;
-    if (typeof (r.provider as any).startRecording === 'function'
-        && typeof (r.provider as any).stopRecording === 'function') {
-      provider_supported = true;
+    const p: any = r.provider;
+    // Source of truth: provider.supportsRecording(). Method existence is NOT enough.
+    if (typeof p.supportsRecording === 'function') {
+      try { provider_supported = !!p.supportsRecording(); } catch { provider_supported = false; }
+    } else {
+      provider_supported = false;
     }
   } catch {
     // provider not configured at all
@@ -71,6 +74,10 @@ export async function computeRecordingCapability(
         lk.egress_enabled && s && s.bucket && s.access_key && s.secret_key
       );
     } catch { /* leave false */ }
+  } else {
+    // No safe provider-specific configuration check available for non-livekit
+    // providers in this pass — fail closed.
+    provider_configured = false;
   }
 
   let reason: string | undefined;

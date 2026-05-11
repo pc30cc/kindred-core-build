@@ -63,6 +63,15 @@ export default function LiveQueuePage() {
   const [, force] = useState(0);
   useEffect(() => { const t = setInterval(() => force((n) => n + 1), 1000); return () => clearInterval(t); }, []);
 
+  // Faster status sync while in active console
+  useEffect(() => {
+    if (!accepted?.callId) return;
+    const t = setInterval(() => {
+      qc.invalidateQueries({ queryKey: ['call-center'] });
+    }, 5000);
+    return () => clearInterval(t);
+  }, [accepted?.callId, qc]);
+
   const queue = data?.queue || [];
 
   // Auto-select first queue item — done in effect, not during render
@@ -113,19 +122,48 @@ export default function LiveQueuePage() {
   }
   async function endActive(callId: string) {
     if (!workspace) return;
-    try { await callCenterApi.endCall(workspace.id, callId); qc.invalidateQueries({ queryKey: ['call-center'] }); }
-    catch (e: any) { toast({ title: 'End failed', description: e.message, variant: 'destructive' }); }
+    await callCenterApi.endCall(workspace.id, callId);
+    qc.invalidateQueries({ queryKey: ['call-center'] });
   }
 
   async function endFromConsole() {
     const id = accepted?.callId;
+    if (!id || !workspace) { setAccepted(null); return; }
+    // Backend-first; throw on failure so console shows Retry.
+    await callCenterApi.endCall(workspace.id, id);
+    qc.invalidateQueries({ queryKey: ['call-center'] });
     setAccepted(null);
-    if (id) await endActive(id);
+  }
+
+  async function reconnectFromConsole(): Promise<{ token: string; connect: OperatorConnectInfo } | null> {
+    if (!workspace || !accepted?.callId) return null;
+    const r = await callCenterApi.acceptCall(workspace.id, accepted.callId);
+    const c = (r as any).connect as OperatorConnectInfo | undefined;
+    if (!c || !r.token) return null;
+    setAccepted({ callId: accepted.callId, token: r.token, connect: c, callType: accepted.callType });
+    return { token: r.token, connect: c };
   }
 
   const meta = (detail?.call as any)?.metadata || {};
   const preCall = meta?.pre_call_form || meta?.preCallForm || null;
   const isActive = detail && ['active', 'ringing', 'connecting'].includes(detail.call.state);
+
+  // Detect external end from backend state for the active console call
+  const externalEndedReason = useMemo<
+    'ended_by_visitor' | 'ended_by_operator' | 'cancelled' | 'failed' | null
+  >(() => {
+    if (!accepted || !detail || detail.call.id !== accepted.callId) return null;
+    const s = detail.call.state;
+    const reason = (detail.call as any).end_reason as string | null | undefined;
+    if (s === 'ended') {
+      if (reason === 'visitor_ended' || reason === 'visitor_cancelled') return 'ended_by_visitor';
+      if (reason === 'operator_ended') return 'ended_by_operator';
+      return 'ended_by_visitor';
+    }
+    if (s === 'cancelled') return 'cancelled';
+    if (s === 'missed' || s === 'failed') return 'failed';
+    return null;
+  }, [accepted, detail]);
 
   return (
     <div className="flex flex-col h-full gap-4">
@@ -247,7 +285,7 @@ export default function LiveQueuePage() {
                         <Button onClick={() => accept(detail.call.id)}>Accept</Button>
                       </>
                     )}
-                    {isActive && (
+                    {isActive && !(accepted && accepted.callId === detail.call.id) && (
                       <Button variant="destructive" onClick={() => endActive(detail.call.id)}>
                         <PhoneOff className="h-4 w-4 me-1" /> End
                       </Button>
@@ -263,7 +301,10 @@ export default function LiveQueuePage() {
                   callType={accepted.callType}
                   connect={accepted.connect}
                   token={accepted.token}
+                  visitorName={detail.call.visitor_name || detail.call.visitor_email || detail.call.visitor_phone || null}
                   onEnd={endFromConsole}
+                  onReconnect={reconnectFromConsole}
+                  externalEndedReason={externalEndedReason}
                 />
               ) : (
                 <Card className="p-5 border-dashed">

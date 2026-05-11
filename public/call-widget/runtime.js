@@ -249,20 +249,68 @@
     try {
       var room = new LK.Room({ adaptiveStream: true, dynacast: true });
       self.lkRoom = room;
+      self._attachedTracks = self._attachedTracks || {};
       var wantVideo = (self.call && self.call.call_type === 'video') || self.formData.call_type === 'video';
-      room.on(LK.RoomEvent ? LK.RoomEvent.Disconnected : 'disconnected', function () {
-        self.connectStatus = 'ended'; self.render();
+      var RE = LK.RoomEvent || {};
+      room.on(RE.Disconnected || 'disconnected', function (reason) {
+        var r = String(reason || '').toLowerCase();
+        if (r.indexOf('expired') >= 0 || r.indexOf('token') >= 0) {
+          self.connectStatus = 'token_expired';
+        } else if (self.connectStatus !== 'in_call_ended') {
+          self.connectStatus = 'media_disconnected';
+        }
+        self.render();
       });
-      room.on(LK.RoomEvent ? LK.RoomEvent.TrackSubscribed : 'trackSubscribed', function (track) {
+      room.on(RE.Reconnecting || 'reconnecting', function () {
+        self.connectStatus = 'media_reconnecting'; self.render();
+      });
+      room.on(RE.Reconnected || 'reconnected', function () {
+        self.connectStatus = self._remoteCount > 0 ? 'in_call' : 'waiting_for_operator';
+        self.render();
+      });
+      function attach(track, participant) {
         try {
-          if (track.kind === 'audio') {
-            var au = track.attach(); au.autoplay = true;
-            self._remoteHolder && self._remoteHolder.appendChild(au);
-          } else if (track.kind === 'video') {
-            var v = track.attach(); v.autoplay = true; v.playsInline = true;
-            self._remoteHolder && self._remoteHolder.appendChild(v);
-          }
+          var sid = track.sid || track.trackSid || (participant && participant.identity) + ':' + track.kind;
+          if (self._attachedTracks[sid]) return;
+          var el = track.attach();
+          el.autoplay = true;
+          if (track.kind === 'video') { el.playsInline = true; }
+          el.setAttribute('data-track-sid', sid);
+          self._attachedTracks[sid] = el;
+          self._remoteHolder && self._remoteHolder.appendChild(el);
         } catch (_) {}
+      }
+      function detach(track) {
+        try {
+          var sid = track.sid || track.trackSid;
+          var el = sid && self._attachedTracks[sid];
+          if (el) { try { el.remove(); } catch (_) {} delete self._attachedTracks[sid]; }
+          try { track.detach && track.detach(); } catch (_) {}
+        } catch (_) {}
+      }
+      room.on(RE.TrackSubscribed || 'trackSubscribed', function (track, _pub, participant) {
+        attach(track, participant);
+      });
+      room.on(RE.TrackUnsubscribed || 'trackUnsubscribed', function (track) {
+        detach(track);
+      });
+      room.on(RE.ParticipantConnected || 'participantConnected', function (p) {
+        self._remoteCount = (self._remoteCount || 0) + 1;
+        self.connectStatus = 'operator_connected';
+        self.render();
+        try {
+          var pubs = p.trackPublications || p.tracks;
+          pubs && pubs.forEach && pubs.forEach(function (pub) {
+            if (pub && pub.track) attach(pub.track, p);
+          });
+        } catch (_) {}
+      });
+      room.on(RE.ParticipantDisconnected || 'participantDisconnected', function () {
+        self._remoteCount = Math.max(0, (self._remoteCount || 1) - 1);
+        if (self._remoteCount === 0) {
+          self.connectStatus = 'operator_left';
+          self.render();
+        }
       });
       room.connect(connect.server_url, info.token).then(function () {
         return room.localParticipant.setMicrophoneEnabled(true).catch(function (err) {
@@ -281,14 +329,33 @@
         }
       }).then(function () {
         if (self.connectStatus !== 'microphone_permission_denied' && self.connectStatus !== 'camera_permission_denied') {
-          self.connectStatus = 'in_call';
+          // Detect already-present remote participants
+          try {
+            var existing = [];
+            if (room.remoteParticipants && room.remoteParticipants.forEach) {
+              room.remoteParticipants.forEach(function (p) { existing.push(p); });
+            }
+            self._remoteCount = existing.length;
+            existing.forEach(function (p) {
+              var pubs = p.trackPublications || p.tracks;
+              pubs && pubs.forEach && pubs.forEach(function (pub) {
+                if (pub && pub.track) attach(pub.track, p);
+              });
+            });
+          } catch (_) {}
+          self.connectStatus = self._remoteCount > 0 ? 'in_call' : 'waiting_for_operator';
           self.micOn = true; self.camOn = !!wantVideo;
           self.render();
         }
       }).catch(function (err) {
         if (self.connectStatus !== 'microphone_permission_denied' && self.connectStatus !== 'camera_permission_denied') {
-          self.connectStatus = 'room_connect_failed';
-          self.error = String(err && err.message || err);
+          var em = String(err && err.message || err).toLowerCase();
+          if (em.indexOf('expired') >= 0 || em.indexOf('unauthorized') >= 0 || em.indexOf('invalid token') >= 0) {
+            self.connectStatus = 'token_expired';
+          } else {
+            self.connectStatus = 'room_connect_failed';
+            self.error = String(err && err.message || err);
+          }
           self.render();
         }
       });
@@ -318,6 +385,14 @@
   CallCenterWidgetCtor.prototype.disconnectRoom = function () {
     try { if (this.lkRoom) this.lkRoom.disconnect(); } catch (_) {}
     this.lkRoom = null;
+    if (this._attachedTracks) {
+      var keys = Object.keys(this._attachedTracks);
+      for (var i = 0; i < keys.length; i++) {
+        try { this._attachedTracks[keys[i]].remove(); } catch (_) {}
+      }
+    }
+    this._attachedTracks = {};
+    this._remoteCount = 0;
   };
 
   CallCenterWidgetCtor.prototype.cancelCall = function () {
@@ -446,6 +521,11 @@
         var status = self.connectStatus || 'connecting';
         var msg = 'Call accepted, connecting…';
         if (status === 'in_call') msg = 'Connected';
+        if (status === 'waiting_for_operator') msg = 'Operator joining…';
+        if (status === 'operator_connected') msg = 'Operator connected';
+        if (status === 'operator_left') msg = 'Operator left the call.';
+        if (status === 'media_reconnecting') msg = 'Reconnecting media…';
+        if (status === 'media_disconnected') msg = 'Media disconnected.';
         if (status === 'connecting_media') msg = 'Connecting audio/video…';
         if (status === 'fallback') msg = 'Call accepted. Please continue on the operator side.';
         if (status === 'accepted_no_sdk') msg = 'Call accepted. Audio/video client unavailable on this page.';
@@ -458,16 +538,23 @@
         if (status === 'microphone_permission_denied') msg = 'Microphone permission denied. Please allow access and try again.';
         if (status === 'camera_permission_denied') msg = 'Camera permission denied. Audio call continues without video.';
         if (status === 'room_connect_failed') msg = 'Failed to connect to the call room: ' + (self.error || 'unknown');
-        if (status === 'token_expired') msg = 'Your session expired. Please rejoin.';
+        if (status === 'token_expired') msg = 'Your session expired. Please end and start a new call.';
         var card = el('div', { class: 'ccw-card' }, [
-          el('div', { class: 'ccw-pill' }, ['In call']),
+          el('div', { class: 'ccw-pill' }, [status === 'in_call' || status === 'operator_connected' ? 'In call' : status === 'waiting_for_operator' ? 'Connected — waiting' : 'Connecting']),
           el('div', { class: 'ccw-label' }, [msg]),
         ]);
         var media = el('div', { class: 'ccw-media' });
         self._remoteHolder = media;
+        // Re-attach existing tracks if any (re-render can wipe DOM)
+        if (self._attachedTracks) {
+          var keys = Object.keys(self._attachedTracks);
+          for (var i = 0; i < keys.length; i++) {
+            try { media.appendChild(self._attachedTracks[keys[i]]); } catch (_) {}
+          }
+        }
         card.appendChild(media);
         var controls = el('div', { class: 'ccw-row' });
-        if (status === 'in_call') {
+        if (status === 'in_call' || status === 'operator_connected' || status === 'waiting_for_operator' || status === 'media_reconnecting') {
           controls.appendChild(el('button', { class: 'ccw-btn secondary', on: { click: function () { self.toggleMic(); } } }, [self.micOn ? '🎙 Mute' : '🎙 Unmute']));
           var wantVideo = (self.call && self.call.call_type === 'video') || self.formData.call_type === 'video';
           if (wantVideo) {

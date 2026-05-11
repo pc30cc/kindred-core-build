@@ -10,6 +10,49 @@ export type RoutingMode = 'broadcast' | 'round_robin' | 'least_busy';
 export type AgentRole = 'agent' | 'supervisor';
 export type PresenceStatus = 'available' | 'busy' | 'away' | 'offline';
 
+export class DepartmentException extends Error {
+  constructor(public readonly code: string, public readonly httpStatus = 400) {
+    super(code);
+    this.name = 'DepartmentException';
+  }
+}
+
+/** Throws department_not_found if the department does not belong to workspaceId. */
+export async function assertDepartmentInWorkspace(
+  config: ServerConfig,
+  workspaceId: string,
+  departmentId: string,
+): Promise<void> {
+  const sb = getServiceClient(config);
+  const { data } = await sb
+    .from('call_center_departments')
+    .select('id')
+    .eq('workspace_id', workspaceId)
+    .eq('id', departmentId)
+    .maybeSingle();
+  if (!data) throw new DepartmentException('department_not_found', 404);
+}
+
+async function validateFallback(
+  config: ServerConfig,
+  workspaceId: string,
+  fallbackId: string | null | undefined,
+  selfId: string | null,
+): Promise<void> {
+  if (!fallbackId) return;
+  if (selfId && fallbackId === selfId) {
+    throw new DepartmentException('invalid_fallback_department', 400);
+  }
+  const sb = getServiceClient(config);
+  const { data } = await sb
+    .from('call_center_departments')
+    .select('id')
+    .eq('workspace_id', workspaceId)
+    .eq('id', fallbackId)
+    .maybeSingle();
+  if (!data) throw new DepartmentException('invalid_fallback_department', 400);
+}
+
 export interface DepartmentInput {
   name: string;
   slug?: string;
@@ -65,6 +108,7 @@ export async function getDepartment(config: ServerConfig, workspaceId: string, i
 export async function createDepartment(config: ServerConfig, workspaceId: string, input: DepartmentInput) {
   const sb = getServiceClient(config);
   const slug = (input.slug && slugify(input.slug)) || slugify(input.name);
+  await validateFallback(config, workspaceId, input.fallback_department_id ?? null, null);
   const { data, error } = await sb
     .from('call_center_departments')
     .insert({
@@ -93,6 +137,9 @@ export async function updateDepartment(
   patch: Partial<DepartmentInput>,
 ) {
   const sb = getServiceClient(config);
+  if (patch.fallback_department_id !== undefined) {
+    await validateFallback(config, workspaceId, patch.fallback_department_id ?? null, id);
+  }
   const update: Record<string, unknown> = {};
   for (const k of [
     'name', 'description', 'color', 'icon', 'enabled',
@@ -123,6 +170,7 @@ export async function deleteDepartment(config: ServerConfig, workspaceId: string
 }
 
 export async function listDepartmentAgents(config: ServerConfig, workspaceId: string, departmentId: string) {
+  await assertDepartmentInWorkspace(config, workspaceId, departmentId);
   const sb = getServiceClient(config);
   const { data, error } = await sb
     .from('call_center_department_agents')
@@ -142,6 +190,7 @@ export async function addDepartmentAgent(
   userId: string,
   options: DepartmentAgentInput = {},
 ) {
+  await assertDepartmentInWorkspace(config, workspaceId, departmentId);
   const sb = getServiceClient(config);
   const { data, error } = await sb
     .from('call_center_department_agents')
@@ -168,6 +217,7 @@ export async function updateDepartmentAgent(
   userId: string,
   patch: DepartmentAgentInput,
 ) {
+  await assertDepartmentInWorkspace(config, workspaceId, departmentId);
   const sb = getServiceClient(config);
   const update: Record<string, unknown> = {};
   for (const k of ['role', 'priority', 'enabled', 'max_concurrent_calls', 'metadata'] as const) {
@@ -191,6 +241,7 @@ export async function removeDepartmentAgent(
   departmentId: string,
   userId: string,
 ) {
+  await assertDepartmentInWorkspace(config, workspaceId, departmentId);
   const sb = getServiceClient(config);
   const { error } = await sb
     .from('call_center_department_agents')
@@ -235,4 +286,114 @@ export async function updateMyAgentPresence(
     .single();
   if (error) throw error;
   return data;
+}
+
+/**
+ * Ensure a presence row exists for (workspace_id, user_id). No-op when
+ * the row is already present. Used by accept paths that need the row to
+ * exist before incrementing active_call_count.
+ */
+async function ensurePresenceRow(
+  config: ServerConfig,
+  workspaceId: string,
+  userId: string,
+): Promise<void> {
+  const sb = getServiceClient(config);
+  await sb
+    .from('call_center_agent_presence')
+    .upsert(
+      {
+        workspace_id: workspaceId,
+        user_id: userId,
+        status: 'available',
+        last_seen_at: new Date().toISOString(),
+      },
+      { onConflict: 'workspace_id,user_id', ignoreDuplicates: true },
+    );
+}
+
+export async function incrementAgentActiveCallCount(
+  config: ServerConfig,
+  workspaceId: string,
+  userId: string,
+): Promise<void> {
+  if (!userId) return;
+  const sb = getServiceClient(config);
+  await ensurePresenceRow(config, workspaceId, userId);
+  const { data: row } = await sb
+    .from('call_center_agent_presence')
+    .select('active_call_count')
+    .eq('workspace_id', workspaceId)
+    .eq('user_id', userId)
+    .maybeSingle();
+  const next = Math.max(0, ((row?.active_call_count as number) || 0) + 1);
+  await sb
+    .from('call_center_agent_presence')
+    .update({ active_call_count: next, last_seen_at: new Date().toISOString() })
+    .eq('workspace_id', workspaceId)
+    .eq('user_id', userId);
+}
+
+export async function decrementAgentActiveCallCount(
+  config: ServerConfig,
+  workspaceId: string,
+  userId: string | null | undefined,
+): Promise<void> {
+  if (!userId) return;
+  const sb = getServiceClient(config);
+  const { data: row } = await sb
+    .from('call_center_agent_presence')
+    .select('active_call_count')
+    .eq('workspace_id', workspaceId)
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (!row) return;
+  const next = Math.max(0, ((row.active_call_count as number) || 0) - 1);
+  await sb
+    .from('call_center_agent_presence')
+    .update({ active_call_count: next, last_seen_at: new Date().toISOString() })
+    .eq('workspace_id', workspaceId)
+    .eq('user_id', userId);
+}
+
+const ASSIGNABLE_ROLES = new Set(['owner', 'admin', 'agent', 'support_agent', 'team_lead']);
+
+/**
+ * Validate that an agent UUID is assignable to a call in this workspace.
+ * Allowed when the user is a workspace member with an operator-capable role,
+ * OR when the user is enabled in the target department.
+ */
+export async function assertAssignableAgent(
+  config: ServerConfig,
+  args: { workspaceId: string; agentId: string; departmentId?: string | null },
+): Promise<void> {
+  const { workspaceId, agentId, departmentId } = args;
+  const sb = getServiceClient(config);
+  // Must be a workspace member at minimum.
+  const { data: member } = await sb
+    .from('workspace_members')
+    .select('role')
+    .eq('workspace_id', workspaceId)
+    .eq('user_id', agentId)
+    .maybeSingle();
+  if (!member) throw new DepartmentException('agent_not_found', 404);
+  const role = String((member as any).role || '');
+  const isOperatorRole = ASSIGNABLE_ROLES.has(role);
+
+  if (departmentId) {
+    const { data: deptAgent } = await sb
+      .from('call_center_department_agents')
+      .select('enabled')
+      .eq('workspace_id', workspaceId)
+      .eq('department_id', departmentId)
+      .eq('user_id', agentId)
+      .maybeSingle();
+    const enabledInDept = !!deptAgent && (deptAgent as any).enabled !== false;
+    const isElevated = role === 'owner' || role === 'admin';
+    if (!enabledInDept && !isElevated) {
+      throw new DepartmentException('operator_permission_required', 403);
+    }
+  } else if (!isOperatorRole) {
+    throw new DepartmentException('operator_permission_required', 403);
+  }
 }

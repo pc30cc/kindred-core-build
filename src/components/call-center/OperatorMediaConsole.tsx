@@ -49,6 +49,8 @@ export interface OperatorMediaConsoleProps {
   onReconnect?: () => Promise<{ token: string; connect: OperatorConnectInfo } | null>;
   /** External signal: backend reports the call has ended/cancelled/failed. */
   externalEndedReason?: 'ended_by_visitor' | 'ended_by_operator' | 'cancelled' | 'failed' | null;
+  /** Called when the console has finished showing the post-end UX and is safe to unmount. */
+  onEndedConfirmed?: () => void;
   onError?: (error: string) => void;
 }
 
@@ -98,7 +100,7 @@ interface DeviceOpt { deviceId: string; label: string }
 export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
   const {
     callId, callType, connect, token, visitorName,
-    onEnd, onReconnect, externalEndedReason, onError,
+    onEnd, onReconnect, externalEndedReason, onEndedConfirmed, onError,
   } = props;
   const wantVideo = callType === 'video';
 
@@ -128,6 +130,8 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
   // Connection token state (for reconnect)
   const [activeToken, setActiveToken] = useState<string | null>(token);
   const [activeConnect, setActiveConnect] = useState<OperatorConnectInfo>(connect);
+  // Counter to force connect-effect re-run on reconnect (token swap with same room/server).
+  const [connectAttempt, setConnectAttempt] = useState(0);
 
   const [showDevices, setShowDevices] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
@@ -168,8 +172,9 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
     const r = externalEndedReason;
     try { roomRef.current?.disconnect(); } catch { /* noop */ }
     if (r === 'ended_by_visitor') setPhase('ended_by_visitor');
+    else if (r === 'ended_by_operator') setPhase('ended_by_operator');
     else if (r === 'cancelled') setPhase('ended_by_visitor');
-    else if (r === 'failed') setPhase('error');
+    else if (r === 'failed') { setPhase('error'); setErrorCode('room_disconnected'); }
   }, [externalEndedReason, phase]);
 
   // Tick for call timer
@@ -279,7 +284,8 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
   }, [stopMicAnalyser]);
 
   // ── Connect lifecycle ─────────────────────────────────────
-  const connectKey = `${callId}|${activeConnect?.server_url || ''}|${activeConnect?.room_id || ''}|${activeToken ? '1' : '0'}`;
+  // NOTE: connectKey must NOT include the raw token. We use a counter that bumps on reconnect.
+  const connectKey = `${callId}|${activeConnect?.server_url || ''}|${activeConnect?.room_id || ''}|${connectAttempt}`;
 
   useEffect(() => {
     let cancelled = false;
@@ -372,7 +378,19 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
       room.on(RoomEvent.Reconnecting, () => { if (!cancelled) setPhase('reconnecting'); });
       room.on(RoomEvent.Reconnected, () => {
         if (cancelled) return;
-        setPhase(remoteIdentities.length > 0 ? 'visitor_connected' : 'waiting_for_visitor');
+        const remotes: any[] = Array.from(room.remoteParticipants?.values?.() || []);
+        const ids = remotes.map((p) => p?.identity).filter(Boolean) as string[];
+        setRemoteIdentities(ids);
+        // Re-attach any already-published remote tracks safely (attachTrack dedupes by sid).
+        remotes.forEach((p) => {
+          try {
+            const pubs = p.trackPublications || p.tracks;
+            pubs?.forEach?.((pub: any) => {
+              if (pub?.track && pub?.isSubscribed !== false) attachTrack(pub.track, p);
+            });
+          } catch { /* noop */ }
+        });
+        setPhase(ids.length > 0 ? 'visitor_connected' : 'waiting_for_visitor');
       });
       if (RoomEvent.ConnectionQualityChanged) {
         room.on(RoomEvent.ConnectionQualityChanged, (q: any, p: any) => {
@@ -544,7 +562,8 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
       setActiveToken(r.token);
       setActiveConnect(r.connect);
       setErrorCode(null);
-      // useEffect will re-run on connectKey change.
+      // Bump attempt so connect-effect re-runs even when room/server are unchanged.
+      setConnectAttempt((n) => n + 1);
     } catch {
       setPhase('reconnect_failed');
       setErrorCode('reconnect_failed');
@@ -552,6 +571,14 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
       setReconnecting(false);
     }
   }, [onReconnect]);
+
+  // After a successful operator-side end, briefly show "Call ended" then notify parent.
+  useEffect(() => {
+    if (phase !== 'ended_by_operator') return;
+    if (!onEndedConfirmed) return;
+    const t = setTimeout(() => { try { onEndedConfirmed(); } catch { /* noop */ } }, 1200);
+    return () => clearTimeout(t);
+  }, [phase, onEndedConfirmed]);
 
   // ── Derived UI bits ───────────────────────────────────────
   const duration = startedAt ? Math.floor((now - startedAt) / 1000) : 0;

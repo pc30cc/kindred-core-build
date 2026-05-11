@@ -421,7 +421,6 @@ callCenterRouter.post('/calls/:id/end', async (req, res) => {
   }
 });
 
-// ── Agent status ──────────────────────────────────────────────────────────
 // ── Recording start/stop/status (CC-2F) ────────────────────────────────────
 const recordingTypeSchema = z.enum(['composite', 'individual', 'audio_only']).optional();
 

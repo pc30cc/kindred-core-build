@@ -700,7 +700,7 @@ callCenterRouter.post('/departments', async (req, res) => {
   const parsed = departmentInputSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_body', details: parsed.error.flatten() });
   try {
-    const department = await createDepartment(ctx.config, wid, parsed.data);
+    const department = await createDepartment(ctx.config, wid, parsed.data as any);
     res.status(201).json({ department });
   } catch (e: any) {
     res.status(500).json({ error: 'create_failed', message: String(e?.message || e) });

@@ -432,10 +432,12 @@ export default function LiveQueuePage() {
                   externalEndedReason={externalEndedReason}
                   onEndedConfirmed={() => setAccepted(null)}
                 />
-                {overview?.recording?.effective_enabled && (
-                  <p className="text-xs text-muted-foreground px-1">
-                    Recording is configured. Start/stop provider integration is pending — recording controls will appear here once wired.
-                  </p>
+                {workspace && (
+                  <RecordingControlBar
+                    workspaceId={workspace.id}
+                    callId={accepted.callId}
+                    callConnected={['active', 'ringing', 'connecting'].includes(detail.call.state)}
+                  />
                 )}
                 </>
               ) : (

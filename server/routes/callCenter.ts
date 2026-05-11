@@ -26,7 +26,15 @@ import {
   getCallCenterRecordingStatus,
   RecordingControlException,
 } from '../services/callCenter/recordingControl.js';
-import { uploadFile } from '../services/storage/index.js';
+import { uploadFile, deleteFile, resolveStorageConfig } from '../services/storage/index.js';
+import {
+  listDepartments, getDepartment, createDepartment, updateDepartment, deleteDepartment,
+  listDepartmentAgents, addDepartmentAgent, updateDepartmentAgent, removeDepartmentAgent,
+  getAgentPresence, updateMyAgentPresence,
+} from '../services/callCenter/departments.js';
+import {
+  assignCallToAgent, transferCall, RoutingException,
+} from '../services/callCenter/routing.js';
 import crypto from 'crypto';
 
 export const callCenterRouter = Router();
@@ -201,15 +209,35 @@ callCenterRouter.post('/settings/avatar', async (req, res) => {
   let buffer: Buffer;
   try { buffer = Buffer.from(String(data), 'base64'); } catch { return res.status(400).json({ error: 'invalid_data' }); }
   if (buffer.length === 0 || buffer.length > MAX_AVATAR_BYTES) return res.status(413).json({ error: 'file_too_large' });
+  // Verify a storage provider is actually configured. uploadFile would
+  // otherwise silently fall back to local + fail with publicUrl errors.
+  const storageConfig = await resolveStorageConfig(ctx.config, wid);
+  if (!storageConfig) return res.status(500).json({ error: 'storage_not_configured' });
+  // Read previous avatar path (so we can best-effort delete the old file
+  // through the same active storage provider after a successful upload).
+  const sb0 = getServiceClient(ctx.config);
+  const { data: prevRow } = await sb0
+    .from('call_center_settings')
+    .select('avatar_storage_path')
+    .eq('workspace_id', wid)
+    .maybeSingle();
+  const previousPath = (prevRow as any)?.avatar_storage_path as string | null;
   const safe = String(fileName).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80);
   const fileKey = `workspace/${wid}/call-center/avatar/${crypto.randomUUID()}-${safe}`;
   const result = await uploadFile(ctx.config, {
     workspaceId: wid, fileKey, data: buffer, contentType: String(contentType),
   });
-  if (!result.success || !result.url) return res.status(500).json({ error: 'upload_failed', details: (result as any).error });
+  if (!result.success || !result.url) {
+    return res.status(500).json({ error: 'avatar_upload_failed' });
+  }
   const updated = await updateWorkspaceSettings(ctx.config, wid, {
     avatar_url: result.url, avatar_storage_path: fileKey,
   } as any);
+  // Best-effort cleanup of the previous avatar; failures must not fail the
+  // upload and must not be exposed to the client.
+  if (previousPath && previousPath !== fileKey) {
+    try { await deleteFile(ctx.config, wid, previousPath); } catch { /* best-effort */ }
+  }
   res.json({ avatar_url: updated.avatar_url });
 });
 
@@ -634,4 +662,256 @@ callCenterRouter.post('/admin/cache/invalidate', async (req, res) => {
   if (!ctx) return;
   invalidatePlatformCallCenterCache();
   res.json({ ok: true });
+});
+// ── Departments (CC-2G) ────────────────────────────────────────────────────
+const departmentInputSchema = z.object({
+  name: z.string().min(1).max(120),
+  slug: z.string().max(60).optional(),
+  description: z.string().nullable().optional(),
+  color: z.string().nullable().optional(),
+  icon: z.string().nullable().optional(),
+  enabled: z.boolean().optional(),
+  sort_order: z.number().int().optional(),
+  routing_mode: z.enum(['broadcast', 'round_robin', 'least_busy']).optional(),
+  fallback_department_id: z.string().uuid().nullable().optional(),
+  metadata: z.record(z.unknown()).optional(),
+});
+
+const departmentPatchSchema = departmentInputSchema.partial();
+
+callCenterRouter.get('/departments', async (req, res) => {
+  const wid = String(req.query.workspaceId || '');
+  if (!wid) return res.status(400).json({ error: 'workspaceId_required' });
+  const ctx = await requireMember(req, res, wid);
+  if (!ctx) return;
+  try {
+    const departments = await listDepartments(ctx.config, wid);
+    res.json({ departments });
+  } catch (e: any) {
+    res.status(500).json({ error: 'list_failed', message: String(e?.message || e) });
+  }
+});
+
+callCenterRouter.post('/departments', async (req, res) => {
+  const wid = String(req.query.workspaceId || req.body?.workspaceId || '');
+  if (!wid) return res.status(400).json({ error: 'workspaceId_required' });
+  const ctx = await requireWorkspaceAdmin(req, res, wid);
+  if (!ctx) return;
+  const parsed = departmentInputSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_body', details: parsed.error.flatten() });
+  try {
+    const department = await createDepartment(ctx.config, wid, parsed.data as any);
+    res.status(201).json({ department });
+  } catch (e: any) {
+    res.status(500).json({ error: 'create_failed', message: String(e?.message || e) });
+  }
+});
+
+callCenterRouter.get('/departments/:id', async (req, res) => {
+  const wid = String(req.query.workspaceId || '');
+  if (!wid) return res.status(400).json({ error: 'workspaceId_required' });
+  const ctx = await requireMember(req, res, wid);
+  if (!ctx) return;
+  const department = await getDepartment(ctx.config, wid, req.params.id);
+  if (!department) return res.status(404).json({ error: 'department_not_found' });
+  res.json({ department });
+});
+
+callCenterRouter.patch('/departments/:id', async (req, res) => {
+  const wid = String(req.query.workspaceId || req.body?.workspaceId || '');
+  if (!wid) return res.status(400).json({ error: 'workspaceId_required' });
+  const ctx = await requireWorkspaceAdmin(req, res, wid);
+  if (!ctx) return;
+  const parsed = departmentPatchSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_body', details: parsed.error.flatten() });
+  try {
+    const department = await updateDepartment(ctx.config, wid, req.params.id, parsed.data);
+    if (!department) return res.status(404).json({ error: 'department_not_found' });
+    res.json({ department });
+  } catch (e: any) {
+    res.status(500).json({ error: 'update_failed', message: String(e?.message || e) });
+  }
+});
+
+callCenterRouter.delete('/departments/:id', async (req, res) => {
+  const wid = String(req.query.workspaceId || '');
+  if (!wid) return res.status(400).json({ error: 'workspaceId_required' });
+  const ctx = await requireWorkspaceAdmin(req, res, wid);
+  if (!ctx) return;
+  try {
+    await deleteDepartment(ctx.config, wid, req.params.id);
+    res.json({ ok: true });
+  } catch (e: any) {
+    res.status(500).json({ error: 'delete_failed', message: String(e?.message || e) });
+  }
+});
+
+// ── Department agents ─────────────────────────────────────────────────────
+const departmentAgentInputSchema = z.object({
+  user_id: z.string().uuid(),
+  role: z.enum(['agent', 'supervisor']).optional(),
+  priority: z.number().int().optional(),
+  enabled: z.boolean().optional(),
+  max_concurrent_calls: z.number().int().nullable().optional(),
+  metadata: z.record(z.unknown()).optional(),
+});
+
+const departmentAgentPatchSchema = departmentAgentInputSchema.partial().omit({ user_id: true });
+
+callCenterRouter.get('/departments/:id/agents', async (req, res) => {
+  const wid = String(req.query.workspaceId || '');
+  if (!wid) return res.status(400).json({ error: 'workspaceId_required' });
+  const ctx = await requireMember(req, res, wid);
+  if (!ctx) return;
+  try {
+    const agents = await listDepartmentAgents(ctx.config, wid, req.params.id);
+    res.json({ agents });
+  } catch (e: any) {
+    res.status(500).json({ error: 'list_failed', message: String(e?.message || e) });
+  }
+});
+
+callCenterRouter.post('/departments/:id/agents', async (req, res) => {
+  const wid = String(req.query.workspaceId || req.body?.workspaceId || '');
+  if (!wid) return res.status(400).json({ error: 'workspaceId_required' });
+  const ctx = await requireWorkspaceAdmin(req, res, wid);
+  if (!ctx) return;
+  const parsed = departmentAgentInputSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_body', details: parsed.error.flatten() });
+  try {
+    const agent = await addDepartmentAgent(
+      ctx.config, wid, req.params.id, parsed.data.user_id, parsed.data,
+    );
+    res.status(201).json({ agent });
+  } catch (e: any) {
+    res.status(500).json({ error: 'add_failed', message: String(e?.message || e) });
+  }
+});
+
+callCenterRouter.patch('/departments/:id/agents/:userId', async (req, res) => {
+  const wid = String(req.query.workspaceId || req.body?.workspaceId || '');
+  if (!wid) return res.status(400).json({ error: 'workspaceId_required' });
+  const ctx = await requireWorkspaceAdmin(req, res, wid);
+  if (!ctx) return;
+  const parsed = departmentAgentPatchSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_body', details: parsed.error.flatten() });
+  try {
+    const agent = await updateDepartmentAgent(
+      ctx.config, wid, req.params.id, req.params.userId, parsed.data,
+    );
+    if (!agent) return res.status(404).json({ error: 'agent_not_found' });
+    res.json({ agent });
+  } catch (e: any) {
+    res.status(500).json({ error: 'update_failed', message: String(e?.message || e) });
+  }
+});
+
+callCenterRouter.delete('/departments/:id/agents/:userId', async (req, res) => {
+  const wid = String(req.query.workspaceId || '');
+  if (!wid) return res.status(400).json({ error: 'workspaceId_required' });
+  const ctx = await requireWorkspaceAdmin(req, res, wid);
+  if (!ctx) return;
+  try {
+    await removeDepartmentAgent(ctx.config, wid, req.params.id, req.params.userId);
+    res.json({ ok: true });
+  } catch (e: any) {
+    res.status(500).json({ error: 'remove_failed', message: String(e?.message || e) });
+  }
+});
+
+// ── Agent presence ────────────────────────────────────────────────────────
+const presenceInputSchema = z.object({
+  status: z.enum(['available', 'busy', 'away', 'offline']),
+  status_message: z.string().nullable().optional(),
+});
+
+callCenterRouter.get('/agents/presence', async (req, res) => {
+  const wid = String(req.query.workspaceId || '');
+  if (!wid) return res.status(400).json({ error: 'workspaceId_required' });
+  const ctx = await requireMember(req, res, wid);
+  if (!ctx) return;
+  try {
+    const presence = await getAgentPresence(ctx.config, wid);
+    res.json({ presence });
+  } catch (e: any) {
+    res.status(500).json({ error: 'list_failed', message: String(e?.message || e) });
+  }
+});
+
+callCenterRouter.put('/agents/me/presence', async (req, res) => {
+  const wid = String(req.query.workspaceId || req.body?.workspaceId || '');
+  if (!wid) return res.status(400).json({ error: 'workspaceId_required' });
+  const ctx = await requireCallOperator(req, res, wid);
+  if (!ctx) return;
+  const parsed = presenceInputSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_body', details: parsed.error.flatten() });
+  try {
+    const presence = await updateMyAgentPresence(
+      ctx.config, wid, ctx.userId, parsed.data.status, parsed.data.status_message,
+    );
+    res.json({ presence });
+  } catch (e: any) {
+    res.status(500).json({ error: 'update_failed', message: String(e?.message || e) });
+  }
+});
+
+// ── Assignment + transfer ─────────────────────────────────────────────────
+const assignSchema = z.object({
+  agent_id: z.string().uuid().nullable(),
+  reason: z.string().max(200).optional(),
+});
+
+callCenterRouter.post('/calls/:id/assign', async (req, res) => {
+  const wid = String(req.query.workspaceId || req.body?.workspaceId || '');
+  if (!wid) return res.status(400).json({ error: 'workspaceId_required' });
+  const ctx = await requireCallOperator(req, res, wid);
+  if (!ctx) return;
+  const parsed = assignSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_body', details: parsed.error.flatten() });
+  try {
+    const r = await assignCallToAgent(ctx.config, {
+      workspaceId: wid,
+      callSessionId: req.params.id,
+      agentId: parsed.data.agent_id,
+      reason: parsed.data.reason,
+      actorId: ctx.userId,
+    });
+    res.json(r);
+  } catch (e: any) {
+    if (e instanceof RoutingException) return res.status(e.httpStatus).json({ error: e.code });
+    res.status(500).json({ error: 'assign_failed', message: String(e?.message || e) });
+  }
+});
+
+const transferSchema = z.object({
+  to_agent_id: z.string().uuid().nullable().optional(),
+  to_department_id: z.string().uuid().nullable().optional(),
+  reason: z.string().max(200).nullable().optional(),
+});
+
+callCenterRouter.post('/calls/:id/transfer', async (req, res) => {
+  const wid = String(req.query.workspaceId || req.body?.workspaceId || '');
+  if (!wid) return res.status(400).json({ error: 'workspaceId_required' });
+  const ctx = await requireCallOperator(req, res, wid);
+  if (!ctx) return;
+  const parsed = transferSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_body', details: parsed.error.flatten() });
+  if (!parsed.data.to_agent_id && !parsed.data.to_department_id) {
+    return res.status(400).json({ error: 'transfer_target_required' });
+  }
+  try {
+    const r = await transferCall(ctx.config, {
+      workspaceId: wid,
+      callSessionId: req.params.id,
+      fromAgentId: ctx.userId,
+      toAgentId: parsed.data.to_agent_id,
+      toDepartmentId: parsed.data.to_department_id,
+      reason: parsed.data.reason ?? null,
+      actorId: ctx.userId,
+    });
+    res.json(r);
+  } catch (e: any) {
+    if (e instanceof RoutingException) return res.status(e.httpStatus).json({ error: e.code });
+    res.status(500).json({ error: 'transfer_failed', message: String(e?.message || e) });
+  }
 });

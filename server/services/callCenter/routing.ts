@@ -1,0 +1,419 @@
+/**
+ * Call Center routing + assignment + transfer service.
+ * Standalone Call Center only — does not touch chat-call flow.
+ *
+ * Routing modes:
+ *   - broadcast    : queue stays unassigned, all eligible agents see it
+ *   - round_robin  : pick next available agent by priority + last assignment
+ *   - least_busy   : pick available agent with lowest active_call_count
+ */
+import type { ServerConfig } from '../../config.js';
+import { getServiceClient } from '../../supabase.js';
+import { publishCallEvent, publishQueueEvent } from './realtime.js';
+
+export type RoutingMode = 'broadcast' | 'round_robin' | 'least_busy';
+
+export class RoutingException extends Error {
+  constructor(public readonly code: string, public readonly httpStatus = 400) {
+    super(code);
+    this.name = 'RoutingException';
+  }
+}
+
+interface AgentRow {
+  user_id: string;
+  priority: number;
+  enabled: boolean;
+  max_concurrent_calls: number | null;
+}
+
+interface PresenceRow {
+  user_id: string;
+  status: string;
+  active_call_count: number;
+  last_seen_at: string | null;
+}
+
+async function fetchEligibleAgents(
+  config: ServerConfig,
+  workspaceId: string,
+  departmentId: string | null,
+): Promise<{ agents: AgentRow[]; presence: Map<string, PresenceRow> }> {
+  const sb = getServiceClient(config);
+  let agents: AgentRow[] = [];
+  if (departmentId) {
+    const { data } = await sb
+      .from('call_center_department_agents')
+      .select('user_id, priority, enabled, max_concurrent_calls')
+      .eq('workspace_id', workspaceId)
+      .eq('department_id', departmentId)
+      .eq('enabled', true);
+    agents = (data || []) as AgentRow[];
+  } else {
+    // No department: derive from presence — every operator with a presence row
+    const { data } = await sb
+      .from('call_center_agent_presence')
+      .select('user_id')
+      .eq('workspace_id', workspaceId);
+    agents = (data || []).map((r: any) => ({
+      user_id: r.user_id, priority: 100, enabled: true, max_concurrent_calls: null,
+    }));
+  }
+
+  const ids = agents.map((a) => a.user_id);
+  const presence = new Map<string, PresenceRow>();
+  if (ids.length) {
+    const { data: pres } = await sb
+      .from('call_center_agent_presence')
+      .select('user_id, status, active_call_count, last_seen_at')
+      .eq('workspace_id', workspaceId)
+      .in('user_id', ids);
+    for (const p of (pres || []) as PresenceRow[]) presence.set(p.user_id, p);
+  }
+  return { agents, presence };
+}
+
+function isAvailable(p: PresenceRow | undefined, agent: AgentRow): boolean {
+  if (!p) return false;
+  if (p.status !== 'available') return false;
+  if (agent.max_concurrent_calls != null && p.active_call_count >= agent.max_concurrent_calls) {
+    return false;
+  }
+  return true;
+}
+
+export async function pickAgentForDepartment(
+  config: ServerConfig,
+  args: { workspaceId: string; departmentId: string | null; mode: RoutingMode },
+): Promise<string | null> {
+  const { workspaceId, departmentId, mode } = args;
+  const { agents, presence } = await fetchEligibleAgents(config, workspaceId, departmentId);
+  const available = agents.filter((a) => isAvailable(presence.get(a.user_id), a));
+  if (!available.length) return null;
+
+  if (mode === 'broadcast') {
+    return null; // broadcast does not pre-assign
+  }
+
+  if (mode === 'least_busy') {
+    available.sort((a, b) => {
+      const pa = presence.get(a.user_id)!;
+      const pb = presence.get(b.user_id)!;
+      if (pa.active_call_count !== pb.active_call_count) {
+        return pa.active_call_count - pb.active_call_count;
+      }
+      if (a.priority !== b.priority) return b.priority - a.priority;
+      const ta = pa.last_seen_at ? Date.parse(pa.last_seen_at) : 0;
+      const tb = pb.last_seen_at ? Date.parse(pb.last_seen_at) : 0;
+      return tb - ta;
+    });
+    return available[0].user_id;
+  }
+
+  if (mode === 'round_robin') {
+    // Use department metadata as round-robin pointer (last assigned user_id).
+    const sb = getServiceClient(config);
+    let lastUid: string | null = null;
+    if (departmentId) {
+      const { data: dept } = await sb
+        .from('call_center_departments')
+        .select('metadata')
+        .eq('workspace_id', workspaceId)
+        .eq('id', departmentId)
+        .maybeSingle();
+      lastUid = ((dept?.metadata as any)?.last_round_robin_user_id as string) || null;
+    }
+    available.sort((a, b) => {
+      if (a.priority !== b.priority) return b.priority - a.priority;
+      return a.user_id.localeCompare(b.user_id);
+    });
+    let next = available[0];
+    if (lastUid) {
+      const idx = available.findIndex((a) => a.user_id === lastUid);
+      if (idx >= 0) next = available[(idx + 1) % available.length];
+    }
+    if (departmentId) {
+      const { data: dept } = await sb
+        .from('call_center_departments')
+        .select('metadata')
+        .eq('workspace_id', workspaceId)
+        .eq('id', departmentId)
+        .maybeSingle();
+      const meta = (dept?.metadata as any) || {};
+      meta.last_round_robin_user_id = next.user_id;
+      meta.last_round_robin_at = new Date().toISOString();
+      await sb
+        .from('call_center_departments')
+        .update({ metadata: meta })
+        .eq('workspace_id', workspaceId)
+        .eq('id', departmentId);
+    }
+    return next.user_id;
+  }
+
+  return null;
+}
+
+async function getCallSession(config: ServerConfig, workspaceId: string, callId: string) {
+  const sb = getServiceClient(config);
+  const { data } = await sb
+    .from('call_sessions')
+    .select('*')
+    .eq('id', callId)
+    .eq('workspace_id', workspaceId)
+    .maybeSingle();
+  return data;
+}
+
+export async function assignCallToAgent(
+  config: ServerConfig,
+  args: {
+    workspaceId: string;
+    callSessionId: string;
+    agentId: string | null;
+    reason?: string;
+    actorId: string;
+  },
+) {
+  const sb = getServiceClient(config);
+  const call = await getCallSession(config, args.workspaceId, args.callSessionId);
+  if (!call) throw new RoutingException('call_not_found', 404);
+  const { error } = await sb
+    .from('call_sessions')
+    .update({ assigned_agent_id: args.agentId })
+    .eq('id', args.callSessionId)
+    .eq('workspace_id', args.workspaceId);
+  if (error) throw error;
+  await sb
+    .from('call_queue_entries')
+    .update({
+      assigned_agent_id: args.agentId,
+      last_routing_at: new Date().toISOString(),
+    })
+    .eq('call_session_id', args.callSessionId)
+    .eq('workspace_id', args.workspaceId);
+  await sb.from('call_events').insert({
+    call_session_id: args.callSessionId,
+    event_type: 'call_assigned',
+    actor_type: 'operator',
+    actor_id: args.actorId,
+    payload: { agent_id: args.agentId, reason: args.reason || null },
+  });
+  await publishCallEvent(config, args.workspaceId, args.callSessionId, 'call_assigned', {
+    call_id: args.callSessionId, agent_id: args.agentId,
+  });
+  await publishQueueEvent(config, args.workspaceId, 'call_assigned', {
+    call_id: args.callSessionId, agent_id: args.agentId,
+  });
+  return { call_id: args.callSessionId, assigned_agent_id: args.agentId };
+}
+
+/**
+ * Apply routing for a queued call. Picks an agent (or leaves unassigned for
+ * broadcast) and updates queue + session rows.
+ */
+export async function routeIncomingCall(
+  config: ServerConfig,
+  args: { workspaceId: string; callSessionId: string; departmentId?: string | null; actorId?: string },
+) {
+  const sb = getServiceClient(config);
+  let departmentId: string | null = args.departmentId ?? null;
+  let mode: RoutingMode = 'broadcast';
+
+  // Resolve department + routing mode (with fallback chain).
+  if (departmentId) {
+    const { data: dept } = await sb
+      .from('call_center_departments')
+      .select('id, enabled, routing_mode, fallback_department_id')
+      .eq('workspace_id', args.workspaceId)
+      .eq('id', departmentId)
+      .maybeSingle();
+    if (dept && !dept.enabled && dept.fallback_department_id) {
+      departmentId = dept.fallback_department_id;
+      const { data: fb } = await sb
+        .from('call_center_departments')
+        .select('routing_mode, enabled')
+        .eq('workspace_id', args.workspaceId)
+        .eq('id', departmentId)
+        .maybeSingle();
+      mode = (fb?.routing_mode as RoutingMode) || 'broadcast';
+    } else if (dept) {
+      mode = (dept.routing_mode as RoutingMode) || 'broadcast';
+    }
+  } else {
+    // Workspace default routing_mode
+    const { data: ws } = await sb
+      .from('call_center_settings')
+      .select('routing_mode')
+      .eq('workspace_id', args.workspaceId)
+      .maybeSingle();
+    mode = ((ws?.routing_mode as RoutingMode) || 'broadcast') as RoutingMode;
+  }
+
+  const agentId = await pickAgentForDepartment(config, {
+    workspaceId: args.workspaceId, departmentId, mode,
+  });
+
+  await sb
+    .from('call_sessions')
+    .update({ department_id: departmentId, assigned_agent_id: agentId })
+    .eq('id', args.callSessionId)
+    .eq('workspace_id', args.workspaceId);
+  await sb
+    .from('call_queue_entries')
+    .update({
+      department_id: departmentId,
+      assigned_agent_id: agentId,
+      routing_mode: mode,
+      last_routing_at: new Date().toISOString(),
+    })
+    .eq('call_session_id', args.callSessionId)
+    .eq('workspace_id', args.workspaceId);
+  await sb
+    .from('call_queue_entries')
+    .update({ routing_attempts: 1 })
+    .eq('call_session_id', args.callSessionId)
+    .eq('workspace_id', args.workspaceId);
+
+  await sb.from('call_events').insert({
+    call_session_id: args.callSessionId,
+    event_type: 'call_routed',
+    actor_type: 'system',
+    actor_id: args.actorId || null,
+    payload: { department_id: departmentId, mode, agent_id: agentId },
+  });
+  await publishQueueEvent(config, args.workspaceId, 'call_routed', {
+    call_id: args.callSessionId, department_id: departmentId, agent_id: agentId,
+  });
+
+  return { department_id: departmentId, routing_mode: mode, assigned_agent_id: agentId };
+}
+
+export async function transferCall(
+  config: ServerConfig,
+  args: {
+    workspaceId: string;
+    callSessionId: string;
+    fromAgentId: string;
+    toAgentId?: string | null;
+    toDepartmentId?: string | null;
+    reason?: string | null;
+    actorId: string;
+  },
+) {
+  const sb = getServiceClient(config);
+  if (!args.toAgentId && !args.toDepartmentId) {
+    throw new RoutingException('transfer_target_required', 400);
+  }
+  const call = await getCallSession(config, args.workspaceId, args.callSessionId);
+  if (!call) throw new RoutingException('call_not_found', 404);
+  if (!['active', 'ringing', 'connecting', 'pending'].includes(String((call as any).state))) {
+    throw new RoutingException('call_not_active', 409);
+  }
+
+  await sb.from('call_events').insert({
+    call_session_id: args.callSessionId,
+    event_type: 'call_transfer_requested',
+    actor_type: 'operator',
+    actor_id: args.actorId,
+    payload: {
+      from_agent_id: args.fromAgentId,
+      to_agent_id: args.toAgentId || null,
+      to_department_id: args.toDepartmentId || null,
+      reason: args.reason || null,
+    },
+  });
+
+  try {
+    let assignedAgentId: string | null = args.toAgentId || null;
+    let departmentId: string | null =
+      args.toDepartmentId || ((call as any).department_id as string | null) || null;
+
+    if (args.toDepartmentId) {
+      const { data: dept } = await sb
+        .from('call_center_departments')
+        .select('routing_mode, enabled, fallback_department_id')
+        .eq('workspace_id', args.workspaceId)
+        .eq('id', args.toDepartmentId)
+        .maybeSingle();
+      if (!dept) throw new RoutingException('department_not_found', 404);
+      let mode: RoutingMode = (dept.routing_mode as RoutingMode) || 'broadcast';
+      let targetDept = args.toDepartmentId;
+      if (!dept.enabled && dept.fallback_department_id) {
+        targetDept = dept.fallback_department_id;
+        const { data: fb } = await sb
+          .from('call_center_departments')
+          .select('routing_mode')
+          .eq('workspace_id', args.workspaceId)
+          .eq('id', targetDept)
+          .maybeSingle();
+        mode = (fb?.routing_mode as RoutingMode) || 'broadcast';
+      }
+      departmentId = targetDept;
+      assignedAgentId = await pickAgentForDepartment(config, {
+        workspaceId: args.workspaceId, departmentId: targetDept, mode,
+      });
+    }
+
+    await sb
+      .from('call_sessions')
+      .update({
+        assigned_agent_id: assignedAgentId,
+        department_id: departmentId,
+        transfer_from_agent_id: args.fromAgentId,
+        transfer_to_agent_id: args.toAgentId || null,
+        transfer_to_department_id: args.toDepartmentId || null,
+        transfer_reason: args.reason || null,
+      })
+      .eq('id', args.callSessionId)
+      .eq('workspace_id', args.workspaceId);
+
+    await sb
+      .from('call_queue_entries')
+      .update({
+        assigned_agent_id: assignedAgentId,
+        department_id: departmentId,
+        last_routing_at: new Date().toISOString(),
+      })
+      .eq('call_session_id', args.callSessionId)
+      .eq('workspace_id', args.workspaceId);
+
+    await sb.from('call_events').insert({
+      call_session_id: args.callSessionId,
+      event_type: 'call_transferred',
+      actor_type: 'operator',
+      actor_id: args.actorId,
+      payload: {
+        from_agent_id: args.fromAgentId,
+        to_agent_id: assignedAgentId,
+        to_department_id: departmentId,
+      },
+    });
+    await publishCallEvent(config, args.workspaceId, args.callSessionId, 'call_transferred', {
+      call_id: args.callSessionId, agent_id: assignedAgentId, department_id: departmentId,
+    });
+    await publishQueueEvent(config, args.workspaceId, 'call_transferred', {
+      call_id: args.callSessionId, agent_id: assignedAgentId, department_id: departmentId,
+    });
+
+    return {
+      ok: true,
+      assigned_agent_id: assignedAgentId,
+      department_id: departmentId,
+      // Honest disclosure: media handoff is manual.
+      handoff: 'manual',
+      message:
+        'Transfer reassigns the call and lets the new operator join the same room. Automatic media handoff/disconnect will be added later.',
+    };
+  } catch (e) {
+    await sb.from('call_events').insert({
+      call_session_id: args.callSessionId,
+      event_type: 'call_transfer_failed',
+      actor_type: 'operator',
+      actor_id: args.actorId,
+      payload: { error: String((e as any)?.message || e) },
+    });
+    if (e instanceof RoutingException) throw e;
+    throw new RoutingException('transfer_failed', 500);
+  }
+}

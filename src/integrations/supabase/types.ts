@@ -2828,6 +2828,176 @@ export type Database = {
         }
         Relationships: []
       }
+      call_center_agent_presence: {
+        Row: {
+          active_call_count: number
+          created_at: string
+          id: string
+          last_seen_at: string | null
+          metadata: Json
+          status: string
+          status_message: string | null
+          updated_at: string
+          user_id: string
+          workspace_id: string
+        }
+        Insert: {
+          active_call_count?: number
+          created_at?: string
+          id?: string
+          last_seen_at?: string | null
+          metadata?: Json
+          status?: string
+          status_message?: string | null
+          updated_at?: string
+          user_id: string
+          workspace_id: string
+        }
+        Update: {
+          active_call_count?: number
+          created_at?: string
+          id?: string
+          last_seen_at?: string | null
+          metadata?: Json
+          status?: string
+          status_message?: string | null
+          updated_at?: string
+          user_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "call_center_agent_presence_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      call_center_department_agents: {
+        Row: {
+          created_at: string
+          department_id: string
+          enabled: boolean
+          id: string
+          max_concurrent_calls: number | null
+          metadata: Json
+          priority: number
+          role: string
+          updated_at: string
+          user_id: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          department_id: string
+          enabled?: boolean
+          id?: string
+          max_concurrent_calls?: number | null
+          metadata?: Json
+          priority?: number
+          role?: string
+          updated_at?: string
+          user_id: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          department_id?: string
+          enabled?: boolean
+          id?: string
+          max_concurrent_calls?: number | null
+          metadata?: Json
+          priority?: number
+          role?: string
+          updated_at?: string
+          user_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "call_center_department_agents_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "call_center_departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "call_center_department_agents_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      call_center_departments: {
+        Row: {
+          color: string | null
+          created_at: string
+          description: string | null
+          enabled: boolean
+          fallback_department_id: string | null
+          icon: string | null
+          id: string
+          metadata: Json
+          name: string
+          routing_mode: string
+          slug: string
+          sort_order: number
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          color?: string | null
+          created_at?: string
+          description?: string | null
+          enabled?: boolean
+          fallback_department_id?: string | null
+          icon?: string | null
+          id?: string
+          metadata?: Json
+          name: string
+          routing_mode?: string
+          slug: string
+          sort_order?: number
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          color?: string | null
+          created_at?: string
+          description?: string | null
+          enabled?: boolean
+          fallback_department_id?: string | null
+          icon?: string | null
+          id?: string
+          metadata?: Json
+          name?: string
+          routing_mode?: string
+          slug?: string
+          sort_order?: number
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "call_center_departments_fallback_fk"
+            columns: ["fallback_department_id"]
+            isOneToOne: false
+            referencedRelation: "call_center_departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "call_center_departments_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       call_center_settings: {
         Row: {
           allowed_domains: string[]
@@ -3104,18 +3274,21 @@ export type Database = {
       call_queue_entries: {
         Row: {
           accepted_at: string | null
+          assigned_agent_id: string | null
           call_session_id: string | null
           callback_request_id: string | null
           channel: Database["public"]["Enums"]["call_queue_channel"]
           contact_id: string | null
           conversation_id: string | null
           created_at: string
+          department_id: string | null
           ended_at: string | null
           ended_reason: string | null
           entry_source: string
           expires_at: string
           id: string
           last_offer_expires_at: string | null
+          last_routing_at: string | null
           metadata: Json
           missed_offer_count: number
           offer_timeout_seconds: number
@@ -3124,6 +3297,8 @@ export type Database = {
           position_hint: number | null
           priority: number
           requested_by: string
+          routing_attempts: number
+          routing_mode: string | null
           sla_breached: boolean
           state: Database["public"]["Enums"]["call_queue_state"]
           updated_at: string
@@ -3132,18 +3307,21 @@ export type Database = {
         }
         Insert: {
           accepted_at?: string | null
+          assigned_agent_id?: string | null
           call_session_id?: string | null
           callback_request_id?: string | null
           channel: Database["public"]["Enums"]["call_queue_channel"]
           contact_id?: string | null
           conversation_id?: string | null
           created_at?: string
+          department_id?: string | null
           ended_at?: string | null
           ended_reason?: string | null
           entry_source?: string
           expires_at?: string
           id?: string
           last_offer_expires_at?: string | null
+          last_routing_at?: string | null
           metadata?: Json
           missed_offer_count?: number
           offer_timeout_seconds?: number
@@ -3152,6 +3330,8 @@ export type Database = {
           position_hint?: number | null
           priority?: number
           requested_by?: string
+          routing_attempts?: number
+          routing_mode?: string | null
           sla_breached?: boolean
           state?: Database["public"]["Enums"]["call_queue_state"]
           updated_at?: string
@@ -3160,18 +3340,21 @@ export type Database = {
         }
         Update: {
           accepted_at?: string | null
+          assigned_agent_id?: string | null
           call_session_id?: string | null
           callback_request_id?: string | null
           channel?: Database["public"]["Enums"]["call_queue_channel"]
           contact_id?: string | null
           conversation_id?: string | null
           created_at?: string
+          department_id?: string | null
           ended_at?: string | null
           ended_reason?: string | null
           entry_source?: string
           expires_at?: string
           id?: string
           last_offer_expires_at?: string | null
+          last_routing_at?: string | null
           metadata?: Json
           missed_offer_count?: number
           offer_timeout_seconds?: number
@@ -3180,6 +3363,8 @@ export type Database = {
           position_hint?: number | null
           priority?: number
           requested_by?: string
+          routing_attempts?: number
+          routing_mode?: string | null
           sla_breached?: boolean
           state?: Database["public"]["Enums"]["call_queue_state"]
           updated_at?: string
@@ -3285,11 +3470,13 @@ export type Database = {
       }
       call_sessions: {
         Row: {
+          assigned_agent_id: string | null
           call_type: Database["public"]["Enums"]["call_type"]
           connected_at: string | null
           context_id: string | null
           context_type: Database["public"]["Enums"]["call_context_type"]
           created_at: string
+          department_id: string | null
           direction: string
           duration_seconds: number | null
           end_reason: string | null
@@ -3311,6 +3498,10 @@ export type Database = {
           started_at: string | null
           state: Database["public"]["Enums"]["call_state"]
           subject: string | null
+          transfer_from_agent_id: string | null
+          transfer_reason: string | null
+          transfer_to_agent_id: string | null
+          transfer_to_department_id: string | null
           updated_at: string
           visitor_email: string | null
           visitor_name: string | null
@@ -3319,11 +3510,13 @@ export type Database = {
           workspace_id: string
         }
         Insert: {
+          assigned_agent_id?: string | null
           call_type: Database["public"]["Enums"]["call_type"]
           connected_at?: string | null
           context_id?: string | null
           context_type: Database["public"]["Enums"]["call_context_type"]
           created_at?: string
+          department_id?: string | null
           direction?: string
           duration_seconds?: number | null
           end_reason?: string | null
@@ -3345,6 +3538,10 @@ export type Database = {
           started_at?: string | null
           state?: Database["public"]["Enums"]["call_state"]
           subject?: string | null
+          transfer_from_agent_id?: string | null
+          transfer_reason?: string | null
+          transfer_to_agent_id?: string | null
+          transfer_to_department_id?: string | null
           updated_at?: string
           visitor_email?: string | null
           visitor_name?: string | null
@@ -3353,11 +3550,13 @@ export type Database = {
           workspace_id: string
         }
         Update: {
+          assigned_agent_id?: string | null
           call_type?: Database["public"]["Enums"]["call_type"]
           connected_at?: string | null
           context_id?: string | null
           context_type?: Database["public"]["Enums"]["call_context_type"]
           created_at?: string
+          department_id?: string | null
           direction?: string
           duration_seconds?: number | null
           end_reason?: string | null
@@ -3379,6 +3578,10 @@ export type Database = {
           started_at?: string | null
           state?: Database["public"]["Enums"]["call_state"]
           subject?: string | null
+          transfer_from_agent_id?: string | null
+          transfer_reason?: string | null
+          transfer_to_agent_id?: string | null
+          transfer_to_department_id?: string | null
           updated_at?: string
           visitor_email?: string | null
           visitor_name?: string | null

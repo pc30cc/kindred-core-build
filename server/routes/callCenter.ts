@@ -31,6 +31,8 @@ import {
   listDepartments, getDepartment, createDepartment, updateDepartment, deleteDepartment,
   listDepartmentAgents, addDepartmentAgent, updateDepartmentAgent, removeDepartmentAgent,
   getAgentPresence, updateMyAgentPresence,
+  incrementAgentActiveCallCount, decrementAgentActiveCallCount,
+  DepartmentException,
 } from '../services/callCenter/departments.js';
 import {
   assignCallToAgent, transferCall, RoutingException,
@@ -38,6 +40,14 @@ import {
 import crypto from 'crypto';
 
 export const callCenterRouter = Router();
+
+function handleDeptErr(e: any, res: any, fallbackCode: string): boolean {
+  if (e instanceof DepartmentException) {
+    res.status(e.httpStatus).json({ error: e.code });
+    return true;
+  }
+  return false;
+}
 
 // ── auth helpers ───────────────────────────────────────────────────────────
 async function getUser(req: any, config: ServerConfig) {
@@ -348,7 +358,9 @@ callCenterRouter.post('/calls/:id/accept', async (req, res) => {
     const sb = getServiceClient(ctx.config);
     // Resolve provider and create room if needed
     const { id: providerId, provider } = await resolveEffectiveCallProvider(ctx.config, wid);
-    const { data: call } = await sb.from('call_sessions').select('*').eq('id', req.params.id).eq('workspace_id', wid).maybeSingle();
+    const { data: call } = await sb.from('call_sessions').select('*')
+      .eq('id', req.params.id).eq('workspace_id', wid)
+      .eq('entry_source', 'call_widget').maybeSingle();
     if (!call) return res.status(404).json({ error: 'not_found' });
     let providerRoomId = (call as any).provider_room_id as string | null;
     if (!providerRoomId) {
@@ -379,6 +391,8 @@ callCenterRouter.post('/calls/:id/accept', async (req, res) => {
     await sb.from('call_queue_entries').update({
       state: 'accepted', accepted_at: new Date().toISOString(), offered_to_user_id: ctx.userId,
     }).eq('call_session_id', req.params.id).eq('workspace_id', wid);
+    // Maintain presence counter for least_busy/max_concurrent_calls.
+    try { await incrementAgentActiveCallCount(ctx.config, wid, ctx.userId); } catch {/* best-effort */}
     const identity = `operator:${ctx.userId}`;
     const connect = await buildClientConnectInfo(ctx.config, providerId, providerRoomId, identity);
     res.json({
@@ -400,6 +414,11 @@ callCenterRouter.post('/calls/:id/reject', async (req, res) => {
   if (!ctx) return;
   try {
     const sb = getServiceClient(ctx.config);
+    const { data: existing } = await sb.from('call_sessions').select('id, entry_source, assigned_agent_id, state')
+      .eq('id', req.params.id).eq('workspace_id', wid).maybeSingle();
+    if (!existing || (existing as any).entry_source !== 'call_widget') {
+      return res.status(404).json({ error: 'not_found' });
+    }
     await transitionCall(ctx.config, wid, req.params.id, {
       state: 'cancelled',
       ended_at: new Date().toISOString(),
@@ -430,7 +449,9 @@ callCenterRouter.post('/calls/:id/end', async (req, res) => {
   if (!ctx) return;
   try {
     const sb = getServiceClient(ctx.config);
-    const { data: call } = await sb.from('call_sessions').select('*').eq('id', req.params.id).eq('workspace_id', wid).maybeSingle();
+    const { data: call } = await sb.from('call_sessions').select('*')
+      .eq('id', req.params.id).eq('workspace_id', wid)
+      .eq('entry_source', 'call_widget').maybeSingle();
     if (!call) return res.status(404).json({ error: 'not_found' });
     const startedAt = (call as any).connected_at || (call as any).started_at || (call as any).created_at;
     const duration = startedAt ? Math.max(0, Math.round((Date.now() - new Date(startedAt).getTime()) / 1000)) : 0;
@@ -448,6 +469,9 @@ callCenterRouter.post('/calls/:id/end', async (req, res) => {
       ended_by: 'operator',
       ended_by_user_id: ctx.userId,
     }, 'call_ended', ctx.userId);
+    // Decrement presence counter for whoever owned the call.
+    const owner = ((call as any).assigned_agent_id as string | null) || ctx.userId;
+    try { await decrementAgentActiveCallCount(ctx.config, wid, owner); } catch {/* best-effort */}
     res.json({ ok: true });
   } catch (e: any) {
     res.status(500).json({ error: 'end_failed', message: String(e?.message || e) });
@@ -703,6 +727,7 @@ callCenterRouter.post('/departments', async (req, res) => {
     const department = await createDepartment(ctx.config, wid, parsed.data as any);
     res.status(201).json({ department });
   } catch (e: any) {
+    if (handleDeptErr(e, res, 'create_failed')) return;
     res.status(500).json({ error: 'create_failed', message: String(e?.message || e) });
   }
 });
@@ -729,6 +754,7 @@ callCenterRouter.patch('/departments/:id', async (req, res) => {
     if (!department) return res.status(404).json({ error: 'department_not_found' });
     res.json({ department });
   } catch (e: any) {
+    if (handleDeptErr(e, res, 'update_failed')) return;
     res.status(500).json({ error: 'update_failed', message: String(e?.message || e) });
   }
 });
@@ -767,6 +793,7 @@ callCenterRouter.get('/departments/:id/agents', async (req, res) => {
     const agents = await listDepartmentAgents(ctx.config, wid, req.params.id);
     res.json({ agents });
   } catch (e: any) {
+    if (handleDeptErr(e, res, 'list_failed')) return;
     res.status(500).json({ error: 'list_failed', message: String(e?.message || e) });
   }
 });
@@ -784,6 +811,7 @@ callCenterRouter.post('/departments/:id/agents', async (req, res) => {
     );
     res.status(201).json({ agent });
   } catch (e: any) {
+    if (handleDeptErr(e, res, 'add_failed')) return;
     res.status(500).json({ error: 'add_failed', message: String(e?.message || e) });
   }
 });
@@ -802,6 +830,7 @@ callCenterRouter.patch('/departments/:id/agents/:userId', async (req, res) => {
     if (!agent) return res.status(404).json({ error: 'agent_not_found' });
     res.json({ agent });
   } catch (e: any) {
+    if (handleDeptErr(e, res, 'update_failed')) return;
     res.status(500).json({ error: 'update_failed', message: String(e?.message || e) });
   }
 });
@@ -815,6 +844,7 @@ callCenterRouter.delete('/departments/:id/agents/:userId', async (req, res) => {
     await removeDepartmentAgent(ctx.config, wid, req.params.id, req.params.userId);
     res.json({ ok: true });
   } catch (e: any) {
+    if (handleDeptErr(e, res, 'remove_failed')) return;
     res.status(500).json({ error: 'remove_failed', message: String(e?.message || e) });
   }
 });

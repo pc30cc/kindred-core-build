@@ -10,6 +10,11 @@
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { publishCallEvent, publishQueueEvent } from './realtime.js';
+import {
+  assertDepartmentInWorkspace,
+  assertAssignableAgent,
+  DepartmentException,
+} from './departments.js';
 
 export type RoutingMode = 'broadcast' | 'round_robin' | 'least_busy';
 
@@ -18,6 +23,35 @@ export class RoutingException extends Error {
     super(code);
     this.name = 'RoutingException';
   }
+}
+
+function asRouting(e: unknown): never {
+  if (e instanceof RoutingException) throw e;
+  if (e instanceof DepartmentException) {
+    throw new RoutingException(e.code, e.httpStatus);
+  }
+  throw e;
+}
+
+/**
+ * Load a call session that belongs to the standalone Call Center
+ * (entry_source='call_widget'). Returns null otherwise so callers can
+ * surface call_not_found without leaking existence of legacy chat calls.
+ */
+async function getStandaloneCallCenterSession(
+  config: ServerConfig,
+  workspaceId: string,
+  callId: string,
+) {
+  const sb = getServiceClient(config);
+  const { data } = await sb
+    .from('call_sessions')
+    .select('*')
+    .eq('id', callId)
+    .eq('workspace_id', workspaceId)
+    .eq('entry_source', 'call_widget')
+    .maybeSingle();
+  return data;
 }
 
 interface AgentRow {
@@ -154,17 +188,6 @@ export async function pickAgentForDepartment(
   return null;
 }
 
-async function getCallSession(config: ServerConfig, workspaceId: string, callId: string) {
-  const sb = getServiceClient(config);
-  const { data } = await sb
-    .from('call_sessions')
-    .select('*')
-    .eq('id', callId)
-    .eq('workspace_id', workspaceId)
-    .maybeSingle();
-  return data;
-}
-
 export async function assignCallToAgent(
   config: ServerConfig,
   args: {
@@ -176,8 +199,17 @@ export async function assignCallToAgent(
   },
 ) {
   const sb = getServiceClient(config);
-  const call = await getCallSession(config, args.workspaceId, args.callSessionId);
+  const call = await getStandaloneCallCenterSession(config, args.workspaceId, args.callSessionId);
   if (!call) throw new RoutingException('call_not_found', 404);
+  if (args.agentId) {
+    try {
+      await assertAssignableAgent(config, {
+        workspaceId: args.workspaceId,
+        agentId: args.agentId,
+        departmentId: ((call as any).department_id as string | null) || null,
+      });
+    } catch (e) { asRouting(e); }
+  }
   const { error } = await sb
     .from('call_sessions')
     .update({ assigned_agent_id: args.agentId })
@@ -217,26 +249,44 @@ export async function routeIncomingCall(
   args: { workspaceId: string; callSessionId: string; departmentId?: string | null; actorId?: string },
 ) {
   const sb = getServiceClient(config);
+  const call = await getStandaloneCallCenterSession(config, args.workspaceId, args.callSessionId);
+  if (!call) throw new RoutingException('call_not_found', 404);
   let departmentId: string | null = args.departmentId ?? null;
   let mode: RoutingMode = 'broadcast';
+  let routingReason: string | null = null;
+  let originalDepartmentId: string | null = departmentId;
 
   // Resolve department + routing mode (with fallback chain).
   if (departmentId) {
+    try { await assertDepartmentInWorkspace(config, args.workspaceId, departmentId); }
+    catch (e) { asRouting(e); }
     const { data: dept } = await sb
       .from('call_center_departments')
       .select('id, enabled, routing_mode, fallback_department_id')
       .eq('workspace_id', args.workspaceId)
       .eq('id', departmentId)
       .maybeSingle();
-    if (dept && !dept.enabled && dept.fallback_department_id) {
-      departmentId = dept.fallback_department_id;
-      const { data: fb } = await sb
-        .from('call_center_departments')
-        .select('routing_mode, enabled')
-        .eq('workspace_id', args.workspaceId)
-        .eq('id', departmentId)
-        .maybeSingle();
-      mode = (fb?.routing_mode as RoutingMode) || 'broadcast';
+    if (dept && !dept.enabled) {
+      if (dept.fallback_department_id) {
+        const { data: fb } = await sb
+          .from('call_center_departments')
+          .select('id, routing_mode, enabled')
+          .eq('workspace_id', args.workspaceId)
+          .eq('id', dept.fallback_department_id)
+          .maybeSingle();
+        if (fb && fb.enabled) {
+          departmentId = fb.id;
+          mode = (fb.routing_mode as RoutingMode) || 'broadcast';
+          routingReason = 'department_disabled_fallback';
+        } else {
+          // fallback unusable — leave on original, mark disabled.
+          mode = (dept.routing_mode as RoutingMode) || 'broadcast';
+          routingReason = 'department_disabled_no_fallback';
+        }
+      } else {
+        mode = (dept.routing_mode as RoutingMode) || 'broadcast';
+        routingReason = 'department_disabled_no_fallback';
+      }
     } else if (dept) {
       mode = (dept.routing_mode as RoutingMode) || 'broadcast';
     }
@@ -250,43 +300,62 @@ export async function routeIncomingCall(
     mode = ((ws?.routing_mode as RoutingMode) || 'broadcast') as RoutingMode;
   }
 
-  const agentId = await pickAgentForDepartment(config, {
-    workspaceId: args.workspaceId, departmentId, mode,
-  });
+  const agentId = routingReason === 'department_disabled_no_fallback'
+    ? null
+    : await pickAgentForDepartment(config, {
+        workspaceId: args.workspaceId, departmentId, mode,
+      });
 
   await sb
     .from('call_sessions')
     .update({ department_id: departmentId, assigned_agent_id: agentId })
     .eq('id', args.callSessionId)
     .eq('workspace_id', args.workspaceId);
-  await sb
+  // Increment routing_attempts based on existing value (do not hardcode 1).
+  const { data: queueRow } = await sb
     .from('call_queue_entries')
-    .update({
-      department_id: departmentId,
-      assigned_agent_id: agentId,
-      routing_mode: mode,
-      last_routing_at: new Date().toISOString(),
-    })
+    .select('id, routing_attempts')
     .eq('call_session_id', args.callSessionId)
-    .eq('workspace_id', args.workspaceId);
-  await sb
-    .from('call_queue_entries')
-    .update({ routing_attempts: 1 })
-    .eq('call_session_id', args.callSessionId)
-    .eq('workspace_id', args.workspaceId);
+    .eq('workspace_id', args.workspaceId)
+    .maybeSingle();
+  if (queueRow) {
+    const nextAttempts = ((queueRow as any).routing_attempts as number || 0) + 1;
+    await sb
+      .from('call_queue_entries')
+      .update({
+        department_id: departmentId,
+        assigned_agent_id: agentId,
+        routing_mode: mode,
+        routing_attempts: nextAttempts,
+        last_routing_at: new Date().toISOString(),
+      })
+      .eq('id', (queueRow as any).id);
+  }
 
   await sb.from('call_events').insert({
     call_session_id: args.callSessionId,
     event_type: 'call_routed',
     actor_type: 'system',
     actor_id: args.actorId || null,
-    payload: { department_id: departmentId, mode, agent_id: agentId },
+    payload: {
+      department_id: departmentId,
+      original_department_id: originalDepartmentId,
+      fallback_department_id: routingReason === 'department_disabled_fallback' ? departmentId : null,
+      mode,
+      agent_id: agentId,
+      reason: routingReason,
+    },
   });
   await publishQueueEvent(config, args.workspaceId, 'call_routed', {
     call_id: args.callSessionId, department_id: departmentId, agent_id: agentId,
   });
 
-  return { department_id: departmentId, routing_mode: mode, assigned_agent_id: agentId };
+  return {
+    department_id: departmentId,
+    routing_mode: mode,
+    assigned_agent_id: agentId,
+    reason: routingReason,
+  };
 }
 
 export async function transferCall(
@@ -305,10 +374,23 @@ export async function transferCall(
   if (!args.toAgentId && !args.toDepartmentId) {
     throw new RoutingException('transfer_target_required', 400);
   }
-  const call = await getCallSession(config, args.workspaceId, args.callSessionId);
+  const call = await getStandaloneCallCenterSession(config, args.workspaceId, args.callSessionId);
   if (!call) throw new RoutingException('call_not_found', 404);
   if (!['active', 'ringing', 'connecting', 'pending'].includes(String((call as any).state))) {
     throw new RoutingException('call_not_active', 409);
+  }
+  if (args.toDepartmentId) {
+    try { await assertDepartmentInWorkspace(config, args.workspaceId, args.toDepartmentId); }
+    catch (e) { asRouting(e); }
+  }
+  if (args.toAgentId) {
+    try {
+      await assertAssignableAgent(config, {
+        workspaceId: args.workspaceId,
+        agentId: args.toAgentId,
+        departmentId: args.toDepartmentId || ((call as any).department_id as string | null) || null,
+      });
+    } catch (e) { asRouting(e); }
   }
 
   await sb.from('call_events').insert({
@@ -343,16 +425,24 @@ export async function transferCall(
         targetDept = dept.fallback_department_id;
         const { data: fb } = await sb
           .from('call_center_departments')
-          .select('routing_mode')
+          .select('routing_mode, enabled')
           .eq('workspace_id', args.workspaceId)
           .eq('id', targetDept)
           .maybeSingle();
-        mode = (fb?.routing_mode as RoutingMode) || 'broadcast';
+        if (!fb || !fb.enabled) {
+          // Fallback also disabled — keep original target dept, leave unassigned.
+          targetDept = args.toDepartmentId;
+          mode = (dept.routing_mode as RoutingMode) || 'broadcast';
+        } else {
+          mode = (fb.routing_mode as RoutingMode) || 'broadcast';
+        }
       }
       departmentId = targetDept;
-      assignedAgentId = await pickAgentForDepartment(config, {
-        workspaceId: args.workspaceId, departmentId: targetDept, mode,
-      });
+      if (!args.toAgentId) {
+        assignedAgentId = await pickAgentForDepartment(config, {
+          workspaceId: args.workspaceId, departmentId: targetDept, mode,
+        });
+      }
     }
 
     await sb

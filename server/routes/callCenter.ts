@@ -41,6 +41,14 @@ import crypto from 'crypto';
 
 export const callCenterRouter = Router();
 
+function handleDeptErr(e: any, res: any, fallbackCode: string): boolean {
+  if (e instanceof DepartmentException) {
+    res.status(e.httpStatus).json({ error: e.code });
+    return true;
+  }
+  return false;
+}
+
 // ── auth helpers ───────────────────────────────────────────────────────────
 async function getUser(req: any, config: ServerConfig) {
   const auth = req.headers.authorization;
@@ -719,6 +727,7 @@ callCenterRouter.post('/departments', async (req, res) => {
     const department = await createDepartment(ctx.config, wid, parsed.data as any);
     res.status(201).json({ department });
   } catch (e: any) {
+    if (handleDeptErr(e, res, 'create_failed')) return;
     res.status(500).json({ error: 'create_failed', message: String(e?.message || e) });
   }
 });
@@ -745,6 +754,7 @@ callCenterRouter.patch('/departments/:id', async (req, res) => {
     if (!department) return res.status(404).json({ error: 'department_not_found' });
     res.json({ department });
   } catch (e: any) {
+    if (handleDeptErr(e, res, 'update_failed')) return;
     res.status(500).json({ error: 'update_failed', message: String(e?.message || e) });
   }
 });
@@ -783,6 +793,7 @@ callCenterRouter.get('/departments/:id/agents', async (req, res) => {
     const agents = await listDepartmentAgents(ctx.config, wid, req.params.id);
     res.json({ agents });
   } catch (e: any) {
+    if (handleDeptErr(e, res, 'list_failed')) return;
     res.status(500).json({ error: 'list_failed', message: String(e?.message || e) });
   }
 });
@@ -800,6 +811,7 @@ callCenterRouter.post('/departments/:id/agents', async (req, res) => {
     );
     res.status(201).json({ agent });
   } catch (e: any) {
+    if (handleDeptErr(e, res, 'add_failed')) return;
     res.status(500).json({ error: 'add_failed', message: String(e?.message || e) });
   }
 });
@@ -818,6 +830,7 @@ callCenterRouter.patch('/departments/:id/agents/:userId', async (req, res) => {
     if (!agent) return res.status(404).json({ error: 'agent_not_found' });
     res.json({ agent });
   } catch (e: any) {
+    if (handleDeptErr(e, res, 'update_failed')) return;
     res.status(500).json({ error: 'update_failed', message: String(e?.message || e) });
   }
 });

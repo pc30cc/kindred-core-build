@@ -20,6 +20,12 @@ import { resolveEffectiveCallProvider } from '../services/calls/providerResolver
 import { publishQueueEvent, publishCallEvent } from '../services/callCenter/realtime.js';
 import { buildClientConnectInfo } from '../services/callCenter/connectInfo.js';
 import { computeRecordingCapability, disabledRecordingCapability } from '../services/callCenter/recording.js';
+import {
+  startCallCenterRecording,
+  stopCallCenterRecording,
+  getCallCenterRecordingStatus,
+  RecordingControlException,
+} from '../services/callCenter/recordingControl.js';
 import { uploadFile } from '../services/storage/index.js';
 import crypto from 'crypto';
 
@@ -412,6 +418,68 @@ callCenterRouter.post('/calls/:id/end', async (req, res) => {
     res.json({ ok: true });
   } catch (e: any) {
     res.status(500).json({ error: 'end_failed', message: String(e?.message || e) });
+  }
+});
+
+// ── Recording start/stop/status (CC-2F) ────────────────────────────────────
+const recordingTypeSchema = z.enum(['composite', 'individual', 'audio_only']).optional();
+
+callCenterRouter.post('/calls/:id/recording/start', async (req, res) => {
+  const wid = String(req.query.workspaceId || req.body?.workspaceId || '');
+  const ctx = await requireCallOperator(req, res, wid);
+  if (!ctx) return;
+  const recType = recordingTypeSchema.safeParse(req.body?.recording_type);
+  if (!recType.success) return res.status(400).json({ error: 'invalid_recording_type' });
+  try {
+    const r = await startCallCenterRecording(ctx.config, {
+      workspaceId: wid,
+      callId: req.params.id,
+      actorUserId: ctx.userId,
+      recordingType: recType.data,
+    });
+    res.json(r);
+  } catch (e: any) {
+    if (e instanceof RecordingControlException) {
+      return res.status(e.httpStatus).json({ error: e.code });
+    }
+    res.status(500).json({ error: 'recording_start_failed', message: String(e?.message || e) });
+  }
+});
+
+callCenterRouter.post('/calls/:id/recording/stop', async (req, res) => {
+  const wid = String(req.query.workspaceId || req.body?.workspaceId || '');
+  const ctx = await requireCallOperator(req, res, wid);
+  if (!ctx) return;
+  try {
+    const r = await stopCallCenterRecording(ctx.config, {
+      workspaceId: wid,
+      callId: req.params.id,
+      actorUserId: ctx.userId,
+    });
+    res.json(r);
+  } catch (e: any) {
+    if (e instanceof RecordingControlException) {
+      return res.status(e.httpStatus).json({ error: e.code });
+    }
+    res.status(500).json({ error: 'recording_stop_failed', message: String(e?.message || e) });
+  }
+});
+
+callCenterRouter.get('/calls/:id/recording/status', async (req, res) => {
+  const wid = String(req.query.workspaceId || '');
+  const ctx = await requireMember(req, res, wid);
+  if (!ctx) return;
+  try {
+    const s = await getCallCenterRecordingStatus(ctx.config, {
+      workspaceId: wid,
+      callId: req.params.id,
+    });
+    res.json(s);
+  } catch (e: any) {
+    if (e instanceof RecordingControlException) {
+      return res.status(e.httpStatus).json({ error: e.code });
+    }
+    res.status(500).json({ error: 'recording_status_failed', message: String(e?.message || e) });
   }
 });
 

@@ -555,6 +555,16 @@
           el('div', { class: 'ccw-pill' }, [status === 'in_call' || status === 'operator_connected' ? 'In call' : status === 'waiting_for_operator' ? 'Connected — waiting' : 'Connecting']),
           el('div', { class: 'ccw-label' }, [msg]),
         ]);
+        // Recording indicator (passive). Backend status drives this; never trust client.
+        var recBoot = (self.bootstrap && self.bootstrap.recording) || {};
+        var callRecState = self.call && self.call.recording_state;
+        if (callRecState === 'recording') {
+          card.appendChild(el('div', { class: 'ccw-pill', style: 'background:#dc2626;color:#fff;margin-top:6px;' }, ['● Recording in progress']));
+        } else if (recBoot.effective_enabled) {
+          card.appendChild(el('div', { class: 'ccw-muted', style: 'margin-top:6px;' }, [
+            'Recording may start after the operator begins the call.',
+          ]));
+        }
         var media = el('div', { class: 'ccw-media' });
         self._remoteHolder = media;
         // Re-attach existing tracks if any (re-render can wipe DOM)

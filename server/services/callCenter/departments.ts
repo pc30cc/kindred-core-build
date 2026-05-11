@@ -13,13 +13,13 @@ export type PresenceStatus = 'available' | 'busy' | 'away' | 'offline';
 export interface DepartmentInput {
   name: string;
   slug?: string;
-  description?: string | null;
-  color?: string | null;
-  icon?: string | null;
+  description?: string | null | undefined;
+  color?: string | null | undefined;
+  icon?: string | null | undefined;
   enabled?: boolean;
   sort_order?: number;
   routing_mode?: RoutingMode;
-  fallback_department_id?: string | null;
+  fallback_department_id?: string | null | undefined;
   metadata?: Record<string, unknown>;
 }
 

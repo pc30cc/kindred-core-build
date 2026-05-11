@@ -15,7 +15,12 @@ export type CallCenterEventType =
   | 'call_started'
   | 'call_ended'
   | 'callback_requested'
-  | 'agent_status_changed';
+  | 'agent_status_changed'
+  | 'call_assigned'
+  | 'call_routed'
+  | 'call_transferred'
+  | 'call_transfer_failed'
+  | 'agent_presence_updated';
 
 function queueChannel(workspaceId: string) {
   return `ws:${workspaceId}:call-center:queue`;

@@ -156,7 +156,8 @@ const settingsPatchSchema = z.object({
   widget_theme: z.record(z.unknown()).optional(),
   display_name: z.string().nullable().optional(),
   avatar_url: z.string().nullable().optional(),
-  avatar_storage_path: z.string().nullable().optional(),
+  // avatar_storage_path is intentionally NOT settable from clients.
+  // It is only written by the avatar upload route to prevent path injection.
   voice_enabled: z.boolean().optional(),
   video_enabled: z.boolean().optional(),
   callback_enabled: z.boolean().optional(),
@@ -205,7 +206,7 @@ callCenterRouter.post('/settings/avatar', async (req, res) => {
   const updated = await updateWorkspaceSettings(ctx.config, wid, {
     avatar_url: result.url, avatar_storage_path: fileKey,
   } as any);
-  res.json({ avatar_url: updated.avatar_url, avatar_storage_path: updated.avatar_storage_path });
+  res.json({ avatar_url: updated.avatar_url });
 });
 
 // ── Overview / metrics ────────────────────────────────────────────────────

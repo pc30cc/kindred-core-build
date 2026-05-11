@@ -31,6 +31,8 @@ import {
   listDepartments, getDepartment, createDepartment, updateDepartment, deleteDepartment,
   listDepartmentAgents, addDepartmentAgent, updateDepartmentAgent, removeDepartmentAgent,
   getAgentPresence, updateMyAgentPresence,
+  incrementAgentActiveCallCount, decrementAgentActiveCallCount,
+  DepartmentException,
 } from '../services/callCenter/departments.js';
 import {
   assignCallToAgent, transferCall, RoutingException,
@@ -348,7 +350,9 @@ callCenterRouter.post('/calls/:id/accept', async (req, res) => {
     const sb = getServiceClient(ctx.config);
     // Resolve provider and create room if needed
     const { id: providerId, provider } = await resolveEffectiveCallProvider(ctx.config, wid);
-    const { data: call } = await sb.from('call_sessions').select('*').eq('id', req.params.id).eq('workspace_id', wid).maybeSingle();
+    const { data: call } = await sb.from('call_sessions').select('*')
+      .eq('id', req.params.id).eq('workspace_id', wid)
+      .eq('entry_source', 'call_widget').maybeSingle();
     if (!call) return res.status(404).json({ error: 'not_found' });
     let providerRoomId = (call as any).provider_room_id as string | null;
     if (!providerRoomId) {
@@ -379,6 +383,8 @@ callCenterRouter.post('/calls/:id/accept', async (req, res) => {
     await sb.from('call_queue_entries').update({
       state: 'accepted', accepted_at: new Date().toISOString(), offered_to_user_id: ctx.userId,
     }).eq('call_session_id', req.params.id).eq('workspace_id', wid);
+    // Maintain presence counter for least_busy/max_concurrent_calls.
+    try { await incrementAgentActiveCallCount(ctx.config, wid, ctx.userId); } catch {/* best-effort */}
     const identity = `operator:${ctx.userId}`;
     const connect = await buildClientConnectInfo(ctx.config, providerId, providerRoomId, identity);
     res.json({
@@ -400,6 +406,11 @@ callCenterRouter.post('/calls/:id/reject', async (req, res) => {
   if (!ctx) return;
   try {
     const sb = getServiceClient(ctx.config);
+    const { data: existing } = await sb.from('call_sessions').select('id, entry_source, assigned_agent_id, state')
+      .eq('id', req.params.id).eq('workspace_id', wid).maybeSingle();
+    if (!existing || (existing as any).entry_source !== 'call_widget') {
+      return res.status(404).json({ error: 'not_found' });
+    }
     await transitionCall(ctx.config, wid, req.params.id, {
       state: 'cancelled',
       ended_at: new Date().toISOString(),
@@ -430,7 +441,9 @@ callCenterRouter.post('/calls/:id/end', async (req, res) => {
   if (!ctx) return;
   try {
     const sb = getServiceClient(ctx.config);
-    const { data: call } = await sb.from('call_sessions').select('*').eq('id', req.params.id).eq('workspace_id', wid).maybeSingle();
+    const { data: call } = await sb.from('call_sessions').select('*')
+      .eq('id', req.params.id).eq('workspace_id', wid)
+      .eq('entry_source', 'call_widget').maybeSingle();
     if (!call) return res.status(404).json({ error: 'not_found' });
     const startedAt = (call as any).connected_at || (call as any).started_at || (call as any).created_at;
     const duration = startedAt ? Math.max(0, Math.round((Date.now() - new Date(startedAt).getTime()) / 1000)) : 0;
@@ -448,6 +461,9 @@ callCenterRouter.post('/calls/:id/end', async (req, res) => {
       ended_by: 'operator',
       ended_by_user_id: ctx.userId,
     }, 'call_ended', ctx.userId);
+    // Decrement presence counter for whoever owned the call.
+    const owner = ((call as any).assigned_agent_id as string | null) || ctx.userId;
+    try { await decrementAgentActiveCallCount(ctx.config, wid, owner); } catch {/* best-effort */}
     res.json({ ok: true });
   } catch (e: any) {
     res.status(500).json({ error: 'end_failed', message: String(e?.message || e) });

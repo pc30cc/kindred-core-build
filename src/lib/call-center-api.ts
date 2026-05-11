@@ -120,8 +120,8 @@ export interface CallCenterRecordingStatus {
 export interface CallCenterRecordingStartResponse {
   ok: true;
   recording_state: 'recording' | 'pending';
-  recording_id: string;
   recording_id_masked: string;
+  has_artifact: true;
   provider: string;
   started_at: string;
   idempotent?: boolean;
@@ -130,8 +130,8 @@ export interface CallCenterRecordingStartResponse {
 export interface CallCenterRecordingStopResponse {
   ok: true;
   recording_state: 'finalizing' | 'available' | 'failed';
-  recording_id: string;
   recording_id_masked: string;
+  has_artifact: true;
   stopped_at: string;
 }
 
@@ -312,7 +312,7 @@ export const callCenterApi = {
     let bin = ''; const bytes = new Uint8Array(buf);
     for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
     const data = btoa(bin);
-    return jsonFetch<{ avatar_url: string; avatar_storage_path: string }>(
+    return jsonFetch<{ avatar_url: string }>(
       `/api/call-center/settings/avatar?workspaceId=${encodeURIComponent(workspaceId)}`,
       { method: 'POST', body: JSON.stringify({ workspaceId, fileName: file.name, contentType: file.type, data }) },
     );

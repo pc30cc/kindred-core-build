@@ -54,6 +54,8 @@ function RecordingControlBar({ workspaceId, callId, callConnected }: { workspace
   const isRecording = state === 'recording';
   const isPending = state === 'pending';
   const isFinalizing = state === 'finalizing';
+  const isAvailable = state === 'available';
+  const isReady = effective && consentOk && (state === 'disabled' || state === 'failed');
 
   let label = 'Recording disabled';
   let tone = 'text-muted-foreground';
@@ -67,11 +69,14 @@ function RecordingControlBar({ workspaceId, callId, callConnected }: { workspace
   else if (isRecording) { label = '● Recording'; tone = 'text-rose-600'; }
   else if (isPending) { label = 'Starting…'; tone = 'text-amber-600'; }
   else if (isFinalizing) { label = 'Finalizing…'; tone = 'text-amber-600'; }
-  else if (state === 'available') { label = 'Recording captured'; tone = 'text-emerald-600'; }
+  else if (isAvailable) { label = 'Recording captured'; tone = 'text-emerald-600'; }
   else if (state === 'failed') { label = 'Failed: ' + (status?.last_error || 'recording_failed'); tone = 'text-destructive'; }
-  else { label = 'Ready to record'; tone = 'text-emerald-600'; }
+  else if (isReady) { label = 'Ready to record'; tone = 'text-emerald-600'; }
 
-  const canStart = effective && consentOk && callConnected && !isRecording && !isPending && !isFinalizing && busy === null;
+  // Allow start only from a clean/disabled/failed state — not from available, recording, pending, or finalizing.
+  const canStart =
+    effective && consentOk && callConnected && busy === null
+    && (state === 'disabled' || state === 'failed');
   const canStop = (isRecording || isPending) && busy === null;
 
   async function start() {

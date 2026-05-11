@@ -40,6 +40,25 @@ function getOrigin(req: any): string | null {
   return (req.headers.origin as string) || null;
 }
 
+/**
+ * Strict widget-session guard for sensitive routes.
+ *
+ *   - 401 invalid_session     — token missing / forged / expired
+ *   - 403 origin_mismatch     — request Origin header differs from session.origin
+ *
+ * CORS headers are not enough: a stolen session token replayed from another
+ * origin (server-to-server, curl, malicious page) would otherwise pass.
+ */
+function requireWidgetSession(req: any, config: ServerConfig) {
+  const session = getSession(req, config);
+  if (!session) return { ok: false as const, status: 401, error: 'invalid_session' };
+  const reqOrigin = getOrigin(req);
+  if (session.origin && reqOrigin && session.origin !== reqOrigin) {
+    return { ok: false as const, status: 403, error: 'origin_mismatch' };
+  }
+  return { ok: true as const, session };
+}
+
 async function resolveWorkspace(
   config: ServerConfig,
   query: { workspaceId?: string; publicKey?: string },
@@ -133,8 +152,9 @@ const requestSchema = z.object({
 
 callWidgetRouter.post('/calls/request', async (req, res) => {
   const config = (req as any).serverConfig as ServerConfig;
-  const session = getSession(req, config);
-  if (!session) return res.status(401).json({ error: 'invalid_session' });
+  const guard = requireWidgetSession(req, config);
+  if (!guard.ok) return res.status(guard.status).json({ error: guard.error });
+  const session = guard.session;
   const ws = await getOrCreateWorkspaceSettings(config, session.workspace_id);
   const platform = await getPlatformCallCenterSettings(config);
   if (!platform.call_center_enabled) return res.status(403).json({ error: 'call_center_disabled' });
@@ -229,8 +249,9 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
 // ── Cancel ────────────────────────────────────────────────────────────────
 callWidgetRouter.post('/calls/:id/cancel', async (req, res) => {
   const config = (req as any).serverConfig as ServerConfig;
-  const session = getSession(req, config);
-  if (!session) return res.status(401).json({ error: 'invalid_session' });
+  const guard = requireWidgetSession(req, config);
+  if (!guard.ok) return res.status(guard.status).json({ error: guard.error });
+  const session = guard.session;
   if (session.call_id !== req.params.id) return res.status(403).json({ error: 'forbidden' });
   const sb = getServiceClient(config);
   // Preserve detailed reason in metadata; constraint allows only the four canonical end_reason values.
@@ -258,8 +279,9 @@ callWidgetRouter.post('/calls/:id/cancel', async (req, res) => {
 // ── Status poll ───────────────────────────────────────────────────────────
 callWidgetRouter.get('/calls/:id/status', async (req, res) => {
   const config = (req as any).serverConfig as ServerConfig;
-  const session = getSession(req, config);
-  if (!session) return res.status(401).json({ error: 'invalid_session' });
+  const guard = requireWidgetSession(req, config);
+  if (!guard.ok) return res.status(guard.status).json({ error: guard.error });
+  const session = guard.session;
   if (session.call_id !== req.params.id) return res.status(403).json({ error: 'forbidden' });
   const sb = getServiceClient(config);
   const { data: call } = await sb.from('call_sessions').select('id,state,ended_at,end_reason,provider,provider_room_id,call_type').eq('id', req.params.id).maybeSingle();
@@ -270,15 +292,26 @@ callWidgetRouter.get('/calls/:id/status', async (req, res) => {
 // ── Visitor join token (only after operator accepts) ──────────────────────
 callWidgetRouter.post('/calls/:id/join-token', async (req, res) => {
   const config = (req as any).serverConfig as ServerConfig;
-  const session = getSession(req, config);
-  if (!session) return res.status(401).json({ error: 'invalid_session' });
+  const guard = requireWidgetSession(req, config);
+  if (!guard.ok) return res.status(guard.status).json({ error: guard.error });
+  const session = guard.session;
   if (session.call_id !== req.params.id) return res.status(403).json({ error: 'forbidden' });
+  // Re-check workspace origin allow-list (in case allowed_domains changed
+  // between bootstrap and now).
+  const wsForOrigin = await getOrCreateWorkspaceSettings(config, session.workspace_id);
+  if (!originAllowed(wsForOrigin, getOrigin(req))) {
+    return res.status(403).json({ error: 'origin_denied' });
+  }
   const sb = getServiceClient(config);
   const { data: call } = await sb.from('call_sessions').select('*').eq('id', req.params.id).maybeSingle();
   if (!call) return res.status(404).json({ error: 'not_found' });
   const c = call as any;
-  if (!c.provider_room_id || !c.provider) return res.status(409).json({ error: 'not_ready' });
-  if (!['active', 'ringing', 'connecting'].includes(c.state)) return res.status(409).json({ error: 'not_active' });
+  if (!c.provider_room_id || !c.provider) {
+    return res.status(409).json({ error: 'not_ready', reason: 'provider_room_not_ready' });
+  }
+  if (!['active', 'ringing', 'connecting'].includes(c.state)) {
+    return res.status(409).json({ error: 'not_active', reason: 'call_not_active' });
+  }
   const { provider } = await resolveEffectiveCallProvider(config, c.workspace_id);
   const tok = await provider.createParticipantToken(config, {
     callSessionId: c.id,
@@ -312,9 +345,13 @@ const callbackSchema = z.object({
 
 callWidgetRouter.post('/callbacks/request', async (req, res) => {
   const config = (req as any).serverConfig as ServerConfig;
-  const session = getSession(req, config);
-  if (!session) return res.status(401).json({ error: 'invalid_session' });
+  const guard = requireWidgetSession(req, config);
+  if (!guard.ok) return res.status(guard.status).json({ error: guard.error });
+  const session = guard.session;
   const ws = await getOrCreateWorkspaceSettings(config, session.workspace_id);
+  if (!originAllowed(ws, getOrigin(req))) {
+    return res.status(403).json({ error: 'origin_denied' });
+  }
   const platform = await getPlatformCallCenterSettings(config);
   const effective = computeEffectiveCallCenterCaps(platform, ws);
   if (!effective.callback_enabled) return res.status(403).json({ error: 'feature_not_available' });

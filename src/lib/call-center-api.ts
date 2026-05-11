@@ -84,6 +84,16 @@ export interface CallCenterEffectiveCaps {
   max_queue_size: number;
 }
 
+export interface RecordingCapability {
+  enabled_by_platform: boolean;
+  enabled_by_workspace: boolean;
+  consent_required: boolean;
+  provider_supported: boolean;
+  provider_configured: boolean;
+  effective_enabled: boolean;
+  reason?: string;
+}
+
 export interface CallCenterOverview {
   today_calls: number;
   waiting_calls: number;
@@ -91,6 +101,7 @@ export interface CallCenterOverview {
   missed_today: number;
   callbacks_pending: number;
   provider: { provider: string; ready: boolean; error?: string };
+  recording?: RecordingCapability;
 }
 
 export interface CallSession {
@@ -156,6 +167,7 @@ export interface CallCenterCapabilities {
   workspace_call_center_visible: boolean;
   settings_exists: boolean;
   effective: CallCenterEffectiveCaps;
+  recording?: RecordingCapability;
 }
 
 // ── Workspace API ────────────────────────────────────────────────
@@ -165,7 +177,7 @@ export const callCenterApi = {
       `/api/call-center/capabilities?workspaceId=${encodeURIComponent(workspaceId)}`,
     ),
   getSettings: (workspaceId: string) =>
-    jsonFetch<{ settings: CallCenterWorkspaceSettings; platform: CallCenterPlatformSettings; effective: CallCenterEffectiveCaps }>(
+    jsonFetch<{ settings: CallCenterWorkspaceSettings; platform: CallCenterPlatformSettings; effective: CallCenterEffectiveCaps; recording?: RecordingCapability }>(
       `/api/call-center/settings?workspaceId=${encodeURIComponent(workspaceId)}`,
     ),
   updateSettings: (workspaceId: string, patch: Partial<CallCenterWorkspaceSettings>) =>

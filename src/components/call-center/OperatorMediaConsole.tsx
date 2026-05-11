@@ -1,16 +1,23 @@
 /**
  * OperatorMediaConsole — standalone Call Center operator-side media UI.
  *
- * Connects the operator browser to the same LiveKit room as the visitor
- * using the secrets-free `connect` block returned by
- * POST /api/call-center/calls/:id/accept. Supports mic/camera toggle,
- * end-call, local preview, remote track attachment, and human-friendly
- * error states.
+ * Hardened (CC-2D):
+ *   - Explicit lifecycle: waiting_for_visitor / visitor_connected /
+ *     visitor_disconnected / reconnecting / reconnect_failed /
+ *     ended_by_operator / ended_by_visitor / backend_end_failed /
+ *     token_expired.
+ *   - Robust remote participant + track handling (existing participants,
+ *     unsubscribe cleanup, no duplicate elements).
+ *   - Compact device picker (mic / camera + refresh).
+ *   - Local Web-Audio mic level meter; remote speaking via active speakers.
+ *   - End call calls backend first (with timeout), then disconnects;
+ *     surfaces backend failure with Retry.
+ *   - Token expiry → manual Reconnect (single safe retry via accept).
  *
  * STRICT:
- *  - Never renders or logs the operator token.
- *  - Never imports the chat-call runtime or chat-call hook.
- *  - Self-hosted: SDK loaded locally via loadLiveKitClient().
+ *   - Never renders or logs the operator token.
+ *   - Never imports the chat-call runtime or chat-call hook.
+ *   - Self-hosted SDK via loadLiveKitClient(); no CDN.
  */
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
@@ -18,7 +25,7 @@ import { cn } from '@/lib/utils';
 import { loadLiveKitClient } from '@/lib/livekit-loader';
 import {
   Mic, MicOff, Video as VideoIcon, VideoOff, PhoneOff, Loader2,
-  AlertTriangle, Wifi, WifiOff,
+  AlertTriangle, Wifi, WifiOff, RefreshCw, ShieldCheck, ChevronDown, ChevronUp,
 } from 'lucide-react';
 
 export interface OperatorConnectInfo {
@@ -35,33 +42,47 @@ export interface OperatorMediaConsoleProps {
   callType: 'audio' | 'video' | 'voice' | string;
   connect: OperatorConnectInfo;
   token: string | null;
-  onEnd: () => Promise<void> | void;
+  visitorName?: string | null;
+  /** Backend end. Should resolve when server-side end is acknowledged; reject on failure. */
+  onEnd: () => Promise<void>;
+  /** Re-call accept; return new token + connect, or throw. */
+  onReconnect?: () => Promise<{ token: string; connect: OperatorConnectInfo } | null>;
+  /** External signal: backend reports the call has ended/cancelled/failed. */
+  externalEndedReason?: 'ended_by_visitor' | 'ended_by_operator' | 'cancelled' | 'failed' | null;
   onError?: (error: string) => void;
 }
 
-type ConnState =
+type Phase =
   | 'idle'
   | 'loading_sdk'
   | 'connecting'
-  | 'connected'
+  | 'waiting_for_visitor'
+  | 'visitor_connected'
+  | 'visitor_disconnected'
   | 'reconnecting'
-  | 'disconnected'
+  | 'reconnect_failed'
+  | 'ending'
+  | 'ended_by_operator'
+  | 'ended_by_visitor'
+  | 'backend_end_failed'
+  | 'token_expired'
   | 'error';
 
 const ERROR_MESSAGES: Record<string, string> = {
-  livekit_client_load_failed: 'Could not load the call media library. Check your network.',
+  livekit_client_load_failed: 'Could not load the call media library.',
   livekit_client_invalid: 'The local call media library is invalid.',
-  provider_client_not_configured: 'Call provider is not configured for this workspace.',
+  provider_client_not_configured: 'Call provider is not configured.',
   provider_client_not_supported: 'Selected call provider has no browser client yet.',
   provider_client_not_ready: 'Call provider is not ready for this call.',
   microphone_permission_denied: 'Microphone access was denied.',
   camera_permission_denied: 'Camera access was denied.',
   room_connect_failed: 'Failed to join the call room.',
   room_disconnected: 'Disconnected from the call room.',
-  token_expired: 'Your access to this call expired.',
+  token_expired: 'Your access to this call expired. Reconnect to continue.',
   livekit_url_missing: 'Call provider has no public URL configured.',
+  reconnect_failed: 'Could not re-establish the call. Try again or end the call.',
+  backend_end_failed: 'Local call ended, but the server did not confirm. Retry to mark it ended.',
 };
-
 function humanError(code: string): string {
   return ERROR_MESSAGES[code] || code.replace(/_/g, ' ');
 }
@@ -72,198 +93,370 @@ function fmtDur(sec: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
+interface DeviceOpt { deviceId: string; label: string }
+
 export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
-  const { callId, callType, connect, token, onEnd, onError } = props;
+  const {
+    callId, callType, connect, token, visitorName,
+    onEnd, onReconnect, externalEndedReason, onError,
+  } = props;
   const wantVideo = callType === 'video';
 
-  const [state, setState] = useState<ConnState>('idle');
+  const [phase, setPhase] = useState<Phase>('idle');
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(wantVideo);
-  const [remoteParticipants, setRemoteParticipants] = useState<string[]>([]);
+  const [remoteIdentities, setRemoteIdentities] = useState<string[]>([]);
   const [hasRemoteVideo, setHasRemoteVideo] = useState(false);
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [now, setNow] = useState(Date.now());
-  const [ending, setEnding] = useState(false);
+
+  // Devices
+  const [micDevices, setMicDevices] = useState<DeviceOpt[]>([]);
+  const [camDevices, setCamDevices] = useState<DeviceOpt[]>([]);
+  const [selectedMic, setSelectedMic] = useState<string>('');
+  const [selectedCam, setSelectedCam] = useState<string>('');
+  const [deviceSwitchSupported, setDeviceSwitchSupported] = useState(true);
+
+  // Audio levels
+  const [localLevel, setLocalLevel] = useState(0);
+  const [remoteSpeaking, setRemoteSpeaking] = useState(false);
+
+  // Connection quality (best-effort from LiveKit)
+  const [quality, setQuality] = useState<'excellent' | 'good' | 'poor' | 'unknown'>('unknown');
+
+  // Connection token state (for reconnect)
+  const [activeToken, setActiveToken] = useState<string | null>(token);
+  const [activeConnect, setActiveConnect] = useState<OperatorConnectInfo>(connect);
+
+  const [showDevices, setShowDevices] = useState(false);
+  const [showDebug, setShowDebug] = useState(false);
 
   const roomRef = useRef<any>(null);
+  const lkRef = useRef<any>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteContainerRef = useRef<HTMLDivElement | null>(null);
-  const attachedElsRef = useRef<HTMLElement[]>([]);
+  // Map of trackSid -> attached HTMLElements
+  const attachedElsRef = useRef<Map<string, HTMLElement[]>>(new Map());
+  const micAnalyserRef = useRef<{ ctx: AudioContext; analyser: AnalyserNode; raf: number; src: MediaStreamAudioSourceNode } | null>(null);
+
+  // Re-sync token/connect props when parent re-accepts
+  useEffect(() => { setActiveToken(token); }, [token]);
+  useEffect(() => { setActiveConnect(connect); }, [connect.server_url, connect.room_id, connect.provider, connect.supported, connect.reason]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Pre-flight gating
   const preflight = useMemo(() => {
-    if (!connect) return 'provider_client_not_configured';
-    if (!connect.supported) return connect.reason || 'provider_client_not_supported';
-    if (connect.provider !== 'livekit') return 'provider_client_not_supported';
-    if (!connect.server_url || !token || !connect.room_id) {
+    if (!activeConnect) return 'provider_client_not_configured';
+    if (!activeConnect.supported) return activeConnect.reason || 'provider_client_not_supported';
+    if (activeConnect.provider !== 'livekit') return 'provider_client_not_supported';
+    if (!activeConnect.server_url || !activeToken || !activeConnect.room_id) {
       return 'provider_client_not_configured';
     }
     return null;
-  }, [connect, token]);
+  }, [activeConnect, activeToken]);
 
   const fail = useCallback((code: string) => {
     setErrorCode(code);
-    setState('error');
+    setPhase('error');
     onError?.(code);
   }, [onError]);
 
+  // External end signal
+  useEffect(() => {
+    if (!externalEndedReason) return;
+    if (phase === 'ended_by_operator' || phase === 'backend_end_failed') return;
+    const r = externalEndedReason;
+    try { roomRef.current?.disconnect(); } catch { /* noop */ }
+    if (r === 'ended_by_visitor') setPhase('ended_by_visitor');
+    else if (r === 'cancelled') setPhase('ended_by_visitor');
+    else if (r === 'failed') setPhase('error');
+  }, [externalEndedReason, phase]);
+
   // Tick for call timer
   useEffect(() => {
-    if (state !== 'connected') return;
+    if (phase !== 'visitor_connected' && phase !== 'waiting_for_visitor' && phase !== 'reconnecting') return;
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
-  }, [state]);
+  }, [phase]);
 
-  // Connect lifecycle
+  // ── Device discovery ──────────────────────────────────────
+  const refreshDevices = useCallback(async () => {
+    try {
+      const all = await navigator.mediaDevices.enumerateDevices();
+      const mics = all.filter((d) => d.kind === 'audioinput')
+        .map((d, i) => ({ deviceId: d.deviceId, label: d.label || `Microphone ${i + 1}` }));
+      const cams = all.filter((d) => d.kind === 'videoinput')
+        .map((d, i) => ({ deviceId: d.deviceId, label: d.label || `Camera ${i + 1}` }));
+      setMicDevices(mics);
+      setCamDevices(cams);
+    } catch { /* noop */ }
+  }, []);
+
+  useEffect(() => {
+    refreshDevices();
+    const handler = () => refreshDevices();
+    try { navigator.mediaDevices?.addEventListener?.('devicechange', handler); } catch { /* noop */ }
+    return () => { try { navigator.mediaDevices?.removeEventListener?.('devicechange', handler); } catch { /* noop */ } };
+  }, [refreshDevices]);
+
+  // ── Track helpers ─────────────────────────────────────────
+  const detachTrack = useCallback((track: any) => {
+    try {
+      const sid = track?.sid || track?.trackSid || '';
+      const els = attachedElsRef.current.get(sid);
+      if (els) {
+        els.forEach((el) => { try { el.remove(); } catch { /* noop */ } });
+        attachedElsRef.current.delete(sid);
+      }
+      try { track.detach?.(); } catch { /* noop */ }
+    } catch { /* noop */ }
+    // Recompute hasRemoteVideo
+    let stillVideo = false;
+    attachedElsRef.current.forEach((els) => {
+      if (els.some((e) => e.tagName === 'VIDEO' && e.isConnected)) stillVideo = true;
+    });
+    setHasRemoteVideo(stillVideo);
+  }, []);
+
+  const attachTrack = useCallback((track: any, participant: any) => {
+    try {
+      const sid = track?.sid || track?.trackSid || `${participant?.identity || 'p'}-${track?.kind}-${Date.now()}`;
+      // Avoid duplicate attach
+      if (attachedElsRef.current.has(sid)) return;
+      const el = track.attach();
+      el.style.width = '100%';
+      el.style.height = '100%';
+      el.style.objectFit = 'cover';
+      el.setAttribute('playsinline', 'true');
+      el.dataset.trackSid = sid;
+      el.dataset.participant = participant?.identity || '';
+      if (track.kind === 'video') {
+        (el as HTMLVideoElement).autoplay = true;
+        setHasRemoteVideo(true);
+      } else {
+        (el as HTMLAudioElement).autoplay = true;
+      }
+      attachedElsRef.current.set(sid, [el]);
+      remoteContainerRef.current?.appendChild(el);
+    } catch { /* noop */ }
+  }, []);
+
+  // ── Local mic analyser ────────────────────────────────────
+  const stopMicAnalyser = useCallback(() => {
+    const ref = micAnalyserRef.current;
+    if (!ref) return;
+    try { cancelAnimationFrame(ref.raf); } catch { /* noop */ }
+    try { ref.src.disconnect(); } catch { /* noop */ }
+    try { ref.ctx.close(); } catch { /* noop */ }
+    micAnalyserRef.current = null;
+  }, []);
+
+  const startMicAnalyser = useCallback((mediaStream: MediaStream) => {
+    stopMicAnalyser();
+    try {
+      const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      const src = ctx.createMediaStreamSource(mediaStream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      src.connect(analyser);
+      const data = new Uint8Array(analyser.frequencyBinCount);
+      const tick = () => {
+        analyser.getByteTimeDomainData(data);
+        let peak = 0;
+        for (let i = 0; i < data.length; i++) {
+          const v = Math.abs(data[i] - 128) / 128;
+          if (v > peak) peak = v;
+        }
+        setLocalLevel(peak);
+        const raf = requestAnimationFrame(tick);
+        if (micAnalyserRef.current) micAnalyserRef.current.raf = raf;
+      };
+      const raf = requestAnimationFrame(tick);
+      micAnalyserRef.current = { ctx, analyser, raf, src };
+    } catch { /* noop */ }
+  }, [stopMicAnalyser]);
+
+  // ── Connect lifecycle ─────────────────────────────────────
+  const connectKey = `${callId}|${activeConnect?.server_url || ''}|${activeConnect?.room_id || ''}|${activeToken ? '1' : '0'}`;
+
   useEffect(() => {
     let cancelled = false;
 
-    if (preflight) {
-      fail(preflight);
-      return;
-    }
+    if (preflight) { fail(preflight); return; }
 
-    setState('loading_sdk');
+    setPhase('loading_sdk');
     setErrorCode(null);
 
     (async () => {
       let LK: any;
       try {
         LK = await loadLiveKitClient();
+        lkRef.current = LK;
       } catch (e: any) {
         if (!cancelled) fail(e?.message || 'livekit_client_load_failed');
         return;
       }
       if (cancelled) return;
 
-      const room = new LK.Room({
-        adaptiveStream: true,
-        dynacast: true,
-      });
+      const room = new LK.Room({ adaptiveStream: true, dynacast: true });
       roomRef.current = room;
-
       const RoomEvent = LK.RoomEvent;
 
-      room.on(RoomEvent.TrackSubscribed, (track: any, _pub: any, participant: any) => {
+      // Try to detect device-switch support
+      const lp = room.localParticipant;
+      const supportsSwitch = !!(lp?.switchActiveDevice || LK?.LocalParticipant?.prototype?.switchActiveDevice);
+      setDeviceSwitchSupported(!!supportsSwitch);
+
+      const handleParticipantTracks = (participant: any) => {
         try {
-          const el = track.attach();
-          el.style.width = '100%';
-          el.style.height = '100%';
-          el.style.objectFit = 'cover';
-          el.setAttribute('playsinline', 'true');
-          if (track.kind === 'video') {
-            (el as HTMLVideoElement).autoplay = true;
-            setHasRemoteVideo(true);
-          } else {
-            (el as HTMLAudioElement).autoplay = true;
-          }
-          attachedElsRef.current.push(el);
-          remoteContainerRef.current?.appendChild(el);
+          const pubs = participant.trackPublications || participant.tracks;
+          if (!pubs?.forEach) return;
+          pubs.forEach((pub: any) => {
+            if (pub?.track && pub?.isSubscribed !== false) attachTrack(pub.track, participant);
+          });
         } catch { /* noop */ }
-        setRemoteParticipants((cur) => Array.from(new Set([...cur, participant?.identity || 'remote'])));
+      };
+
+      room.on(RoomEvent.TrackSubscribed, (track: any, _pub: any, participant: any) => {
+        attachTrack(track, participant);
       });
       room.on(RoomEvent.TrackUnsubscribed, (track: any) => {
-        try {
-          const els = track.detach();
-          (els as HTMLElement[]).forEach((el) => el.remove());
-          if (track.kind === 'video') {
-            // recompute video presence
-            const stillVideo = attachedElsRef.current.some(
-              (e) => e.tagName === 'VIDEO' && e.isConnected,
-            );
-            setHasRemoteVideo(stillVideo);
-          }
-        } catch { /* noop */ }
+        detachTrack(track);
       });
       room.on(RoomEvent.ParticipantConnected, (p: any) => {
-        setRemoteParticipants((cur) => Array.from(new Set([...cur, p?.identity || 'remote'])));
+        setRemoteIdentities((cur) => Array.from(new Set([...cur, p?.identity || 'remote'])));
+        setPhase((cur) => (cur === 'waiting_for_visitor' || cur === 'connecting' ? 'visitor_connected' : cur));
+        handleParticipantTracks(p);
       });
       room.on(RoomEvent.ParticipantDisconnected, (p: any) => {
-        setRemoteParticipants((cur) => cur.filter((id) => id !== p?.identity));
-      });
-      room.on(RoomEvent.Disconnected, () => {
-        if (cancelled) return;
-        setState((s) => (s === 'connected' || s === 'reconnecting' ? 'disconnected' : s));
-      });
-      room.on(RoomEvent.Reconnecting, () => {
-        if (!cancelled) setState('reconnecting');
-      });
-      room.on(RoomEvent.Reconnected, () => {
-        if (!cancelled) setState('connected');
-      });
-
-      setState('connecting');
-      try {
-        await room.connect(connect.server_url, token);
-      } catch (e: any) {
-        if (!cancelled) {
-          const msg = String(e?.message || '').toLowerCase();
-          if (msg.includes('expired') || msg.includes('invalid token')) {
-            fail('token_expired');
-          } else {
-            fail('room_connect_failed');
+        // Detach any remaining tracks attached for this participant
+        const id = p?.identity;
+        attachedElsRef.current.forEach((els, sid) => {
+          if (els[0]?.dataset.participant === id) {
+            els.forEach((el) => { try { el.remove(); } catch { /* noop */ } });
+            attachedElsRef.current.delete(sid);
           }
+        });
+        let stillVideo = false;
+        attachedElsRef.current.forEach((els) => {
+          if (els.some((e) => e.tagName === 'VIDEO' && e.isConnected)) stillVideo = true;
+        });
+        setHasRemoteVideo(stillVideo);
+        setRemoteIdentities((cur) => cur.filter((x) => x !== id));
+        // If room still connected but visitor left, mark visitor_disconnected
+        if (room.state === 'connected' || room.state === 'reconnecting') {
+          setPhase((cur) => (cur === 'visitor_connected' ? 'visitor_disconnected' : cur));
+        }
+      });
+      room.on(RoomEvent.ActiveSpeakersChanged, (speakers: any[]) => {
+        const remote = speakers?.some((s) => s?.identity && s.identity !== room.localParticipant?.identity);
+        setRemoteSpeaking(!!remote);
+      });
+      room.on(RoomEvent.Disconnected, (reason?: any) => {
+        if (cancelled) return;
+        const r = String(reason || '').toLowerCase();
+        if (r.includes('expired') || r.includes('token')) {
+          setPhase('token_expired');
+          setErrorCode('token_expired');
+        } else {
+          setPhase((cur) =>
+            cur === 'ending' || cur === 'ended_by_operator' || cur === 'ended_by_visitor' || cur === 'backend_end_failed'
+              ? cur
+              : 'visitor_disconnected'
+          );
+        }
+        stopMicAnalyser();
+      });
+      room.on(RoomEvent.Reconnecting, () => { if (!cancelled) setPhase('reconnecting'); });
+      room.on(RoomEvent.Reconnected, () => {
+        if (cancelled) return;
+        setPhase(remoteIdentities.length > 0 ? 'visitor_connected' : 'waiting_for_visitor');
+      });
+      if (RoomEvent.ConnectionQualityChanged) {
+        room.on(RoomEvent.ConnectionQualityChanged, (q: any, p: any) => {
+          if (p?.identity !== room.localParticipant?.identity) return;
+          const v = String(q || '').toLowerCase();
+          if (v.includes('excellent')) setQuality('excellent');
+          else if (v.includes('good')) setQuality('good');
+          else if (v.includes('poor')) setQuality('poor');
+        });
+      }
+
+      setPhase('connecting');
+      try {
+        await room.connect(activeConnect.server_url!, activeToken!);
+      } catch (e: any) {
+        if (cancelled) return;
+        const msg = String(e?.message || '').toLowerCase();
+        if (msg.includes('expired') || msg.includes('invalid token') || msg.includes('unauthorized')) {
+          setPhase('token_expired');
+          setErrorCode('token_expired');
+        } else {
+          fail('room_connect_failed');
         }
         return;
       }
-      if (cancelled) {
-        try { room.disconnect(); } catch { /* noop */ }
-        return;
-      }
+      if (cancelled) { try { room.disconnect(); } catch { /* noop */ } return; }
 
       // Enable mic
       try {
-        await room.localParticipant.setMicrophoneEnabled(true);
+        await room.localParticipant.setMicrophoneEnabled(true, selectedMic ? { deviceId: selectedMic } : undefined);
+        setMicOn(true);
+        // Start analyser on local mic mediaStream
+        try {
+          const pubs = Array.from(room.localParticipant.audioTrackPublications?.values?.() || []) as any[];
+          const t = pubs[0]?.track || pubs[0]?.audioTrack;
+          const ms = t?.mediaStream || (t?.mediaStreamTrack ? new MediaStream([t.mediaStreamTrack]) : null);
+          if (ms) startMicAnalyser(ms);
+        } catch { /* noop */ }
       } catch (e: any) {
-        if (e?.name === 'NotAllowedError') {
-          fail('microphone_permission_denied');
-          try { room.disconnect(); } catch { /* noop */ }
-          return;
-        }
+        if (e?.name === 'NotAllowedError') { fail('microphone_permission_denied'); try { room.disconnect(); } catch { /* noop */ } return; }
       }
-      // Enable camera if video
+
       if (wantVideo) {
         try {
-          await room.localParticipant.setCameraEnabled(true);
-          // attach local video preview
-          const cameraPub = Array.from(room.localParticipant.videoTrackPublications.values())[0] as any;
-          const track = cameraPub?.track || cameraPub?.videoTrack;
-          if (track && localVideoRef.current) {
-            track.attach(localVideoRef.current);
-          }
+          await room.localParticipant.setCameraEnabled(true, selectedCam ? { deviceId: selectedCam } : undefined);
+          const pub = Array.from(room.localParticipant.videoTrackPublications?.values?.() || [])[0] as any;
+          const t = pub?.track || pub?.videoTrack;
+          if (t && localVideoRef.current) t.attach(localVideoRef.current);
+          setCamOn(true);
         } catch (e: any) {
-          if (e?.name === 'NotAllowedError') {
-            // Soft-fail: keep audio call going.
-            setCamOn(false);
-          }
+          if (e?.name === 'NotAllowedError') setCamOn(false);
         }
       }
 
-      if (!cancelled) {
-        setState('connected');
-        setStartedAt(Date.now());
-      }
+      // Refresh device labels now that permissions exist
+      refreshDevices();
+
+      if (cancelled) return;
+
+      // Determine initial post-connect phase based on existing remotes
+      const existingRemotes: any[] = Array.from(room.remoteParticipants?.values?.() || []);
+      existingRemotes.forEach((p) => handleParticipantTracks(p));
+      setRemoteIdentities(existingRemotes.map((p: any) => p.identity).filter(Boolean));
+      setPhase(existingRemotes.length > 0 ? 'visitor_connected' : 'waiting_for_visitor');
+      setStartedAt(Date.now());
     })();
 
     return () => {
       cancelled = true;
+      stopMicAnalyser();
       const room = roomRef.current;
       roomRef.current = null;
       try {
-        attachedElsRef.current.forEach((el) => el.remove());
-        attachedElsRef.current = [];
+        attachedElsRef.current.forEach((els) => els.forEach((el) => { try { el.remove(); } catch { /* noop */ } }));
+        attachedElsRef.current.clear();
       } catch { /* noop */ }
-      if (room) {
-        try { room.disconnect(); } catch { /* noop */ }
-      }
+      if (room) { try { room.disconnect(); } catch { /* noop */ } }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [callId, connect?.server_url, connect?.room_id, token]);
+  }, [connectKey]);
 
+  // ── Controls ──────────────────────────────────────────────
   const toggleMic = useCallback(async () => {
-    const room = roomRef.current;
-    if (!room) return;
+    const room = roomRef.current; if (!room) return;
     const next = !micOn;
     try {
       await room.localParticipant.setMicrophoneEnabled(next);
@@ -272,16 +465,15 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
   }, [micOn]);
 
   const toggleCam = useCallback(async () => {
-    const room = roomRef.current;
-    if (!room) return;
+    const room = roomRef.current; if (!room) return;
     const next = !camOn;
     try {
       await room.localParticipant.setCameraEnabled(next);
       setCamOn(next);
       if (next) {
-        const pub = Array.from(room.localParticipant.videoTrackPublications.values())[0] as any;
-        const track = pub?.track || pub?.videoTrack;
-        if (track && localVideoRef.current) track.attach(localVideoRef.current);
+        const pub = Array.from(room.localParticipant.videoTrackPublications?.values?.() || [])[0] as any;
+        const t = pub?.track || pub?.videoTrack;
+        if (t && localVideoRef.current) t.attach(localVideoRef.current);
       } else if (localVideoRef.current) {
         localVideoRef.current.srcObject = null;
       }
@@ -290,90 +482,162 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
     }
   }, [camOn, fail]);
 
+  const switchMic = useCallback(async (deviceId: string) => {
+    setSelectedMic(deviceId);
+    const room = roomRef.current; if (!room) return;
+    try {
+      if (room.switchActiveDevice) await room.switchActiveDevice('audioinput', deviceId);
+      else if (room.localParticipant?.switchActiveDevice) await room.localParticipant.switchActiveDevice('audioinput', deviceId);
+      else setDeviceSwitchSupported(false);
+    } catch { setDeviceSwitchSupported(false); }
+  }, []);
+  const switchCam = useCallback(async (deviceId: string) => {
+    setSelectedCam(deviceId);
+    const room = roomRef.current; if (!room) return;
+    try {
+      if (room.switchActiveDevice) await room.switchActiveDevice('videoinput', deviceId);
+      else if (room.localParticipant?.switchActiveDevice) await room.localParticipant.switchActiveDevice('videoinput', deviceId);
+      else setDeviceSwitchSupported(false);
+    } catch { setDeviceSwitchSupported(false); }
+  }, []);
+
+  // End call: backend first (with timeout), then disconnect.
+  const [endRetrying, setEndRetrying] = useState(false);
   const handleEnd = useCallback(async () => {
-    setEnding(true);
-    const room = roomRef.current;
-    roomRef.current = null;
+    setPhase('ending');
+    setEndRetrying(true);
+    let backendOk = false;
+    try {
+      await Promise.race([
+        onEnd().then(() => { backendOk = true; }),
+        new Promise((_r, rej) => setTimeout(() => rej(new Error('backend_timeout')), 6000)),
+      ]);
+    } catch { backendOk = false; }
+    setEndRetrying(false);
+    const room = roomRef.current; roomRef.current = null;
     try { room?.disconnect(); } catch { /* noop */ }
+    stopMicAnalyser();
+    setPhase(backendOk ? 'ended_by_operator' : 'backend_end_failed');
+    if (!backendOk) setErrorCode('backend_end_failed');
+  }, [onEnd, stopMicAnalyser]);
+
+  const retryBackendEnd = useCallback(async () => {
+    setEndRetrying(true);
     try {
       await onEnd();
-    } catch { /* noop */ }
-    setEnding(false);
-    setState('disconnected');
+      setPhase('ended_by_operator');
+      setErrorCode(null);
+    } catch { /* keep state */ }
+    setEndRetrying(false);
   }, [onEnd]);
 
-  const duration = startedAt ? Math.floor((now - startedAt) / 1000) : 0;
+  const [reconnecting, setReconnecting] = useState(false);
+  const handleReconnect = useCallback(async () => {
+    if (!onReconnect) return;
+    setReconnecting(true);
+    try {
+      const r = await onReconnect();
+      if (!r) { setPhase('reconnect_failed'); setErrorCode('reconnect_failed'); return; }
+      // Disconnect existing room before swapping creds
+      try { roomRef.current?.disconnect(); } catch { /* noop */ }
+      roomRef.current = null;
+      setActiveToken(r.token);
+      setActiveConnect(r.connect);
+      setErrorCode(null);
+      // useEffect will re-run on connectKey change.
+    } catch {
+      setPhase('reconnect_failed');
+      setErrorCode('reconnect_failed');
+    } finally {
+      setReconnecting(false);
+    }
+  }, [onReconnect]);
 
-  // ── UI ──────────────────────────────────────────────────────────
+  // ── Derived UI bits ───────────────────────────────────────
+  const duration = startedAt ? Math.floor((now - startedAt) / 1000) : 0;
+  const isLive = phase === 'visitor_connected' || phase === 'waiting_for_visitor' || phase === 'reconnecting';
+  const showEndedOverlay =
+    phase === 'ended_by_operator' || phase === 'ended_by_visitor' ||
+    phase === 'backend_end_failed' || phase === 'token_expired' ||
+    phase === 'reconnect_failed' || phase === 'visitor_disconnected';
+
+  const phaseLabel: string = (() => {
+    switch (phase) {
+      case 'idle': return 'Idle';
+      case 'loading_sdk': return 'Loading media…';
+      case 'connecting': return 'Connecting…';
+      case 'waiting_for_visitor': return 'Waiting for visitor';
+      case 'visitor_connected': return 'Visitor connected';
+      case 'visitor_disconnected': return 'Visitor left';
+      case 'reconnecting': return 'Reconnecting';
+      case 'reconnect_failed': return 'Reconnect failed';
+      case 'ending': return 'Ending…';
+      case 'ended_by_operator': return 'Call ended';
+      case 'ended_by_visitor': return 'Visitor ended call';
+      case 'backend_end_failed': return 'End not confirmed';
+      case 'token_expired': return 'Session expired';
+      case 'error': return 'Error';
+    }
+  })();
+
+  const qualityColor = quality === 'excellent' ? 'text-emerald-400'
+    : quality === 'good' ? 'text-emerald-300'
+    : quality === 'poor' ? 'text-amber-400' : 'text-zinc-400';
+
   return (
     <div className="rounded-lg overflow-hidden border bg-zinc-950 text-zinc-100 shadow-md">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2 bg-zinc-900/80 border-b border-zinc-800">
         <div className="flex items-center gap-2 text-xs">
-          {state === 'connected' ? (
-            <Wifi className="h-3.5 w-3.5 text-emerald-400" />
-          ) : state === 'reconnecting' ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-400" />
-          ) : state === 'disconnected' || state === 'error' ? (
-            <WifiOff className="h-3.5 w-3.5 text-rose-400" />
-          ) : (
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-zinc-300" />
-          )}
-          <span className="font-medium uppercase tracking-wide">
-            {state === 'loading_sdk' && 'Loading media…'}
-            {state === 'connecting' && 'Connecting…'}
-            {state === 'connected' && 'Live'}
-            {state === 'reconnecting' && 'Reconnecting'}
-            {state === 'disconnected' && 'Ended'}
-            {state === 'error' && 'Error'}
-            {state === 'idle' && 'Idle'}
+          {phase === 'visitor_connected' ? <Wifi className="h-3.5 w-3.5 text-emerald-400" />
+            : phase === 'reconnecting' || phase === 'connecting' || phase === 'loading_sdk'
+              ? <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-400" />
+            : phase === 'waiting_for_visitor' ? <Wifi className="h-3.5 w-3.5 text-amber-300" />
+            : <WifiOff className="h-3.5 w-3.5 text-rose-400" />}
+          <span className="font-medium uppercase tracking-wide">{phaseLabel}</span>
+          {isLive && <span className="ms-2 tabular-nums text-zinc-300">{fmtDur(duration)}</span>}
+          <span className={cn('ms-2 inline-flex items-center gap-1', qualityColor)}>
+            <ShieldCheck className="h-3 w-3" />
+            <span className="text-[10px] uppercase">Secure</span>
           </span>
-          {startedAt && state !== 'error' && (
-            <span className="ms-2 tabular-nums text-zinc-300">{fmtDur(duration)}</span>
-          )}
         </div>
         <div className="text-[10px] text-zinc-400 flex items-center gap-2">
+          {visitorName && <span className="truncate max-w-[140px]" title={visitorName}>{visitorName}</span>}
+          {visitorName && <span>·</span>}
           <span>{wantVideo ? 'Video' : 'Voice'}</span>
           <span>·</span>
-          <span>{remoteParticipants.length} remote</span>
+          <span>{remoteIdentities.length} remote</span>
+          <span>·</span>
+          <span className={qualityColor}>{quality}</span>
         </div>
       </div>
 
       {/* Stage */}
       <div className="relative bg-black aspect-video w-full">
-        {/* Remote container */}
         <div ref={remoteContainerRef} className="absolute inset-0 flex items-center justify-center" />
 
-        {/* Audio-only / waiting placeholder */}
         {!hasRemoteVideo && (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-center gap-3 pointer-events-none">
-            <div className="h-20 w-20 rounded-full bg-zinc-800 flex items-center justify-center text-2xl font-semibold">
-              {(remoteParticipants[0] || 'V').slice(0, 1).toUpperCase()}
+            <div className={cn(
+              'h-20 w-20 rounded-full flex items-center justify-center text-2xl font-semibold transition-all',
+              remoteSpeaking ? 'bg-emerald-700/50 ring-2 ring-emerald-400/60 scale-105' : 'bg-zinc-800',
+            )}>
+              {(visitorName || remoteIdentities[0] || 'V').slice(0, 1).toUpperCase()}
             </div>
             <div className="text-sm text-zinc-300">
-              {state === 'connected'
-                ? wantVideo
-                  ? 'Waiting for visitor video…'
-                  : 'Audio connected'
-                : state === 'connecting' || state === 'loading_sdk'
-                  ? 'Establishing call…'
-                  : state === 'reconnecting'
-                    ? 'Reconnecting…'
-                    : ''}
+              {phase === 'waiting_for_visitor' && 'Waiting for visitor to join…'}
+              {phase === 'visitor_connected' && (wantVideo ? 'Waiting for visitor video…' : 'Audio connected')}
+              {phase === 'visitor_disconnected' && 'Visitor left the call'}
+              {(phase === 'connecting' || phase === 'loading_sdk') && 'Establishing call…'}
+              {phase === 'reconnecting' && 'Reconnecting…'}
             </div>
           </div>
         )}
 
-        {/* Local preview tile (video) */}
         {wantVideo && (
           <div className="absolute bottom-3 right-3 w-32 h-24 rounded-md overflow-hidden border border-zinc-700 bg-zinc-900 shadow-lg">
-            <video
-              ref={localVideoRef}
-              autoPlay
-              muted
-              playsInline
-              className={cn('w-full h-full object-cover', !camOn && 'hidden')}
-            />
+            <video ref={localVideoRef} autoPlay muted playsInline
+              className={cn('w-full h-full object-cover', !camOn && 'hidden')} />
             {!camOn && (
               <div className="w-full h-full flex items-center justify-center text-zinc-500">
                 <VideoOff className="h-5 w-5" />
@@ -382,8 +646,39 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
           </div>
         )}
 
-        {/* Error overlay */}
-        {state === 'error' && errorCode && (
+        {/* End/Status overlay */}
+        {showEndedOverlay && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/75 p-6">
+            <div className="max-w-sm rounded-md border border-zinc-700 bg-zinc-900/80 p-4 text-center space-y-3">
+              <AlertTriangle className={cn('h-5 w-5 mx-auto',
+                phase === 'backend_end_failed' || phase === 'reconnect_failed' || phase === 'token_expired' ? 'text-amber-400' : 'text-zinc-300')} />
+              <div className="text-sm font-medium">{phaseLabel}</div>
+              {errorCode && <div className="text-xs text-zinc-300">{humanError(errorCode)}</div>}
+              <div className="flex flex-wrap justify-center gap-2">
+                {phase === 'backend_end_failed' && (
+                  <Button size="sm" variant="secondary" onClick={retryBackendEnd} disabled={endRetrying}>
+                    {endRetrying ? <Loader2 className="h-3.5 w-3.5 animate-spin me-1.5" /> : <RefreshCw className="h-3.5 w-3.5 me-1.5" />}
+                    Retry end call
+                  </Button>
+                )}
+                {phase === 'token_expired' && onReconnect && (
+                  <Button size="sm" variant="secondary" onClick={handleReconnect} disabled={reconnecting}>
+                    {reconnecting ? <Loader2 className="h-3.5 w-3.5 animate-spin me-1.5" /> : <RefreshCw className="h-3.5 w-3.5 me-1.5" />}
+                    Reconnect
+                  </Button>
+                )}
+                {phase === 'reconnect_failed' && onReconnect && (
+                  <Button size="sm" variant="secondary" onClick={handleReconnect} disabled={reconnecting}>
+                    <RefreshCw className="h-3.5 w-3.5 me-1.5" /> Try again
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Error overlay (pre-connect failures) */}
+        {phase === 'error' && errorCode && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/70 p-6">
             <div className="max-w-sm rounded-md border border-rose-700/60 bg-rose-950/40 p-4 text-center">
               <AlertTriangle className="h-5 w-5 mx-auto text-rose-400 mb-2" />
@@ -394,40 +689,101 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
         )}
       </div>
 
+      {/* Local mic level bar */}
+      <div className="px-4 pt-2 bg-zinc-900/40">
+        <div className="h-1 w-full rounded bg-zinc-800 overflow-hidden">
+          <div
+            className={cn('h-full transition-[width] duration-75', micOn ? 'bg-emerald-500' : 'bg-zinc-600')}
+            style={{ width: `${Math.min(100, Math.round(localLevel * 140))}%` }}
+          />
+        </div>
+        <div className="text-[10px] text-zinc-500 mt-1 flex justify-between">
+          <span>Your mic {micOn ? '' : '(muted)'}</span>
+          <span>{remoteSpeaking ? '🟢 Visitor speaking' : ''}</span>
+        </div>
+      </div>
+
       {/* Controls */}
-      <div className="flex items-center justify-center gap-2 px-4 py-3 bg-zinc-900/80 border-t border-zinc-800">
-        <Button
-          type="button"
-          variant={micOn ? 'secondary' : 'destructive'}
-          size="sm"
-          onClick={toggleMic}
-          disabled={state !== 'connected' && state !== 'reconnecting'}
-          title={micOn ? 'Mute microphone' : 'Unmute microphone'}
-        >
+      <div className="flex items-center justify-center gap-2 px-4 py-3 bg-zinc-900/80 border-t border-zinc-800 flex-wrap">
+        <Button type="button" variant={micOn ? 'secondary' : 'destructive'} size="sm"
+          onClick={toggleMic} disabled={!isLive}
+          title={micOn ? 'Mute microphone' : 'Unmute microphone'}>
           {micOn ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
           <span className="ms-1.5">{micOn ? 'Mute' : 'Unmute'}</span>
         </Button>
-        <Button
-          type="button"
-          variant={camOn ? 'secondary' : 'outline'}
-          size="sm"
-          onClick={toggleCam}
-          disabled={!wantVideo || (state !== 'connected' && state !== 'reconnecting')}
-          title={wantVideo ? (camOn ? 'Turn camera off' : 'Turn camera on') : 'Voice-only call'}
-        >
+        <Button type="button" variant={camOn ? 'secondary' : 'outline'} size="sm"
+          onClick={toggleCam} disabled={!wantVideo || !isLive}
+          title={wantVideo ? (camOn ? 'Turn camera off' : 'Turn camera on') : 'Voice-only call'}>
           {camOn ? <VideoIcon className="h-4 w-4" /> : <VideoOff className="h-4 w-4" />}
           <span className="ms-1.5">{camOn ? 'Camera' : 'Camera off'}</span>
         </Button>
-        <Button
-          type="button"
-          variant="destructive"
-          size="sm"
-          onClick={handleEnd}
-          disabled={ending}
-        >
-          {ending ? <Loader2 className="h-4 w-4 animate-spin" /> : <PhoneOff className="h-4 w-4" />}
+        <Button type="button" variant="ghost" size="sm" onClick={() => setShowDevices((v) => !v)}>
+          {showDevices ? <ChevronUp className="h-3.5 w-3.5 me-1" /> : <ChevronDown className="h-3.5 w-3.5 me-1" />}
+          Devices
+        </Button>
+        <Button type="button" variant="destructive" size="sm" onClick={handleEnd}
+          disabled={phase === 'ending' || phase === 'ended_by_operator'}>
+          {phase === 'ending' ? <Loader2 className="h-4 w-4 animate-spin" /> : <PhoneOff className="h-4 w-4" />}
           <span className="ms-1.5">End call</span>
         </Button>
+      </div>
+
+      {showDevices && (
+        <div className="px-4 py-3 bg-zinc-900/60 border-t border-zinc-800 space-y-2 text-xs">
+          {!deviceSwitchSupported && (
+            <div className="text-[11px] text-amber-300">Device switching not supported by the loaded media client.</div>
+          )}
+          <div className="flex items-center gap-2">
+            <label className="w-16 text-zinc-400">Mic</label>
+            <select
+              className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2 py-1 disabled:opacity-50"
+              value={selectedMic}
+              disabled={!deviceSwitchSupported || !isLive}
+              onChange={(e) => switchMic(e.target.value)}
+            >
+              <option value="">Default</option>
+              {micDevices.map((d) => (
+                <option key={d.deviceId} value={d.deviceId}>{d.label}</option>
+              ))}
+            </select>
+          </div>
+          {wantVideo && (
+            <div className="flex items-center gap-2">
+              <label className="w-16 text-zinc-400">Camera</label>
+              <select
+                className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2 py-1 disabled:opacity-50"
+                value={selectedCam}
+                disabled={!deviceSwitchSupported || !isLive}
+                onChange={(e) => switchCam(e.target.value)}
+              >
+                <option value="">Default</option>
+                {camDevices.map((d) => (
+                  <option key={d.deviceId} value={d.deviceId}>{d.label}</option>
+                ))}
+              </select>
+            </div>
+          )}
+          <div className="flex justify-end">
+            <Button type="button" variant="ghost" size="sm" onClick={refreshDevices}>
+              <RefreshCw className="h-3 w-3 me-1.5" /> Refresh
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <div className="px-4 pb-3 bg-zinc-900/40 text-[10px] text-zinc-500">
+        <button className="underline-offset-2 hover:underline" onClick={() => setShowDebug((v) => !v)}>
+          {showDebug ? 'Hide' : 'Show'} technical details
+        </button>
+        {showDebug && (
+          <div className="mt-1 space-y-0.5">
+            <div>provider: {activeConnect?.provider}</div>
+            <div>room: {activeConnect?.room_id}</div>
+            <div>state: {phase}</div>
+            <div>quality: {quality}</div>
+            {errorCode && <div>code: {errorCode}</div>}
+          </div>
+        )}
       </div>
     </div>
   );

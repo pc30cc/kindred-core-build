@@ -3,13 +3,13 @@ import { useCallCenterQueue, useCallCenterCall, useCallCenterOverview } from '@/
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { callCenterApi } from '@/lib/call-center-api';
-import { useQueryClient } from '@tanstack/react-query';
+import { callCenterApi, type CallCenterRecordingStatus } from '@/lib/call-center-api';
+import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from '@/hooks/use-toast';
 import {
   Phone, Video, Globe, Headphones, RadioTower, Inbox, PhoneOff, Mic, MicOff,
-  CameraOff, ArrowRightLeft, PhoneCall, AlertTriangle,
+  CameraOff, ArrowRightLeft, PhoneCall, AlertTriangle, Disc, Square, Loader2, RefreshCw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Link, useParams } from 'react-router-dom';

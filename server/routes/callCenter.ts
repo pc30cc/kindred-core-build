@@ -844,6 +844,7 @@ callCenterRouter.delete('/departments/:id/agents/:userId', async (req, res) => {
     await removeDepartmentAgent(ctx.config, wid, req.params.id, req.params.userId);
     res.json({ ok: true });
   } catch (e: any) {
+    if (handleDeptErr(e, res, 'remove_failed')) return;
     res.status(500).json({ error: 'remove_failed', message: String(e?.message || e) });
   }
 });

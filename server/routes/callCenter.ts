@@ -27,6 +27,15 @@ import {
   RecordingControlException,
 } from '../services/callCenter/recordingControl.js';
 import { uploadFile } from '../services/storage/index.js';
+import { deleteFile, resolveStorageConfig } from '../services/storage/index.js';
+import {
+  listDepartments, getDepartment, createDepartment, updateDepartment, deleteDepartment,
+  listDepartmentAgents, addDepartmentAgent, updateDepartmentAgent, removeDepartmentAgent,
+  getAgentPresence, updateMyAgentPresence,
+} from '../services/callCenter/departments.js';
+import {
+  assignCallToAgent, transferCall, RoutingException,
+} from '../services/callCenter/routing.js';
 import crypto from 'crypto';
 
 export const callCenterRouter = Router();
@@ -201,15 +210,35 @@ callCenterRouter.post('/settings/avatar', async (req, res) => {
   let buffer: Buffer;
   try { buffer = Buffer.from(String(data), 'base64'); } catch { return res.status(400).json({ error: 'invalid_data' }); }
   if (buffer.length === 0 || buffer.length > MAX_AVATAR_BYTES) return res.status(413).json({ error: 'file_too_large' });
+  // Verify a storage provider is actually configured. uploadFile would
+  // otherwise silently fall back to local + fail with publicUrl errors.
+  const storageConfig = await resolveStorageConfig(ctx.config, wid);
+  if (!storageConfig) return res.status(500).json({ error: 'storage_not_configured' });
+  // Read previous avatar path (so we can best-effort delete the old file
+  // through the same active storage provider after a successful upload).
+  const sb0 = getServiceClient(ctx.config);
+  const { data: prevRow } = await sb0
+    .from('call_center_settings')
+    .select('avatar_storage_path')
+    .eq('workspace_id', wid)
+    .maybeSingle();
+  const previousPath = (prevRow as any)?.avatar_storage_path as string | null;
   const safe = String(fileName).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80);
   const fileKey = `workspace/${wid}/call-center/avatar/${crypto.randomUUID()}-${safe}`;
   const result = await uploadFile(ctx.config, {
     workspaceId: wid, fileKey, data: buffer, contentType: String(contentType),
   });
-  if (!result.success || !result.url) return res.status(500).json({ error: 'upload_failed', details: (result as any).error });
+  if (!result.success || !result.url) {
+    return res.status(500).json({ error: 'avatar_upload_failed' });
+  }
   const updated = await updateWorkspaceSettings(ctx.config, wid, {
     avatar_url: result.url, avatar_storage_path: fileKey,
   } as any);
+  // Best-effort cleanup of the previous avatar; failures must not fail the
+  // upload and must not be exposed to the client.
+  if (previousPath && previousPath !== fileKey) {
+    try { await deleteFile(ctx.config, wid, previousPath); } catch { /* best-effort */ }
+  }
   res.json({ avatar_url: updated.avatar_url });
 });
 

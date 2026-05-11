@@ -132,7 +132,8 @@ export default function LiveQueuePage() {
     // Backend-first; throw on failure so console shows Retry.
     await callCenterApi.endCall(workspace.id, id);
     qc.invalidateQueries({ queryKey: ['call-center'] });
-    setAccepted(null);
+    // Do NOT clear `accepted` here — OperatorMediaConsole will show
+    // the "Call ended" state briefly and call onEndedConfirmed.
   }
 
   async function reconnectFromConsole(): Promise<{ token: string; connect: OperatorConnectInfo } | null> {
@@ -305,6 +306,7 @@ export default function LiveQueuePage() {
                   onEnd={endFromConsole}
                   onReconnect={reconnectFromConsole}
                   externalEndedReason={externalEndedReason}
+                  onEndedConfirmed={() => setAccepted(null)}
                 />
               ) : (
                 <Card className="p-5 border-dashed">

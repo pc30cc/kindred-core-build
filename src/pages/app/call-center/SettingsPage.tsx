@@ -199,7 +199,12 @@ export default function CallCenterSettingsPage() {
       <Section title="Recording" description="Configuration only — recording provider not implemented yet.">
         <div className="flex gap-2 items-start text-xs p-3 rounded bg-amber-500/10 border border-amber-500/30">
           <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5" />
-          <span>These toggles are saved as configuration only. No recording is performed until a recording provider is wired.</span>
+          <span>
+            Recording depends on provider support. Do not rely on recording until provider status below is Ready.
+            {(data as any)?.recording?.reason && (
+              <> Provider status: <span className="font-mono">{(data as any).recording.reason}</span>.</>
+            )}
+          </span>
         </div>
         <Row label="Recording enabled" locked={!platformRecording ? 'Disabled by platform' : undefined}>
           <Switch checked={!!s.recording_enabled} onCheckedChange={(v) => setS({ ...s, recording_enabled: v })} disabled={!platformRecording} />
@@ -207,6 +212,11 @@ export default function CallCenterSettingsPage() {
         <Row label="Consent required">
           <Switch checked={!!s.recording_consent_required} onCheckedChange={(v) => setS({ ...s, recording_consent_required: v })} />
         </Row>
+        <div className="text-xs text-muted-foreground">
+          Provider supported: {(data as any)?.recording?.provider_supported ? 'yes' : 'no'} ·
+          Provider configured: {(data as any)?.recording?.provider_configured ? 'yes' : 'no'} ·
+          Effective: {(data as any)?.recording?.effective_enabled ? 'enabled' : 'disabled'}
+        </div>
       </Section>
 
       {/* Sticky save bar */}

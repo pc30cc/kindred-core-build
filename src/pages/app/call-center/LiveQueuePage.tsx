@@ -37,6 +37,106 @@ function RecordingBadge({ rec, meta }: { rec?: any; meta?: any }) {
   );
 }
 
+function RecordingControlBar({ workspaceId, callId, callConnected }: { workspaceId: string; callId: string; callConnected: boolean }) {
+  const qc = useQueryClient();
+  const { data: status, refetch, isFetching } = useQuery<CallCenterRecordingStatus>({
+    queryKey: ['call-center', 'recording-status', workspaceId, callId],
+    queryFn: () => callCenterApi.getRecordingStatus(workspaceId, callId),
+    enabled: !!callId,
+    refetchInterval: 4000,
+  });
+  const [busy, setBusy] = useState<'start' | 'stop' | null>(null);
+
+  const cap = status?.capability;
+  const state = status?.recording_state || 'disabled';
+  const effective = !!cap?.effective_enabled;
+  const consentOk = !cap?.consent_required || !!status?.consent_given;
+  const isRecording = state === 'recording';
+  const isPending = state === 'pending';
+  const isFinalizing = state === 'finalizing';
+
+  let label = 'Recording disabled';
+  let tone = 'text-muted-foreground';
+  if (!effective) {
+    label = cap?.reason === 'provider_not_supported' ? 'Provider not supported'
+      : cap?.reason === 'provider_not_configured' ? 'Provider not configured'
+      : cap?.reason === 'workspace_disabled' ? 'Disabled (workspace)'
+      : cap?.reason === 'platform_disabled' ? 'Disabled (platform)'
+      : 'Recording disabled';
+  } else if (!consentOk) { label = 'Consent missing'; tone = 'text-amber-600'; }
+  else if (isRecording) { label = '● Recording'; tone = 'text-rose-600'; }
+  else if (isPending) { label = 'Starting…'; tone = 'text-amber-600'; }
+  else if (isFinalizing) { label = 'Finalizing…'; tone = 'text-amber-600'; }
+  else if (state === 'available') { label = 'Recording captured'; tone = 'text-emerald-600'; }
+  else if (state === 'failed') { label = 'Failed: ' + (status?.last_error || 'recording_failed'); tone = 'text-destructive'; }
+  else { label = 'Ready to record'; tone = 'text-emerald-600'; }
+
+  const canStart = effective && consentOk && callConnected && !isRecording && !isPending && !isFinalizing && busy === null;
+  const canStop = (isRecording || isPending) && busy === null;
+
+  async function start() {
+    setBusy('start');
+    try {
+      await callCenterApi.startRecording(workspaceId, callId, 'composite');
+      await refetch();
+      qc.invalidateQueries({ queryKey: ['call-center'] });
+    } catch (e: any) {
+      const code = String(e?.message || '');
+      const friendly =
+        code.includes('recording_consent_missing') ? 'Visitor consent is required.'
+        : code.includes('provider_not_configured') ? 'Provider egress is not configured.'
+        : code.includes('provider_not_supported') ? 'Provider does not support recording.'
+        : code.includes('room_not_ready') ? 'Call room is not ready yet.'
+        : code.includes('recording_disabled') ? 'Recording is disabled.'
+        : 'Could not start recording.';
+      toast({ title: 'Start recording failed', description: friendly, variant: 'destructive' });
+    } finally { setBusy(null); }
+  }
+  async function stop() {
+    setBusy('stop');
+    try {
+      await callCenterApi.stopRecording(workspaceId, callId);
+      await refetch();
+      qc.invalidateQueries({ queryKey: ['call-center'] });
+    } catch (e: any) {
+      toast({ title: 'Stop recording failed', description: String(e?.message || ''), variant: 'destructive' });
+    } finally { setBusy(null); }
+  }
+
+  return (
+    <Card className="p-3 flex flex-wrap items-center gap-2">
+      <Disc className={cn('h-4 w-4', isRecording ? 'text-rose-600 animate-pulse' : 'text-muted-foreground')} />
+      <div className="text-sm">
+        <div className={cn('font-medium', tone)}>{label}</div>
+        {status?.recording_id_masked && (
+          <div className="text-[10px] text-muted-foreground font-mono">id: {status.recording_id_masked}</div>
+        )}
+      </div>
+      <div className="ms-auto flex items-center gap-2">
+        <Button size="sm" variant="ghost" onClick={() => refetch()} disabled={isFetching} title="Refresh status">
+          <RefreshCw className={cn('h-3.5 w-3.5', isFetching && 'animate-spin')} />
+        </Button>
+        {canStop ? (
+          <Button size="sm" variant="destructive" onClick={stop} disabled={busy !== null}>
+            {busy === 'stop' ? <Loader2 className="h-3.5 w-3.5 animate-spin me-1.5" /> : <Square className="h-3.5 w-3.5 me-1.5" />}
+            Stop recording
+          </Button>
+        ) : (
+          <Button size="sm" onClick={start} disabled={!canStart}>
+            {busy === 'start' ? <Loader2 className="h-3.5 w-3.5 animate-spin me-1.5" /> : <Disc className="h-3.5 w-3.5 me-1.5" />}
+            Start recording
+          </Button>
+        )}
+      </div>
+      {state === 'available' && (
+        <p className="basis-full text-[11px] text-muted-foreground">
+          Recording artifact captured. Playback/download will be added later.
+        </p>
+      )}
+    </Card>
+  );
+}
+
 function waitTime(iso: string) {
   const ms = Date.now() - new Date(iso).getTime();
   const s = Math.max(0, Math.floor(ms / 1000));

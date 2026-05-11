@@ -15,6 +15,28 @@ import { cn } from '@/lib/utils';
 import { Link, useParams } from 'react-router-dom';
 import OperatorMediaConsole, { type OperatorConnectInfo } from '@/components/call-center/OperatorMediaConsole';
 
+function RecordingBadge({ rec, meta }: { rec?: any; meta?: any }) {
+  const state = meta?.state as string | undefined;
+  const effective = !!rec?.effective_enabled;
+  let label = 'Recording off';
+  let tone = 'bg-muted text-muted-foreground';
+  if (!effective) {
+    label = rec?.reason === 'provider_not_supported' ? 'Recording: provider not supported'
+      : rec?.reason === 'provider_not_configured' ? 'Recording: provider not configured'
+      : rec?.reason === 'workspace_disabled' ? 'Recording: off (workspace)'
+      : rec?.reason === 'platform_disabled' ? 'Recording: off (platform)'
+      : 'Recording off';
+  } else if (state === 'consent_pending') { label = 'Awaiting consent'; tone = 'bg-amber-500/15 text-amber-700 dark:text-amber-300'; }
+  else if (state === 'recording') { label = '● Recording'; tone = 'bg-rose-500/15 text-rose-700 dark:text-rose-300'; }
+  else if (state === 'failed') { label = 'Recording failed'; tone = 'bg-destructive/15 text-destructive'; }
+  else if (state === 'ready' || state === 'pending') { label = 'Ready to record'; tone = 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'; }
+  return (
+    <span className={cn('inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full', tone)}>
+      {label}
+    </span>
+  );
+}
+
 function waitTime(iso: string) {
   const ms = Date.now() - new Date(iso).getTime();
   const s = Math.max(0, Math.floor(ms / 1000));
@@ -277,6 +299,7 @@ export default function LiveQueuePage() {
                       <span className="text-[11px] px-2 py-0.5 rounded-full bg-background border">{detail.call.call_type === 'video' ? 'Video' : 'Voice'}</span>
                       <span className="text-[11px] px-2 py-0.5 rounded-full bg-background border">{detail.call.state}</span>
                       <span className="text-[11px] px-2 py-0.5 rounded-full bg-background border">{detail.call.provider || 'no provider'}</span>
+                      <RecordingBadge rec={overview?.recording} meta={(detail.call as any)?.metadata?.recording} />
                     </div>
                   </div>
                   <div className="flex gap-2">
@@ -297,6 +320,7 @@ export default function LiveQueuePage() {
 
               {/* Media console */}
               {accepted && accepted.callId === detail.call.id ? (
+                <>
                 <OperatorMediaConsole
                   callId={accepted.callId}
                   callType={accepted.callType}
@@ -308,6 +332,12 @@ export default function LiveQueuePage() {
                   externalEndedReason={externalEndedReason}
                   onEndedConfirmed={() => setAccepted(null)}
                 />
+                {overview?.recording?.effective_enabled && (
+                  <p className="text-xs text-muted-foreground px-1">
+                    Recording is configured. Start/stop provider integration is pending — recording controls will appear here once wired.
+                  </p>
+                )}
+                </>
               ) : (
                 <Card className="p-5 border-dashed">
                   <div className="flex items-start gap-3">

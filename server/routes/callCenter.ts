@@ -26,8 +26,7 @@ import {
   getCallCenterRecordingStatus,
   RecordingControlException,
 } from '../services/callCenter/recordingControl.js';
-import { uploadFile } from '../services/storage/index.js';
-import { deleteFile, resolveStorageConfig } from '../services/storage/index.js';
+import { uploadFile, deleteFile, resolveStorageConfig } from '../services/storage/index.js';
 import {
   listDepartments, getDepartment, createDepartment, updateDepartment, deleteDepartment,
   listDepartmentAgents, addDepartmentAgent, updateDepartmentAgent, removeDepartmentAgent,

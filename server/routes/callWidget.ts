@@ -19,6 +19,7 @@ import { signWidgetSession, verifyWidgetSession } from '../services/callCenter/w
 import { resolveEffectiveCallProvider } from '../services/calls/providerResolver.js';
 import { publishQueueEvent, publishCallEvent } from '../services/callCenter/realtime.js';
 import { buildClientConnectInfo } from '../services/callCenter/connectInfo.js';
+import { computeRecordingCapability } from '../services/callCenter/recording.js';
 
 export const callWidgetRouter = Router();
 
@@ -103,6 +104,7 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
     await resolveEffectiveCallProvider(config, ws.workspace_id);
     provider_ready = true;
   } catch {/* not configured */}
+  const recording = await computeRecordingCapability(config, ws.workspace_id, platform, ws);
   const session = signWidgetSession(config, {
     workspace_id: ws.workspace_id,
     public_key: ws.public_key,
@@ -128,6 +130,7 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
       callback: effective.callback_enabled,
       recording: effective.recording_enabled,
     },
+    recording,
     provider_ready,
   });
 });

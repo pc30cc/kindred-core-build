@@ -181,9 +181,9 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
       message: 'Recording consent is required before starting this call.',
     });
   }
-  const consentAt = consentGiven
-    ? (parsed.data.recording_consent_at || new Date().toISOString())
-    : null;
+  // Official consent timestamp is ALWAYS server-side — never trust visitor payload.
+  const consentAt = consentGiven ? new Date().toISOString() : null;
+  const clientConsentAt = parsed.data.recording_consent_at || null;
   // Initial recording state stored in metadata (column enum is narrower).
   const recordingMetaState = !recording.effective_enabled
     ? 'disabled'
@@ -199,6 +199,7 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
     },
     consent_given: consentGiven,
     consent_at: consentAt,
+    client_consent_at: clientConsentAt,
     notice_version: parsed.data.recording_notice_version || null,
     artifact_id: null as string | null,
   };
@@ -271,9 +272,11 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
     try {
       await sb.from('call_events').insert({
         call_session_id: call!.id,
-        event_type: 'recording_ready',
+        event_type: 'recording_config_ready',
         actor_type: 'system',
         payload: {
+          recording_active: false,
+          start_stop_wired: false,
           consent_given: consentGiven,
           consent_required: recording.consent_required,
           provider_configured: recording.provider_configured,

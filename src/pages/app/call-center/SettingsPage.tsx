@@ -96,8 +96,8 @@ export default function CallCenterSettingsPage() {
     try {
       const r = await callCenterApi.uploadAvatar(workspace.id, f);
       toast({ title: 'Avatar uploaded' });
-      setS((p: any) => ({ ...p, avatar_url: r.avatar_url, avatar_storage_path: r.avatar_storage_path }));
-      setOriginal((p: any) => ({ ...p, avatar_url: r.avatar_url, avatar_storage_path: r.avatar_storage_path }));
+      setS((p: any) => ({ ...p, avatar_url: r.avatar_url }));
+      setOriginal((p: any) => ({ ...p, avatar_url: r.avatar_url }));
       qc.invalidateQueries({ queryKey: ['call-center', 'settings'] });
     } catch (err: any) {
       toast({ title: 'Upload failed', description: err.message, variant: 'destructive' });

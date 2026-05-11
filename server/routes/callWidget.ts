@@ -44,7 +44,7 @@ function getOrigin(req: any): string | null {
  * Strict widget-session guard for sensitive routes.
  *
  *   - 401 invalid_session     — token missing / forged / expired
- *   - 403 origin_mismatch     — request Origin header differs from session.origin
+ *   - 403 origin_mismatch     — request Origin header missing or differs from session.origin
  *
  * CORS headers are not enough: a stolen session token replayed from another
  * origin (server-to-server, curl, malicious page) would otherwise pass.
@@ -53,8 +53,9 @@ function requireWidgetSession(req: any, config: ServerConfig) {
   const session = getSession(req, config);
   if (!session) return { ok: false as const, status: 401, error: 'invalid_session' };
   const reqOrigin = getOrigin(req);
-  if (session.origin && reqOrigin && session.origin !== reqOrigin) {
-    return { ok: false as const, status: 403, error: 'origin_mismatch' };
+  if (session.origin) {
+    if (!reqOrigin) return { ok: false as const, status: 403, error: 'origin_mismatch' };
+    if (session.origin !== reqOrigin) return { ok: false as const, status: 403, error: 'origin_mismatch' };
   }
   return { ok: true as const, session };
 }

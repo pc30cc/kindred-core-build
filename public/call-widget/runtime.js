@@ -117,7 +117,10 @@
   CallCenterWidgetCtor.prototype.startCall = function (callType) {
     var cfg = this.bootstrap.config || {};
     this.formData.call_type = callType;
-    if (cfg.pre_call_form_enabled || cfg.recording_consent_required) {
+    var rec = (this.bootstrap && this.bootstrap.recording) || {};
+    var consentNeeded = !!(rec.effective_enabled && rec.consent_required);
+    var passiveNotice = !!(rec.effective_enabled && !rec.consent_required);
+    if (cfg.pre_call_form_enabled || consentNeeded || passiveNotice) {
       this.state = STATES.PRE_CALL; this.render(); return;
     }
     this.submitCall();
@@ -125,11 +128,13 @@
 
   CallCenterWidgetCtor.prototype.submitCall = function () {
     var self = this;
-    var cfg = this.bootstrap.config || {};
-    if (cfg.recording_consent_required && !this.formData.consent) {
+    var rec = (this.bootstrap && this.bootstrap.recording) || {};
+    var consentNeeded = !!(rec.effective_enabled && rec.consent_required);
+    if (consentNeeded && !this.formData.consent) {
       this.error = 'Recording consent is required to continue.';
       this.render(); return;
     }
+    var consentAt = this.formData.consent ? new Date().toISOString() : null;
     this.error = null;
     this.state = STATES.LOADING; this.render();
     this.api('/api/call-widget/calls/request', {
@@ -143,10 +148,17 @@
         page_url: location.href,
         page_title: document.title,
         consent_recording: !!this.formData.consent,
+        recording_consent: !!this.formData.consent,
+        recording_consent_at: consentAt,
       },
     }).then(function (r) {
       if (!r.ok) {
-        self.error = (r.body && (r.body.error || r.body.message)) || 'Failed to start call.';
+        var code = r.body && r.body.error;
+        if (code === 'recording_consent_required') {
+          self.error = 'Please accept the recording consent to start the call.';
+          self.state = STATES.PRE_CALL; self.render(); return;
+        }
+        self.error = (r.body && (r.body.message || r.body.error)) || 'Failed to start call.';
         self.state = STATES.ERROR; self.render(); return;
       }
       self.session = r.body.session || self.session;

@@ -231,9 +231,16 @@
       self.render();
       return;
     }
+    self.connectStatus = 'loading_media_client';
+    self.render();
     var LK = window.LivekitClient || window.LiveKit || null;
-    if (!LK || !LK.Room) {
+    if (!LK) {
       self.connectStatus = 'media_client_missing';
+      self.render();
+      return;
+    }
+    if (!LK.Room) {
+      self.connectStatus = 'media_client_invalid';
       self.render();
       return;
     }

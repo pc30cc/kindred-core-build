@@ -242,7 +242,9 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
     origin: getOrigin(req),
     provider: providerId,
     recording_enabled: recording.effective_enabled,
-    recording_state: recording.effective_enabled ? 'pending' : 'disabled',
+    // Column 'disabled' here only means "no provider recording active yet".
+    // Readiness is tracked in metadata.recording.state ('ready' | 'consent_pending' | 'disabled').
+    recording_state: 'disabled',
     metadata: {
       call_center: true,
       form_data: parsed.data.form_data || null,

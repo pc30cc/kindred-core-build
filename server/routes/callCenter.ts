@@ -20,6 +20,12 @@ import { resolveEffectiveCallProvider } from '../services/calls/providerResolver
 import { publishQueueEvent, publishCallEvent } from '../services/callCenter/realtime.js';
 import { buildClientConnectInfo } from '../services/callCenter/connectInfo.js';
 import { computeRecordingCapability, disabledRecordingCapability } from '../services/callCenter/recording.js';
+import {
+  startCallCenterRecording,
+  stopCallCenterRecording,
+  getCallCenterRecordingStatus,
+  RecordingControlException,
+} from '../services/callCenter/recordingControl.js';
 import { uploadFile } from '../services/storage/index.js';
 import crypto from 'crypto';
 

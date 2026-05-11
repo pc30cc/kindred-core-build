@@ -158,8 +158,8 @@ export interface StartArgs {
 export interface StartResult {
   ok: true;
   recording_state: 'recording' | 'pending';
-  recording_id: string;
   recording_id_masked: string;
+  has_artifact: true;
   provider: string;
   started_at: string;
   idempotent?: boolean;
@@ -179,8 +179,8 @@ export async function startCallCenterRecording(
       return {
         ok: true,
         recording_state: 'recording',
-        recording_id: rid,
         recording_id_masked: maskRecordingId(rid)!,
+        has_artifact: true,
         provider: String(call.provider || meta.provider || ''),
         started_at: String(meta.started_at || ''),
         idempotent: true,
@@ -262,8 +262,8 @@ export async function startCallCenterRecording(
   return {
     ok: true,
     recording_state: newState,
-    recording_id: handle.recordingId,
     recording_id_masked: maskRecordingId(handle.recordingId)!,
+    has_artifact: true,
     provider: providerId,
     started_at: startedAt,
   };
@@ -278,8 +278,8 @@ export interface StopArgs {
 export interface StopResult {
   ok: true;
   recording_state: 'finalizing' | 'available' | 'failed';
-  recording_id: string;
   recording_id_masked: string;
+  has_artifact: true;
   stopped_at: string;
 }
 
@@ -332,8 +332,8 @@ export async function stopCallCenterRecording(
   return {
     ok: true,
     recording_state: newState,
-    recording_id: rid,
     recording_id_masked: maskRecordingId(rid)!,
+    has_artifact: true,
     stopped_at: stoppedAt,
   };
 }

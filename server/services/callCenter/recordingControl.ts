@@ -10,7 +10,7 @@
  *   - Only the internal recording_id (provider opaque handle) is stored.
  */
 import type { ServerConfig } from '../../config.js';
-import { getServiceClient } from '../supabase.js';
+import { getServiceClient } from '../../supabase.js';
 import { resolveEffectiveCallProvider } from '../calls/providerResolver.js';
 import {
   computeRecordingCapability,
@@ -20,7 +20,6 @@ import {
   getOrCreateWorkspaceSettings,
   getPlatformCallCenterSettings,
 } from './settings.js';
-import { publishCallEvent } from './realtime.js';
 
 export type RecordingType = 'composite' | 'individual' | 'audio_only';
 
@@ -143,9 +142,10 @@ async function logEvent(
       payload,
     });
   } catch { /* best-effort */ }
-  try {
-    await publishCallEvent(config, workspaceId, callId, eventType, payload);
-  } catch { /* best-effort */ }
+  // Realtime publish intentionally omitted: realtime.ts CallCenterEventType is
+  // a closed set; recording_* events are persisted to call_events for the
+  // detail timeline and do not need cross-tab fan-out in this pass.
+  void workspaceId;
 }
 
 export interface StartArgs {

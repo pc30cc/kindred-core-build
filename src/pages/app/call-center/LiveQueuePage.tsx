@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Link, useParams } from 'react-router-dom';
+import OperatorMediaConsole, { type OperatorConnectInfo } from '@/components/call-center/OperatorMediaConsole';
 
 function waitTime(iso: string) {
   const ms = Date.now() - new Date(iso).getTime();
@@ -52,6 +53,12 @@ export default function LiveQueuePage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [selectedCallId, setSelectedCallId] = useState<string | null>(null);
   const [notes, setNotes] = useState('');
+  const [accepted, setAccepted] = useState<{
+    callId: string;
+    token: string;
+    connect: OperatorConnectInfo;
+    callType: string;
+  } | null>(null);
   const { data: detail } = useCallCenterCall(workspace?.id, selectedCallId);
   const [, force] = useState(0);
   useEffect(() => { const t = setInterval(() => force((n) => n + 1), 1000); return () => clearInterval(t); }, []);
@@ -76,15 +83,19 @@ export default function LiveQueuePage() {
     setBusy(callId);
     try {
       const r = await callCenterApi.acceptCall(workspace.id, callId);
-      const cn = (r as any).connect;
-      const supported = cn && cn.supported;
-      toast({
-        title: 'Call accepted',
-        description: supported
-          ? `Room ready on ${r.provider}. Operator media console arrives in CC-2C.`
-          : `Provider: ${r.provider} — ${cn?.reason || 'media client not configured'}.`,
-        variant: supported ? 'default' : 'destructive',
-      });
+      const connect = (r as any).connect as OperatorConnectInfo | undefined;
+      const callType = ((detail?.call?.call_type as string) || 'voice');
+      if (connect && r.token) {
+        setAccepted({ callId, token: r.token, connect, callType });
+        setSelectedCallId(callId);
+        if (!connect.supported) {
+          toast({
+            title: 'Accepted, but media not available',
+            description: connect.reason || 'Provider client not configured.',
+            variant: 'destructive',
+          });
+        }
+      }
       qc.invalidateQueries({ queryKey: ['call-center'] });
     } catch (e: any) {
       toast({ title: 'Accept failed', description: e.message, variant: 'destructive' });
@@ -104,6 +115,12 @@ export default function LiveQueuePage() {
     if (!workspace) return;
     try { await callCenterApi.endCall(workspace.id, callId); qc.invalidateQueries({ queryKey: ['call-center'] }); }
     catch (e: any) { toast({ title: 'End failed', description: e.message, variant: 'destructive' }); }
+  }
+
+  async function endFromConsole() {
+    const id = accepted?.callId;
+    setAccepted(null);
+    if (id) await endActive(id);
   }
 
   const meta = (detail?.call as any)?.metadata || {};
@@ -239,28 +256,40 @@ export default function LiveQueuePage() {
                 </div>
               </Card>
 
-              {/* Media placeholder */}
-              <Card className="p-5 border-dashed">
-                <div className="flex items-start gap-3">
-                  <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
-                  <div className="text-sm">
-                    <div className="font-medium">Media connection not wired</div>
-                    <p className="text-xs text-muted-foreground mt-0.5">CC-2B will connect the provider room. Controls below are placeholders.</p>
+              {/* Media console */}
+              {accepted && accepted.callId === detail.call.id ? (
+                <OperatorMediaConsole
+                  callId={accepted.callId}
+                  callType={accepted.callType}
+                  connect={accepted.connect}
+                  token={accepted.token}
+                  onEnd={endFromConsole}
+                />
+              ) : (
+                <Card className="p-5 border-dashed">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
+                    <div className="text-sm">
+                      <div className="font-medium">Accept the call to start media</div>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        The operator media console activates after you accept the call.
+                      </p>
+                    </div>
                   </div>
-                </div>
-                <div className="flex flex-wrap gap-2 mt-4">
-                  {[
-                    { icon: MicOff, label: 'Mute' },
-                    { icon: CameraOff, label: 'Camera' },
-                    { icon: ArrowRightLeft, label: 'Transfer' },
-                    { icon: PhoneOff, label: 'End' },
-                  ].map((b) => (
-                    <Button key={b.label} variant="outline" size="sm" disabled title="Coming next (CC-2B)">
-                      <b.icon className="h-3.5 w-3.5 me-1.5" />{b.label}
-                    </Button>
-                  ))}
-                </div>
-              </Card>
+                  <div className="flex flex-wrap gap-2 mt-4">
+                    {[
+                      { icon: MicOff, label: 'Mute' },
+                      { icon: CameraOff, label: 'Camera' },
+                      { icon: ArrowRightLeft, label: 'Transfer' },
+                      { icon: PhoneOff, label: 'End' },
+                    ].map((b) => (
+                      <Button key={b.label} variant="outline" size="sm" disabled>
+                        <b.icon className="h-3.5 w-3.5 me-1.5" />{b.label}
+                      </Button>
+                    ))}
+                  </div>
+                </Card>
+              )}
 
               {/* Page context */}
               {(detail.call.page_url || detail.call.subject) && (

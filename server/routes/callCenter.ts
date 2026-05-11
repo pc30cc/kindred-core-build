@@ -142,10 +142,12 @@ callCenterRouter.get('/settings', async (req, res) => {
   if (!wid) return res.status(400).json({ error: 'workspaceId_required' });
   const ctx = await requireMember(req, res, wid);
   if (!ctx) return;
-  const settings = await getOrCreateWorkspaceSettings(ctx.config, wid);
+  const settingsRaw = await getOrCreateWorkspaceSettings(ctx.config, wid);
   const platform = await getPlatformCallCenterSettings(ctx.config);
-  const effective = computeEffectiveCallCenterCaps(platform, settings);
-  const recording = await computeRecordingCapability(ctx.config, wid, platform, settings);
+  const effective = computeEffectiveCallCenterCaps(platform, settingsRaw);
+  const recording = await computeRecordingCapability(ctx.config, wid, platform, settingsRaw);
+  // Sanitize: never expose avatar_storage_path to clients
+  const { avatar_storage_path: _, ...settings } = settingsRaw;
   res.json({ settings, platform, effective, recording });
 });
 
@@ -178,7 +180,9 @@ callCenterRouter.put('/settings', async (req, res) => {
   if (!ctx) return;
   const parsed = settingsPatchSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_body', details: parsed.error.flatten() });
-  const settings = await updateWorkspaceSettings(ctx.config, wid, parsed.data as any);
+  const settingsRaw = await updateWorkspaceSettings(ctx.config, wid, parsed.data as any);
+  // Sanitize: never expose avatar_storage_path to clients
+  const { avatar_storage_path: _, ...settings } = settingsRaw;
   res.json({ settings });
 });
 

@@ -38,7 +38,6 @@ export interface CallCenterWorkspaceSettings {
   widget_theme: Record<string, unknown>;
   display_name: string | null;
   avatar_url: string | null;
-  avatar_storage_path: string | null;
   voice_enabled: boolean;
   video_enabled: boolean;
   callback_enabled: boolean;

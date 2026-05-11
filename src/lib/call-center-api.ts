@@ -94,6 +94,47 @@ export interface RecordingCapability {
   reason?: string;
 }
 
+export interface CallCenterRecordingStatus {
+  recording_enabled: boolean;
+  recording_state: string;
+  consent_given: boolean;
+  consent_at: string | null;
+  provider: string | null;
+  recording_id_masked: string | null;
+  has_artifact: boolean;
+  playback_available: false;
+  download_available: false;
+  started_at: string | null;
+  stopped_at: string | null;
+  reason?: string;
+  capability: {
+    effective_enabled: boolean;
+    consent_required: boolean;
+    provider_supported: boolean;
+    provider_configured: boolean;
+    reason?: string;
+  };
+  last_error?: string | null;
+}
+
+export interface CallCenterRecordingStartResponse {
+  ok: true;
+  recording_state: 'recording' | 'pending';
+  recording_id: string;
+  recording_id_masked: string;
+  provider: string;
+  started_at: string;
+  idempotent?: boolean;
+}
+
+export interface CallCenterRecordingStopResponse {
+  ok: true;
+  recording_state: 'finalizing' | 'available' | 'failed';
+  recording_id: string;
+  recording_id_masked: string;
+  stopped_at: string;
+}
+
 export interface CallCenterOverview {
   today_calls: number;
   waiting_calls: number;
@@ -252,6 +293,20 @@ export const callCenterApi = {
     jsonFetch<{ ok: boolean }>(`/api/call-center/agent-status?workspaceId=${encodeURIComponent(workspaceId)}`, {
       method: 'POST', body: JSON.stringify({ workspaceId, status }),
     }),
+  startRecording: (workspaceId: string, callId: string, recordingType?: 'composite' | 'individual' | 'audio_only') =>
+    jsonFetch<CallCenterRecordingStartResponse>(
+      `/api/call-center/calls/${callId}/recording/start?workspaceId=${encodeURIComponent(workspaceId)}`,
+      { method: 'POST', body: JSON.stringify({ workspaceId, recording_type: recordingType }) },
+    ),
+  stopRecording: (workspaceId: string, callId: string) =>
+    jsonFetch<CallCenterRecordingStopResponse>(
+      `/api/call-center/calls/${callId}/recording/stop?workspaceId=${encodeURIComponent(workspaceId)}`,
+      { method: 'POST', body: JSON.stringify({ workspaceId }) },
+    ),
+  getRecordingStatus: (workspaceId: string, callId: string) =>
+    jsonFetch<CallCenterRecordingStatus>(
+      `/api/call-center/calls/${callId}/recording/status?workspaceId=${encodeURIComponent(workspaceId)}`,
+    ),
   uploadAvatar: async (workspaceId: string, file: File) => {
     const buf = await file.arrayBuffer();
     let bin = ''; const bytes = new Uint8Array(buf);

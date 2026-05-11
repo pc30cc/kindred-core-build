@@ -29,7 +29,7 @@ function RecordingBadge({ rec, meta }: { rec?: any; meta?: any }) {
   } else if (state === 'consent_pending') { label = 'Awaiting consent'; tone = 'bg-amber-500/15 text-amber-700 dark:text-amber-300'; }
   else if (state === 'recording') { label = '● Recording'; tone = 'bg-rose-500/15 text-rose-700 dark:text-rose-300'; }
   else if (state === 'failed') { label = 'Recording failed'; tone = 'bg-destructive/15 text-destructive'; }
-  else if (state === 'ready' || state === 'pending') { label = 'Ready to record'; tone = 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'; }
+  else if (state === 'ready' || state === 'pending') { label = 'Recording configured'; tone = 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'; }
   return (
     <span className={cn('inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full', tone)}>
       {label}

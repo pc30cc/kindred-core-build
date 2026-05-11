@@ -11,7 +11,7 @@
  */
 import type { ServerConfig } from '../../config.js';
 import type { CallProviderId } from '../calls/controlPlane.js';
-import { getRtcWsUrl, normalizeClientWsUrl } from '../calls/rtcResolver.js';
+import { getLiveKitClientWsUrl } from '../calls/livekitConfig.js';
 
 export interface ClientConnectInfo {
   supported: boolean;
@@ -29,8 +29,10 @@ export async function buildClientConnectInfo(
   identity: string,
 ): Promise<ClientConnectInfo> {
   if (providerId === 'livekit') {
-    const raw = await getRtcWsUrl(config);
-    const wss = normalizeClientWsUrl(raw);
+    // Use the same source-of-truth the LiveKit provider uses to create rooms,
+    // so a workspace configured via livekit_config.rtc_url alone still gets a
+    // valid client server_url (instead of a misleading livekit_url_missing).
+    const wss = await getLiveKitClientWsUrl(config);
     if (!wss) {
       return {
         supported: false,

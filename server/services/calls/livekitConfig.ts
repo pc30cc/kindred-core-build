@@ -12,6 +12,7 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { getRtcWsUrl, normalizeClientWsUrl } from './rtcResolver.js';
 
 const RUNTIME_KEY = 'call_livekit_config';
 const CACHE_TTL_MS = 30_000;
@@ -255,4 +256,25 @@ export function toPublicView(c: LiveKitConfig): LiveKitConfigPublicView {
  */
 export function isMinimallyConfigured(c: LiveKitConfig): boolean {
   return c.enabled && !!c.api_key && !!c.api_secret && !!c.rtc_url;
+}
+
+/**
+ * Resolve the client-safe LiveKit WebSocket URL using the SAME source-of-truth
+ * the LiveKit provider uses to mint rooms. Order:
+ *   1. livekit_config.ws_url (admin-configured signaling endpoint)
+ *   2. livekit_config.rtc_url (LiveKit shares signaling+media on one wss)
+ *   3. getRtcWsUrl(config) — generic RTC resolver / env fallback
+ * Always normalized to `wss://host[:port]` (no path, no http scheme).
+ * Returns null when no client-facing URL is configured. NEVER returns
+ * api_key / api_secret / webhook_secret.
+ */
+export async function getLiveKitClientWsUrl(
+  config: ServerConfig,
+): Promise<string | null> {
+  const lk = await loadLiveKitConfig(config);
+  const candidate =
+    lk.ws_url ||
+    lk.rtc_url ||
+    (await getRtcWsUrl(config));
+  return normalizeClientWsUrl(candidate);
 }

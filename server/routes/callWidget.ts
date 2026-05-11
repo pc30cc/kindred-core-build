@@ -19,6 +19,7 @@ import { signWidgetSession, verifyWidgetSession } from '../services/callCenter/w
 import { resolveEffectiveCallProvider } from '../services/calls/providerResolver.js';
 import { publishQueueEvent, publishCallEvent } from '../services/callCenter/realtime.js';
 import { buildClientConnectInfo } from '../services/callCenter/connectInfo.js';
+import { computeRecordingCapability } from '../services/callCenter/recording.js';
 
 export const callWidgetRouter = Router();
 
@@ -103,6 +104,7 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
     await resolveEffectiveCallProvider(config, ws.workspace_id);
     provider_ready = true;
   } catch {/* not configured */}
+  const recording = await computeRecordingCapability(config, ws.workspace_id, platform, ws);
   const session = signWidgetSession(config, {
     workspace_id: ws.workspace_id,
     public_key: ws.public_key,
@@ -128,6 +130,7 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
       callback: effective.callback_enabled,
       recording: effective.recording_enabled,
     },
+    recording,
     provider_ready,
   });
 });
@@ -148,6 +151,9 @@ const requestSchema = z.object({
   page_url: z.string().max(2000).optional().nullable(),
   page_title: z.string().max(500).optional().nullable(),
   consent_recording: z.boolean().optional(),
+  recording_consent: z.boolean().optional(),
+  recording_consent_at: z.string().datetime().optional().nullable(),
+  recording_notice_version: z.string().max(40).optional().nullable(),
   form_data: z.record(z.unknown()).optional(),
 });
 
@@ -166,6 +172,36 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
   if (parsed.data.call_type === 'voice' && !effective.voice_enabled) return res.status(403).json({ error: 'feature_not_available' });
   if (parsed.data.call_type === 'video' && !effective.video_enabled) return res.status(403).json({ error: 'feature_not_available' });
   if (!originAllowed(ws, getOrigin(req))) return res.status(403).json({ error: 'origin_denied' });
+  // Recording consent enforcement (fail-closed before any DB insert).
+  const recording = await computeRecordingCapability(config, ws.workspace_id, platform, ws);
+  const consentGiven = !!(parsed.data.recording_consent ?? parsed.data.consent_recording);
+  if (recording.effective_enabled && recording.consent_required && !consentGiven) {
+    return res.status(400).json({
+      error: 'recording_consent_required',
+      message: 'Recording consent is required before starting this call.',
+    });
+  }
+  const consentAt = consentGiven
+    ? (parsed.data.recording_consent_at || new Date().toISOString())
+    : null;
+  // Initial recording state stored in metadata (column enum is narrower).
+  const recordingMetaState = !recording.effective_enabled
+    ? 'disabled'
+    : (recording.consent_required && !consentGiven ? 'consent_pending' : 'ready');
+  const recordingMeta = {
+    state: recordingMetaState,
+    capability: {
+      effective_enabled: recording.effective_enabled,
+      consent_required: recording.consent_required,
+      provider_supported: recording.provider_supported,
+      provider_configured: recording.provider_configured,
+      reason: recording.reason || null,
+    },
+    consent_given: consentGiven,
+    consent_at: consentAt,
+    notice_version: parsed.data.recording_notice_version || null,
+    artifact_id: null as string | null,
+  };
   // Provider check (fail closed)
   let providerId: string;
   try {
@@ -204,10 +240,13 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
     page_title: parsed.data.page_title || null,
     origin: getOrigin(req),
     provider: providerId,
+    recording_enabled: recording.effective_enabled,
+    recording_state: recording.effective_enabled ? 'pending' : 'disabled',
     metadata: {
       call_center: true,
       form_data: parsed.data.form_data || null,
-      consent_recording: !!parsed.data.consent_recording,
+      consent_recording: consentGiven,
+      recording: recordingMeta,
     },
   }).select('*').maybeSingle();
   if (callErr) return res.status(500).json({ error: 'call_create_failed', message: callErr.message });
@@ -228,6 +267,20 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
     actor_type: 'visitor',
     payload: { call_type: parsed.data.call_type, page_url: parsed.data.page_url },
   });
+  if (recording.effective_enabled) {
+    try {
+      await sb.from('call_events').insert({
+        call_session_id: call!.id,
+        event_type: 'recording_ready',
+        actor_type: 'system',
+        payload: {
+          consent_given: consentGiven,
+          consent_required: recording.consent_required,
+          provider_configured: recording.provider_configured,
+        },
+      });
+    } catch { /* best-effort */ }
+  }
 
   // Issue a fresh session bound to this call_id
   const newSession = signWidgetSession(config, {

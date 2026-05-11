@@ -157,6 +157,29 @@ export default function CallsPage() {
               {detail.call.page_url && (
                 <div className="text-sm"><div className="text-xs text-muted-foreground">Page</div><a href={detail.call.page_url} target="_blank" rel="noreferrer" className="underline truncate block">{detail.call.page_title || detail.call.page_url}</a></div>
               )}
+              {(() => {
+                const rec = (detail.call as any)?.metadata?.recording || null;
+                if (!rec) return null;
+                const consent = rec.consent_given;
+                const consentAt = rec.consent_at ? new Date(rec.consent_at).toLocaleString() : '—';
+                const state = rec.state || 'disabled';
+                const artifact = rec.artifact_id ? String(rec.artifact_id) : null;
+                const artifactMasked = artifact ? (artifact.length > 12 ? artifact.slice(0, 6) + '…' + artifact.slice(-4) : artifact) : null;
+                return (
+                  <div className="space-y-1.5 rounded-md border p-3 bg-muted/20">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Recording</div>
+                    <div className="text-xs grid grid-cols-2 gap-x-3 gap-y-1">
+                      <span className="text-muted-foreground">State</span><span>{state}</span>
+                      <span className="text-muted-foreground">Consent</span><span>{consent ? 'Yes' : 'No'}</span>
+                      <span className="text-muted-foreground">Consent at</span><span>{consentAt}</span>
+                      {artifactMasked && (<><span className="text-muted-foreground">Artifact</span><span className="font-mono">{artifactMasked}</span></>)}
+                    </div>
+                    {artifactMasked
+                      ? <p className="text-[11px] text-muted-foreground">Recording artifact captured. Playback/download will be added later.</p>
+                      : <p className="text-[11px] text-muted-foreground">No recording artifact stored for this call.</p>}
+                  </div>
+                );
+              })()}
               <div className="flex gap-2">
                 <Button size="sm" variant="outline" onClick={() => { navigator.clipboard.writeText(detail.call.id); toast({ title: 'Call ID copied' }); }}>
                   <Copy className="h-3.5 w-3.5 me-1" /> Copy ID

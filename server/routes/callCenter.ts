@@ -19,6 +19,7 @@ import { isGlobalAdmin } from '../middleware/adminBypass.js';
 import { resolveEffectiveCallProvider } from '../services/calls/providerResolver.js';
 import { publishQueueEvent, publishCallEvent } from '../services/callCenter/realtime.js';
 import { buildClientConnectInfo } from '../services/callCenter/connectInfo.js';
+import { computeRecordingCapability, disabledRecordingCapability } from '../services/callCenter/recording.js';
 import { uploadFile } from '../services/storage/index.js';
 import crypto from 'crypto';
 
@@ -124,6 +125,9 @@ callCenterRouter.get('/capabilities', async (req, res) => {
     workspace_call_center_visible: effective.workspace_call_center_visible,
     settings_exists: !!row,
     effective,
+    recording: row
+      ? await computeRecordingCapability(ctx.config, wid, platform, row as any)
+      : disabledRecordingCapability(),
   });
 });
 
@@ -135,7 +139,8 @@ callCenterRouter.get('/settings', async (req, res) => {
   const settings = await getOrCreateWorkspaceSettings(ctx.config, wid);
   const platform = await getPlatformCallCenterSettings(ctx.config);
   const effective = computeEffectiveCallCenterCaps(platform, settings);
-  res.json({ settings, platform, effective });
+  const recording = await computeRecordingCapability(ctx.config, wid, platform, settings);
+  res.json({ settings, platform, effective, recording });
 });
 
 const settingsPatchSchema = z.object({
@@ -217,6 +222,9 @@ callCenterRouter.get('/overview', async (req, res) => {
       .eq('workspace_id', wid).in('status', ['requested', 'scheduled']),
     resolveEffectiveCallProvider(ctx.config, wid).then(p => ({ provider: p.id, ready: true })).catch(e => ({ provider: 'none', ready: false, error: String(e?.message || e) })),
   ]);
+  const platform = await getPlatformCallCenterSettings(ctx.config);
+  const wsRow = await getOrCreateWorkspaceSettings(ctx.config, wid);
+  const recording = await computeRecordingCapability(ctx.config, wid, platform, wsRow);
   res.json({
     today_calls: todayCalls.count || 0,
     waiting_calls: waitingQ.count || 0,
@@ -224,6 +232,7 @@ callCenterRouter.get('/overview', async (req, res) => {
     missed_today: missedToday.count || 0,
     callbacks_pending: callbacks.count || 0,
     provider: providerInfo,
+    recording,
   });
 });
 

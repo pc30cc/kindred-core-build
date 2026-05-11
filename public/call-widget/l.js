@@ -50,20 +50,46 @@
       link.rel = 'stylesheet';
       link.href = origin + '/call-widget/runtime.css';
       document.head.appendChild(link);
-      // Inject runtime
-      var sc = document.createElement('script');
-      sc.async = true;
-      sc.src = origin + '/call-widget/runtime.js';
-      sc.onload = function () {
-        if (window.CallCenterWidget && typeof window.CallCenterWidget.mount === 'function') {
-          window.CallCenterWidget.mount({
-            apiBase: apiBase,
-            origin: origin,
-            bootstrap: bootstrap,
-          });
+
+      // Load the LiveKit SDK locally if the host page hasn't provided one.
+      // We reuse the SDK file shipped alongside the chat widget so customers
+      // only paste a single call-widget script tag — no external CDN.
+      function loadRuntime() {
+        var sc = document.createElement('script');
+        sc.async = true;
+        sc.src = origin + '/call-widget/runtime.js';
+        sc.onload = function () {
+          if (window.CallCenterWidget && typeof window.CallCenterWidget.mount === 'function') {
+            window.CallCenterWidget.mount({
+              apiBase: apiBase,
+              origin: origin,
+              bootstrap: bootstrap,
+            });
+          }
+        };
+        document.body.appendChild(sc);
+      }
+
+      function ensureLiveKitSdk(cb) {
+        if (window.LivekitClient || window.LiveKit) return cb();
+        // Idempotent: avoid double-injection if another widget instance is loading.
+        var existing = document.querySelector('script[data-cc-livekit-sdk]');
+        if (existing) {
+          existing.addEventListener('load', cb);
+          existing.addEventListener('error', cb); // runtime will surface media_client_missing
+          return;
         }
-      };
-      document.body.appendChild(sc);
+        var lk = document.createElement('script');
+        lk.async = true;
+        lk.setAttribute('data-cc-livekit-sdk', '1');
+        // Local asset only — never an external CDN.
+        lk.src = origin + '/widget/vendor/livekit-client.umd.min.js';
+        lk.onload = cb;
+        lk.onerror = cb; // runtime will detect missing window.LivekitClient and show media_client_missing
+        document.head.appendChild(lk);
+      }
+
+      ensureLiveKitSdk(loadRuntime);
     })
     .catch(function (err) {
       console.warn('[call-widget] bootstrap error', err);

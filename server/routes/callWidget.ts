@@ -341,7 +341,9 @@ callWidgetRouter.get('/calls/:id/status', async (req, res) => {
   const session = guard.session;
   if (session.call_id !== req.params.id) return res.status(403).json({ error: 'forbidden' });
   const sb = getServiceClient(config);
-  const { data: call } = await sb.from('call_sessions').select('id,state,ended_at,end_reason,provider,provider_room_id,call_type').eq('id', req.params.id).maybeSingle();
+  const { data: call } = await sb.from('call_sessions')
+    .select('id,state,ended_at,end_reason,provider,provider_room_id,call_type,recording_enabled,recording_state')
+    .eq('id', req.params.id).maybeSingle();
   if (!call) return res.status(404).json({ error: 'not_found' });
   res.json({ call });
 });

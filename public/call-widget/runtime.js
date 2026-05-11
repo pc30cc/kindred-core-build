@@ -453,6 +453,8 @@
         if (status === 'provider_client_not_configured') msg = 'Call accepted, but the media server URL is not configured. Please request a callback.';
         if (status === 'provider_client_not_supported') msg = 'Call accepted, but this provider has no in-browser client.';
         if (status === 'media_client_missing') msg = 'Media client is not loaded. Call room is ready but the browser client is missing.';
+        if (status === 'media_client_invalid') msg = 'Media client loaded but is incompatible with this widget.';
+        if (status === 'loading_media_client') msg = 'Loading media client…';
         if (status === 'microphone_permission_denied') msg = 'Microphone permission denied. Please allow access and try again.';
         if (status === 'camera_permission_denied') msg = 'Camera permission denied. Audio call continues without video.';
         if (status === 'room_connect_failed') msg = 'Failed to connect to the call room: ' + (self.error || 'unknown');

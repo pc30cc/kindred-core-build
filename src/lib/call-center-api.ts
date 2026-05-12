@@ -12,6 +12,12 @@ async function authHeaders(): Promise<Record<string, string>> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+/** CC-2H Phase 7 — Friendly messages for known transient/infra errors. */
+const FRIENDLY_API_ERRORS: Record<string, string> = {
+  auth_provider_unreachable:
+    'Authentication provider is temporarily unreachable. Please retry in a moment.',
+};
+
 async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
@@ -24,7 +30,14 @@ async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const text = await res.text();
   let body: any = null;
   try { body = text ? JSON.parse(text) : null; } catch { body = { raw: text }; }
-  if (!res.ok) throw new Error(body?.error || body?.message || `HTTP ${res.status}`);
+  if (!res.ok) {
+    const code = body?.error || body?.message || `HTTP ${res.status}`;
+    const friendly = FRIENDLY_API_ERRORS[String(body?.error || '')];
+    const err: any = new Error(friendly || code);
+    err.code = body?.error || null;
+    err.status = res.status;
+    throw err;
+  }
   return body as T;
 }
 
@@ -460,6 +473,35 @@ export const callCenterApi = {
     jsonFetch<{ ok: boolean; assigned_agent_id: string | null; department_id: string | null }>(
       `/api/call-center/calls/${callId}/transfer?workspaceId=${encodeURIComponent(workspaceId)}`,
       { method: 'POST', body: JSON.stringify(payload) },
+    ),
+};
+
+// ── CC-2H — LiveKit diagnostics ────────────────────────────────────
+export interface LiveKitDiagnostics {
+  provider: 'livekit';
+  configured: boolean;
+  server_url_public: string | null;
+  server_url_public_normalized: string | null;
+  rtc_url_present: boolean;
+  ws_url_present: boolean;
+  api_key_present: boolean;
+  api_secret_present: boolean;
+  connect_info_supported: boolean;
+  connect_info_reason: string | null;
+  health: {
+    twirp_create_room_ready: boolean | null;
+    server_reachable: boolean | null;
+    rtc_validate_status: number | null;
+    rtc_v1_validate_status: number | null;
+    websocket_origin_hint: string | null;
+  };
+  warnings: string[];
+}
+
+export const callCenterDiagnosticsApi = {
+  getLiveKit: (workspaceId: string) =>
+    jsonFetch<LiveKitDiagnostics>(
+      `/api/call-center/diagnostics/livekit?workspaceId=${encodeURIComponent(workspaceId)}`,
     ),
 };
 

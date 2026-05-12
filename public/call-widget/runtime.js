@@ -439,6 +439,9 @@
   };
 
   CallCenterWidgetCtor.prototype.openCallback = function () {
+    var depts = (this.bootstrap && this.bootstrap.departments) || {};
+    var list = depts.callback || [];
+    this.formData.department_id = (list.length === 1) ? list[0].id : '';
     this.state = STATES.CALLBACK;
     this.render();
   };
@@ -454,9 +457,18 @@
         phone: this.formData.phone || null,
         subject: this.formData.subject || null,
         page_url: location.href,
+        department_id: this.formData.department_id || null,
       },
     }).then(function (r) {
-      if (!r.ok) { self.error = (r.body && (r.body.error || r.body.message)) || 'Failed.'; self.render(); return; }
+      if (!r.ok) {
+        var code = r.body && r.body.error;
+        if (code === 'department_channel_disabled' || code === 'department_not_found') {
+          self.error = 'This department is not available for this call type. Please choose another department.';
+        } else {
+          self.error = (r.body && (r.body.error || r.body.message)) || 'Failed.';
+        }
+        self.render(); return;
+      }
       self.callbackId = r.body.callback_id;
       self.state = STATES.ENDED;
       self.render();

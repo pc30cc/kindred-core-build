@@ -213,6 +213,54 @@ export default function AdminCallCenterPage() {
         <Button variant="outline" onClick={invalidate}>Invalidate cache</Button>
       </div>
 
+      <Card className="p-5 space-y-3">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div>
+            <h2 className="font-semibold flex items-center gap-2"><Activity className="h-4 w-4" /> LiveKit connectivity</h2>
+            <p className="text-xs text-muted-foreground">
+              Probes the configured LiveKit URL for the standalone Call Center widget.
+              Probes <code>/rtc/validate</code> and <code>/rtc/v1/validate</code>.
+              Never returns secrets or tokens.
+            </p>
+          </div>
+          <Button size="sm" variant="outline" onClick={runDiagnostics} disabled={diagBusy || !firstWorkspaceId}>
+            {diagBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Activity className="h-3.5 w-3.5" />}
+            <span className="ms-1.5">Run diagnostics</span>
+          </Button>
+        </div>
+        {diagErr && <p className="text-xs text-destructive">{diagErr}</p>}
+        {diag && (
+          <div className="space-y-3 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <DiagRow label="Server URL" value={diag.server_url_public || '—'} mono />
+              <DiagRow label="Normalized" value={diag.server_url_public_normalized || '—'} mono />
+              <DiagRow label="API key" value={diag.api_key_present ? 'Present' : 'Missing'} ok={diag.api_key_present} />
+              <DiagRow label="API secret" value={diag.api_secret_present ? 'Present' : 'Missing'} ok={diag.api_secret_present} />
+              <DiagRow
+                label="/rtc/validate"
+                value={diag.health.rtc_validate_status == null ? '—' : String(diag.health.rtc_validate_status)}
+                ok={diag.health.rtc_validate_status != null && diag.health.rtc_validate_status !== 404}
+              />
+              <DiagRow
+                label="/rtc/v1/validate"
+                value={diag.health.rtc_v1_validate_status == null ? '—' : String(diag.health.rtc_v1_validate_status)}
+                ok={diag.health.rtc_v1_validate_status != null && diag.health.rtc_v1_validate_status !== 404}
+              />
+            </div>
+            {diag.warnings.length > 0 && (
+              <div className="space-y-1">
+                {diag.warnings.map((w) => (
+                  <div key={w} className="flex items-center gap-2 text-xs rounded-md border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400 px-2 py-1">
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                    <span>{w}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </Card>
+
       <Card className="p-5">
         <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
           <h2 className="font-semibold">Workspaces</h2>

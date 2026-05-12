@@ -403,19 +403,24 @@
         }
       }).catch(function (err) {
         if (self.connectStatus !== 'microphone_permission_denied' && self.connectStatus !== 'camera_permission_denied') {
-          var em = String(err && err.message || err).toLowerCase();
+          var rawEm = String(err && err.message || err);
+          var em = sanitize(rawEm).toLowerCase();
+          var friendly = friendlyConnectError(rawEm);
           if (em.indexOf('expired') >= 0 || em.indexOf('unauthorized') >= 0 || em.indexOf('invalid token') >= 0) {
             self.connectStatus = 'token_expired';
+          } else if (em.indexOf('rtc/v1') >= 0 || em.indexOf('v1 rtc') >= 0) {
+            self.connectStatus = 'rtc_v1_unsupported';
+            self.error = friendly;
           } else {
             self.connectStatus = 'room_connect_failed';
-            self.error = String(err && err.message || err);
+            self.error = friendly || sanitize(rawEm);
           }
           self.render();
         }
       });
     } catch (err) {
       self.connectStatus = 'room_connect_failed';
-      self.error = String(err && err.message || err);
+      self.error = sanitize(String(err && err.message || err));
       self.render();
     }
   };

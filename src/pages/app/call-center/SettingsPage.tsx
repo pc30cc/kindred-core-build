@@ -196,11 +196,38 @@ export default function CallCenterSettingsPage() {
             <SelectTrigger className="w-60"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="broadcast">Broadcast — ring all available</SelectItem>
-              <SelectItem value="round_robin">Round robin — planned</SelectItem>
-              <SelectItem value="least_busy">Least busy — planned</SelectItem>
+              <SelectItem value="round_robin">Round robin — next available agent</SelectItem>
+              <SelectItem value="least_busy">Least busy — fewest active calls</SelectItem>
             </SelectContent>
           </Select>
         </Row>
+      </Section>
+
+      <Section
+        title="Departments & Routing"
+        description="Group agents by team and direct visitors to the right place.">
+        <Row label="Default department" hint="New calls without a department choice are routed here.">
+          <Select
+            value={s.default_department_id || '__none__'}
+            onValueChange={(v) => setS({ ...s, default_department_id: v === '__none__' ? null : v })}
+          >
+            <SelectTrigger className="w-60"><SelectValue placeholder="None" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">None</SelectItem>
+              {departments.map((d) => (
+                <SelectItem key={d.id} value={d.id}>{d.name}{!d.enabled ? ' (disabled)' : ''}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Row>
+        <div className="text-xs text-muted-foreground space-y-1">
+          <div><b>Broadcast</b> — every eligible agent in the department sees the call.</div>
+          <div><b>Round robin</b> — the next available agent is picked.</div>
+          <div><b>Least busy</b> — agent with the lowest active call count is picked.</div>
+        </div>
+        <Button asChild variant="outline" size="sm">
+          <Link to={`/app/w/${slug}/call-center/departments`}>Manage departments →</Link>
+        </Button>
       </Section>
 
       <Section title="Recording" description="Configuration only — recording provider not implemented yet.">

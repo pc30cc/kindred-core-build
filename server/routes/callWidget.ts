@@ -288,9 +288,11 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
   if ((active || 0) >= effective.max_concurrent_calls) return res.status(429).json({ error: 'limit_reached', kind: 'concurrent' });
   if ((queued || 0) >= effective.max_queue_size) return res.status(429).json({ error: 'limit_reached', kind: 'queue' });
 
-  // Create call session + queue entry
+  // Create call session + queue entry. Retry once on transient undici
+  // "fetch failed" — Supabase REST connection can be reset between idle
+  // pooled HTTP/1.1 keep-alives in long-running Node processes.
   const dbCallType = dbCallTypeForDept;
-  const { data: call, error: callErr } = await sb.from('call_sessions').insert({
+  const insertPayload = {
     workspace_id: ws.workspace_id,
     entry_source: 'call_widget',
     direction: 'inbound',
@@ -318,8 +320,40 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
       consent_recording: consentGiven,
       recording: recordingMeta,
     },
-  }).select('*').maybeSingle();
-  if (callErr) return res.status(500).json({ error: 'call_create_failed', message: callErr.message });
+  };
+  let call: any = null;
+  let callErr: any = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const r = await sb.from('call_sessions').insert(insertPayload).select('*').maybeSingle();
+      call = r.data;
+      callErr = r.error;
+      if (!callErr && call) break;
+      if (callErr && /fetch failed|ETIMEDOUT|ECONNRESET|ENOTFOUND|UND_ERR/i.test(String(callErr.message || ''))) {
+        console.warn('[call-widget/calls/request] transient insert error, retrying:', callErr.message);
+        await new Promise((r) => setTimeout(r, 150));
+        continue;
+      }
+      break;
+    } catch (thrown: any) {
+      callErr = { message: String(thrown?.message || thrown) };
+      console.warn('[call-widget/calls/request] insert threw, attempt', attempt, callErr.message);
+      if (/fetch failed|ETIMEDOUT|ECONNRESET|ENOTFOUND|UND_ERR/i.test(callErr.message)) {
+        await new Promise((r) => setTimeout(r, 150));
+        continue;
+      }
+      break;
+    }
+  }
+  if (callErr || !call) {
+    console.error('[call-widget/calls/request] call_create_failed:', callErr?.message, {
+      workspace_id: ws.workspace_id,
+      provider: providerId,
+      department_id: chosenDepartmentId,
+      call_type: dbCallType,
+    });
+    return res.status(500).json({ error: 'call_create_failed', message: callErr?.message || 'insert_returned_no_row' });
+  }
 
   await sb.from('call_queue_entries').insert({
     workspace_id: ws.workspace_id,

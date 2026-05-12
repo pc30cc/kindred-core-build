@@ -69,7 +69,7 @@ workspaceDepartmentsRouter.get('/:workspaceId', async (req, res) => {
   // enabled-only resolver.
   const { data, error } = await sb
     .from('workspace_departments')
-    .select('id, workspace_id, name, enabled, chat_enabled, audio_enabled, video_enabled, sort_order, created_at, updated_at')
+    .select('id, workspace_id, name, enabled, chat_enabled, audio_enabled, video_enabled, tickets_enabled, cc_voice_enabled, cc_video_enabled, cc_callback_enabled, cc_routing_mode, cc_fallback_department_id, sort_order, created_at, updated_at')
     .eq('workspace_id', workspaceId)
     .order('sort_order', { ascending: true })
     .order('name', { ascending: true });
@@ -84,6 +84,13 @@ const createSchema = z.object({
   audio_enabled: z.boolean().optional(),
   video_enabled: z.boolean().optional(),
   sort_order: z.number().int().optional(),
+  // CC-2G-UI-Architecture-Fix — unified channel flags managed here.
+  tickets_enabled: z.boolean().optional(),
+  cc_voice_enabled: z.boolean().optional(),
+  cc_video_enabled: z.boolean().optional(),
+  cc_callback_enabled: z.boolean().optional(),
+  cc_routing_mode: z.enum(['broadcast', 'round_robin', 'least_busy']).nullable().optional(),
+  cc_fallback_department_id: z.string().uuid().nullable().optional(),
 });
 
 // POST /api/workspace-departments/:workspaceId
@@ -105,6 +112,12 @@ workspaceDepartmentsRouter.post('/:workspaceId', async (req, res) => {
         audio_enabled: body.audio_enabled ?? false,
         video_enabled: body.video_enabled ?? false,
         sort_order: body.sort_order ?? 0,
+        tickets_enabled: body.tickets_enabled ?? false,
+        cc_voice_enabled: body.cc_voice_enabled ?? false,
+        cc_video_enabled: body.cc_video_enabled ?? false,
+        cc_callback_enabled: body.cc_callback_enabled ?? false,
+        cc_routing_mode: body.cc_routing_mode ?? null,
+        cc_fallback_department_id: body.cc_fallback_department_id ?? null,
       })
       .select()
       .single();
@@ -134,6 +147,12 @@ workspaceDepartmentsRouter.patch('/:workspaceId/:id', async (req, res) => {
     if (body.audio_enabled !== undefined) patch.audio_enabled = body.audio_enabled;
     if (body.video_enabled !== undefined) patch.video_enabled = body.video_enabled;
     if (body.sort_order !== undefined) patch.sort_order = body.sort_order;
+    if (body.tickets_enabled !== undefined) patch.tickets_enabled = body.tickets_enabled;
+    if (body.cc_voice_enabled !== undefined) patch.cc_voice_enabled = body.cc_voice_enabled;
+    if (body.cc_video_enabled !== undefined) patch.cc_video_enabled = body.cc_video_enabled;
+    if (body.cc_callback_enabled !== undefined) patch.cc_callback_enabled = body.cc_callback_enabled;
+    if (body.cc_routing_mode !== undefined) patch.cc_routing_mode = body.cc_routing_mode;
+    if (body.cc_fallback_department_id !== undefined) patch.cc_fallback_department_id = body.cc_fallback_department_id;
     const { data, error } = await sb
       .from('workspace_departments')
       .update(patch)

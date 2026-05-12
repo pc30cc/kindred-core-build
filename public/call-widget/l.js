@@ -83,7 +83,10 @@
         lk.async = true;
         lk.setAttribute('data-cc-livekit-sdk', '1');
         // Local asset only — never an external CDN.
-        lk.src = origin + '/widget/vendor/livekit-client.umd.min.js';
+        // Self-hosted SDK. Prefer the standalone call-widget vendor path
+        // (served by both the frontend image and the API server). Falls
+        // back is unnecessary — both origins serve this file.
+        lk.src = origin + '/call-widget/vendor/livekit-client.umd.min.js';
         lk.onload = cb;
         lk.onerror = cb; // runtime will detect missing window.LivekitClient and show media_client_missing
         document.head.appendChild(lk);

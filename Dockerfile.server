@@ -9,6 +9,19 @@ RUN npm install
 # Copy server source code
 COPY server/ .
 
+# Standalone Call Widget static assets — served by the API origin so
+# legacy/install snippets pointing at the API base keep working
+# (see server/index.ts static mounts under /call-widget).
+COPY public/call-widget ./public/call-widget
+COPY public/widget/vendor ./public/widget/vendor
+
+# Build-time verification — fail fast if the image is missing the
+# standalone widget assets the API is expected to serve.
+RUN test -f /app/public/call-widget/l.js          || (echo "❌ public/call-widget/l.js missing"          && exit 1)
+RUN test -f /app/public/call-widget/runtime.js    || (echo "❌ public/call-widget/runtime.js missing"    && exit 1)
+RUN test -f /app/public/call-widget/runtime.css   || (echo "❌ public/call-widget/runtime.css missing"   && exit 1)
+RUN test -f /app/public/widget/vendor/livekit-client.umd.min.js || (echo "❌ livekit-client.umd.min.js missing" && exit 1)
+
 EXPOSE 3001
 
 # Run TypeScript directly with tsx

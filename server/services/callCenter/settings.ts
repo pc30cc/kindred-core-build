@@ -47,6 +47,8 @@ export interface WorkspaceCallCenterSettings {
   recording_consent_required: boolean;
   routing_mode: string;
   default_department_id: string | null;
+  departments_enabled: boolean;
+  allow_visitor_department_choice: boolean;
   created_at: string;
   updated_at: string;
 }

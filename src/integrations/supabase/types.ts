@@ -3000,6 +3000,7 @@ export type Database = {
       }
       call_center_settings: {
         Row: {
+          allow_visitor_department_choice: boolean
           allowed_domains: string[]
           avatar_storage_path: string | null
           avatar_url: string | null
@@ -3007,6 +3008,7 @@ export type Database = {
           callback_enabled: boolean
           created_at: string
           default_department_id: string | null
+          departments_enabled: boolean
           display_name: string | null
           enabled: boolean
           id: string
@@ -3025,6 +3027,7 @@ export type Database = {
           workspace_id: string
         }
         Insert: {
+          allow_visitor_department_choice?: boolean
           allowed_domains?: string[]
           avatar_storage_path?: string | null
           avatar_url?: string | null
@@ -3032,6 +3035,7 @@ export type Database = {
           callback_enabled?: boolean
           created_at?: string
           default_department_id?: string | null
+          departments_enabled?: boolean
           display_name?: string | null
           enabled?: boolean
           id?: string
@@ -3050,6 +3054,7 @@ export type Database = {
           workspace_id: string
         }
         Update: {
+          allow_visitor_department_choice?: boolean
           allowed_domains?: string[]
           avatar_storage_path?: string | null
           avatar_url?: string | null
@@ -3057,6 +3062,7 @@ export type Database = {
           callback_enabled?: boolean
           created_at?: string
           default_department_id?: string | null
+          departments_enabled?: boolean
           display_name?: string | null
           enabled?: boolean
           id?: string

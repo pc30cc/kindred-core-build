@@ -56,6 +56,19 @@ function Stat({ label, value, icon: Icon }: { label: string; value: number | str
   );
 }
 
+function DiagRow({ label, value, mono, ok }: { label: string; value: string; mono?: boolean; ok?: boolean }) {
+  return (
+    <div className="flex items-center justify-between gap-2 rounded-md border bg-muted/20 px-2 py-1.5">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className={`text-xs ${mono ? 'font-mono' : ''} ${ok === false ? 'text-destructive' : ok === true ? 'text-emerald-600 dark:text-emerald-400' : ''}`}>
+        {ok === true && <CheckCircle2 className="inline h-3 w-3 me-1" />}
+        {ok === false && <XCircle className="inline h-3 w-3 me-1" />}
+        {value}
+      </span>
+    </div>
+  );
+}
+
 export default function AdminCallCenterPage() {
   const { data, isLoading } = useCallCenterAdminPlatform();
   const update = useUpdateCallCenterAdminPlatform();

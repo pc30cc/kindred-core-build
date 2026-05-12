@@ -43,7 +43,14 @@ export const callCenterRouter = Router();
 
 function handleDeptErr(e: any, res: any, fallbackCode: string): boolean {
   if (e instanceof DepartmentException) {
-    res.status(e.httpStatus).json({ error: e.code });
+    if (e.code === 'management_moved') {
+      res.status(410).json({
+        error: 'department_management_moved',
+        manage_url: '/settings/team-departments',
+      });
+    } else {
+      res.status(e.httpStatus).json({ error: e.code });
+    }
     return true;
   }
   return false;

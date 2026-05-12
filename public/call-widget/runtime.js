@@ -36,6 +36,36 @@
     return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
   }
 
+  /**
+   * CC-2H Phase 6 — Strip access_token query params and JWT-shaped
+   * blobs from any string before it reaches the UI or console.log.
+   */
+  function sanitize(s) {
+    if (s == null) return s;
+    var str = String(s);
+    str = str.replace(/access_token=[^&\s"']+/gi, 'access_token=[redacted]');
+    str = str.replace(/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, '[redacted-token]');
+    return str;
+  }
+
+  /**
+   * CC-2H Phase 5 — Map common LiveKit transport failures to
+   * actionable, secret-free messages.
+   */
+  function friendlyConnectError(raw) {
+    var s = sanitize(String(raw || '')).toLowerCase();
+    if (s.indexOf('v1 rtc path') >= 0 || s.indexOf('rtc/v1') >= 0 || s.indexOf('404') >= 0 && s.indexOf('validate') >= 0) {
+      return 'The call media server does not support the RTC v1 path required by this client. Please ask the platform admin to upgrade LiveKit or fix the reverse proxy.';
+    }
+    if (s.indexOf('connection refused') >= 0 || s.indexOf('1006') >= 0) {
+      return 'Could not reach the call media server. Please try again or contact support.';
+    }
+    if (s.indexOf('expired') >= 0 || s.indexOf('unauthorized') >= 0 || s.indexOf('invalid token') >= 0) {
+      return 'Your call session expired. Please end and start a new call.';
+    }
+    return null;
+  }
+
   function CallCenterWidgetCtor() {
     this.state = STATES.LOADING;
     this.bootstrap = null;
@@ -181,7 +211,7 @@
       self.startPolling();
       self.startTimer();
     }).catch(function (e) {
-      self.error = String(e && e.message || e);
+      self.error = sanitize(String(e && e.message || e));
       self.state = STATES.ERROR; self.render();
     });
   };
@@ -339,7 +369,7 @@
       room.connect(connect.server_url, info.token).then(function () {
         return room.localParticipant.setMicrophoneEnabled(true).catch(function (err) {
           self.connectStatus = 'microphone_permission_denied';
-          self.error = String(err && err.message || err);
+          self.error = sanitize(String(err && err.message || err));
           self.render();
           throw err;
         });
@@ -347,7 +377,7 @@
         if (wantVideo) {
           return room.localParticipant.setCameraEnabled(true).catch(function (err) {
             self.connectStatus = 'camera_permission_denied';
-            self.error = String(err && err.message || err);
+            self.error = sanitize(String(err && err.message || err));
             self.render();
           });
         }
@@ -373,19 +403,24 @@
         }
       }).catch(function (err) {
         if (self.connectStatus !== 'microphone_permission_denied' && self.connectStatus !== 'camera_permission_denied') {
-          var em = String(err && err.message || err).toLowerCase();
+          var rawEm = String(err && err.message || err);
+          var em = sanitize(rawEm).toLowerCase();
+          var friendly = friendlyConnectError(rawEm);
           if (em.indexOf('expired') >= 0 || em.indexOf('unauthorized') >= 0 || em.indexOf('invalid token') >= 0) {
             self.connectStatus = 'token_expired';
+          } else if (em.indexOf('rtc/v1') >= 0 || em.indexOf('v1 rtc') >= 0) {
+            self.connectStatus = 'rtc_v1_unsupported';
+            self.error = friendly;
           } else {
             self.connectStatus = 'room_connect_failed';
-            self.error = String(err && err.message || err);
+            self.error = friendly || sanitize(rawEm);
           }
           self.render();
         }
       });
     } catch (err) {
       self.connectStatus = 'room_connect_failed';
-      self.error = String(err && err.message || err);
+      self.error = sanitize(String(err && err.message || err));
       self.render();
     }
   };

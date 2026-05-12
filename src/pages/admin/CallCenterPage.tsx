@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import {
   useCallCenterAdminPlatform, useUpdateCallCenterAdminPlatform, useCallCenterAdminWorkspaces,
 } from '@/hooks/useCallCenter';
-import { callCenterAdminApi, type CallCenterPlatformSettings } from '@/lib/call-center-api';
+import { callCenterAdminApi, callCenterDiagnosticsApi, type CallCenterPlatformSettings, type LiveKitDiagnostics } from '@/lib/call-center-api';
 import { Card } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Button } from '@/components/ui/button';
@@ -10,7 +10,7 @@ import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from '@/hooks/use-toast';
-import { AlertCircle, ShieldCheck, Server, Building2, Search } from 'lucide-react';
+import { AlertCircle, ShieldCheck, Server, Building2, Search, Activity, Loader2, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react';
 
 const TOGGLE_GROUPS: Array<{ title: string; items: Array<[keyof CallCenterPlatformSettings, string, boolean?]> }> = [
   { title: 'Core', items: [
@@ -56,6 +56,19 @@ function Stat({ label, value, icon: Icon }: { label: string; value: number | str
   );
 }
 
+function DiagRow({ label, value, mono, ok }: { label: string; value: string; mono?: boolean; ok?: boolean }) {
+  return (
+    <div className="flex items-center justify-between gap-2 rounded-md border bg-muted/20 px-2 py-1.5">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className={`text-xs ${mono ? 'font-mono' : ''} ${ok === false ? 'text-destructive' : ok === true ? 'text-emerald-600 dark:text-emerald-400' : ''}`}>
+        {ok === true && <CheckCircle2 className="inline h-3 w-3 me-1" />}
+        {ok === false && <XCircle className="inline h-3 w-3 me-1" />}
+        {value}
+      </span>
+    </div>
+  );
+}
+
 export default function AdminCallCenterPage() {
   const { data, isLoading } = useCallCenterAdminPlatform();
   const update = useUpdateCallCenterAdminPlatform();
@@ -65,6 +78,26 @@ export default function AdminCallCenterPage() {
   const [messages, setMessages] = useState<Record<string, string>>({});
   const [jsonError, setJsonError] = useState<string | null>(null);
   const [wsSearch, setWsSearch] = useState('');
+  const [diag, setDiag] = useState<LiveKitDiagnostics | null>(null);
+  const [diagBusy, setDiagBusy] = useState(false);
+  const [diagErr, setDiagErr] = useState<string | null>(null);
+  const firstWorkspaceId = ws?.workspaces?.[0]?.workspace_id || null;
+
+  async function runDiagnostics() {
+    if (!firstWorkspaceId) {
+      toast({ title: 'No workspace available to probe', variant: 'destructive' });
+      return;
+    }
+    setDiagBusy(true); setDiagErr(null);
+    try {
+      const d = await callCenterDiagnosticsApi.getLiveKit(firstWorkspaceId);
+      setDiag(d);
+    } catch (e: any) {
+      setDiagErr(e?.message || 'Diagnostics failed');
+    } finally {
+      setDiagBusy(false);
+    }
+  }
 
   useEffect(() => {
     if (data?.settings) {
@@ -192,6 +225,54 @@ export default function AdminCallCenterPage() {
         <Button onClick={save} disabled={update.isPending}>Save platform settings</Button>
         <Button variant="outline" onClick={invalidate}>Invalidate cache</Button>
       </div>
+
+      <Card className="p-5 space-y-3">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div>
+            <h2 className="font-semibold flex items-center gap-2"><Activity className="h-4 w-4" /> LiveKit connectivity</h2>
+            <p className="text-xs text-muted-foreground">
+              Probes the configured LiveKit URL for the standalone Call Center widget.
+              Probes <code>/rtc/validate</code> and <code>/rtc/v1/validate</code>.
+              Never returns secrets or tokens.
+            </p>
+          </div>
+          <Button size="sm" variant="outline" onClick={runDiagnostics} disabled={diagBusy || !firstWorkspaceId}>
+            {diagBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Activity className="h-3.5 w-3.5" />}
+            <span className="ms-1.5">Run diagnostics</span>
+          </Button>
+        </div>
+        {diagErr && <p className="text-xs text-destructive">{diagErr}</p>}
+        {diag && (
+          <div className="space-y-3 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <DiagRow label="Server URL" value={diag.server_url_public || '—'} mono />
+              <DiagRow label="Normalized" value={diag.server_url_public_normalized || '—'} mono />
+              <DiagRow label="API key" value={diag.api_key_present ? 'Present' : 'Missing'} ok={diag.api_key_present} />
+              <DiagRow label="API secret" value={diag.api_secret_present ? 'Present' : 'Missing'} ok={diag.api_secret_present} />
+              <DiagRow
+                label="/rtc/validate"
+                value={diag.health.rtc_validate_status == null ? '—' : String(diag.health.rtc_validate_status)}
+                ok={diag.health.rtc_validate_status != null && diag.health.rtc_validate_status !== 404}
+              />
+              <DiagRow
+                label="/rtc/v1/validate"
+                value={diag.health.rtc_v1_validate_status == null ? '—' : String(diag.health.rtc_v1_validate_status)}
+                ok={diag.health.rtc_v1_validate_status != null && diag.health.rtc_v1_validate_status !== 404}
+              />
+            </div>
+            {diag.warnings.length > 0 && (
+              <div className="space-y-1">
+                {diag.warnings.map((w) => (
+                  <div key={w} className="flex items-center gap-2 text-xs rounded-md border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400 px-2 py-1">
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                    <span>{w}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </Card>
 
       <Card className="p-5">
         <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">

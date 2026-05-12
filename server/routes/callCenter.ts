@@ -19,6 +19,11 @@ import { isGlobalAdmin } from '../middleware/adminBypass.js';
 import { resolveEffectiveCallProvider } from '../services/calls/providerResolver.js';
 import { publishQueueEvent, publishCallEvent } from '../services/callCenter/realtime.js';
 import { buildClientConnectInfo } from '../services/callCenter/connectInfo.js';
+import {
+  loadLiveKitConfig,
+  getLiveKitClientWsUrl,
+} from '../services/calls/livekitConfig.js';
+import { normalizeClientWsUrl } from '../services/calls/rtcResolver.js';
 import { computeRecordingCapability, disabledRecordingCapability } from '../services/callCenter/recording.js';
 import {
   startCallCenterRecording,
@@ -57,24 +62,99 @@ function handleDeptErr(e: any, res: any, fallbackCode: string): boolean {
 }
 
 // ── auth helpers ───────────────────────────────────────────────────────────
-async function getUser(req: any, config: ServerConfig) {
+/**
+ * CC-2H Phase 7 — Resilient auth lookup.
+ *
+ * Wraps `sb.auth.getUser()` so transient network failures against the
+ * Supabase auth host (DNS EAI_AGAIN, undici UND_ERR_CONNECT_TIMEOUT,
+ * ECONNRESET, fetch failed, etc.) do NOT bubble up as raw stack traces
+ * or get misinterpreted as "unauthenticated" 401s.
+ *
+ * Behavior:
+ *   - return { user }   → success
+ *   - return { user: null }                       → no/invalid bearer
+ *   - return { unreachable: true, code }          → transient infra failure
+ *
+ * One short retry (200 ms) is attempted for transient errors. Total
+ * wait stays under ~2s. NEVER returns a fabricated user.
+ */
+const TRANSIENT_AUTH_CODES = [
+  'EAI_AGAIN', 'ENOTFOUND', 'ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT',
+  'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_SOCKET', 'UND_ERR_HEADERS_TIMEOUT',
+  'fetch failed',
+];
+function classifyAuthError(err: any): string | null {
+  const code = err?.code || err?.cause?.code || '';
+  const msg = String(err?.message || err?.cause?.message || err || '');
+  for (const c of TRANSIENT_AUTH_CODES) {
+    if (code === c) return c;
+    if (msg.includes(c)) return c;
+  }
+  return null;
+}
+interface AuthLookup {
+  user: any | null;
+  unreachable?: boolean;
+  code?: string;
+}
+async function lookupUser(req: any, config: ServerConfig): Promise<AuthLookup> {
   const auth = req.headers.authorization;
-  if (!auth?.startsWith('Bearer ')) return null;
+  if (!auth?.startsWith('Bearer ')) return { user: null };
   const sb = getServiceClient(config);
-  const { data: { user } } = await sb.auth.getUser(auth.replace('Bearer ', ''));
-  return user || null;
+  const token = auth.replace('Bearer ', '');
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const { data, error } = await sb.auth.getUser(token);
+      if (error) {
+        const transient = classifyAuthError(error);
+        if (transient && attempt === 0) {
+          await new Promise((r) => setTimeout(r, 200));
+          continue;
+        }
+        if (transient) {
+          console.warn('[call_center.auth_provider_unreachable]', { code: transient, attempt });
+          return { user: null, unreachable: true, code: transient };
+        }
+        return { user: null };
+      }
+      return { user: data?.user || null };
+    } catch (err: any) {
+      const transient = classifyAuthError(err);
+      if (transient && attempt === 0) {
+        await new Promise((r) => setTimeout(r, 200));
+        continue;
+      }
+      if (transient) {
+        console.warn('[call_center.auth_provider_unreachable]', { code: transient, attempt });
+        return { user: null, unreachable: true, code: transient };
+      }
+      // Non-transient unexpected error — log safely, treat as no user.
+      console.warn('[call_center.auth_lookup_failed]', { message: String(err?.message || err) });
+      return { user: null };
+    }
+  }
+  return { user: null };
+}
+
+async function getUser(req: any, config: ServerConfig) {
+  const r = await lookupUser(req, config);
+  return r.user;
 }
 
 async function requireMember(req: any, res: any, workspaceId: string) {
   const config = (req as any).serverConfig as ServerConfig;
-  const user = await getUser(req, config);
-  if (!user) { res.status(401).json({ error: 'unauthenticated' }); return null; }
+  const lookup = await lookupUser(req, config);
+  if (lookup.unreachable) {
+    res.status(503).json({ error: 'auth_provider_unreachable' });
+    return null;
+  }
+  if (!lookup.user) { res.status(401).json({ error: 'unauthenticated' }); return null; }
   const sb = getServiceClient(config);
   const { data: ok } = await sb.rpc('is_workspace_member', {
-    _workspace_id: workspaceId, _user_id: user.id,
+    _workspace_id: workspaceId, _user_id: lookup.user.id,
   });
   if (!ok) { res.status(403).json({ error: 'not_member' }); return null; }
-  return { userId: user.id, config };
+  return { userId: lookup.user.id, config };
 }
 
 async function requireWorkspaceAdmin(req: any, res: any, workspaceId: string) {
@@ -1134,4 +1214,115 @@ callCenterRouter.post('/calls/:id/transfer', async (req, res) => {
     if (e instanceof RoutingException) return res.status(e.httpStatus).json({ error: e.code });
     res.status(500).json({ error: 'transfer_failed', message: String(e?.message || e) });
   }
+});
+
+// ── CC-2H Phase 2 — LiveKit connectivity diagnostics ──────────────────────
+//
+// GET /api/call-center/diagnostics/livekit?workspaceId=...
+// Returns a SAFE summary (no api_key/api_secret/webhook_secret/tokens) of
+// LiveKit configuration + reachability. Restricted to workspace owners,
+// admins, and team_leads. Used by the Super Admin Call Center page and the
+// workspace install/settings readiness checks.
+const DIAG_ROLES = new Set(['owner', 'admin', 'team_lead']);
+
+async function probeUrl(url: string, timeoutMs = 3000): Promise<{ status: number | null; error: string | null }> {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const r = await fetch(url, { method: 'GET', signal: controller.signal });
+    return { status: r.status, error: null };
+  } catch (err: any) {
+    return { status: null, error: String(err?.code || err?.name || err?.message || 'fetch_failed') };
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+callCenterRouter.get('/diagnostics/livekit', async (req, res) => {
+  const wid = String(req.query.workspaceId || '');
+  if (!wid) return res.status(400).json({ error: 'workspaceId_required' });
+  const config = (req as any).serverConfig as ServerConfig;
+  const lookup = await lookupUser(req, config);
+  if (lookup.unreachable) return res.status(503).json({ error: 'auth_provider_unreachable' });
+  if (!lookup.user) return res.status(401).json({ error: 'unauthenticated' });
+  const sb = getServiceClient(config);
+  const isAdmin = await isGlobalAdmin(config, lookup.user.id);
+  let role: string | null = null;
+  if (!isAdmin) {
+    const { data: ok } = await sb.rpc('is_workspace_member', {
+      _workspace_id: wid, _user_id: lookup.user.id,
+    });
+    if (!ok) return res.status(403).json({ error: 'not_member' });
+    const { data: roleRaw } = await sb.rpc('get_workspace_role', {
+      _workspace_id: wid, _user_id: lookup.user.id,
+    });
+    role = roleRaw ? String(roleRaw) : null;
+  }
+  if (!isAdmin && !(role && DIAG_ROLES.has(role))) {
+    return res.status(403).json({ error: 'forbidden' });
+  }
+
+  const lk = await loadLiveKitConfig(config);
+  const wsUrl = await getLiveKitClientWsUrl(config);
+  const normalized = normalizeClientWsUrl(wsUrl);
+
+  const warnings: string[] = [];
+  if (!lk.enabled) warnings.push('livekit_disabled');
+  if (!lk.api_key) warnings.push('livekit_api_key_missing');
+  if (!lk.api_secret) warnings.push('livekit_api_secret_missing');
+  if (!normalized) warnings.push('livekit_url_missing');
+  if (lk.recording_storage.vendor && (!lk.recording_storage.access_key || !lk.recording_storage.secret_key)) {
+    warnings.push('recording_storage_credentials_missing');
+  }
+
+  // Build https origin from the wss URL for HTTP probes.
+  let httpsOrigin: string | null = null;
+  if (normalized) {
+    try {
+      const u = new URL(normalized);
+      httpsOrigin = `https://${u.host}`;
+    } catch { /* noop */ }
+  }
+
+  let rtcValidate: { status: number | null; error: string | null } = { status: null, error: null };
+  let rtcV1Validate: { status: number | null; error: string | null } = { status: null, error: null };
+  if (httpsOrigin) {
+    [rtcValidate, rtcV1Validate] = await Promise.all([
+      probeUrl(`${httpsOrigin}/rtc/validate`),
+      probeUrl(`${httpsOrigin}/rtc/v1/validate`),
+    ]);
+    if (rtcV1Validate.status === 404) warnings.push('livekit_v1_rtc_path_not_supported');
+    if (rtcValidate.status === null && rtcV1Validate.status === null) {
+      warnings.push('livekit_server_unreachable');
+    }
+  }
+
+  const connectSupported = !!normalized && lk.enabled && !!lk.api_key && !!lk.api_secret;
+  const connectReason = !lk.enabled ? 'disabled'
+    : !normalized ? 'livekit_url_missing'
+    : (!lk.api_key || !lk.api_secret) ? 'credentials_missing'
+    : null;
+
+  res.json({
+    provider: 'livekit',
+    configured: lk.enabled && !!lk.api_key && !!lk.api_secret && !!normalized,
+    server_url_public: wsUrl,
+    server_url_public_normalized: normalized,
+    rtc_url_present: !!lk.rtc_url,
+    ws_url_present: !!lk.ws_url,
+    api_key_present: !!lk.api_key,
+    api_secret_present: !!lk.api_secret,
+    connect_info_supported: connectSupported,
+    connect_info_reason: connectReason,
+    health: {
+      twirp_create_room_ready: null,
+      server_reachable: httpsOrigin
+        ? rtcValidate.status !== null || rtcV1Validate.status !== null
+        : null,
+      rtc_validate_status: rtcValidate.status,
+      rtc_v1_validate_status: rtcV1Validate.status,
+      websocket_origin_hint: httpsOrigin,
+    },
+    warnings,
+  });
 });

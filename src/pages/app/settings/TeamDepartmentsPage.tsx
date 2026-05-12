@@ -267,10 +267,15 @@ export default function TeamDepartmentsPage() {
                       {!d.enabled && <Badge variant="outline" className="text-[10px]">Disabled</Badge>}
                     </div>
                     <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-                      {d.chat_enabled && <span className="flex items-center gap-1"><MessageSquare className="h-3 w-3" /> Chat</span>}
-                      {d.audio_enabled && <span className="flex items-center gap-1"><Phone className="h-3 w-3" /> Audio</span>}
-                      {d.video_enabled && <span className="flex items-center gap-1"><Video className="h-3 w-3" /> Video</span>}
-                      {!d.chat_enabled && !d.audio_enabled && !d.video_enabled && (
+                      {d.chat_enabled && <span className="flex items-center gap-1"><MessageSquare className="h-3 w-3" /> Live Chat</span>}
+                      {d.tickets_enabled && <span className="flex items-center gap-1"><MessageSquare className="h-3 w-3" /> Tickets</span>}
+                      {d.audio_enabled && <span className="flex items-center gap-1"><Phone className="h-3 w-3" /> Chat Widget Voice</span>}
+                      {d.video_enabled && <span className="flex items-center gap-1"><Video className="h-3 w-3" /> Chat Widget Video</span>}
+                      {d.cc_voice_enabled && <span className="flex items-center gap-1"><Phone className="h-3 w-3" /> Call Center Voice</span>}
+                      {d.cc_video_enabled && <span className="flex items-center gap-1"><Video className="h-3 w-3" /> Call Center Video</span>}
+                      {d.cc_callback_enabled && <span className="flex items-center gap-1"><Phone className="h-3 w-3" /> Call Center Callback</span>}
+                      {!d.chat_enabled && !d.tickets_enabled && !d.audio_enabled && !d.video_enabled
+                        && !d.cc_voice_enabled && !d.cc_video_enabled && !d.cc_callback_enabled && (
                         <span className="italic">No channels enabled</span>
                       )}
                     </div>
@@ -519,6 +524,10 @@ function DepartmentDialog({
     audio_enabled: department?.audio_enabled ?? false,
     video_enabled: department?.video_enabled ?? false,
     sort_order: department?.sort_order ?? 0,
+    tickets_enabled: department?.tickets_enabled ?? false,
+    cc_voice_enabled: department?.cc_voice_enabled ?? false,
+    cc_video_enabled: department?.cc_video_enabled ?? false,
+    cc_callback_enabled: department?.cc_callback_enabled ?? false,
   });
 
   const save = useMutation({
@@ -557,13 +566,33 @@ function DepartmentDialog({
             <p className="text-[11px] text-muted-foreground">Lower numbers appear first.</p>
           </div>
           <div className="space-y-2.5 rounded-md border border-border/60 bg-muted/20 p-3">
-            <Label className="text-xs uppercase tracking-wide text-muted-foreground">Channels</Label>
-            <ToggleRow label="Chat" checked={form.chat_enabled}
+            <Label className="text-xs uppercase tracking-wide text-muted-foreground">Messaging</Label>
+            <ToggleRow label="Live Chat" checked={form.chat_enabled}
               onChange={(v) => setForm({ ...form, chat_enabled: v })} />
-            <ToggleRow label="Audio calls" checked={form.audio_enabled}
+            <ToggleRow label="Tickets" checked={form.tickets_enabled}
+              onChange={(v) => setForm({ ...form, tickets_enabled: v })} />
+          </div>
+          <div className="space-y-2.5 rounded-md border border-border/60 bg-muted/20 p-3">
+            <Label className="text-xs uppercase tracking-wide text-muted-foreground">Chat Widget Calls</Label>
+            <p className="text-[11px] text-muted-foreground -mt-1">
+              Calls started from inside the chat widget / inbox.
+            </p>
+            <ToggleRow label="Chat Widget Voice Call" checked={form.audio_enabled}
               onChange={(v) => setForm({ ...form, audio_enabled: v })} />
-            <ToggleRow label="Video calls" checked={form.video_enabled}
+            <ToggleRow label="Chat Widget Video Call" checked={form.video_enabled}
               onChange={(v) => setForm({ ...form, video_enabled: v })} />
+          </div>
+          <div className="space-y-2.5 rounded-md border border-border/60 bg-muted/20 p-3">
+            <Label className="text-xs uppercase tracking-wide text-muted-foreground">Standalone Call Center</Label>
+            <p className="text-[11px] text-muted-foreground -mt-1">
+              Calls from the separate Call Center widget and Live Desk.
+            </p>
+            <ToggleRow label="Call Center Voice Call" checked={form.cc_voice_enabled}
+              onChange={(v) => setForm({ ...form, cc_voice_enabled: v })} />
+            <ToggleRow label="Call Center Video Call" checked={form.cc_video_enabled}
+              onChange={(v) => setForm({ ...form, cc_video_enabled: v })} />
+            <ToggleRow label="Call Center Callback" checked={form.cc_callback_enabled}
+              onChange={(v) => setForm({ ...form, cc_callback_enabled: v })} />
           </div>
           <div className="rounded-md border border-border/60 p-3">
             <ToggleRow label="Department enabled" checked={form.enabled}

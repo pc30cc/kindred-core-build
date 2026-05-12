@@ -36,6 +36,36 @@
     return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
   }
 
+  /**
+   * CC-2H Phase 6 — Strip access_token query params and JWT-shaped
+   * blobs from any string before it reaches the UI or console.log.
+   */
+  function sanitize(s) {
+    if (s == null) return s;
+    var str = String(s);
+    str = str.replace(/access_token=[^&\s"']+/gi, 'access_token=[redacted]');
+    str = str.replace(/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, '[redacted-token]');
+    return str;
+  }
+
+  /**
+   * CC-2H Phase 5 — Map common LiveKit transport failures to
+   * actionable, secret-free messages.
+   */
+  function friendlyConnectError(raw) {
+    var s = sanitize(String(raw || '')).toLowerCase();
+    if (s.indexOf('v1 rtc path') >= 0 || s.indexOf('rtc/v1') >= 0 || s.indexOf('404') >= 0 && s.indexOf('validate') >= 0) {
+      return 'The call media server does not support the RTC v1 path required by this client. Please ask the platform admin to upgrade LiveKit or fix the reverse proxy.';
+    }
+    if (s.indexOf('connection refused') >= 0 || s.indexOf('1006') >= 0) {
+      return 'Could not reach the call media server. Please try again or contact support.';
+    }
+    if (s.indexOf('expired') >= 0 || s.indexOf('unauthorized') >= 0 || s.indexOf('invalid token') >= 0) {
+      return 'Your call session expired. Please end and start a new call.';
+    }
+    return null;
+  }
+
   function CallCenterWidgetCtor() {
     this.state = STATES.LOADING;
     this.bootstrap = null;

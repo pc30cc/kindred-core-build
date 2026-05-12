@@ -50,7 +50,7 @@
     this.timer = null;
     this.poll = null;
     this.open = false;
-    this.formData = { name: '', email: '', phone: '', subject: '', call_type: 'voice', consent: false };
+    this.formData = { name: '', email: '', phone: '', subject: '', call_type: 'voice', consent: false, department_id: '' };
   }
 
   CallCenterWidgetCtor.prototype.mount = function (opts) {
@@ -117,10 +117,17 @@
   CallCenterWidgetCtor.prototype.startCall = function (callType) {
     var cfg = this.bootstrap.config || {};
     this.formData.call_type = callType;
+    // Auto-select sole department for the chosen channel, otherwise reset.
+    var depts = (this.bootstrap && this.bootstrap.departments) || {};
+    var list = (callType === 'video' ? depts.video : depts.voice) || [];
+    this.formData.department_id = (list.length === 1) ? list[0].id : '';
     var rec = (this.bootstrap && this.bootstrap.recording) || {};
     var consentNeeded = !!(rec.effective_enabled && rec.consent_required);
     var passiveNotice = !!(rec.effective_enabled && !rec.consent_required);
-    if (cfg.pre_call_form_enabled || consentNeeded || passiveNotice) {
+    var depts2 = (this.bootstrap && this.bootstrap.departments) || {};
+    var list2 = (callType === 'video' ? depts2.video : depts2.voice) || [];
+    var needsDepartmentChoice = list2.length > 1;
+    if (cfg.pre_call_form_enabled || consentNeeded || passiveNotice || needsDepartmentChoice) {
       this.state = STATES.PRE_CALL; this.render(); return;
     }
     this.submitCall();
@@ -150,12 +157,17 @@
         consent_recording: !!this.formData.consent,
         recording_consent: !!this.formData.consent,
         recording_consent_at: consentAt,
+        department_id: this.formData.department_id || null,
       },
     }).then(function (r) {
       if (!r.ok) {
         var code = r.body && r.body.error;
         if (code === 'recording_consent_required') {
           self.error = 'Please accept the recording consent to start the call.';
+          self.state = STATES.PRE_CALL; self.render(); return;
+        }
+        if (code === 'department_channel_disabled' || code === 'department_not_found') {
+          self.error = 'This department is not available for this call type. Please choose another department.';
           self.state = STATES.PRE_CALL; self.render(); return;
         }
         self.error = (r.body && (r.body.message || r.body.error)) || 'Failed to start call.';

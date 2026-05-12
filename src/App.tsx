@@ -116,6 +116,7 @@ import CallCenterCallsPage from "@/pages/app/call-center/CallsPage";
 import CallCenterCallbacksPage from "@/pages/app/call-center/CallbacksPage";
 import CallCenterInstallPage from "@/pages/app/call-center/InstallPage";
 import CallCenterSettingsPage from "@/pages/app/call-center/SettingsPage";
+import CallCenterDepartmentsPage from "@/pages/app/call-center/DepartmentsPage";
 
 import NotFound from "@/pages/NotFound";
 
@@ -227,6 +228,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                   <Route path="queue" element={<CallCenterLiveQueuePage />} />
                   <Route path="calls" element={<CallCenterCallsPage />} />
                   <Route path="callbacks" element={<CallCenterCallbacksPage />} />
+                  <Route path="departments" element={<CallCenterDepartmentsPage />} />
                   <Route path="install" element={<CallCenterInstallPage />} />
                   <Route path="settings" element={<CallCenterSettingsPage />} />
                 </Route>

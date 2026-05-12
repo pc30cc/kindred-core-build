@@ -34,10 +34,16 @@ export default function InstallPage() {
   const { data: overview } = useCallCenterOverview(workspace?.id);
   const update = useUpdateCallCenterSettings(workspace?.id);
   const apiBase = (import.meta.env.VITE_API_BASE_URL as string) || window.location.origin;
+  // Widget asset base may live on a different origin (e.g. CDN/frontend
+  // host) than the API. Falls back to the API origin for single-host setups.
+  const widgetAssetBase =
+    (import.meta.env.VITE_CALL_WIDGET_ASSET_BASE_URL as string) ||
+    (import.meta.env.VITE_WIDGET_ASSET_BASE_URL as string) ||
+    window.location.origin;
   const wid = workspace?.id || '';
-  const snippetWs = `<script async src="${apiBase}/call-widget/l.js" workspace-id="${wid}"></script>`;
+  const snippetWs = `<script async src="${widgetAssetBase}/call-widget/l.js" api-base="${apiBase}" workspace-id="${wid}"></script>`;
   const snippetPk = data?.settings?.public_key
-    ? `<script async src="${apiBase}/call-widget/l.js" public-key="${data.settings.public_key}"></script>`
+    ? `<script async src="${widgetAssetBase}/call-widget/l.js" api-base="${apiBase}" public-key="${data.settings.public_key}"></script>`
     : null;
 
   const [domains, setDomains] = useState<string[]>([]);
@@ -107,6 +113,11 @@ export default function InstallPage() {
           <Code2 className="h-4 w-4 text-primary" />
           <h2 className="font-semibold">Embed code</h2>
         </div>
+        <p className="text-xs text-muted-foreground">
+          Widget script is loaded from <code>{widgetAssetBase}</code>. API
+          requests go to <code>{apiBase}</code>. These can differ
+          (e.g. CDN-hosted assets + separate API host).
+        </p>
         <div>
           <div className="text-xs text-muted-foreground mb-1">Workspace ID install</div>
           <pre className="bg-muted p-3 rounded text-xs overflow-x-auto">{snippetWs}</pre>

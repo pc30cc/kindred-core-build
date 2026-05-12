@@ -57,24 +57,99 @@ function handleDeptErr(e: any, res: any, fallbackCode: string): boolean {
 }
 
 // ── auth helpers ───────────────────────────────────────────────────────────
-async function getUser(req: any, config: ServerConfig) {
+/**
+ * CC-2H Phase 7 — Resilient auth lookup.
+ *
+ * Wraps `sb.auth.getUser()` so transient network failures against the
+ * Supabase auth host (DNS EAI_AGAIN, undici UND_ERR_CONNECT_TIMEOUT,
+ * ECONNRESET, fetch failed, etc.) do NOT bubble up as raw stack traces
+ * or get misinterpreted as "unauthenticated" 401s.
+ *
+ * Behavior:
+ *   - return { user }   → success
+ *   - return { user: null }                       → no/invalid bearer
+ *   - return { unreachable: true, code }          → transient infra failure
+ *
+ * One short retry (200 ms) is attempted for transient errors. Total
+ * wait stays under ~2s. NEVER returns a fabricated user.
+ */
+const TRANSIENT_AUTH_CODES = [
+  'EAI_AGAIN', 'ENOTFOUND', 'ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT',
+  'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_SOCKET', 'UND_ERR_HEADERS_TIMEOUT',
+  'fetch failed',
+];
+function classifyAuthError(err: any): string | null {
+  const code = err?.code || err?.cause?.code || '';
+  const msg = String(err?.message || err?.cause?.message || err || '');
+  for (const c of TRANSIENT_AUTH_CODES) {
+    if (code === c) return c;
+    if (msg.includes(c)) return c;
+  }
+  return null;
+}
+interface AuthLookup {
+  user: any | null;
+  unreachable?: boolean;
+  code?: string;
+}
+async function lookupUser(req: any, config: ServerConfig): Promise<AuthLookup> {
   const auth = req.headers.authorization;
-  if (!auth?.startsWith('Bearer ')) return null;
+  if (!auth?.startsWith('Bearer ')) return { user: null };
   const sb = getServiceClient(config);
-  const { data: { user } } = await sb.auth.getUser(auth.replace('Bearer ', ''));
-  return user || null;
+  const token = auth.replace('Bearer ', '');
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const { data, error } = await sb.auth.getUser(token);
+      if (error) {
+        const transient = classifyAuthError(error);
+        if (transient && attempt === 0) {
+          await new Promise((r) => setTimeout(r, 200));
+          continue;
+        }
+        if (transient) {
+          console.warn('[call_center.auth_provider_unreachable]', { code: transient, attempt });
+          return { user: null, unreachable: true, code: transient };
+        }
+        return { user: null };
+      }
+      return { user: data?.user || null };
+    } catch (err: any) {
+      const transient = classifyAuthError(err);
+      if (transient && attempt === 0) {
+        await new Promise((r) => setTimeout(r, 200));
+        continue;
+      }
+      if (transient) {
+        console.warn('[call_center.auth_provider_unreachable]', { code: transient, attempt });
+        return { user: null, unreachable: true, code: transient };
+      }
+      // Non-transient unexpected error — log safely, treat as no user.
+      console.warn('[call_center.auth_lookup_failed]', { message: String(err?.message || err) });
+      return { user: null };
+    }
+  }
+  return { user: null };
+}
+
+async function getUser(req: any, config: ServerConfig) {
+  const r = await lookupUser(req, config);
+  return r.user;
 }
 
 async function requireMember(req: any, res: any, workspaceId: string) {
   const config = (req as any).serverConfig as ServerConfig;
-  const user = await getUser(req, config);
-  if (!user) { res.status(401).json({ error: 'unauthenticated' }); return null; }
+  const lookup = await lookupUser(req, config);
+  if (lookup.unreachable) {
+    res.status(503).json({ error: 'auth_provider_unreachable' });
+    return null;
+  }
+  if (!lookup.user) { res.status(401).json({ error: 'unauthenticated' }); return null; }
   const sb = getServiceClient(config);
   const { data: ok } = await sb.rpc('is_workspace_member', {
-    _workspace_id: workspaceId, _user_id: user.id,
+    _workspace_id: workspaceId, _user_id: lookup.user.id,
   });
   if (!ok) { res.status(403).json({ error: 'not_member' }); return null; }
-  return { userId: user.id, config };
+  return { userId: lookup.user.id, config };
 }
 
 async function requireWorkspaceAdmin(req: any, res: any, workspaceId: string) {

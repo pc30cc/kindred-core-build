@@ -89,6 +89,79 @@ const OPERATOR_ROLES = new Set([
   'owner', 'admin', 'agent', 'support_agent', 'team_lead',
 ]);
 
+// Roles allowed to take over / force-end a call already assigned to another
+// operator. Keep this strictly conservative.
+const ELEVATED_CALL_ROLES = new Set(['owner', 'admin', 'team_lead']);
+
+async function getWorkspaceRole(
+  config: ServerConfig, workspaceId: string, userId: string,
+): Promise<string | null> {
+  const sb = getServiceClient(config);
+  const { data } = await sb.rpc('get_workspace_role', {
+    _workspace_id: workspaceId, _user_id: userId,
+  });
+  return data ? String(data) : null;
+}
+
+/**
+ * Decide whether the current user can perform a call action on a standalone
+ * call. Returns the resolved role and whether this is an elevated takeover.
+ * Throws an HTTP-shaped error code that callers translate into a response.
+ */
+type CallAction = 'accept' | 'reject' | 'end';
+interface OwnershipDecision {
+  role: string | null;
+  isElevated: boolean;
+  isAssignedToMe: boolean;
+  isTakeover: boolean;
+}
+async function canOperateCall(
+  config: ServerConfig,
+  workspaceId: string,
+  userId: string,
+  call: any,
+  action: CallAction,
+  queueRow?: { offered_to_user_id?: string | null } | null,
+): Promise<OwnershipDecision> {
+  const role = await getWorkspaceRole(config, workspaceId, userId);
+  const isElevated = !!role && ELEVATED_CALL_ROLES.has(role);
+  const assigned = (call?.assigned_agent_id as string | null) || null;
+  const isAssignedToMe = !!assigned && assigned === userId;
+
+  if (assigned && assigned !== userId) {
+    if (!isElevated) {
+      const err: any = new Error('call_assigned_to_another_operator');
+      err.httpStatus = 403;
+      throw err;
+    }
+    return { role, isElevated, isAssignedToMe: false, isTakeover: true };
+  }
+
+  if (!assigned) {
+    if (action === 'accept') {
+      // Any operator may accept an unassigned call.
+      return { role, isElevated, isAssignedToMe: false, isTakeover: false };
+    }
+    // reject/end on an unassigned call: elevated, OR the user is the one
+    // currently being offered the call in the queue.
+    const offeredToMe = !!queueRow && queueRow.offered_to_user_id === userId;
+    if (!isElevated && !offeredToMe) {
+      const err: any = new Error('operator_permission_required');
+      err.httpStatus = 403;
+      throw err;
+    }
+  }
+  return { role, isElevated, isAssignedToMe, isTakeover: false };
+}
+
+function sendOwnershipError(res: any, e: any): boolean {
+  if (e && typeof e.httpStatus === 'number' && typeof e.message === 'string') {
+    res.status(e.httpStatus).json({ error: e.message });
+    return true;
+  }
+  return false;
+}
+
 async function requireCallOperator(req: any, res: any, workspaceId: string) {
   const ctx = await requireMember(req, res, workspaceId);
   if (!ctx) return null;

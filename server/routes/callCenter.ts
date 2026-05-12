@@ -19,6 +19,11 @@ import { isGlobalAdmin } from '../middleware/adminBypass.js';
 import { resolveEffectiveCallProvider } from '../services/calls/providerResolver.js';
 import { publishQueueEvent, publishCallEvent } from '../services/callCenter/realtime.js';
 import { buildClientConnectInfo } from '../services/callCenter/connectInfo.js';
+import {
+  loadLiveKitConfig,
+  getLiveKitClientWsUrl,
+} from '../services/calls/livekitConfig.js';
+import { normalizeClientWsUrl } from '../services/calls/rtcResolver.js';
 import { computeRecordingCapability, disabledRecordingCapability } from '../services/callCenter/recording.js';
 import {
   startCallCenterRecording,

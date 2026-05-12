@@ -2,7 +2,7 @@ import { NavLink, Outlet, useParams, Link } from 'react-router-dom';
 import {
   LayoutDashboard, Headphones, Phone, PhoneCall, Code2,
   Settings as SettingsIcon, Headset, Circle, AlertTriangle,
-  CheckCircle2,
+  CheckCircle2, Building2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
@@ -17,6 +17,7 @@ const tabs = [
   { to: 'queue', icon: Headphones, label: 'Live Desk' },
   { to: 'calls', icon: Phone, label: 'Calls' },
   { to: 'callbacks', icon: PhoneCall, label: 'Callbacks' },
+  { to: 'departments', icon: Building2, label: 'Departments' },
   { to: 'install', icon: Code2, label: 'Install Widget' },
   { to: 'settings', icon: SettingsIcon, label: 'Settings' },
 ];

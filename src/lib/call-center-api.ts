@@ -210,6 +210,80 @@ export interface CallCenterCapabilities {
   recording?: RecordingCapability;
 }
 
+// ── Departments / presence / routing types ───────────────────────
+export type CallCenterRoutingMode = 'broadcast' | 'round_robin' | 'least_busy';
+export type CallCenterPresenceStatus = 'available' | 'busy' | 'away' | 'offline';
+
+export interface CallCenterDepartment {
+  id: string;
+  workspace_id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  color: string | null;
+  icon: string | null;
+  enabled: boolean;
+  sort_order: number;
+  routing_mode: CallCenterRoutingMode;
+  fallback_department_id: string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+  agent_count?: number;
+}
+
+export interface CallCenterDepartmentAgent {
+  id: string;
+  workspace_id: string;
+  department_id: string;
+  user_id: string;
+  role: 'agent' | 'supervisor';
+  priority: number;
+  enabled: boolean;
+  max_concurrent_calls: number | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CallCenterAgentPresence {
+  user_id: string;
+  workspace_id: string;
+  status: CallCenterPresenceStatus;
+  status_message: string | null;
+  active_call_count: number;
+  last_seen_at: string | null;
+  updated_at: string;
+}
+
+export interface CreateDepartmentPayload {
+  name: string;
+  slug?: string;
+  description?: string | null;
+  color?: string | null;
+  icon?: string | null;
+  enabled?: boolean;
+  sort_order?: number;
+  routing_mode?: CallCenterRoutingMode;
+  fallback_department_id?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface AddDepartmentAgentPayload {
+  user_id: string;
+  role?: 'agent' | 'supervisor';
+  priority?: number;
+  enabled?: boolean;
+  max_concurrent_calls?: number | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface TransferCallPayload {
+  to_agent_id?: string | null;
+  to_department_id?: string | null;
+  reason?: string | null;
+}
+
 // ── Workspace API ────────────────────────────────────────────────
 export const callCenterApi = {
   getCapabilities: (workspaceId: string) =>
@@ -316,6 +390,77 @@ export const callCenterApi = {
       { method: 'POST', body: JSON.stringify({ workspaceId, fileName: file.name, contentType: file.type, data }) },
     );
   },
+  // ── Departments ───────────────────────────────────────────────
+  listDepartments: (workspaceId: string) =>
+    jsonFetch<{ departments: CallCenterDepartment[] }>(
+      `/api/call-center/departments?workspaceId=${encodeURIComponent(workspaceId)}`,
+    ),
+  getDepartment: (workspaceId: string, departmentId: string) =>
+    jsonFetch<{ department: CallCenterDepartment }>(
+      `/api/call-center/departments/${departmentId}?workspaceId=${encodeURIComponent(workspaceId)}`,
+    ),
+  createDepartment: (workspaceId: string, payload: CreateDepartmentPayload) =>
+    jsonFetch<{ department: CallCenterDepartment }>(
+      `/api/call-center/departments?workspaceId=${encodeURIComponent(workspaceId)}`,
+      { method: 'POST', body: JSON.stringify(payload) },
+    ),
+  updateDepartment: (workspaceId: string, departmentId: string, patch: Partial<CreateDepartmentPayload>) =>
+    jsonFetch<{ department: CallCenterDepartment }>(
+      `/api/call-center/departments/${departmentId}?workspaceId=${encodeURIComponent(workspaceId)}`,
+      { method: 'PATCH', body: JSON.stringify(patch) },
+    ),
+  deleteDepartment: (workspaceId: string, departmentId: string) =>
+    jsonFetch<{ ok: boolean }>(
+      `/api/call-center/departments/${departmentId}?workspaceId=${encodeURIComponent(workspaceId)}`,
+      { method: 'DELETE' },
+    ),
+  listDepartmentAgents: (workspaceId: string, departmentId: string) =>
+    jsonFetch<{ agents: CallCenterDepartmentAgent[] }>(
+      `/api/call-center/departments/${departmentId}/agents?workspaceId=${encodeURIComponent(workspaceId)}`,
+    ),
+  addDepartmentAgent: (workspaceId: string, departmentId: string, payload: AddDepartmentAgentPayload) =>
+    jsonFetch<{ agent: CallCenterDepartmentAgent }>(
+      `/api/call-center/departments/${departmentId}/agents?workspaceId=${encodeURIComponent(workspaceId)}`,
+      { method: 'POST', body: JSON.stringify(payload) },
+    ),
+  updateDepartmentAgent: (
+    workspaceId: string, departmentId: string, userId: string,
+    patch: Partial<Omit<AddDepartmentAgentPayload, 'user_id'>>,
+  ) =>
+    jsonFetch<{ agent: CallCenterDepartmentAgent }>(
+      `/api/call-center/departments/${departmentId}/agents/${userId}?workspaceId=${encodeURIComponent(workspaceId)}`,
+      { method: 'PATCH', body: JSON.stringify(patch) },
+    ),
+  removeDepartmentAgent: (workspaceId: string, departmentId: string, userId: string) =>
+    jsonFetch<{ ok: boolean }>(
+      `/api/call-center/departments/${departmentId}/agents/${userId}?workspaceId=${encodeURIComponent(workspaceId)}`,
+      { method: 'DELETE' },
+    ),
+  // ── Presence ──────────────────────────────────────────────────
+  getAgentPresence: (workspaceId: string) =>
+    jsonFetch<{ presence: CallCenterAgentPresence[] }>(
+      `/api/call-center/agents/presence?workspaceId=${encodeURIComponent(workspaceId)}`,
+    ),
+  updateMyPresence: (
+    workspaceId: string,
+    status: CallCenterPresenceStatus,
+    statusMessage?: string | null,
+  ) =>
+    jsonFetch<{ presence: CallCenterAgentPresence }>(
+      `/api/call-center/agents/me/presence?workspaceId=${encodeURIComponent(workspaceId)}`,
+      { method: 'PUT', body: JSON.stringify({ status, status_message: statusMessage ?? null }) },
+    ),
+  // ── Assignment + transfer ─────────────────────────────────────
+  assignCall: (workspaceId: string, callId: string, agentId: string | null, reason?: string) =>
+    jsonFetch<{ ok: boolean; assigned_agent_id: string | null }>(
+      `/api/call-center/calls/${callId}/assign?workspaceId=${encodeURIComponent(workspaceId)}`,
+      { method: 'POST', body: JSON.stringify({ agent_id: agentId, reason }) },
+    ),
+  transferCall: (workspaceId: string, callId: string, payload: TransferCallPayload) =>
+    jsonFetch<{ ok: boolean; assigned_agent_id: string | null; department_id: string | null }>(
+      `/api/call-center/calls/${callId}/transfer?workspaceId=${encodeURIComponent(workspaceId)}`,
+      { method: 'POST', body: JSON.stringify(payload) },
+    ),
 };
 
 // ── Super Admin API ──────────────────────────────────────────────

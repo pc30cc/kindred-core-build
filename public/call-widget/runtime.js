@@ -211,7 +211,7 @@
       self.startPolling();
       self.startTimer();
     }).catch(function (e) {
-      self.error = String(e && e.message || e);
+      self.error = sanitize(String(e && e.message || e));
       self.state = STATES.ERROR; self.render();
     });
   };
@@ -369,7 +369,7 @@
       room.connect(connect.server_url, info.token).then(function () {
         return room.localParticipant.setMicrophoneEnabled(true).catch(function (err) {
           self.connectStatus = 'microphone_permission_denied';
-          self.error = String(err && err.message || err);
+          self.error = sanitize(String(err && err.message || err));
           self.render();
           throw err;
         });
@@ -377,7 +377,7 @@
         if (wantVideo) {
           return room.localParticipant.setCameraEnabled(true).catch(function (err) {
             self.connectStatus = 'camera_permission_denied';
-            self.error = String(err && err.message || err);
+            self.error = sanitize(String(err && err.message || err));
             self.render();
           });
         }

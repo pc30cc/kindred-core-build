@@ -1215,3 +1215,105 @@ callCenterRouter.post('/calls/:id/transfer', async (req, res) => {
     res.status(500).json({ error: 'transfer_failed', message: String(e?.message || e) });
   }
 });
+
+// ── CC-2H Phase 2 — LiveKit connectivity diagnostics ──────────────────────
+//
+// GET /api/call-center/diagnostics/livekit?workspaceId=...
+// Returns a SAFE summary (no api_key/api_secret/webhook_secret/tokens) of
+// LiveKit configuration + reachability. Restricted to workspace owners,
+// admins, and team_leads. Used by the Super Admin Call Center page and the
+// workspace install/settings readiness checks.
+const DIAG_ROLES = new Set(['owner', 'admin', 'team_lead']);
+
+async function probeUrl(url: string, timeoutMs = 3000): Promise<{ status: number | null; error: string | null }> {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const r = await fetch(url, { method: 'GET', signal: controller.signal });
+    return { status: r.status, error: null };
+  } catch (err: any) {
+    return { status: null, error: String(err?.code || err?.name || err?.message || 'fetch_failed') };
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+callCenterRouter.get('/diagnostics/livekit', async (req, res) => {
+  const wid = String(req.query.workspaceId || '');
+  if (!wid) return res.status(400).json({ error: 'workspaceId_required' });
+  const ctx = await requireMember(req, res, wid);
+  if (!ctx) return;
+  const sb = getServiceClient(ctx.config);
+  const { data: roleRaw } = await sb.rpc('get_workspace_role', {
+    _workspace_id: wid, _user_id: ctx.userId,
+  });
+  const role = roleRaw ? String(roleRaw) : null;
+  const isAdmin = await isGlobalAdmin(ctx.config, ctx.userId);
+  if (!isAdmin && !(role && DIAG_ROLES.has(role))) {
+    return res.status(403).json({ error: 'forbidden' });
+  }
+
+  const lk = await loadLiveKitConfig(ctx.config);
+  const wsUrl = await getLiveKitClientWsUrl(ctx.config);
+  const normalized = normalizeClientWsUrl(wsUrl);
+
+  const warnings: string[] = [];
+  if (!lk.enabled) warnings.push('livekit_disabled');
+  if (!lk.api_key) warnings.push('livekit_api_key_missing');
+  if (!lk.api_secret) warnings.push('livekit_api_secret_missing');
+  if (!normalized) warnings.push('livekit_url_missing');
+  if (lk.recording_storage.vendor && (!lk.recording_storage.access_key || !lk.recording_storage.secret_key)) {
+    warnings.push('recording_storage_credentials_missing');
+  }
+
+  // Build https origin from the wss URL for HTTP probes.
+  let httpsOrigin: string | null = null;
+  if (normalized) {
+    try {
+      const u = new URL(normalized);
+      httpsOrigin = `https://${u.host}`;
+    } catch { /* noop */ }
+  }
+
+  let rtcValidate: { status: number | null; error: string | null } = { status: null, error: null };
+  let rtcV1Validate: { status: number | null; error: string | null } = { status: null, error: null };
+  if (httpsOrigin) {
+    [rtcValidate, rtcV1Validate] = await Promise.all([
+      probeUrl(`${httpsOrigin}/rtc/validate`),
+      probeUrl(`${httpsOrigin}/rtc/v1/validate`),
+    ]);
+    if (rtcV1Validate.status === 404) warnings.push('livekit_v1_rtc_path_not_supported');
+    if (rtcValidate.status === null && rtcV1Validate.status === null) {
+      warnings.push('livekit_server_unreachable');
+    }
+  }
+
+  const connectSupported = !!normalized && lk.enabled && !!lk.api_key && !!lk.api_secret;
+  const connectReason = !lk.enabled ? 'disabled'
+    : !normalized ? 'livekit_url_missing'
+    : (!lk.api_key || !lk.api_secret) ? 'credentials_missing'
+    : null;
+
+  res.json({
+    provider: 'livekit',
+    configured: lk.enabled && !!lk.api_key && !!lk.api_secret && !!normalized,
+    server_url_public: wsUrl,
+    server_url_public_normalized: normalized,
+    rtc_url_present: !!lk.rtc_url,
+    ws_url_present: !!lk.ws_url,
+    api_key_present: !!lk.api_key,
+    api_secret_present: !!lk.api_secret,
+    connect_info_supported: connectSupported,
+    connect_info_reason: connectReason,
+    health: {
+      twirp_create_room_ready: null,
+      server_reachable: httpsOrigin
+        ? rtcValidate.status !== null || rtcV1Validate.status !== null
+        : null,
+      rtc_validate_status: rtcValidate.status,
+      rtc_v1_validate_status: rtcV1Validate.status,
+      websocket_origin_hint: httpsOrigin,
+    },
+    warnings,
+  });
+});

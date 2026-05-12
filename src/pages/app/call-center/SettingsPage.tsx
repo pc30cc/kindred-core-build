@@ -13,8 +13,13 @@ import { callCenterApi } from '@/lib/call-center-api';
 import { useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, ChevronDown, RotateCcw, Save } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useCallCenterDepartments } from '@/hooks/useCallCenter';
 import { Link, useParams } from 'react-router-dom';
+// CC-2G-UI-Architecture-Fix — read canonical departments from
+// Team & Departments instead of the deprecated Call Center departments
+// hook. Only departments with a Call Center channel enabled are
+// surfaced as options here.
+import { useQuery } from '@tanstack/react-query';
+import { listDepartments } from '@/lib/workspace-departments-api';
 
 function Section({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
   return (
@@ -46,8 +51,17 @@ export default function CallCenterSettingsPage() {
   const { slug } = useParams();
   const { data, isLoading } = useCallCenterSettings(workspace?.id);
   const update = useUpdateCallCenterSettings(workspace?.id);
-  const { data: deptsData } = useCallCenterDepartments(workspace?.id);
-  const departments = deptsData?.departments || [];
+  const { data: allDepartments = [] } = useQuery({
+    queryKey: ['workspace-departments', workspace?.id],
+    queryFn: () => listDepartments(workspace!.id),
+    enabled: !!workspace?.id,
+  });
+  // Only departments that have at least one Call Center channel enabled
+  // can route Call Center traffic. Disabled departments are excluded
+  // entirely from the default-department picker.
+  const ccDepartments = allDepartments.filter(
+    (d) => d.enabled && (d.cc_voice_enabled || d.cc_video_enabled || d.cc_callback_enabled),
+  );
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const [s, setS] = useState<any>(null);
@@ -205,8 +219,20 @@ export default function CallCenterSettingsPage() {
 
       <Section
         title="Departments & Routing"
-        description="Group agents by team and direct visitors to the right place.">
-        <Row label="Default department" hint="New calls without a department choice are routed here.">
+        description="Departments and agents are managed in Team & Departments. Only departments with a Call Center channel enabled can receive Call Center calls.">
+        {ccDepartments.length === 0 && (
+          <div className="flex gap-2 items-start text-xs p-3 rounded bg-amber-500/10 border border-amber-500/30">
+            <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5" />
+            <span>
+              No departments are enabled for Call Center. Open{' '}
+              <Link to={`/app/w/${slug}/settings/team-departments`} className="text-primary underline">
+                Team &amp; Departments
+              </Link>{' '}
+              and turn on Call Center Voice, Video, or Callback on at least one department.
+            </span>
+          </div>
+        )}
+        <Row label="Default department" hint="New Call Center calls without a department choice are routed here.">
           <Select
             value={s.default_department_id || '__none__'}
             onValueChange={(v) => setS({ ...s, default_department_id: v === '__none__' ? null : v })}
@@ -214,8 +240,8 @@ export default function CallCenterSettingsPage() {
             <SelectTrigger className="w-60"><SelectValue placeholder="None" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="__none__">None</SelectItem>
-              {departments.map((d) => (
-                <SelectItem key={d.id} value={d.id}>{d.name}{!d.enabled ? ' (disabled)' : ''}</SelectItem>
+              {ccDepartments.map((d) => (
+                <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -226,7 +252,7 @@ export default function CallCenterSettingsPage() {
           <div><b>Least busy</b> — agent with the lowest active call count is picked.</div>
         </div>
         <Button asChild variant="outline" size="sm">
-          <Link to={`/app/w/${slug}/call-center/departments`}>Manage departments →</Link>
+          <Link to={`/app/w/${slug}/settings/team-departments`}>Manage Departments in Team & Departments →</Link>
         </Button>
       </Section>
 

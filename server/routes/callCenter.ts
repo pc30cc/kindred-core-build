@@ -429,12 +429,31 @@ callCenterRouter.post('/calls/:id/accept', async (req, res) => {
   if (!ctx) return;
   try {
     const sb = getServiceClient(ctx.config);
-    // Resolve provider and create room if needed
-    const { id: providerId, provider } = await resolveEffectiveCallProvider(ctx.config, wid);
     const { data: call } = await sb.from('call_sessions').select('*')
       .eq('id', req.params.id).eq('workspace_id', wid)
       .eq('entry_source', 'call_widget').maybeSingle();
     if (!call) return res.status(404).json({ error: 'not_found' });
+    const prevState = String((call as any).state || '');
+    if (['ended', 'cancelled', 'failed', 'missed'].includes(prevState)) {
+      return res.status(409).json({ error: 'call_not_active' });
+    }
+    const { data: queueRow } = await sb.from('call_queue_entries')
+      .select('id, offered_to_user_id, accepted_at')
+      .eq('call_session_id', req.params.id).eq('workspace_id', wid).maybeSingle();
+    let decision: OwnershipDecision;
+    try {
+      decision = await canOperateCall(ctx.config, wid, ctx.userId, call, 'accept', queueRow as any);
+    } catch (e: any) {
+      if (sendOwnershipError(res, e)) return;
+      throw e;
+    }
+    const previousAssigned = ((call as any).assigned_agent_id as string | null) || null;
+    const wasAlreadyActiveForMe =
+      previousAssigned === ctx.userId &&
+      ['active', 'ringing', 'connecting'].includes(prevState);
+
+    // Resolve provider and create room if needed
+    const { id: providerId, provider } = await resolveEffectiveCallProvider(ctx.config, wid);
     let providerRoomId = (call as any).provider_room_id as string | null;
     if (!providerRoomId) {
       const room = await provider.createRoom(ctx.config, {
@@ -454,18 +473,62 @@ callCenterRouter.post('/calls/:id/accept', async (req, res) => {
       canPublish: true, canSubscribe: true, canPublishData: true,
       ttlSeconds: 60 * 60,
     });
-    await transitionCall(ctx.config, wid, req.params.id, {
+    // Build accept patch — keep connected_at if already set (idempotent).
+    const acceptPatch: Record<string, unknown> = {
       state: 'active',
-      connected_at: new Date().toISOString(),
       provider: providerId,
       provider_room_id: providerRoomId,
-    }, 'call_accepted', ctx.userId);
-    // Update queue entry
-    await sb.from('call_queue_entries').update({
-      state: 'accepted', accepted_at: new Date().toISOString(), offered_to_user_id: ctx.userId,
-    }).eq('call_session_id', req.params.id).eq('workspace_id', wid);
-    // Maintain presence counter for least_busy/max_concurrent_calls.
-    try { await incrementAgentActiveCallCount(ctx.config, wid, ctx.userId); } catch {/* best-effort */}
+      assigned_agent_id: ctx.userId,
+    };
+    if (!(call as any).connected_at) {
+      acceptPatch.connected_at = new Date().toISOString();
+    }
+    await transitionCall(ctx.config, wid, req.params.id, acceptPatch, 'call_accepted', ctx.userId);
+
+    // Keep queue + session assignment consistent.
+    const queuePatch: Record<string, unknown> = {
+      state: 'accepted',
+      offered_to_user_id: ctx.userId,
+      assigned_agent_id: ctx.userId,
+    };
+    if (queueRow && !(queueRow as any).accepted_at) {
+      queuePatch.accepted_at = new Date().toISOString();
+    }
+    await sb.from('call_queue_entries').update(queuePatch)
+      .eq('call_session_id', req.params.id).eq('workspace_id', wid);
+
+    // Ownership change events.
+    if (decision.isTakeover && previousAssigned && previousAssigned !== ctx.userId) {
+      await sb.from('call_events').insert({
+        call_session_id: req.params.id,
+        event_type: 'call_takeover',
+        actor_type: 'operator',
+        actor_id: ctx.userId,
+        payload: {
+          previous_agent_id: previousAssigned,
+          new_agent_id: ctx.userId,
+          reason: 'operator_takeover_accept',
+        },
+      });
+      // TODO: do not decrement previous agent's active_call_count here —
+      // we cannot reliably detect whether their session was actually active.
+      // A later pass with LiveKit participant-kick will handle handoff.
+    } else if (!previousAssigned) {
+      await sb.from('call_events').insert({
+        call_session_id: req.params.id,
+        event_type: 'call_assigned_on_accept',
+        actor_type: 'operator',
+        actor_id: ctx.userId,
+        payload: { agent_id: ctx.userId },
+      });
+    }
+
+    // Maintain presence counter for least_busy/max_concurrent_calls — only
+    // when this accept actually moves the call into ownership for this user.
+    if (!wasAlreadyActiveForMe) {
+      try { await incrementAgentActiveCallCount(ctx.config, wid, ctx.userId); }
+      catch {/* best-effort */}
+    }
     const identity = `operator:${ctx.userId}`;
     const connect = await buildClientConnectInfo(ctx.config, providerId, providerRoomId, identity);
     res.json({
@@ -475,8 +538,11 @@ callCenterRouter.post('/calls/:id/accept', async (req, res) => {
       token: tok.token,
       expires_at: tok.expiresAt,
       connect,
+      idempotent: wasAlreadyActiveForMe,
+      takeover: decision.isTakeover,
     });
   } catch (e: any) {
+    if (sendOwnershipError(res, e)) return;
     res.status(500).json({ error: 'accept_failed', message: String(e?.message || e) });
   }
 });
@@ -487,10 +553,23 @@ callCenterRouter.post('/calls/:id/reject', async (req, res) => {
   if (!ctx) return;
   try {
     const sb = getServiceClient(ctx.config);
-    const { data: existing } = await sb.from('call_sessions').select('id, entry_source, assigned_agent_id, state')
-      .eq('id', req.params.id).eq('workspace_id', wid).maybeSingle();
-    if (!existing || (existing as any).entry_source !== 'call_widget') {
-      return res.status(404).json({ error: 'not_found' });
+    const { data: existing } = await sb.from('call_sessions')
+      .select('id, entry_source, assigned_agent_id, state')
+      .eq('id', req.params.id).eq('workspace_id', wid)
+      .eq('entry_source', 'call_widget').maybeSingle();
+    if (!existing) return res.status(404).json({ error: 'not_found' });
+    const prevState = String((existing as any).state || '');
+    if (['ended', 'cancelled', 'failed'].includes(prevState)) {
+      return res.status(409).json({ error: 'call_not_active' });
+    }
+    const { data: qRow } = await sb.from('call_queue_entries')
+      .select('id, offered_to_user_id')
+      .eq('call_session_id', req.params.id).eq('workspace_id', wid).maybeSingle();
+    try {
+      await canOperateCall(ctx.config, wid, ctx.userId, existing, 'reject', qRow as any);
+    } catch (e: any) {
+      if (sendOwnershipError(res, e)) return;
+      throw e;
     }
     await transitionCall(ctx.config, wid, req.params.id, {
       state: 'cancelled',
@@ -510,8 +589,17 @@ callCenterRouter.post('/calls/:id/reject', async (req, res) => {
     await sb.from('call_queue_entries').update({
       state: 'cancelled', ended_at: new Date().toISOString(), ended_reason: 'rejected',
     }).eq('call_session_id', req.params.id).eq('workspace_id', wid);
+    // Reject only decrements active_call_count if this operator had actually
+    // accepted the call previously (call was in active/connecting/ringing
+    // and assigned to them). Pre-accept reject does NOT touch the counter.
+    const assigned = ((existing as any).assigned_agent_id as string | null) || null;
+    if (assigned === ctx.userId && ['active', 'connecting', 'ringing'].includes(prevState)) {
+      try { await decrementAgentActiveCallCount(ctx.config, wid, ctx.userId); }
+      catch {/* best-effort */}
+    }
     res.json({ ok: true });
   } catch (e: any) {
+    if (sendOwnershipError(res, e)) return;
     res.status(500).json({ error: 'reject_failed', message: String(e?.message || e) });
   }
 });
@@ -526,6 +614,19 @@ callCenterRouter.post('/calls/:id/end', async (req, res) => {
       .eq('id', req.params.id).eq('workspace_id', wid)
       .eq('entry_source', 'call_widget').maybeSingle();
     if (!call) return res.status(404).json({ error: 'not_found' });
+    const prevState = String((call as any).state || '');
+    if (['ended', 'cancelled', 'failed'].includes(prevState)) {
+      return res.status(409).json({ error: 'call_not_active' });
+    }
+    const { data: qRow } = await sb.from('call_queue_entries')
+      .select('id, offered_to_user_id')
+      .eq('call_session_id', req.params.id).eq('workspace_id', wid).maybeSingle();
+    try {
+      await canOperateCall(ctx.config, wid, ctx.userId, call, 'end', qRow as any);
+    } catch (e: any) {
+      if (sendOwnershipError(res, e)) return;
+      throw e;
+    }
     const startedAt = (call as any).connected_at || (call as any).started_at || (call as any).created_at;
     const duration = startedAt ? Math.max(0, Math.round((Date.now() - new Date(startedAt).getTime()) / 1000)) : 0;
     if ((call as any).provider && (call as any).provider_room_id) {
@@ -542,11 +643,20 @@ callCenterRouter.post('/calls/:id/end', async (req, res) => {
       ended_by: 'operator',
       ended_by_user_id: ctx.userId,
     }, 'call_ended', ctx.userId);
-    // Decrement presence counter for whoever owned the call.
-    const owner = ((call as any).assigned_agent_id as string | null) || ctx.userId;
-    try { await decrementAgentActiveCallCount(ctx.config, wid, owner); } catch {/* best-effort */}
+    // Decrement presence counter only for an operator who actually owned an
+    // active call. Floor-at-zero is enforced inside the helper.
+    const assigned = ((call as any).assigned_agent_id as string | null) || null;
+    const wasActive = ['active', 'connecting', 'ringing'].includes(prevState);
+    let owner: string | null = null;
+    if (assigned && wasActive) owner = assigned;
+    else if (!assigned && wasActive) owner = ctx.userId;
+    if (owner) {
+      try { await decrementAgentActiveCallCount(ctx.config, wid, owner); }
+      catch {/* best-effort */}
+    }
     res.json({ ok: true });
   } catch (e: any) {
+    if (sendOwnershipError(res, e)) return;
     res.status(500).json({ error: 'end_failed', message: String(e?.message || e) });
   }
 });

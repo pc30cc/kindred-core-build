@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import {
   useCallCenterAdminPlatform, useUpdateCallCenterAdminPlatform, useCallCenterAdminWorkspaces,
 } from '@/hooks/useCallCenter';
-import { callCenterAdminApi, type CallCenterPlatformSettings } from '@/lib/call-center-api';
+import { callCenterAdminApi, callCenterDiagnosticsApi, type CallCenterPlatformSettings, type LiveKitDiagnostics } from '@/lib/call-center-api';
 import { Card } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Button } from '@/components/ui/button';
@@ -10,7 +10,7 @@ import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from '@/hooks/use-toast';
-import { AlertCircle, ShieldCheck, Server, Building2, Search } from 'lucide-react';
+import { AlertCircle, ShieldCheck, Server, Building2, Search, Activity, Loader2, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react';
 
 const TOGGLE_GROUPS: Array<{ title: string; items: Array<[keyof CallCenterPlatformSettings, string, boolean?]> }> = [
   { title: 'Core', items: [
@@ -65,6 +65,26 @@ export default function AdminCallCenterPage() {
   const [messages, setMessages] = useState<Record<string, string>>({});
   const [jsonError, setJsonError] = useState<string | null>(null);
   const [wsSearch, setWsSearch] = useState('');
+  const [diag, setDiag] = useState<LiveKitDiagnostics | null>(null);
+  const [diagBusy, setDiagBusy] = useState(false);
+  const [diagErr, setDiagErr] = useState<string | null>(null);
+  const firstWorkspaceId = ws?.workspaces?.[0]?.workspace_id || null;
+
+  async function runDiagnostics() {
+    if (!firstWorkspaceId) {
+      toast({ title: 'No workspace available to probe', variant: 'destructive' });
+      return;
+    }
+    setDiagBusy(true); setDiagErr(null);
+    try {
+      const d = await callCenterDiagnosticsApi.getLiveKit(firstWorkspaceId);
+      setDiag(d);
+    } catch (e: any) {
+      setDiagErr(e?.message || 'Diagnostics failed');
+    } finally {
+      setDiagBusy(false);
+    }
+  }
 
   useEffect(() => {
     if (data?.settings) {

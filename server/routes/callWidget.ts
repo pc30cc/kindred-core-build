@@ -106,20 +106,35 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
     provider_ready = true;
   } catch {/* not configured */}
   const recording = await computeRecordingCapability(config, ws.workspace_id, platform, ws);
-  // Visible departments per channel (canonical workspace_departments).
-  const sbBoot = getServiceClient(config);
-  const { data: deptRows } = await sbBoot
-    .from('workspace_departments')
-    .select('id, name, sort_order, cc_voice_enabled, cc_video_enabled, cc_callback_enabled')
-    .eq('workspace_id', ws.workspace_id)
-    .or('cc_voice_enabled.eq.true,cc_video_enabled.eq.true,cc_callback_enabled.eq.true')
-    .order('sort_order', { ascending: true });
-  const safeDept = (r: any) => ({ id: r.id, name: r.name, sort_order: r.sort_order ?? 0 });
-  const departments = {
-    voice: (deptRows || []).filter((r: any) => r.cc_voice_enabled).map(safeDept),
-    video: (deptRows || []).filter((r: any) => r.cc_video_enabled).map(safeDept),
-    callback: (deptRows || []).filter((r: any) => r.cc_callback_enabled).map(safeDept),
-  };
+  // Visible departments per channel — gated. Visitors only see department
+  // options when the platform allows departments AND the workspace has both
+  // departments_enabled and allow_visitor_department_choice turned on.
+  // Server-side default_department_id fallback in /calls/request and
+  // /callbacks/request still applies when this gate is closed.
+  const departmentChoiceAllowed =
+    !!(platform as any).departments_enabled &&
+    !!(ws as any).departments_enabled &&
+    !!(ws as any).allow_visitor_department_choice;
+  let departments: {
+    voice: Array<{ id: string; name: string; sort_order: number }>;
+    video: Array<{ id: string; name: string; sort_order: number }>;
+    callback: Array<{ id: string; name: string; sort_order: number }>;
+  } = { voice: [], video: [], callback: [] };
+  if (departmentChoiceAllowed) {
+    const sbBoot = getServiceClient(config);
+    const { data: deptRows } = await sbBoot
+      .from('workspace_departments')
+      .select('id, name, sort_order, cc_voice_enabled, cc_video_enabled, cc_callback_enabled')
+      .eq('workspace_id', ws.workspace_id)
+      .or('cc_voice_enabled.eq.true,cc_video_enabled.eq.true,cc_callback_enabled.eq.true')
+      .order('sort_order', { ascending: true });
+    const safeDept = (r: any) => ({ id: r.id, name: r.name, sort_order: r.sort_order ?? 0 });
+    departments = {
+      voice: (deptRows || []).filter((r: any) => r.cc_voice_enabled).map(safeDept),
+      video: (deptRows || []).filter((r: any) => r.cc_video_enabled).map(safeDept),
+      callback: (deptRows || []).filter((r: any) => r.cc_callback_enabled).map(safeDept),
+    };
+  }
   const session = signWidgetSession(config, {
     workspace_id: ws.workspace_id,
     public_key: ws.public_key,

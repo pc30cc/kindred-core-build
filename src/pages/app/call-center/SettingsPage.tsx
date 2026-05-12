@@ -13,6 +13,8 @@ import { callCenterApi } from '@/lib/call-center-api';
 import { useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, ChevronDown, RotateCcw, Save } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useCallCenterDepartments } from '@/hooks/useCallCenter';
+import { Link, useParams } from 'react-router-dom';
 
 function Section({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
   return (
@@ -41,8 +43,11 @@ function Row({ label, hint, locked, children }: { label: string; hint?: string; 
 
 export default function CallCenterSettingsPage() {
   const { workspace } = useActiveWorkspace();
+  const { slug } = useParams();
   const { data, isLoading } = useCallCenterSettings(workspace?.id);
   const update = useUpdateCallCenterSettings(workspace?.id);
+  const { data: deptsData } = useCallCenterDepartments(workspace?.id);
+  const departments = deptsData?.departments || [];
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const [s, setS] = useState<any>(null);
@@ -61,6 +66,7 @@ export default function CallCenterSettingsPage() {
       'enabled', 'display_name', 'voice_enabled', 'video_enabled', 'callback_enabled',
       'pre_call_form_enabled', 'offline_behavior', 'recording_enabled',
       'recording_consent_required', 'routing_mode', 'widget_position',
+      'default_department_id',
     ];
     return keys.some((k) => JSON.stringify(s[k]) !== JSON.stringify(original[k]));
   }, [s, original]);
@@ -83,6 +89,7 @@ export default function CallCenterSettingsPage() {
       offline_behavior: s.offline_behavior, recording_enabled: s.recording_enabled,
       recording_consent_required: s.recording_consent_required, routing_mode: s.routing_mode,
       widget_position: s.widget_position, business_hours: s.business_hours,
+      default_department_id: s.default_department_id ?? null,
     });
     setOriginal({ ...s });
     toast({ title: 'Saved' });

@@ -6963,41 +6963,66 @@ export type Database = {
       workspace_departments: {
         Row: {
           audio_enabled: boolean
+          cc_callback_enabled: boolean
+          cc_fallback_department_id: string | null
+          cc_routing_mode: string | null
+          cc_video_enabled: boolean
+          cc_voice_enabled: boolean
           chat_enabled: boolean
           created_at: string
           enabled: boolean
           id: string
           name: string
           sort_order: number
+          tickets_enabled: boolean
           updated_at: string
           video_enabled: boolean
           workspace_id: string
         }
         Insert: {
           audio_enabled?: boolean
+          cc_callback_enabled?: boolean
+          cc_fallback_department_id?: string | null
+          cc_routing_mode?: string | null
+          cc_video_enabled?: boolean
+          cc_voice_enabled?: boolean
           chat_enabled?: boolean
           created_at?: string
           enabled?: boolean
           id?: string
           name: string
           sort_order?: number
+          tickets_enabled?: boolean
           updated_at?: string
           video_enabled?: boolean
           workspace_id: string
         }
         Update: {
           audio_enabled?: boolean
+          cc_callback_enabled?: boolean
+          cc_fallback_department_id?: string | null
+          cc_routing_mode?: string | null
+          cc_video_enabled?: boolean
+          cc_voice_enabled?: boolean
           chat_enabled?: boolean
           created_at?: string
           enabled?: boolean
           id?: string
           name?: string
           sort_order?: number
+          tickets_enabled?: boolean
           updated_at?: string
           video_enabled?: boolean
           workspace_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "workspace_departments_cc_fallback_department_id_fkey"
+            columns: ["cc_fallback_department_id"]
+            isOneToOne: false
+            referencedRelation: "workspace_departments"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "workspace_departments_workspace_id_fkey"
             columns: ["workspace_id"]

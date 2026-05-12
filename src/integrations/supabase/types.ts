@@ -6923,6 +6923,11 @@ export type Database = {
       }
       workspace_department_members: {
         Row: {
+          call_center_enabled: boolean
+          call_center_max_concurrent_calls: number | null
+          call_center_metadata: Json
+          call_center_priority: number
+          call_center_role: string
           created_at: string
           department_id: string
           id: string
@@ -6930,6 +6935,11 @@ export type Database = {
           workspace_id: string
         }
         Insert: {
+          call_center_enabled?: boolean
+          call_center_max_concurrent_calls?: number | null
+          call_center_metadata?: Json
+          call_center_priority?: number
+          call_center_role?: string
           created_at?: string
           department_id: string
           id?: string
@@ -6937,6 +6947,11 @@ export type Database = {
           workspace_id: string
         }
         Update: {
+          call_center_enabled?: boolean
+          call_center_max_concurrent_calls?: number | null
+          call_center_metadata?: Json
+          call_center_priority?: number
+          call_center_role?: string
           created_at?: string
           department_id?: string
           id?: string
@@ -6966,6 +6981,7 @@ export type Database = {
           cc_callback_enabled: boolean
           cc_fallback_department_id: string | null
           cc_routing_mode: string | null
+          cc_routing_state: Json
           cc_video_enabled: boolean
           cc_voice_enabled: boolean
           chat_enabled: boolean
@@ -6984,6 +7000,7 @@ export type Database = {
           cc_callback_enabled?: boolean
           cc_fallback_department_id?: string | null
           cc_routing_mode?: string | null
+          cc_routing_state?: Json
           cc_video_enabled?: boolean
           cc_voice_enabled?: boolean
           chat_enabled?: boolean
@@ -7002,6 +7019,7 @@ export type Database = {
           cc_callback_enabled?: boolean
           cc_fallback_department_id?: string | null
           cc_routing_mode?: string | null
+          cc_routing_state?: Json
           cc_video_enabled?: boolean
           cc_voice_enabled?: boolean
           chat_enabled?: boolean

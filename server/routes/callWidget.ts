@@ -20,6 +20,7 @@ import { resolveEffectiveCallProvider } from '../services/calls/providerResolver
 import { publishQueueEvent, publishCallEvent } from '../services/callCenter/realtime.js';
 import { buildClientConnectInfo } from '../services/callCenter/connectInfo.js';
 import { computeRecordingCapability } from '../services/callCenter/recording.js';
+import { routeIncomingCall } from '../services/callCenter/routing.js';
 
 export const callWidgetRouter = Router();
 
@@ -105,6 +106,20 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
     provider_ready = true;
   } catch {/* not configured */}
   const recording = await computeRecordingCapability(config, ws.workspace_id, platform, ws);
+  // Visible departments per channel (canonical workspace_departments).
+  const sbBoot = getServiceClient(config);
+  const { data: deptRows } = await sbBoot
+    .from('workspace_departments')
+    .select('id, name, sort_order, cc_voice_enabled, cc_video_enabled, cc_callback_enabled')
+    .eq('workspace_id', ws.workspace_id)
+    .or('cc_voice_enabled.eq.true,cc_video_enabled.eq.true,cc_callback_enabled.eq.true')
+    .order('sort_order', { ascending: true });
+  const safeDept = (r: any) => ({ id: r.id, name: r.name, sort_order: r.sort_order ?? 0 });
+  const departments = {
+    voice: (deptRows || []).filter((r: any) => r.cc_voice_enabled).map(safeDept),
+    video: (deptRows || []).filter((r: any) => r.cc_video_enabled).map(safeDept),
+    callback: (deptRows || []).filter((r: any) => r.cc_callback_enabled).map(safeDept),
+  };
   const session = signWidgetSession(config, {
     workspace_id: ws.workspace_id,
     public_key: ws.public_key,
@@ -132,6 +147,7 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
     },
     recording,
     provider_ready,
+    departments,
   });
 });
 
@@ -155,6 +171,7 @@ const requestSchema = z.object({
   recording_consent_at: z.string().datetime().optional().nullable(),
   recording_notice_version: z.string().max(40).optional().nullable(),
   form_data: z.record(z.unknown()).optional(),
+  department_id: z.string().uuid().optional().nullable(),
 });
 
 callWidgetRouter.post('/calls/request', async (req, res) => {
@@ -172,6 +189,40 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
   if (parsed.data.call_type === 'voice' && !effective.voice_enabled) return res.status(403).json({ error: 'feature_not_available' });
   if (parsed.data.call_type === 'video' && !effective.video_enabled) return res.status(403).json({ error: 'feature_not_available' });
   if (!originAllowed(ws, getOrigin(req))) return res.status(403).json({ error: 'origin_denied' });
+  // Validate optional visitor-selected department against canonical schema.
+  const dbCallTypeForDept = parsed.data.call_type === 'voice' ? 'audio' : 'video';
+  let chosenDepartmentId: string | null = parsed.data.department_id || null;
+  {
+    const sbDept = getServiceClient(config);
+    if (chosenDepartmentId) {
+      const { data: dept } = await sbDept
+        .from('workspace_departments')
+        .select('id, cc_voice_enabled, cc_video_enabled')
+        .eq('workspace_id', ws.workspace_id)
+        .eq('id', chosenDepartmentId)
+        .maybeSingle();
+      if (!dept) return res.status(404).json({ error: 'department_not_found' });
+      const ok = dbCallTypeForDept === 'audio'
+        ? !!(dept as any).cc_voice_enabled
+        : !!(dept as any).cc_video_enabled;
+      if (!ok) return res.status(400).json({ error: 'department_channel_disabled' });
+    } else {
+      // Fall back to workspace default_department_id only if it has the required channel.
+      const defId = (ws as any).default_department_id as string | null;
+      if (defId) {
+        const { data: dept } = await sbDept
+          .from('workspace_departments')
+          .select('id, cc_voice_enabled, cc_video_enabled')
+          .eq('workspace_id', ws.workspace_id)
+          .eq('id', defId)
+          .maybeSingle();
+        const ok = !!dept && (dbCallTypeForDept === 'audio'
+          ? !!(dept as any).cc_voice_enabled
+          : !!(dept as any).cc_video_enabled);
+        if (ok) chosenDepartmentId = defId;
+      }
+    }
+  }
   // Recording consent enforcement (fail-closed before any DB insert).
   const recording = await computeRecordingCapability(config, ws.workspace_id, platform, ws);
   const consentGiven = !!(parsed.data.recording_consent ?? parsed.data.consent_recording);
@@ -223,7 +274,7 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
   if ((queued || 0) >= effective.max_queue_size) return res.status(429).json({ error: 'limit_reached', kind: 'queue' });
 
   // Create call session + queue entry
-  const dbCallType = parsed.data.call_type === 'voice' ? 'audio' : 'video';
+  const dbCallType = dbCallTypeForDept;
   const { data: call, error: callErr } = await sb.from('call_sessions').insert({
     workspace_id: ws.workspace_id,
     entry_source: 'call_widget',
@@ -241,6 +292,7 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
     page_title: parsed.data.page_title || null,
     origin: getOrigin(req),
     provider: providerId,
+    department_id: chosenDepartmentId,
     recording_enabled: recording.effective_enabled,
     // Column 'disabled' here only means "no provider recording active yet".
     // Readiness is tracked in metadata.recording.state ('ready' | 'consent_pending' | 'disabled').
@@ -262,6 +314,7 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
     call_session_id: call!.id,
     requested_by: 'visitor',
     priority: 100,
+    department_id: chosenDepartmentId,
   });
 
   await sb.from('call_events').insert({
@@ -296,6 +349,14 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
   });
 
   await publishQueueEvent(config, ws.workspace_id, 'call_requested', { call_id: call!.id });
+  try {
+    await routeIncomingCall(config, {
+      workspaceId: ws.workspace_id,
+      callSessionId: call!.id,
+      departmentId: chosenDepartmentId,
+      callType: dbCallType,
+    });
+  } catch (e: any) { /* best-effort: queue entry already created */ }
 
   res.json({
     status: 'queued',
@@ -402,6 +463,7 @@ const callbackSchema = z.object({
   subject: z.string().max(500).optional().nullable(),
   scheduled_for: z.string().datetime().optional().nullable(),
   page_url: z.string().max(2000).optional().nullable(),
+  department_id: z.string().uuid().optional().nullable(),
 });
 
 callWidgetRouter.post('/callbacks/request', async (req, res) => {
@@ -419,6 +481,31 @@ callWidgetRouter.post('/callbacks/request', async (req, res) => {
   const parsed = callbackSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_body', details: parsed.error.flatten() });
   const sb = getServiceClient(config);
+  // Validate optional visitor-selected department.
+  let cbDepartmentId: string | null = parsed.data.department_id || null;
+  if (cbDepartmentId) {
+    const { data: dept } = await sb
+      .from('workspace_departments')
+      .select('id, cc_callback_enabled')
+      .eq('workspace_id', ws.workspace_id)
+      .eq('id', cbDepartmentId)
+      .maybeSingle();
+    if (!dept) return res.status(404).json({ error: 'department_not_found' });
+    if (!(dept as any).cc_callback_enabled) {
+      return res.status(400).json({ error: 'department_channel_disabled' });
+    }
+  } else {
+    const defId = (ws as any).default_department_id as string | null;
+    if (defId) {
+      const { data: dept } = await sb
+        .from('workspace_departments')
+        .select('id, cc_callback_enabled')
+        .eq('workspace_id', ws.workspace_id)
+        .eq('id', defId)
+        .maybeSingle();
+      if (dept && (dept as any).cc_callback_enabled) cbDepartmentId = defId;
+    }
+  }
   const { data, error } = await sb.from('callback_requests').insert({
     workspace_id: ws.workspace_id,
     channel: 'audio',
@@ -432,6 +519,7 @@ callWidgetRouter.post('/callbacks/request', async (req, res) => {
       name: parsed.data.name || null,
       subject: parsed.data.subject || null,
       page_url: parsed.data.page_url || null,
+      department_id: cbDepartmentId,
     },
   }).select('*').maybeSingle();
   if (error) return res.status(500).json({ error: 'callback_create_failed', message: error.message });

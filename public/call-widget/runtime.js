@@ -631,6 +631,29 @@
   CallCenterWidgetCtor.prototype.renderForm = function (cfg, forCall) {
     var self = this;
     var box = el('div', { class: 'ccw-stack' });
+    // Department dropdown (only if backend exposed options for this channel).
+    var depts = (self.bootstrap && self.bootstrap.departments) || {};
+    var deptList;
+    if (forCall) {
+      var ct = self.formData.call_type === 'video' ? 'video' : 'voice';
+      deptList = depts[ct] || [];
+    } else {
+      deptList = depts.callback || [];
+    }
+    if (deptList.length > 0) {
+      box.appendChild(el('label', { class: 'ccw-label' }, ['Department']));
+      var sel = el('select', { class: 'ccw-input' });
+      var ph = el('option', { value: '' }, ['Choose a department']);
+      sel.appendChild(ph);
+      for (var di = 0; di < deptList.length; di++) {
+        var d = deptList[di];
+        var opt = el('option', { value: d.id }, [d.name]);
+        if (self.formData.department_id === d.id) opt.selected = true;
+        sel.appendChild(opt);
+      }
+      sel.addEventListener('change', function (e) { self.formData.department_id = e.target.value; });
+      box.appendChild(sel);
+    }
     var fields = [
       ['name', 'Name', 'text'],
       ['email', 'Email', 'email'],

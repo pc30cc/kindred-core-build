@@ -267,10 +267,15 @@ export default function TeamDepartmentsPage() {
                       {!d.enabled && <Badge variant="outline" className="text-[10px]">Disabled</Badge>}
                     </div>
                     <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-                      {d.chat_enabled && <span className="flex items-center gap-1"><MessageSquare className="h-3 w-3" /> Chat</span>}
-                      {d.audio_enabled && <span className="flex items-center gap-1"><Phone className="h-3 w-3" /> Audio</span>}
-                      {d.video_enabled && <span className="flex items-center gap-1"><Video className="h-3 w-3" /> Video</span>}
-                      {!d.chat_enabled && !d.audio_enabled && !d.video_enabled && (
+                      {d.chat_enabled && <span className="flex items-center gap-1"><MessageSquare className="h-3 w-3" /> Live Chat</span>}
+                      {d.tickets_enabled && <span className="flex items-center gap-1"><MessageSquare className="h-3 w-3" /> Tickets</span>}
+                      {d.audio_enabled && <span className="flex items-center gap-1"><Phone className="h-3 w-3" /> Chat Widget Voice</span>}
+                      {d.video_enabled && <span className="flex items-center gap-1"><Video className="h-3 w-3" /> Chat Widget Video</span>}
+                      {d.cc_voice_enabled && <span className="flex items-center gap-1"><Phone className="h-3 w-3" /> Call Center Voice</span>}
+                      {d.cc_video_enabled && <span className="flex items-center gap-1"><Video className="h-3 w-3" /> Call Center Video</span>}
+                      {d.cc_callback_enabled && <span className="flex items-center gap-1"><Phone className="h-3 w-3" /> Call Center Callback</span>}
+                      {!d.chat_enabled && !d.tickets_enabled && !d.audio_enabled && !d.video_enabled
+                        && !d.cc_voice_enabled && !d.cc_video_enabled && !d.cc_callback_enabled && (
                         <span className="italic">No channels enabled</span>
                       )}
                     </div>

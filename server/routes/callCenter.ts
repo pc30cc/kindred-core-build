@@ -1241,20 +1241,29 @@ async function probeUrl(url: string, timeoutMs = 3000): Promise<{ status: number
 callCenterRouter.get('/diagnostics/livekit', async (req, res) => {
   const wid = String(req.query.workspaceId || '');
   if (!wid) return res.status(400).json({ error: 'workspaceId_required' });
-  const ctx = await requireMember(req, res, wid);
-  if (!ctx) return;
-  const sb = getServiceClient(ctx.config);
-  const { data: roleRaw } = await sb.rpc('get_workspace_role', {
-    _workspace_id: wid, _user_id: ctx.userId,
-  });
-  const role = roleRaw ? String(roleRaw) : null;
-  const isAdmin = await isGlobalAdmin(ctx.config, ctx.userId);
+  const config = (req as any).serverConfig as ServerConfig;
+  const lookup = await lookupUser(req, config);
+  if (lookup.unreachable) return res.status(503).json({ error: 'auth_provider_unreachable' });
+  if (!lookup.user) return res.status(401).json({ error: 'unauthenticated' });
+  const sb = getServiceClient(config);
+  const isAdmin = await isGlobalAdmin(config, lookup.user.id);
+  let role: string | null = null;
+  if (!isAdmin) {
+    const { data: ok } = await sb.rpc('is_workspace_member', {
+      _workspace_id: wid, _user_id: lookup.user.id,
+    });
+    if (!ok) return res.status(403).json({ error: 'not_member' });
+    const { data: roleRaw } = await sb.rpc('get_workspace_role', {
+      _workspace_id: wid, _user_id: lookup.user.id,
+    });
+    role = roleRaw ? String(roleRaw) : null;
+  }
   if (!isAdmin && !(role && DIAG_ROLES.has(role))) {
     return res.status(403).json({ error: 'forbidden' });
   }
 
-  const lk = await loadLiveKitConfig(ctx.config);
-  const wsUrl = await getLiveKitClientWsUrl(ctx.config);
+  const lk = await loadLiveKitConfig(config);
+  const wsUrl = await getLiveKitClientWsUrl(config);
   const normalized = normalizeClientWsUrl(wsUrl);
 
   const warnings: string[] = [];

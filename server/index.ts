@@ -2,6 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { loadConfig } from './config.js';
 import { widgetRouter } from './routes/widget.js';
 import { visitorRouter, visitorsAdminRouter } from './routes/visitors.js';
@@ -78,6 +80,80 @@ app.set('trust proxy', 'loopback, linklocal, uniquelocal');
 
 // Security headers
 app.use(helmet());
+
+// ─── Standalone Call Widget static assets ────────────────────────────
+// Backward-compatible: lets the API origin serve /call-widget/* so
+// previously-copied install snippets (which pointed at the API base)
+// keep working. Self-hosted only — no CDN.
+//
+// Resolves project root relative to this compiled file. In dev (tsx) and
+// in the Docker server image we expect ./public/call-widget and
+// ./public/widget/vendor next to the server entry's working directory.
+const __cwFilename = fileURLToPath(import.meta.url);
+const __cwServerDir = path.dirname(__cwFilename);
+const CALL_WIDGET_DIRS = [
+  path.resolve(__cwServerDir, '..', 'public', 'call-widget'), // monorepo dev
+  path.resolve(__cwServerDir, 'public', 'call-widget'),       // server image (cwd=/app)
+  path.resolve(process.cwd(), 'public', 'call-widget'),       // fallback
+];
+const CALL_WIDGET_VENDOR_SOURCES = [
+  path.resolve(__cwServerDir, '..', 'public', 'widget', 'vendor'),
+  path.resolve(__cwServerDir, 'public', 'widget', 'vendor'),
+  path.resolve(process.cwd(), 'public', 'widget', 'vendor'),
+];
+
+function widgetAssetHeaders(res: express.Response, filePath: string) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  if (/livekit-client\.umd\.min\.js$/i.test(filePath)) {
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  } else if (/\/l\.js$/i.test(filePath)) {
+    res.setHeader('Cache-Control', 'no-store');
+  } else {
+    res.setHeader('Cache-Control', 'public, max-age=60');
+  }
+}
+
+// Serve LiveKit UMD under /call-widget/vendor/* (preferred path) by
+// reading from public/widget/vendor — that's where the SDK already lives
+// so we don't duplicate the binary.
+app.get('/call-widget/vendor/:file', (req, res, next) => {
+  const file = req.params.file;
+  if (!/^[a-zA-Z0-9._-]+$/.test(file)) return res.status(400).end();
+  for (const dir of CALL_WIDGET_VENDOR_SOURCES) {
+    const full = path.join(dir, file);
+    if (full.startsWith(dir)) {
+      return res.sendFile(full, { headers: {} }, (err) => {
+        if (err) return next();
+        widgetAssetHeaders(res, full);
+      });
+    }
+  }
+  return next();
+});
+
+for (const dir of CALL_WIDGET_DIRS) {
+  app.use(
+    '/call-widget',
+    express.static(dir, {
+      fallthrough: true,
+      setHeaders: (res, filePath) => widgetAssetHeaders(res as any, filePath),
+    }),
+  );
+}
+
+// Back-compat: also serve /widget/vendor/* (older loader path) with
+// cross-origin CORP so embeds that still reference it keep working.
+for (const dir of CALL_WIDGET_VENDOR_SOURCES) {
+  app.use(
+    '/widget/vendor',
+    express.static(dir, {
+      fallthrough: true,
+      setHeaders: (res, filePath) => widgetAssetHeaders(res as any, filePath),
+    }),
+  );
+}
 
 const appCors = cors({
   origin: config.corsOrigins[0] === '*' ? true : config.corsOrigins,

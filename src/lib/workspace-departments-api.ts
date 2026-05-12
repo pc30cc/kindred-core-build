@@ -19,6 +19,15 @@ export interface Department {
   chat_enabled: boolean;
   audio_enabled: boolean;
   video_enabled: boolean;
+  /** Tickets channel — managed in Team & Departments, consumed by future tickets feature. */
+  tickets_enabled?: boolean;
+  /** Standalone Call Center channels (separate from chat-widget audio/video). */
+  cc_voice_enabled?: boolean;
+  cc_video_enabled?: boolean;
+  cc_callback_enabled?: boolean;
+  /** Per-department Call Center routing strategy. NULL = inherit workspace default. */
+  cc_routing_mode?: 'broadcast' | 'round_robin' | 'least_busy' | null;
+  cc_fallback_department_id?: string | null;
   sort_order: number;
   created_at: string;
   updated_at: string;

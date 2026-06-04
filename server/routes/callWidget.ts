@@ -22,6 +22,7 @@ import { publishQueueEvent, publishCallEvent } from '../services/callCenter/real
 import { buildClientConnectInfo } from '../services/callCenter/connectInfo.js';
 import { computeRecordingCapability } from '../services/callCenter/recording.js';
 import { routeIncomingCall } from '../services/callCenter/routing.js';
+import { resolveGlobalStorageConfig, getFileUrlWithConfig } from '../services/storage/index.js';
 import {
   resolveVisitorIdentity,
   readVisitorCookie,
@@ -450,6 +451,26 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
   } catch (e: any) {
     console.warn('[call-widget/bootstrap] visitor resolve failed:', e?.message || e);
   }
+  const ringbackAudio = await (async () => {
+    const musicPath = (platform as any).ringback_music_path as string | null;
+    const announcementPath = (platform as any).ringback_announcement_audio_path as string | null;
+    const queuePaths = ((platform as any).ringback_queue_audio_paths || {}) as Record<string, string>;
+    if (!musicPath && !announcementPath && Object.keys(queuePaths).length === 0) {
+      return { music_url: platform.ringback_music_url, announcement_url: null, queue_urls: {} };
+    }
+    const storage = await resolveGlobalStorageConfig(config).catch(() => null);
+    const urlFor = (p?: string | null) => (storage && p ? getFileUrlWithConfig(storage, p) : null);
+    const queueUrls: Record<string, string> = {};
+    for (const [pos, p] of Object.entries(queuePaths)) {
+      const u = urlFor(p);
+      if (u) queueUrls[pos] = u;
+    }
+    return {
+      music_url: urlFor(musicPath) || platform.ringback_music_url,
+      announcement_url: urlFor(announcementPath),
+      queue_urls: queueUrls,
+    };
+  })();
   res.json({
     status: 'ok',
     session,
@@ -485,7 +506,9 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
     queue_experience: {
       ringback_enabled: platform.ringback_enabled,
       ringback_mode: platform.ringback_mode,
-      ringback_music_url: platform.ringback_music_url,
+      ringback_music_url: ringbackAudio.music_url,
+      ringback_announcement_audio_url: ringbackAudio.announcement_url,
+      ringback_queue_audio_urls: ringbackAudio.queue_urls,
       show_position: platform.queue_show_position,
       show_eta: platform.queue_show_eta,
       eta_seconds_per_position: platform.queue_eta_seconds_per_position,

@@ -135,7 +135,7 @@ export function setContinuityCookie(res: Response, token: string, req?: Request 
 }
 
 export function readContinuityCookie(req: Request): string | null {
-  const raw = (req as any).cookies?.[CONTINUITY_COOKIE_NAME];
+  const raw = (req as Request & { cookies?: Record<string, unknown> }).cookies?.[CONTINUITY_COOKIE_NAME];
   return typeof raw === 'string' && raw.length > 20 ? raw : null;
 }
 

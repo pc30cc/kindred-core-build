@@ -211,8 +211,10 @@ server {
 
         # Loader + runtime (unhashed) — never cache anywhere.
         expires -1;
-        add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+        add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0, s-maxage=0" always;
         add_header Pragma "no-cache" always;
+        add_header Expires "0" always;
+        add_header Surrogate-Control "no-store" always;
         add_header CDN-Cache-Control "no-store" always;
         add_header Cloudflare-CDN-Cache-Control "no-store" always;
         add_header X-Widget-Asset "call-widget" always;

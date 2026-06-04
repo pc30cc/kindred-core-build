@@ -51,7 +51,13 @@
 .ccw-status-dot { width: 7px; height: 7px; border-radius: 999px; background: hsl(var(--ccw-muted)); }
 .ccw-status-dot.online { background: hsl(var(--ccw-accent)); box-shadow: 0 0 0 4px hsl(var(--ccw-accent) / .20); }
 .ccw-status-dot.offline { background: hsl(var(--ccw-warm)); }
-.ccw-close { margin-left: auto; width: 34px; height: 34px; border-radius: 12px; background: hsl(0 0% 100% / .12); color: hsl(0 0% 100%); border: 1px solid hsl(0 0% 100% / .18); cursor: pointer; font-size: 22px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
+.ccw-close { margin-inline-start: auto; width: 34px; height: 34px; border-radius: 12px; background: hsl(0 0% 100% / .12); color: hsl(0 0% 100%); border: 1px solid hsl(0 0% 100% / .18); cursor: pointer; font-size: 22px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
+.ccw-lang { flex: 0 0 auto; min-width: 48px; height: 34px; padding: 0 8px; border-radius: 12px; border: 1px solid hsl(0 0% 100% / .18); background: hsl(0 0% 100% / .12); color: hsl(0 0% 100%); font-family: inherit; font-size: 11px; font-weight: 850; cursor: pointer; outline: 0; }
+.ccw-lang option { color: hsl(var(--ccw-ink)); background: hsl(0 0% 100%); }
+.ccw-root[dir="rtl"] { direction: rtl; text-align: right; }
+.ccw-root[dir="rtl"] .ccw-launcher-copy { align-items: flex-end; }
+.ccw-root[dir="rtl"] .ccw-queue-head { text-align: right; }
+.ccw-root[dir="rtl"] .ccw-ref-row, .ccw-root[dir="rtl"] .ccw-queue-pos, .ccw-root[dir="rtl"] .ccw-queue-eta, .ccw-root[dir="rtl"] .ccw-wait-wrap { direction: rtl; }
 .ccw-body { padding: 16px; overflow-y: auto; flex: 1; font-size: 14px; background: linear-gradient(180deg, hsl(214 100% 98%), hsl(0 0% 100%) 46%); }
 .ccw-row { display: flex; gap: 10px; }
 .ccw-row > * { flex: 1; min-width: 0; }

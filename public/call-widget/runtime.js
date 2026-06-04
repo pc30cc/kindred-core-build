@@ -106,6 +106,24 @@
       } catch (_) {}
     }
     return {
+      /**
+       * Prime audio output synchronously from a user gesture so that
+       * browser autoplay policies allow playback after a later async step
+       * (e.g. after the /calls/request POST resolves). Must be called from
+       * inside a click/touch handler — do NOT call after an `await`.
+       */
+      prime: function () {
+        try {
+          var c = ensure();
+          if (c && c.state === 'suspended') { try { c.resume(); } catch (_) {} }
+          // Play a 1-sample silent buffer to fully unlock the context.
+          if (c) {
+            var b = c.createBuffer(1, 1, 22050);
+            var s = c.createBufferSource();
+            s.buffer = b; s.connect(c.destination); s.start(0);
+          }
+        } catch (_) {}
+      },
       start: function (cfg) {
         if (active) return;
         active = true;
@@ -121,6 +139,7 @@
           return;
         }
         // tone
+        ensure();
         ringOnce();
         timer = setInterval(ringOnce, 3000);
       },
@@ -231,6 +250,9 @@
 
   CallCenterWidgetCtor.prototype.startCall = function (callType) {
     var cfg = this.bootstrap.config || {};
+    // Prime audio output inside this click handler so the ringback can
+    // actually play later, after the async /calls/request round-trip.
+    try { Ringback.prime(); } catch (_) {}
     this.formData.call_type = callType;
     // Auto-select sole department for the chosen channel, otherwise reset.
     var depts = (this.bootstrap && this.bootstrap.departments) || {};
@@ -254,6 +276,9 @@
 
   CallCenterWidgetCtor.prototype.submitCall = function () {
     var self = this;
+    // Re-prime in case the user reached submitCall via the pre-call form
+    // (a different click than the initial Voice/Video button).
+    try { Ringback.prime(); } catch (_) {}
     var rec = (this.bootstrap && this.bootstrap.recording) || {};
     var consentNeeded = !!(rec.effective_enabled && rec.consent_required);
     if (consentNeeded && !this.formData.consent) {

@@ -142,7 +142,11 @@
 
   // ── Visitor-side ringback (on-hold) audio ────────────────────────────
   var Ringback = (function () {
-    var ctx = null, timer = null, active = false, audioEl = null, mode = 'off', lastCfg = null, needsGesture = false, unlockHandlersInstalled = false;
+    var ctx = null, timer = null, holdTimer = null, speakTimer = null, active = false, audioEl = null, mode = 'off', lastCfg = null, needsGesture = false, unlockHandlersInstalled = false;
+    var phase = 'hold';
+    var locale = 'en';
+    var announceText = '';
+    var LANG_MAP = { en: 'en-US', fa: 'fa-IR', tr: 'tr-TR' };
     function ensure() {
       try {
         if (typeof window === 'undefined') return null;
@@ -169,7 +173,7 @@
       try {
         if (c.state === 'suspended' && c.resume) {
           var rp = c.resume();
-          if (rp && rp.then) rp.then(function () { needsGesture = false; startToneLoop(); }).catch(function () { needsGesture = true; installUnlockHandlers(); });
+          if (rp && rp.then) rp.then(function () { needsGesture = false; startPhase(); }).catch(function () { needsGesture = true; installUnlockHandlers(); });
         }
         // A near-silent oscillator is more reliable than a zero-length buffer
         // on mobile Safari for preserving the user-activation audio unlock.
@@ -217,13 +221,91 @@
         }
       } catch (_) { needsGesture = true; installUnlockHandlers(); }
     }
-    function startToneLoop() {
-      if (!active || mode !== 'tone' || timer) return;
-      ringOnce();
-      timer = setInterval(ringOnce, 2800);
+    function holdChord() {
+      var c = ensure(); if (!c || !active || mode !== 'tone') return;
+      if (c.state && c.state !== 'running') {
+        needsGesture = true; installUnlockHandlers();
+        try { var p = c.resume && c.resume(); if (p && p.then) p.then(function () { needsGesture = false; }).catch(function () {}); } catch (_) {}
+        return;
+      }
+      try {
+        var t0 = c.currentTime + 0.02;
+        // Soft minor pad: A3, C#4, E4 — gentle, looped
+        var freqs = [220.0, 277.18, 329.63];
+        freqs.forEach(function (f, idx) {
+          var osc = c.createOscillator();
+          var g = c.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(f, t0);
+          g.gain.setValueAtTime(0.0001, t0);
+          g.gain.exponentialRampToValueAtTime(0.05 - idx * 0.008, t0 + 0.8);
+          g.gain.setValueAtTime(0.05 - idx * 0.008, t0 + 3.2);
+          g.gain.exponentialRampToValueAtTime(0.0001, t0 + 4.4);
+          osc.connect(g).connect(c.destination);
+          osc.start(t0);
+          osc.stop(t0 + 4.5);
+        });
+      } catch (_) {}
+    }
+    function speakAnnounce() {
+      if (!active || phase !== 'hold' || !announceText) return;
+      try {
+        if (typeof window === 'undefined' || !window.speechSynthesis) return;
+        var u = new window.SpeechSynthesisUtterance(announceText);
+        u.lang = LANG_MAP[locale] || 'en-US';
+        u.rate = 0.95;
+        u.volume = 0.95;
+        try { window.speechSynthesis.cancel(); } catch (_) {}
+        window.speechSynthesis.speak(u);
+      } catch (_) {}
+    }
+    function clearTimers() {
+      if (timer) { try { clearInterval(timer); } catch (_) {} timer = null; }
+      if (holdTimer) { try { clearInterval(holdTimer); } catch (_) {} holdTimer = null; }
+      if (speakTimer) { try { clearInterval(speakTimer); } catch (_) {} speakTimer = null; }
+    }
+    function startPhase() {
+      clearTimers();
+      if (!active) return;
+      if (audioEl) {
+        try { audioEl.volume = phase === 'ring' ? 0.62 : 0.38; } catch (_) {}
+      }
+      if (mode !== 'tone') {
+        // music URL handles its own loop; only schedule announcements during hold
+        if (phase === 'hold' && announceText) {
+          speakAnnounce();
+          speakTimer = setInterval(speakAnnounce, 14000);
+        }
+        return;
+      }
+      if (phase === 'ring') {
+        ringOnce();
+        timer = setInterval(ringOnce, 2800);
+      } else {
+        holdChord();
+        holdTimer = setInterval(holdChord, 4500);
+        if (announceText) {
+          speakAnnounce();
+          speakTimer = setInterval(speakAnnounce, 14000);
+        }
+      }
     }
     return {
       prime: function () { unlock(); },
+      setLocale: function (loc, text) {
+        if (loc) locale = String(loc);
+        if (text != null) announceText = String(text || '');
+      },
+      setPhase: function (p) {
+        var next = p === 'ring' ? 'ring' : 'hold';
+        if (next === phase) return;
+        phase = next;
+        if (phase === 'ring') {
+          try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (_) {}
+        }
+        if (active) startPhase();
+      },
+      getPhase: function () { return phase; },
       start: function (cfg) {
         lastCfg = cfg || lastCfg || {};
         mode = (lastCfg && lastCfg.ringback_mode) || 'tone';
@@ -232,26 +314,27 @@
         if (mode === 'music' && lastCfg.ringback_music_url) {
           try {
             if (!audioEl) audioEl = new Audio(lastCfg.ringback_music_url);
-            audioEl.loop = true; audioEl.volume = 0.62;
+            audioEl.loop = true; audioEl.volume = phase === 'ring' ? 0.62 : 0.38;
             var p = audioEl.play();
             if (p && p.then) p.then(function () { needsGesture = false; }).catch(function () { needsGesture = true; installUnlockHandlers(); });
           } catch (_) { needsGesture = true; installUnlockHandlers(); }
+          startPhase();
           return;
         }
         mode = 'tone';
         unlock();
-        startToneLoop();
+        startPhase();
       },
       stop: function () {
         active = false; needsGesture = false;
-        if (timer) { try { clearInterval(timer); } catch (_) {} timer = null; }
+        clearTimers();
+        try { if (typeof window !== 'undefined' && window.speechSynthesis) window.speechSynthesis.cancel(); } catch (_) {}
         if (audioEl) { try { audioEl.pause(); audioEl.src = ''; } catch (_) {} audioEl = null; }
       },
       startFromGesture: function (cfg) {
         lastCfg = cfg || lastCfg || {};
         unlock();
         this.start(lastCfg);
-        if (mode === 'tone') ringOnce();
       },
       needsGesture: function () { return !!needsGesture; },
       isActive: function () { return active; },

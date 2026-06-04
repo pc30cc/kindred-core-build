@@ -547,6 +547,6 @@ widgetIdentityRouter.post('/continuity/revoke', widgetRateLimit('default'), asyn
 // POST /identity/logout — Clear visitor cookie + revoke
 // ═══════════════════════════════════════════════
 widgetIdentityRouter.post('/logout', widgetRateLimit('default'), async (req: Request, res: Response) => {
-  clearVisitorCookie(res);
+  clearVisitorCookie(res, req);
   return res.json({ success: true });
 });

@@ -387,8 +387,23 @@
           try {
             if (!audioEl) audioEl = new Audio(lastCfg.ringback_music_url);
             audioEl.loop = true; audioEl.volume = phase === 'ring' ? 0.62 : 0.38;
+            audioEl.onerror = function () {
+              if (!active) return;
+              try { audioEl && audioEl.pause(); } catch (_) {}
+              audioEl = null;
+              mode = 'tone';
+              unlock();
+              startPhase();
+            };
             var p = audioEl.play();
-            if (p && p.then) p.then(function () { needsGesture = false; }).catch(function () { needsGesture = true; installUnlockHandlers(); });
+            if (p && p.then) p.then(function () { needsGesture = false; }).catch(function (err) {
+              var name = String((err && err.name) || '').toLowerCase();
+              if (name && name !== 'notallowederror') {
+                try { audioEl && audioEl.pause(); } catch (_) {}
+                audioEl = null; mode = 'tone'; unlock(); startPhase(); return;
+              }
+              needsGesture = true; installUnlockHandlers();
+            });
           } catch (_) { needsGesture = true; installUnlockHandlers(); }
           startPhase();
           return;

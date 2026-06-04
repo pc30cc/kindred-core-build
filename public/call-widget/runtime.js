@@ -811,11 +811,15 @@
     var self = this;
     switch (this.state) {
       case STATES.LOADING:
-        return el('div', { class: 'ccw-stack' }, [el('div', { class: 'ccw-spinner' }), el('div', { class: 'ccw-muted' }, ['Loading…'])]);
+        return el('div', { class: 'ccw-loading' }, [el('div', { class: 'ccw-spinner' }), el('div', { class: 'ccw-muted' }, ['Loading…'])]);
 
       case STATES.OFFLINE: {
         var off = el('div', { class: 'ccw-stack' }, [
-          el('div', {}, ['We are currently offline. Leave a callback request and we will reach out.']),
+          el('div', { class: 'ccw-hero' }, [
+            el('div', { class: 'ccw-hero-icon' }, ['↩']),
+            el('div', { class: 'ccw-hero-title' }, ['Leave a callback request']),
+            el('div', { class: 'ccw-hero-sub' }, ['Our team is offline right now, but we can call you back.']),
+          ]),
         ]);
         if (caps.callback) off.appendChild(el('button', { class: 'ccw-btn primary', on: { click: function () { self.openCallback(); } } }, ['Request callback']));
         return off;
@@ -825,7 +829,11 @@
         var pol = (self.bootstrap && self.bootstrap.callback_policy) || {};
         var showCbOnline = pol.show_when_online !== false; // default true
         var box = el('div', { class: 'ccw-stack' }, [
-          el('div', {}, ['Talk with our team in seconds.']),
+          el('div', { class: 'ccw-hero' }, [
+            el('div', { class: 'ccw-hero-kicker' }, ['Available now']),
+            el('div', { class: 'ccw-hero-title' }, ['Talk to our team']),
+            el('div', { class: 'ccw-hero-sub' }, ['Start a secure voice or video call with the next available operator.']),
+          ]),
         ]);
         var row = el('div', { class: 'ccw-row' });
         if (caps.voice) row.appendChild(el('button', { class: 'ccw-btn primary', on: { click: function () { self.startCall('voice'); } } }, ['🎙 Voice call']));

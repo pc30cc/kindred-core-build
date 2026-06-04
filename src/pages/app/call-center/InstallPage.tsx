@@ -19,7 +19,6 @@ function HealthRow({ ok, label, hint }: { ok: boolean; label: string; hint?: str
 }
 
 const DOMAIN_RE = /^(\*\.)?([a-z0-9-]+\.)+[a-z]{2,}$/i;
-const CALL_WIDGET_LOADER_VERSION = '20260604-cache-fix';
 function validateDomain(d: string): string | null {
   if (!d) return 'empty';
   if (/[\s]/.test(d)) return 'no whitespace allowed';
@@ -41,7 +40,7 @@ export default function InstallPage() {
     (import.meta.env.VITE_CALL_WIDGET_ASSET_BASE_URL as string) ||
     (import.meta.env.VITE_WIDGET_ASSET_BASE_URL as string) ||
     window.location.origin;
-  const loaderUrl = `${widgetAssetBase}/call-widget/l.js?v=${CALL_WIDGET_LOADER_VERSION}`;
+  const loaderUrl = `${widgetAssetBase}/call-widget/l.js`;
   const wid = workspace?.id || '';
   const snippetWs = `<script async src="${loaderUrl}" api-base="${apiBase}" workspace-id="${wid}"></script>`;
   const snippetPk = data?.settings?.public_key

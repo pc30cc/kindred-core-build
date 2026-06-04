@@ -275,9 +275,11 @@ export default function CallCenterSettingsPage() {
         <Row label="Video calls" locked={!platformVideo ? 'Disabled by platform' : undefined}>
           <Switch checked={!!s.video_enabled} onCheckedChange={(v) => setS({ ...s, video_enabled: v })} disabled={!platformVideo} />
         </Row>
-        <Row label="Callback requests" locked={!platformCallback ? 'Disabled by platform' : undefined}>
-          <Switch checked={!!s.callback_enabled} onCheckedChange={(v) => setS({ ...s, callback_enabled: v })} disabled={!platformCallback} />
-        </Row>
+        {platformCallback && (
+          <Row label="Callback requests">
+            <Switch checked={!!s.callback_enabled} onCheckedChange={(v) => setS({ ...s, callback_enabled: v })} />
+          </Row>
+        )}
         <Row label="Pre-call form" hint="Ask visitors for name/email/subject before connecting.">
           <Switch checked={!!s.pre_call_form_enabled} onCheckedChange={(v) => setS({ ...s, pre_call_form_enabled: v })} />
         </Row>

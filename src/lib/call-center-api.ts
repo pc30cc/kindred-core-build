@@ -365,9 +365,9 @@ export const callCenterApi = {
     jsonFetch<{ ok: boolean }>(`/api/call-center/callbacks/${id}/assign?workspaceId=${encodeURIComponent(workspaceId)}`, {
       method: 'POST', body: JSON.stringify({ workspaceId }),
     }),
-  completeCallback: (workspaceId: string, id: string) =>
+  completeCallback: (workspaceId: string, id: string, note?: string) =>
     jsonFetch<{ ok: boolean }>(`/api/call-center/callbacks/${id}/complete?workspaceId=${encodeURIComponent(workspaceId)}`, {
-      method: 'POST', body: JSON.stringify({ workspaceId }),
+      method: 'POST', body: JSON.stringify({ workspaceId, note: note || undefined }),
     }),
   cancelCallback: (workspaceId: string, id: string) =>
     jsonFetch<{ ok: boolean }>(`/api/call-center/callbacks/${id}/cancel?workspaceId=${encodeURIComponent(workspaceId)}`, {

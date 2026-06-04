@@ -1163,18 +1163,19 @@
 
   CallCenterWidgetCtor.prototype.renderForm = function (cfg, forCall) {
     var self = this;
+    var tr = function (key, vars) { return self.t(key, vars); };
     var policy = (self.bootstrap && self.bootstrap.callback_policy) || {};
     var box = el('div', { class: 'ccw-stack' });
     if (!forCall) {
       box.appendChild(el('div', { class: 'ccw-cb-intro' }, [
-        el('div', { class: 'ccw-cb-intro-title' }, ['Request a callback']),
-        el('div', { class: 'ccw-muted' }, ['Tell us how to reach you — our team calls back fast.']),
+        el('div', { class: 'ccw-cb-intro-title' }, [tr('request_callback_title')]),
+        el('div', { class: 'ccw-muted' }, [tr('callback_intro')]),
       ]));
     }
     // Channel segmented control (callback only)
     if (!forCall) {
       var caps2 = (self.bootstrap && self.bootstrap.capabilities) || {};
-      box.appendChild(el('label', { class: 'ccw-label' }, ['Callback type']));
+      box.appendChild(el('label', { class: 'ccw-label' }, [tr('callback_type')]));
       var seg = el('div', { class: 'ccw-segment' });
       function mkSeg(val, label) {
         var active = (self.formData.callback_channel === val);
@@ -1182,8 +1183,8 @@
           on: { click: function () { self.formData.callback_channel = val; self.render(); } } }, [label]);
         return b;
       }
-      seg.appendChild(mkSeg('audio', '🎙 Phone'));
-      if (caps2.video) seg.appendChild(mkSeg('video', '🎥 Video'));
+      seg.appendChild(mkSeg('audio', tr('phone')));
+      if (caps2.video) seg.appendChild(mkSeg('video', tr('video')));
       box.appendChild(seg);
     }
     // Department dropdown (only if backend exposed options for this channel).
@@ -1196,9 +1197,9 @@
       deptList = depts.callback || [];
     }
     if (deptList.length > 0) {
-      box.appendChild(el('label', { class: 'ccw-label' }, ['Department']));
+      box.appendChild(el('label', { class: 'ccw-label' }, [tr('department')]));
       var sel = el('select', { class: 'ccw-input' });
-      var ph = el('option', { value: '' }, ['Choose a department']);
+      var ph = el('option', { value: '' }, [tr('choose_department')]);
       sel.appendChild(ph);
       for (var di = 0; di < deptList.length; di++) {
         var d = deptList[di];
@@ -1211,12 +1212,12 @@
     }
     var alreadyIdentified = !!(self.identifiedContact && self.identifiedContact.id);
     if (alreadyIdentified) {
-      var knownName = self.identifiedContact.name || self.formData.name || 'Known contact';
+      var knownName = self.identifiedContact.name || self.formData.name || tr('known_contact');
       box.appendChild(el('div', { class: 'ccw-known-contact' }, [
         el('div', { class: 'ccw-known-dot' }, ['✓']),
         el('div', {}, [
           el('div', { class: 'ccw-known-title' }, [knownName]),
-          el('div', { class: 'ccw-muted' }, ['Contact details already saved']),
+          el('div', { class: 'ccw-muted' }, [tr('contact_saved')]),
         ]),
       ]));
     }

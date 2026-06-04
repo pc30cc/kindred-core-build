@@ -757,14 +757,38 @@
         return this.renderForm(cfg, /*forCall*/false);
 
       case STATES.QUEUE: {
-        return el('div', { class: 'ccw-stack' }, [
-          el('div', { class: 'ccw-card' }, [
-            el('div', { class: 'ccw-pill' }, ['In queue']),
-            el('div', { class: 'ccw-label' }, ['Waiting for an operator…']),
-            el('div', { class: 'ccw-wait-timer', html: '0:00' }),
-          ]),
-          el('button', { class: 'ccw-btn danger', on: { click: function () { self.cancelCall(); } } }, ['Cancel']),
+        var qe = (self.bootstrap && self.bootstrap.queue_experience) || {};
+        var capsForCallback = (self.bootstrap && self.bootstrap.capabilities) || {};
+        var card = el('div', { class: 'ccw-card' }, [
+          el('div', { class: 'ccw-pill' }, ['● Ringing operator…']),
+          el('div', { class: 'ccw-label' }, ['Please hold, an agent will be with you shortly.']),
+          el('div', { class: 'ccw-wait-timer', html: '0:00' }),
         ]);
+        // Position-in-queue chip
+        if (qe.show_position !== false && self.queuePosition) {
+          var posLabel = self.queuePosition === 1
+            ? 'You are next in line'
+            : 'You are #' + self.queuePosition + ' in the queue';
+          card.appendChild(el('div', { class: 'ccw-queue-pos' }, [posLabel]));
+        }
+        // ETA chip
+        if (qe.show_eta !== false && typeof self.queueEta === 'number' && self.queueEta > 0) {
+          var mins = Math.max(1, Math.round(self.queueEta / 60));
+          var etaLbl = mins <= 1 ? 'Estimated wait: under 1 minute' : 'Estimated wait: ~' + mins + ' minutes';
+          card.appendChild(el('div', { class: 'ccw-queue-eta' }, [etaLbl]));
+        }
+        var stack = [card];
+        // Offer a callback after the configured wait threshold
+        var threshold = qe.offer_callback_after_seconds;
+        var elapsed = self.queueStartedAt ? Math.floor((Date.now() - self.queueStartedAt) / 1000) : 0;
+        if (capsForCallback.callback && threshold && threshold > 0 && elapsed >= threshold) {
+          stack.push(el('div', { class: 'ccw-callback-offer' }, [
+            el('div', { class: 'ccw-callback-offer-text' }, ['Tired of waiting? We can call you back instead.']),
+            el('button', { class: 'ccw-btn primary', on: { click: function () { self.cancelCall(); setTimeout(function () { self.openCallback(); }, 50); } } }, ['Request a callback']),
+          ]));
+        }
+        stack.push(el('button', { class: 'ccw-btn danger', on: { click: function () { self.cancelCall(); } } }, ['Cancel call']));
+        return el('div', { class: 'ccw-stack' }, stack);
       }
 
       case STATES.IN_CALL: {

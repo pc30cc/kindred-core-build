@@ -19,6 +19,63 @@
     ERROR: 'error',
   };
 
+  var SUPPORTED_LOCALES = ['en', 'fa', 'tr'];
+  var LOCALE_META = {
+    en: { label: 'English', short: 'EN', dir: 'ltr' },
+    fa: { label: 'فارسی', short: 'فا', dir: 'rtl' },
+    tr: { label: 'Türkçe', short: 'TR', dir: 'ltr' },
+  };
+  var I18N = {
+    en: {
+      talk_now: 'Talk now', callback: 'Callback', live_support: 'Live support', leave_details: 'Leave details', support: 'Support',
+      operators_available: 'Operators available', callback_desk: 'Callback desk', loading: 'Loading…', offline: 'Offline',
+      leave_callback_request: 'Leave a callback request', offline_copy: 'Our team is offline right now, but we can call you back.', request_callback: 'Request callback',
+      live_now: 'Live now', channels: 'Voice · Video · Callback', talk_to_team: 'Talk to our team', online_copy: 'Start a secure voice or video call with the next available operator.',
+      secure_line: 'Secure line', queue_aware: 'Queue aware', fast_handoff: 'Fast handoff', voice_call: 'Voice call', video_call: 'Video call', request_callback_instead: 'Request callback instead',
+      you_are_next: 'You are next', holding_place: 'Holding your place', queue_copy_many: 'Your request is in the live call queue. Keep this window open while we connect the operator.', queue_copy_next: 'We are ringing the next available operator now.',
+      ringing_enabled: 'Ringing enabled', ringing_operator: 'Ringing operator', waiting_time: 'Waiting time', enable_ringing_sound: '🔊 Enable ringing sound', you_next_line: 'You are next in line', you_queue_number: 'You are #{n} in the queue',
+      queue_position: 'Queue position', eta: 'ETA', eta_under_min: 'Estimated wait: under 1 minute', eta_minutes: 'Estimated wait: ~{n} minutes', tired_waiting: 'Tired of waiting? We can call you back instead.', cancel_call: 'Cancel call',
+      call_accepted_connecting: 'Call accepted, connecting…', connected: 'Connected', operator_joining: 'Operator joining…', operator_connected: 'Operator connected', operator_left: 'Operator left the call.', reconnecting_media: 'Reconnecting media…', media_disconnected: 'Media disconnected.', connecting_av: 'Connecting audio/video…',
+      fallback: 'Call accepted. Please continue on the operator side.', accepted_no_sdk: 'Call accepted. Audio/video client unavailable on this page.', media_not_configured: 'Call accepted, media connection is not configured yet.', provider_not_configured: 'Call accepted, but the media server URL is not configured. Please request a callback.', provider_not_supported: 'Call accepted, but this provider has no in-browser client.', media_client_missing: 'Media client is not loaded. Call room is ready but the browser client is missing.', media_client_invalid: 'Media client loaded but is incompatible with this widget.', loading_media_client: 'Loading media client…', mic_denied: 'Microphone permission denied. Please allow access and try again.', camera_denied: 'Camera permission denied. Audio call continues without video.', room_failed: 'Failed to connect to the call room: {error}', token_expired: 'Your session expired. Please end and start a new call.',
+      in_call: 'In call', connected_waiting: 'Connected — waiting', connecting: 'Connecting', recording_progress: '● Recording in progress', recording_may_start: 'Recording may start after the operator begins the call.', mute: '🎙 Mute', unmute: '🎙 Unmute', camera_off: '🎥 Camera off', camera_on: '🎥 Camera on', end: 'End',
+      callback_scheduled: 'Callback scheduled', reach_out: 'Our team will reach out {when}.', asap: 'as soon as possible', video_callback: 'Video callback', phone_callback: 'Phone callback', reference: 'Reference', type: 'Type', done: 'Done', call_ended: 'Call ended.', error_prefix: 'Error: {error}', unknown: 'unknown', back: 'Back',
+      request_callback_title: 'Request a callback', callback_intro: 'Tell us how to reach you — our team calls back fast.', callback_type: 'Callback type', phone: '🎙 Phone', video: '🎥 Video', department: 'Department', choose_department: 'Choose a department', known_contact: 'Known contact', contact_saved: 'Contact details already saved', subject: 'Subject', full_name: 'Full name', email: 'Email', email_required: 'Email *', phone_field: 'Phone', phone_required: 'Phone *', contact_required_note: '* Email or phone is required so we can reach you.', message_min: 'Message (min {n} chars)', message_optional: 'Message (optional)', message_placeholder: 'Briefly describe what you need help with…', when_call: 'When should we call?', schedule: '🗓 Schedule', priority: 'Priority', normal: 'Normal', urgent: '🔥 Urgent', consent_required: ' I consent to this call being recorded for quality and security. (required)', call_may_record: 'This call may be recorded for quality and security.', start_call: 'Start call', send_request: 'Send request',
+      err_recording_required: 'Recording consent is required to continue.', err_recording_accept: 'Please accept the recording consent to start the call.', err_department: 'This department is not available for this call type. Please choose another department.', err_failed_start: 'Failed to start call.', err_wait_seconds: 'Please wait {n}s before sending another request.', err_contact_required: 'Please provide your email or phone so we can reach you.', err_message_short: 'Please describe your request in at least {n} characters.', err_future_time: 'Please pick a valid future time.', err_too_fast: 'That was too fast. Please take a moment to fill in the form.', err_cooldown: 'You already requested a callback. Please wait {n}s before sending another.', err_rate_limited: 'Too many callback requests from your network. Please try again later.', err_callback_unavailable: 'Callback requests are currently unavailable.', err_failed: 'Failed.'
+    },
+    fa: {
+      talk_now: 'همین حالا تماس بگیرید', callback: 'درخواست تماس', live_support: 'پشتیبانی آنلاین', leave_details: 'ثبت اطلاعات', support: 'پشتیبانی',
+      operators_available: 'اپراتورها آماده‌اند', callback_desk: 'میز درخواست تماس', loading: 'در حال بارگذاری…', offline: 'آفلاین',
+      leave_callback_request: 'درخواست تماس ثبت کنید', offline_copy: 'تیم ما الان آفلاین است، اما می‌توانیم با شما تماس بگیریم.', request_callback: 'درخواست تماس',
+      live_now: 'آنلاین', channels: 'صوتی · تصویری · درخواست تماس', talk_to_team: 'با تیم ما صحبت کنید', online_copy: 'یک تماس صوتی یا تصویری امن را با اولین اپراتور آزاد شروع کنید.',
+      secure_line: 'خط امن', queue_aware: 'مدیریت صف', fast_handoff: 'اتصال سریع', voice_call: 'تماس صوتی', video_call: 'تماس تصویری', request_callback_instead: 'به‌جای آن درخواست تماس بدهید',
+      you_are_next: 'نفر بعدی شما هستید', holding_place: 'جای شما محفوظ است', queue_copy_many: 'درخواست شما در صف تماس زنده است. این پنجره را باز نگه دارید تا اپراتور متصل شود.', queue_copy_next: 'در حال زنگ زدن به اولین اپراتور آزاد هستیم.',
+      ringing_enabled: 'صدای زنگ فعال است', ringing_operator: 'در حال زنگ زدن به اپراتور', waiting_time: 'زمان انتظار', enable_ringing_sound: '🔊 فعال کردن صدای زنگ', you_next_line: 'شما نفر بعدی صف هستید', you_queue_number: 'شما نفر {n} صف هستید',
+      queue_position: 'جایگاه در صف', eta: 'زمان تقریبی', eta_under_min: 'زمان انتظار: کمتر از ۱ دقیقه', eta_minutes: 'زمان انتظار: حدود {n} دقیقه', tired_waiting: 'از انتظار خسته شدید؟ می‌توانیم با شما تماس بگیریم.', cancel_call: 'لغو تماس',
+      call_accepted_connecting: 'تماس پذیرفته شد، در حال اتصال…', connected: 'متصل شد', operator_joining: 'اپراتور در حال ورود است…', operator_connected: 'اپراتور متصل شد', operator_left: 'اپراتور تماس را ترک کرد.', reconnecting_media: 'در حال اتصال مجدد رسانه…', media_disconnected: 'ارتباط رسانه قطع شد.', connecting_av: 'در حال اتصال صدا/تصویر…',
+      fallback: 'تماس پذیرفته شد. لطفاً از سمت اپراتور ادامه دهید.', accepted_no_sdk: 'تماس پذیرفته شد. کلاینت صدا/تصویر در این صفحه در دسترس نیست.', media_not_configured: 'تماس پذیرفته شد، اما اتصال رسانه هنوز تنظیم نشده است.', provider_not_configured: 'تماس پذیرفته شد، اما آدرس سرور رسانه تنظیم نشده است. لطفاً درخواست تماس ثبت کنید.', provider_not_supported: 'تماس پذیرفته شد، اما این ارائه‌دهنده کلاینت مرورگری ندارد.', media_client_missing: 'کلاینت رسانه بارگذاری نشده است. اتاق تماس آماده است اما کلاینت مرورگر موجود نیست.', media_client_invalid: 'کلاینت رسانه بارگذاری شده با این ویجت سازگار نیست.', loading_media_client: 'در حال بارگذاری کلاینت رسانه…', mic_denied: 'دسترسی میکروفون رد شد. لطفاً اجازه دسترسی بدهید و دوباره تلاش کنید.', camera_denied: 'دسترسی دوربین رد شد. تماس صوتی بدون تصویر ادامه دارد.', room_failed: 'اتصال به اتاق تماس ناموفق بود: {error}', token_expired: 'جلسه شما منقضی شد. لطفاً تماس را پایان دهید و دوباره شروع کنید.',
+      in_call: 'در تماس', connected_waiting: 'متصل — در انتظار', connecting: 'در حال اتصال', recording_progress: '● ضبط در حال انجام است', recording_may_start: 'ممکن است ضبط پس از شروع تماس توسط اپراتور آغاز شود.', mute: '🎙 بی‌صدا', unmute: '🎙 فعال‌کردن صدا', camera_off: '🎥 خاموش کردن دوربین', camera_on: '🎥 روشن کردن دوربین', end: 'پایان',
+      callback_scheduled: 'درخواست تماس ثبت شد', reach_out: 'تیم ما {when} با شما تماس می‌گیرد.', asap: 'در اولین فرصت', video_callback: 'تماس تصویری', phone_callback: 'تماس تلفنی', reference: 'کد پیگیری', type: 'نوع', done: 'تمام', call_ended: 'تماس پایان یافت.', error_prefix: 'خطا: {error}', unknown: 'نامشخص', back: 'بازگشت',
+      request_callback_title: 'درخواست تماس', callback_intro: 'راه ارتباطی را وارد کنید — تیم ما سریع تماس می‌گیرد.', callback_type: 'نوع تماس', phone: '🎙 تلفنی', video: '🎥 تصویری', department: 'دپارتمان', choose_department: 'یک دپارتمان انتخاب کنید', known_contact: 'مخاطب شناخته‌شده', contact_saved: 'اطلاعات تماس قبلاً ذخیره شده است', subject: 'موضوع', full_name: 'نام کامل', email: 'ایمیل', email_required: 'ایمیل *', phone_field: 'تلفن', phone_required: 'تلفن *', contact_required_note: '* ایمیل یا تلفن برای تماس با شما الزامی است.', message_min: 'پیام (حداقل {n} کاراکتر)', message_optional: 'پیام (اختیاری)', message_placeholder: 'کوتاه توضیح دهید چه کمکی نیاز دارید…', when_call: 'چه زمانی تماس بگیریم؟', schedule: '🗓 زمان‌بندی', priority: 'اولویت', normal: 'عادی', urgent: '🔥 فوری', consent_required: ' رضایت می‌دهم این تماس برای کیفیت و امنیت ضبط شود. (الزامی)', call_may_record: 'ممکن است این تماس برای کیفیت و امنیت ضبط شود.', start_call: 'شروع تماس', send_request: 'ارسال درخواست',
+      err_recording_required: 'برای ادامه، رضایت ضبط تماس الزامی است.', err_recording_accept: 'برای شروع تماس لطفاً رضایت ضبط را تأیید کنید.', err_department: 'این دپارتمان برای این نوع تماس در دسترس نیست. لطفاً دپارتمان دیگری انتخاب کنید.', err_failed_start: 'شروع تماس ناموفق بود.', err_wait_seconds: 'لطفاً {n} ثانیه قبل از ارسال درخواست بعدی صبر کنید.', err_contact_required: 'لطفاً ایمیل یا تلفن خود را وارد کنید تا بتوانیم با شما تماس بگیریم.', err_message_short: 'لطفاً درخواست خود را حداقل در {n} کاراکتر توضیح دهید.', err_future_time: 'لطفاً یک زمان معتبر در آینده انتخاب کنید.', err_too_fast: 'خیلی سریع بود. لطفاً کمی برای تکمیل فرم زمان بگذارید.', err_cooldown: 'قبلاً درخواست تماس ثبت کرده‌اید. لطفاً {n} ثانیه صبر کنید.', err_rate_limited: 'درخواست‌های زیادی از شبکه شما ارسال شده است. بعداً دوباره تلاش کنید.', err_callback_unavailable: 'درخواست تماس در حال حاضر در دسترس نیست.', err_failed: 'ناموفق بود.'
+    },
+    tr: {
+      talk_now: 'Şimdi konuş', callback: 'Geri arama', live_support: 'Canlı destek', leave_details: 'Bilgilerini bırak', support: 'Destek',
+      operators_available: 'Operatörler müsait', callback_desk: 'Geri arama masası', loading: 'Yükleniyor…', offline: 'Çevrimdışı',
+      leave_callback_request: 'Geri arama isteği bırakın', offline_copy: 'Ekibimiz şu anda çevrimdışı, ancak sizi geri arayabiliriz.', request_callback: 'Geri arama iste',
+      live_now: 'Canlı', channels: 'Ses · Video · Geri arama', talk_to_team: 'Ekibimizle konuşun', online_copy: 'İlk uygun operatörle güvenli sesli veya görüntülü arama başlatın.',
+      secure_line: 'Güvenli hat', queue_aware: 'Sıra takibi', fast_handoff: 'Hızlı aktarım', voice_call: 'Sesli arama', video_call: 'Görüntülü arama', request_callback_instead: 'Bunun yerine geri arama iste',
+      you_are_next: 'Sıradaki sizsiniz', holding_place: 'Yeriniz korunuyor', queue_copy_many: 'İsteğiniz canlı arama kuyruğunda. Operatöre bağlanırken bu pencereyi açık tutun.', queue_copy_next: 'Şimdi ilk uygun operatörü arıyoruz.',
+      ringing_enabled: 'Zil sesi açık', ringing_operator: 'Operatör aranıyor', waiting_time: 'Bekleme süresi', enable_ringing_sound: '🔊 Zil sesini aç', you_next_line: 'Sıradaki sizsiniz', you_queue_number: 'Kuyrukta #{n} sıradasınız',
+      queue_position: 'Kuyruk sırası', eta: 'Tahmini', eta_under_min: 'Tahmini bekleme: 1 dakikadan az', eta_minutes: 'Tahmini bekleme: ~{n} dakika', tired_waiting: 'Beklemekten sıkıldınız mı? Sizi geri arayabiliriz.', cancel_call: 'Aramayı iptal et',
+      call_accepted_connecting: 'Arama kabul edildi, bağlanıyor…', connected: 'Bağlandı', operator_joining: 'Operatör katılıyor…', operator_connected: 'Operatör bağlandı', operator_left: 'Operatör aramadan ayrıldı.', reconnecting_media: 'Medya yeniden bağlanıyor…', media_disconnected: 'Medya bağlantısı koptu.', connecting_av: 'Ses/video bağlanıyor…',
+      fallback: 'Arama kabul edildi. Lütfen operatör tarafında devam edin.', accepted_no_sdk: 'Arama kabul edildi. Bu sayfada ses/video istemcisi yok.', media_not_configured: 'Arama kabul edildi, medya bağlantısı henüz yapılandırılmamış.', provider_not_configured: 'Arama kabul edildi, ancak medya sunucusu URL’si yapılandırılmamış. Lütfen geri arama isteyin.', provider_not_supported: 'Arama kabul edildi, ancak bu sağlayıcının tarayıcı istemcisi yok.', media_client_missing: 'Medya istemcisi yüklenmedi. Arama odası hazır ancak tarayıcı istemcisi eksik.', media_client_invalid: 'Yüklenen medya istemcisi bu widget ile uyumlu değil.', loading_media_client: 'Medya istemcisi yükleniyor…', mic_denied: 'Mikrofon izni reddedildi. Lütfen izin verip tekrar deneyin.', camera_denied: 'Kamera izni reddedildi. Sesli arama video olmadan devam eder.', room_failed: 'Arama odasına bağlanılamadı: {error}', token_expired: 'Oturumunuz sona erdi. Lütfen aramayı bitirip yeniden başlatın.',
+      in_call: 'Aramada', connected_waiting: 'Bağlandı — bekliyor', connecting: 'Bağlanıyor', recording_progress: '● Kayıt devam ediyor', recording_may_start: 'Kayıt, operatör aramayı başlattıktan sonra başlayabilir.', mute: '🎙 Sessize al', unmute: '🎙 Sesi aç', camera_off: '🎥 Kamerayı kapat', camera_on: '🎥 Kamerayı aç', end: 'Bitir',
+      callback_scheduled: 'Geri arama planlandı', reach_out: 'Ekibimiz {when} size ulaşacak.', asap: 'en kısa sürede', video_callback: 'Görüntülü geri arama', phone_callback: 'Telefonla geri arama', reference: 'Referans', type: 'Tür', done: 'Tamam', call_ended: 'Arama sona erdi.', error_prefix: 'Hata: {error}', unknown: 'bilinmiyor', back: 'Geri',
+      request_callback_title: 'Geri arama iste', callback_intro: 'Size nasıl ulaşacağımızı yazın — ekibimiz hızlıca döner.', callback_type: 'Geri arama türü', phone: '🎙 Telefon', video: '🎥 Video', department: 'Departman', choose_department: 'Departman seçin', known_contact: 'Bilinen kişi', contact_saved: 'İletişim bilgileri kayıtlı', subject: 'Konu', full_name: 'Ad soyad', email: 'E-posta', email_required: 'E-posta *', phone_field: 'Telefon', phone_required: 'Telefon *', contact_required_note: '* Size ulaşabilmemiz için e-posta veya telefon gerekir.', message_min: 'Mesaj (en az {n} karakter)', message_optional: 'Mesaj (isteğe bağlı)', message_placeholder: 'Neye ihtiyacınız olduğunu kısaca yazın…', when_call: 'Ne zaman arayalım?', schedule: '🗓 Planla', priority: 'Öncelik', normal: 'Normal', urgent: '🔥 Acil', consent_required: ' Bu aramanın kalite ve güvenlik için kaydedilmesine izin veriyorum. (gerekli)', call_may_record: 'Bu arama kalite ve güvenlik için kaydedilebilir.', start_call: 'Aramayı başlat', send_request: 'İstek gönder',
+      err_recording_required: 'Devam etmek için kayıt onayı gereklidir.', err_recording_accept: 'Aramayı başlatmak için lütfen kayıt onayını kabul edin.', err_department: 'Bu departman bu arama türü için uygun değil. Lütfen başka bir departman seçin.', err_failed_start: 'Arama başlatılamadı.', err_wait_seconds: 'Yeni istek göndermeden önce lütfen {n} sn bekleyin.', err_contact_required: 'Size ulaşabilmemiz için lütfen e-posta veya telefon girin.', err_message_short: 'Lütfen isteğinizi en az {n} karakterle açıklayın.', err_future_time: 'Lütfen gelecekte geçerli bir zaman seçin.', err_too_fast: 'Çok hızlı oldu. Lütfen formu doldurmak için biraz zaman ayırın.', err_cooldown: 'Zaten bir geri arama istediniz. Lütfen {n} sn bekleyin.', err_rate_limited: 'Ağınızdan çok fazla geri arama isteği geldi. Lütfen daha sonra deneyin.', err_callback_unavailable: 'Geri arama istekleri şu anda kullanılamıyor.', err_failed: 'Başarısız.'
+    },
+  };
+
   function el(tag, attrs, children) {
     var n = document.createElement(tag);
     if (attrs) Object.keys(attrs).forEach(function (k) {
@@ -46,6 +103,20 @@
     str = str.replace(/access_token=[^&\s"']+/gi, 'access_token=[redacted]');
     str = str.replace(/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, '[redacted-token]');
     return str;
+  }
+
+  function normalizeLocale(locale) {
+    locale = String(locale || '').toLowerCase().slice(0, 2);
+    return SUPPORTED_LOCALES.indexOf(locale) >= 0 ? locale : null;
+  }
+
+  function formatText(text, vars) {
+    text = String(text == null ? '' : text);
+    vars = vars || {};
+    Object.keys(vars).forEach(function (k) {
+      text = text.replace(new RegExp('\\{' + k + '\\}', 'g'), String(vars[k]));
+    });
+    return text;
   }
 
   /**
@@ -209,7 +280,37 @@
     };
     this.callbackOpenedAt = 0;
     this.callbackCooldownUntil = 0;
+    this.locale = 'en';
+    this.availableLocales = ['en'];
+    this.localeStorageKey = 'ccw_locale';
   }
+
+  CallCenterWidgetCtor.prototype.t = function (key, vars) {
+    var pack = I18N[this.locale] || I18N.en;
+    return formatText(pack[key] || I18N.en[key] || key, vars);
+  };
+
+  CallCenterWidgetCtor.prototype.setLocale = function (locale) {
+    locale = normalizeLocale(locale) || this.locale || 'en';
+    if (this.availableLocales.indexOf(locale) < 0) return;
+    this.locale = locale;
+    try { window.localStorage.setItem(this.localeStorageKey, locale); } catch (_) {}
+    if (this.root) this.render();
+  };
+
+  CallCenterWidgetCtor.prototype.initLocale = function () {
+    var i18n = (this.bootstrap && this.bootstrap.i18n) || {};
+    var available = (i18n.available_locales || []).map(normalizeLocale).filter(Boolean);
+    this.availableLocales = available.length ? available : ['en'];
+    var stored = null;
+    try { stored = normalizeLocale(window.localStorage.getItem(this.localeStorageKey)); } catch (_) {}
+    var nav = normalizeLocale((navigator.languages && navigator.languages[0]) || navigator.language);
+    var def = normalizeLocale(i18n.default_locale) || 'en';
+    this.locale = this.availableLocales.indexOf(stored) >= 0 ? stored
+      : this.availableLocales.indexOf(def) >= 0 ? def
+      : this.availableLocales.indexOf(nav) >= 0 ? nav
+      : this.availableLocales[0];
+  };
 
   CallCenterWidgetCtor.prototype.mount = function (opts) {
     if (this.__mounted__) return;
@@ -220,6 +321,7 @@
     this.runtimeAssetSuffix = opts.runtimeAssetSuffix || (this.assetsVersion ? ('?v=' + encodeURIComponent(String(this.assetsVersion).slice(0, 16))) : '');
     this.bootstrap = opts.bootstrap;
     this.session = opts.bootstrap && opts.bootstrap.session;
+    this.initLocale();
 
     // Pre-fill from previously identified contact (returning visitor).
     var prefill = opts.bootstrap && opts.bootstrap.visitor && opts.bootstrap.visitor.contact;
@@ -325,7 +427,7 @@
     var consentNeeded = !!(rec.effective_enabled && rec.consent_required);
     if (consentNeeded && !this.formData.consent) {
       try { Ringback.stop(); } catch (_) {}
-      this.error = 'Recording consent is required to continue.';
+      this.error = this.t('err_recording_required');
       this.render(); return;
     }
     var consentAt = this.formData.consent ? new Date().toISOString() : null;
@@ -351,14 +453,14 @@
         try { Ringback.stop(); } catch (_) {}
         var code = r.body && r.body.error;
         if (code === 'recording_consent_required') {
-          self.error = 'Please accept the recording consent to start the call.';
+          self.error = self.t('err_recording_accept');
           self.state = STATES.PRE_CALL; self.render(); return;
         }
         if (code === 'department_channel_disabled' || code === 'department_not_found') {
-          self.error = 'This department is not available for this call type. Please choose another department.';
+          self.error = self.t('err_department');
           self.state = STATES.PRE_CALL; self.render(); return;
         }
-        self.error = (r.body && (r.body.message || r.body.error)) || 'Failed to start call.';
+        self.error = (r.body && (r.body.message || r.body.error)) || self.t('err_failed_start');
         self.state = STATES.ERROR; self.render(); return;
       }
       self.session = r.body.session || self.session;
@@ -689,7 +791,7 @@
     // Client-side cooldown guard (server still enforces).
     if (this.callbackCooldownUntil && Date.now() < this.callbackCooldownUntil) {
       var leftSec = Math.ceil((this.callbackCooldownUntil - Date.now()) / 1000);
-      this.error = 'Please wait ' + leftSec + 's before sending another request.';
+      this.error = this.t('err_wait_seconds', { n: leftSec });
       this.render(); return;
     }
     // Require contact if the platform demands it.
@@ -698,7 +800,7 @@
       var phone = (this.formData.phone || '').trim();
       var alreadyId = !!(this.identifiedContact && this.identifiedContact.id);
       if (!alreadyId && !email && !phone) {
-        this.error = 'Please provide your email or phone so we can reach you.';
+        this.error = this.t('err_contact_required');
         this.render(); return;
       }
     }
@@ -707,7 +809,7 @@
     if (minMsg > 0) {
       var msg = (this.formData.message || '').trim();
       if (msg.length < minMsg) {
-        this.error = 'Please describe your request in at least ' + minMsg + ' characters.';
+        this.error = this.t('err_message_short', { n: minMsg });
         this.render(); return;
       }
     }
@@ -717,7 +819,7 @@
       if (!isNaN(t.getTime()) && t.getTime() > Date.now() - 60000) {
         scheduledIso = t.toISOString();
       } else {
-        this.error = 'Please pick a valid future time.';
+        this.error = this.t('err_future_time');
         this.render(); return;
       }
     }
@@ -741,24 +843,24 @@
       if (!r.ok) {
         var code = r.body && r.body.error;
         if (code === 'department_channel_disabled' || code === 'department_not_found') {
-          self.error = 'This department is not available for this call type. Please choose another department.';
+          self.error = self.t('err_department');
         } else if (code === 'contact_required') {
-          self.error = 'Please provide your email or phone so we can reach you.';
+          self.error = self.t('err_contact_required');
         } else if (code === 'message_too_short') {
           var m = (r.body && r.body.min) || 1;
-          self.error = 'Please describe your request in at least ' + m + ' characters.';
+          self.error = self.t('err_message_short', { n: m });
         } else if (code === 'too_fast') {
-          self.error = 'That was too fast. Please take a moment to fill in the form.';
+          self.error = self.t('err_too_fast');
         } else if (code === 'cooldown_active') {
           var ra = (r.body && r.body.retry_after) || 60;
           self.callbackCooldownUntil = Date.now() + ra * 1000;
-          self.error = 'You already requested a callback. Please wait ' + ra + 's before sending another.';
+          self.error = self.t('err_cooldown', { n: ra });
         } else if (code === 'rate_limited_ip') {
-          self.error = 'Too many callback requests from your network. Please try again later.';
+          self.error = self.t('err_rate_limited');
         } else if (code === 'feature_not_available') {
-          self.error = 'Callback requests are currently unavailable.';
+          self.error = self.t('err_callback_unavailable');
         } else {
-          self.error = (r.body && (r.body.error || r.body.message)) || 'Failed.';
+          self.error = (r.body && (r.body.error || r.body.message)) || self.t('err_failed');
         }
         self.render(); return;
       }
@@ -775,13 +877,16 @@
   CallCenterWidgetCtor.prototype.render = function () {
     if (!this.root) return;
     var self = this;
+    var tr = function (key, vars) { return self.t(key, vars); };
     var pos = this.position();
     this.root.innerHTML = '';
+    this.root.setAttribute('lang', this.locale);
+    this.root.setAttribute('dir', (LOCALE_META[this.locale] && LOCALE_META[this.locale].dir) || 'ltr');
     var caps = (this.bootstrap && this.bootstrap.capabilities) || {};
     var cfg = (this.bootstrap && this.bootstrap.config) || {};
 
     // Launcher always present
-    var launcherText = this.isOnline() ? 'Talk now' : 'Callback';
+    var launcherText = this.isOnline() ? tr('talk_now') : tr('callback');
     var launcher = el('button', {
       class: 'ccw-launcher ' + pos,
       'aria-label': launcherText,
@@ -790,7 +895,7 @@
       el('span', { class: 'ccw-launcher-pulse' }, [el('span', { class: 'ccw-launcher-icon' }, ['☎'])]),
       el('span', { class: 'ccw-launcher-copy' }, [
         el('span', { class: 'ccw-launcher-text' }, [launcherText]),
-        el('span', { class: 'ccw-launcher-sub' }, [this.isOnline() ? 'Live support' : 'Leave details']),
+        el('span', { class: 'ccw-launcher-sub' }, [this.isOnline() ? tr('live_support') : tr('leave_details')]),
       ]),
       this.isOnline() ? el('span', { class: 'ccw-launcher-dot' }) : null,
     ]);
@@ -805,12 +910,13 @@
         el('span', { class: 'ccw-avatar-badge' }),
       ]),
       el('div', { class: 'ccw-header-copy' }, [
-        el('div', { class: 'ccw-title' }, [cfg.display_name || 'Support']),
+        el('div', { class: 'ccw-title' }, [cfg.display_name || tr('support')]),
         el('div', { class: 'ccw-sub' }, [
           el('span', { class: 'ccw-status-dot ' + (this.isOnline() ? 'online' : 'offline') }),
-          this.isOnline() ? 'Operators available' : 'Callback desk',
+          this.isOnline() ? tr('operators_available') : tr('callback_desk'),
         ]),
       ]),
+      this.renderLocaleSwitcher(),
       el('button', { class: 'ccw-close', on: { click: function () { self.toggleOpen(); } } }, ['×']),
     ]);
     panel.appendChild(header);
@@ -821,25 +927,40 @@
     this.root.appendChild(panel);
   };
 
+  CallCenterWidgetCtor.prototype.renderLocaleSwitcher = function () {
+    var self = this;
+    if (!this.availableLocales || this.availableLocales.length <= 1) return null;
+    var select = el('select', { class: 'ccw-lang', 'aria-label': 'Widget language' });
+    this.availableLocales.forEach(function (code) {
+      var meta = LOCALE_META[code] || { label: code.toUpperCase(), short: code.toUpperCase() };
+      var option = el('option', { value: code }, [meta.short]);
+      if (self.locale === code) option.selected = true;
+      select.appendChild(option);
+    });
+    select.addEventListener('change', function (e) { self.setLocale(e.target.value); });
+    return select;
+  };
+
   CallCenterWidgetCtor.prototype.renderState = function (caps, cfg) {
     var self = this;
+    var tr = function (key, vars) { return self.t(key, vars); };
     switch (this.state) {
       case STATES.LOADING:
-        return el('div', { class: 'ccw-loading' }, [el('div', { class: 'ccw-spinner' }), el('div', { class: 'ccw-muted' }, ['Loading…'])]);
+        return el('div', { class: 'ccw-loading' }, [el('div', { class: 'ccw-spinner' }), el('div', { class: 'ccw-muted' }, [tr('loading')])]);
 
       case STATES.OFFLINE: {
         var off = el('div', { class: 'ccw-stack' }, [
           el('div', { class: 'ccw-hero' }, [
             el('div', { class: 'ccw-hero-topline' }, [
-              el('span', { class: 'ccw-live-chip muted' }, ['Offline']),
-              el('span', { class: 'ccw-hero-route' }, ['Callback desk']),
+              el('span', { class: 'ccw-live-chip muted' }, [tr('offline')]),
+              el('span', { class: 'ccw-hero-route' }, [tr('callback_desk')]),
             ]),
             el('div', { class: 'ccw-hero-icon' }, ['↩']),
-            el('div', { class: 'ccw-hero-title' }, ['Leave a callback request']),
-            el('div', { class: 'ccw-hero-sub' }, ['Our team is offline right now, but we can call you back.']),
+            el('div', { class: 'ccw-hero-title' }, [tr('leave_callback_request')]),
+            el('div', { class: 'ccw-hero-sub' }, [tr('offline_copy')]),
           ]),
         ]);
-        if (caps.callback) off.appendChild(el('button', { class: 'ccw-btn primary', on: { click: function () { self.openCallback(); } } }, ['Request callback']));
+        if (caps.callback) off.appendChild(el('button', { class: 'ccw-btn primary', on: { click: function () { self.openCallback(); } } }, [tr('request_callback')]));
         return off;
       }
 
@@ -849,24 +970,24 @@
         var box = el('div', { class: 'ccw-stack' }, [
           el('div', { class: 'ccw-hero' }, [
             el('div', { class: 'ccw-hero-topline' }, [
-              el('span', { class: 'ccw-live-chip' }, ['Live now']),
-              el('span', { class: 'ccw-hero-route' }, ['Voice · Video · Callback']),
+              el('span', { class: 'ccw-live-chip' }, [tr('live_now')]),
+              el('span', { class: 'ccw-hero-route' }, [tr('channels')]),
             ]),
-            el('div', { class: 'ccw-hero-title' }, ['Talk to our team']),
-            el('div', { class: 'ccw-hero-sub' }, ['Start a secure voice or video call with the next available operator.']),
+            el('div', { class: 'ccw-hero-title' }, [tr('talk_to_team')]),
+            el('div', { class: 'ccw-hero-sub' }, [tr('online_copy')]),
             el('div', { class: 'ccw-hero-metrics' }, [
-              el('span', {}, ['Secure line']),
-              el('span', {}, ['Queue aware']),
-              el('span', {}, ['Fast handoff']),
+              el('span', {}, [tr('secure_line')]),
+              el('span', {}, [tr('queue_aware')]),
+              el('span', {}, [tr('fast_handoff')]),
             ]),
           ]),
         ]);
         var row = el('div', { class: 'ccw-row' });
-        if (caps.voice) row.appendChild(el('button', { class: 'ccw-btn primary', on: { click: function () { self.startCall('voice'); } } }, [el('span', { class: 'ccw-btn-ico' }, ['☎']), 'Voice call']));
-        if (caps.video) row.appendChild(el('button', { class: 'ccw-btn secondary', on: { click: function () { self.startCall('video'); } } }, [el('span', { class: 'ccw-btn-ico' }, ['◉']), 'Video call']));
+        if (caps.voice) row.appendChild(el('button', { class: 'ccw-btn primary', on: { click: function () { self.startCall('voice'); } } }, [el('span', { class: 'ccw-btn-ico' }, ['☎']), tr('voice_call')]));
+        if (caps.video) row.appendChild(el('button', { class: 'ccw-btn secondary', on: { click: function () { self.startCall('video'); } } }, [el('span', { class: 'ccw-btn-ico' }, ['◉']), tr('video_call')]));
         box.appendChild(row);
         if (caps.callback && showCbOnline) {
-          box.appendChild(el('button', { class: 'ccw-btn secondary', on: { click: function () { self.openCallback(); } } }, ['Request callback instead']));
+          box.appendChild(el('button', { class: 'ccw-btn secondary', on: { click: function () { self.openCallback(); } } }, [tr('request_callback_instead')]));
         }
         return box;
       }
@@ -880,10 +1001,10 @@
       case STATES.QUEUE: {
         var qe = (self.bootstrap && self.bootstrap.queue_experience) || {};
         var capsForCallback = (self.bootstrap && self.bootstrap.capabilities) || {};
-        var queueTitle = self.queuePosition === 1 ? 'You are next' : 'Holding your place';
+        var queueTitle = self.queuePosition === 1 ? tr('you_are_next') : tr('holding_place');
         var queueCopy = self.queuePosition && self.queuePosition > 1
-          ? 'Your request is in the live call queue. Keep this window open while we connect the operator.'
-          : 'We are ringing the next available operator now.';
+          ? tr('queue_copy_many')
+          : tr('queue_copy_next');
         var card = el('div', { class: 'ccw-queue-card' }, [
           el('div', { class: 'ccw-queue-head' }, [
             el('div', { class: 'ccw-queue-orbit' }, [
@@ -893,7 +1014,7 @@
               el('span', { class: 'ccw-phone-core' }, ['☎']),
             ]),
             el('div', { class: 'ccw-queue-copy-block' }, [
-              el('div', { class: 'ccw-pill live' }, [Ringback.isActive && Ringback.isActive() ? 'Ringing enabled' : 'Ringing operator']),
+              el('div', { class: 'ccw-pill live' }, [Ringback.isActive && Ringback.isActive() ? tr('ringing_enabled') : tr('ringing_operator')]),
               el('div', { class: 'ccw-queue-title' }, [queueTitle]),
               el('div', { class: 'ccw-queue-copy' }, [queueCopy]),
             ]),
@@ -906,7 +1027,7 @@
             el('span', { class: 'ccw-progress-bar b5' }),
           ]),
           el('div', { class: 'ccw-wait-wrap' }, [
-            el('span', { class: 'ccw-wait-label' }, ['Waiting time']),
+            el('span', { class: 'ccw-wait-label' }, [tr('waiting_time')]),
             el('div', { class: 'ccw-wait-timer', html: '0:00' }),
           ]),
         ]);
@@ -914,20 +1035,20 @@
           card.appendChild(el('button', {
             class: 'ccw-audio-unlock',
             on: { click: function () { Ringback.startFromGesture(qe); self.render(); } },
-          }, ['🔊 Enable ringing sound']));
+          }, [tr('enable_ringing_sound')]));
         }
         // Position-in-queue chip
         if (qe.show_position !== false && self.queuePosition) {
           var posLabel = self.queuePosition === 1
-            ? 'You are next in line'
-            : 'You are #' + self.queuePosition + ' in the queue';
-          card.appendChild(el('div', { class: 'ccw-queue-pos' }, [el('span', {}, ['Queue position']), el('strong', {}, [posLabel])]));
+            ? tr('you_next_line')
+            : tr('you_queue_number', { n: self.queuePosition });
+          card.appendChild(el('div', { class: 'ccw-queue-pos' }, [el('span', {}, [tr('queue_position')]), el('strong', {}, [posLabel])]));
         }
         // ETA chip
         if (qe.show_eta !== false && typeof self.queueEta === 'number' && self.queueEta > 0) {
           var mins = Math.max(1, Math.round(self.queueEta / 60));
-          var etaLbl = mins <= 1 ? 'Estimated wait: under 1 minute' : 'Estimated wait: ~' + mins + ' minutes';
-          card.appendChild(el('div', { class: 'ccw-queue-eta' }, [el('span', {}, ['ETA']), el('strong', {}, [etaLbl])]));
+          var etaLbl = mins <= 1 ? tr('eta_under_min') : tr('eta_minutes', { n: mins });
+          card.appendChild(el('div', { class: 'ccw-queue-eta' }, [el('span', {}, [tr('eta')]), el('strong', {}, [etaLbl])]));
         }
         var stack = [card];
         // Offer a callback after the configured wait threshold
@@ -935,48 +1056,48 @@
         var elapsed = self.queueStartedAt ? Math.floor((Date.now() - self.queueStartedAt) / 1000) : 0;
         if (capsForCallback.callback && threshold && threshold > 0 && elapsed >= threshold) {
           stack.push(el('div', { class: 'ccw-callback-offer' }, [
-            el('div', { class: 'ccw-callback-offer-text' }, ['Tired of waiting? We can call you back instead.']),
-            el('button', { class: 'ccw-btn primary', on: { click: function () { self.cancelCall(); setTimeout(function () { self.openCallback(); }, 50); } } }, ['Request a callback']),
+            el('div', { class: 'ccw-callback-offer-text' }, [tr('tired_waiting')]),
+            el('button', { class: 'ccw-btn primary', on: { click: function () { self.cancelCall(); setTimeout(function () { self.openCallback(); }, 50); } } }, [tr('request_callback')]),
           ]));
         }
-        stack.push(el('button', { class: 'ccw-btn danger', on: { click: function () { self.cancelCall(); } } }, ['Cancel call']));
+        stack.push(el('button', { class: 'ccw-btn danger', on: { click: function () { self.cancelCall(); } } }, [tr('cancel_call')]));
         return el('div', { class: 'ccw-stack' }, stack);
       }
 
       case STATES.IN_CALL: {
         var status = self.connectStatus || 'connecting';
-        var msg = 'Call accepted, connecting…';
-        if (status === 'in_call') msg = 'Connected';
-        if (status === 'waiting_for_operator') msg = 'Operator joining…';
-        if (status === 'operator_connected') msg = 'Operator connected';
-        if (status === 'operator_left') msg = 'Operator left the call.';
-        if (status === 'media_reconnecting') msg = 'Reconnecting media…';
-        if (status === 'media_disconnected') msg = 'Media disconnected.';
-        if (status === 'connecting_media') msg = 'Connecting audio/video…';
-        if (status === 'fallback') msg = 'Call accepted. Please continue on the operator side.';
-        if (status === 'accepted_no_sdk') msg = 'Call accepted. Audio/video client unavailable on this page.';
-        if (status === 'media_not_configured') msg = 'Call accepted, media connection is not configured yet.';
-        if (status === 'provider_client_not_configured') msg = 'Call accepted, but the media server URL is not configured. Please request a callback.';
-        if (status === 'provider_client_not_supported') msg = 'Call accepted, but this provider has no in-browser client.';
-        if (status === 'media_client_missing') msg = 'Media client is not loaded. Call room is ready but the browser client is missing.';
-        if (status === 'media_client_invalid') msg = 'Media client loaded but is incompatible with this widget.';
-        if (status === 'loading_media_client') msg = 'Loading media client…';
-        if (status === 'microphone_permission_denied') msg = 'Microphone permission denied. Please allow access and try again.';
-        if (status === 'camera_permission_denied') msg = 'Camera permission denied. Audio call continues without video.';
-        if (status === 'room_connect_failed') msg = 'Failed to connect to the call room: ' + (self.error || 'unknown');
-        if (status === 'token_expired') msg = 'Your session expired. Please end and start a new call.';
+        var msg = tr('call_accepted_connecting');
+        if (status === 'in_call') msg = tr('connected');
+        if (status === 'waiting_for_operator') msg = tr('operator_joining');
+        if (status === 'operator_connected') msg = tr('operator_connected');
+        if (status === 'operator_left') msg = tr('operator_left');
+        if (status === 'media_reconnecting') msg = tr('reconnecting_media');
+        if (status === 'media_disconnected') msg = tr('media_disconnected');
+        if (status === 'connecting_media') msg = tr('connecting_av');
+        if (status === 'fallback') msg = tr('fallback');
+        if (status === 'accepted_no_sdk') msg = tr('accepted_no_sdk');
+        if (status === 'media_not_configured') msg = tr('media_not_configured');
+        if (status === 'provider_client_not_configured') msg = tr('provider_not_configured');
+        if (status === 'provider_client_not_supported') msg = tr('provider_not_supported');
+        if (status === 'media_client_missing') msg = tr('media_client_missing');
+        if (status === 'media_client_invalid') msg = tr('media_client_invalid');
+        if (status === 'loading_media_client') msg = tr('loading_media_client');
+        if (status === 'microphone_permission_denied') msg = tr('mic_denied');
+        if (status === 'camera_permission_denied') msg = tr('camera_denied');
+        if (status === 'room_connect_failed') msg = tr('room_failed', { error: self.error || tr('unknown') });
+        if (status === 'token_expired') msg = tr('token_expired');
         var card = el('div', { class: 'ccw-card' }, [
-          el('div', { class: 'ccw-pill' }, [status === 'in_call' || status === 'operator_connected' ? 'In call' : status === 'waiting_for_operator' ? 'Connected — waiting' : 'Connecting']),
+          el('div', { class: 'ccw-pill' }, [status === 'in_call' || status === 'operator_connected' ? tr('in_call') : status === 'waiting_for_operator' ? tr('connected_waiting') : tr('connecting')]),
           el('div', { class: 'ccw-label' }, [msg]),
         ]);
         // Recording indicator (passive). Backend status drives this; never trust client.
         var recBoot = (self.bootstrap && self.bootstrap.recording) || {};
         var callRecState = self.call && self.call.recording_state;
         if (callRecState === 'recording') {
-          card.appendChild(el('div', { class: 'ccw-pill recording' }, ['● Recording in progress']));
+          card.appendChild(el('div', { class: 'ccw-pill recording' }, [tr('recording_progress')]));
         } else if (recBoot.effective_enabled) {
           card.appendChild(el('div', { class: 'ccw-muted', style: 'margin-top:6px;' }, [
-            'Recording may start after the operator begins the call.',
+            tr('recording_may_start'),
           ]));
         }
         var media = el('div', { class: 'ccw-media' });
@@ -991,13 +1112,13 @@
         card.appendChild(media);
         var controls = el('div', { class: 'ccw-row' });
         if (status === 'in_call' || status === 'operator_connected' || status === 'waiting_for_operator' || status === 'media_reconnecting') {
-          controls.appendChild(el('button', { class: 'ccw-btn secondary', on: { click: function () { self.toggleMic(); } } }, [self.micOn ? '🎙 Mute' : '🎙 Unmute']));
+          controls.appendChild(el('button', { class: 'ccw-btn secondary', on: { click: function () { self.toggleMic(); } } }, [self.micOn ? tr('mute') : tr('unmute')]));
           var wantVideo = (self.call && self.call.call_type === 'video') || self.formData.call_type === 'video';
           if (wantVideo) {
-            controls.appendChild(el('button', { class: 'ccw-btn secondary', on: { click: function () { self.toggleCam(); } } }, [self.camOn ? '🎥 Camera off' : '🎥 Camera on']));
+            controls.appendChild(el('button', { class: 'ccw-btn secondary', on: { click: function () { self.toggleCam(); } } }, [self.camOn ? tr('camera_off') : tr('camera_on')]));
           }
         }
-        controls.appendChild(el('button', { class: 'ccw-btn danger', on: { click: function () { self.cancelCall(); } } }, ['End']));
+        controls.appendChild(el('button', { class: 'ccw-btn danger', on: { click: function () { self.cancelCall(); } } }, [tr('end')]));
         return el('div', { class: 'ccw-stack' }, [card, controls]);
       }
 
@@ -1006,35 +1127,35 @@
           var ref = String(self.callbackId).slice(0, 8).toUpperCase();
           var when = self.formData.callback_when === 'later' && self.formData.callback_scheduled_for
             ? new Date(self.formData.callback_scheduled_for).toLocaleString()
-            : 'as soon as possible';
-          var chLabel = self.formData.callback_channel === 'video' ? 'Video callback' : 'Phone callback';
+            : tr('asap');
+          var chLabel = self.formData.callback_channel === 'video' ? tr('video_callback') : tr('phone_callback');
           return el('div', { class: 'ccw-stack' }, [
             el('div', { class: 'ccw-success-card' }, [
               el('div', { class: 'ccw-success-icon' }, ['✓']),
-              el('div', { class: 'ccw-success-title' }, ['Callback scheduled']),
-              el('div', { class: 'ccw-muted', style: 'text-align:center;' }, ['Our team will reach out ' + when + '.']),
+              el('div', { class: 'ccw-success-title' }, [tr('callback_scheduled')]),
+              el('div', { class: 'ccw-muted', style: 'text-align:center;' }, [tr('reach_out', { when: when })]),
               el('div', { class: 'ccw-ref-row' }, [
-                el('span', { class: 'ccw-ref-label' }, ['Reference']),
+                el('span', { class: 'ccw-ref-label' }, [tr('reference')]),
                 el('code', { class: 'ccw-ref-code' }, [ref]),
               ]),
               el('div', { class: 'ccw-ref-row' }, [
-                el('span', { class: 'ccw-ref-label' }, ['Type']),
+                el('span', { class: 'ccw-ref-label' }, [tr('type')]),
                 el('span', {}, [chLabel]),
               ]),
             ]),
-            el('button', { class: 'ccw-btn primary', on: { click: function () { self.reset(); } } }, ['Done']),
+            el('button', { class: 'ccw-btn primary', on: { click: function () { self.reset(); } } }, [tr('done')]),
           ]);
         }
         return el('div', { class: 'ccw-stack' }, [
-          el('div', { class: 'ccw-card' }, [el('div', {}, ['Call ended.'])]),
-          el('button', { class: 'ccw-btn primary', on: { click: function () { self.reset(); } } }, ['Done']),
+          el('div', { class: 'ccw-card' }, [el('div', {}, [tr('call_ended')])]),
+          el('button', { class: 'ccw-btn primary', on: { click: function () { self.reset(); } } }, [tr('done')]),
         ]);
       }
 
       case STATES.ERROR:
         return el('div', { class: 'ccw-stack' }, [
-          el('div', { class: 'ccw-error' }, ['Error: ' + (self.error || 'unknown')]),
-          el('button', { class: 'ccw-btn secondary', on: { click: function () { self.reset(); } } }, ['Back']),
+          el('div', { class: 'ccw-error' }, [tr('error_prefix', { error: self.error || tr('unknown') })]),
+          el('button', { class: 'ccw-btn secondary', on: { click: function () { self.reset(); } } }, [tr('back')]),
         ]);
     }
     return el('div', {}, ['…']);
@@ -1042,18 +1163,19 @@
 
   CallCenterWidgetCtor.prototype.renderForm = function (cfg, forCall) {
     var self = this;
+    var tr = function (key, vars) { return self.t(key, vars); };
     var policy = (self.bootstrap && self.bootstrap.callback_policy) || {};
     var box = el('div', { class: 'ccw-stack' });
     if (!forCall) {
       box.appendChild(el('div', { class: 'ccw-cb-intro' }, [
-        el('div', { class: 'ccw-cb-intro-title' }, ['Request a callback']),
-        el('div', { class: 'ccw-muted' }, ['Tell us how to reach you — our team calls back fast.']),
+        el('div', { class: 'ccw-cb-intro-title' }, [tr('request_callback_title')]),
+        el('div', { class: 'ccw-muted' }, [tr('callback_intro')]),
       ]));
     }
     // Channel segmented control (callback only)
     if (!forCall) {
       var caps2 = (self.bootstrap && self.bootstrap.capabilities) || {};
-      box.appendChild(el('label', { class: 'ccw-label' }, ['Callback type']));
+      box.appendChild(el('label', { class: 'ccw-label' }, [tr('callback_type')]));
       var seg = el('div', { class: 'ccw-segment' });
       function mkSeg(val, label) {
         var active = (self.formData.callback_channel === val);
@@ -1061,8 +1183,8 @@
           on: { click: function () { self.formData.callback_channel = val; self.render(); } } }, [label]);
         return b;
       }
-      seg.appendChild(mkSeg('audio', '🎙 Phone'));
-      if (caps2.video) seg.appendChild(mkSeg('video', '🎥 Video'));
+      seg.appendChild(mkSeg('audio', tr('phone')));
+      if (caps2.video) seg.appendChild(mkSeg('video', tr('video')));
       box.appendChild(seg);
     }
     // Department dropdown (only if backend exposed options for this channel).
@@ -1075,9 +1197,9 @@
       deptList = depts.callback || [];
     }
     if (deptList.length > 0) {
-      box.appendChild(el('label', { class: 'ccw-label' }, ['Department']));
+      box.appendChild(el('label', { class: 'ccw-label' }, [tr('department')]));
       var sel = el('select', { class: 'ccw-input' });
-      var ph = el('option', { value: '' }, ['Choose a department']);
+      var ph = el('option', { value: '' }, [tr('choose_department')]);
       sel.appendChild(ph);
       for (var di = 0; di < deptList.length; di++) {
         var d = deptList[di];
@@ -1090,22 +1212,22 @@
     }
     var alreadyIdentified = !!(self.identifiedContact && self.identifiedContact.id);
     if (alreadyIdentified) {
-      var knownName = self.identifiedContact.name || self.formData.name || 'Known contact';
+      var knownName = self.identifiedContact.name || self.formData.name || tr('known_contact');
       box.appendChild(el('div', { class: 'ccw-known-contact' }, [
         el('div', { class: 'ccw-known-dot' }, ['✓']),
         el('div', {}, [
           el('div', { class: 'ccw-known-title' }, [knownName]),
-          el('div', { class: 'ccw-muted' }, ['Contact details already saved']),
+          el('div', { class: 'ccw-muted' }, [tr('contact_saved')]),
         ]),
       ]));
     }
     var fields = alreadyIdentified
-      ? [['subject', 'Subject', 'text']]
+      ? [['subject', tr('subject'), 'text']]
       : [
-        ['name', 'Full name', 'text'],
-        ['email', !forCall && policy.require_contact ? 'Email *' : 'Email', 'email'],
-        ['phone', !forCall && policy.require_contact ? 'Phone *' : 'Phone', 'tel'],
-        ['subject', 'Subject', 'text'],
+        ['name', tr('full_name'), 'text'],
+        ['email', !forCall && policy.require_contact ? tr('email_required') : tr('email'), 'email'],
+        ['phone', !forCall && policy.require_contact ? tr('phone_required') : tr('phone_field'), 'tel'],
+        ['subject', tr('subject'), 'text'],
       ];
     fields.forEach(function (f) {
       var label = el('label', { class: 'ccw-label' }, [f[1]]);
@@ -1116,7 +1238,7 @@
     });
     if (!forCall && policy.require_contact && !alreadyIdentified) {
       box.appendChild(el('div', { class: 'ccw-muted', style: 'font-size:11px;margin-top:-4px;' }, [
-        '* Email or phone is required so we can reach you.',
+        tr('contact_required_note'),
       ]));
     }
     if (!forCall) {
@@ -1132,23 +1254,23 @@
       }
       // Message textarea
       var msgLabel = policy.min_message_length > 0
-        ? 'Message (min ' + policy.min_message_length + ' chars)'
-        : 'Message (optional)';
+        ? tr('message_min', { n: policy.min_message_length })
+        : tr('message_optional');
       box.appendChild(el('label', { class: 'ccw-label' }, [msgLabel]));
-      var ta = el('textarea', { class: 'ccw-textarea', placeholder: 'Briefly describe what you need help with…' });
+      var ta = el('textarea', { class: 'ccw-textarea', placeholder: tr('message_placeholder') });
       ta.value = self.formData.message || '';
       ta.addEventListener('input', function (e) { self.formData.message = e.target.value; });
       box.appendChild(ta);
       // When
-      box.appendChild(el('label', { class: 'ccw-label' }, ['When should we call?']));
+      box.appendChild(el('label', { class: 'ccw-label' }, [tr('when_call')]));
       var when = el('div', { class: 'ccw-segment' });
       function mkWhen(val, label) {
         var active = (self.formData.callback_when === val);
         return el('button', { class: 'ccw-seg-btn' + (active ? ' active' : ''), type: 'button',
           on: { click: function () { self.formData.callback_when = val; self.render(); } } }, [label]);
       }
-      when.appendChild(mkWhen('now', '⚡ ASAP'));
-      when.appendChild(mkWhen('later', '🗓 Schedule'));
+      when.appendChild(mkWhen('now', '⚡ ' + tr('asap')));
+      when.appendChild(mkWhen('later', tr('schedule')));
       box.appendChild(when);
       if (self.formData.callback_when === 'later') {
         var dt = el('input', { class: 'ccw-input', type: 'datetime-local' });
@@ -1159,15 +1281,15 @@
         box.appendChild(dt);
       }
       // Urgency
-      box.appendChild(el('label', { class: 'ccw-label' }, ['Priority']));
+      box.appendChild(el('label', { class: 'ccw-label' }, [tr('priority')]));
       var ur = el('div', { class: 'ccw-segment' });
       function mkUr(val, label) {
         var active = (self.formData.callback_urgency === val);
         return el('button', { class: 'ccw-seg-btn' + (active ? ' active' : '') + (val === 'urgent' && active ? ' danger' : ''), type: 'button',
           on: { click: function () { self.formData.callback_urgency = val; self.render(); } } }, [label]);
       }
-      ur.appendChild(mkUr('normal', 'Normal'));
-      ur.appendChild(mkUr('urgent', '🔥 Urgent'));
+      ur.appendChild(mkUr('normal', tr('normal')));
+      ur.appendChild(mkUr('urgent', tr('urgent')));
       box.appendChild(ur);
     }
     if (forCall) {
@@ -1178,19 +1300,19 @@
         ci.checked = !!self.formData.consent;
         ci.addEventListener('change', function (e) { self.formData.consent = !!e.target.checked; });
         cb.appendChild(ci);
-        cb.appendChild(document.createTextNode(' I consent to this call being recorded for quality and security. (required)'));
+        cb.appendChild(document.createTextNode(tr('consent_required')));
         box.appendChild(cb);
       } else if (rec.effective_enabled) {
         box.appendChild(el('div', { class: 'ccw-muted' }, [
-          'This call may be recorded for quality and security.',
+          tr('call_may_record'),
         ]));
       }
     }
     if (self.error) box.appendChild(el('div', { class: 'ccw-error' }, [self.error]));
     var actions = el('div', { class: 'ccw-row' }, [
-      el('button', { class: 'ccw-btn secondary', on: { click: function () { self.reset(); } } }, ['Back']),
+      el('button', { class: 'ccw-btn secondary', on: { click: function () { self.reset(); } } }, [tr('back')]),
       el('button', { class: 'ccw-btn primary', on: { click: function () { forCall ? self.submitCall() : self.submitCallback(); } } },
-        [forCall ? 'Start call' : 'Send request']),
+        [forCall ? tr('start_call') : tr('send_request')]),
     ]);
     box.appendChild(actions);
     return box;

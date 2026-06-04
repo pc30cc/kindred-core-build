@@ -148,6 +148,10 @@
     var announceText = '';
     var lastSpeakAt = 0, pendingVoiceRetry = null, holdNodes = [];
     var LANG_MAP = { en: 'en-US', fa: 'fa-IR', tr: 'tr-TR' };
+    var SPOKEN_FALLBACK = {
+      fa: 'Shomaa dar safe entezar hastid. Lotfan sabr konid. Be zoodi shomaa raa be operator motasel mikonim.',
+      tr: 'Bekleme kuyruğundasınız. Lütfen bekleyin, kısa süre içinde sizi bir operatöre bağlayacağız.',
+    };
     function ensure() {
       try {
         if (typeof window === 'undefined') return null;
@@ -305,10 +309,11 @@
       try {
         if (typeof window === 'undefined' || !window.speechSynthesis) return;
         var voice = pickVoice(locale);
-        // Never let an English/default voice read Persian/Turkish text. That
+        // Never let an English/default voice read Persian/Turkish script. That
         // was the source of the repeated "داد داد" sound. Wait briefly for
-        // real voices to load; if the browser has no matching voice, keep the
-        // hold music playing and skip the garbled announcement.
+        // real voices to load; if no matching voice exists, use a Latin-script
+        // localized fallback so the message remains understandable instead of
+        // being garbled by the wrong speech engine.
         if (!voice && locale !== 'en') {
           if (!pendingVoiceRetry) {
             pendingVoiceRetry = setTimeout(function () {
@@ -316,9 +321,10 @@
               speakAnnounce(true);
             }, 900);
           }
-          return;
+          if (now - lastSpeakAt < 2600) return;
         }
-        var u = new window.SpeechSynthesisUtterance(announceText);
+        var spokenText = (!voice && SPOKEN_FALLBACK[locale]) ? SPOKEN_FALLBACK[locale] : announceText;
+        var u = new window.SpeechSynthesisUtterance(spokenText);
         u.lang = LANG_MAP[locale] || 'en-US';
         if (voice) u.voice = voice;
         u.rate = locale === 'fa' ? 0.86 : 0.92;

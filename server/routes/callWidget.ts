@@ -768,7 +768,28 @@ callWidgetRouter.get('/calls/:id/status', async (req, res) => {
     .select('id,state,ended_at,end_reason,provider,provider_room_id,call_type,recording_enabled,recording_state')
     .eq('id', req.params.id).maybeSingle();
   if (!call) return res.status(404).json({ error: 'not_found' });
-  res.json({ call });
+  // Compute live queue position + ETA while still waiting.
+  let position: number | null = null;
+  let eta_seconds: number | null = null;
+  if (call && (call as any).state === 'queued') {
+    const { data: entry } = await sb.from('call_queue_entries')
+      .select('id,created_at,workspace_id,channel')
+      .eq('call_session_id', req.params.id).maybeSingle();
+    if (entry) {
+      const { count: ahead } = await sb.from('call_queue_entries')
+        .select('id', { count: 'exact', head: true })
+        .eq('workspace_id', (entry as any).workspace_id)
+        .in('state', ['queued', 'offered'])
+        .lt('created_at', (entry as any).created_at);
+      position = (ahead || 0) + 1;
+      try {
+        const platform = await getPlatformCallCenterSettings(config);
+        const perPos = Math.max(5, platform.queue_eta_seconds_per_position || 45);
+        eta_seconds = Math.max(0, (position - 1)) * perPos + perPos;
+      } catch { eta_seconds = (position - 1) * 45 + 30; }
+    }
+  }
+  res.json({ call, position, eta_seconds });
 });
 
 // ── Visitor join token (only after operator accepts) ──────────────────────

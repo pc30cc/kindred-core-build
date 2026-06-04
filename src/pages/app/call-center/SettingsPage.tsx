@@ -81,6 +81,7 @@ export default function CallCenterSettingsPage() {
       'pre_call_form_enabled', 'offline_behavior', 'recording_enabled',
       'recording_consent_required', 'routing_mode', 'widget_position',
       'default_department_id', 'widget_default_locale', 'widget_enabled_locales',
+      'widget_custom_texts',
     ];
     return keys.some((k) => JSON.stringify(s[k]) !== JSON.stringify(original[k]));
   }, [s, original]);
@@ -106,6 +107,7 @@ export default function CallCenterSettingsPage() {
       default_department_id: s.default_department_id ?? null,
       widget_default_locale: s.widget_default_locale ?? null,
       widget_enabled_locales: s.widget_enabled_locales ?? null,
+      widget_custom_texts: s.widget_custom_texts ?? {},
     });
     setOriginal({ ...s });
     toast({ title: 'Saved' });

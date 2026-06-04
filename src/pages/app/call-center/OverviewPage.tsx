@@ -1,5 +1,6 @@
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import {
+  useCallCenterCapabilities,
   useCallCenterOverview, useCallCenterSettings, useCallCenterQueue,
   useCallCenterCalls, useCallCenterCallbacks, useCallCenterAgentPresence,
 } from '@/hooks/useCallCenter';
@@ -54,6 +55,8 @@ export default function CallCenterOverviewPage() {
   const { data: callsData } = useCallCenterCalls(workspace?.id);
   const { data: callbacksData } = useCallCenterCallbacks(workspace?.id);
   const { data: presenceData } = useCallCenterAgentPresence(workspace?.id);
+  const { data: caps } = useCallCenterCapabilities(workspace?.id);
+  const callbackOn = caps?.platform_callback_enabled !== false;
 
   const platformOk = !!settings?.platform?.call_center_enabled;
   const wsEnabled = !!settings?.settings?.enabled;

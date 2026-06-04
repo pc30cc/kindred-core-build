@@ -1310,7 +1310,7 @@
     }
     if (self.error) box.appendChild(el('div', { class: 'ccw-error' }, [self.error]));
     var actions = el('div', { class: 'ccw-row' }, [
-      el('button', { class: 'ccw-btn secondary', on: { click: function () { self.reset(); } } }, ['Back']),
+      el('button', { class: 'ccw-btn secondary', on: { click: function () { self.reset(); } } }, [tr('back')]),
       el('button', { class: 'ccw-btn primary', on: { click: function () { forCall ? self.submitCall() : self.submitCallback(); } } },
         [forCall ? tr('start_call') : tr('send_request')]),
     ]);

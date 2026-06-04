@@ -74,7 +74,7 @@
         if (typeof window === 'undefined') return null;
         var C = window.AudioContext || window.webkitAudioContext;
         if (!C) return null;
-        if (!ctx) ctx = new C({ latencyHint: 'interactive' });
+        if (!ctx) ctx = new C();
         return ctx;
       } catch (_) { return null; }
     }

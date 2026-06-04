@@ -3022,6 +3022,8 @@ export type Database = {
           updated_at: string
           video_enabled: boolean
           voice_enabled: boolean
+          widget_default_locale: string | null
+          widget_enabled_locales: string[] | null
           widget_position: string
           widget_theme: Json
           workspace_id: string
@@ -3049,6 +3051,8 @@ export type Database = {
           updated_at?: string
           video_enabled?: boolean
           voice_enabled?: boolean
+          widget_default_locale?: string | null
+          widget_enabled_locales?: string[] | null
           widget_position?: string
           widget_theme?: Json
           workspace_id: string
@@ -3076,6 +3080,8 @@ export type Database = {
           updated_at?: string
           video_enabled?: boolean
           voice_enabled?: boolean
+          widget_default_locale?: string | null
+          widget_enabled_locales?: string[] | null
           widget_position?: string
           widget_theme?: Json
           workspace_id?: string
@@ -5162,6 +5168,8 @@ export type Database = {
           updated_at: string
           video_calls_enabled: boolean
           voice_calls_enabled: boolean
+          widget_available_locales: string[]
+          widget_default_locale: string
         }
         Insert: {
           advanced_routing_enabled?: boolean
@@ -5198,6 +5206,8 @@ export type Database = {
           updated_at?: string
           video_calls_enabled?: boolean
           voice_calls_enabled?: boolean
+          widget_available_locales?: string[]
+          widget_default_locale?: string
         }
         Update: {
           advanced_routing_enabled?: boolean
@@ -5234,6 +5244,8 @@ export type Database = {
           updated_at?: string
           video_calls_enabled?: boolean
           voice_calls_enabled?: boolean
+          widget_available_locales?: string[]
+          widget_default_locale?: string
         }
         Relationships: []
       }

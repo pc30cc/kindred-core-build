@@ -773,21 +773,29 @@
     var cfg = (this.bootstrap && this.bootstrap.config) || {};
 
     // Launcher always present
-    var launcherText = this.isOnline() ? 'Call us' : 'Request callback';
+    var launcherText = this.isOnline() ? 'Call us' : 'Callback';
     var launcher = el('button', {
       class: 'ccw-launcher ' + pos,
+      'aria-label': launcherText,
       on: { click: function () { self.toggleOpen(); } },
-    }, ['📞 ', launcherText]);
+    }, [
+      el('span', { class: 'ccw-launcher-icon' }, ['☎']),
+      el('span', { class: 'ccw-launcher-text' }, [launcherText]),
+      this.isOnline() ? el('span', { class: 'ccw-launcher-dot' }) : null,
+    ]);
     this.root.appendChild(launcher);
 
     if (!this.open) return;
 
     var panel = el('div', { class: 'ccw-panel ' + pos });
     var header = el('div', { class: 'ccw-header' }, [
-      cfg.avatar_url ? el('img', { src: cfg.avatar_url, alt: '' }) : null,
-      el('div', {}, [
+      cfg.avatar_url ? el('img', { src: cfg.avatar_url, alt: '' }) : el('div', { class: 'ccw-avatar-fallback' }, ['☎']),
+      el('div', { class: 'ccw-header-copy' }, [
         el('div', { class: 'ccw-title' }, [cfg.display_name || 'Support']),
-        el('div', { class: 'ccw-sub' }, [this.isOnline() ? 'Available now' : 'Currently offline']),
+        el('div', { class: 'ccw-sub' }, [
+          el('span', { class: 'ccw-status-dot ' + (this.isOnline() ? 'online' : 'offline') }),
+          this.isOnline() ? 'Live call center' : 'Currently offline',
+        ]),
       ]),
       el('button', { class: 'ccw-close', on: { click: function () { self.toggleOpen(); } } }, ['×']),
     ]);

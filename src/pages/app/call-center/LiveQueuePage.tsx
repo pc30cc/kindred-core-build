@@ -203,6 +203,12 @@ export default function LiveQueuePage() {
 
   // Auto-select first queue item — done in effect, not during render
   useEffect(() => {
+    // While a call is accepted, keep selection pinned to it so the media
+    // console stays mounted even after the queue removes the accepted entry.
+    if (accepted?.callId) {
+      if (selectedCallId !== accepted.callId) setSelectedCallId(accepted.callId);
+      return;
+    }
     if (queue.length === 0) {
       if (selectedCallId) setSelectedCallId(null);
       return;
@@ -212,7 +218,7 @@ export default function LiveQueuePage() {
       const next = queue[0]?.call_session_id ?? null;
       setSelectedCallId(next);
     }
-  }, [queue, selectedCallId]);
+  }, [queue, selectedCallId, accepted?.callId]);
 
   async function accept(callId: string) {
     if (!workspace) return;

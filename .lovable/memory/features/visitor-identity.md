@@ -7,7 +7,8 @@ type: feature
 ## Architecture (production-grade, fail-closed)
 
 **Layer 1 — Anonymous visitor**
-- HttpOnly signed cookie `dvsid` (HMAC-SHA256, 365d, SameSite=None+Secure in prod)
+- HttpOnly signed cookie `dvsid` (HMAC-SHA256, 365d)
+- Cookie attributes auto-detect TLS via NODE_ENV, req.secure, X-Forwarded-Proto, or *.lovable.app host → on HTTPS: `SameSite=None; Secure; Partitioned` (CHIPS for third-party-cookie-blocked Chrome). On plain http://localhost: `SameSite=Lax`.
 - Issued in `POST /api/widget/bootstrap` via `resolveVisitorIdentity()` (server/services/widget/visitorIdentity.ts)
 - Payload: `{ v: visitor_id, w: workspace_id, iat, exp }` — signature validated on every request
 - Auto-rotates when <30 days remain. NEVER stored in localStorage.

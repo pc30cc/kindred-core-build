@@ -441,6 +441,8 @@ function WidgetTextsEditor({
 
   const all: Record<string, Record<string, string>> = settings.widget_custom_texts || {};
   const current = all[locale] || {};
+  const callbackOn = platform?.callback_requests_enabled !== false;
+  const visibleKeys = WIDGET_TEXT_KEYS.filter((k) => callbackOn || !CALLBACK_TEXT_KEYS.has(k.key));
 
   function setField(key: string, val: string) {
     const nextLocale = { ...current };
@@ -473,7 +475,7 @@ function WidgetTextsEditor({
         </Select>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {WIDGET_TEXT_KEYS.map(({ key, label, placeholder }) => (
+        {visibleKeys.map(({ key, label, placeholder }) => (
           <div key={key} className="space-y-1">
             <Label className="text-xs">{label}</Label>
             <Input

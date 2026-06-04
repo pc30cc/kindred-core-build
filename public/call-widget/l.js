@@ -45,10 +45,16 @@
         return;
       }
       var bootstrap = resp.body;
+      // Cache-bust the unhashed runtime assets. The loader itself is
+      // served no-store, so this version token is fresh on every page
+      // load. Browsers + CDNs that ignore Cache-Control: no-store still
+      // can't reuse a stale entry because the URL changes per load.
+      var v = (bootstrap && (bootstrap.assets_version || bootstrap.session)) || String(Date.now());
+      var bust = '?v=' + encodeURIComponent(String(v).slice(0, 16));
       // Inject CSS
       var link = document.createElement('link');
       link.rel = 'stylesheet';
-      link.href = origin + '/call-widget/runtime.css';
+      link.href = origin + '/call-widget/runtime.css' + bust;
       document.head.appendChild(link);
 
       // Load the LiveKit SDK locally if the host page hasn't provided one.
@@ -57,7 +63,7 @@
       function loadRuntime() {
         var sc = document.createElement('script');
         sc.async = true;
-        sc.src = origin + '/call-widget/runtime.js';
+        sc.src = origin + '/call-widget/runtime.js' + bust;
         sc.onload = function () {
           if (window.CallCenterWidget && typeof window.CallCenterWidget.mount === 'function') {
             window.CallCenterWidget.mount({

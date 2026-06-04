@@ -225,6 +225,10 @@ export default function LiveQueuePage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [selectedCallId, setSelectedCallId] = useState<string | null>(null);
   const [notes, setNotes] = useState('');
+  const [search, setSearch] = useState('');
+  const [channelFilter, setChannelFilter] = useState<'all' | 'voice' | 'video'>('all');
+  const [sortMode, setSortMode] = useState<'wait_desc' | 'wait_asc'>('wait_desc');
+  const [contextTab, setContextTab] = useState<'contact' | 'timeline' | 'notes'>('contact');
   const [accepted, setAccepted] = useState<{
     callId: string;
     token: string;
@@ -244,7 +248,44 @@ export default function LiveQueuePage() {
     return () => clearInterval(t);
   }, [accepted?.callId, qc]);
 
-  const queue = data?.queue || [];
+  const rawQueue = data?.queue || [];
+  const queue = useMemo(() => {
+    const q = (rawQueue as any[]).filter((entry) => {
+      const c = entry.call_session;
+      if (channelFilter !== 'all') {
+        const ch = entry.channel || (c?.call_type === 'video' ? 'video' : 'voice');
+        if (channelFilter === 'video' && ch !== 'video') return false;
+        if (channelFilter === 'voice' && ch === 'video') return false;
+      }
+      if (search.trim()) {
+        const needle = search.trim().toLowerCase();
+        const hay = [
+          c?.visitor_name, c?.visitor_email, c?.visitor_phone, c?.subject, c?.page_title, c?.page_url,
+        ].filter(Boolean).join(' ').toLowerCase();
+        if (!hay.includes(needle)) return false;
+      }
+      return true;
+    });
+    q.sort((a, b) => {
+      const ta = new Date(a.created_at).getTime();
+      const tb = new Date(b.created_at).getTime();
+      return sortMode === 'wait_desc' ? ta - tb : tb - ta;
+    });
+    return q;
+  }, [rawQueue, channelFilter, search, sortMode]);
+
+  // Queue analytics
+  const queueStats = useMemo(() => {
+    if (rawQueue.length === 0) return { count: 0, longest: 0, avg: 0, voice: 0, video: 0, breached: 0 };
+    const now = Date.now();
+    const waits = rawQueue.map((q: any) => Math.floor((now - new Date(q.created_at).getTime()) / 1000));
+    const longest = Math.max(...waits);
+    const avg = Math.round(waits.reduce((a, b) => a + b, 0) / waits.length);
+    const voice = rawQueue.filter((q: any) => (q.channel || 'voice') !== 'video').length;
+    const video = rawQueue.length - voice;
+    const breached = waits.filter((w) => w > 180).length;
+    return { count: rawQueue.length, longest, avg, voice, video, breached };
+  }, [rawQueue]);
 
   // Auto-select first queue item — done in effect, not during render
   useEffect(() => {

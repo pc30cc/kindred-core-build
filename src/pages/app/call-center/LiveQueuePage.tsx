@@ -433,13 +433,71 @@ export default function LiveQueuePage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-[340px_minmax(0,1fr)_340px] gap-4 flex-1 min-h-0">
         {/* Queue column */}
-        <div className="space-y-2 overflow-y-auto pr-1">
-          <div className="flex items-center justify-between sticky top-0 bg-background py-1 z-10">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-2">
-              <Inbox className="h-3.5 w-3.5" /> Queue ({queue.length})
-            </h2>
+        <Card className="flex flex-col overflow-hidden p-0">
+          <div className="px-3 pt-3 pb-2 border-b bg-muted/30">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-2">
+                <Inbox className="h-3.5 w-3.5" />
+                Queue
+                <Badge variant="secondary" className="ms-1 h-5 px-1.5 text-[10px]">
+                  {queue.length}
+                  {queue.length !== rawQueue.length && <span className="opacity-60">/{rawQueue.length}</span>}
+                </Badge>
+              </h2>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="icon" variant="ghost" className="h-6 w-6"
+                    onClick={() => setSortMode((m) => (m === 'wait_desc' ? 'wait_asc' : 'wait_desc'))}
+                  >
+                    {sortMode === 'wait_desc' ? <ArrowDown className="h-3.5 w-3.5" /> : <ArrowUp className="h-3.5 w-3.5" />}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="left">
+                  Sort: {sortMode === 'wait_desc' ? 'Longest waiting first' : 'Newest first'}
+                </TooltipContent>
+              </Tooltip>
+            </div>
+            <div className="relative mb-2">
+              <Search className="h-3.5 w-3.5 absolute start-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search visitor, email, page…"
+                className="h-8 ps-8 text-xs"
+              />
+            </div>
+            <div className="flex gap-1">
+              {([
+                { k: 'all', label: 'All', count: rawQueue.length },
+                { k: 'voice', label: 'Voice', count: queueStats.voice, icon: Phone },
+                { k: 'video', label: 'Video', count: queueStats.video, icon: Video },
+              ] as const).map((opt) => (
+                <button
+                  key={opt.k}
+                  onClick={() => setChannelFilter(opt.k as any)}
+                  className={cn(
+                    'flex-1 inline-flex items-center justify-center gap-1.5 text-[11px] py-1 rounded-md border transition-colors',
+                    channelFilter === opt.k
+                      ? 'bg-primary/10 border-primary/30 text-primary font-medium'
+                      : 'border-transparent text-muted-foreground hover:bg-muted',
+                  )}
+                >
+                  {(opt as any).icon ? <((opt as any).icon) className="h-3 w-3" /> : null}
+                  {opt.label}
+                  <span className="text-[10px] opacity-60">{opt.count}</span>
+                </button>
+              ))}
+            </div>
           </div>
-          {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
+          <div className="flex-1 overflow-y-auto p-2 space-y-2">
+          {isLoading && (
+            <div className="space-y-2">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="h-24 rounded-lg bg-muted/40 animate-pulse" />
+              ))}
+            </div>
+          )}
           {!isLoading && queue.length === 0 && (
             <Card className="p-6 text-center space-y-3">
               <Headphones className="h-8 w-8 mx-auto text-muted-foreground" />
@@ -453,48 +511,118 @@ export default function LiveQueuePage() {
               </div>
             </Card>
           )}
-          {queue.map((q, idx) => {
+          {!isLoading && queue.length === 0 && rawQueue.length > 0 && (
+            <div className="text-xs text-muted-foreground text-center p-6">
+              No matches for current filters.
+            </div>
+          )}
+          {queue.map((q: any, idx: number) => {
             const c = q.call_session;
             const tone = urgencyTone(q.created_at);
             const isSel = selectedCallId === q.call_session_id;
+            const isAccepted = accepted?.callId === q.call_session_id;
+            const waitSec = Math.floor((Date.now() - new Date(q.created_at).getTime()) / 1000);
+            const slaPct = Math.min(100, (waitSec / 180) * 100);
+            const isVideo = q.channel === 'video' || c?.call_type === 'video';
+            const name = c?.visitor_name || c?.visitor_email || c?.visitor_phone || 'Anonymous';
+            const initial = name.slice(0, 1).toUpperCase();
             return (
-              <Card
+              <div
                 key={q.id}
                 onClick={() => setSelectedCallId(q.call_session_id)}
                 className={cn(
-                  'p-3 cursor-pointer transition-all border-2',
-                  isSel ? 'border-primary shadow-md' : 'border-transparent hover:border-border',
-                  tone === 'warn' && !isSel && 'border-amber-500/30',
-                  tone === 'danger' && !isSel && 'border-destructive/40 bg-destructive/5',
+                  'group relative rounded-lg border bg-card cursor-pointer transition-all overflow-hidden',
+                  isSel
+                    ? 'border-primary shadow-sm ring-1 ring-primary/30'
+                    : 'border-border hover:border-primary/40 hover:shadow-sm',
+                  tone === 'danger' && !isSel && 'border-destructive/40',
                 )}
               >
-                <div className="flex items-start gap-2.5">
-                  <div className="rounded-lg bg-primary/10 text-primary p-1.5">
-                    {q.channel === 'video' ? <Video className="h-3.5 w-3.5" /> : <Phone className="h-3.5 w-3.5" />}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <div className="font-medium truncate text-sm">
-                        {c?.visitor_name || c?.visitor_email || c?.visitor_phone || 'Anonymous'}
+                {/* Urgency stripe */}
+                <div className={cn(
+                  'absolute start-0 top-0 bottom-0 w-1',
+                  tone === 'danger' ? 'bg-destructive' : tone === 'warn' ? 'bg-amber-500' : 'bg-emerald-500',
+                )} />
+                <div className="p-3 ps-3.5">
+                  <div className="flex items-start gap-2.5">
+                    <div className="relative">
+                      <div className="h-9 w-9 rounded-full bg-gradient-to-br from-primary/20 to-primary/5 text-primary flex items-center justify-center text-sm font-semibold ring-1 ring-primary/15">
+                        {initial}
                       </div>
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted ms-auto">#{idx + 1}</span>
+                      <div className={cn(
+                        'absolute -bottom-0.5 -end-0.5 h-4 w-4 rounded-full flex items-center justify-center ring-2 ring-card',
+                        isVideo ? 'bg-indigo-500 text-white' : 'bg-emerald-500 text-white',
+                      )}>
+                        {isVideo ? <Video className="h-2.5 w-2.5" /> : <Phone className="h-2.5 w-2.5" />}
+                      </div>
                     </div>
-                    <div className={cn('text-[11px] mt-0.5',
-                      tone === 'danger' ? 'text-destructive font-medium' : tone === 'warn' ? 'text-amber-600' : 'text-muted-foreground',
-                    )}>
-                      waiting {waitTime(q.created_at)}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <div className="font-medium truncate text-sm">{name}</div>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted ms-auto tabular-nums">#{idx + 1}</span>
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <div className={cn(
+                          'text-[11px] tabular-nums font-medium flex items-center gap-1',
+                          tone === 'danger' ? 'text-destructive' : tone === 'warn' ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground',
+                        )}>
+                          <Clock className="h-3 w-3" />
+                          {formatWait(q.created_at)}
+                        </div>
+                        {q.priority > 0 && (
+                          <Badge variant="outline" className="h-4 px-1 text-[9px]">P{q.priority}</Badge>
+                        )}
+                        {isAccepted && (
+                          <Badge className="h-4 px-1 text-[9px] bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30">
+                            on call
+                          </Badge>
+                        )}
+                      </div>
+                      {c?.subject && (
+                        <div className="text-[11px] text-muted-foreground truncate mt-1">{c.subject}</div>
+                      )}
+                      {c?.page_title && (
+                        <div className="text-[10px] text-muted-foreground truncate mt-0.5 flex items-center gap-1">
+                          <Globe className="h-2.5 w-2.5 shrink-0" />
+                          <span className="truncate">{c.page_title}</span>
+                        </div>
+                      )}
                     </div>
-                    {c?.subject && <div className="text-[11px] text-muted-foreground truncate mt-0.5">{c.subject}</div>}
+                  </div>
+                  {/* SLA bar */}
+                  <div className="mt-2.5 h-1 rounded-full bg-muted overflow-hidden">
+                    <div
+                      className={cn(
+                        'h-full transition-all',
+                        tone === 'danger' ? 'bg-destructive' : tone === 'warn' ? 'bg-amber-500' : 'bg-emerald-500',
+                      )}
+                      style={{ width: `${slaPct}%` }}
+                    />
+                  </div>
+                  <div className="flex gap-1.5 mt-2.5">
+                    <Button
+                      variant="outline" size="sm" className="flex-1 h-7 text-xs"
+                      onClick={(e) => { e.stopPropagation(); reject(q.call_session_id); }}
+                      disabled={busy === q.call_session_id || isAccepted}
+                    >
+                      Reject
+                    </Button>
+                    <Button
+                      size="sm" className="flex-1 h-7 text-xs"
+                      onClick={(e) => { e.stopPropagation(); accept(q.call_session_id); }}
+                      disabled={busy === q.call_session_id || isAccepted}
+                    >
+                      {busy === q.call_session_id
+                        ? <Loader2 className="h-3 w-3 animate-spin" />
+                        : isAccepted ? 'On call' : (<><PhoneCall className="h-3 w-3 me-1" />Accept</>)}
+                    </Button>
                   </div>
                 </div>
-                <div className="flex gap-1.5 mt-2.5">
-                  <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={(e) => { e.stopPropagation(); reject(q.call_session_id); }} disabled={busy === q.call_session_id}>Reject</Button>
-                  <Button size="sm" className="flex-1 h-7 text-xs" onClick={(e) => { e.stopPropagation(); accept(q.call_session_id); }} disabled={busy === q.call_session_id}>Accept</Button>
-                </div>
-              </Card>
+              </div>
             );
           })}
-        </div>
+          </div>
+        </Card>
 
         {/* Workspace column */}
         <div className="space-y-3 overflow-y-auto">

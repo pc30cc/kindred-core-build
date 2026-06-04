@@ -68,112 +68,116 @@
 
   // ── Visitor-side ringback (on-hold) audio ────────────────────────────
   var Ringback = (function () {
-    var ctx = null, timer = null, active = false, audioEl = null, mode = 'off', lastCfg = null, needsGesture = false;
+    var ctx = null, timer = null, active = false, audioEl = null, mode = 'off', lastCfg = null, needsGesture = false, unlockHandlersInstalled = false;
     function ensure() {
       try {
         if (typeof window === 'undefined') return null;
         var C = window.AudioContext || window.webkitAudioContext;
         if (!C) return null;
         if (!ctx) ctx = new C();
-        if (ctx.state === 'suspended') {
-          try {
-            var p = ctx.resume();
-            if (p && p.catch) p.catch(function () { needsGesture = true; });
-          } catch (_) { needsGesture = true; }
-        }
         return ctx;
       } catch (_) { return null; }
     }
+    function installUnlockHandlers() {
+      if (unlockHandlersInstalled || typeof window === 'undefined') return;
+      unlockHandlersInstalled = true;
+      var retry = function () {
+        if (!active) return;
+        try { Ringback.startFromGesture(lastCfg || {}); } catch (_) {}
+      };
+      window.addEventListener('pointerdown', retry, { capture: true, passive: true });
+      window.addEventListener('touchstart', retry, { capture: true, passive: true });
+      window.addEventListener('keydown', retry, { capture: true, passive: true });
+    }
+    function unlock() {
+      var c = ensure();
+      if (!c) return null;
+      try {
+        if (c.state === 'suspended' && c.resume) {
+          var rp = c.resume();
+          if (rp && rp.then) rp.then(function () { needsGesture = false; startToneLoop(); }).catch(function () { needsGesture = true; installUnlockHandlers(); });
+        }
+        // A near-silent oscillator is more reliable than a zero-length buffer
+        // on mobile Safari for preserving the user-activation audio unlock.
+        var osc = c.createOscillator();
+        var g = c.createGain();
+        g.gain.setValueAtTime(0.00001, c.currentTime);
+        osc.connect(g).connect(c.destination);
+        osc.start(c.currentTime);
+        osc.stop(c.currentTime + 0.03);
+      } catch (_) { needsGesture = true; installUnlockHandlers(); }
+      return c;
+    }
     function ringOnce() {
-      var c = ensure(); if (!c) return;
-      if (c.state && c.state !== 'running') { needsGesture = true; return; }
+      var c = ensure(); if (!c || !active || mode !== 'tone') return;
+      if (c.state && c.state !== 'running') {
+        needsGesture = true; installUnlockHandlers();
+        try {
+          var p = c.resume && c.resume();
+          if (p && p.then) p.then(function () { if (active) { needsGesture = false; ringOnce(); } }).catch(function () { needsGesture = true; });
+        } catch (_) {}
+        return;
+      }
       needsGesture = false;
       try {
-        var t0 = c.currentTime;
-        // Classic phone-style "brrring" — dual PSTN tones with enough gain
-        // to be audible on laptops/phones without being harsh.
+        var t0 = c.currentTime + 0.015;
         var pattern = [
-          { f1: 440, f2: 480, at: 0.0, dur: 0.5 },
-          { f1: 440, f2: 480, at: 0.55, dur: 0.5 },
+          { f1: 440, f2: 480, at: 0.0, dur: 0.58 },
+          { f1: 440, f2: 480, at: 0.72, dur: 0.58 },
         ];
         for (var i = 0; i < pattern.length; i++) {
           var n = pattern[i];
-          [n.f1, n.f2].forEach(function (f) {
+          [n.f1, n.f2].forEach(function (f, idx) {
             var osc = c.createOscillator();
             var g = c.createGain();
-            osc.type = 'sine'; osc.frequency.setValueAtTime(f, t0 + n.at);
+            osc.type = idx === 0 ? 'sine' : 'triangle';
+            osc.frequency.setValueAtTime(f, t0 + n.at);
             g.gain.setValueAtTime(0.0001, t0 + n.at);
-            g.gain.exponentialRampToValueAtTime(0.16, t0 + n.at + 0.03);
-            g.gain.setValueAtTime(0.16, t0 + n.at + n.dur - 0.05);
+            g.gain.exponentialRampToValueAtTime(0.22, t0 + n.at + 0.035);
+            g.gain.setValueAtTime(0.22, t0 + n.at + n.dur - 0.06);
             g.gain.exponentialRampToValueAtTime(0.0001, t0 + n.at + n.dur);
             osc.connect(g).connect(c.destination);
             osc.start(t0 + n.at);
-            osc.stop(t0 + n.at + n.dur + 0.02);
+            osc.stop(t0 + n.at + n.dur + 0.04);
           });
         }
-      } catch (_) {}
+      } catch (_) { needsGesture = true; installUnlockHandlers(); }
+    }
+    function startToneLoop() {
+      if (!active || mode !== 'tone' || timer) return;
+      ringOnce();
+      timer = setInterval(ringOnce, 2800);
     }
     return {
-      /**
-       * Prime audio output synchronously from a user gesture so that
-       * browser autoplay policies allow playback after a later async step
-       * (e.g. after the /calls/request POST resolves). Must be called from
-       * inside a click/touch handler — do NOT call after an `await`.
-       */
-      prime: function () {
-        try {
-          var c = ensure();
-          if (c && c.state === 'suspended') {
-            try {
-              var rp = c.resume();
-              if (rp && rp.then) rp.then(function () { needsGesture = false; }).catch(function () { needsGesture = true; });
-            } catch (_) { needsGesture = true; }
-          }
-          // Play a 1-sample silent buffer to fully unlock the context.
-          if (c) {
-            var b = c.createBuffer(1, 1, 22050);
-            var s = c.createBufferSource();
-            s.buffer = b; s.connect(c.destination); s.start(0);
-            if (!c.state || c.state === 'running') needsGesture = false;
-          }
-        } catch (_) {}
-      },
+      prime: function () { unlock(); },
       start: function (cfg) {
-        if (active) return;
         lastCfg = cfg || lastCfg || {};
-        active = true;
         mode = (lastCfg && lastCfg.ringback_mode) || 'tone';
-        if (!lastCfg || lastCfg.ringback_enabled === false || mode === 'off') { active = false; return; }
+        if ((lastCfg && lastCfg.ringback_enabled === false) || mode === 'off') { this.stop(); return; }
+        active = true;
         if (mode === 'music' && lastCfg.ringback_music_url) {
           try {
-            audioEl = new Audio(lastCfg.ringback_music_url);
-            audioEl.loop = true; audioEl.volume = 0.5;
+            if (!audioEl) audioEl = new Audio(lastCfg.ringback_music_url);
+            audioEl.loop = true; audioEl.volume = 0.62;
             var p = audioEl.play();
-            if (p && p.catch) p.catch(function () { needsGesture = true; });
-          } catch (_) {}
+            if (p && p.then) p.then(function () { needsGesture = false; }).catch(function () { needsGesture = true; installUnlockHandlers(); });
+          } catch (_) { needsGesture = true; installUnlockHandlers(); }
           return;
         }
-        // tone
-        ensure();
-        ringOnce();
-        timer = setInterval(ringOnce, 3000);
+        mode = 'tone';
+        unlock();
+        startToneLoop();
       },
       stop: function () {
-        active = false;
+        active = false; needsGesture = false;
         if (timer) { try { clearInterval(timer); } catch (_) {} timer = null; }
         if (audioEl) { try { audioEl.pause(); audioEl.src = ''; } catch (_) {} audioEl = null; }
       },
       startFromGesture: function (cfg) {
         lastCfg = cfg || lastCfg || {};
-        this.prime();
-        if (!active) this.start(lastCfg);
-        else if (mode === 'tone') ringOnce();
-        else if (audioEl) {
-          try {
-            var p = audioEl.play();
-            if (p && p.then) p.then(function () { needsGesture = false; }).catch(function () { needsGesture = true; });
-          } catch (_) { needsGesture = true; }
-        }
+        unlock();
+        this.start(lastCfg);
+        if (mode === 'tone') ringOnce();
       },
       needsGesture: function () { return !!needsGesture; },
       isActive: function () { return active; },
@@ -773,14 +777,17 @@
     var cfg = (this.bootstrap && this.bootstrap.config) || {};
 
     // Launcher always present
-    var launcherText = this.isOnline() ? 'Call us' : 'Callback';
+    var launcherText = this.isOnline() ? 'Talk now' : 'Callback';
     var launcher = el('button', {
       class: 'ccw-launcher ' + pos,
       'aria-label': launcherText,
       on: { click: function () { self.toggleOpen(); } },
     }, [
-      el('span', { class: 'ccw-launcher-icon' }, ['☎']),
-      el('span', { class: 'ccw-launcher-text' }, [launcherText]),
+      el('span', { class: 'ccw-launcher-pulse' }, [el('span', { class: 'ccw-launcher-icon' }, ['☎'])]),
+      el('span', { class: 'ccw-launcher-copy' }, [
+        el('span', { class: 'ccw-launcher-text' }, [launcherText]),
+        el('span', { class: 'ccw-launcher-sub' }, [this.isOnline() ? 'Live support' : 'Leave details']),
+      ]),
       this.isOnline() ? el('span', { class: 'ccw-launcher-dot' }) : null,
     ]);
     this.root.appendChild(launcher);
@@ -789,12 +796,15 @@
 
     var panel = el('div', { class: 'ccw-panel ' + pos });
     var header = el('div', { class: 'ccw-header' }, [
-      cfg.avatar_url ? el('img', { src: cfg.avatar_url, alt: '' }) : el('div', { class: 'ccw-avatar-fallback' }, ['☎']),
+      el('div', { class: 'ccw-brand-wrap' }, [
+        cfg.avatar_url ? el('img', { src: cfg.avatar_url, alt: '' }) : el('div', { class: 'ccw-avatar-fallback' }, ['☎']),
+        el('span', { class: 'ccw-avatar-badge' }),
+      ]),
       el('div', { class: 'ccw-header-copy' }, [
         el('div', { class: 'ccw-title' }, [cfg.display_name || 'Support']),
         el('div', { class: 'ccw-sub' }, [
           el('span', { class: 'ccw-status-dot ' + (this.isOnline() ? 'online' : 'offline') }),
-          this.isOnline() ? 'Live call center' : 'Currently offline',
+          this.isOnline() ? 'Operators available' : 'Callback desk',
         ]),
       ]),
       el('button', { class: 'ccw-close', on: { click: function () { self.toggleOpen(); } } }, ['×']),
@@ -816,6 +826,10 @@
       case STATES.OFFLINE: {
         var off = el('div', { class: 'ccw-stack' }, [
           el('div', { class: 'ccw-hero' }, [
+            el('div', { class: 'ccw-hero-topline' }, [
+              el('span', { class: 'ccw-live-chip muted' }, ['Offline']),
+              el('span', { class: 'ccw-hero-route' }, ['Callback desk']),
+            ]),
             el('div', { class: 'ccw-hero-icon' }, ['↩']),
             el('div', { class: 'ccw-hero-title' }, ['Leave a callback request']),
             el('div', { class: 'ccw-hero-sub' }, ['Our team is offline right now, but we can call you back.']),
@@ -830,14 +844,22 @@
         var showCbOnline = pol.show_when_online !== false; // default true
         var box = el('div', { class: 'ccw-stack' }, [
           el('div', { class: 'ccw-hero' }, [
-            el('div', { class: 'ccw-hero-kicker' }, ['Available now']),
+            el('div', { class: 'ccw-hero-topline' }, [
+              el('span', { class: 'ccw-live-chip' }, ['Live now']),
+              el('span', { class: 'ccw-hero-route' }, ['Voice · Video · Callback']),
+            ]),
             el('div', { class: 'ccw-hero-title' }, ['Talk to our team']),
             el('div', { class: 'ccw-hero-sub' }, ['Start a secure voice or video call with the next available operator.']),
+            el('div', { class: 'ccw-hero-metrics' }, [
+              el('span', {}, ['Secure line']),
+              el('span', {}, ['Queue aware']),
+              el('span', {}, ['Fast handoff']),
+            ]),
           ]),
         ]);
         var row = el('div', { class: 'ccw-row' });
-        if (caps.voice) row.appendChild(el('button', { class: 'ccw-btn primary', on: { click: function () { self.startCall('voice'); } } }, ['🎙 Voice call']));
-        if (caps.video) row.appendChild(el('button', { class: 'ccw-btn secondary', on: { click: function () { self.startCall('video'); } } }, ['🎥 Video call']));
+        if (caps.voice) row.appendChild(el('button', { class: 'ccw-btn primary', on: { click: function () { self.startCall('voice'); } } }, [el('span', { class: 'ccw-btn-ico' }, ['☎']), 'Voice call']));
+        if (caps.video) row.appendChild(el('button', { class: 'ccw-btn secondary', on: { click: function () { self.startCall('video'); } } }, [el('span', { class: 'ccw-btn-ico' }, ['◉']), 'Video call']));
         box.appendChild(row);
         if (caps.callback && showCbOnline) {
           box.appendChild(el('button', { class: 'ccw-btn secondary', on: { click: function () { self.openCallback(); } } }, ['Request callback instead']));
@@ -854,16 +876,35 @@
       case STATES.QUEUE: {
         var qe = (self.bootstrap && self.bootstrap.queue_experience) || {};
         var capsForCallback = (self.bootstrap && self.bootstrap.capabilities) || {};
+        var queueTitle = self.queuePosition === 1 ? 'You are next' : 'Holding your place';
+        var queueCopy = self.queuePosition && self.queuePosition > 1
+          ? 'Your request is in the live call queue. Keep this window open while we connect the operator.'
+          : 'We are ringing the next available operator now.';
         var card = el('div', { class: 'ccw-queue-card' }, [
-          el('div', { class: 'ccw-queue-orbit' }, [
-            el('span', { class: 'ccw-ring r1' }),
-            el('span', { class: 'ccw-ring r2' }),
-            el('span', { class: 'ccw-phone-core' }, ['☎']),
+          el('div', { class: 'ccw-queue-head' }, [
+            el('div', { class: 'ccw-queue-orbit' }, [
+              el('span', { class: 'ccw-ring r1' }),
+              el('span', { class: 'ccw-ring r2' }),
+              el('span', { class: 'ccw-ring r3' }),
+              el('span', { class: 'ccw-phone-core' }, ['☎']),
+            ]),
+            el('div', { class: 'ccw-queue-copy-block' }, [
+              el('div', { class: 'ccw-pill live' }, [Ringback.isActive && Ringback.isActive() ? 'Ringing enabled' : 'Ringing operator']),
+              el('div', { class: 'ccw-queue-title' }, [queueTitle]),
+              el('div', { class: 'ccw-queue-copy' }, [queueCopy]),
+            ]),
           ]),
-          el('div', { class: 'ccw-pill live' }, ['Ringing operator']),
-          el('div', { class: 'ccw-queue-title' }, ['Please hold']),
-          el('div', { class: 'ccw-queue-copy' }, ['We are connecting you with the next available operator.']),
-          el('div', { class: 'ccw-wait-timer', html: '0:00' }),
+          el('div', { class: 'ccw-queue-progress' }, [
+            el('span', { class: 'ccw-progress-bar b1' }),
+            el('span', { class: 'ccw-progress-bar b2' }),
+            el('span', { class: 'ccw-progress-bar b3' }),
+            el('span', { class: 'ccw-progress-bar b4' }),
+            el('span', { class: 'ccw-progress-bar b5' }),
+          ]),
+          el('div', { class: 'ccw-wait-wrap' }, [
+            el('span', { class: 'ccw-wait-label' }, ['Waiting time']),
+            el('div', { class: 'ccw-wait-timer', html: '0:00' }),
+          ]),
         ]);
         if (Ringback.needsGesture && Ringback.needsGesture()) {
           card.appendChild(el('button', {
@@ -876,13 +917,13 @@
           var posLabel = self.queuePosition === 1
             ? 'You are next in line'
             : 'You are #' + self.queuePosition + ' in the queue';
-          card.appendChild(el('div', { class: 'ccw-queue-pos' }, [posLabel]));
+          card.appendChild(el('div', { class: 'ccw-queue-pos' }, [el('span', {}, ['Queue position']), el('strong', {}, [posLabel])]));
         }
         // ETA chip
         if (qe.show_eta !== false && typeof self.queueEta === 'number' && self.queueEta > 0) {
           var mins = Math.max(1, Math.round(self.queueEta / 60));
           var etaLbl = mins <= 1 ? 'Estimated wait: under 1 minute' : 'Estimated wait: ~' + mins + ' minutes';
-          card.appendChild(el('div', { class: 'ccw-queue-eta' }, [etaLbl]));
+          card.appendChild(el('div', { class: 'ccw-queue-eta' }, [el('span', {}, ['ETA']), el('strong', {}, [etaLbl])]));
         }
         var stack = [card];
         // Offer a callback after the configured wait threshold

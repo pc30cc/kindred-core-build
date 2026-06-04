@@ -427,7 +427,7 @@
     var consentNeeded = !!(rec.effective_enabled && rec.consent_required);
     if (consentNeeded && !this.formData.consent) {
       try { Ringback.stop(); } catch (_) {}
-      this.error = 'Recording consent is required to continue.';
+      this.error = this.t('err_recording_required');
       this.render(); return;
     }
     var consentAt = this.formData.consent ? new Date().toISOString() : null;
@@ -453,14 +453,14 @@
         try { Ringback.stop(); } catch (_) {}
         var code = r.body && r.body.error;
         if (code === 'recording_consent_required') {
-          self.error = 'Please accept the recording consent to start the call.';
+          self.error = self.t('err_recording_accept');
           self.state = STATES.PRE_CALL; self.render(); return;
         }
         if (code === 'department_channel_disabled' || code === 'department_not_found') {
-          self.error = 'This department is not available for this call type. Please choose another department.';
+          self.error = self.t('err_department');
           self.state = STATES.PRE_CALL; self.render(); return;
         }
-        self.error = (r.body && (r.body.message || r.body.error)) || 'Failed to start call.';
+        self.error = (r.body && (r.body.message || r.body.error)) || self.t('err_failed_start');
         self.state = STATES.ERROR; self.render(); return;
       }
       self.session = r.body.session || self.session;
@@ -791,7 +791,7 @@
     // Client-side cooldown guard (server still enforces).
     if (this.callbackCooldownUntil && Date.now() < this.callbackCooldownUntil) {
       var leftSec = Math.ceil((this.callbackCooldownUntil - Date.now()) / 1000);
-      this.error = 'Please wait ' + leftSec + 's before sending another request.';
+      this.error = this.t('err_wait_seconds', { n: leftSec });
       this.render(); return;
     }
     // Require contact if the platform demands it.
@@ -800,7 +800,7 @@
       var phone = (this.formData.phone || '').trim();
       var alreadyId = !!(this.identifiedContact && this.identifiedContact.id);
       if (!alreadyId && !email && !phone) {
-        this.error = 'Please provide your email or phone so we can reach you.';
+        this.error = this.t('err_contact_required');
         this.render(); return;
       }
     }
@@ -809,7 +809,7 @@
     if (minMsg > 0) {
       var msg = (this.formData.message || '').trim();
       if (msg.length < minMsg) {
-        this.error = 'Please describe your request in at least ' + minMsg + ' characters.';
+        this.error = this.t('err_message_short', { n: minMsg });
         this.render(); return;
       }
     }
@@ -819,7 +819,7 @@
       if (!isNaN(t.getTime()) && t.getTime() > Date.now() - 60000) {
         scheduledIso = t.toISOString();
       } else {
-        this.error = 'Please pick a valid future time.';
+        this.error = this.t('err_future_time');
         this.render(); return;
       }
     }
@@ -843,24 +843,24 @@
       if (!r.ok) {
         var code = r.body && r.body.error;
         if (code === 'department_channel_disabled' || code === 'department_not_found') {
-          self.error = 'This department is not available for this call type. Please choose another department.';
+          self.error = self.t('err_department');
         } else if (code === 'contact_required') {
-          self.error = 'Please provide your email or phone so we can reach you.';
+          self.error = self.t('err_contact_required');
         } else if (code === 'message_too_short') {
           var m = (r.body && r.body.min) || 1;
-          self.error = 'Please describe your request in at least ' + m + ' characters.';
+          self.error = self.t('err_message_short', { n: m });
         } else if (code === 'too_fast') {
-          self.error = 'That was too fast. Please take a moment to fill in the form.';
+          self.error = self.t('err_too_fast');
         } else if (code === 'cooldown_active') {
           var ra = (r.body && r.body.retry_after) || 60;
           self.callbackCooldownUntil = Date.now() + ra * 1000;
-          self.error = 'You already requested a callback. Please wait ' + ra + 's before sending another.';
+          self.error = self.t('err_cooldown', { n: ra });
         } else if (code === 'rate_limited_ip') {
-          self.error = 'Too many callback requests from your network. Please try again later.';
+          self.error = self.t('err_rate_limited');
         } else if (code === 'feature_not_available') {
-          self.error = 'Callback requests are currently unavailable.';
+          self.error = self.t('err_callback_unavailable');
         } else {
-          self.error = (r.body && (r.body.error || r.body.message)) || 'Failed.';
+          self.error = (r.body && (r.body.error || r.body.message)) || self.t('err_failed');
         }
         self.render(); return;
       }

@@ -343,15 +343,21 @@
       if (!r.ok) return;
       var c = r.body.call; if (!c) return;
       self.call = c;
+      if (typeof r.body.position === 'number') self.queuePosition = r.body.position;
+      if (typeof r.body.eta_seconds === 'number') self.queueEta = r.body.eta_seconds;
       if (['cancelled', 'ended', 'missed', 'failed'].indexOf(c.state) >= 0) {
-        self.stopPolling(); self.stopTimer();
+        self.stopPolling(); self.stopTimer(); try { Ringback.stop(); } catch (_) {}
         self.state = STATES.ENDED; self.render(); return;
       }
       if (['active', 'ringing', 'connecting'].indexOf(c.state) >= 0) {
         if (self.state !== STATES.IN_CALL) {
+          try { Ringback.stop(); } catch (_) {}
           self.state = STATES.IN_CALL; self.render();
           self.requestJoinToken();
         }
+      } else {
+        // Still queued — refresh queue UI with latest position/eta.
+        if (self.state === STATES.QUEUE) self.render();
       }
     });
   };

@@ -27,6 +27,7 @@ import {
 } from '../services/widget/visitorIdentity.js';
 import { mergeVisitorIdentity } from '../services/widget/identityMerge.js';
 import {
+  createSignedContactContinuityToken,
   persistContinuityToken,
   readContinuityCookie,
   resolveContinuityToken,
@@ -101,7 +102,11 @@ async function issueContinuityCookieForContact(
   workspaceId: string,
   contactId: string,
 ): Promise<void> {
-  if (readContinuityCookie(req)) return;
+  // Always refresh a signed, DB-independent continuity cookie. This is the
+  // reliable return-visitor proof used by the call widget after page refresh,
+  // even if the DB-backed continuity-token migration has not run yet.
+  setContinuityCookie(res, createSignedContactContinuityToken(workspaceId, contactId), req);
+  if (readContinuityCookie(req)?.startsWith('cc1.')) return;
   const sb = getServiceClient(config);
   const issued = await persistContinuityToken(sb, {
     workspaceId,

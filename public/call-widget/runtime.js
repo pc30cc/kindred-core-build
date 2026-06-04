@@ -777,14 +777,17 @@
     var cfg = (this.bootstrap && this.bootstrap.config) || {};
 
     // Launcher always present
-    var launcherText = this.isOnline() ? 'Call us' : 'Callback';
+    var launcherText = this.isOnline() ? 'Talk now' : 'Callback';
     var launcher = el('button', {
       class: 'ccw-launcher ' + pos,
       'aria-label': launcherText,
       on: { click: function () { self.toggleOpen(); } },
     }, [
-      el('span', { class: 'ccw-launcher-icon' }, ['☎']),
-      el('span', { class: 'ccw-launcher-text' }, [launcherText]),
+      el('span', { class: 'ccw-launcher-pulse' }, [el('span', { class: 'ccw-launcher-icon' }, ['☎'])]),
+      el('span', { class: 'ccw-launcher-copy' }, [
+        el('span', { class: 'ccw-launcher-text' }, [launcherText]),
+        el('span', { class: 'ccw-launcher-sub' }, [this.isOnline() ? 'Live support' : 'Leave details']),
+      ]),
       this.isOnline() ? el('span', { class: 'ccw-launcher-dot' }) : null,
     ]);
     this.root.appendChild(launcher);
@@ -793,12 +796,15 @@
 
     var panel = el('div', { class: 'ccw-panel ' + pos });
     var header = el('div', { class: 'ccw-header' }, [
-      cfg.avatar_url ? el('img', { src: cfg.avatar_url, alt: '' }) : el('div', { class: 'ccw-avatar-fallback' }, ['☎']),
+      el('div', { class: 'ccw-brand-wrap' }, [
+        cfg.avatar_url ? el('img', { src: cfg.avatar_url, alt: '' }) : el('div', { class: 'ccw-avatar-fallback' }, ['☎']),
+        el('span', { class: 'ccw-avatar-badge' }),
+      ]),
       el('div', { class: 'ccw-header-copy' }, [
         el('div', { class: 'ccw-title' }, [cfg.display_name || 'Support']),
         el('div', { class: 'ccw-sub' }, [
           el('span', { class: 'ccw-status-dot ' + (this.isOnline() ? 'online' : 'offline') }),
-          this.isOnline() ? 'Live call center' : 'Currently offline',
+          this.isOnline() ? 'Operators available' : 'Callback desk',
         ]),
       ]),
       el('button', { class: 'ccw-close', on: { click: function () { self.toggleOpen(); } } }, ['×']),
@@ -820,6 +826,10 @@
       case STATES.OFFLINE: {
         var off = el('div', { class: 'ccw-stack' }, [
           el('div', { class: 'ccw-hero' }, [
+            el('div', { class: 'ccw-hero-topline' }, [
+              el('span', { class: 'ccw-live-chip muted' }, ['Offline']),
+              el('span', { class: 'ccw-hero-route' }, ['Callback desk']),
+            ]),
             el('div', { class: 'ccw-hero-icon' }, ['↩']),
             el('div', { class: 'ccw-hero-title' }, ['Leave a callback request']),
             el('div', { class: 'ccw-hero-sub' }, ['Our team is offline right now, but we can call you back.']),
@@ -834,14 +844,22 @@
         var showCbOnline = pol.show_when_online !== false; // default true
         var box = el('div', { class: 'ccw-stack' }, [
           el('div', { class: 'ccw-hero' }, [
-            el('div', { class: 'ccw-hero-kicker' }, ['Available now']),
+            el('div', { class: 'ccw-hero-topline' }, [
+              el('span', { class: 'ccw-live-chip' }, ['Live now']),
+              el('span', { class: 'ccw-hero-route' }, ['Voice · Video · Callback']),
+            ]),
             el('div', { class: 'ccw-hero-title' }, ['Talk to our team']),
             el('div', { class: 'ccw-hero-sub' }, ['Start a secure voice or video call with the next available operator.']),
+            el('div', { class: 'ccw-hero-metrics' }, [
+              el('span', {}, ['Secure line']),
+              el('span', {}, ['Queue aware']),
+              el('span', {}, ['Fast handoff']),
+            ]),
           ]),
         ]);
         var row = el('div', { class: 'ccw-row' });
-        if (caps.voice) row.appendChild(el('button', { class: 'ccw-btn primary', on: { click: function () { self.startCall('voice'); } } }, ['🎙 Voice call']));
-        if (caps.video) row.appendChild(el('button', { class: 'ccw-btn secondary', on: { click: function () { self.startCall('video'); } } }, ['🎥 Video call']));
+        if (caps.voice) row.appendChild(el('button', { class: 'ccw-btn primary', on: { click: function () { self.startCall('voice'); } } }, [el('span', { class: 'ccw-btn-ico' }, ['☎']), 'Voice call']));
+        if (caps.video) row.appendChild(el('button', { class: 'ccw-btn secondary', on: { click: function () { self.startCall('video'); } } }, [el('span', { class: 'ccw-btn-ico' }, ['◉']), 'Video call']));
         box.appendChild(row);
         if (caps.callback && showCbOnline) {
           box.appendChild(el('button', { class: 'ccw-btn secondary', on: { click: function () { self.openCallback(); } } }, ['Request callback instead']));

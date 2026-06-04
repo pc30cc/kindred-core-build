@@ -89,6 +89,14 @@ export interface CallCenterPlatformSettings {
   callback_min_message_length: number;
   callback_honeypot_enabled: boolean;
   callback_min_form_seconds: number;
+  ringback_enabled: boolean;
+  ringback_mode: 'tone' | 'music' | 'off';
+  ringback_music_url: string | null;
+  queue_show_position: boolean;
+  queue_show_eta: boolean;
+  queue_eta_seconds_per_position: number;
+  queue_offer_callback_after_seconds: number;
+  operator_new_call_sound_enabled: boolean;
 }
 
 export interface CallCenterEffectiveCaps {

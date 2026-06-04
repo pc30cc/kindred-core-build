@@ -13,10 +13,10 @@ import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from '@/hooks/use-toast';
 import {
-  Phone, Video, Globe, Headphones, RadioTower, Inbox, PhoneOff, Mic, MicOff,
+  Phone, Video, Globe, Headphones, RadioTower, Inbox, PhoneOff, MicOff,
   CameraOff, ArrowRightLeft, PhoneCall, AlertTriangle, Disc, Square, Loader2, RefreshCw,
   Search, Clock, User, Mail, Smartphone, Copy, Check, ChevronRight, Activity,
-  FileText, History, Building2, ArrowUp, ArrowDown,
+  FileText, History, ArrowUp, ArrowDown,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Link, useParams } from 'react-router-dom';

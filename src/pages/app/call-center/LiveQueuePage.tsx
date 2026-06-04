@@ -10,7 +10,7 @@ import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { callCenterApi, type CallCenterRecordingStatus } from '@/lib/call-center-api';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from '@/hooks/use-toast';
 import {
   Phone, Video, Globe, Headphones, RadioTower, Inbox, PhoneOff, MicOff,
@@ -242,23 +242,19 @@ export default function LiveQueuePage() {
 
   // Operator-side new-call notification sound. Plays a short chime whenever
   // a fresh entry appears in the queue (governed by platform setting).
-  const knownCallIdsRef = (function () {
-    // Stable ref via closure on useState; lazy init keeps SSR happy.
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    const [r] = useState<{ set: Set<string>; primed: boolean }>(() => ({ set: new Set(), primed: false }));
-    return r;
-  })();
+  const knownCallIdsRef = useRef<{ set: Set<string>; primed: boolean }>({ set: new Set(), primed: false });
   useEffect(() => {
     const enabled = (settingsBundle as any)?.platform?.operator_new_call_sound_enabled !== false;
     if (!enabled) return;
     const ids = (data?.queue || []).map((q: any) => q.call_session_id).filter(Boolean) as string[];
-    if (!knownCallIdsRef.primed) {
-      knownCallIdsRef.primed = true;
-      ids.forEach((id) => knownCallIdsRef.set.add(id));
+    const r = knownCallIdsRef.current;
+    if (!r.primed) {
+      r.primed = true;
+      ids.forEach((id) => r.set.add(id));
       return;
     }
-    const fresh = ids.filter((id) => !knownCallIdsRef.set.has(id));
-    ids.forEach((id) => knownCallIdsRef.set.add(id));
+    const fresh = ids.filter((id) => !r.set.has(id));
+    ids.forEach((id) => r.set.add(id));
     if (fresh.length === 0) return;
     // Play a soft two-tone chime via Web Audio.
     try {
@@ -281,7 +277,7 @@ export default function LiveQueuePage() {
       });
       setTimeout(() => { try { ctx.close(); } catch { /* */ } }, 1200);
     } catch { /* swallow */ }
-  }, [data?.queue, settingsBundle, knownCallIdsRef]);
+  }, [data?.queue, settingsBundle]);
 
   // Faster status sync while in active console
   useEffect(() => {

@@ -10,7 +10,7 @@ import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from '@/hooks/use-toast';
-import { AlertCircle, ShieldCheck, Server, Building2, Search, Activity, Loader2, CheckCircle2, XCircle, AlertTriangle, ShieldAlert } from 'lucide-react';
+import { AlertCircle, ShieldCheck, Server, Building2, Search, Activity, Loader2, CheckCircle2, XCircle, AlertTriangle, ShieldAlert, PhoneCall, Music } from 'lucide-react';
 
 const TOGGLE_GROUPS: Array<{ title: string; items: Array<[keyof CallCenterPlatformSettings, string, boolean?]> }> = [
   { title: 'Core', items: [
@@ -55,6 +55,23 @@ const CALLBACK_NUMBERS: Array<[keyof CallCenterPlatformSettings, string, string]
   ['callback_max_per_ip_per_hour', 'Max requests per IP / hour', 'Hard ceiling per IP address within the last hour.'],
   ['callback_min_form_seconds', 'Minimum form-fill time (seconds)', 'Rejects submissions sent faster than a human could plausibly fill the form.'],
   ['callback_min_message_length', 'Minimum message length (chars)', '0 = no requirement.'],
+];
+
+const RINGBACK_MODES: Array<{ value: 'tone' | 'music' | 'off'; label: string; hint: string }> = [
+  { value: 'tone', label: 'Classic phone ringing tone', hint: 'Synthesized in-browser. No audio file required.' },
+  { value: 'music', label: 'Hold music (custom URL)', hint: 'Plays a looping audio file from the URL below.' },
+  { value: 'off', label: 'Silent', hint: 'No audio is played while the visitor is waiting.' },
+];
+
+const QUEUE_TOGGLES: Array<[keyof CallCenterPlatformSettings, string, string]> = [
+  ['queue_show_position', 'Show queue position to visitor', 'Displays "You are #2 in the queue" while the visitor waits.'],
+  ['queue_show_eta', 'Show estimated wait time', 'Displays an estimate based on the per-position seconds below.'],
+  ['operator_new_call_sound_enabled', 'Operator notification sound on new call', 'Plays a short tone in the operator console when a call enters the queue.'],
+];
+
+const QUEUE_NUMBERS: Array<[keyof CallCenterPlatformSettings, string, string]> = [
+  ['queue_eta_seconds_per_position', 'ETA seconds per queue position', 'Used to compute the estimated wait time shown to the visitor.'],
+  ['queue_offer_callback_after_seconds', 'Offer callback after (seconds)', '0 = never. After this many seconds in queue, the visitor sees a "Request a callback" prompt.'],
 ];
 
 function Stat({ label, value, icon: Icon }: { label: string; value: number | string; icon?: any }) {

@@ -307,6 +307,7 @@ callCenterRouter.get('/capabilities', async (req, res) => {
     platform_enabled: platform.call_center_enabled,
     workspace_enabled: wsEnabled,
     workspace_call_center_visible: effective.workspace_call_center_visible,
+    platform_callback_enabled: platform.callback_requests_enabled,
     settings_exists: !!row,
     effective,
     recording: row

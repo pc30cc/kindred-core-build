@@ -311,6 +311,20 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
   try {
     const { visitorId } = resolveVisitorIdentity(req, res, ws.workspace_id);
     const contact = await findLinkedContactForVisitor(config, ws.workspace_id, visitorId);
+    // Make the call-widget visitor show up in the Online Visitors list as
+    // soon as the widget loads — with their real contact name if known.
+    await ensureVisitorSessionRow(config, ws.workspace_id, visitorId, origin, origin);
+    if (contact) {
+      // Re-pin contact_id on every refresh (cheap, idempotent) so a returning
+      // identified visitor is never shown as Anonymous.
+      const sbPin = getServiceClient(config);
+      await sbPin
+        .from('visitor_sessions')
+        .update({ contact_id: contact.id })
+        .eq('workspace_id', ws.workspace_id)
+        .eq('visitor_id', visitorId)
+        .is('contact_id', null);
+    }
     visitorBlock = {
       id: visitorId,
       contact: contact

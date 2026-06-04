@@ -36,15 +36,18 @@ const ROTATION_THRESHOLD_DAYS = 30; // rotate if <30 days remain
  * On plain http://localhost dev we fall back to SameSite=Lax (no Secure) so
  * same-origin testing still works without a TLS proxy.
  */
-function isSecureRequest(req: Request | null): boolean {
+export function isSecureRequest(req: Request | null): boolean {
   if (process.env.NODE_ENV === 'production') return true;
   if (!req) return false;
   if ((req as any).secure) return true;
   const xfp = (req.headers['x-forwarded-proto'] as string | undefined) || '';
   if (xfp.split(',')[0]?.trim().toLowerCase() === 'https') return true;
+  const origin = (req.headers.origin as string | undefined) || '';
+  const referer = (req.headers.referer as string | undefined) || '';
+  if (/^https:\/\//i.test(origin) || /^https:\/\//i.test(referer)) return true;
   const host = (req.headers.host as string | undefined) || '';
   // Lovable preview / Coolify / Vercel domains are always TLS-terminated.
-  if (/\.lovable\.(app|dev)$/i.test(host)) return true;
+  if (/\.lovable\.(app|dev)$/i.test(host) || /\.(vercel\.app|netlify\.app)$/i.test(host)) return true;
   return false;
 }
 

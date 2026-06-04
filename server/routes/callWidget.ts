@@ -26,6 +26,12 @@ import {
   readVisitorCookie,
 } from '../services/widget/visitorIdentity.js';
 import { mergeVisitorIdentity } from '../services/widget/identityMerge.js';
+import {
+  persistContinuityToken,
+  readContinuityCookie,
+  resolveContinuityToken,
+  setContinuityCookie,
+} from '../services/widget/continuity.js';
 
 export const callWidgetRouter = Router();
 
@@ -73,6 +79,61 @@ async function findLinkedContactForVisitor(
     .eq('id', session.contact_id)
     .maybeSingle();
   return contact || null;
+}
+
+async function findContactById(
+  config: ServerConfig,
+  contactId: string,
+): Promise<{ id: string; name: string | null; email: string | null; phone: string | null; avatar_url: string | null } | null> {
+  const sb = getServiceClient(config);
+  const { data: contact } = await sb
+    .from('contacts')
+    .select('id, name, email, phone, avatar_url')
+    .eq('id', contactId)
+    .maybeSingle();
+  return contact || null;
+}
+
+async function issueContinuityCookieForContact(
+  req: any,
+  res: any,
+  config: ServerConfig,
+  workspaceId: string,
+  contactId: string,
+): Promise<void> {
+  if (readContinuityCookie(req)) return;
+  const sb = getServiceClient(config);
+  const issued = await persistContinuityToken(sb, {
+    workspaceId,
+    contactId,
+    deviceInfo: {
+      source: 'call_widget',
+      ua: req.headers['user-agent'] || null,
+      origin: getOrigin(req),
+    },
+  });
+  if (issued?.token) setContinuityCookie(res, issued.token, req);
+}
+
+async function restoreContactFromContinuityCookie(
+  req: any,
+  config: ServerConfig,
+  workspaceId: string,
+  visitorId: string,
+): Promise<{ id: string; name: string | null; email: string | null; phone: string | null; avatar_url: string | null } | null> {
+  const token = readContinuityCookie(req);
+  if (!token) return null;
+  const sb = getServiceClient(config);
+  const restored = await resolveContinuityToken(sb, workspaceId, token);
+  if (!restored.valid || !restored.contactId) return null;
+  await sb.rpc('merge_visitor_into_contact', {
+    _workspace_id: workspaceId,
+    _visitor_id: visitorId,
+    _contact_id: restored.contactId,
+    _method: 'token',
+    _metadata: { source: 'call_widget_continuity' },
+  });
+  return findContactById(config, restored.contactId);
 }
 
 /**
@@ -166,7 +227,9 @@ async function identifyVisitorForCall(
 }> {
   const { visitorId } = resolveVisitorIdentity(req, res, workspaceId);
   await ensureVisitorSessionRow(config, workspaceId, visitorId, origin, submitted.page_url ?? null);
-  const existing = await findLinkedContactForVisitor(config, workspaceId, visitorId);
+  const existing =
+    await findLinkedContactForVisitor(config, workspaceId, visitorId) ||
+    await restoreContactFromContinuityCookie(req, config, workspaceId, visitorId);
 
   const hasSubmittedIdentity = !!(submitted.name || submitted.email || submitted.phone);
   if (!hasSubmittedIdentity && !existing) {
@@ -194,6 +257,7 @@ async function identifyVisitorForCall(
       .select('id, name, email, phone')
       .eq('id', merge.contactId)
       .maybeSingle();
+    await issueContinuityCookieForContact(req, res, config, workspaceId, merge.contactId);
     return { visitorId, contactId: merge.contactId, contact: contact || null };
   } catch (e: any) {
     console.warn('[call-widget] identifyVisitorForCall merge failed:', e?.message || e);
@@ -310,10 +374,12 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
   let visitorBlock: { id: string; contact: { id: string; name: string | null; email: string | null; phone: string | null } | null } | null = null;
   try {
     const { visitorId } = resolveVisitorIdentity(req, res, ws.workspace_id);
-    const contact = await findLinkedContactForVisitor(config, ws.workspace_id, visitorId);
     // Make the call-widget visitor show up in the Online Visitors list as
     // soon as the widget loads — with their real contact name if known.
     await ensureVisitorSessionRow(config, ws.workspace_id, visitorId, origin, origin);
+    const contact =
+      await findLinkedContactForVisitor(config, ws.workspace_id, visitorId) ||
+      await restoreContactFromContinuityCookie(req, config, ws.workspace_id, visitorId);
     if (contact) {
       // Re-pin contact_id on every refresh (cheap, idempotent) so a returning
       // identified visitor is never shown as Anonymous.
@@ -324,6 +390,7 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
         .eq('workspace_id', ws.workspace_id)
         .eq('visitor_id', visitorId)
         .is('contact_id', null);
+      await issueContinuityCookieForContact(req, res, config, ws.workspace_id, contact.id);
     }
     visitorBlock = {
       id: visitorId,
@@ -628,6 +695,7 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
     call_id: call!.id,
     queue_position: (queued || 0) + 1,
     session: newSession,
+    contact: identity.contact,
   });
 });
 

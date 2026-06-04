@@ -166,7 +166,14 @@ export function setVisitorCookie(res: Response, payload: VisitorPayload, req?: R
     `Max-Age=${COOKIE_TTL_SECONDS}`,
     `SameSite=${secure ? 'None' : 'Lax'}`,
   ];
-  if (secure) attrs.push('Secure');
+  if (secure) {
+    attrs.push('Secure');
+    // CHIPS (Partitioned cookies) — required so the visitor cookie keeps
+    // working in Chrome/Edge when third-party cookies are blocked (the new
+    // default for embedded widgets on customer domains). Older browsers
+    // simply ignore the attribute, so this is safe.
+    attrs.push('Partitioned');
+  }
   res.append('Set-Cookie', attrs.join('; '));
 }
 
@@ -179,7 +186,10 @@ export function clearVisitorCookie(res: Response, req?: Request | null): void {
     'Max-Age=0',
     `SameSite=${secure ? 'None' : 'Lax'}`,
   ];
-  if (secure) attrs.push('Secure');
+  if (secure) {
+    attrs.push('Secure');
+    attrs.push('Partitioned');
+  }
   res.append('Set-Cookie', attrs.join('; '));
 }
 

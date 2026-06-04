@@ -651,6 +651,7 @@
         self.state = STATES.ENDED; self.render(); return;
       }
       if (['active', 'ringing', 'connecting'].indexOf(c.state) >= 0) {
+        try { Ringback.setPhase('ring'); } catch (_) {}
         if (self.state !== STATES.IN_CALL) {
           try { Ringback.stop(); } catch (_) {}
           self.state = STATES.IN_CALL; self.render();
@@ -658,6 +659,9 @@
         }
       } else {
         // Still queued — refresh queue UI with latest position/eta.
+        try {
+          Ringback.setPhase(self.queuePosition === 1 ? 'ring' : 'hold');
+        } catch (_) {}
         if (self.state === STATES.QUEUE) self.render();
       }
     });

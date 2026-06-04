@@ -1,5 +1,5 @@
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
-import { useCallCenterQueue, useCallCenterCall, useCallCenterOverview } from '@/hooks/useCallCenter';
+import { useCallCenterQueue, useCallCenterCall, useCallCenterOverview, useCallCenterSettings } from '@/hooks/useCallCenter';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -221,6 +221,7 @@ export default function LiveQueuePage() {
   const base = `/app/w/${slug}/call-center`;
   const { data, isLoading } = useCallCenterQueue(workspace?.id);
   const { data: overview } = useCallCenterOverview(workspace?.id);
+  const { data: settingsBundle } = useCallCenterSettings(workspace?.id);
   const qc = useQueryClient();
   const [busy, setBusy] = useState<string | null>(null);
   const [selectedCallId, setSelectedCallId] = useState<string | null>(null);

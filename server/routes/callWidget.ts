@@ -48,6 +48,131 @@ function getOrigin(req: any): string | null {
 }
 
 /**
+ * Look up the contact currently linked to a visitor cookie (if any).
+ * Returns null when there is no visitor session row or no linked contact.
+ */
+async function findLinkedContactForVisitor(
+  config: ServerConfig,
+  workspaceId: string,
+  visitorId: string,
+): Promise<{ id: string; name: string | null; email: string | null; phone: string | null; avatar_url: string | null } | null> {
+  const sb = getServiceClient(config);
+  const { data: session } = await sb
+    .from('visitor_sessions')
+    .select('contact_id')
+    .eq('workspace_id', workspaceId)
+    .eq('visitor_id', visitorId)
+    .not('contact_id', 'is', null)
+    .order('last_seen_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!session?.contact_id) return null;
+  const { data: contact } = await sb
+    .from('contacts')
+    .select('id, name, email, phone, avatar_url')
+    .eq('id', session.contact_id)
+    .maybeSingle();
+  return contact || null;
+}
+
+/**
+ * Ensure a visitor_sessions row exists for (workspace, visitor) so that
+ * mergeVisitorIdentity (which UPDATEs the row) can pin contact_id.
+ * Best-effort: failures are swallowed; the merge will still run.
+ */
+async function ensureVisitorSessionRow(
+  config: ServerConfig,
+  workspaceId: string,
+  visitorId: string,
+  origin: string | null,
+  pageUrl: string | null,
+): Promise<void> {
+  const sb = getServiceClient(config);
+  const { data: existing } = await sb
+    .from('visitor_sessions')
+    .select('id')
+    .eq('workspace_id', workspaceId)
+    .eq('visitor_id', visitorId)
+    .limit(1)
+    .maybeSingle();
+  if (existing?.id) {
+    // Touch last_seen_at so the visitor appears live during/after the call.
+    await sb
+      .from('visitor_sessions')
+      .update({ last_seen_at: new Date().toISOString() })
+      .eq('id', existing.id);
+    return;
+  }
+  await sb.from('visitor_sessions').insert({
+    workspace_id: workspaceId,
+    visitor_id: visitorId,
+    current_page: pageUrl || origin || null,
+    metadata: { source: 'call_widget' },
+  });
+}
+
+/**
+ * Identify the visitor for a call/callback request:
+ *   1. Resolve dvsid cookie → visitor_id
+ *   2. Look up any contact already linked to that visitor
+ *   3. If submitted name/email/phone OR a previously linked contact exists,
+ *      run mergeVisitorIdentity to create/update the contact and pin it on
+ *      visitor_sessions (so the visitors panel shows the contact name).
+ */
+async function identifyVisitorForCall(
+  req: any,
+  res: any,
+  config: ServerConfig,
+  workspaceId: string,
+  origin: string | null,
+  submitted: { name?: string | null; email?: string | null; phone?: string | null; page_url?: string | null },
+): Promise<{
+  visitorId: string;
+  contactId: string | null;
+  contact: { id: string; name: string | null; email: string | null; phone: string | null } | null;
+}> {
+  const { visitorId } = resolveVisitorIdentity(req, res, workspaceId);
+  await ensureVisitorSessionRow(config, workspaceId, visitorId, origin, submitted.page_url ?? null);
+  const existing = await findLinkedContactForVisitor(config, workspaceId, visitorId);
+
+  const hasSubmittedIdentity = !!(submitted.name || submitted.email || submitted.phone);
+  if (!hasSubmittedIdentity && !existing) {
+    return { visitorId, contactId: null, contact: null };
+  }
+
+  // If only existing contact (no new submission), nothing new to merge — but
+  // make sure the session is pinned to the contact (mergeVisitorIdentity is
+  // idempotent and re-pins on every call).
+  const sb = getServiceClient(config);
+  try {
+    const merge = await mergeVisitorIdentity(sb, {
+      workspaceId,
+      visitorId,
+      identity: {
+        name: submitted.name ?? existing?.name ?? null,
+        email: submitted.email ?? existing?.email ?? null,
+        phone: submitted.phone ?? existing?.phone ?? null,
+      },
+      method: 'prechat',
+      ipAddress: (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || null,
+    });
+    const { data: contact } = await sb
+      .from('contacts')
+      .select('id, name, email, phone')
+      .eq('id', merge.contactId)
+      .maybeSingle();
+    return { visitorId, contactId: merge.contactId, contact: contact || null };
+  } catch (e: any) {
+    console.warn('[call-widget] identifyVisitorForCall merge failed:', e?.message || e);
+    return {
+      visitorId,
+      contactId: existing?.id || null,
+      contact: existing ? { id: existing.id, name: existing.name, email: existing.email, phone: existing.phone } : null,
+    };
+  }
+}
+
+/**
  * Strict widget-session guard for sensitive routes.
  *
  *   - 401 invalid_session     — token missing / forged / expired

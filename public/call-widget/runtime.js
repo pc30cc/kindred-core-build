@@ -85,7 +85,10 @@
       call_type: 'voice', consent: false, department_id: '',
       callback_channel: 'audio', callback_urgency: 'normal',
       callback_when: 'now', callback_scheduled_for: '',
+      hp_company: '',
     };
+    this.callbackOpenedAt = 0;
+    this.callbackCooldownUntil = 0;
   }
 
   CallCenterWidgetCtor.prototype.mount = function (opts) {

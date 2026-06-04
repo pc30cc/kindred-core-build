@@ -1066,38 +1066,38 @@
 
       case STATES.IN_CALL: {
         var status = self.connectStatus || 'connecting';
-        var msg = 'Call accepted, connecting…';
-        if (status === 'in_call') msg = 'Connected';
-        if (status === 'waiting_for_operator') msg = 'Operator joining…';
-        if (status === 'operator_connected') msg = 'Operator connected';
-        if (status === 'operator_left') msg = 'Operator left the call.';
-        if (status === 'media_reconnecting') msg = 'Reconnecting media…';
-        if (status === 'media_disconnected') msg = 'Media disconnected.';
-        if (status === 'connecting_media') msg = 'Connecting audio/video…';
-        if (status === 'fallback') msg = 'Call accepted. Please continue on the operator side.';
-        if (status === 'accepted_no_sdk') msg = 'Call accepted. Audio/video client unavailable on this page.';
-        if (status === 'media_not_configured') msg = 'Call accepted, media connection is not configured yet.';
-        if (status === 'provider_client_not_configured') msg = 'Call accepted, but the media server URL is not configured. Please request a callback.';
-        if (status === 'provider_client_not_supported') msg = 'Call accepted, but this provider has no in-browser client.';
-        if (status === 'media_client_missing') msg = 'Media client is not loaded. Call room is ready but the browser client is missing.';
-        if (status === 'media_client_invalid') msg = 'Media client loaded but is incompatible with this widget.';
-        if (status === 'loading_media_client') msg = 'Loading media client…';
-        if (status === 'microphone_permission_denied') msg = 'Microphone permission denied. Please allow access and try again.';
-        if (status === 'camera_permission_denied') msg = 'Camera permission denied. Audio call continues without video.';
-        if (status === 'room_connect_failed') msg = 'Failed to connect to the call room: ' + (self.error || 'unknown');
-        if (status === 'token_expired') msg = 'Your session expired. Please end and start a new call.';
+        var msg = tr('call_accepted_connecting');
+        if (status === 'in_call') msg = tr('connected');
+        if (status === 'waiting_for_operator') msg = tr('operator_joining');
+        if (status === 'operator_connected') msg = tr('operator_connected');
+        if (status === 'operator_left') msg = tr('operator_left');
+        if (status === 'media_reconnecting') msg = tr('reconnecting_media');
+        if (status === 'media_disconnected') msg = tr('media_disconnected');
+        if (status === 'connecting_media') msg = tr('connecting_av');
+        if (status === 'fallback') msg = tr('fallback');
+        if (status === 'accepted_no_sdk') msg = tr('accepted_no_sdk');
+        if (status === 'media_not_configured') msg = tr('media_not_configured');
+        if (status === 'provider_client_not_configured') msg = tr('provider_not_configured');
+        if (status === 'provider_client_not_supported') msg = tr('provider_not_supported');
+        if (status === 'media_client_missing') msg = tr('media_client_missing');
+        if (status === 'media_client_invalid') msg = tr('media_client_invalid');
+        if (status === 'loading_media_client') msg = tr('loading_media_client');
+        if (status === 'microphone_permission_denied') msg = tr('mic_denied');
+        if (status === 'camera_permission_denied') msg = tr('camera_denied');
+        if (status === 'room_connect_failed') msg = tr('room_failed', { error: self.error || tr('unknown') });
+        if (status === 'token_expired') msg = tr('token_expired');
         var card = el('div', { class: 'ccw-card' }, [
-          el('div', { class: 'ccw-pill' }, [status === 'in_call' || status === 'operator_connected' ? 'In call' : status === 'waiting_for_operator' ? 'Connected — waiting' : 'Connecting']),
+          el('div', { class: 'ccw-pill' }, [status === 'in_call' || status === 'operator_connected' ? tr('in_call') : status === 'waiting_for_operator' ? tr('connected_waiting') : tr('connecting')]),
           el('div', { class: 'ccw-label' }, [msg]),
         ]);
         // Recording indicator (passive). Backend status drives this; never trust client.
         var recBoot = (self.bootstrap && self.bootstrap.recording) || {};
         var callRecState = self.call && self.call.recording_state;
         if (callRecState === 'recording') {
-          card.appendChild(el('div', { class: 'ccw-pill recording' }, ['● Recording in progress']));
+          card.appendChild(el('div', { class: 'ccw-pill recording' }, [tr('recording_progress')]));
         } else if (recBoot.effective_enabled) {
           card.appendChild(el('div', { class: 'ccw-muted', style: 'margin-top:6px;' }, [
-            'Recording may start after the operator begins the call.',
+            tr('recording_may_start'),
           ]));
         }
         var media = el('div', { class: 'ccw-media' });
@@ -1112,13 +1112,13 @@
         card.appendChild(media);
         var controls = el('div', { class: 'ccw-row' });
         if (status === 'in_call' || status === 'operator_connected' || status === 'waiting_for_operator' || status === 'media_reconnecting') {
-          controls.appendChild(el('button', { class: 'ccw-btn secondary', on: { click: function () { self.toggleMic(); } } }, [self.micOn ? '🎙 Mute' : '🎙 Unmute']));
+          controls.appendChild(el('button', { class: 'ccw-btn secondary', on: { click: function () { self.toggleMic(); } } }, [self.micOn ? tr('mute') : tr('unmute')]));
           var wantVideo = (self.call && self.call.call_type === 'video') || self.formData.call_type === 'video';
           if (wantVideo) {
-            controls.appendChild(el('button', { class: 'ccw-btn secondary', on: { click: function () { self.toggleCam(); } } }, [self.camOn ? '🎥 Camera off' : '🎥 Camera on']));
+            controls.appendChild(el('button', { class: 'ccw-btn secondary', on: { click: function () { self.toggleCam(); } } }, [self.camOn ? tr('camera_off') : tr('camera_on')]));
           }
         }
-        controls.appendChild(el('button', { class: 'ccw-btn danger', on: { click: function () { self.cancelCall(); } } }, ['End']));
+        controls.appendChild(el('button', { class: 'ccw-btn danger', on: { click: function () { self.cancelCall(); } } }, [tr('end')]));
         return el('div', { class: 'ccw-stack' }, [card, controls]);
       }
 

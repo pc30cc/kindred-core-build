@@ -1127,35 +1127,35 @@
           var ref = String(self.callbackId).slice(0, 8).toUpperCase();
           var when = self.formData.callback_when === 'later' && self.formData.callback_scheduled_for
             ? new Date(self.formData.callback_scheduled_for).toLocaleString()
-            : 'as soon as possible';
-          var chLabel = self.formData.callback_channel === 'video' ? 'Video callback' : 'Phone callback';
+            : tr('asap');
+          var chLabel = self.formData.callback_channel === 'video' ? tr('video_callback') : tr('phone_callback');
           return el('div', { class: 'ccw-stack' }, [
             el('div', { class: 'ccw-success-card' }, [
               el('div', { class: 'ccw-success-icon' }, ['✓']),
-              el('div', { class: 'ccw-success-title' }, ['Callback scheduled']),
-              el('div', { class: 'ccw-muted', style: 'text-align:center;' }, ['Our team will reach out ' + when + '.']),
+              el('div', { class: 'ccw-success-title' }, [tr('callback_scheduled')]),
+              el('div', { class: 'ccw-muted', style: 'text-align:center;' }, [tr('reach_out', { when: when })]),
               el('div', { class: 'ccw-ref-row' }, [
-                el('span', { class: 'ccw-ref-label' }, ['Reference']),
+                el('span', { class: 'ccw-ref-label' }, [tr('reference')]),
                 el('code', { class: 'ccw-ref-code' }, [ref]),
               ]),
               el('div', { class: 'ccw-ref-row' }, [
-                el('span', { class: 'ccw-ref-label' }, ['Type']),
+                el('span', { class: 'ccw-ref-label' }, [tr('type')]),
                 el('span', {}, [chLabel]),
               ]),
             ]),
-            el('button', { class: 'ccw-btn primary', on: { click: function () { self.reset(); } } }, ['Done']),
+            el('button', { class: 'ccw-btn primary', on: { click: function () { self.reset(); } } }, [tr('done')]),
           ]);
         }
         return el('div', { class: 'ccw-stack' }, [
-          el('div', { class: 'ccw-card' }, [el('div', {}, ['Call ended.'])]),
-          el('button', { class: 'ccw-btn primary', on: { click: function () { self.reset(); } } }, ['Done']),
+          el('div', { class: 'ccw-card' }, [el('div', {}, [tr('call_ended')])]),
+          el('button', { class: 'ccw-btn primary', on: { click: function () { self.reset(); } } }, [tr('done')]),
         ]);
       }
 
       case STATES.ERROR:
         return el('div', { class: 'ccw-stack' }, [
-          el('div', { class: 'ccw-error' }, ['Error: ' + (self.error || 'unknown')]),
-          el('button', { class: 'ccw-btn secondary', on: { click: function () { self.reset(); } } }, ['Back']),
+          el('div', { class: 'ccw-error' }, [tr('error_prefix', { error: self.error || tr('unknown') })]),
+          el('button', { class: 'ccw-btn secondary', on: { click: function () { self.reset(); } } }, [tr('back')]),
         ]);
     }
     return el('div', {}, ['…']);

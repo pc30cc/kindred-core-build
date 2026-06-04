@@ -23,6 +23,31 @@ const COOKIE_TTL_DAYS = 365;
 const COOKIE_TTL_SECONDS = COOKIE_TTL_DAYS * 24 * 60 * 60;
 const ROTATION_THRESHOLD_DAYS = 30; // rotate if <30 days remain
 
+/**
+ * Cookies for an embedded widget MUST be sent on cross-site requests.
+ * That requires `SameSite=None; Secure`. Browsers reject `SameSite=None`
+ * without `Secure`, and reject `Secure` on plain http (except http://localhost).
+ *
+ * We detect "effectively HTTPS" via:
+ *   - req.secure (works only when express trust-proxy includes the LB), OR
+ *   - X-Forwarded-Proto header (Cloudflare / Lovable / Coolify edge), OR
+ *   - NODE_ENV === 'production' as a final fallback.
+ *
+ * On plain http://localhost dev we fall back to SameSite=Lax (no Secure) so
+ * same-origin testing still works without a TLS proxy.
+ */
+function isSecureRequest(req: Request | null): boolean {
+  if (process.env.NODE_ENV === 'production') return true;
+  if (!req) return false;
+  if ((req as any).secure) return true;
+  const xfp = (req.headers['x-forwarded-proto'] as string | undefined) || '';
+  if (xfp.split(',')[0]?.trim().toLowerCase() === 'https') return true;
+  const host = (req.headers.host as string | undefined) || '';
+  // Lovable preview / Coolify / Vercel domains are always TLS-terminated.
+  if (/\.lovable\.(app|dev)$/i.test(host)) return true;
+  return false;
+}
+
 function getVisitorSecret(): Buffer {
   const base =
     process.env.WIDGET_VISITOR_SECRET ||
@@ -120,7 +145,7 @@ export function resolveVisitorIdentity(
   }
 
   // Always (re)set cookie to refresh attributes
-  setVisitorCookie(res, payload);
+  setVisitorCookie(res, payload, req);
 
   return {
     visitorId: payload.v,
@@ -130,31 +155,31 @@ export function resolveVisitorIdentity(
   };
 }
 
-export function setVisitorCookie(res: Response, payload: VisitorPayload): void {
+export function setVisitorCookie(res: Response, payload: VisitorPayload, req?: Request | null): void {
   const value = encodeCookie(payload);
-  const isProd = process.env.NODE_ENV === 'production';
+  const secure = isSecureRequest(req ?? null);
   // Cross-site embed requires SameSite=None + Secure
   const attrs = [
     `${COOKIE_NAME}=${value}`,
     'Path=/api',
     'HttpOnly',
     `Max-Age=${COOKIE_TTL_SECONDS}`,
-    `SameSite=${isProd ? 'None' : 'Lax'}`,
+    `SameSite=${secure ? 'None' : 'Lax'}`,
   ];
-  if (isProd) attrs.push('Secure');
+  if (secure) attrs.push('Secure');
   res.append('Set-Cookie', attrs.join('; '));
 }
 
-export function clearVisitorCookie(res: Response): void {
-  const isProd = process.env.NODE_ENV === 'production';
+export function clearVisitorCookie(res: Response, req?: Request | null): void {
+  const secure = isSecureRequest(req ?? null);
   const attrs = [
     `${COOKIE_NAME}=`,
     'Path=/api',
     'HttpOnly',
     'Max-Age=0',
-    `SameSite=${isProd ? 'None' : 'Lax'}`,
+    `SameSite=${secure ? 'None' : 'Lax'}`,
   ];
-  if (isProd) attrs.push('Secure');
+  if (secure) attrs.push('Secure');
   res.append('Set-Cookie', attrs.join('; '));
 }
 

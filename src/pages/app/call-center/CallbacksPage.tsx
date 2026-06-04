@@ -7,7 +7,12 @@ import { Badge } from '@/components/ui/badge';
 import { callCenterApi, type CallbackRequest } from '@/lib/call-center-api';
 import { useQueryClient } from '@tanstack/react-query';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
 import {
   PhoneCall, Mail, Globe, Clock, Search, Video, Phone, User2,
   CheckCircle2, XCircle, UserPlus, Flame, CalendarClock, RefreshCw, Copy, MessageSquare,
@@ -68,7 +73,19 @@ function KpiCard({ label, value, accent, icon: Icon }: { label: string; value: n
   );
 }
 
-function CallbackRow({ c, onAction }: { c: CallbackRequest; onAction: (id: string, fn: 'assignCallback' | 'completeCallback' | 'cancelCallback') => void }) {
+function CallbackRow({
+  c,
+  onAction,
+  onComplete,
+  highlight,
+  rowRef,
+}: {
+  c: CallbackRequest;
+  onAction: (id: string, fn: 'assignCallback' | 'cancelCallback') => void;
+  onComplete: (c: CallbackRequest) => void;
+  highlight?: boolean;
+  rowRef?: (el: HTMLDivElement | null) => void;
+}) {
   const meta = (c.metadata || {}) as Record<string, any>;
   const name: string = meta.name || c.contact_email || c.contact_phone || 'Anonymous visitor';
   const subject: string = meta.subject || '—';
@@ -80,16 +97,23 @@ function CallbackRow({ c, onAction }: { c: CallbackRequest; onAction: (id: strin
   const requested = c.requested_at || c.created_at;
   const ref = c.id.slice(0, 8).toUpperCase();
   const isOpen = c.status === 'requested' || c.status === 'in_progress' || c.status === 'scheduled';
+  const resolutionNote: string | undefined = meta.resolution_note;
 
   function copyRef() {
     navigator.clipboard.writeText(ref);
     toast({ title: 'Reference copied', description: ref });
   }
+  function copyText(value: string, label: string) {
+    navigator.clipboard.writeText(value);
+    toast({ title: `${label} copied`, description: value });
+  }
 
   return (
+    <div ref={rowRef as any} className="scroll-mt-24">
     <Card className={cn(
       'p-0 overflow-hidden transition hover:shadow-md',
       isUrgent && isOpen && 'ring-1 ring-red-500/40',
+      highlight && 'ring-2 ring-primary shadow-lg animate-pulse-once',
     )}>
       {isUrgent && isOpen && (
         <div className="bg-red-500/10 text-red-700 dark:text-red-300 px-4 py-1.5 text-xs font-semibold flex items-center gap-1.5 border-b border-red-500/20">
@@ -121,17 +145,42 @@ function CallbackRow({ c, onAction }: { c: CallbackRequest; onAction: (id: strin
                 <span>{message}</span>
               </div>
             )}
-            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground mt-2">
+            {/* Highly legible contact strip */}
+            <div className="flex flex-wrap gap-2 mt-3">
               {c.contact_phone && (
-                <a href={`tel:${c.contact_phone}`} className="inline-flex items-center gap-1 hover:text-primary">
-                  <PhoneCall className="h-3 w-3" />{c.contact_phone}
-                </a>
+                <div className="inline-flex items-center gap-1.5 bg-muted/60 hover:bg-muted rounded-md px-2.5 py-1.5 border">
+                  <PhoneCall className="h-3.5 w-3.5 text-primary shrink-0" />
+                  <a href={`tel:${c.contact_phone}`} dir="ltr" className="text-sm font-semibold tracking-wide text-foreground tabular-nums hover:text-primary">
+                    {c.contact_phone}
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => copyText(c.contact_phone!, 'Phone')}
+                    className="text-muted-foreground hover:text-foreground transition"
+                    title="Copy phone"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               )}
               {c.contact_email && (
-                <a href={`mailto:${c.contact_email}`} className="inline-flex items-center gap-1 hover:text-primary">
-                  <Mail className="h-3 w-3" />{c.contact_email}
-                </a>
+                <div className="inline-flex items-center gap-1.5 bg-muted/60 hover:bg-muted rounded-md px-2.5 py-1.5 border">
+                  <Mail className="h-3.5 w-3.5 text-primary shrink-0" />
+                  <a href={`mailto:${c.contact_email}`} dir="ltr" className="text-sm font-semibold text-foreground hover:text-primary break-all">
+                    {c.contact_email}
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => copyText(c.contact_email!, 'Email')}
+                    className="text-muted-foreground hover:text-foreground transition"
+                    title="Copy email"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               )}
+            </div>
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground mt-2">
               {pageUrl && (
                 <a href={pageUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 hover:text-primary truncate max-w-[220px]">
                   <Globe className="h-3 w-3" /><span className="truncate">{new URL(pageUrl).hostname}</span>
@@ -146,6 +195,14 @@ function CallbackRow({ c, onAction }: { c: CallbackRequest; onAction: (id: strin
                 </span>
               )}
             </div>
+            {c.status === 'completed' && resolutionNote && (
+              <div className="mt-3 rounded-md border bg-emerald-500/5 border-emerald-500/20 p-2.5 text-xs">
+                <div className="text-[10px] uppercase tracking-wide font-semibold text-emerald-700 dark:text-emerald-400 mb-1 flex items-center gap-1">
+                  <CheckCircle2 className="h-3 w-3" /> Resolution note
+                </div>
+                <div className="text-foreground/90 whitespace-pre-wrap">{resolutionNote}</div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -166,7 +223,7 @@ function CallbackRow({ c, onAction }: { c: CallbackRequest; onAction: (id: strin
             </Button>
           )}
           {isOpen && (
-            <Button size="sm" onClick={() => onAction(c.id, 'completeCallback')}>
+            <Button size="sm" onClick={() => onComplete(c)}>
               <CheckCircle2 className="h-3.5 w-3.5 me-1" />Complete
             </Button>
           )}
@@ -178,6 +235,7 @@ function CallbackRow({ c, onAction }: { c: CallbackRequest; onAction: (id: strin
         </div>
       </div>
     </Card>
+    </div>
   );
 }
 
@@ -187,16 +245,38 @@ export default function CallbacksPage() {
   const qc = useQueryClient();
   const [tab, setTab] = useState<string>('requested');
   const [q, setQ] = useState('');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const focusId = searchParams.get('focus');
+  const [completeTarget, setCompleteTarget] = useState<CallbackRequest | null>(null);
+  const [completeNote, setCompleteNote] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const rowRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
-  async function act(id: string, fn: 'assignCallback' | 'completeCallback' | 'cancelCallback') {
+  async function act(id: string, fn: 'assignCallback' | 'cancelCallback') {
     if (!workspace) return;
     try {
       await callCenterApi[fn](workspace.id, id);
       qc.invalidateQueries({ queryKey: ['call-center', 'callbacks'] });
-      const label = fn === 'assignCallback' ? 'assigned to you' : fn === 'completeCallback' ? 'completed' : 'cancelled';
+      const label = fn === 'assignCallback' ? 'assigned to you' : 'cancelled';
       toast({ title: `Callback ${label}` });
     } catch (e: any) {
       toast({ title: 'Action failed', description: e?.message || 'Try again.', variant: 'destructive' });
+    }
+  }
+
+  async function submitComplete() {
+    if (!workspace || !completeTarget) return;
+    setSubmitting(true);
+    try {
+      await callCenterApi.completeCallback(workspace.id, completeTarget.id, completeNote.trim() || undefined);
+      qc.invalidateQueries({ queryKey: ['call-center', 'callbacks'] });
+      toast({ title: 'Callback completed' });
+      setCompleteTarget(null);
+      setCompleteNote('');
+    } catch (e: any) {
+      toast({ title: 'Action failed', description: e?.message || 'Try again.', variant: 'destructive' });
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -228,6 +308,21 @@ export default function CallbacksPage() {
       return hay.includes(term);
     });
   }, [items, tab, q]);
+
+  // When a focus id is set (from Overview deep link), switch to "All" tab
+  // and scroll to the target row.
+  useEffect(() => {
+    if (!focusId || items.length === 0) return;
+    const target = items.find((c) => c.id === focusId);
+    if (!target) return;
+    if (tab !== 'all' && target.status !== tab) setTab('all');
+    const t = setTimeout(() => {
+      const el = rowRefs.current[focusId];
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 120);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusId, items.length]);
 
   return (
     <div className="space-y-5">
@@ -293,11 +388,69 @@ export default function CallbacksPage() {
                 <p className="text-sm text-muted-foreground">No {t.label.toLowerCase()} callbacks.</p>
               </Card>
             ) : (
-              filtered.map((c) => <CallbackRow key={c.id} c={c} onAction={act} />)
+              filtered.map((c) => (
+                <CallbackRow
+                  key={c.id}
+                  c={c}
+                  onAction={act}
+                  onComplete={(cb) => { setCompleteTarget(cb); setCompleteNote(''); }}
+                  highlight={focusId === c.id}
+                  rowRef={(el) => { rowRefs.current[c.id] = el; }}
+                />
+              ))
             )}
           </TabsContent>
         ))}
       </Tabs>
+
+      <Dialog
+        open={!!completeTarget}
+        onOpenChange={(open) => {
+          if (!open) { setCompleteTarget(null); setCompleteNote(''); }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+              Complete callback
+            </DialogTitle>
+            <DialogDescription>
+              {completeTarget ? (
+                <>Mark the callback for <span className="font-medium text-foreground">
+                  {(completeTarget.metadata as any)?.name || completeTarget.contact_phone || completeTarget.contact_email || 'this visitor'}
+                </span> as completed. You can optionally add a resolution note.</>
+              ) : null}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Resolution note (optional)
+            </label>
+            <Textarea
+              value={completeNote}
+              onChange={(e) => setCompleteNote(e.target.value)}
+              placeholder="e.g. Spoke with customer, issue resolved, ticket #1234 closed."
+              rows={5}
+              maxLength={2000}
+            />
+            <div className="text-[11px] text-muted-foreground text-end">{completeNote.length}/2000</div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => { setCompleteTarget(null); setCompleteNote(''); }}
+              disabled={submitting}
+            >
+              Cancel
+            </Button>
+            <Button onClick={submitComplete} disabled={submitting}>
+              <CheckCircle2 className="h-4 w-4 me-1" />
+              {submitting ? 'Saving…' : 'Mark completed'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

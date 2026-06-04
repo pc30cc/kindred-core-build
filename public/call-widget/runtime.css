@@ -73,3 +73,14 @@
 .ccw-ref-row { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 8px 12px; border-radius: 10px; background: #fff; border: 1px solid #d1fae5; font-size: 12px; color: #065f46; }
 .ccw-ref-label { color: #6b7280; font-weight: 600; text-transform: uppercase; font-size: 10px; letter-spacing: .05em; }
 .ccw-ref-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 700; color: #047857; background: #ecfdf5; padding: 2px 8px; border-radius: 6px; }
+
+/* Queue waiting / ringback */
+.ccw-wait-timer { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 28px; font-weight: 700; color: #1d4ed8; text-align: center; margin: 10px 0 4px; letter-spacing: 0.04em; }
+.ccw-queue-pos { display: inline-block; margin: 6px auto 0; padding: 4px 10px; border-radius: 999px; background: #dbeafe; color: #1e40af; font-size: 12px; font-weight: 600; text-align: center; width: 100%; }
+.ccw-queue-eta { display: block; text-align: center; color: #4b5563; font-size: 12px; margin-top: 6px; }
+.ccw-callback-offer { padding: 12px 14px; border-radius: 12px; background: linear-gradient(135deg, #fef3c7 0%, #fff7ed 100%); border: 1px solid #fcd34d; display: flex; flex-direction: column; gap: 8px; }
+.ccw-callback-offer-text { font-size: 12px; color: #78350f; font-weight: 600; }
+
+/* Pulse on the "ringing" pill while in queue */
+.ccw-card .ccw-pill { animation: ccw-pulse 1.6s ease-in-out infinite; }
+@keyframes ccw-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }

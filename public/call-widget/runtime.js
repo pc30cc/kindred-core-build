@@ -727,6 +727,27 @@
   CallCenterWidgetCtor.prototype.renderForm = function (cfg, forCall) {
     var self = this;
     var box = el('div', { class: 'ccw-stack' });
+    if (!forCall) {
+      box.appendChild(el('div', { class: 'ccw-cb-intro' }, [
+        el('div', { class: 'ccw-cb-intro-title' }, ['Request a callback']),
+        el('div', { class: 'ccw-muted' }, ['Tell us how to reach you — our team calls back fast.']),
+      ]));
+    }
+    // Channel segmented control (callback only)
+    if (!forCall) {
+      var caps2 = (self.bootstrap && self.bootstrap.capabilities) || {};
+      box.appendChild(el('label', { class: 'ccw-label' }, ['Callback type']));
+      var seg = el('div', { class: 'ccw-segment' });
+      function mkSeg(val, label) {
+        var active = (self.formData.callback_channel === val);
+        var b = el('button', { class: 'ccw-seg-btn' + (active ? ' active' : ''), type: 'button',
+          on: { click: function () { self.formData.callback_channel = val; self.render(); } } }, [label]);
+        return b;
+      }
+      seg.appendChild(mkSeg('audio', '🎙 Phone'));
+      if (caps2.video) seg.appendChild(mkSeg('video', '🎥 Video'));
+      box.appendChild(seg);
+    }
     // Department dropdown (only if backend exposed options for this channel).
     var depts = (self.bootstrap && self.bootstrap.departments) || {};
     var deptList;
@@ -776,6 +797,44 @@
       box.appendChild(label);
       box.appendChild(input);
     });
+    if (!forCall) {
+      // Message textarea
+      box.appendChild(el('label', { class: 'ccw-label' }, ['Message (optional)']));
+      var ta = el('textarea', { class: 'ccw-textarea', placeholder: 'Briefly describe what you need help with…' });
+      ta.value = self.formData.message || '';
+      ta.addEventListener('input', function (e) { self.formData.message = e.target.value; });
+      box.appendChild(ta);
+      // When
+      box.appendChild(el('label', { class: 'ccw-label' }, ['When should we call?']));
+      var when = el('div', { class: 'ccw-segment' });
+      function mkWhen(val, label) {
+        var active = (self.formData.callback_when === val);
+        return el('button', { class: 'ccw-seg-btn' + (active ? ' active' : ''), type: 'button',
+          on: { click: function () { self.formData.callback_when = val; self.render(); } } }, [label]);
+      }
+      when.appendChild(mkWhen('now', '⚡ ASAP'));
+      when.appendChild(mkWhen('later', '🗓 Schedule'));
+      box.appendChild(when);
+      if (self.formData.callback_when === 'later') {
+        var dt = el('input', { class: 'ccw-input', type: 'datetime-local' });
+        dt.value = self.formData.callback_scheduled_for || '';
+        var minDate = new Date(Date.now() + 5 * 60000);
+        dt.min = new Date(minDate.getTime() - minDate.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+        dt.addEventListener('input', function (e) { self.formData.callback_scheduled_for = e.target.value; });
+        box.appendChild(dt);
+      }
+      // Urgency
+      box.appendChild(el('label', { class: 'ccw-label' }, ['Priority']));
+      var ur = el('div', { class: 'ccw-segment' });
+      function mkUr(val, label) {
+        var active = (self.formData.callback_urgency === val);
+        return el('button', { class: 'ccw-seg-btn' + (active ? ' active' : '') + (val === 'urgent' && active ? ' danger' : ''), type: 'button',
+          on: { click: function () { self.formData.callback_urgency = val; self.render(); } } }, [label]);
+      }
+      ur.appendChild(mkUr('normal', 'Normal'));
+      ur.appendChild(mkUr('urgent', '🔥 Urgent'));
+      box.appendChild(ur);
+    }
     if (forCall) {
       var rec = (self.bootstrap && self.bootstrap.recording) || {};
       if (rec.effective_enabled && rec.consent_required) {

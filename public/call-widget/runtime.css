@@ -43,6 +43,9 @@
 .ccw-label { display: block; font-size: 12px; font-weight: 500; margin: 8px 0 4px; color: #374151; }
 .ccw-muted { color: #6b7280; font-size: 12px; }
 .ccw-card { padding: 14px; border-radius: 12px; background: #f9fafb; margin-top: 10px; }
+.ccw-known-contact { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: #ecfdf5; border: 1px solid #bbf7d0; }
+.ccw-known-dot { width: 24px; height: 24px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; background: #059669; color: #fff; font-size: 13px; font-weight: 700; flex: 0 0 auto; }
+.ccw-known-title { color: #064e3b; font-size: 13px; font-weight: 700; line-height: 1.2; }
 .ccw-spinner { width: 22px; height: 22px; border: 3px solid #e5e7eb; border-top-color: #2563eb; border-radius: 50%; animation: ccw-spin 0.9s linear infinite; }
 @keyframes ccw-spin { to { transform: rotate(360deg); } }
 .ccw-stack > * + * { margin-top: 10px; }

@@ -124,7 +124,9 @@ export default function CallCenterOverviewPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button asChild variant="outline" size="sm"><Link to="callbacks">Callbacks <ArrowRight className="h-3 w-3 ms-1" /></Link></Button>
+          {callbackOn && (
+            <Button asChild variant="outline" size="sm"><Link to="callbacks">Callbacks <ArrowRight className="h-3 w-3 ms-1" /></Link></Button>
+          )}
           <Button asChild size="sm"><Link to="queue"><Headphones className="h-4 w-4 me-1" /> Open Live Desk</Link></Button>
         </div>
       </div>
@@ -135,7 +137,9 @@ export default function CallCenterOverviewPage() {
         <StatCard icon={PhoneIncoming} label="Active" value={overview?.active_calls ?? 0} tone={(overview?.active_calls ?? 0) > 0 ? 'ok' : 'default'} />
         <StatCard icon={PhoneMissed} label="Missed today" value={overview?.missed_today ?? 0} tone={(overview?.missed_today ?? 0) > 0 ? 'danger' : 'default'} />
         <StatCard icon={Phone} label="Total today" value={overview?.today_calls ?? 0} />
-        <StatCard icon={PhoneCall} label="Pending callbacks" value={overview?.callbacks_pending ?? 0} tone={(overview?.callbacks_pending ?? 0) > 0 ? 'warn' : 'default'} />
+        {callbackOn && (
+          <StatCard icon={PhoneCall} label="Pending callbacks" value={overview?.callbacks_pending ?? 0} tone={(overview?.callbacks_pending ?? 0) > 0 ? 'warn' : 'default'} />
+        )}
         <StatCard icon={UserCheck} label="Agents available" value={`${agentStats.available}/${agentStats.total}`} tone={agentStats.available > 0 ? 'ok' : 'warn'} />
       </div>
 

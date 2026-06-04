@@ -50,7 +50,8 @@
       // load. Browsers + CDNs that ignore Cache-Control: no-store still
       // can't reuse a stale entry because the URL changes per load.
       var v = (bootstrap && (bootstrap.assets_version || bootstrap.session)) || String(Date.now());
-      var bust = '?v=' + encodeURIComponent(String(v).slice(0, 16));
+      var versionToken = encodeURIComponent(String(v).slice(0, 16));
+      var bust = '?v=' + versionToken;
       // Inject CSS
       var link = document.createElement('link');
       link.rel = 'stylesheet';
@@ -69,6 +70,8 @@
             window.CallCenterWidget.mount({
               apiBase: apiBase,
               origin: origin,
+              assetsVersion: versionToken,
+              runtimeAssetSuffix: bust,
               bootstrap: bootstrap,
             });
           }

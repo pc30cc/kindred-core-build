@@ -349,6 +349,8 @@ const settingsPatchSchema = z.object({
   recording_consent_required: z.boolean().optional(),
   routing_mode: z.string().optional(),
   default_department_id: z.string().uuid().nullable().optional(),
+  widget_default_locale: z.enum(['en', 'fa', 'tr']).nullable().optional(),
+  widget_enabled_locales: z.array(z.enum(['en', 'fa', 'tr'])).nullable().optional(),
 });
 
 callCenterRouter.put('/settings', async (req, res) => {
@@ -941,6 +943,25 @@ const platformPatchSchema = z.object({
   max_callback_requests_per_month: z.number().int().min(0).optional(),
   max_recording_storage_mb: z.number().int().min(0).optional(),
   disabled_message: z.record(z.unknown()).optional(),
+  widget_default_locale: z.enum(['en', 'fa', 'tr']).optional(),
+  widget_available_locales: z.array(z.enum(['en', 'fa', 'tr'])).min(1).optional(),
+  // Ringback / queue experience (super-admin scope) — was missing from the
+  // schema and silently dropped by z.object.strip() in the previous task.
+  ringback_enabled: z.boolean().optional(),
+  ringback_mode: z.enum(['tone', 'music', 'off']).optional(),
+  ringback_music_url: z.string().nullable().optional(),
+  queue_show_position: z.boolean().optional(),
+  queue_show_eta: z.boolean().optional(),
+  queue_eta_seconds_per_position: z.number().int().min(0).optional(),
+  queue_offer_callback_after_seconds: z.number().int().min(0).optional(),
+  operator_new_call_sound_enabled: z.boolean().optional(),
+  callback_show_when_online: z.boolean().optional(),
+  callback_min_seconds_between_requests: z.number().int().min(0).optional(),
+  callback_max_per_ip_per_hour: z.number().int().min(0).optional(),
+  callback_require_contact: z.boolean().optional(),
+  callback_min_message_length: z.number().int().min(0).optional(),
+  callback_honeypot_enabled: z.boolean().optional(),
+  callback_min_form_seconds: z.number().int().min(0).optional(),
 });
 
 callCenterRouter.put('/admin/platform', async (req, res) => {

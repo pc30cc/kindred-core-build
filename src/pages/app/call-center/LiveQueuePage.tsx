@@ -240,6 +240,49 @@ export default function LiveQueuePage() {
   const [, force] = useState(0);
   useEffect(() => { const t = setInterval(() => force((n) => n + 1), 1000); return () => clearInterval(t); }, []);
 
+  // Operator-side new-call notification sound. Plays a short chime whenever
+  // a fresh entry appears in the queue (governed by platform setting).
+  const knownCallIdsRef = (function () {
+    // Stable ref via closure on useState; lazy init keeps SSR happy.
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    const [r] = useState<{ set: Set<string>; primed: boolean }>(() => ({ set: new Set(), primed: false }));
+    return r;
+  })();
+  useEffect(() => {
+    const enabled = (settingsBundle as any)?.platform?.operator_new_call_sound_enabled !== false;
+    if (!enabled) return;
+    const ids = (data?.queue || []).map((q: any) => q.call_session_id).filter(Boolean) as string[];
+    if (!knownCallIdsRef.primed) {
+      knownCallIdsRef.primed = true;
+      ids.forEach((id) => knownCallIdsRef.set.add(id));
+      return;
+    }
+    const fresh = ids.filter((id) => !knownCallIdsRef.set.has(id));
+    ids.forEach((id) => knownCallIdsRef.set.add(id));
+    if (fresh.length === 0) return;
+    // Play a soft two-tone chime via Web Audio.
+    try {
+      const C = (window as any).AudioContext || (window as any).webkitAudioContext;
+      if (!C) return;
+      const ctx = new C();
+      if (ctx.state === 'suspended' && ctx.resume) { try { ctx.resume(); } catch { /* */ } }
+      const t0 = ctx.currentTime;
+      [{ f: 880, at: 0 }, { f: 1175, at: 0.18 }].forEach((n) => {
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(n.f, t0 + n.at);
+        g.gain.setValueAtTime(0.0001, t0 + n.at);
+        g.gain.exponentialRampToValueAtTime(0.15, t0 + n.at + 0.03);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + n.at + 0.32);
+        osc.connect(g).connect(ctx.destination);
+        osc.start(t0 + n.at);
+        osc.stop(t0 + n.at + 0.4);
+      });
+      setTimeout(() => { try { ctx.close(); } catch { /* */ } }, 1200);
+    } catch { /* swallow */ }
+  }, [data?.queue, settingsBundle, knownCallIdsRef]);
+
   // Faster status sync while in active console
   useEffect(() => {
     if (!accepted?.callId) return;

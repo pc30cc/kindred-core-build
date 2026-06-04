@@ -3,6 +3,11 @@ import { useCallCenterQueue, useCallCenterCall, useCallCenterOverview } from '@/
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Separator } from '@/components/ui/separator';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { callCenterApi, type CallCenterRecordingStatus } from '@/lib/call-center-api';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
@@ -10,6 +15,8 @@ import { toast } from '@/hooks/use-toast';
 import {
   Phone, Video, Globe, Headphones, RadioTower, Inbox, PhoneOff, Mic, MicOff,
   CameraOff, ArrowRightLeft, PhoneCall, AlertTriangle, Disc, Square, Loader2, RefreshCw,
+  Search, Clock, User, Mail, Smartphone, Copy, Check, ChevronRight, Activity,
+  FileText, History, Building2, ArrowUp, ArrowDown,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Link, useParams } from 'react-router-dom';

@@ -286,6 +286,14 @@
   }
 
   CallCenterWidgetCtor.prototype.t = function (key, vars) {
+    // Per-workspace overrides (set in Identity & Branding) take priority.
+    try {
+      var ct = this.bootstrap && this.bootstrap.config && this.bootstrap.config.custom_texts;
+      if (ct) {
+        var ov = (ct[this.locale] && ct[this.locale][key]) || (ct.en && ct.en[key]);
+        if (ov && typeof ov === 'string' && ov.trim()) return formatText(ov, vars);
+      }
+    } catch (_) {}
     var pack = I18N[this.locale] || I18N.en;
     return formatText(pack[key] || I18N.en[key] || key, vars);
   };

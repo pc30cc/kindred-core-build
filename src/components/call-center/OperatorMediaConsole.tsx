@@ -667,36 +667,112 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
       </div>
 
       {/* Stage */}
-      <div className="relative bg-black aspect-video w-full">
-        <div ref={remoteContainerRef} className="absolute inset-0 flex items-center justify-center" />
-
-        {!hasRemoteVideo && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center text-center gap-3 pointer-events-none">
-            <div className={cn(
-              'h-20 w-20 rounded-full flex items-center justify-center text-2xl font-semibold transition-all',
-              remoteSpeaking ? 'bg-emerald-700/50 ring-2 ring-emerald-400/60 scale-105' : 'bg-zinc-800',
-            )}>
-              {(visitorName || remoteIdentities[0] || 'V').slice(0, 1).toUpperCase()}
-            </div>
-            <div className="text-sm text-zinc-300">
-              {phase === 'waiting_for_visitor' && 'Waiting for visitor to join…'}
-              {phase === 'visitor_connected' && (wantVideo ? 'Waiting for visitor video…' : 'Audio connected')}
-              {phase === 'visitor_disconnected' && 'Visitor left the call'}
-              {(phase === 'connecting' || phase === 'loading_sdk') && 'Establishing call…'}
-              {phase === 'reconnecting' && 'Reconnecting…'}
-            </div>
-          </div>
+      <div
+        className={cn(
+          'relative w-full',
+          wantVideo
+            ? 'bg-black aspect-video'
+            : 'bg-gradient-to-br from-zinc-900 via-zinc-950 to-black px-6 py-8',
         )}
+      >
+        {/* Remote media container is always present so attachTrack() can append audio
+            elements even on voice calls. For voice we hide it visually. */}
+        <div
+          ref={remoteContainerRef}
+          className={cn(
+            wantVideo
+              ? 'absolute inset-0 flex items-center justify-center'
+              : 'sr-only',
+          )}
+        />
 
-        {wantVideo && (
-          <div className="absolute bottom-3 right-3 w-32 h-24 rounded-md overflow-hidden border border-zinc-700 bg-zinc-900 shadow-lg">
-            <video ref={localVideoRef} autoPlay muted playsInline
-              className={cn('w-full h-full object-cover', !camOn && 'hidden')} />
-            {!camOn && (
-              <div className="w-full h-full flex items-center justify-center text-zinc-500">
-                <VideoOff className="h-5 w-5" />
+        {wantVideo ? (
+          <>
+            {!hasRemoteVideo && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-center gap-3 pointer-events-none">
+                <div className={cn(
+                  'h-20 w-20 rounded-full flex items-center justify-center text-2xl font-semibold transition-all',
+                  remoteSpeaking ? 'bg-emerald-700/50 ring-2 ring-emerald-400/60 scale-105' : 'bg-zinc-800',
+                )}>
+                  {(visitorName || remoteIdentities[0] || 'V').slice(0, 1).toUpperCase()}
+                </div>
+                <div className="text-sm text-zinc-300">
+                  {phase === 'waiting_for_visitor' && 'Waiting for visitor to join…'}
+                  {phase === 'visitor_connected' && 'Waiting for visitor video…'}
+                  {phase === 'visitor_disconnected' && 'Visitor left the call'}
+                  {(phase === 'connecting' || phase === 'loading_sdk') && 'Establishing call…'}
+                  {phase === 'reconnecting' && 'Reconnecting…'}
+                </div>
               </div>
             )}
+            <div className="absolute bottom-3 right-3 w-32 h-24 rounded-md overflow-hidden border border-zinc-700 bg-zinc-900 shadow-lg">
+              <video ref={localVideoRef} autoPlay muted playsInline
+                className={cn('w-full h-full object-cover', !camOn && 'hidden')} />
+              {!camOn && (
+                <div className="w-full h-full flex items-center justify-center text-zinc-500">
+                  <VideoOff className="h-5 w-5" />
+                </div>
+              )}
+            </div>
+          </>
+        ) : (
+          // ── Voice-only professional layout ─────────────────────
+          <div className="flex items-center gap-5">
+            <div className="relative">
+              <div className={cn(
+                'h-20 w-20 rounded-full flex items-center justify-center text-2xl font-semibold transition-all',
+                'bg-gradient-to-br from-indigo-500/30 to-emerald-500/20 ring-1 ring-zinc-700',
+                remoteSpeaking && 'ring-2 ring-emerald-400/80 shadow-[0_0_24px_-4px_rgba(16,185,129,0.55)]',
+              )}>
+                {(visitorName || remoteIdentities[0] || 'V').slice(0, 1).toUpperCase()}
+              </div>
+              {remoteSpeaking && (
+                <>
+                  <span className="absolute inset-0 rounded-full animate-ping bg-emerald-400/20 pointer-events-none" />
+                  <span className="absolute -inset-1 rounded-full animate-ping bg-emerald-400/10 pointer-events-none [animation-delay:200ms]" />
+                </>
+              )}
+              <span className={cn(
+                'absolute -bottom-0.5 -right-0.5 h-4 w-4 rounded-full border-2 border-zinc-950',
+                phase === 'visitor_connected' ? 'bg-emerald-500'
+                  : phase === 'waiting_for_visitor' ? 'bg-amber-400'
+                  : phase === 'reconnecting' ? 'bg-amber-500 animate-pulse'
+                  : 'bg-zinc-500',
+              )} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-base font-semibold truncate">
+                {visitorName || remoteIdentities[0] || 'Visitor'}
+              </div>
+              <div className="text-xs text-zinc-400 mt-0.5 flex items-center gap-2">
+                <span>{phase === 'visitor_connected'
+                  ? (remoteSpeaking ? 'Speaking…' : 'On the line')
+                  : phase === 'waiting_for_visitor' ? 'Waiting for visitor to join…'
+                  : phase === 'visitor_disconnected' ? 'Visitor left'
+                  : phase === 'reconnecting' ? 'Reconnecting…'
+                  : (phase === 'connecting' || phase === 'loading_sdk') ? 'Establishing call…'
+                  : phaseLabel}</span>
+                {isLive && <span className="text-zinc-600">·</span>}
+                {isLive && <span className="tabular-nums font-mono text-zinc-300">{fmtDur(duration)}</span>}
+              </div>
+              {/* Visitor speaking indicator bars */}
+              <div className="mt-3 flex items-end gap-1 h-6">
+                {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
+                  <span
+                    key={i}
+                    className={cn(
+                      'w-1.5 rounded-sm bg-emerald-500/70 transition-all duration-150',
+                      remoteSpeaking ? '' : 'bg-zinc-800',
+                    )}
+                    style={{
+                      height: remoteSpeaking
+                        ? `${20 + Math.abs(Math.sin((Date.now() / 120) + i)) * 80}%`
+                        : '20%',
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
           </div>
         )}
 

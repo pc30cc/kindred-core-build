@@ -324,9 +324,25 @@
     this.timer = setInterval(function () {
       var t = self.root.querySelector('.ccw-wait-timer');
       if (t && self.queueStartedAt) t.textContent = fmtTime(Date.now() - self.queueStartedAt);
+      // Re-render once when the offer-callback threshold is crossed so the
+      // button appears without waiting for the next status poll.
+      if (self.state === STATES.QUEUE && !self._calloutShown) {
+        var qe = (self.bootstrap && self.bootstrap.queue_experience) || {};
+        var caps = (self.bootstrap && self.bootstrap.capabilities) || {};
+        var th = qe.offer_callback_after_seconds || 0;
+        var elapsed = self.queueStartedAt ? Math.floor((Date.now() - self.queueStartedAt) / 1000) : 0;
+        if (caps.callback && th > 0 && elapsed >= th) {
+          self._calloutShown = true;
+          self.render();
+        }
+      }
     }, 1000);
   };
-  CallCenterWidgetCtor.prototype.stopTimer = function () { if (this.timer) clearInterval(this.timer); this.timer = null; };
+  CallCenterWidgetCtor.prototype.stopTimer = function () {
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
+    this._calloutShown = false;
+  };
 
   CallCenterWidgetCtor.prototype.startPolling = function () {
     var self = this;

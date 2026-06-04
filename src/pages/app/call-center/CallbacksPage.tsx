@@ -245,7 +245,7 @@ export default function CallbacksPage() {
   const qc = useQueryClient();
   const [tab, setTab] = useState<string>('requested');
   const [q, setQ] = useState('');
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const focusId = searchParams.get('focus');
   const [completeTarget, setCompleteTarget] = useState<CallbackRequest | null>(null);
   const [completeNote, setCompleteNote] = useState('');

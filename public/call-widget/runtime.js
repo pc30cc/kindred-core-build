@@ -341,6 +341,15 @@
     link.rel = 'stylesheet';
     link.href = this.origin + '/call-widget/runtime.css' + this.runtimeAssetSuffix;
     shadow.appendChild(link);
+    // Load Vazirmatn from Google Fonts for Persian rendering (idempotent).
+    try {
+      if (!document.getElementById('ccw-vazirmatn-font')) {
+        var pre1 = document.createElement('link'); pre1.id = 'ccw-vazirmatn-font';
+        pre1.rel = 'stylesheet';
+        pre1.href = 'https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;700;800;900&display=swap';
+        document.head.appendChild(pre1);
+      }
+    } catch (_) {}
     var root = document.createElement('div');
     root.className = 'ccw-root';
     shadow.appendChild(root);

@@ -80,7 +80,12 @@
     this.timer = null;
     this.poll = null;
     this.open = false;
-    this.formData = { name: '', email: '', phone: '', subject: '', call_type: 'voice', consent: false, department_id: '' };
+    this.formData = {
+      name: '', email: '', phone: '', subject: '', message: '',
+      call_type: 'voice', consent: false, department_id: '',
+      callback_channel: 'audio', callback_urgency: 'normal',
+      callback_when: 'now', callback_scheduled_for: '',
+    };
   }
 
   CallCenterWidgetCtor.prototype.mount = function (opts) {
@@ -504,6 +509,16 @@
   CallCenterWidgetCtor.prototype.submitCallback = function () {
     var self = this;
     this.error = null;
+    var scheduledIso = null;
+    if (this.formData.callback_when === 'later' && this.formData.callback_scheduled_for) {
+      var t = new Date(this.formData.callback_scheduled_for);
+      if (!isNaN(t.getTime()) && t.getTime() > Date.now() - 60000) {
+        scheduledIso = t.toISOString();
+      } else {
+        this.error = 'Please pick a valid future time.';
+        this.render(); return;
+      }
+    }
     this.api('/api/call-widget/callbacks/request', {
       method: 'POST',
       body: {
@@ -511,6 +526,10 @@
         email: this.formData.email || null,
         phone: this.formData.phone || null,
         subject: this.formData.subject || null,
+        message: this.formData.message || null,
+        channel: this.formData.callback_channel || 'audio',
+        urgency: this.formData.callback_urgency || 'normal',
+        scheduled_for: scheduledIso,
         page_url: location.href,
         department_id: this.formData.department_id || null,
       },
@@ -667,9 +686,31 @@
       }
 
       case STATES.ENDED: {
-        var endText = self.callbackId ? 'Callback received. We will reach out shortly.' : 'Call ended.';
+        if (self.callbackId) {
+          var ref = String(self.callbackId).slice(0, 8).toUpperCase();
+          var when = self.formData.callback_when === 'later' && self.formData.callback_scheduled_for
+            ? new Date(self.formData.callback_scheduled_for).toLocaleString()
+            : 'as soon as possible';
+          var chLabel = self.formData.callback_channel === 'video' ? 'Video callback' : 'Phone callback';
+          return el('div', { class: 'ccw-stack' }, [
+            el('div', { class: 'ccw-success-card' }, [
+              el('div', { class: 'ccw-success-icon' }, ['✓']),
+              el('div', { class: 'ccw-success-title' }, ['Callback scheduled']),
+              el('div', { class: 'ccw-muted', style: 'text-align:center;' }, ['Our team will reach out ' + when + '.']),
+              el('div', { class: 'ccw-ref-row' }, [
+                el('span', { class: 'ccw-ref-label' }, ['Reference']),
+                el('code', { class: 'ccw-ref-code' }, [ref]),
+              ]),
+              el('div', { class: 'ccw-ref-row' }, [
+                el('span', { class: 'ccw-ref-label' }, ['Type']),
+                el('span', {}, [chLabel]),
+              ]),
+            ]),
+            el('button', { class: 'ccw-btn primary', on: { click: function () { self.reset(); } } }, ['Done']),
+          ]);
+        }
         return el('div', { class: 'ccw-stack' }, [
-          el('div', { class: 'ccw-card' }, [el('div', {}, [endText])]),
+          el('div', { class: 'ccw-card' }, [el('div', {}, ['Call ended.'])]),
           el('button', { class: 'ccw-btn primary', on: { click: function () { self.reset(); } } }, ['Done']),
         ]);
       }
@@ -686,6 +727,27 @@
   CallCenterWidgetCtor.prototype.renderForm = function (cfg, forCall) {
     var self = this;
     var box = el('div', { class: 'ccw-stack' });
+    if (!forCall) {
+      box.appendChild(el('div', { class: 'ccw-cb-intro' }, [
+        el('div', { class: 'ccw-cb-intro-title' }, ['Request a callback']),
+        el('div', { class: 'ccw-muted' }, ['Tell us how to reach you — our team calls back fast.']),
+      ]));
+    }
+    // Channel segmented control (callback only)
+    if (!forCall) {
+      var caps2 = (self.bootstrap && self.bootstrap.capabilities) || {};
+      box.appendChild(el('label', { class: 'ccw-label' }, ['Callback type']));
+      var seg = el('div', { class: 'ccw-segment' });
+      function mkSeg(val, label) {
+        var active = (self.formData.callback_channel === val);
+        var b = el('button', { class: 'ccw-seg-btn' + (active ? ' active' : ''), type: 'button',
+          on: { click: function () { self.formData.callback_channel = val; self.render(); } } }, [label]);
+        return b;
+      }
+      seg.appendChild(mkSeg('audio', '🎙 Phone'));
+      if (caps2.video) seg.appendChild(mkSeg('video', '🎥 Video'));
+      box.appendChild(seg);
+    }
     // Department dropdown (only if backend exposed options for this channel).
     var depts = (self.bootstrap && self.bootstrap.departments) || {};
     var deptList;
@@ -735,6 +797,44 @@
       box.appendChild(label);
       box.appendChild(input);
     });
+    if (!forCall) {
+      // Message textarea
+      box.appendChild(el('label', { class: 'ccw-label' }, ['Message (optional)']));
+      var ta = el('textarea', { class: 'ccw-textarea', placeholder: 'Briefly describe what you need help with…' });
+      ta.value = self.formData.message || '';
+      ta.addEventListener('input', function (e) { self.formData.message = e.target.value; });
+      box.appendChild(ta);
+      // When
+      box.appendChild(el('label', { class: 'ccw-label' }, ['When should we call?']));
+      var when = el('div', { class: 'ccw-segment' });
+      function mkWhen(val, label) {
+        var active = (self.formData.callback_when === val);
+        return el('button', { class: 'ccw-seg-btn' + (active ? ' active' : ''), type: 'button',
+          on: { click: function () { self.formData.callback_when = val; self.render(); } } }, [label]);
+      }
+      when.appendChild(mkWhen('now', '⚡ ASAP'));
+      when.appendChild(mkWhen('later', '🗓 Schedule'));
+      box.appendChild(when);
+      if (self.formData.callback_when === 'later') {
+        var dt = el('input', { class: 'ccw-input', type: 'datetime-local' });
+        dt.value = self.formData.callback_scheduled_for || '';
+        var minDate = new Date(Date.now() + 5 * 60000);
+        dt.min = new Date(minDate.getTime() - minDate.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+        dt.addEventListener('input', function (e) { self.formData.callback_scheduled_for = e.target.value; });
+        box.appendChild(dt);
+      }
+      // Urgency
+      box.appendChild(el('label', { class: 'ccw-label' }, ['Priority']));
+      var ur = el('div', { class: 'ccw-segment' });
+      function mkUr(val, label) {
+        var active = (self.formData.callback_urgency === val);
+        return el('button', { class: 'ccw-seg-btn' + (active ? ' active' : '') + (val === 'urgent' && active ? ' danger' : ''), type: 'button',
+          on: { click: function () { self.formData.callback_urgency = val; self.render(); } } }, [label]);
+      }
+      ur.appendChild(mkUr('normal', 'Normal'));
+      ur.appendChild(mkUr('urgent', '🔥 Urgent'));
+      box.appendChild(ur);
+    }
     if (forCall) {
       var rec = (self.bootstrap && self.bootstrap.recording) || {};
       if (rec.effective_enabled && rec.consent_required) {

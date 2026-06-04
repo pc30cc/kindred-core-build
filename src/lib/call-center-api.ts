@@ -64,6 +64,8 @@ export interface CallCenterWorkspaceSettings {
   default_department_id: string | null;
   created_at: string;
   updated_at: string;
+  widget_default_locale?: 'en' | 'fa' | 'tr' | null;
+  widget_enabled_locales?: string[] | null;
 }
 
 export interface CallCenterPlatformSettings {
@@ -97,6 +99,8 @@ export interface CallCenterPlatformSettings {
   queue_eta_seconds_per_position: number;
   queue_offer_callback_after_seconds: number;
   operator_new_call_sound_enabled: boolean;
+  widget_default_locale: 'en' | 'fa' | 'tr';
+  widget_available_locales: string[];
 }
 
 export interface CallCenterEffectiveCaps {

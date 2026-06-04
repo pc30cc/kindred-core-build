@@ -36,7 +36,7 @@ import {
 } from '../services/widget/continuity.js';
 import { getClientIp, hashIp } from '../utils/clientIp.js';
 import crypto from 'crypto';
-import { readFileSync, statSync, existsSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 

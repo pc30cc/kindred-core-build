@@ -21,6 +21,11 @@ import { publishQueueEvent, publishCallEvent } from '../services/callCenter/real
 import { buildClientConnectInfo } from '../services/callCenter/connectInfo.js';
 import { computeRecordingCapability } from '../services/callCenter/recording.js';
 import { routeIncomingCall } from '../services/callCenter/routing.js';
+import {
+  resolveVisitorIdentity,
+  readVisitorCookie,
+} from '../services/widget/visitorIdentity.js';
+import { mergeVisitorIdentity } from '../services/widget/identityMerge.js';
 
 export const callWidgetRouter = Router();
 
@@ -40,6 +45,131 @@ callWidgetRouter.use(async (req, res, next) => {
 
 function getOrigin(req: any): string | null {
   return (req.headers.origin as string) || null;
+}
+
+/**
+ * Look up the contact currently linked to a visitor cookie (if any).
+ * Returns null when there is no visitor session row or no linked contact.
+ */
+async function findLinkedContactForVisitor(
+  config: ServerConfig,
+  workspaceId: string,
+  visitorId: string,
+): Promise<{ id: string; name: string | null; email: string | null; phone: string | null; avatar_url: string | null } | null> {
+  const sb = getServiceClient(config);
+  const { data: session } = await sb
+    .from('visitor_sessions')
+    .select('contact_id')
+    .eq('workspace_id', workspaceId)
+    .eq('visitor_id', visitorId)
+    .not('contact_id', 'is', null)
+    .order('last_seen_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!session?.contact_id) return null;
+  const { data: contact } = await sb
+    .from('contacts')
+    .select('id, name, email, phone, avatar_url')
+    .eq('id', session.contact_id)
+    .maybeSingle();
+  return contact || null;
+}
+
+/**
+ * Ensure a visitor_sessions row exists for (workspace, visitor) so that
+ * mergeVisitorIdentity (which UPDATEs the row) can pin contact_id.
+ * Best-effort: failures are swallowed; the merge will still run.
+ */
+async function ensureVisitorSessionRow(
+  config: ServerConfig,
+  workspaceId: string,
+  visitorId: string,
+  origin: string | null,
+  pageUrl: string | null,
+): Promise<void> {
+  const sb = getServiceClient(config);
+  const { data: existing } = await sb
+    .from('visitor_sessions')
+    .select('id')
+    .eq('workspace_id', workspaceId)
+    .eq('visitor_id', visitorId)
+    .limit(1)
+    .maybeSingle();
+  if (existing?.id) {
+    // Touch last_seen_at so the visitor appears live during/after the call.
+    await sb
+      .from('visitor_sessions')
+      .update({ last_seen_at: new Date().toISOString() })
+      .eq('id', existing.id);
+    return;
+  }
+  await sb.from('visitor_sessions').insert({
+    workspace_id: workspaceId,
+    visitor_id: visitorId,
+    current_page: pageUrl || origin || null,
+    metadata: { source: 'call_widget' },
+  });
+}
+
+/**
+ * Identify the visitor for a call/callback request:
+ *   1. Resolve dvsid cookie → visitor_id
+ *   2. Look up any contact already linked to that visitor
+ *   3. If submitted name/email/phone OR a previously linked contact exists,
+ *      run mergeVisitorIdentity to create/update the contact and pin it on
+ *      visitor_sessions (so the visitors panel shows the contact name).
+ */
+async function identifyVisitorForCall(
+  req: any,
+  res: any,
+  config: ServerConfig,
+  workspaceId: string,
+  origin: string | null,
+  submitted: { name?: string | null; email?: string | null; phone?: string | null; page_url?: string | null },
+): Promise<{
+  visitorId: string;
+  contactId: string | null;
+  contact: { id: string; name: string | null; email: string | null; phone: string | null } | null;
+}> {
+  const { visitorId } = resolveVisitorIdentity(req, res, workspaceId);
+  await ensureVisitorSessionRow(config, workspaceId, visitorId, origin, submitted.page_url ?? null);
+  const existing = await findLinkedContactForVisitor(config, workspaceId, visitorId);
+
+  const hasSubmittedIdentity = !!(submitted.name || submitted.email || submitted.phone);
+  if (!hasSubmittedIdentity && !existing) {
+    return { visitorId, contactId: null, contact: null };
+  }
+
+  // If only existing contact (no new submission), nothing new to merge — but
+  // make sure the session is pinned to the contact (mergeVisitorIdentity is
+  // idempotent and re-pins on every call).
+  const sb = getServiceClient(config);
+  try {
+    const merge = await mergeVisitorIdentity(sb, {
+      workspaceId,
+      visitorId,
+      identity: {
+        name: submitted.name ?? existing?.name ?? null,
+        email: submitted.email ?? existing?.email ?? null,
+        phone: submitted.phone ?? existing?.phone ?? null,
+      },
+      method: 'prechat',
+      ipAddress: (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || null,
+    });
+    const { data: contact } = await sb
+      .from('contacts')
+      .select('id, name, email, phone')
+      .eq('id', merge.contactId)
+      .maybeSingle();
+    return { visitorId, contactId: merge.contactId, contact: contact || null };
+  } catch (e: any) {
+    console.warn('[call-widget] identifyVisitorForCall merge failed:', e?.message || e);
+    return {
+      visitorId,
+      contactId: existing?.id || null,
+      contact: existing ? { id: existing.id, name: existing.name, email: existing.email, phone: existing.phone } : null,
+    };
+  }
 }
 
 /**
@@ -140,10 +270,28 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
     public_key: ws.public_key,
     origin,
   });
+  // Resolve / create dvsid visitor cookie so the same identity is shared
+  // with the chat widget and the visitors panel. Look up any contact
+  // previously linked to this visitor so the widget can pre-fill the
+  // pre-call form and (when complete) skip it entirely on return visits.
+  let visitorBlock: { id: string; contact: { id: string; name: string | null; email: string | null; phone: string | null } | null } | null = null;
+  try {
+    const { visitorId } = resolveVisitorIdentity(req, res, ws.workspace_id);
+    const contact = await findLinkedContactForVisitor(config, ws.workspace_id, visitorId);
+    visitorBlock = {
+      id: visitorId,
+      contact: contact
+        ? { id: contact.id, name: contact.name, email: contact.email, phone: contact.phone }
+        : null,
+    };
+  } catch (e: any) {
+    console.warn('[call-widget/bootstrap] visitor resolve failed:', e?.message || e);
+  }
   res.json({
     status: 'ok',
     session,
     workspace_id: ws.workspace_id,
+    visitor: visitorBlock,
     config: {
       display_name: ws.display_name,
       avatar_url: ws.avatar_url,
@@ -292,6 +440,25 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
   // "fetch failed" — Supabase REST connection can be reset between idle
   // pooled HTTP/1.1 keep-alives in long-running Node processes.
   const dbCallType = dbCallTypeForDept;
+  // Identity merge: turn this visitor into a contact (or recognise an
+  // existing one) BEFORE inserting the call so the call row carries the
+  // correct visitor name / contact link from the start.
+  const identity = await identifyVisitorForCall(
+    req,
+    res,
+    config,
+    ws.workspace_id,
+    getOrigin(req),
+    {
+      name: parsed.data.visitor_name,
+      email: parsed.data.visitor_email,
+      phone: parsed.data.visitor_phone,
+      page_url: parsed.data.page_url,
+    },
+  );
+  const finalVisitorName = parsed.data.visitor_name || identity.contact?.name || null;
+  const finalVisitorEmail = parsed.data.visitor_email || identity.contact?.email || null;
+  const finalVisitorPhone = parsed.data.visitor_phone || identity.contact?.phone || null;
   const insertPayload = {
     workspace_id: ws.workspace_id,
     entry_source: 'call_widget',
@@ -301,9 +468,9 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
     context_id: null,
     state: 'pending',
     initiated_by_type: 'visitor',
-    visitor_name: parsed.data.visitor_name || null,
-    visitor_email: parsed.data.visitor_email || null,
-    visitor_phone: parsed.data.visitor_phone || null,
+    visitor_name: finalVisitorName,
+    visitor_email: finalVisitorEmail,
+    visitor_phone: finalVisitorPhone,
     subject: parsed.data.subject || null,
     page_url: parsed.data.page_url || null,
     page_title: parsed.data.page_title || null,
@@ -319,6 +486,8 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
       form_data: parsed.data.form_data || null,
       consent_recording: consentGiven,
       recording: recordingMeta,
+      visitor_id: identity.visitorId,
+      contact_id: identity.contactId,
     },
   };
   let call: any = null;
@@ -569,9 +738,35 @@ callWidgetRouter.post('/callbacks/request', async (req, res) => {
       subject: parsed.data.subject || null,
       page_url: parsed.data.page_url || null,
       department_id: cbDepartmentId,
+      visitor_id: null as string | null,
+      contact_id: null as string | null,
     },
   }).select('*').maybeSingle();
   if (error) return res.status(500).json({ error: 'callback_create_failed', message: error.message });
+  // Identify visitor → contact (best-effort, never blocks the callback).
+  try {
+    const identity = await identifyVisitorForCall(
+      req,
+      res,
+      config,
+      ws.workspace_id,
+      getOrigin(req),
+      {
+        name: parsed.data.name,
+        email: parsed.data.email,
+        phone: parsed.data.phone,
+        page_url: parsed.data.page_url,
+      },
+    );
+    if (identity.contactId && data?.id) {
+      const prevMeta = (data as any).metadata || {};
+      await sb.from('callback_requests').update({
+        metadata: { ...prevMeta, visitor_id: identity.visitorId, contact_id: identity.contactId },
+      }).eq('id', (data as any).id);
+    }
+  } catch (e: any) {
+    console.warn('[call-widget/callbacks] identity merge failed:', e?.message || e);
+  }
   await publishQueueEvent(config, ws.workspace_id, 'callback_requested', { callback_id: data!.id });
   res.json({ ok: true, callback_id: data!.id });
 });

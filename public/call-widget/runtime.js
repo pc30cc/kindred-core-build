@@ -91,6 +91,15 @@
     this.bootstrap = opts.bootstrap;
     this.session = opts.bootstrap && opts.bootstrap.session;
 
+    // Pre-fill from previously identified contact (returning visitor).
+    var prefill = opts.bootstrap && opts.bootstrap.visitor && opts.bootstrap.visitor.contact;
+    if (prefill) {
+      this.formData.name = prefill.name || '';
+      this.formData.email = prefill.email || '';
+      this.formData.phone = prefill.phone || '';
+      this.identifiedContact = prefill;
+    }
+
     var host = document.createElement('div');
     host.id = 'call-center-widget-host';
     host.style.all = 'initial';
@@ -133,6 +142,7 @@
       method: opts.method || 'GET',
       headers: Object.assign(headers, opts.headers || {}),
       body: opts.body ? JSON.stringify(opts.body) : undefined,
+      credentials: 'include',
     }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, body: j }; }); });
   };
 
@@ -157,7 +167,11 @@
     var depts2 = (this.bootstrap && this.bootstrap.departments) || {};
     var list2 = (callType === 'video' ? depts2.video : depts2.voice) || [];
     var needsDepartmentChoice = list2.length > 1;
-    if (cfg.pre_call_form_enabled || consentNeeded || passiveNotice || needsDepartmentChoice) {
+    // Returning visitors with a known contact identity skip the pre-call
+    // form unless we still need consent / department choice / a notice.
+    var alreadyIdentified = !!(this.identifiedContact && (this.identifiedContact.email || this.identifiedContact.phone));
+    var needFormFields = cfg.pre_call_form_enabled && !alreadyIdentified;
+    if (needFormFields || consentNeeded || passiveNotice || needsDepartmentChoice) {
       this.state = STATES.PRE_CALL; this.render(); return;
     }
     this.submitCall();

@@ -876,16 +876,35 @@
       case STATES.QUEUE: {
         var qe = (self.bootstrap && self.bootstrap.queue_experience) || {};
         var capsForCallback = (self.bootstrap && self.bootstrap.capabilities) || {};
+        var queueTitle = self.queuePosition === 1 ? 'You are next' : 'Holding your place';
+        var queueCopy = self.queuePosition && self.queuePosition > 1
+          ? 'Your request is in the live call queue. Keep this window open while we connect the operator.'
+          : 'We are ringing the next available operator now.';
         var card = el('div', { class: 'ccw-queue-card' }, [
-          el('div', { class: 'ccw-queue-orbit' }, [
-            el('span', { class: 'ccw-ring r1' }),
-            el('span', { class: 'ccw-ring r2' }),
-            el('span', { class: 'ccw-phone-core' }, ['☎']),
+          el('div', { class: 'ccw-queue-head' }, [
+            el('div', { class: 'ccw-queue-orbit' }, [
+              el('span', { class: 'ccw-ring r1' }),
+              el('span', { class: 'ccw-ring r2' }),
+              el('span', { class: 'ccw-ring r3' }),
+              el('span', { class: 'ccw-phone-core' }, ['☎']),
+            ]),
+            el('div', { class: 'ccw-queue-copy-block' }, [
+              el('div', { class: 'ccw-pill live' }, [Ringback.isActive && Ringback.isActive() ? 'Ringing enabled' : 'Ringing operator']),
+              el('div', { class: 'ccw-queue-title' }, [queueTitle]),
+              el('div', { class: 'ccw-queue-copy' }, [queueCopy]),
+            ]),
           ]),
-          el('div', { class: 'ccw-pill live' }, ['Ringing operator']),
-          el('div', { class: 'ccw-queue-title' }, ['Please hold']),
-          el('div', { class: 'ccw-queue-copy' }, ['We are connecting you with the next available operator.']),
-          el('div', { class: 'ccw-wait-timer', html: '0:00' }),
+          el('div', { class: 'ccw-queue-progress' }, [
+            el('span', { class: 'ccw-progress-bar b1' }),
+            el('span', { class: 'ccw-progress-bar b2' }),
+            el('span', { class: 'ccw-progress-bar b3' }),
+            el('span', { class: 'ccw-progress-bar b4' }),
+            el('span', { class: 'ccw-progress-bar b5' }),
+          ]),
+          el('div', { class: 'ccw-wait-wrap' }, [
+            el('span', { class: 'ccw-wait-label' }, ['Waiting time']),
+            el('div', { class: 'ccw-wait-timer', html: '0:00' }),
+          ]),
         ]);
         if (Ringback.needsGesture && Ringback.needsGesture()) {
           card.appendChild(el('button', {
@@ -898,13 +917,13 @@
           var posLabel = self.queuePosition === 1
             ? 'You are next in line'
             : 'You are #' + self.queuePosition + ' in the queue';
-          card.appendChild(el('div', { class: 'ccw-queue-pos' }, [posLabel]));
+          card.appendChild(el('div', { class: 'ccw-queue-pos' }, [el('span', {}, ['Queue position']), el('strong', {}, [posLabel])]));
         }
         // ETA chip
         if (qe.show_eta !== false && typeof self.queueEta === 'number' && self.queueEta > 0) {
           var mins = Math.max(1, Math.round(self.queueEta / 60));
           var etaLbl = mins <= 1 ? 'Estimated wait: under 1 minute' : 'Estimated wait: ~' + mins + ' minutes';
-          card.appendChild(el('div', { class: 'ccw-queue-eta' }, [etaLbl]));
+          card.appendChild(el('div', { class: 'ccw-queue-eta' }, [el('span', {}, ['ETA']), el('strong', {}, [etaLbl])]));
         }
         var stack = [card];
         // Offer a callback after the configured wait threshold

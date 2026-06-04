@@ -146,6 +146,7 @@
     var phase = 'hold';
     var locale = 'en';
     var announceText = '';
+    var lastSpeakAt = 0, pendingVoiceRetry = null, holdNodes = [];
     var LANG_MAP = { en: 'en-US', fa: 'fa-IR', tr: 'tr-TR' };
     function ensure() {
       try {
@@ -186,6 +187,19 @@
       } catch (_) { needsGesture = true; installUnlockHandlers(); }
       return c;
     }
+    function trackNode(n) {
+      holdNodes.push(n);
+      try { n.addEventListener('ended', function () {
+        var i = holdNodes.indexOf(n);
+        if (i >= 0) holdNodes.splice(i, 1);
+      }); } catch (_) {}
+      return n;
+    }
+    function stopHoldNodes() {
+      var nodes = holdNodes.slice();
+      holdNodes = [];
+      nodes.forEach(function (n) { try { n.stop(0); } catch (_) {} });
+    }
     function ringOnce() {
       var c = ensure(); if (!c || !active || mode !== 'tone') return;
       if (c.state && c.state !== 'running') {
@@ -221,7 +235,7 @@
         }
       } catch (_) { needsGesture = true; installUnlockHandlers(); }
     }
-    function holdChord() {
+    function holdMusicLoop() {
       var c = ensure(); if (!c || !active || mode !== 'tone') return;
       if (c.state && c.state !== 'running') {
         needsGesture = true; installUnlockHandlers();
@@ -229,33 +243,89 @@
         return;
       }
       try {
-        var t0 = c.currentTime + 0.02;
-        // Soft minor pad: A3, C#4, E4 — gentle, looped
-        var freqs = [220.0, 277.18, 329.63];
-        freqs.forEach(function (f, idx) {
+        var t0 = c.currentTime + 0.04;
+        var master = c.createGain();
+        master.gain.setValueAtTime(0.0001, t0);
+        master.gain.exponentialRampToValueAtTime(0.16, t0 + 1.1);
+        master.gain.setValueAtTime(0.16, t0 + 10.2);
+        master.gain.exponentialRampToValueAtTime(0.0001, t0 + 11.6);
+        master.connect(c.destination);
+        // Calm generated hold music: warm pad + small bell melody. This avoids
+        // the old short repeated tone that sounded like "داد داد" to visitors.
+        [196.0, 246.94, 293.66].forEach(function (f, idx) {
+          var osc = c.createOscillator();
+          var g = c.createGain();
+          osc.type = idx === 0 ? 'sine' : 'triangle';
+          osc.frequency.setValueAtTime(f, t0);
+          g.gain.setValueAtTime(0.0001, t0);
+          g.gain.exponentialRampToValueAtTime(0.055 - idx * 0.01, t0 + 1.4);
+          g.gain.setValueAtTime(0.055 - idx * 0.01, t0 + 10.0);
+          g.gain.exponentialRampToValueAtTime(0.0001, t0 + 11.5);
+          osc.connect(g).connect(master);
+          osc.start(t0);
+          osc.stop(t0 + 11.7);
+          trackNode(osc);
+        });
+        var melody = [392.0, 329.63, 369.99, 293.66, 329.63, 246.94, 293.66, 329.63, 392.0, 493.88, 440.0, 392.0];
+        melody.forEach(function (f, idx) {
+          var at = t0 + 0.55 + idx * 0.78;
           var osc = c.createOscillator();
           var g = c.createGain();
           osc.type = 'sine';
-          osc.frequency.setValueAtTime(f, t0);
-          g.gain.setValueAtTime(0.0001, t0);
-          g.gain.exponentialRampToValueAtTime(0.05 - idx * 0.008, t0 + 0.8);
-          g.gain.setValueAtTime(0.05 - idx * 0.008, t0 + 3.2);
-          g.gain.exponentialRampToValueAtTime(0.0001, t0 + 4.4);
-          osc.connect(g).connect(c.destination);
-          osc.start(t0);
-          osc.stop(t0 + 4.5);
+          osc.frequency.setValueAtTime(f, at);
+          g.gain.setValueAtTime(0.0001, at);
+          g.gain.exponentialRampToValueAtTime(0.045, at + 0.08);
+          g.gain.exponentialRampToValueAtTime(0.0001, at + 0.58);
+          osc.connect(g).connect(master);
+          osc.start(at);
+          osc.stop(at + 0.64);
+          trackNode(osc);
         });
-      } catch (_) {}
+      } catch (_) { stopHoldNodes(); }
     }
-    function speakAnnounce() {
+    function getVoices() {
+      try { return (window.speechSynthesis && window.speechSynthesis.getVoices && window.speechSynthesis.getVoices()) || []; } catch (_) { return []; }
+    }
+    function pickVoice(loc) {
+      var voices = getVoices();
+      var lang = LANG_MAP[loc] || 'en-US';
+      var prefix = String(lang).slice(0, 2).toLowerCase();
+      for (var i = 0; i < voices.length; i++) {
+        if (String(voices[i].lang || '').toLowerCase() === String(lang).toLowerCase()) return voices[i];
+      }
+      for (var j = 0; j < voices.length; j++) {
+        if (String(voices[j].lang || '').toLowerCase().slice(0, 2) === prefix) return voices[j];
+      }
+      return null;
+    }
+    function speakAnnounce(force) {
       if (!active || phase !== 'hold' || !announceText) return;
+      var now = Date.now();
+      if (!force && now - lastSpeakAt < 12000) return;
       try {
         if (typeof window === 'undefined' || !window.speechSynthesis) return;
+        var voice = pickVoice(locale);
+        // Never let an English/default voice read Persian/Turkish text. That
+        // was the source of the repeated "داد داد" sound. Wait briefly for
+        // real voices to load; if the browser has no matching voice, keep the
+        // hold music playing and skip the garbled announcement.
+        if (!voice && locale !== 'en') {
+          if (!pendingVoiceRetry) {
+            pendingVoiceRetry = setTimeout(function () {
+              pendingVoiceRetry = null;
+              speakAnnounce(true);
+            }, 900);
+          }
+          return;
+        }
         var u = new window.SpeechSynthesisUtterance(announceText);
         u.lang = LANG_MAP[locale] || 'en-US';
-        u.rate = 0.95;
-        u.volume = 0.95;
+        if (voice) u.voice = voice;
+        u.rate = locale === 'fa' ? 0.86 : 0.92;
+        u.pitch = 1;
+        u.volume = 0.9;
         try { window.speechSynthesis.cancel(); } catch (_) {}
+        lastSpeakAt = now;
         window.speechSynthesis.speak(u);
       } catch (_) {}
     }
@@ -263,6 +333,8 @@
       if (timer) { try { clearInterval(timer); } catch (_) {} timer = null; }
       if (holdTimer) { try { clearInterval(holdTimer); } catch (_) {} holdTimer = null; }
       if (speakTimer) { try { clearInterval(speakTimer); } catch (_) {} speakTimer = null; }
+      if (pendingVoiceRetry) { try { clearTimeout(pendingVoiceRetry); } catch (_) {} pendingVoiceRetry = null; }
+      stopHoldNodes();
     }
     function startPhase() {
       clearTimers();
@@ -273,8 +345,8 @@
       if (mode !== 'tone') {
         // music URL handles its own loop; only schedule announcements during hold
         if (phase === 'hold' && announceText) {
-          speakAnnounce();
-          speakTimer = setInterval(speakAnnounce, 14000);
+          speakAnnounce(true);
+          speakTimer = setInterval(function () { speakAnnounce(false); }, 18000);
         }
         return;
       }
@@ -282,11 +354,11 @@
         ringOnce();
         timer = setInterval(ringOnce, 2800);
       } else {
-        holdChord();
-        holdTimer = setInterval(holdChord, 4500);
+        holdMusicLoop();
+        holdTimer = setInterval(holdMusicLoop, 11000);
         if (announceText) {
-          speakAnnounce();
-          speakTimer = setInterval(speakAnnounce, 14000);
+          speakAnnounce(true);
+          speakTimer = setInterval(function () { speakAnnounce(false); }, 18000);
         }
       }
     }

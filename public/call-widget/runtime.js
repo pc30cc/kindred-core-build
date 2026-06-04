@@ -189,6 +189,8 @@
     this.bootstrap = null;
     this.apiBase = '';
     this.origin = '';
+    this.assetsVersion = '';
+    this.runtimeAssetSuffix = '';
     this.session = null;
     this.callId = null;
     this.call = null;
@@ -214,6 +216,8 @@
     this.__mounted__ = true;
     this.apiBase = opts.apiBase;
     this.origin = opts.origin;
+    this.assetsVersion = opts.assetsVersion || (opts.bootstrap && opts.bootstrap.assets_version) || '';
+    this.runtimeAssetSuffix = opts.runtimeAssetSuffix || (this.assetsVersion ? ('?v=' + encodeURIComponent(String(this.assetsVersion).slice(0, 16))) : '');
     this.bootstrap = opts.bootstrap;
     this.session = opts.bootstrap && opts.bootstrap.session;
 
@@ -233,7 +237,7 @@
     var shadow = host.attachShadow({ mode: 'open' });
     var link = document.createElement('link');
     link.rel = 'stylesheet';
-    link.href = this.origin + '/call-widget/runtime.css';
+    link.href = this.origin + '/call-widget/runtime.css' + this.runtimeAssetSuffix;
     shadow.appendChild(link);
     var root = document.createElement('div');
     root.className = 'ccw-root';

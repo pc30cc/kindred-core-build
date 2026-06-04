@@ -85,7 +85,10 @@
       call_type: 'voice', consent: false, department_id: '',
       callback_channel: 'audio', callback_urgency: 'normal',
       callback_when: 'now', callback_scheduled_for: '',
+      hp_company: '',
     };
+    this.callbackOpenedAt = 0;
+    this.callbackCooldownUntil = 0;
   }
 
   CallCenterWidgetCtor.prototype.mount = function (opts) {
@@ -502,6 +505,9 @@
     var depts = (this.bootstrap && this.bootstrap.departments) || {};
     var list = depts.callback || [];
     this.formData.department_id = (list.length === 1) ? list[0].id : '';
+    this.formData.hp_company = '';
+    this.callbackOpenedAt = Date.now();
+    this.error = null;
     this.state = STATES.CALLBACK;
     this.render();
   };
@@ -509,6 +515,32 @@
   CallCenterWidgetCtor.prototype.submitCallback = function () {
     var self = this;
     this.error = null;
+    var policy = (this.bootstrap && this.bootstrap.callback_policy) || {};
+    // Client-side cooldown guard (server still enforces).
+    if (this.callbackCooldownUntil && Date.now() < this.callbackCooldownUntil) {
+      var leftSec = Math.ceil((this.callbackCooldownUntil - Date.now()) / 1000);
+      this.error = 'Please wait ' + leftSec + 's before sending another request.';
+      this.render(); return;
+    }
+    // Require contact if the platform demands it.
+    if (policy.require_contact) {
+      var email = (this.formData.email || '').trim();
+      var phone = (this.formData.phone || '').trim();
+      var alreadyId = !!(this.identifiedContact && this.identifiedContact.id);
+      if (!alreadyId && !email && !phone) {
+        this.error = 'Please provide your email or phone so we can reach you.';
+        this.render(); return;
+      }
+    }
+    // Minimum message length.
+    var minMsg = Number(policy.min_message_length || 0);
+    if (minMsg > 0) {
+      var msg = (this.formData.message || '').trim();
+      if (msg.length < minMsg) {
+        this.error = 'Please describe your request in at least ' + minMsg + ' characters.';
+        this.render(); return;
+      }
+    }
     var scheduledIso = null;
     if (this.formData.callback_when === 'later' && this.formData.callback_scheduled_for) {
       var t = new Date(this.formData.callback_scheduled_for);
@@ -532,18 +564,39 @@
         scheduled_for: scheduledIso,
         page_url: location.href,
         department_id: this.formData.department_id || null,
+        hp_company: this.formData.hp_company || '',
+        form_opened_at: this.callbackOpenedAt || null,
       },
     }).then(function (r) {
       if (!r.ok) {
         var code = r.body && r.body.error;
         if (code === 'department_channel_disabled' || code === 'department_not_found') {
           self.error = 'This department is not available for this call type. Please choose another department.';
+        } else if (code === 'contact_required') {
+          self.error = 'Please provide your email or phone so we can reach you.';
+        } else if (code === 'message_too_short') {
+          var m = (r.body && r.body.min) || 1;
+          self.error = 'Please describe your request in at least ' + m + ' characters.';
+        } else if (code === 'too_fast') {
+          self.error = 'That was too fast. Please take a moment to fill in the form.';
+        } else if (code === 'cooldown_active') {
+          var ra = (r.body && r.body.retry_after) || 60;
+          self.callbackCooldownUntil = Date.now() + ra * 1000;
+          self.error = 'You already requested a callback. Please wait ' + ra + 's before sending another.';
+        } else if (code === 'rate_limited_ip') {
+          self.error = 'Too many callback requests from your network. Please try again later.';
+        } else if (code === 'feature_not_available') {
+          self.error = 'Callback requests are currently unavailable.';
         } else {
           self.error = (r.body && (r.body.error || r.body.message)) || 'Failed.';
         }
         self.render(); return;
       }
       self.callbackId = r.body.callback_id;
+      var pol = (self.bootstrap && self.bootstrap.callback_policy) || {};
+      if (pol.cooldown_seconds) {
+        self.callbackCooldownUntil = Date.now() + Number(pol.cooldown_seconds) * 1000;
+      }
       self.state = STATES.ENDED;
       self.render();
     });
@@ -599,6 +652,8 @@
       }
 
       case STATES.ONLINE: {
+        var pol = (self.bootstrap && self.bootstrap.callback_policy) || {};
+        var showCbOnline = pol.show_when_online !== false; // default true
         var box = el('div', { class: 'ccw-stack' }, [
           el('div', {}, ['Talk with our team in seconds.']),
         ]);
@@ -606,7 +661,9 @@
         if (caps.voice) row.appendChild(el('button', { class: 'ccw-btn primary', on: { click: function () { self.startCall('voice'); } } }, ['🎙 Voice call']));
         if (caps.video) row.appendChild(el('button', { class: 'ccw-btn secondary', on: { click: function () { self.startCall('video'); } } }, ['🎥 Video call']));
         box.appendChild(row);
-        if (caps.callback) box.appendChild(el('button', { class: 'ccw-btn secondary', on: { click: function () { self.openCallback(); } } }, ['Request callback instead']));
+        if (caps.callback && showCbOnline) {
+          box.appendChild(el('button', { class: 'ccw-btn secondary', on: { click: function () { self.openCallback(); } } }, ['Request callback instead']));
+        }
         return box;
       }
 
@@ -726,6 +783,7 @@
 
   CallCenterWidgetCtor.prototype.renderForm = function (cfg, forCall) {
     var self = this;
+    var policy = (self.bootstrap && self.bootstrap.callback_policy) || {};
     var box = el('div', { class: 'ccw-stack' });
     if (!forCall) {
       box.appendChild(el('div', { class: 'ccw-cb-intro' }, [
@@ -785,9 +843,9 @@
     var fields = alreadyIdentified
       ? [['subject', 'Subject', 'text']]
       : [
-        ['name', 'Name', 'text'],
-        ['email', 'Email', 'email'],
-        ['phone', 'Phone', 'tel'],
+        ['name', 'Full name', 'text'],
+        ['email', !forCall && policy.require_contact ? 'Email *' : 'Email', 'email'],
+        ['phone', !forCall && policy.require_contact ? 'Phone *' : 'Phone', 'tel'],
         ['subject', 'Subject', 'text'],
       ];
     fields.forEach(function (f) {
@@ -797,9 +855,27 @@
       box.appendChild(label);
       box.appendChild(input);
     });
+    if (!forCall && policy.require_contact && !alreadyIdentified) {
+      box.appendChild(el('div', { class: 'ccw-muted', style: 'font-size:11px;margin-top:-4px;' }, [
+        '* Email or phone is required so we can reach you.',
+      ]));
+    }
     if (!forCall) {
+      // Honeypot (anti-bot): visually hidden, never tabbable.
+      if (policy.honeypot_enabled !== false) {
+        var hp = el('input', {
+          type: 'text', name: 'company_website', autocomplete: 'off', tabindex: '-1', 'aria-hidden': 'true',
+          style: 'position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden;opacity:0;',
+        });
+        hp.value = self.formData.hp_company || '';
+        hp.addEventListener('input', function (e) { self.formData.hp_company = e.target.value; });
+        box.appendChild(hp);
+      }
       // Message textarea
-      box.appendChild(el('label', { class: 'ccw-label' }, ['Message (optional)']));
+      var msgLabel = policy.min_message_length > 0
+        ? 'Message (min ' + policy.min_message_length + ' chars)'
+        : 'Message (optional)';
+      box.appendChild(el('label', { class: 'ccw-label' }, [msgLabel]));
       var ta = el('textarea', { class: 'ccw-textarea', placeholder: 'Briefly describe what you need help with…' });
       ta.value = self.formData.message || '';
       ta.addEventListener('input', function (e) { self.formData.message = e.target.value; });

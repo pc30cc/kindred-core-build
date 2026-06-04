@@ -22,6 +22,14 @@ export interface PlatformCallCenterSettings {
   max_callback_requests_per_month: number;
   max_recording_storage_mb: number;
   disabled_message: Record<string, unknown>;
+  /** Callback (anti-spam) controls. */
+  callback_show_when_online: boolean;
+  callback_min_seconds_between_requests: number;
+  callback_max_per_ip_per_hour: number;
+  callback_require_contact: boolean;
+  callback_min_message_length: number;
+  callback_honeypot_enabled: boolean;
+  callback_min_form_seconds: number;
   updated_at: string;
 }
 

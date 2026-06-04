@@ -10,7 +10,7 @@ import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from '@/hooks/use-toast';
-import { AlertCircle, ShieldCheck, Server, Building2, Search, Activity, Loader2, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react';
+import { AlertCircle, ShieldCheck, Server, Building2, Search, Activity, Loader2, CheckCircle2, XCircle, AlertTriangle, ShieldAlert } from 'lucide-react';
 
 const TOGGLE_GROUPS: Array<{ title: string; items: Array<[keyof CallCenterPlatformSettings, string, boolean?]> }> = [
   { title: 'Core', items: [
@@ -42,6 +42,19 @@ const LIMITS: Array<[keyof CallCenterPlatformSettings, string]> = [
   ['max_monthly_call_minutes_per_workspace', 'Max monthly call minutes / workspace'],
   ['max_callback_requests_per_month', 'Max callbacks / month'],
   ['max_recording_storage_mb', 'Max recording storage (MB)'],
+];
+
+const CALLBACK_TOGGLES: Array<[keyof CallCenterPlatformSettings, string, string]> = [
+  ['callback_show_when_online', 'Show callback button when operators are online', 'If off, the "Request a callback" button only appears when no operator is online.'],
+  ['callback_require_contact', 'Require email or phone', 'Reject submissions that have neither an email nor a phone number.'],
+  ['callback_honeypot_enabled', 'Honeypot field (anti-bot)', 'Adds an invisible bait field. Any submission that fills it is silently rejected.'],
+];
+
+const CALLBACK_NUMBERS: Array<[keyof CallCenterPlatformSettings, string, string]> = [
+  ['callback_min_seconds_between_requests', 'Cooldown per visitor (seconds)', 'Minimum seconds the same visitor must wait between callback submissions.'],
+  ['callback_max_per_ip_per_hour', 'Max requests per IP / hour', 'Hard ceiling per IP address within the last hour.'],
+  ['callback_min_form_seconds', 'Minimum form-fill time (seconds)', 'Rejects submissions sent faster than a human could plausibly fill the form.'],
+  ['callback_min_message_length', 'Minimum message length (chars)', '0 = no requirement.'],
 ];
 
 function Stat({ label, value, icon: Icon }: { label: string; value: number | string; icon?: any }) {
@@ -216,6 +229,47 @@ export default function AdminCallCenterPage() {
             <div key={k as string}>
               <Label>{label}</Label>
               <Input type="number" value={String((draft as any)[k] ?? 0)} onChange={(e) => setDraft({ ...draft, [k]: parseInt(e.target.value || '0', 10) } as any)} />
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      <Card className="p-5 space-y-5">
+        <div className="flex items-start gap-2">
+          <ShieldAlert className="h-5 w-5 text-amber-600 mt-0.5" />
+          <div>
+            <h2 className="font-semibold">Callback requests & anti-spam</h2>
+            <p className="text-xs text-muted-foreground">
+              Controls the "Request a callback" experience inside the call widget for every workspace.
+              The master switch is the <strong>Callback requests</strong> toggle above.
+            </p>
+          </div>
+        </div>
+        <div className="space-y-2">
+          {CALLBACK_TOGGLES.map(([k, label, hint]) => (
+            <div key={k as string} className="flex items-start justify-between gap-3 py-1">
+              <div className="min-w-0">
+                <Label>{label}</Label>
+                <p className="text-xs text-muted-foreground">{hint}</p>
+              </div>
+              <Switch
+                checked={!!(draft as any)[k]}
+                onCheckedChange={(v) => setDraft({ ...draft, [k]: v } as any)}
+              />
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {CALLBACK_NUMBERS.map(([k, label, hint]) => (
+            <div key={k as string}>
+              <Label>{label}</Label>
+              <Input
+                type="number"
+                min={0}
+                value={String((draft as any)[k] ?? 0)}
+                onChange={(e) => setDraft({ ...draft, [k]: Math.max(0, parseInt(e.target.value || '0', 10)) } as any)}
+              />
+              <p className="text-[11px] text-muted-foreground mt-1">{hint}</p>
             </div>
           ))}
         </div>

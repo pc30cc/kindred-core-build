@@ -151,7 +151,6 @@ export default function CallsPage() {
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <div><div className="text-xs text-muted-foreground">Subject</div>{detail.call.subject || '—'}</div>
                 <div><div className="text-xs text-muted-foreground">Duration</div>{fmtDuration(detail.call.duration_seconds)}</div>
-                <div><div className="text-xs text-muted-foreground">Provider</div>{detail.call.provider || '—'}</div>
                 <div><div className="text-xs text-muted-foreground">End reason</div>{detail.call.end_reason || '—'}</div>
               </div>
               {detail.call.page_url && (

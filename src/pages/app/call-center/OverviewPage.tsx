@@ -70,7 +70,7 @@ export default function CallCenterOverviewPage() {
   let cta: { to: string; label: string } = { to: 'queue', label: 'Open Live Desk' };
   if (!platformOk) { statusTone = 'danger'; statusText = 'Disabled by platform'; cta = { to: 'settings', label: 'View Settings' }; }
   else if (!wsEnabled) { statusTone = 'warn'; statusText = 'Disabled for workspace'; cta = { to: 'settings', label: 'Enable in Settings' }; }
-  else if (!providerReady) { statusTone = 'warn'; statusText = 'Provider missing'; cta = { to: 'settings', label: 'View Settings' }; }
+  else if (!providerReady) { statusTone = 'warn'; statusText = 'Calls service not ready'; cta = { to: 'settings', label: 'View Settings' }; }
   else if (!hasDomains) { statusTone = 'warn'; statusText = 'No allowed domains'; cta = { to: 'install', label: 'Add domain' }; }
 
   const recentQueue = (queueData?.queue || []).slice(0, 5);
@@ -96,8 +96,8 @@ export default function CallCenterOverviewPage() {
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-4 text-sm">
               <div>
-                <div className="text-xs text-muted-foreground">Provider</div>
-                <div className="font-medium">{overview?.provider?.provider || '—'} · {providerReady ? 'ready' : 'missing'}</div>
+                <div className="text-xs text-muted-foreground">Calls service</div>
+                <div className="font-medium">{providerReady ? 'Ready' : 'Not ready'}</div>
               </div>
               <div>
                 <div className="text-xs text-muted-foreground">Allowed domains</div>
@@ -122,7 +122,7 @@ export default function CallCenterOverviewPage() {
           <StatCard icon={PhoneMissed} label="Missed today" value={overview?.missed_today ?? 0} tone={(overview?.missed_today ?? 0) > 0 ? 'danger' : 'default'} />
           <StatCard icon={Phone} label="Total today" value={overview?.today_calls ?? 0} />
           <StatCard icon={PhoneCall} label="Callbacks" value={overview?.callbacks_pending ?? 0} />
-          <StatCard icon={Server} label="Provider" value={providerReady ? 'Ready' : 'Down'} tone={providerReady ? 'ok' : 'warn'} />
+          <StatCard icon={Server} label="Calls service" value={providerReady ? 'Ready' : 'Down'} tone={providerReady ? 'ok' : 'warn'} />
         </div>
       </div>
 
@@ -194,7 +194,7 @@ export default function CallCenterOverviewPage() {
             <ChecklistItem status={platformOk ? 'ok' : 'missing'} label="Platform enabled" />
             <ChecklistItem status={wsEnabled ? 'ok' : 'warn'} label="Workspace enabled" action={{ to: 'settings', label: 'Enable' }} />
             <ChecklistItem status={voiceVideo ? 'ok' : 'warn'} label="Voice or video enabled" action={{ to: 'settings', label: 'Configure' }} />
-            <ChecklistItem status={providerReady ? 'ok' : 'missing'} label="Call provider ready" />
+            <ChecklistItem status={providerReady ? 'ok' : 'missing'} label="Calls service ready" />
             <ChecklistItem status={hasDomains ? 'ok' : 'missing'} label="Allowed domain added" action={{ to: 'install', label: 'Add' }} />
             <ChecklistItem status={hasPublicKey ? 'ok' : 'warn'} label="Public key generated" />
           </div>

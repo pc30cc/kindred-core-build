@@ -425,7 +425,7 @@ export default function LiveQueuePage() {
             tone={(overview?.missed_today ?? 0) > 0 ? 'danger' : 'muted'} />
           <StatChip label="Today" icon={PhoneCall}
             value={overview?.today_calls ?? 0} tone="primary" />
-          <StatChip label="Provider" icon={RadioTower}
+          <StatChip label="Calls service" icon={RadioTower}
             value={overview?.provider?.ready ? 'Ready' : 'Down'}
             tone={overview?.provider?.ready ? 'ok' : 'danger'} />
         </div>
@@ -685,7 +685,6 @@ export default function LiveQueuePage() {
                       >
                         {detail.call.state}
                       </Badge>
-                      <Badge variant="outline">{detail.call.provider || 'no provider'}</Badge>
                       <RecordingBadge rec={overview?.recording} meta={(detail.call as any)?.metadata?.recording} />
                     </div>
                   </div>

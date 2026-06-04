@@ -102,7 +102,7 @@ export default function InstallPage() {
         </div>
         <HealthRow ok={platformOk} label="Platform enabled" />
         <HealthRow ok={wsOk} label="Workspace enabled" />
-        <HealthRow ok={providerOk} label="Call provider ready" hint={overview?.provider?.provider} />
+        <HealthRow ok={providerOk} label="Calls service ready" />
         <HealthRow ok={hasKey} label="Public key generated" />
         <HealthRow ok={domainsOk} label="Allowed domain configured" hint={`${data?.settings?.allowed_domains?.length || 0} domain(s)`} />
       </Card>

@@ -168,10 +168,16 @@ export default function CallCenterOverviewPage() {
               <div className="text-xs text-muted-foreground mb-1">Recent callbacks</div>
               <ul className="divide-y">
                 {recentCallbacks.map((c) => (
-                  <li key={c.id} className="py-2 flex items-center gap-2 text-sm">
-                    <PhoneCall className="h-3.5 w-3.5 text-primary" />
-                    <span className="flex-1 truncate">{(c.metadata as any)?.name || c.contact_phone || c.contact_email || 'Anonymous'}</span>
-                    <span className="text-xs text-muted-foreground">{c.status}</span>
+                  <li key={c.id}>
+                    <Link
+                      to={`callbacks?focus=${c.id}`}
+                      className="py-2 flex items-center gap-2 text-sm hover:bg-muted/40 rounded px-2 -mx-2 transition"
+                    >
+                      <PhoneCall className="h-3.5 w-3.5 text-primary" />
+                      <span className="flex-1 truncate">{(c.metadata as any)?.name || c.contact_phone || c.contact_email || 'Anonymous'}</span>
+                      <span className="text-xs text-muted-foreground">{c.status}</span>
+                      <ArrowRight className="h-3 w-3 text-muted-foreground" />
+                    </Link>
                   </li>
                 ))}
               </ul>

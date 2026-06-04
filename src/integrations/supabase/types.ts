@@ -5132,7 +5132,14 @@ export type Database = {
           call_center_enabled: boolean
           call_recording_enabled: boolean
           call_transfer_enabled: boolean
+          callback_honeypot_enabled: boolean
+          callback_max_per_ip_per_hour: number
+          callback_min_form_seconds: number
+          callback_min_message_length: number
+          callback_min_seconds_between_requests: number
           callback_requests_enabled: boolean
+          callback_require_contact: boolean
+          callback_show_when_online: boolean
           created_at: string
           departments_enabled: boolean
           disabled_message: Json
@@ -5153,7 +5160,14 @@ export type Database = {
           call_center_enabled?: boolean
           call_recording_enabled?: boolean
           call_transfer_enabled?: boolean
+          callback_honeypot_enabled?: boolean
+          callback_max_per_ip_per_hour?: number
+          callback_min_form_seconds?: number
+          callback_min_message_length?: number
+          callback_min_seconds_between_requests?: number
           callback_requests_enabled?: boolean
+          callback_require_contact?: boolean
+          callback_show_when_online?: boolean
           created_at?: string
           departments_enabled?: boolean
           disabled_message?: Json
@@ -5174,7 +5188,14 @@ export type Database = {
           call_center_enabled?: boolean
           call_recording_enabled?: boolean
           call_transfer_enabled?: boolean
+          callback_honeypot_enabled?: boolean
+          callback_max_per_ip_per_hour?: number
+          callback_min_form_seconds?: number
+          callback_min_message_length?: number
+          callback_min_seconds_between_requests?: number
           callback_requests_enabled?: boolean
+          callback_require_contact?: boolean
+          callback_show_when_online?: boolean
           created_at?: string
           departments_enabled?: boolean
           disabled_message?: Json

@@ -572,11 +572,22 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
     }
   }, [onReconnect]);
 
-  // After a successful operator-side end, briefly show "Call ended" then notify parent.
+  // After any terminal phase, briefly show the "Call ended" overlay then
+  // notify the parent so it can unmount the media console. This covers
+  // operator-ended, visitor-ended, backend-failure and reconnect-failed
+  // paths so the workspace returns to the queue view automatically.
   useEffect(() => {
-    if (phase !== 'ended_by_operator') return;
     if (!onEndedConfirmed) return;
-    const t = setTimeout(() => { try { onEndedConfirmed(); } catch { /* noop */ } }, 1200);
+    const terminal =
+      phase === 'ended_by_operator' ||
+      phase === 'ended_by_visitor' ||
+      phase === 'backend_end_failed' ||
+      phase === 'reconnect_failed' ||
+      phase === 'token_expired';
+    if (!terminal) return;
+    // backend_end_failed gives the operator a chance to Retry — wait longer.
+    const delay = phase === 'backend_end_failed' ? 6000 : 1600;
+    const t = setTimeout(() => { try { onEndedConfirmed(); } catch { /* noop */ } }, delay);
     return () => clearTimeout(t);
   }, [phase, onEndedConfirmed]);
 

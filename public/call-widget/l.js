@@ -34,7 +34,7 @@
     : 'publicKey=' + encodeURIComponent(publicKey);
 
   fetch(apiBase + '/api/call-widget/bootstrap?' + qs, {
-    credentials: 'omit',
+    credentials: 'include',
     headers: { 'Accept': 'application/json' },
   })
     .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, body: j }; }); })

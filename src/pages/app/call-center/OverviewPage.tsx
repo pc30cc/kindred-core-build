@@ -306,7 +306,7 @@ export default function CallCenterOverviewPage() {
                   </ul>
                 </div>
               )}
-              {pendingCallbacks.length > 0 && (
+              {callbackOn && pendingCallbacks.length > 0 && (
                 <div>
                   <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Pending callbacks</div>
                   <ul className="divide-y">

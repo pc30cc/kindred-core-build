@@ -284,6 +284,32 @@
         });
       } catch (_) { stopHoldNodes(); }
     }
+    function getAnnouncementUrl() {
+      var cfg = lastCfg || {};
+      var q = cfg.ringback_queue_audio_urls || {};
+      var key = queuePosition == null ? '' : String(queuePosition);
+      return (key && q[key]) || cfg.ringback_announcement_audio_url || '';
+    }
+    function playAnnouncementAudio(force) {
+      if (!active || phase !== 'hold') return false;
+      var url = getAnnouncementUrl();
+      if (!url) return false;
+      var now = Date.now();
+      if (!force && now - lastSpeakAt < 14000) return true;
+      try {
+        if (!announceAudioEl || announceAudioEl.src !== url) {
+          if (announceAudioEl) { try { announceAudioEl.pause(); } catch (_) {} }
+          announceAudioEl = new Audio(url);
+        }
+        announceAudioEl.loop = false;
+        announceAudioEl.volume = 0.72;
+        announceAudioEl.currentTime = 0;
+        var p = announceAudioEl.play();
+        lastSpeakAt = now;
+        if (p && p.then) p.then(function () { needsGesture = false; }).catch(function () { needsGesture = true; installUnlockHandlers(); });
+        return true;
+      } catch (_) { needsGesture = true; installUnlockHandlers(); return true; }
+    }
     function getVoices() {
       try { return (window.speechSynthesis && window.speechSynthesis.getVoices && window.speechSynthesis.getVoices()) || []; } catch (_) { return []; }
     }
@@ -301,16 +327,16 @@
     }
     function speakAnnounce(force) {
       if (!active || phase !== 'hold' || !announceText) return;
+      if (playAnnouncementAudio(force)) return;
+      // Persian browser TTS is unreliable on many systems and can read the
+      // sentence with an English/default engine. For fa, only use an explicit
+      // uploaded audio file; otherwise keep the generated hold music playing.
+      if (locale === 'fa') return;
       var now = Date.now();
       if (!force && now - lastSpeakAt < 12000) return;
       try {
         if (typeof window === 'undefined' || !window.speechSynthesis) return;
         var voice = pickVoice(locale);
-        // Never let an English/default voice read Persian/Turkish script. That
-        // was the source of the repeated "داد داد" sound. Wait briefly for
-        // real voices to load; if no matching voice exists, use a Latin-script
-        // localized fallback so the message remains understandable instead of
-        // being garbled by the wrong speech engine.
         if (!voice && locale !== 'en') {
           if (!pendingVoiceRetry) {
             pendingVoiceRetry = setTimeout(function () {
@@ -320,13 +346,14 @@
           }
           if (now - lastSpeakAt < 2600) return;
         }
-        var spokenText = (!voice && SPOKEN_FALLBACK[locale]) ? SPOKEN_FALLBACK[locale] : announceText;
+        if (!voice && locale !== 'en') return;
+        var spokenText = announceText;
         var u = new window.SpeechSynthesisUtterance(spokenText);
         u.lang = LANG_MAP[locale] || 'en-US';
         if (voice) u.voice = voice;
-        u.rate = locale === 'fa' ? 0.86 : 0.92;
+        u.rate = 0.88;
         u.pitch = 1;
-        u.volume = 0.9;
+        u.volume = 0.62;
         try { window.speechSynthesis.cancel(); } catch (_) {}
         lastSpeakAt = now;
         window.speechSynthesis.speak(u);

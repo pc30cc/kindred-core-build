@@ -652,6 +652,8 @@
       }
 
       case STATES.ONLINE: {
+        var pol = (self.bootstrap && self.bootstrap.callback_policy) || {};
+        var showCbOnline = pol.show_when_online !== false; // default true
         var box = el('div', { class: 'ccw-stack' }, [
           el('div', {}, ['Talk with our team in seconds.']),
         ]);
@@ -659,7 +661,9 @@
         if (caps.voice) row.appendChild(el('button', { class: 'ccw-btn primary', on: { click: function () { self.startCall('voice'); } } }, ['🎙 Voice call']));
         if (caps.video) row.appendChild(el('button', { class: 'ccw-btn secondary', on: { click: function () { self.startCall('video'); } } }, ['🎥 Video call']));
         box.appendChild(row);
-        if (caps.callback) box.appendChild(el('button', { class: 'ccw-btn secondary', on: { click: function () { self.openCallback(); } } }, ['Request callback instead']));
+        if (caps.callback && showCbOnline) {
+          box.appendChild(el('button', { class: 'ccw-btn secondary', on: { click: function () { self.openCallback(); } } }, ['Request callback instead']));
+        }
         return box;
       }
 

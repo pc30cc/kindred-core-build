@@ -31,7 +31,7 @@ import {
   getCallCenterRecordingStatus,
   RecordingControlException,
 } from '../services/callCenter/recordingControl.js';
-import { uploadFile, deleteFile, resolveStorageConfig } from '../services/storage/index.js';
+import { uploadFile, deleteFile, resolveStorageConfig, resolveGlobalStorageConfig, uploadWithConfig, deleteWithConfig, getFileUrlWithConfig } from '../services/storage/index.js';
 import {
   listDepartments, getDepartment, createDepartment, updateDepartment, deleteDepartment,
   listDepartmentAgents, addDepartmentAgent, updateDepartmentAgent, removeDepartmentAgent,
@@ -951,7 +951,10 @@ const platformPatchSchema = z.object({
   // schema and silently dropped by z.object.strip() in the previous task.
   ringback_enabled: z.boolean().optional(),
   ringback_mode: z.enum(['tone', 'music', 'off']).optional(),
+  ringback_music_path: z.string().nullable().optional(),
   ringback_music_url: z.string().nullable().optional(),
+  ringback_announcement_audio_path: z.string().nullable().optional(),
+  ringback_queue_audio_paths: z.record(z.string()).nullable().optional(),
   queue_show_position: z.boolean().optional(),
   queue_show_eta: z.boolean().optional(),
   queue_eta_seconds_per_position: z.number().int().min(0).optional(),

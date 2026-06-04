@@ -113,8 +113,10 @@ function widgetAssetHeaders(res: express.Response, filePath: string) {
     // even briefly, customers see stale widget UI after every deploy and
     // a Cloudflare purge isn't always enough (heuristic / edge TTL).
     // Force no-store everywhere so each page load fetches fresh bytes.
-    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0, s-maxage=0');
     res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.setHeader('Surrogate-Control', 'no-store');
     res.setHeader('CDN-Cache-Control', 'no-store');
     res.setHeader('Cloudflare-CDN-Cache-Control', 'no-store');
   }

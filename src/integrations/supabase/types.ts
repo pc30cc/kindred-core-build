@@ -3022,6 +3022,7 @@ export type Database = {
           updated_at: string
           video_enabled: boolean
           voice_enabled: boolean
+          widget_custom_texts: Json
           widget_default_locale: string | null
           widget_enabled_locales: string[] | null
           widget_position: string
@@ -3051,6 +3052,7 @@ export type Database = {
           updated_at?: string
           video_enabled?: boolean
           voice_enabled?: boolean
+          widget_custom_texts?: Json
           widget_default_locale?: string | null
           widget_enabled_locales?: string[] | null
           widget_position?: string
@@ -3080,6 +3082,7 @@ export type Database = {
           updated_at?: string
           video_enabled?: boolean
           voice_enabled?: boolean
+          widget_custom_texts?: Json
           widget_default_locale?: string | null
           widget_enabled_locales?: string[] | null
           widget_position?: string

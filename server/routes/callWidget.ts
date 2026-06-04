@@ -465,6 +465,7 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
       pre_call_form_schema: ws.pre_call_form_schema,
       offline_behavior: ws.offline_behavior,
       recording_consent_required: ws.recording_consent_required,
+      custom_texts: ws.widget_custom_texts || {},
     },
     capabilities: {
       voice: effective.voice_enabled,

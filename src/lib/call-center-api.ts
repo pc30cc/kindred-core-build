@@ -66,6 +66,7 @@ export interface CallCenterWorkspaceSettings {
   updated_at: string;
   widget_default_locale?: 'en' | 'fa' | 'tr' | null;
   widget_enabled_locales?: string[] | null;
+  widget_custom_texts?: Record<string, Record<string, string>> | null;
 }
 
 export interface CallCenterPlatformSettings {

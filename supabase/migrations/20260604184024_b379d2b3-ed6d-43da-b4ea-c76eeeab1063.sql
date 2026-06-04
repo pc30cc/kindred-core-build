@@ -1,0 +1,1 @@
+ALTER TABLE public.call_center_settings ADD COLUMN IF NOT EXISTS widget_custom_texts JSONB NOT NULL DEFAULT '{}'::jsonb;

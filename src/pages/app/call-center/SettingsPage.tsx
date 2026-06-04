@@ -81,6 +81,7 @@ export default function CallCenterSettingsPage() {
       'pre_call_form_enabled', 'offline_behavior', 'recording_enabled',
       'recording_consent_required', 'routing_mode', 'widget_position',
       'default_department_id', 'widget_default_locale', 'widget_enabled_locales',
+      'widget_custom_texts',
     ];
     return keys.some((k) => JSON.stringify(s[k]) !== JSON.stringify(original[k]));
   }, [s, original]);
@@ -106,6 +107,7 @@ export default function CallCenterSettingsPage() {
       default_department_id: s.default_department_id ?? null,
       widget_default_locale: s.widget_default_locale ?? null,
       widget_enabled_locales: s.widget_enabled_locales ?? null,
+      widget_custom_texts: s.widget_custom_texts ?? {},
     });
     setOriginal({ ...s });
     toast({ title: 'Saved' });
@@ -163,6 +165,11 @@ export default function CallCenterSettingsPage() {
             </SelectContent>
           </Select>
         </Row>
+        <WidgetTextsEditor
+          settings={s}
+          platform={platform}
+          onChange={(next) => setS({ ...s, widget_custom_texts: next })}
+        />
       </Section>
 
       {(() => {
@@ -382,6 +389,93 @@ export default function CallCenterSettingsPage() {
           </Card>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Widget text overrides editor ──────────────────────────────
+const WIDGET_TEXT_KEYS: { key: string; label: string; placeholder: Record<string, string> }[] = [
+  { key: 'talk_now',            label: 'Launcher text (online)',     placeholder: { en: 'Talk now',            fa: 'همین حالا تماس بگیرید', tr: 'Şimdi konuş' } },
+  { key: 'live_support',        label: 'Launcher subtitle (online)', placeholder: { en: 'Live support',        fa: 'پشتیبانی آنلاین',     tr: 'Canlı destek' } },
+  { key: 'callback',            label: 'Launcher text (offline)',    placeholder: { en: 'Callback',            fa: 'درخواست تماس',        tr: 'Geri arama' } },
+  { key: 'leave_details',       label: 'Launcher subtitle (offline)',placeholder: { en: 'Leave details',       fa: 'ثبت اطلاعات',         tr: 'Bilgilerini bırak' } },
+  { key: 'operators_available', label: 'Header subtitle (online)',   placeholder: { en: 'Operators available', fa: 'اپراتورها آماده‌اند', tr: 'Operatörler müsait' } },
+  { key: 'callback_desk',       label: 'Header subtitle (offline)',  placeholder: { en: 'Callback desk',       fa: 'میز درخواست تماس',    tr: 'Geri arama masası' } },
+  { key: 'talk_to_team',        label: 'Hero title (online)',        placeholder: { en: 'Talk to our team',    fa: 'با تیم ما صحبت کنید', tr: 'Ekibimizle konuşun' } },
+  { key: 'online_copy',         label: 'Hero subtitle (online)',     placeholder: { en: 'Start a secure voice or video call with the next available operator.', fa: 'یک تماس صوتی یا تصویری امن را با اولین اپراتور آزاد شروع کنید.', tr: 'İlk uygun operatörle güvenli sesli veya görüntülü arama başlatın.' } },
+  { key: 'leave_callback_request', label: 'Hero title (offline)',    placeholder: { en: 'Leave a callback request', fa: 'درخواست تماس ثبت کنید', tr: 'Geri arama isteği bırakın' } },
+  { key: 'offline_copy',        label: 'Hero subtitle (offline)',    placeholder: { en: 'Our team is offline right now, but we can call you back.', fa: 'تیم ما الان آفلاین است، اما می‌توانیم با شما تماس بگیریم.', tr: 'Ekibimiz şu anda çevrimdışı, ancak sizi geri arayabiliriz.' } },
+  { key: 'voice_call',          label: 'Voice call button',          placeholder: { en: 'Voice call',          fa: 'تماس صوتی',           tr: 'Sesli arama' } },
+  { key: 'video_call',          label: 'Video call button',          placeholder: { en: 'Video call',          fa: 'تماس تصویری',         tr: 'Görüntülü arama' } },
+  { key: 'request_callback',    label: 'Callback button',            placeholder: { en: 'Request callback',    fa: 'درخواست تماس',        tr: 'Geri arama iste' } },
+];
+
+const LOC_LABELS_FULL: Record<string, string> = {
+  en: 'English', fa: 'فارسی', tr: 'Türkçe',
+};
+
+function WidgetTextsEditor({
+  settings,
+  platform,
+  onChange,
+}: {
+  settings: any;
+  platform: any;
+  onChange: (next: Record<string, Record<string, string>>) => void;
+}) {
+  const platformAvail: string[] = platform?.widget_available_locales || ['en'];
+  const enabled: string[] = (settings.widget_enabled_locales && settings.widget_enabled_locales.length > 0)
+    ? settings.widget_enabled_locales.filter((l: string) => platformAvail.includes(l))
+    : platformAvail;
+  const [locale, setLocale] = useState<string>(enabled[0] || 'en');
+  useEffect(() => { if (!enabled.includes(locale)) setLocale(enabled[0] || 'en'); }, [enabled.join(','), locale]);
+
+  const all: Record<string, Record<string, string>> = settings.widget_custom_texts || {};
+  const current = all[locale] || {};
+
+  function setField(key: string, val: string) {
+    const nextLocale = { ...current };
+    if (val.trim()) nextLocale[key] = val;
+    else delete nextLocale[key];
+    const next = { ...all };
+    if (Object.keys(nextLocale).length > 0) next[locale] = nextLocale;
+    else delete next[locale];
+    onChange(next);
+  }
+
+  const isRtl = locale === 'fa';
+
+  return (
+    <div className="pt-3 border-t space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <Label>Widget label overrides</Label>
+          <p className="text-xs text-muted-foreground">
+            Customize the launcher, header and button labels visitors see. Leave a field empty to use the default.
+          </p>
+        </div>
+        <Select value={locale} onValueChange={setLocale}>
+          <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {enabled.map((c) => (
+              <SelectItem key={c} value={c}>{LOC_LABELS_FULL[c] || c}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {WIDGET_TEXT_KEYS.map(({ key, label, placeholder }) => (
+          <div key={key} className="space-y-1">
+            <Label className="text-xs">{label}</Label>
+            <Input
+              value={current[key] || ''}
+              onChange={(e) => setField(key, e.target.value)}
+              placeholder={placeholder[locale] || placeholder.en}
+              dir={isRtl ? 'rtl' : 'ltr'}
+            />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

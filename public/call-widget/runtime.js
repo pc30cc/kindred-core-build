@@ -40,7 +40,8 @@
       in_call: 'In call', connected_waiting: 'Connected — waiting', connecting: 'Connecting', recording_progress: '● Recording in progress', recording_may_start: 'Recording may start after the operator begins the call.', mute: '🎙 Mute', unmute: '🎙 Unmute', camera_off: '🎥 Camera off', camera_on: '🎥 Camera on', end: 'End',
       callback_scheduled: 'Callback scheduled', reach_out: 'Our team will reach out {when}.', asap: 'as soon as possible', video_callback: 'Video callback', phone_callback: 'Phone callback', reference: 'Reference', type: 'Type', done: 'Done', call_ended: 'Call ended.', error_prefix: 'Error: {error}', unknown: 'unknown', back: 'Back',
       request_callback_title: 'Request a callback', callback_intro: 'Tell us how to reach you — our team calls back fast.', callback_type: 'Callback type', phone: '🎙 Phone', video: '🎥 Video', department: 'Department', choose_department: 'Choose a department', known_contact: 'Known contact', contact_saved: 'Contact details already saved', subject: 'Subject', full_name: 'Full name', email: 'Email', email_required: 'Email *', phone_field: 'Phone', phone_required: 'Phone *', contact_required_note: '* Email or phone is required so we can reach you.', message_min: 'Message (min {n} chars)', message_optional: 'Message (optional)', message_placeholder: 'Briefly describe what you need help with…', when_call: 'When should we call?', schedule: '🗓 Schedule', priority: 'Priority', normal: 'Normal', urgent: '🔥 Urgent', consent_required: ' I consent to this call being recorded for quality and security. (required)', call_may_record: 'This call may be recorded for quality and security.', start_call: 'Start call', send_request: 'Send request',
-      err_recording_required: 'Recording consent is required to continue.', err_recording_accept: 'Please accept the recording consent to start the call.', err_department: 'This department is not available for this call type. Please choose another department.', err_failed_start: 'Failed to start call.', err_wait_seconds: 'Please wait {n}s before sending another request.', err_contact_required: 'Please provide your email or phone so we can reach you.', err_message_short: 'Please describe your request in at least {n} characters.', err_future_time: 'Please pick a valid future time.', err_too_fast: 'That was too fast. Please take a moment to fill in the form.', err_cooldown: 'You already requested a callback. Please wait {n}s before sending another.', err_rate_limited: 'Too many callback requests from your network. Please try again later.', err_callback_unavailable: 'Callback requests are currently unavailable.', err_failed: 'Failed.'
+      err_recording_required: 'Recording consent is required to continue.', err_recording_accept: 'Please accept the recording consent to start the call.', err_department: 'This department is not available for this call type. Please choose another department.', err_failed_start: 'Failed to start call.', err_wait_seconds: 'Please wait {n}s before sending another request.', err_contact_required: 'Please provide your email or phone so we can reach you.', err_message_short: 'Please describe your request in at least {n} characters.', err_future_time: 'Please pick a valid future time.', err_too_fast: 'That was too fast. Please take a moment to fill in the form.', err_cooldown: 'You already requested a callback. Please wait {n}s before sending another.', err_rate_limited: 'Too many callback requests from your network. Please try again later.', err_callback_unavailable: 'Callback requests are currently unavailable.', err_failed: 'Failed.',
+      queue_wait_announce: 'You are in the waiting queue. Please wait, we will connect you shortly.'
     },
     fa: {
       talk_now: 'همین حالا تماس بگیرید', callback: 'درخواست تماس', live_support: 'پشتیبانی آنلاین', leave_details: 'ثبت اطلاعات', support: 'پشتیبانی',
@@ -56,7 +57,8 @@
       in_call: 'در تماس', connected_waiting: 'متصل — در انتظار', connecting: 'در حال اتصال', recording_progress: '● ضبط در حال انجام است', recording_may_start: 'ممکن است ضبط پس از شروع تماس توسط اپراتور آغاز شود.', mute: '🎙 بی‌صدا', unmute: '🎙 فعال‌کردن صدا', camera_off: '🎥 خاموش کردن دوربین', camera_on: '🎥 روشن کردن دوربین', end: 'پایان',
       callback_scheduled: 'درخواست تماس ثبت شد', reach_out: 'تیم ما {when} با شما تماس می‌گیرد.', asap: 'در اولین فرصت', video_callback: 'تماس تصویری', phone_callback: 'تماس تلفنی', reference: 'کد پیگیری', type: 'نوع', done: 'تمام', call_ended: 'تماس پایان یافت.', error_prefix: 'خطا: {error}', unknown: 'نامشخص', back: 'بازگشت',
       request_callback_title: 'درخواست تماس', callback_intro: 'راه ارتباطی را وارد کنید — تیم ما سریع تماس می‌گیرد.', callback_type: 'نوع تماس', phone: '🎙 تلفنی', video: '🎥 تصویری', department: 'دپارتمان', choose_department: 'یک دپارتمان انتخاب کنید', known_contact: 'مخاطب شناخته‌شده', contact_saved: 'اطلاعات تماس قبلاً ذخیره شده است', subject: 'موضوع', full_name: 'نام کامل', email: 'ایمیل', email_required: 'ایمیل *', phone_field: 'تلفن', phone_required: 'تلفن *', contact_required_note: '* ایمیل یا تلفن برای تماس با شما الزامی است.', message_min: 'پیام (حداقل {n} کاراکتر)', message_optional: 'پیام (اختیاری)', message_placeholder: 'کوتاه توضیح دهید چه کمکی نیاز دارید…', when_call: 'چه زمانی تماس بگیریم؟', schedule: '🗓 زمان‌بندی', priority: 'اولویت', normal: 'عادی', urgent: '🔥 فوری', consent_required: ' رضایت می‌دهم این تماس برای کیفیت و امنیت ضبط شود. (الزامی)', call_may_record: 'ممکن است این تماس برای کیفیت و امنیت ضبط شود.', start_call: 'شروع تماس', send_request: 'ارسال درخواست',
-      err_recording_required: 'برای ادامه، رضایت ضبط تماس الزامی است.', err_recording_accept: 'برای شروع تماس لطفاً رضایت ضبط را تأیید کنید.', err_department: 'این دپارتمان برای این نوع تماس در دسترس نیست. لطفاً دپارتمان دیگری انتخاب کنید.', err_failed_start: 'شروع تماس ناموفق بود.', err_wait_seconds: 'لطفاً {n} ثانیه قبل از ارسال درخواست بعدی صبر کنید.', err_contact_required: 'لطفاً ایمیل یا تلفن خود را وارد کنید تا بتوانیم با شما تماس بگیریم.', err_message_short: 'لطفاً درخواست خود را حداقل در {n} کاراکتر توضیح دهید.', err_future_time: 'لطفاً یک زمان معتبر در آینده انتخاب کنید.', err_too_fast: 'خیلی سریع بود. لطفاً کمی برای تکمیل فرم زمان بگذارید.', err_cooldown: 'قبلاً درخواست تماس ثبت کرده‌اید. لطفاً {n} ثانیه صبر کنید.', err_rate_limited: 'درخواست‌های زیادی از شبکه شما ارسال شده است. بعداً دوباره تلاش کنید.', err_callback_unavailable: 'درخواست تماس در حال حاضر در دسترس نیست.', err_failed: 'ناموفق بود.'
+      err_recording_required: 'برای ادامه، رضایت ضبط تماس الزامی است.', err_recording_accept: 'برای شروع تماس لطفاً رضایت ضبط را تأیید کنید.', err_department: 'این دپارتمان برای این نوع تماس در دسترس نیست. لطفاً دپارتمان دیگری انتخاب کنید.', err_failed_start: 'شروع تماس ناموفق بود.', err_wait_seconds: 'لطفاً {n} ثانیه قبل از ارسال درخواست بعدی صبر کنید.', err_contact_required: 'لطفاً ایمیل یا تلفن خود را وارد کنید تا بتوانیم با شما تماس بگیریم.', err_message_short: 'لطفاً درخواست خود را حداقل در {n} کاراکتر توضیح دهید.', err_future_time: 'لطفاً یک زمان معتبر در آینده انتخاب کنید.', err_too_fast: 'خیلی سریع بود. لطفاً کمی برای تکمیل فرم زمان بگذارید.', err_cooldown: 'قبلاً درخواست تماس ثبت کرده‌اید. لطفاً {n} ثانیه صبر کنید.', err_rate_limited: 'درخواست‌های زیادی از شبکه شما ارسال شده است. بعداً دوباره تلاش کنید.', err_callback_unavailable: 'درخواست تماس در حال حاضر در دسترس نیست.', err_failed: 'ناموفق بود.',
+      queue_wait_announce: 'شما در صف انتظار هستید. لطفاً صبر کنید، به‌زودی شما را به اپراتور متصل می‌کنیم.'
     },
     tr: {
       talk_now: 'Şimdi konuş', callback: 'Geri arama', live_support: 'Canlı destek', leave_details: 'Bilgilerini bırak', support: 'Destek',
@@ -72,7 +74,8 @@
       in_call: 'Aramada', connected_waiting: 'Bağlandı — bekliyor', connecting: 'Bağlanıyor', recording_progress: '● Kayıt devam ediyor', recording_may_start: 'Kayıt, operatör aramayı başlattıktan sonra başlayabilir.', mute: '🎙 Sessize al', unmute: '🎙 Sesi aç', camera_off: '🎥 Kamerayı kapat', camera_on: '🎥 Kamerayı aç', end: 'Bitir',
       callback_scheduled: 'Geri arama planlandı', reach_out: 'Ekibimiz {when} size ulaşacak.', asap: 'en kısa sürede', video_callback: 'Görüntülü geri arama', phone_callback: 'Telefonla geri arama', reference: 'Referans', type: 'Tür', done: 'Tamam', call_ended: 'Arama sona erdi.', error_prefix: 'Hata: {error}', unknown: 'bilinmiyor', back: 'Geri',
       request_callback_title: 'Geri arama iste', callback_intro: 'Size nasıl ulaşacağımızı yazın — ekibimiz hızlıca döner.', callback_type: 'Geri arama türü', phone: '🎙 Telefon', video: '🎥 Video', department: 'Departman', choose_department: 'Departman seçin', known_contact: 'Bilinen kişi', contact_saved: 'İletişim bilgileri kayıtlı', subject: 'Konu', full_name: 'Ad soyad', email: 'E-posta', email_required: 'E-posta *', phone_field: 'Telefon', phone_required: 'Telefon *', contact_required_note: '* Size ulaşabilmemiz için e-posta veya telefon gerekir.', message_min: 'Mesaj (en az {n} karakter)', message_optional: 'Mesaj (isteğe bağlı)', message_placeholder: 'Neye ihtiyacınız olduğunu kısaca yazın…', when_call: 'Ne zaman arayalım?', schedule: '🗓 Planla', priority: 'Öncelik', normal: 'Normal', urgent: '🔥 Acil', consent_required: ' Bu aramanın kalite ve güvenlik için kaydedilmesine izin veriyorum. (gerekli)', call_may_record: 'Bu arama kalite ve güvenlik için kaydedilebilir.', start_call: 'Aramayı başlat', send_request: 'İstek gönder',
-      err_recording_required: 'Devam etmek için kayıt onayı gereklidir.', err_recording_accept: 'Aramayı başlatmak için lütfen kayıt onayını kabul edin.', err_department: 'Bu departman bu arama türü için uygun değil. Lütfen başka bir departman seçin.', err_failed_start: 'Arama başlatılamadı.', err_wait_seconds: 'Yeni istek göndermeden önce lütfen {n} sn bekleyin.', err_contact_required: 'Size ulaşabilmemiz için lütfen e-posta veya telefon girin.', err_message_short: 'Lütfen isteğinizi en az {n} karakterle açıklayın.', err_future_time: 'Lütfen gelecekte geçerli bir zaman seçin.', err_too_fast: 'Çok hızlı oldu. Lütfen formu doldurmak için biraz zaman ayırın.', err_cooldown: 'Zaten bir geri arama istediniz. Lütfen {n} sn bekleyin.', err_rate_limited: 'Ağınızdan çok fazla geri arama isteği geldi. Lütfen daha sonra deneyin.', err_callback_unavailable: 'Geri arama istekleri şu anda kullanılamıyor.', err_failed: 'Başarısız.'
+      err_recording_required: 'Devam etmek için kayıt onayı gereklidir.', err_recording_accept: 'Aramayı başlatmak için lütfen kayıt onayını kabul edin.', err_department: 'Bu departman bu arama türü için uygun değil. Lütfen başka bir departman seçin.', err_failed_start: 'Arama başlatılamadı.', err_wait_seconds: 'Yeni istek göndermeden önce lütfen {n} sn bekleyin.', err_contact_required: 'Size ulaşabilmemiz için lütfen e-posta veya telefon girin.', err_message_short: 'Lütfen isteğinizi en az {n} karakterle açıklayın.', err_future_time: 'Lütfen gelecekte geçerli bir zaman seçin.', err_too_fast: 'Çok hızlı oldu. Lütfen formu doldurmak için biraz zaman ayırın.', err_cooldown: 'Zaten bir geri arama istediniz. Lütfen {n} sn bekleyin.', err_rate_limited: 'Ağınızdan çok fazla geri arama isteği geldi. Lütfen daha sonra deneyin.', err_callback_unavailable: 'Geri arama istekleri şu anda kullanılamıyor.', err_failed: 'Başarısız.',
+      queue_wait_announce: 'Bekleme kuyruğundasınız. Lütfen bekleyin, kısa süre içinde sizi bir operatöre bağlayacağız.'
     },
   };
 
@@ -139,7 +142,11 @@
 
   // ── Visitor-side ringback (on-hold) audio ────────────────────────────
   var Ringback = (function () {
-    var ctx = null, timer = null, active = false, audioEl = null, mode = 'off', lastCfg = null, needsGesture = false, unlockHandlersInstalled = false;
+    var ctx = null, timer = null, holdTimer = null, speakTimer = null, active = false, audioEl = null, mode = 'off', lastCfg = null, needsGesture = false, unlockHandlersInstalled = false;
+    var phase = 'hold';
+    var locale = 'en';
+    var announceText = '';
+    var LANG_MAP = { en: 'en-US', fa: 'fa-IR', tr: 'tr-TR' };
     function ensure() {
       try {
         if (typeof window === 'undefined') return null;
@@ -166,7 +173,7 @@
       try {
         if (c.state === 'suspended' && c.resume) {
           var rp = c.resume();
-          if (rp && rp.then) rp.then(function () { needsGesture = false; startToneLoop(); }).catch(function () { needsGesture = true; installUnlockHandlers(); });
+          if (rp && rp.then) rp.then(function () { needsGesture = false; startPhase(); }).catch(function () { needsGesture = true; installUnlockHandlers(); });
         }
         // A near-silent oscillator is more reliable than a zero-length buffer
         // on mobile Safari for preserving the user-activation audio unlock.
@@ -214,13 +221,91 @@
         }
       } catch (_) { needsGesture = true; installUnlockHandlers(); }
     }
-    function startToneLoop() {
-      if (!active || mode !== 'tone' || timer) return;
-      ringOnce();
-      timer = setInterval(ringOnce, 2800);
+    function holdChord() {
+      var c = ensure(); if (!c || !active || mode !== 'tone') return;
+      if (c.state && c.state !== 'running') {
+        needsGesture = true; installUnlockHandlers();
+        try { var p = c.resume && c.resume(); if (p && p.then) p.then(function () { needsGesture = false; }).catch(function () {}); } catch (_) {}
+        return;
+      }
+      try {
+        var t0 = c.currentTime + 0.02;
+        // Soft minor pad: A3, C#4, E4 — gentle, looped
+        var freqs = [220.0, 277.18, 329.63];
+        freqs.forEach(function (f, idx) {
+          var osc = c.createOscillator();
+          var g = c.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(f, t0);
+          g.gain.setValueAtTime(0.0001, t0);
+          g.gain.exponentialRampToValueAtTime(0.05 - idx * 0.008, t0 + 0.8);
+          g.gain.setValueAtTime(0.05 - idx * 0.008, t0 + 3.2);
+          g.gain.exponentialRampToValueAtTime(0.0001, t0 + 4.4);
+          osc.connect(g).connect(c.destination);
+          osc.start(t0);
+          osc.stop(t0 + 4.5);
+        });
+      } catch (_) {}
+    }
+    function speakAnnounce() {
+      if (!active || phase !== 'hold' || !announceText) return;
+      try {
+        if (typeof window === 'undefined' || !window.speechSynthesis) return;
+        var u = new window.SpeechSynthesisUtterance(announceText);
+        u.lang = LANG_MAP[locale] || 'en-US';
+        u.rate = 0.95;
+        u.volume = 0.95;
+        try { window.speechSynthesis.cancel(); } catch (_) {}
+        window.speechSynthesis.speak(u);
+      } catch (_) {}
+    }
+    function clearTimers() {
+      if (timer) { try { clearInterval(timer); } catch (_) {} timer = null; }
+      if (holdTimer) { try { clearInterval(holdTimer); } catch (_) {} holdTimer = null; }
+      if (speakTimer) { try { clearInterval(speakTimer); } catch (_) {} speakTimer = null; }
+    }
+    function startPhase() {
+      clearTimers();
+      if (!active) return;
+      if (audioEl) {
+        try { audioEl.volume = phase === 'ring' ? 0.62 : 0.38; } catch (_) {}
+      }
+      if (mode !== 'tone') {
+        // music URL handles its own loop; only schedule announcements during hold
+        if (phase === 'hold' && announceText) {
+          speakAnnounce();
+          speakTimer = setInterval(speakAnnounce, 14000);
+        }
+        return;
+      }
+      if (phase === 'ring') {
+        ringOnce();
+        timer = setInterval(ringOnce, 2800);
+      } else {
+        holdChord();
+        holdTimer = setInterval(holdChord, 4500);
+        if (announceText) {
+          speakAnnounce();
+          speakTimer = setInterval(speakAnnounce, 14000);
+        }
+      }
     }
     return {
       prime: function () { unlock(); },
+      setLocale: function (loc, text) {
+        if (loc) locale = String(loc);
+        if (text != null) announceText = String(text || '');
+      },
+      setPhase: function (p) {
+        var next = p === 'ring' ? 'ring' : 'hold';
+        if (next === phase) return;
+        phase = next;
+        if (phase === 'ring') {
+          try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (_) {}
+        }
+        if (active) startPhase();
+      },
+      getPhase: function () { return phase; },
       start: function (cfg) {
         lastCfg = cfg || lastCfg || {};
         mode = (lastCfg && lastCfg.ringback_mode) || 'tone';
@@ -229,26 +314,27 @@
         if (mode === 'music' && lastCfg.ringback_music_url) {
           try {
             if (!audioEl) audioEl = new Audio(lastCfg.ringback_music_url);
-            audioEl.loop = true; audioEl.volume = 0.62;
+            audioEl.loop = true; audioEl.volume = phase === 'ring' ? 0.62 : 0.38;
             var p = audioEl.play();
             if (p && p.then) p.then(function () { needsGesture = false; }).catch(function () { needsGesture = true; installUnlockHandlers(); });
           } catch (_) { needsGesture = true; installUnlockHandlers(); }
+          startPhase();
           return;
         }
         mode = 'tone';
         unlock();
-        startToneLoop();
+        startPhase();
       },
       stop: function () {
         active = false; needsGesture = false;
-        if (timer) { try { clearInterval(timer); } catch (_) {} timer = null; }
+        clearTimers();
+        try { if (typeof window !== 'undefined' && window.speechSynthesis) window.speechSynthesis.cancel(); } catch (_) {}
         if (audioEl) { try { audioEl.pause(); audioEl.src = ''; } catch (_) {} audioEl = null; }
       },
       startFromGesture: function (cfg) {
         lastCfg = cfg || lastCfg || {};
         unlock();
         this.start(lastCfg);
-        if (mode === 'tone') ringOnce();
       },
       needsGesture: function () { return !!needsGesture; },
       isActive: function () { return active; },
@@ -435,6 +521,10 @@
     // (a different click than the initial Voice/Video button).
     try { Ringback.prime(); } catch (_) {}
     try {
+      Ringback.setLocale(this.locale, this.t('queue_wait_announce'));
+      Ringback.setPhase('hold');
+    } catch (_) {}
+    try {
       // Start while still inside the click gesture. Starting after the
       // /calls/request promise resolves is blocked by Safari/Chrome autoplay
       // rules on many devices, even if the AudioContext was primed earlier.
@@ -496,6 +586,11 @@
       // Start ringback (visitor-side on-hold audio).
       try {
         var qe = (self.bootstrap && self.bootstrap.queue_experience) || {};
+        Ringback.setLocale(self.locale, self.t('queue_wait_announce'));
+        // Begin in hold phase — gentle pad + spoken "please wait" announcement.
+        // Phase will flip to 'ring' once we are first in queue / state=ringing.
+        var initialPhase = (self.queuePosition === 1) ? 'ring' : 'hold';
+        Ringback.setPhase(initialPhase);
         Ringback.start(qe);
         if (Ringback.needsGesture && Ringback.needsGesture()) self.render();
       } catch (_) {}
@@ -556,6 +651,7 @@
         self.state = STATES.ENDED; self.render(); return;
       }
       if (['active', 'ringing', 'connecting'].indexOf(c.state) >= 0) {
+        try { Ringback.setPhase('ring'); } catch (_) {}
         if (self.state !== STATES.IN_CALL) {
           try { Ringback.stop(); } catch (_) {}
           self.state = STATES.IN_CALL; self.render();
@@ -563,6 +659,9 @@
         }
       } else {
         // Still queued — refresh queue UI with latest position/eta.
+        try {
+          Ringback.setPhase(self.queuePosition === 1 ? 'ring' : 'hold');
+        } catch (_) {}
         if (self.state === STATES.QUEUE) self.render();
       }
     });

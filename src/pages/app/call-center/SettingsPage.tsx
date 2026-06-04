@@ -165,6 +165,102 @@ export default function CallCenterSettingsPage() {
         </Row>
       </Section>
 
+      {(() => {
+        const LOC_LABELS: Record<string, { label: string; native: string }> = {
+          en: { label: 'English', native: 'English' },
+          fa: { label: 'Persian', native: 'فارسی' },
+          tr: { label: 'Turkish', native: 'Türkçe' },
+        };
+        const platformAvail: string[] = (platform as any)?.widget_available_locales || ['en'];
+        const platformDefault: string = (platform as any)?.widget_default_locale || 'en';
+        const wsEnabled: string[] = (s.widget_enabled_locales && s.widget_enabled_locales.length > 0)
+          ? s.widget_enabled_locales
+          : platformAvail;
+        const wsDefault: string = s.widget_default_locale
+          || (platformAvail.includes(platformDefault) ? platformDefault : platformAvail[0]);
+        const effective = wsEnabled.filter((c) => platformAvail.includes(c));
+        return (
+          <Section
+            title="Widget languages"
+            description="Choose which languages your widget exposes to visitors and which one is the default. Only languages allowed by the platform are shown."
+          >
+            <Row label="Default widget language" hint="Visitors who don't pick a language see the widget in this language.">
+              <Select
+                value={wsDefault}
+                onValueChange={(v) => {
+                  // Auto-include the chosen default in enabled list
+                  const nextEnabled = effective.includes(v) ? effective : [...effective, v];
+                  setS({ ...s, widget_default_locale: v, widget_enabled_locales: nextEnabled });
+                }}
+              >
+                <SelectTrigger className="w-60"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {platformAvail.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {(LOC_LABELS[c]?.label) || c} <span className="text-muted-foreground ms-1">({LOC_LABELS[c]?.native || c})</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Row>
+
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2"><Languages className="h-3.5 w-3.5" /> Enabled languages</Label>
+              <p className="text-xs text-muted-foreground">
+                Toggle which languages are offered in the widget's language switcher. The default
+                language is always enabled.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                {platformAvail.map((c) => {
+                  const isOn = effective.includes(c);
+                  const isDefault = wsDefault === c;
+                  return (
+                    <label
+                      key={c}
+                      className={cn(
+                        'flex items-center justify-between gap-2 rounded-lg border px-3 py-2 cursor-pointer transition',
+                        isOn ? 'border-primary bg-primary/5' : 'border-input hover:bg-muted/40',
+                        isDefault && 'ring-1 ring-primary',
+                      )}
+                    >
+                      <span className="text-sm">
+                        {(LOC_LABELS[c]?.label) || c}
+                        <span className="text-muted-foreground ms-1">{LOC_LABELS[c]?.native || c}</span>
+                        {isDefault && (
+                          <span className="ms-2 text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/30">
+                            Default
+                          </span>
+                        )}
+                      </span>
+                      <Switch
+                        checked={isOn}
+                        disabled={isDefault}
+                        onCheckedChange={(v) => {
+                          let next = effective.slice();
+                          if (v) {
+                            if (!next.includes(c)) next.push(c);
+                          } else {
+                            next = next.filter((x) => x !== c);
+                          }
+                          if (!next.includes(wsDefault)) next.push(wsDefault);
+                          setS({ ...s, widget_enabled_locales: next });
+                        }}
+                      />
+                    </label>
+                  );
+                })}
+              </div>
+              {platformAvail.length <= 1 && (
+                <p className="text-xs text-amber-600">
+                  The platform currently allows only one language. Ask the platform admin to enable
+                  more languages in the super-admin Call Center settings.
+                </p>
+              )}
+            </div>
+          </Section>
+        );
+      })()}
+
       <Section title="Call modes" description="Choose which channels visitors can use.">
         <Row label="Voice calls" locked={!platformVoice ? 'Disabled by platform' : undefined}>
           <Switch checked={!!s.voice_enabled} onCheckedChange={(v) => setS({ ...s, voice_enabled: v })} disabled={!platformVoice} />

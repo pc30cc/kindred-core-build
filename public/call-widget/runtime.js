@@ -301,8 +301,15 @@
       }
       self.callId = r.body.call_id;
       self.queueStartedAt = Date.now();
+      self.queuePosition = typeof r.body.queue_position === 'number' ? r.body.queue_position : null;
+      self.queueEta = null;
       self.state = STATES.QUEUE;
       self.render();
+      // Start ringback (visitor-side on-hold audio).
+      try {
+        var qe = (self.bootstrap && self.bootstrap.queue_experience) || {};
+        Ringback.start(qe);
+      } catch (_) {}
       self.startPolling();
       self.startTimer();
     }).catch(function (e) {

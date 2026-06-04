@@ -587,10 +587,11 @@
       try {
         var qe = (self.bootstrap && self.bootstrap.queue_experience) || {};
         Ringback.setLocale(self.locale, self.t('queue_wait_announce'));
-        // Begin in hold phase — gentle pad + spoken "please wait" announcement.
-        // Phase will flip to 'ring' once we are first in queue / state=ringing.
-        var initialPhase = (self.queuePosition === 1) ? 'ring' : 'hold';
-        Ringback.setPhase(initialPhase);
+        // Always begin in hold phase — gentle pad + spoken "please wait"
+        // announcement. Phase only flips to 'ring' when the server reports
+        // call.state = 'ringing' / 'connecting' / 'active' (operator is
+        // actually being rung). Queue position alone never triggers ringing.
+        Ringback.setPhase('hold');
         Ringback.start(qe);
         if (Ringback.needsGesture && Ringback.needsGesture()) self.render();
       } catch (_) {}
@@ -659,9 +660,10 @@
         }
       } else {
         // Still queued — refresh queue UI with latest position/eta.
-        try {
-          Ringback.setPhase(self.queuePosition === 1 ? 'ring' : 'hold');
-        } catch (_) {}
+        // Keep playing soft hold music + announcement; do NOT ring just
+        // because the visitor is first in queue. Ringing is reserved for
+        // when the server actually marks the call as ringing/active.
+        try { Ringback.setPhase('hold'); } catch (_) {}
         if (self.state === STATES.QUEUE) self.render();
       }
     });

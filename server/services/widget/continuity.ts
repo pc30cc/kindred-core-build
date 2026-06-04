@@ -20,14 +20,63 @@ const CONTINUITY_TTL_DAYS = 90;
 const CONTINUITY_COOKIE_NAME = 'dvcid';
 const CONTINUITY_TTL_SECONDS = CONTINUITY_TTL_DAYS * 24 * 60 * 60;
 
-function hashContinuityToken(token: string): string {
-  // Use HMAC for keyed hash so a DB leak alone doesn't allow precomputed attacks
+interface SignedContactContinuityPayload {
+  v: 1;
+  w: string;
+  c: string;
+  iat: number;
+  exp: number;
+}
+
+function getContinuitySecret(): string {
   const key = process.env.WIDGET_CONTINUITY_SECRET
     || process.env.WIDGET_SIGNING_SECRET
     || process.env.SUPABASE_SERVICE_ROLE_KEY
     || '';
   if (!key) throw new Error('Missing WIDGET_CONTINUITY_SECRET');
+  return key;
+}
+
+function hashContinuityToken(token: string): string {
+  // Use HMAC for keyed hash so a DB leak alone doesn't allow precomputed attacks
+  const key = getContinuitySecret();
   return crypto.createHmac('sha256', 'continuity:' + key).update(token).digest('hex');
+}
+
+function signContactPayload(payloadB64: string): string {
+  return crypto
+    .createHmac('sha256', 'contact-continuity:' + getContinuitySecret())
+    .update(payloadB64)
+    .digest('base64url');
+}
+
+export function createSignedContactContinuityToken(workspaceId: string, contactId: string): string {
+  const now = Math.floor(Date.now() / 1000);
+  const payload: SignedContactContinuityPayload = {
+    v: 1,
+    w: workspaceId,
+    c: contactId,
+    iat: now,
+    exp: now + CONTINUITY_TTL_SECONDS,
+  };
+  const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  return `cc1.${body}.${signContactPayload(body)}`;
+}
+
+function decodeSignedContactContinuityToken(token: string, workspaceId: string): SignedContactContinuityPayload | null {
+  if (!token.startsWith('cc1.')) return null;
+  const [, body, sig] = token.split('.');
+  if (!body || !sig) return null;
+  const expected = signContactPayload(body);
+  if (expected.length !== sig.length) return null;
+  if (!crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(sig))) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as SignedContactContinuityPayload;
+    if (payload.v !== 1 || payload.w !== workspaceId || !payload.c || payload.exp < Math.floor(Date.now() / 1000)) return null;
+    return payload;
+  } catch {
+    return null;
+  }
 }
 
 export interface IssuedContinuityToken {
@@ -53,16 +102,20 @@ export async function persistContinuityToken(
   supabase: SupabaseClient,
   opts: AttachContinuityOptions
 ): Promise<{ token: string; expiresAt: Date } | null> {
-  const issued = issueContinuityToken();
-  const { error } = await supabase.from('user_continuity_tokens').insert({
-    workspace_id: opts.workspaceId,
-    contact_id: opts.contactId,
-    token_hash: issued.tokenHash,
-    device_info: opts.deviceInfo || {},
-    expires_at: issued.expiresAt.toISOString(),
-  });
-  if (error) return null;
-  return { token: issued.token, expiresAt: issued.expiresAt };
+  try {
+    const issued = issueContinuityToken();
+    const { error } = await supabase.from('user_continuity_tokens').insert({
+      workspace_id: opts.workspaceId,
+      contact_id: opts.contactId,
+      token_hash: issued.tokenHash,
+      device_info: opts.deviceInfo || {},
+      expires_at: issued.expiresAt.toISOString(),
+    });
+    if (error) return null;
+    return { token: issued.token, expiresAt: issued.expiresAt };
+  } catch {
+    return null;
+  }
 }
 
 export function setContinuityCookie(res: Response, token: string, req?: Request | null): void {
@@ -98,7 +151,23 @@ export async function resolveContinuityToken(
   token: string
 ): Promise<ResolveContinuityResult> {
   if (!token) return { valid: false, error: 'missing_token' };
-  const tokenHash = hashContinuityToken(token);
+  const signed = decodeSignedContactContinuityToken(token, workspaceId);
+  if (signed?.c) {
+    const { data: contact } = await supabase
+      .from('contacts')
+      .select('id')
+      .eq('workspace_id', workspaceId)
+      .eq('id', signed.c)
+      .maybeSingle();
+    return contact?.id ? { valid: true, contactId: contact.id } : { valid: false, error: 'contact_not_found' };
+  }
+
+  let tokenHash: string;
+  try {
+    tokenHash = hashContinuityToken(token);
+  } catch {
+    return { valid: false, error: 'server_secret_missing' };
+  }
 
   const { data: row } = await supabase
     .from('user_continuity_tokens')

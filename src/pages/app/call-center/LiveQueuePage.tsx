@@ -162,18 +162,56 @@ function urgencyTone(iso: string): 'neutral' | 'warn' | 'danger' {
   return 'neutral';
 }
 
-function StatChip({ label, value, tone = 'muted' }: { label: string; value: React.ReactNode; tone?: 'muted' | 'ok' | 'warn' | 'danger' }) {
+function StatChip({
+  label, value, icon: Icon, tone = 'muted',
+}: {
+  label: string;
+  value: React.ReactNode;
+  icon?: React.ComponentType<{ className?: string }>;
+  tone?: 'muted' | 'ok' | 'warn' | 'danger' | 'primary';
+}) {
   const map = {
-    muted: 'bg-muted/60 text-foreground',
-    ok: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
-    warn: 'bg-amber-500/10 text-amber-700 dark:text-amber-300',
-    danger: 'bg-destructive/10 text-destructive',
+    muted: 'bg-muted/60 text-foreground ring-border',
+    primary: 'bg-primary/10 text-primary ring-primary/20',
+    ok: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 ring-emerald-500/20',
+    warn: 'bg-amber-500/10 text-amber-700 dark:text-amber-300 ring-amber-500/20',
+    danger: 'bg-destructive/10 text-destructive ring-destructive/20',
   } as const;
   return (
-    <div className={cn('rounded-md px-2.5 py-1.5 text-xs flex items-center gap-1.5', map[tone])}>
-      <span className="text-muted-foreground">{label}</span>
-      <span className="font-semibold">{value}</span>
+    <div className={cn('rounded-lg px-3 py-2 ring-1 flex items-center gap-2.5 min-w-[110px]', map[tone])}>
+      {Icon && <Icon className="h-4 w-4 opacity-80" />}
+      <div className="leading-tight">
+        <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
+        <div className="text-sm font-semibold tabular-nums">{value}</div>
+      </div>
     </div>
+  );
+}
+
+function formatWait(iso: string) {
+  const s = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return m > 0 ? `${m}:${r.toString().padStart(2, '0')}` : `0:${r.toString().padStart(2, '0')}`;
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        navigator.clipboard?.writeText(text).then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1200);
+        });
+      }}
+      className="opacity-60 hover:opacity-100 transition-opacity"
+      title="Copy"
+    >
+      {copied ? <Check className="h-3 w-3 text-emerald-600" /> : <Copy className="h-3 w-3" />}
+    </button>
   );
 }
 

@@ -695,6 +695,7 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
     call_id: call!.id,
     queue_position: (queued || 0) + 1,
     session: newSession,
+    contact: identity.contact,
   });
 });
 

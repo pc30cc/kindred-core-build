@@ -644,6 +644,7 @@
     try { Ringback.prime(); } catch (_) {}
     try {
       Ringback.setLocale(this.locale, this.t('queue_wait_announce'));
+      Ringback.setQueuePosition(this.queuePosition);
       Ringback.setPhase('hold');
     } catch (_) {}
     try {
@@ -709,6 +710,7 @@
       try {
         var qe = (self.bootstrap && self.bootstrap.queue_experience) || {};
         Ringback.setLocale(self.locale, self.t('queue_wait_announce'));
+        Ringback.setQueuePosition(self.queuePosition);
         // Always begin in hold phase — gentle pad + spoken "please wait"
         // announcement. Phase only flips to 'ring' when the server reports
         // call.state = 'ringing' / 'connecting' / 'active' (operator is
@@ -768,6 +770,7 @@
       var c = r.body.call; if (!c) return;
       self.call = c;
       if (typeof r.body.position === 'number') self.queuePosition = r.body.position;
+      try { Ringback.setQueuePosition(self.queuePosition); } catch (_) {}
       if (typeof r.body.eta_seconds === 'number') self.queueEta = r.body.eta_seconds;
       if (['cancelled', 'ended', 'missed', 'failed'].indexOf(c.state) >= 0) {
         self.stopPolling(); self.stopTimer(); try { Ringback.stop(); } catch (_) {}

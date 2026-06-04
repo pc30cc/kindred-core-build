@@ -41,6 +41,9 @@ export interface PlatformCallCenterSettings {
   queue_offer_callback_after_seconds: number;
   /** Audible notification on the operator side when a new call hits the queue. */
   operator_new_call_sound_enabled: boolean;
+  /** Widget language defaults / catalog (super-admin scope). */
+  widget_default_locale: 'en' | 'fa' | 'tr';
+  widget_available_locales: string[];
   updated_at: string;
 }
 
@@ -68,6 +71,9 @@ export interface WorkspaceCallCenterSettings {
   default_department_id: string | null;
   departments_enabled: boolean;
   allow_visitor_department_choice: boolean;
+  /** Widget language overrides (workspace scope). Null = inherit platform. */
+  widget_default_locale: 'en' | 'fa' | 'tr' | null;
+  widget_enabled_locales: string[] | null;
   created_at: string;
   updated_at: string;
 }

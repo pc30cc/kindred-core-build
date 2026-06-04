@@ -11,7 +11,7 @@ import { useEffect, useMemo, useState, useRef } from 'react';
 import { toast } from '@/hooks/use-toast';
 import { callCenterApi } from '@/lib/call-center-api';
 import { useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, ChevronDown, RotateCcw, Save } from 'lucide-react';
+import { AlertCircle, ChevronDown, RotateCcw, Save, Languages } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Link, useParams } from 'react-router-dom';
 // CC-2G-UI-Architecture-Fix — read canonical departments from
@@ -80,7 +80,7 @@ export default function CallCenterSettingsPage() {
       'enabled', 'display_name', 'voice_enabled', 'video_enabled', 'callback_enabled',
       'pre_call_form_enabled', 'offline_behavior', 'recording_enabled',
       'recording_consent_required', 'routing_mode', 'widget_position',
-      'default_department_id',
+      'default_department_id', 'widget_default_locale', 'widget_enabled_locales',
     ];
     return keys.some((k) => JSON.stringify(s[k]) !== JSON.stringify(original[k]));
   }, [s, original]);
@@ -104,6 +104,8 @@ export default function CallCenterSettingsPage() {
       recording_consent_required: s.recording_consent_required, routing_mode: s.routing_mode,
       widget_position: s.widget_position, business_hours: s.business_hours,
       default_department_id: s.default_department_id ?? null,
+      widget_default_locale: s.widget_default_locale ?? null,
+      widget_enabled_locales: s.widget_enabled_locales ?? null,
     });
     setOriginal({ ...s });
     toast({ title: 'Saved' });

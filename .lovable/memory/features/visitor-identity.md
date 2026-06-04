@@ -34,6 +34,7 @@ type: feature
 - `user_continuity_tokens` table (HMAC-SHA256 hashed, 90d TTL, revocable)
 - Routes: `POST /api/widget/identity/continuity/{attach,use,revoke}`
 - Stored hash uses keyed HMAC so DB leak alone can't precompute matches
+- Call widget also issues an HttpOnly signed continuity cookie `dvcid` after first contact merge and restores contact from it on bootstrap if `dvsid` is lost/partitioned. This prevents duplicate contacts after refresh/reopen while keeping IDs out of localStorage.
 
 **Smart history continuation**
 - `GET /api/widget/identity/history` reads `dvsid` cookie, finds contact, returns conversation only if updated_at within `history_continue_window_hours` (default 24h)

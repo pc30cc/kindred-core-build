@@ -818,6 +818,10 @@ const callbackSchema = z.object({
   scheduled_for: z.string().datetime().optional().nullable(),
   page_url: z.string().max(2000).optional().nullable(),
   department_id: z.string().uuid().optional().nullable(),
+  /** Anti-bot: invisible field that humans never fill. */
+  hp_company: z.string().max(200).optional().nullable(),
+  /** Anti-bot: ms timestamp when the form opened (client-reported). */
+  form_opened_at: z.number().int().optional().nullable(),
 });
 
 callWidgetRouter.post('/callbacks/request', async (req, res) => {
@@ -834,7 +838,77 @@ callWidgetRouter.post('/callbacks/request', async (req, res) => {
   if (!effective.callback_enabled) return res.status(403).json({ error: 'feature_not_available' });
   const parsed = callbackSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_body', details: parsed.error.flatten() });
+  // ── Anti-spam enforcement ──────────────────────────────────────────────
+  // 1) Honeypot — bots fill hidden fields. Silently 200 to avoid signal.
+  if (platform.callback_honeypot_enabled && parsed.data.hp_company && parsed.data.hp_company.trim() !== '') {
+    return res.json({ ok: true, callback_id: 'hp_' + crypto.randomBytes(6).toString('hex') });
+  }
+  // 2) Minimum form-fill time.
+  const minFormSec = Math.max(0, platform.callback_min_form_seconds || 0);
+  if (minFormSec > 0 && parsed.data.form_opened_at) {
+    const elapsedSec = Math.floor((Date.now() - Number(parsed.data.form_opened_at)) / 1000);
+    if (elapsedSec >= 0 && elapsedSec < minFormSec) {
+      return res.status(429).json({ error: 'too_fast', retry_after: minFormSec - elapsedSec });
+    }
+  }
+  // 3) Require contact info.
+  if (platform.callback_require_contact) {
+    const hasEmail = !!(parsed.data.email && parsed.data.email.trim());
+    const hasPhone = !!(parsed.data.phone && parsed.data.phone.trim());
+    if (!hasEmail && !hasPhone) {
+      return res.status(400).json({ error: 'contact_required' });
+    }
+  }
+  // 4) Minimum message length.
+  const minMsg = Math.max(0, platform.callback_min_message_length || 0);
+  if (minMsg > 0) {
+    const msg = (parsed.data.message || '').trim();
+    if (msg.length < minMsg) {
+      return res.status(400).json({ error: 'message_too_short', min: minMsg });
+    }
+  }
   const sb = getServiceClient(config);
+  // 5) IP-based rate limit (per hour).
+  const clientIp = getClientIp(req as any);
+  const ipHash = clientIp ? hashIp(clientIp) : null;
+  if (ipHash && platform.callback_max_per_ip_per_hour > 0) {
+    const sinceHour = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const { count } = await sb
+      .from('callback_requests')
+      .select('id', { count: 'exact', head: true })
+      .eq('workspace_id', ws.workspace_id)
+      .gte('created_at', sinceHour)
+      .contains('metadata', { ip_hash: ipHash });
+    if ((count ?? 0) >= platform.callback_max_per_ip_per_hour) {
+      return res.status(429).json({ error: 'rate_limited_ip' });
+    }
+  }
+  // 6) Per-visitor cooldown.
+  const cooldownSec = Math.max(0, platform.callback_min_seconds_between_requests || 0);
+  if (cooldownSec > 0) {
+    const sinceCooldown = new Date(Date.now() - cooldownSec * 1000).toISOString();
+    let visitorIdForLookup: string | null = null;
+    try {
+      const cookieVid = readVisitorCookie(req as any);
+      visitorIdForLookup = cookieVid || null;
+    } catch {/* ignore */}
+    if (visitorIdForLookup) {
+      const { data: recent } = await sb
+        .from('callback_requests')
+        .select('id, created_at')
+        .eq('workspace_id', ws.workspace_id)
+        .gte('created_at', sinceCooldown)
+        .contains('metadata', { visitor_id: visitorIdForLookup })
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (recent) {
+        const ageMs = Date.now() - new Date((recent as any).created_at).getTime();
+        const retryAfter = Math.max(1, Math.ceil((cooldownSec * 1000 - ageMs) / 1000));
+        return res.status(429).json({ error: 'cooldown_active', retry_after: retryAfter });
+      }
+    }
+  }
   // Validate optional visitor-selected department.
   let cbDepartmentId: string | null = parsed.data.department_id || null;
   if (cbDepartmentId) {

@@ -167,7 +167,11 @@
     var depts2 = (this.bootstrap && this.bootstrap.departments) || {};
     var list2 = (callType === 'video' ? depts2.video : depts2.voice) || [];
     var needsDepartmentChoice = list2.length > 1;
-    if (cfg.pre_call_form_enabled || consentNeeded || passiveNotice || needsDepartmentChoice) {
+    // Returning visitors with a known contact identity skip the pre-call
+    // form unless we still need consent / department choice / a notice.
+    var alreadyIdentified = !!(this.identifiedContact && (this.identifiedContact.email || this.identifiedContact.phone));
+    var needFormFields = cfg.pre_call_form_enabled && !alreadyIdentified;
+    if (needFormFields || consentNeeded || passiveNotice || needsDepartmentChoice) {
       this.state = STATES.PRE_CALL; this.render(); return;
     }
     this.submitCall();

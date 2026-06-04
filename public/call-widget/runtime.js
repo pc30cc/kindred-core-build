@@ -1001,10 +1001,10 @@
       case STATES.QUEUE: {
         var qe = (self.bootstrap && self.bootstrap.queue_experience) || {};
         var capsForCallback = (self.bootstrap && self.bootstrap.capabilities) || {};
-        var queueTitle = self.queuePosition === 1 ? 'You are next' : 'Holding your place';
+        var queueTitle = self.queuePosition === 1 ? tr('you_are_next') : tr('holding_place');
         var queueCopy = self.queuePosition && self.queuePosition > 1
-          ? 'Your request is in the live call queue. Keep this window open while we connect the operator.'
-          : 'We are ringing the next available operator now.';
+          ? tr('queue_copy_many')
+          : tr('queue_copy_next');
         var card = el('div', { class: 'ccw-queue-card' }, [
           el('div', { class: 'ccw-queue-head' }, [
             el('div', { class: 'ccw-queue-orbit' }, [
@@ -1014,7 +1014,7 @@
               el('span', { class: 'ccw-phone-core' }, ['☎']),
             ]),
             el('div', { class: 'ccw-queue-copy-block' }, [
-              el('div', { class: 'ccw-pill live' }, [Ringback.isActive && Ringback.isActive() ? 'Ringing enabled' : 'Ringing operator']),
+              el('div', { class: 'ccw-pill live' }, [Ringback.isActive && Ringback.isActive() ? tr('ringing_enabled') : tr('ringing_operator')]),
               el('div', { class: 'ccw-queue-title' }, [queueTitle]),
               el('div', { class: 'ccw-queue-copy' }, [queueCopy]),
             ]),
@@ -1027,7 +1027,7 @@
             el('span', { class: 'ccw-progress-bar b5' }),
           ]),
           el('div', { class: 'ccw-wait-wrap' }, [
-            el('span', { class: 'ccw-wait-label' }, ['Waiting time']),
+            el('span', { class: 'ccw-wait-label' }, [tr('waiting_time')]),
             el('div', { class: 'ccw-wait-timer', html: '0:00' }),
           ]),
         ]);
@@ -1035,20 +1035,20 @@
           card.appendChild(el('button', {
             class: 'ccw-audio-unlock',
             on: { click: function () { Ringback.startFromGesture(qe); self.render(); } },
-          }, ['🔊 Enable ringing sound']));
+          }, [tr('enable_ringing_sound')]));
         }
         // Position-in-queue chip
         if (qe.show_position !== false && self.queuePosition) {
           var posLabel = self.queuePosition === 1
-            ? 'You are next in line'
-            : 'You are #' + self.queuePosition + ' in the queue';
-          card.appendChild(el('div', { class: 'ccw-queue-pos' }, [el('span', {}, ['Queue position']), el('strong', {}, [posLabel])]));
+            ? tr('you_next_line')
+            : tr('you_queue_number', { n: self.queuePosition });
+          card.appendChild(el('div', { class: 'ccw-queue-pos' }, [el('span', {}, [tr('queue_position')]), el('strong', {}, [posLabel])]));
         }
         // ETA chip
         if (qe.show_eta !== false && typeof self.queueEta === 'number' && self.queueEta > 0) {
           var mins = Math.max(1, Math.round(self.queueEta / 60));
-          var etaLbl = mins <= 1 ? 'Estimated wait: under 1 minute' : 'Estimated wait: ~' + mins + ' minutes';
-          card.appendChild(el('div', { class: 'ccw-queue-eta' }, [el('span', {}, ['ETA']), el('strong', {}, [etaLbl])]));
+          var etaLbl = mins <= 1 ? tr('eta_under_min') : tr('eta_minutes', { n: mins });
+          card.appendChild(el('div', { class: 'ccw-queue-eta' }, [el('span', {}, [tr('eta')]), el('strong', {}, [etaLbl])]));
         }
         var stack = [card];
         // Offer a callback after the configured wait threshold
@@ -1056,11 +1056,11 @@
         var elapsed = self.queueStartedAt ? Math.floor((Date.now() - self.queueStartedAt) / 1000) : 0;
         if (capsForCallback.callback && threshold && threshold > 0 && elapsed >= threshold) {
           stack.push(el('div', { class: 'ccw-callback-offer' }, [
-            el('div', { class: 'ccw-callback-offer-text' }, ['Tired of waiting? We can call you back instead.']),
-            el('button', { class: 'ccw-btn primary', on: { click: function () { self.cancelCall(); setTimeout(function () { self.openCallback(); }, 50); } } }, ['Request a callback']),
+            el('div', { class: 'ccw-callback-offer-text' }, [tr('tired_waiting')]),
+            el('button', { class: 'ccw-btn primary', on: { click: function () { self.cancelCall(); setTimeout(function () { self.openCallback(); }, 50); } } }, [tr('request_callback')]),
           ]));
         }
-        stack.push(el('button', { class: 'ccw-btn danger', on: { click: function () { self.cancelCall(); } } }, ['Cancel call']));
+        stack.push(el('button', { class: 'ccw-btn danger', on: { click: function () { self.cancelCall(); } } }, [tr('cancel_call')]));
         return el('div', { class: 'ccw-stack' }, stack);
       }
 

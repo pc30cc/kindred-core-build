@@ -396,6 +396,96 @@ export default function AdminCallCenterPage() {
         </div>
       </Card>
 
+      <Card className="p-5 space-y-4">
+        <div className="flex items-start gap-2">
+          <Languages className="h-5 w-5 text-primary mt-0.5" />
+          <div>
+            <h2 className="font-semibold">Widget languages</h2>
+            <p className="text-xs text-muted-foreground">
+              Pick the default widget language and which languages every workspace operator can
+              enable from their own Call Center settings.
+            </p>
+          </div>
+        </div>
+
+        <div>
+          <Label>Default widget language</Label>
+          <Select
+            value={(draft.widget_default_locale as string) || 'en'}
+            onValueChange={(v) => {
+              const next = { ...draft, widget_default_locale: v as any };
+              // Auto-include the default in the available set.
+              const avail = (draft.widget_available_locales || []).slice();
+              if (!avail.includes(v)) avail.push(v);
+              next.widget_available_locales = avail as any;
+              setDraft(next);
+            }}
+          >
+            <SelectTrigger className="w-60 mt-1"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {WIDGET_LOCALES.map((l) => (
+                <SelectItem key={l.code} value={l.code}>
+                  {l.label} <span className="text-muted-foreground ms-1">({l.native})</span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-[11px] text-muted-foreground mt-1">
+            Used by every workspace whose operator hasn't picked their own default.
+          </p>
+        </div>
+
+        <div className="pt-2 border-t">
+          <Label>Languages available to operators</Label>
+          <p className="text-xs text-muted-foreground mb-2">
+            Only checked languages can be turned on per workspace. The default language is always
+            available regardless of these toggles.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            {WIDGET_LOCALES.map((l) => {
+              const list = (draft.widget_available_locales || []) as string[];
+              const isOn = list.includes(l.code);
+              const isDefault = (draft.widget_default_locale || 'en') === l.code;
+              return (
+                <label
+                  key={l.code}
+                  className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2 transition cursor-pointer ${
+                    isOn ? 'border-primary bg-primary/5' : 'border-input hover:bg-muted/40'
+                  } ${isDefault ? 'ring-1 ring-primary' : ''}`}
+                >
+                  <span className="text-sm">
+                    {l.label} <span className="text-muted-foreground ms-1">{l.native}</span>
+                    {isDefault && (
+                      <span className="ms-2 text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/30">
+                        Default
+                      </span>
+                    )}
+                  </span>
+                  <Switch
+                    checked={isOn}
+                    disabled={isDefault}
+                    onCheckedChange={(v) => {
+                      let next = list.slice();
+                      if (v) {
+                        if (!next.includes(l.code)) next.push(l.code);
+                      } else {
+                        next = next.filter((c) => c !== l.code);
+                      }
+                      if (next.length === 0) next = [draft.widget_default_locale || 'en'];
+                      setDraft({ ...draft, widget_available_locales: next as any });
+                    }}
+                  />
+                </label>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="flex gap-2 pt-2">
+          <Button onClick={save} disabled={update.isPending}>Save language settings</Button>
+        </div>
+      </Card>
+
       <Card className="p-5 space-y-3">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div>

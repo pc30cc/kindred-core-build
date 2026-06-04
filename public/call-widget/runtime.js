@@ -91,6 +91,15 @@
     this.bootstrap = opts.bootstrap;
     this.session = opts.bootstrap && opts.bootstrap.session;
 
+    // Pre-fill from previously identified contact (returning visitor).
+    var prefill = opts.bootstrap && opts.bootstrap.visitor && opts.bootstrap.visitor.contact;
+    if (prefill) {
+      this.formData.name = prefill.name || '';
+      this.formData.email = prefill.email || '';
+      this.formData.phone = prefill.phone || '';
+      this.identifiedContact = prefill;
+    }
+
     var host = document.createElement('div');
     host.id = 'call-center-widget-host';
     host.style.all = 'initial';

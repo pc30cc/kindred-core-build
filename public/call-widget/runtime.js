@@ -854,11 +854,23 @@
       case STATES.QUEUE: {
         var qe = (self.bootstrap && self.bootstrap.queue_experience) || {};
         var capsForCallback = (self.bootstrap && self.bootstrap.capabilities) || {};
-        var card = el('div', { class: 'ccw-card' }, [
-          el('div', { class: 'ccw-pill' }, ['● Ringing operator…']),
-          el('div', { class: 'ccw-label' }, ['Please hold, an agent will be with you shortly.']),
+        var card = el('div', { class: 'ccw-queue-card' }, [
+          el('div', { class: 'ccw-queue-orbit' }, [
+            el('span', { class: 'ccw-ring r1' }),
+            el('span', { class: 'ccw-ring r2' }),
+            el('span', { class: 'ccw-phone-core' }, ['☎']),
+          ]),
+          el('div', { class: 'ccw-pill live' }, ['Ringing operator']),
+          el('div', { class: 'ccw-queue-title' }, ['Please hold']),
+          el('div', { class: 'ccw-queue-copy' }, ['We are connecting you with the next available operator.']),
           el('div', { class: 'ccw-wait-timer', html: '0:00' }),
         ]);
+        if (Ringback.needsGesture && Ringback.needsGesture()) {
+          card.appendChild(el('button', {
+            class: 'ccw-audio-unlock',
+            on: { click: function () { Ringback.startFromGesture(qe); self.render(); } },
+          }, ['🔊 Enable ringing sound']));
+        }
         // Position-in-queue chip
         if (qe.show_position !== false && self.queuePosition) {
           var posLabel = self.queuePosition === 1
@@ -916,7 +928,7 @@
         var recBoot = (self.bootstrap && self.bootstrap.recording) || {};
         var callRecState = self.call && self.call.recording_state;
         if (callRecState === 'recording') {
-          card.appendChild(el('div', { class: 'ccw-pill', style: 'background:#dc2626;color:#fff;margin-top:6px;' }, ['● Recording in progress']));
+          card.appendChild(el('div', { class: 'ccw-pill recording' }, ['● Recording in progress']));
         } else if (recBoot.effective_enabled) {
           card.appendChild(el('div', { class: 'ccw-muted', style: 'margin-top:6px;' }, [
             'Recording may start after the operator begins the call.',

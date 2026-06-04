@@ -21,6 +21,11 @@ import { publishQueueEvent, publishCallEvent } from '../services/callCenter/real
 import { buildClientConnectInfo } from '../services/callCenter/connectInfo.js';
 import { computeRecordingCapability } from '../services/callCenter/recording.js';
 import { routeIncomingCall } from '../services/callCenter/routing.js';
+import {
+  resolveVisitorIdentity,
+  readVisitorCookie,
+} from '../services/widget/visitorIdentity.js';
+import { mergeVisitorIdentity } from '../services/widget/identityMerge.js';
 
 export const callWidgetRouter = Router();
 

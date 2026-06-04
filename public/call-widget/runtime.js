@@ -341,6 +341,15 @@
     link.rel = 'stylesheet';
     link.href = this.origin + '/call-widget/runtime.css' + this.runtimeAssetSuffix;
     shadow.appendChild(link);
+    // Load Vazirmatn from Google Fonts for Persian rendering (idempotent).
+    try {
+      if (!document.getElementById('ccw-vazirmatn-font')) {
+        var pre1 = document.createElement('link'); pre1.id = 'ccw-vazirmatn-font';
+        pre1.rel = 'stylesheet';
+        pre1.href = 'https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;700;800;900&display=swap';
+        document.head.appendChild(pre1);
+      }
+    } catch (_) {}
     var root = document.createElement('div');
     root.className = 'ccw-root';
     shadow.appendChild(root);
@@ -950,14 +959,9 @@
 
       case STATES.OFFLINE: {
         var off = el('div', { class: 'ccw-stack' }, [
-          el('div', { class: 'ccw-hero' }, [
-            el('div', { class: 'ccw-hero-topline' }, [
-              el('span', { class: 'ccw-live-chip muted' }, [tr('offline')]),
-              el('span', { class: 'ccw-hero-route' }, [tr('callback_desk')]),
-            ]),
-            el('div', { class: 'ccw-hero-icon' }, ['↩']),
-            el('div', { class: 'ccw-hero-title' }, [tr('leave_callback_request')]),
-            el('div', { class: 'ccw-hero-sub' }, [tr('offline_copy')]),
+          el('div', { class: 'ccw-mini-hero offline' }, [
+            el('div', { class: 'ccw-mini-title' }, [tr('leave_callback_request')]),
+            el('div', { class: 'ccw-mini-sub' }, [tr('offline_copy')]),
           ]),
         ]);
         if (caps.callback) off.appendChild(el('button', { class: 'ccw-btn primary', on: { click: function () { self.openCallback(); } } }, [tr('request_callback')]));
@@ -967,21 +971,7 @@
       case STATES.ONLINE: {
         var pol = (self.bootstrap && self.bootstrap.callback_policy) || {};
         var showCbOnline = pol.show_when_online !== false; // default true
-        var box = el('div', { class: 'ccw-stack' }, [
-          el('div', { class: 'ccw-hero' }, [
-            el('div', { class: 'ccw-hero-topline' }, [
-              el('span', { class: 'ccw-live-chip' }, [tr('live_now')]),
-              el('span', { class: 'ccw-hero-route' }, [tr('channels')]),
-            ]),
-            el('div', { class: 'ccw-hero-title' }, [tr('talk_to_team')]),
-            el('div', { class: 'ccw-hero-sub' }, [tr('online_copy')]),
-            el('div', { class: 'ccw-hero-metrics' }, [
-              el('span', {}, [tr('secure_line')]),
-              el('span', {}, [tr('queue_aware')]),
-              el('span', {}, [tr('fast_handoff')]),
-            ]),
-          ]),
-        ]);
+        var box = el('div', { class: 'ccw-stack' });
         var row = el('div', { class: 'ccw-row' });
         if (caps.voice) row.appendChild(el('button', { class: 'ccw-btn primary', on: { click: function () { self.startCall('voice'); } } }, [el('span', { class: 'ccw-btn-ico' }, ['☎']), tr('voice_call')]));
         if (caps.video) row.appendChild(el('button', { class: 'ccw-btn secondary', on: { click: function () { self.startCall('video'); } } }, [el('span', { class: 'ccw-btn-ico' }, ['◉']), tr('video_call')]));

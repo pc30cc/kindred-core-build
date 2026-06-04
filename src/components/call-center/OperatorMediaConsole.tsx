@@ -576,8 +576,14 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
   // notify the parent so it can unmount the media console. This covers
   // operator-ended, visitor-ended, backend-failure and reconnect-failed
   // paths so the workspace returns to the queue view automatically.
+  // IMPORTANT: parent re-creates `onEndedConfirmed` on every render
+  // (parent polls every 4-5s via react-query). If we depended on it
+  // directly the timeout would be reset forever and the console would
+  // never close. We pin it in a ref and trigger purely on phase.
+  const onEndedConfirmedRef = useRef(onEndedConfirmed);
+  useEffect(() => { onEndedConfirmedRef.current = onEndedConfirmed; }, [onEndedConfirmed]);
+  const firedEndedRef = useRef(false);
   useEffect(() => {
-    if (!onEndedConfirmed) return;
     const terminal =
       phase === 'ended_by_operator' ||
       phase === 'ended_by_visitor' ||
@@ -587,15 +593,19 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
       phase === 'visitor_disconnected' ||
       phase === 'error';
     if (!terminal) return;
+    if (firedEndedRef.current) return;
     // backend_end_failed gives the operator a chance to Retry — wait longer.
     const delay =
       phase === 'backend_end_failed' ? 6000
       : phase === 'visitor_disconnected' ? 2500
       : phase === 'error' ? 4000
       : 1600;
-    const t = setTimeout(() => { try { onEndedConfirmed(); } catch { /* noop */ } }, delay);
+    const t = setTimeout(() => {
+      firedEndedRef.current = true;
+      try { onEndedConfirmedRef.current?.(); } catch { /* noop */ }
+    }, delay);
     return () => clearTimeout(t);
-  }, [phase, onEndedConfirmed]);
+  }, [phase]);
 
   // ── Derived UI bits ───────────────────────────────────────
   const duration = startedAt ? Math.floor((now - startedAt) / 1000) : 0;

@@ -1222,12 +1222,12 @@
       ]));
     }
     var fields = alreadyIdentified
-      ? [['subject', 'Subject', 'text']]
+      ? [['subject', tr('subject'), 'text']]
       : [
-        ['name', 'Full name', 'text'],
-        ['email', !forCall && policy.require_contact ? 'Email *' : 'Email', 'email'],
-        ['phone', !forCall && policy.require_contact ? 'Phone *' : 'Phone', 'tel'],
-        ['subject', 'Subject', 'text'],
+        ['name', tr('full_name'), 'text'],
+        ['email', !forCall && policy.require_contact ? tr('email_required') : tr('email'), 'email'],
+        ['phone', !forCall && policy.require_contact ? tr('phone_required') : tr('phone_field'), 'tel'],
+        ['subject', tr('subject'), 'text'],
       ];
     fields.forEach(function (f) {
       var label = el('label', { class: 'ccw-label' }, [f[1]]);
@@ -1238,7 +1238,7 @@
     });
     if (!forCall && policy.require_contact && !alreadyIdentified) {
       box.appendChild(el('div', { class: 'ccw-muted', style: 'font-size:11px;margin-top:-4px;' }, [
-        '* Email or phone is required so we can reach you.',
+        tr('contact_required_note'),
       ]));
     }
     if (!forCall) {
@@ -1254,23 +1254,23 @@
       }
       // Message textarea
       var msgLabel = policy.min_message_length > 0
-        ? 'Message (min ' + policy.min_message_length + ' chars)'
-        : 'Message (optional)';
+        ? tr('message_min', { n: policy.min_message_length })
+        : tr('message_optional');
       box.appendChild(el('label', { class: 'ccw-label' }, [msgLabel]));
-      var ta = el('textarea', { class: 'ccw-textarea', placeholder: 'Briefly describe what you need help with…' });
+      var ta = el('textarea', { class: 'ccw-textarea', placeholder: tr('message_placeholder') });
       ta.value = self.formData.message || '';
       ta.addEventListener('input', function (e) { self.formData.message = e.target.value; });
       box.appendChild(ta);
       // When
-      box.appendChild(el('label', { class: 'ccw-label' }, ['When should we call?']));
+      box.appendChild(el('label', { class: 'ccw-label' }, [tr('when_call')]));
       var when = el('div', { class: 'ccw-segment' });
       function mkWhen(val, label) {
         var active = (self.formData.callback_when === val);
         return el('button', { class: 'ccw-seg-btn' + (active ? ' active' : ''), type: 'button',
           on: { click: function () { self.formData.callback_when = val; self.render(); } } }, [label]);
       }
-      when.appendChild(mkWhen('now', '⚡ ASAP'));
-      when.appendChild(mkWhen('later', '🗓 Schedule'));
+      when.appendChild(mkWhen('now', '⚡ ' + tr('asap')));
+      when.appendChild(mkWhen('later', tr('schedule')));
       box.appendChild(when);
       if (self.formData.callback_when === 'later') {
         var dt = el('input', { class: 'ccw-input', type: 'datetime-local' });
@@ -1281,15 +1281,15 @@
         box.appendChild(dt);
       }
       // Urgency
-      box.appendChild(el('label', { class: 'ccw-label' }, ['Priority']));
+      box.appendChild(el('label', { class: 'ccw-label' }, [tr('priority')]));
       var ur = el('div', { class: 'ccw-segment' });
       function mkUr(val, label) {
         var active = (self.formData.callback_urgency === val);
         return el('button', { class: 'ccw-seg-btn' + (active ? ' active' : '') + (val === 'urgent' && active ? ' danger' : ''), type: 'button',
           on: { click: function () { self.formData.callback_urgency = val; self.render(); } } }, [label]);
       }
-      ur.appendChild(mkUr('normal', 'Normal'));
-      ur.appendChild(mkUr('urgent', '🔥 Urgent'));
+      ur.appendChild(mkUr('normal', tr('normal')));
+      ur.appendChild(mkUr('urgent', tr('urgent')));
       box.appendChild(ur);
     }
     if (forCall) {
@@ -1300,11 +1300,11 @@
         ci.checked = !!self.formData.consent;
         ci.addEventListener('change', function (e) { self.formData.consent = !!e.target.checked; });
         cb.appendChild(ci);
-        cb.appendChild(document.createTextNode(' I consent to this call being recorded for quality and security. (required)'));
+        cb.appendChild(document.createTextNode(tr('consent_required')));
         box.appendChild(cb);
       } else if (rec.effective_enabled) {
         box.appendChild(el('div', { class: 'ccw-muted' }, [
-          'This call may be recorded for quality and security.',
+          tr('call_may_record'),
         ]));
       }
     }
@@ -1312,7 +1312,7 @@
     var actions = el('div', { class: 'ccw-row' }, [
       el('button', { class: 'ccw-btn secondary', on: { click: function () { self.reset(); } } }, ['Back']),
       el('button', { class: 'ccw-btn primary', on: { click: function () { forCall ? self.submitCall() : self.submitCallback(); } } },
-        [forCall ? 'Start call' : 'Send request']),
+        [forCall ? tr('start_call') : tr('send_request')]),
     ]);
     box.appendChild(actions);
     return box;

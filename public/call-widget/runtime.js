@@ -66,6 +66,73 @@
     return null;
   }
 
+  // ── Visitor-side ringback (on-hold) audio ────────────────────────────
+  var Ringback = (function () {
+    var ctx = null, timer = null, active = false, audioEl = null, mode = 'off';
+    function ensure() {
+      try {
+        if (typeof window === 'undefined') return null;
+        var C = window.AudioContext || window.webkitAudioContext;
+        if (!C) return null;
+        if (!ctx) ctx = new C();
+        if (ctx.state === 'suspended') { try { ctx.resume(); } catch (_) {} }
+        return ctx;
+      } catch (_) { return null; }
+    }
+    function ringOnce() {
+      var c = ensure(); if (!c) return;
+      try {
+        var t0 = c.currentTime;
+        // Classic phone-style "brrring" — two tones at 440/480Hz, 1.2s on, then silent.
+        var pattern = [
+          { f1: 440, f2: 480, at: 0.0, dur: 0.5 },
+          { f1: 440, f2: 480, at: 0.55, dur: 0.5 },
+        ];
+        for (var i = 0; i < pattern.length; i++) {
+          var n = pattern[i];
+          [n.f1, n.f2].forEach(function (f) {
+            var osc = c.createOscillator();
+            var g = c.createGain();
+            osc.type = 'sine'; osc.frequency.setValueAtTime(f, t0 + n.at);
+            g.gain.setValueAtTime(0.0001, t0 + n.at);
+            g.gain.exponentialRampToValueAtTime(0.08, t0 + n.at + 0.03);
+            g.gain.setValueAtTime(0.08, t0 + n.at + n.dur - 0.05);
+            g.gain.exponentialRampToValueAtTime(0.0001, t0 + n.at + n.dur);
+            osc.connect(g).connect(c.destination);
+            osc.start(t0 + n.at);
+            osc.stop(t0 + n.at + n.dur + 0.02);
+          });
+        }
+      } catch (_) {}
+    }
+    return {
+      start: function (cfg) {
+        if (active) return;
+        active = true;
+        mode = (cfg && cfg.ringback_mode) || 'tone';
+        if (!cfg || cfg.ringback_enabled === false || mode === 'off') { active = false; return; }
+        if (mode === 'music' && cfg.ringback_music_url) {
+          try {
+            audioEl = new Audio(cfg.ringback_music_url);
+            audioEl.loop = true; audioEl.volume = 0.5;
+            var p = audioEl.play();
+            if (p && p.catch) p.catch(function () { /* autoplay blocked */ });
+          } catch (_) {}
+          return;
+        }
+        // tone
+        ringOnce();
+        timer = setInterval(ringOnce, 3000);
+      },
+      stop: function () {
+        active = false;
+        if (timer) { try { clearInterval(timer); } catch (_) {} timer = null; }
+        if (audioEl) { try { audioEl.pause(); audioEl.src = ''; } catch (_) {} audioEl = null; }
+      },
+      isActive: function () { return active; },
+    };
+  })();
+
   function CallCenterWidgetCtor() {
     this.state = STATES.LOADING;
     this.bootstrap = null;
@@ -234,8 +301,15 @@
       }
       self.callId = r.body.call_id;
       self.queueStartedAt = Date.now();
+      self.queuePosition = typeof r.body.queue_position === 'number' ? r.body.queue_position : null;
+      self.queueEta = null;
       self.state = STATES.QUEUE;
       self.render();
+      // Start ringback (visitor-side on-hold audio).
+      try {
+        var qe = (self.bootstrap && self.bootstrap.queue_experience) || {};
+        Ringback.start(qe);
+      } catch (_) {}
       self.startPolling();
       self.startTimer();
     }).catch(function (e) {
@@ -250,9 +324,25 @@
     this.timer = setInterval(function () {
       var t = self.root.querySelector('.ccw-wait-timer');
       if (t && self.queueStartedAt) t.textContent = fmtTime(Date.now() - self.queueStartedAt);
+      // Re-render once when the offer-callback threshold is crossed so the
+      // button appears without waiting for the next status poll.
+      if (self.state === STATES.QUEUE && !self._calloutShown) {
+        var qe = (self.bootstrap && self.bootstrap.queue_experience) || {};
+        var caps = (self.bootstrap && self.bootstrap.capabilities) || {};
+        var th = qe.offer_callback_after_seconds || 0;
+        var elapsed = self.queueStartedAt ? Math.floor((Date.now() - self.queueStartedAt) / 1000) : 0;
+        if (caps.callback && th > 0 && elapsed >= th) {
+          self._calloutShown = true;
+          self.render();
+        }
+      }
     }, 1000);
   };
-  CallCenterWidgetCtor.prototype.stopTimer = function () { if (this.timer) clearInterval(this.timer); this.timer = null; };
+  CallCenterWidgetCtor.prototype.stopTimer = function () {
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
+    this._calloutShown = false;
+  };
 
   CallCenterWidgetCtor.prototype.startPolling = function () {
     var self = this;
@@ -269,15 +359,21 @@
       if (!r.ok) return;
       var c = r.body.call; if (!c) return;
       self.call = c;
+      if (typeof r.body.position === 'number') self.queuePosition = r.body.position;
+      if (typeof r.body.eta_seconds === 'number') self.queueEta = r.body.eta_seconds;
       if (['cancelled', 'ended', 'missed', 'failed'].indexOf(c.state) >= 0) {
-        self.stopPolling(); self.stopTimer();
+        self.stopPolling(); self.stopTimer(); try { Ringback.stop(); } catch (_) {}
         self.state = STATES.ENDED; self.render(); return;
       }
       if (['active', 'ringing', 'connecting'].indexOf(c.state) >= 0) {
         if (self.state !== STATES.IN_CALL) {
+          try { Ringback.stop(); } catch (_) {}
           self.state = STATES.IN_CALL; self.render();
           self.requestJoinToken();
         }
+      } else {
+        // Still queued — refresh queue UI with latest position/eta.
+        if (self.state === STATES.QUEUE) self.render();
       }
     });
   };
@@ -485,6 +581,7 @@
   CallCenterWidgetCtor.prototype.cancelCall = function () {
     var self = this;
     this.disconnectRoom();
+    try { Ringback.stop(); } catch (_) {}
     if (!this.callId) { this.reset(); return; }
     this.api('/api/call-widget/calls/' + this.callId + '/cancel', { method: 'POST' }).then(function () {
       self.stopPolling(); self.stopTimer();
@@ -494,7 +591,9 @@
 
   CallCenterWidgetCtor.prototype.reset = function () {
     this.disconnectRoom();
+    try { Ringback.stop(); } catch (_) {}
     this.callId = null; this.call = null; this.queueStartedAt = null;
+    this.queuePosition = null; this.queueEta = null;
     this.connectStatus = null; this.joinInfo = null; this.error = null;
     this.micOn = false; this.camOn = false; this._remoteHolder = null;
     this.state = this.isOnline() ? STATES.ONLINE : STATES.OFFLINE;
@@ -674,14 +773,38 @@
         return this.renderForm(cfg, /*forCall*/false);
 
       case STATES.QUEUE: {
-        return el('div', { class: 'ccw-stack' }, [
-          el('div', { class: 'ccw-card' }, [
-            el('div', { class: 'ccw-pill' }, ['In queue']),
-            el('div', { class: 'ccw-label' }, ['Waiting for an operator…']),
-            el('div', { class: 'ccw-wait-timer', html: '0:00' }),
-          ]),
-          el('button', { class: 'ccw-btn danger', on: { click: function () { self.cancelCall(); } } }, ['Cancel']),
+        var qe = (self.bootstrap && self.bootstrap.queue_experience) || {};
+        var capsForCallback = (self.bootstrap && self.bootstrap.capabilities) || {};
+        var card = el('div', { class: 'ccw-card' }, [
+          el('div', { class: 'ccw-pill' }, ['● Ringing operator…']),
+          el('div', { class: 'ccw-label' }, ['Please hold, an agent will be with you shortly.']),
+          el('div', { class: 'ccw-wait-timer', html: '0:00' }),
         ]);
+        // Position-in-queue chip
+        if (qe.show_position !== false && self.queuePosition) {
+          var posLabel = self.queuePosition === 1
+            ? 'You are next in line'
+            : 'You are #' + self.queuePosition + ' in the queue';
+          card.appendChild(el('div', { class: 'ccw-queue-pos' }, [posLabel]));
+        }
+        // ETA chip
+        if (qe.show_eta !== false && typeof self.queueEta === 'number' && self.queueEta > 0) {
+          var mins = Math.max(1, Math.round(self.queueEta / 60));
+          var etaLbl = mins <= 1 ? 'Estimated wait: under 1 minute' : 'Estimated wait: ~' + mins + ' minutes';
+          card.appendChild(el('div', { class: 'ccw-queue-eta' }, [etaLbl]));
+        }
+        var stack = [card];
+        // Offer a callback after the configured wait threshold
+        var threshold = qe.offer_callback_after_seconds;
+        var elapsed = self.queueStartedAt ? Math.floor((Date.now() - self.queueStartedAt) / 1000) : 0;
+        if (capsForCallback.callback && threshold && threshold > 0 && elapsed >= threshold) {
+          stack.push(el('div', { class: 'ccw-callback-offer' }, [
+            el('div', { class: 'ccw-callback-offer-text' }, ['Tired of waiting? We can call you back instead.']),
+            el('button', { class: 'ccw-btn primary', on: { click: function () { self.cancelCall(); setTimeout(function () { self.openCallback(); }, 50); } } }, ['Request a callback']),
+          ]));
+        }
+        stack.push(el('button', { class: 'ccw-btn danger', on: { click: function () { self.cancelCall(); } } }, ['Cancel call']));
+        return el('div', { class: 'ccw-stack' }, stack);
       }
 
       case STATES.IN_CALL: {

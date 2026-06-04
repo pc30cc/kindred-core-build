@@ -30,6 +30,17 @@ export interface PlatformCallCenterSettings {
   callback_min_message_length: number;
   callback_honeypot_enabled: boolean;
   callback_min_form_seconds: number;
+  /** Ringback (on-hold) audio played to the visitor while waiting. */
+  ringback_enabled: boolean;
+  ringback_mode: 'tone' | 'music' | 'off';
+  ringback_music_url: string | null;
+  /** Queue experience for the visitor. */
+  queue_show_position: boolean;
+  queue_show_eta: boolean;
+  queue_eta_seconds_per_position: number;
+  queue_offer_callback_after_seconds: number;
+  /** Audible notification on the operator side when a new call hits the queue. */
+  operator_new_call_sound_enabled: boolean;
   updated_at: string;
 }
 

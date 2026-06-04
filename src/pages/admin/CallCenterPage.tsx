@@ -10,7 +10,7 @@ import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from '@/hooks/use-toast';
-import { AlertCircle, ShieldCheck, Server, Building2, Search, Activity, Loader2, CheckCircle2, XCircle, AlertTriangle, ShieldAlert } from 'lucide-react';
+import { AlertCircle, ShieldCheck, Server, Building2, Search, Activity, Loader2, CheckCircle2, XCircle, AlertTriangle, ShieldAlert, PhoneCall, Music } from 'lucide-react';
 
 const TOGGLE_GROUPS: Array<{ title: string; items: Array<[keyof CallCenterPlatformSettings, string, boolean?]> }> = [
   { title: 'Core', items: [
@@ -55,6 +55,23 @@ const CALLBACK_NUMBERS: Array<[keyof CallCenterPlatformSettings, string, string]
   ['callback_max_per_ip_per_hour', 'Max requests per IP / hour', 'Hard ceiling per IP address within the last hour.'],
   ['callback_min_form_seconds', 'Minimum form-fill time (seconds)', 'Rejects submissions sent faster than a human could plausibly fill the form.'],
   ['callback_min_message_length', 'Minimum message length (chars)', '0 = no requirement.'],
+];
+
+const RINGBACK_MODES: Array<{ value: 'tone' | 'music' | 'off'; label: string; hint: string }> = [
+  { value: 'tone', label: 'Classic phone ringing tone', hint: 'Synthesized in-browser. No audio file required.' },
+  { value: 'music', label: 'Hold music (custom URL)', hint: 'Plays a looping audio file from the URL below.' },
+  { value: 'off', label: 'Silent', hint: 'No audio is played while the visitor is waiting.' },
+];
+
+const QUEUE_TOGGLES: Array<[keyof CallCenterPlatformSettings, string, string]> = [
+  ['queue_show_position', 'Show queue position to visitor', 'Displays "You are #2 in the queue" while the visitor waits.'],
+  ['queue_show_eta', 'Show estimated wait time', 'Displays an estimate based on the per-position seconds below.'],
+  ['operator_new_call_sound_enabled', 'Operator notification sound on new call', 'Plays a short tone in the operator console when a call enters the queue.'],
+];
+
+const QUEUE_NUMBERS: Array<[keyof CallCenterPlatformSettings, string, string]> = [
+  ['queue_eta_seconds_per_position', 'ETA seconds per queue position', 'Used to compute the estimated wait time shown to the visitor.'],
+  ['queue_offer_callback_after_seconds', 'Offer callback after (seconds)', '0 = never. After this many seconds in queue, the visitor sees a "Request a callback" prompt.'],
 ];
 
 function Stat({ label, value, icon: Icon }: { label: string; value: number | string; icon?: any }) {
@@ -279,6 +296,98 @@ export default function AdminCallCenterPage() {
         <Button onClick={save} disabled={update.isPending}>Save platform settings</Button>
         <Button variant="outline" onClick={invalidate}>Invalidate cache</Button>
       </div>
+
+      <Card className="p-5 space-y-5">
+        <div className="flex items-start gap-2">
+          <PhoneCall className="h-5 w-5 text-primary mt-0.5" />
+          <div>
+            <h2 className="font-semibold">Ringback & Queue experience</h2>
+            <p className="text-xs text-muted-foreground">
+              Audio played to the visitor while they wait for an operator, plus the on-screen queue UX.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-start justify-between gap-3 py-1">
+          <div className="min-w-0">
+            <Label>Enable ringback / hold audio</Label>
+            <p className="text-xs text-muted-foreground">Master switch for the visitor-side on-hold audio.</p>
+          </div>
+          <Switch
+            checked={!!draft.ringback_enabled}
+            onCheckedChange={(v) => setDraft({ ...draft, ringback_enabled: v })}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label className="flex items-center gap-2"><Music className="h-3.5 w-3.5" /> Ringback mode</Label>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            {RINGBACK_MODES.map((m) => {
+              const active = (draft.ringback_mode || 'tone') === m.value;
+              return (
+                <button
+                  key={m.value}
+                  type="button"
+                  onClick={() => setDraft({ ...draft, ringback_mode: m.value })}
+                  className={`text-start rounded-lg border p-3 transition ${active ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-input hover:bg-muted/40'}`}
+                >
+                  <div className="text-sm font-semibold">{m.label}</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">{m.hint}</div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {(draft.ringback_mode === 'music') && (
+          <div>
+            <Label>Hold music URL (.mp3 / .ogg / .wav)</Label>
+            <Input
+              type="url"
+              placeholder="https://cdn.example.com/hold-music.mp3"
+              value={draft.ringback_music_url ?? ''}
+              onChange={(e) => setDraft({ ...draft, ringback_music_url: e.target.value })}
+            />
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Must be publicly reachable and served with permissive CORS. Falls back to silence if the file fails to load.
+            </p>
+          </div>
+        )}
+
+        <div className="space-y-2 pt-2 border-t">
+          {QUEUE_TOGGLES.map(([k, label, hint]) => (
+            <div key={k as string} className="flex items-start justify-between gap-3 py-1">
+              <div className="min-w-0">
+                <Label>{label}</Label>
+                <p className="text-xs text-muted-foreground">{hint}</p>
+              </div>
+              <Switch
+                checked={!!(draft as any)[k]}
+                onCheckedChange={(v) => setDraft({ ...draft, [k]: v } as any)}
+              />
+            </div>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {QUEUE_NUMBERS.map(([k, label, hint]) => (
+            <div key={k as string}>
+              <Label>{label}</Label>
+              <Input
+                type="number"
+                min={0}
+                value={String((draft as any)[k] ?? 0)}
+                onChange={(e) => setDraft({ ...draft, [k]: Math.max(0, parseInt(e.target.value || '0', 10)) } as any)}
+              />
+              <p className="text-[11px] text-muted-foreground mt-1">{hint}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex gap-2 pt-2">
+          <Button onClick={save} disabled={update.isPending}>Save ringback & queue settings</Button>
+        </div>
+      </Card>
 
       <Card className="p-5 space-y-3">
         <div className="flex items-center justify-between gap-2 flex-wrap">

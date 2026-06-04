@@ -1,5 +1,5 @@
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
-import { useCallCenterQueue, useCallCenterCall, useCallCenterOverview } from '@/hooks/useCallCenter';
+import { useCallCenterQueue, useCallCenterCall, useCallCenterOverview, useCallCenterSettings } from '@/hooks/useCallCenter';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -10,7 +10,7 @@ import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { callCenterApi, type CallCenterRecordingStatus } from '@/lib/call-center-api';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from '@/hooks/use-toast';
 import {
   Phone, Video, Globe, Headphones, RadioTower, Inbox, PhoneOff, MicOff,
@@ -221,6 +221,7 @@ export default function LiveQueuePage() {
   const base = `/app/w/${slug}/call-center`;
   const { data, isLoading } = useCallCenterQueue(workspace?.id);
   const { data: overview } = useCallCenterOverview(workspace?.id);
+  const { data: settingsBundle } = useCallCenterSettings(workspace?.id);
   const qc = useQueryClient();
   const [busy, setBusy] = useState<string | null>(null);
   const [selectedCallId, setSelectedCallId] = useState<string | null>(null);
@@ -238,6 +239,45 @@ export default function LiveQueuePage() {
   const { data: detail } = useCallCenterCall(workspace?.id, selectedCallId);
   const [, force] = useState(0);
   useEffect(() => { const t = setInterval(() => force((n) => n + 1), 1000); return () => clearInterval(t); }, []);
+
+  // Operator-side new-call notification sound. Plays a short chime whenever
+  // a fresh entry appears in the queue (governed by platform setting).
+  const knownCallIdsRef = useRef<{ set: Set<string>; primed: boolean }>({ set: new Set(), primed: false });
+  useEffect(() => {
+    const enabled = (settingsBundle as any)?.platform?.operator_new_call_sound_enabled !== false;
+    if (!enabled) return;
+    const ids = (data?.queue || []).map((q: any) => q.call_session_id).filter(Boolean) as string[];
+    const r = knownCallIdsRef.current;
+    if (!r.primed) {
+      r.primed = true;
+      ids.forEach((id) => r.set.add(id));
+      return;
+    }
+    const fresh = ids.filter((id) => !r.set.has(id));
+    ids.forEach((id) => r.set.add(id));
+    if (fresh.length === 0) return;
+    // Play a soft two-tone chime via Web Audio.
+    try {
+      const C = (window as any).AudioContext || (window as any).webkitAudioContext;
+      if (!C) return;
+      const ctx = new C();
+      if (ctx.state === 'suspended' && ctx.resume) { try { ctx.resume(); } catch { /* */ } }
+      const t0 = ctx.currentTime;
+      [{ f: 880, at: 0 }, { f: 1175, at: 0.18 }].forEach((n) => {
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(n.f, t0 + n.at);
+        g.gain.setValueAtTime(0.0001, t0 + n.at);
+        g.gain.exponentialRampToValueAtTime(0.15, t0 + n.at + 0.03);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + n.at + 0.32);
+        osc.connect(g).connect(ctx.destination);
+        osc.start(t0 + n.at);
+        osc.stop(t0 + n.at + 0.4);
+      });
+      setTimeout(() => { try { ctx.close(); } catch { /* */ } }, 1200);
+    } catch { /* swallow */ }
+  }, [data?.queue, settingsBundle]);
 
   // Faster status sync while in active console
   useEffect(() => {

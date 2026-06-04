@@ -68,22 +68,30 @@
 
   // ── Visitor-side ringback (on-hold) audio ────────────────────────────
   var Ringback = (function () {
-    var ctx = null, timer = null, active = false, audioEl = null, mode = 'off';
+    var ctx = null, timer = null, active = false, audioEl = null, mode = 'off', lastCfg = null, needsGesture = false;
     function ensure() {
       try {
         if (typeof window === 'undefined') return null;
         var C = window.AudioContext || window.webkitAudioContext;
         if (!C) return null;
         if (!ctx) ctx = new C();
-        if (ctx.state === 'suspended') { try { ctx.resume(); } catch (_) {} }
+        if (ctx.state === 'suspended') {
+          try {
+            var p = ctx.resume();
+            if (p && p.catch) p.catch(function () { needsGesture = true; });
+          } catch (_) { needsGesture = true; }
+        }
         return ctx;
       } catch (_) { return null; }
     }
     function ringOnce() {
       var c = ensure(); if (!c) return;
+      if (c.state && c.state !== 'running') { needsGesture = true; return; }
+      needsGesture = false;
       try {
         var t0 = c.currentTime;
-        // Classic phone-style "brrring" — two tones at 440/480Hz, 1.2s on, then silent.
+        // Classic phone-style "brrring" — dual PSTN tones with enough gain
+        // to be audible on laptops/phones without being harsh.
         var pattern = [
           { f1: 440, f2: 480, at: 0.0, dur: 0.5 },
           { f1: 440, f2: 480, at: 0.55, dur: 0.5 },
@@ -95,8 +103,8 @@
             var g = c.createGain();
             osc.type = 'sine'; osc.frequency.setValueAtTime(f, t0 + n.at);
             g.gain.setValueAtTime(0.0001, t0 + n.at);
-            g.gain.exponentialRampToValueAtTime(0.08, t0 + n.at + 0.03);
-            g.gain.setValueAtTime(0.08, t0 + n.at + n.dur - 0.05);
+            g.gain.exponentialRampToValueAtTime(0.16, t0 + n.at + 0.03);
+            g.gain.setValueAtTime(0.16, t0 + n.at + n.dur - 0.05);
             g.gain.exponentialRampToValueAtTime(0.0001, t0 + n.at + n.dur);
             osc.connect(g).connect(c.destination);
             osc.start(t0 + n.at);
@@ -115,26 +123,33 @@
       prime: function () {
         try {
           var c = ensure();
-          if (c && c.state === 'suspended') { try { c.resume(); } catch (_) {} }
+          if (c && c.state === 'suspended') {
+            try {
+              var rp = c.resume();
+              if (rp && rp.then) rp.then(function () { needsGesture = false; }).catch(function () { needsGesture = true; });
+            } catch (_) { needsGesture = true; }
+          }
           // Play a 1-sample silent buffer to fully unlock the context.
           if (c) {
             var b = c.createBuffer(1, 1, 22050);
             var s = c.createBufferSource();
             s.buffer = b; s.connect(c.destination); s.start(0);
+            if (!c.state || c.state === 'running') needsGesture = false;
           }
         } catch (_) {}
       },
       start: function (cfg) {
         if (active) return;
+        lastCfg = cfg || lastCfg || {};
         active = true;
-        mode = (cfg && cfg.ringback_mode) || 'tone';
-        if (!cfg || cfg.ringback_enabled === false || mode === 'off') { active = false; return; }
-        if (mode === 'music' && cfg.ringback_music_url) {
+        mode = (lastCfg && lastCfg.ringback_mode) || 'tone';
+        if (!lastCfg || lastCfg.ringback_enabled === false || mode === 'off') { active = false; return; }
+        if (mode === 'music' && lastCfg.ringback_music_url) {
           try {
-            audioEl = new Audio(cfg.ringback_music_url);
+            audioEl = new Audio(lastCfg.ringback_music_url);
             audioEl.loop = true; audioEl.volume = 0.5;
             var p = audioEl.play();
-            if (p && p.catch) p.catch(function () { /* autoplay blocked */ });
+            if (p && p.catch) p.catch(function () { needsGesture = true; });
           } catch (_) {}
           return;
         }
@@ -148,6 +163,19 @@
         if (timer) { try { clearInterval(timer); } catch (_) {} timer = null; }
         if (audioEl) { try { audioEl.pause(); audioEl.src = ''; } catch (_) {} audioEl = null; }
       },
+      startFromGesture: function (cfg) {
+        lastCfg = cfg || lastCfg || {};
+        this.prime();
+        if (!active) this.start(lastCfg);
+        else if (mode === 'tone') ringOnce();
+        else if (audioEl) {
+          try {
+            var p = audioEl.play();
+            if (p && p.then) p.then(function () { needsGesture = false; }).catch(function () { needsGesture = true; });
+          } catch (_) { needsGesture = true; }
+        }
+      },
+      needsGesture: function () { return !!needsGesture; },
       isActive: function () { return active; },
     };
   })();

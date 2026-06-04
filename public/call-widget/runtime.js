@@ -505,6 +505,9 @@
     var depts = (this.bootstrap && this.bootstrap.departments) || {};
     var list = depts.callback || [];
     this.formData.department_id = (list.length === 1) ? list[0].id : '';
+    this.formData.hp_company = '';
+    this.callbackOpenedAt = Date.now();
+    this.error = null;
     this.state = STATES.CALLBACK;
     this.render();
   };
@@ -512,6 +515,32 @@
   CallCenterWidgetCtor.prototype.submitCallback = function () {
     var self = this;
     this.error = null;
+    var policy = (this.bootstrap && this.bootstrap.callback_policy) || {};
+    // Client-side cooldown guard (server still enforces).
+    if (this.callbackCooldownUntil && Date.now() < this.callbackCooldownUntil) {
+      var leftSec = Math.ceil((this.callbackCooldownUntil - Date.now()) / 1000);
+      this.error = 'Please wait ' + leftSec + 's before sending another request.';
+      this.render(); return;
+    }
+    // Require contact if the platform demands it.
+    if (policy.require_contact) {
+      var email = (this.formData.email || '').trim();
+      var phone = (this.formData.phone || '').trim();
+      var alreadyId = !!(this.identifiedContact && this.identifiedContact.id);
+      if (!alreadyId && !email && !phone) {
+        this.error = 'Please provide your email or phone so we can reach you.';
+        this.render(); return;
+      }
+    }
+    // Minimum message length.
+    var minMsg = Number(policy.min_message_length || 0);
+    if (minMsg > 0) {
+      var msg = (this.formData.message || '').trim();
+      if (msg.length < minMsg) {
+        this.error = 'Please describe your request in at least ' + minMsg + ' characters.';
+        this.render(); return;
+      }
+    }
     var scheduledIso = null;
     if (this.formData.callback_when === 'later' && this.formData.callback_scheduled_for) {
       var t = new Date(this.formData.callback_scheduled_for);
@@ -535,18 +564,39 @@
         scheduled_for: scheduledIso,
         page_url: location.href,
         department_id: this.formData.department_id || null,
+        hp_company: this.formData.hp_company || '',
+        form_opened_at: this.callbackOpenedAt || null,
       },
     }).then(function (r) {
       if (!r.ok) {
         var code = r.body && r.body.error;
         if (code === 'department_channel_disabled' || code === 'department_not_found') {
           self.error = 'This department is not available for this call type. Please choose another department.';
+        } else if (code === 'contact_required') {
+          self.error = 'Please provide your email or phone so we can reach you.';
+        } else if (code === 'message_too_short') {
+          var m = (r.body && r.body.min) || 1;
+          self.error = 'Please describe your request in at least ' + m + ' characters.';
+        } else if (code === 'too_fast') {
+          self.error = 'That was too fast. Please take a moment to fill in the form.';
+        } else if (code === 'cooldown_active') {
+          var ra = (r.body && r.body.retry_after) || 60;
+          self.callbackCooldownUntil = Date.now() + ra * 1000;
+          self.error = 'You already requested a callback. Please wait ' + ra + 's before sending another.';
+        } else if (code === 'rate_limited_ip') {
+          self.error = 'Too many callback requests from your network. Please try again later.';
+        } else if (code === 'feature_not_available') {
+          self.error = 'Callback requests are currently unavailable.';
         } else {
           self.error = (r.body && (r.body.error || r.body.message)) || 'Failed.';
         }
         self.render(); return;
       }
       self.callbackId = r.body.callback_id;
+      var pol = (self.bootstrap && self.bootstrap.callback_policy) || {};
+      if (pol.cooldown_seconds) {
+        self.callbackCooldownUntil = Date.now() + Number(pol.cooldown_seconds) * 1000;
+      }
       self.state = STATES.ENDED;
       self.render();
     });

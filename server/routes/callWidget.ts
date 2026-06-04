@@ -738,9 +738,35 @@ callWidgetRouter.post('/callbacks/request', async (req, res) => {
       subject: parsed.data.subject || null,
       page_url: parsed.data.page_url || null,
       department_id: cbDepartmentId,
+      visitor_id: null as string | null,
+      contact_id: null as string | null,
     },
   }).select('*').maybeSingle();
   if (error) return res.status(500).json({ error: 'callback_create_failed', message: error.message });
+  // Identify visitor → contact (best-effort, never blocks the callback).
+  try {
+    const identity = await identifyVisitorForCall(
+      req,
+      res,
+      config,
+      ws.workspace_id,
+      getOrigin(req),
+      {
+        name: parsed.data.name,
+        email: parsed.data.email,
+        phone: parsed.data.phone,
+        page_url: parsed.data.page_url,
+      },
+    );
+    if (identity.contactId && data?.id) {
+      const prevMeta = (data as any).metadata || {};
+      await sb.from('callback_requests').update({
+        metadata: { ...prevMeta, visitor_id: identity.visitorId, contact_id: identity.contactId },
+      }).eq('id', (data as any).id);
+    }
+  } catch (e: any) {
+    console.warn('[call-widget/callbacks] identity merge failed:', e?.message || e);
+  }
   await publishQueueEvent(config, ws.workspace_id, 'callback_requested', { callback_id: data!.id });
   res.json({ ok: true, callback_id: data!.id });
 });

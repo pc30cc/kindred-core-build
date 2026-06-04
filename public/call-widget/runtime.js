@@ -565,6 +565,7 @@
   CallCenterWidgetCtor.prototype.cancelCall = function () {
     var self = this;
     this.disconnectRoom();
+    try { Ringback.stop(); } catch (_) {}
     if (!this.callId) { this.reset(); return; }
     this.api('/api/call-widget/calls/' + this.callId + '/cancel', { method: 'POST' }).then(function () {
       self.stopPolling(); self.stopTimer();
@@ -574,7 +575,9 @@
 
   CallCenterWidgetCtor.prototype.reset = function () {
     this.disconnectRoom();
+    try { Ringback.stop(); } catch (_) {}
     this.callId = null; this.call = null; this.queueStartedAt = null;
+    this.queuePosition = null; this.queueEta = null;
     this.connectStatus = null; this.joinInfo = null; this.error = null;
     this.micOn = false; this.camOn = false; this._remoteHolder = null;
     this.state = this.isOnline() ? STATES.ONLINE : STATES.OFFLINE;

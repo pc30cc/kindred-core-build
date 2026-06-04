@@ -628,28 +628,64 @@ export default function LiveQueuePage() {
         </Card>
 
         {/* Workspace column */}
-        <div className="space-y-3 overflow-y-auto">
+        <div className="space-y-3 overflow-y-auto min-h-0">
           {!detail ? (
-            <Card className="p-12 text-center">
-              <PhoneCall className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
-              <p className="text-sm font-medium">No call selected</p>
-              <p className="text-xs text-muted-foreground">Pick a call from the queue to start handling it.</p>
+            <Card className="p-16 text-center border-dashed">
+              <div className="h-16 w-16 rounded-full bg-primary/5 mx-auto flex items-center justify-center mb-4 ring-1 ring-primary/10">
+                <PhoneCall className="h-7 w-7 text-primary/60" />
+              </div>
+              <p className="text-base font-semibold">No call selected</p>
+              <p className="text-sm text-muted-foreground mt-1 max-w-sm mx-auto">
+                Pick a call from the queue on the left to view visitor context and start handling it.
+              </p>
             </Card>
           ) : (
             <>
-              <Card className="p-5 bg-gradient-to-br from-primary/5 to-transparent border-primary/20">
+              <Card className="p-5 bg-gradient-to-br from-primary/5 via-card to-card border-primary/20 overflow-hidden relative">
+                {detail.call.state === 'ringing' && (
+                  <div className="absolute top-0 inset-x-0 h-0.5 bg-amber-500 animate-pulse" />
+                )}
                 <div className="flex items-start gap-4 flex-wrap">
-                  <div className="h-14 w-14 rounded-full bg-primary/15 text-primary flex items-center justify-center text-lg font-semibold">
-                    {(detail.call.visitor_name || detail.call.visitor_email || 'A').slice(0, 1).toUpperCase()}
+                  <div className="relative shrink-0">
+                    <div className="h-16 w-16 rounded-full bg-gradient-to-br from-primary/30 to-primary/10 text-primary flex items-center justify-center text-xl font-semibold ring-2 ring-primary/15">
+                      {(detail.call.visitor_name || detail.call.visitor_email || 'A').slice(0, 1).toUpperCase()}
+                    </div>
+                    <div className={cn(
+                      'absolute -bottom-0.5 -end-0.5 h-5 w-5 rounded-full flex items-center justify-center ring-2 ring-card',
+                      detail.call.call_type === 'video' ? 'bg-indigo-500 text-white' : 'bg-emerald-500 text-white',
+                    )}>
+                      {detail.call.call_type === 'video' ? <Video className="h-3 w-3" /> : <Phone className="h-3 w-3" />}
+                    </div>
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-xl font-semibold leading-tight">
+                    <div className="text-xl font-semibold leading-tight truncate">
                       {detail.call.visitor_name || detail.call.visitor_email || detail.call.visitor_phone || 'Anonymous visitor'}
                     </div>
-                    <div className="flex flex-wrap gap-2 mt-2">
-                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-background border">{detail.call.call_type === 'video' ? 'Video' : 'Voice'}</span>
-                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-background border">{detail.call.state}</span>
-                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-background border">{detail.call.provider || 'no provider'}</span>
+                    <div className="flex flex-wrap items-center gap-3 mt-1.5 text-xs text-muted-foreground">
+                      {detail.call.visitor_email && (
+                        <span className="inline-flex items-center gap-1"><Mail className="h-3 w-3" />{detail.call.visitor_email}</span>
+                      )}
+                      {detail.call.visitor_phone && (
+                        <span className="inline-flex items-center gap-1"><Smartphone className="h-3 w-3" />{detail.call.visitor_phone}</span>
+                      )}
+                      <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" />
+                        {new Date(detail.call.created_at).toLocaleTimeString()}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 mt-2.5">
+                      <Badge variant="secondary" className="capitalize">{detail.call.call_type === 'video' ? 'Video' : 'Voice'}</Badge>
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          'capitalize',
+                          detail.call.state === 'active' && 'border-emerald-500/40 text-emerald-700 dark:text-emerald-300 bg-emerald-500/10',
+                          detail.call.state === 'ringing' && 'border-amber-500/40 text-amber-700 dark:text-amber-300 bg-amber-500/10',
+                          detail.call.state === 'ended' && 'border-muted text-muted-foreground',
+                        )}
+                      >
+                        {detail.call.state}
+                      </Badge>
+                      <Badge variant="outline">{detail.call.provider || 'no provider'}</Badge>
                       <RecordingBadge rec={overview?.recording} meta={(detail.call as any)?.metadata?.recording} />
                     </div>
                   </div>
@@ -657,12 +693,14 @@ export default function LiveQueuePage() {
                     {detail.call.state === 'pending' && (
                       <>
                         <Button variant="outline" onClick={() => reject(detail.call.id)}>Reject</Button>
-                        <Button onClick={() => accept(detail.call.id)}>Accept</Button>
+                        <Button onClick={() => accept(detail.call.id)}>
+                          <PhoneCall className="h-4 w-4 me-1.5" />Accept
+                        </Button>
                       </>
                     )}
                     {isActive && !(accepted && accepted.callId === detail.call.id) && (
                       <Button variant="destructive" onClick={() => endActive(detail.call.id)}>
-                        <PhoneOff className="h-4 w-4 me-1" /> End
+                        <PhoneOff className="h-4 w-4 me-1.5" /> End
                       </Button>
                     )}
                   </div>
@@ -692,26 +730,34 @@ export default function LiveQueuePage() {
                 )}
                 </>
               ) : (
-                <Card className="p-5 border-dashed">
+                <Card className="p-6 border-dashed bg-muted/20">
                   <div className="flex items-start gap-3">
-                    <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
-                    <div className="text-sm">
-                      <div className="font-medium">Accept the call to start media</div>
+                    <div className="h-8 w-8 rounded-full bg-amber-500/15 text-amber-600 flex items-center justify-center shrink-0">
+                      <AlertTriangle className="h-4 w-4" />
+                    </div>
+                    <div className="text-sm flex-1">
+                      <div className="font-semibold">Media console is idle</div>
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        The operator media console activates after you accept the call.
+                        Accept the call to open audio/video, recording, and call controls.
                       </p>
                     </div>
+                    {detail.call.state === 'pending' && (
+                      <Button size="sm" onClick={() => accept(detail.call.id)}>
+                        <PhoneCall className="h-3.5 w-3.5 me-1.5" /> Accept now
+                      </Button>
+                    )}
                   </div>
-                  <div className="flex flex-wrap gap-2 mt-4">
+                  <Separator className="my-4" />
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                     {[
                       { icon: MicOff, label: 'Mute' },
                       { icon: CameraOff, label: 'Camera' },
                       { icon: ArrowRightLeft, label: 'Transfer' },
                       { icon: PhoneOff, label: 'End' },
                     ].map((b) => (
-                      <Button key={b.label} variant="outline" size="sm" disabled>
-                        <b.icon className="h-3.5 w-3.5 me-1.5" />{b.label}
-                      </Button>
+                      <div key={b.label} className="flex items-center justify-center gap-1.5 h-9 text-xs rounded-md border border-dashed text-muted-foreground">
+                        <b.icon className="h-3.5 w-3.5" />{b.label}
+                      </div>
                     ))}
                   </div>
                 </Card>
@@ -752,50 +798,124 @@ export default function LiveQueuePage() {
         </div>
 
         {/* Context column */}
-        <div className="space-y-3 overflow-y-auto">
+        <Card className="flex flex-col overflow-hidden p-0 min-h-0">
           {detail ? (
-            <>
-              <Card className="p-4 space-y-2">
-                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Contact</div>
-                <div className="text-sm space-y-1">
-                  <div className="font-medium">{detail.call.visitor_name || 'Anonymous'}</div>
-                  {detail.call.visitor_email && <div className="text-muted-foreground">{detail.call.visitor_email}</div>}
-                  {detail.call.visitor_phone && <div className="text-muted-foreground">{detail.call.visitor_phone}</div>}
-                </div>
-              </Card>
-              <Card className="p-4 space-y-2">
-                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Timeline</div>
-                <ol className="space-y-1 text-xs max-h-56 overflow-y-auto">
-                  {detail.events.length === 0 && <li className="text-muted-foreground">No events.</li>}
-                  {detail.events.map((e) => (
-                    <li key={e.id} className="flex gap-2">
-                      <span className="text-muted-foreground shrink-0">{new Date(e.created_at).toLocaleTimeString()}</span>
-                      <span className="truncate">{e.event_type}</span>
-                    </li>
-                  ))}
-                </ol>
-              </Card>
-              <Card className="p-4 space-y-2">
-                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Private notes</div>
-                <Textarea
-                  placeholder="Private call notes — coming soon"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  rows={4}
-                  disabled
-                  className="text-sm"
-                />
-              </Card>
-              <Card className="p-4">
-                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Previous calls</div>
-                <p className="text-xs text-muted-foreground">Call history will appear here.</p>
-              </Card>
-            </>
+            <Tabs value={contextTab} onValueChange={(v) => setContextTab(v as any)} className="flex flex-col h-full">
+              <TabsList className="grid grid-cols-3 m-2 mb-0">
+                <TabsTrigger value="contact" className="text-xs gap-1.5"><User className="h-3.5 w-3.5" />Contact</TabsTrigger>
+                <TabsTrigger value="timeline" className="text-xs gap-1.5"><History className="h-3.5 w-3.5" />Timeline</TabsTrigger>
+                <TabsTrigger value="notes" className="text-xs gap-1.5"><FileText className="h-3.5 w-3.5" />Notes</TabsTrigger>
+              </TabsList>
+              <div className="flex-1 overflow-y-auto p-3 space-y-3">
+                <TabsContent value="contact" className="m-0 space-y-3">
+                  <div className="space-y-2.5">
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Name</div>
+                      <div className="text-sm font-medium">{detail.call.visitor_name || 'Anonymous'}</div>
+                    </div>
+                    {detail.call.visitor_email && (
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Email</div>
+                        <div className="text-sm flex items-center gap-1.5 group">
+                          <Mail className="h-3.5 w-3.5 text-muted-foreground" />
+                          <a href={`mailto:${detail.call.visitor_email}`} className="hover:underline truncate">{detail.call.visitor_email}</a>
+                          <CopyButton text={detail.call.visitor_email} />
+                        </div>
+                      </div>
+                    )}
+                    {detail.call.visitor_phone && (
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Phone</div>
+                        <div className="text-sm flex items-center gap-1.5 group">
+                          <Smartphone className="h-3.5 w-3.5 text-muted-foreground" />
+                          <a href={`tel:${detail.call.visitor_phone}`} className="hover:underline">{detail.call.visitor_phone}</a>
+                          <CopyButton text={detail.call.visitor_phone} />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  {(detail.call.page_url || detail.call.subject) && (
+                    <>
+                      <Separator />
+                      <div className="space-y-2">
+                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Page context</div>
+                        {detail.call.subject && (
+                          <div className="text-sm"><span className="text-muted-foreground">Subject: </span>{detail.call.subject}</div>
+                        )}
+                        {detail.call.page_url && (
+                          <div className="text-sm flex items-center gap-1.5">
+                            <Globe className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                            <a href={detail.call.page_url} target="_blank" rel="noreferrer" className="underline truncate">
+                              {detail.call.page_title || detail.call.page_url}
+                            </a>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+                  {preCall && typeof preCall === 'object' && Object.keys(preCall).length > 0 && (
+                    <>
+                      <Separator />
+                      <div className="space-y-1.5">
+                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Pre-call form</div>
+                        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs">
+                          {Object.entries(preCall).map(([k, v]) => (
+                            <div key={k} className="contents">
+                              <dt className="text-muted-foreground capitalize">{k}</dt>
+                              <dd className="truncate font-medium">{String(v ?? '—')}</dd>
+                            </div>
+                          ))}
+                        </dl>
+                      </div>
+                    </>
+                  )}
+                  <Separator />
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">Previous calls</div>
+                    <p className="text-xs text-muted-foreground">Call history will appear here.</p>
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="timeline" className="m-0">
+                  {detail.events.length === 0 ? (
+                    <p className="text-xs text-muted-foreground text-center py-6">No events yet.</p>
+                  ) : (
+                    <ol className="relative space-y-3 ps-4 before:absolute before:start-1 before:top-1.5 before:bottom-1.5 before:w-px before:bg-border">
+                      {detail.events.map((e) => (
+                        <li key={e.id} className="relative">
+                          <span className="absolute -start-[14px] top-1.5 h-2 w-2 rounded-full bg-primary ring-2 ring-background" />
+                          <div className="text-[10px] text-muted-foreground tabular-nums">{new Date(e.created_at).toLocaleTimeString()}</div>
+                          <div className="text-xs font-medium">{e.event_type.replace(/_/g, ' ')}</div>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                </TabsContent>
+
+                <TabsContent value="notes" className="m-0">
+                  <Textarea
+                    placeholder="Private call notes — coming soon"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    rows={10}
+                    disabled
+                    className="text-sm resize-none"
+                  />
+                  <p className="text-[11px] text-muted-foreground mt-2">
+                    Notes will be saved to the call timeline once enabled.
+                  </p>
+                </TabsContent>
+              </div>
+            </Tabs>
           ) : (
-            <Card className="p-6 text-center text-xs text-muted-foreground">Select a call to view context.</Card>
+            <div className="p-8 text-center text-xs text-muted-foreground">
+              <ChevronRight className="h-5 w-5 mx-auto mb-2 opacity-40" />
+              Select a call to view context.
+            </div>
           )}
-        </div>
+        </Card>
       </div>
     </div>
+    </TooltipProvider>
   );
 }

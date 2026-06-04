@@ -408,6 +408,7 @@ const WIDGET_TEXT_KEYS: { key: string; label: string; placeholder: Record<string
   { key: 'voice_call',          label: 'Voice call button',          placeholder: { en: 'Voice call',          fa: 'تماس صوتی',           tr: 'Sesli arama' } },
   { key: 'video_call',          label: 'Video call button',          placeholder: { en: 'Video call',          fa: 'تماس تصویری',         tr: 'Görüntülü arama' } },
   { key: 'request_callback',    label: 'Callback button',            placeholder: { en: 'Request callback',    fa: 'درخواست تماس',        tr: 'Geri arama iste' } },
+  { key: 'request_callback_instead', label: 'Callback alternative (during call)', placeholder: { en: 'Request a callback instead', fa: 'درخواست تماس', tr: 'Bunun yerine geri arama iste' } },
 ];
 
 const LOC_LABELS_FULL: Record<string, string> = {

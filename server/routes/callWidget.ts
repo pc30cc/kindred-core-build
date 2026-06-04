@@ -374,10 +374,12 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
   let visitorBlock: { id: string; contact: { id: string; name: string | null; email: string | null; phone: string | null } | null } | null = null;
   try {
     const { visitorId } = resolveVisitorIdentity(req, res, ws.workspace_id);
-    const contact = await findLinkedContactForVisitor(config, ws.workspace_id, visitorId);
     // Make the call-widget visitor show up in the Online Visitors list as
     // soon as the widget loads — with their real contact name if known.
     await ensureVisitorSessionRow(config, ws.workspace_id, visitorId, origin, origin);
+    const contact =
+      await findLinkedContactForVisitor(config, ws.workspace_id, visitorId) ||
+      await restoreContactFromContinuityCookie(req, config, ws.workspace_id, visitorId);
     if (contact) {
       // Re-pin contact_id on every refresh (cheap, idempotent) so a returning
       // identified visitor is never shown as Anonymous.
@@ -388,6 +390,7 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
         .eq('workspace_id', ws.workspace_id)
         .eq('visitor_id', visitorId)
         .is('contact_id', null);
+      await issueContinuityCookieForContact(req, res, config, ws.workspace_id, contact.id);
     }
     visitorBlock = {
       id: visitorId,

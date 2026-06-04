@@ -33,6 +33,8 @@ import {
   resolveContinuityToken,
   setContinuityCookie,
 } from '../services/widget/continuity.js';
+import { getClientIp, hashIp } from '../utils/clientIp.js';
+import crypto from 'crypto';
 
 export const callWidgetRouter = Router();
 
@@ -428,6 +430,15 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
       video: effective.video_enabled,
       callback: effective.callback_enabled,
       recording: effective.recording_enabled,
+    },
+    callback_policy: {
+      enabled: effective.callback_enabled,
+      show_when_online: platform.callback_show_when_online,
+      cooldown_seconds: platform.callback_min_seconds_between_requests,
+      require_contact: platform.callback_require_contact,
+      min_message_length: platform.callback_min_message_length,
+      honeypot_enabled: platform.callback_honeypot_enabled,
+      min_form_seconds: platform.callback_min_form_seconds,
     },
     recording,
     provider_ready,

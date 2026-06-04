@@ -12,6 +12,7 @@ import {
   getOrCreateWorkspaceSettings,
   getPlatformCallCenterSettings,
   computeEffectiveCallCenterCaps,
+  computeEffectiveCallCenterLocales,
   originAllowed,
   type WorkspaceCallCenterSettings,
 } from '../services/callCenter/settings.js';
@@ -449,6 +450,13 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
       eta_seconds_per_position: platform.queue_eta_seconds_per_position,
       offer_callback_after_seconds: platform.queue_offer_callback_after_seconds,
     },
+    i18n: (() => {
+      const eff = computeEffectiveCallCenterLocales(platform, ws);
+      return {
+        default_locale: eff.default_locale,
+        available_locales: eff.available,
+      };
+    })(),
     recording,
     provider_ready,
     departments,

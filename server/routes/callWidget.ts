@@ -27,6 +27,7 @@ import {
 } from '../services/widget/visitorIdentity.js';
 import { mergeVisitorIdentity } from '../services/widget/identityMerge.js';
 import {
+  createSignedContactContinuityToken,
   persistContinuityToken,
   readContinuityCookie,
   resolveContinuityToken,
@@ -101,18 +102,24 @@ async function issueContinuityCookieForContact(
   workspaceId: string,
   contactId: string,
 ): Promise<void> {
-  if (readContinuityCookie(req)) return;
-  const sb = getServiceClient(config);
-  const issued = await persistContinuityToken(sb, {
-    workspaceId,
-    contactId,
-    deviceInfo: {
-      source: 'call_widget',
-      ua: req.headers['user-agent'] || null,
-      origin: getOrigin(req),
-    },
-  });
-  if (issued?.token) setContinuityCookie(res, issued.token, req);
+  const existingCookie = readContinuityCookie(req);
+  if (!existingCookie) {
+    const sb = getServiceClient(config);
+    await persistContinuityToken(sb, {
+      workspaceId,
+      contactId,
+      deviceInfo: {
+        source: 'call_widget',
+        ua: req.headers['user-agent'] || null,
+        origin: getOrigin(req),
+      },
+    });
+  }
+  // Always refresh a signed, DB-independent continuity cookie last so it is
+  // the browser's stored value. This prevents the call widget from asking for
+  // contact details again after refresh even if the DB token table is missing
+  // or the anonymous visitor cookie was partitioned/rotated.
+  setContinuityCookie(res, createSignedContactContinuityToken(workspaceId, contactId), req);
 }
 
 async function restoreContactFromContinuityCookie(

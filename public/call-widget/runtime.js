@@ -709,12 +709,25 @@
       sel.addEventListener('change', function (e) { self.formData.department_id = e.target.value; });
       box.appendChild(sel);
     }
-    var fields = [
-      ['name', 'Name', 'text'],
-      ['email', 'Email', 'email'],
-      ['phone', 'Phone', 'tel'],
-      ['subject', 'Subject', 'text'],
-    ];
+    var alreadyIdentified = !!(self.identifiedContact && self.identifiedContact.id);
+    if (alreadyIdentified) {
+      var knownName = self.identifiedContact.name || self.formData.name || 'Known contact';
+      box.appendChild(el('div', { class: 'ccw-known-contact' }, [
+        el('div', { class: 'ccw-known-dot' }, ['✓']),
+        el('div', {}, [
+          el('div', { class: 'ccw-known-title' }, [knownName]),
+          el('div', { class: 'ccw-muted' }, ['Contact details already saved']),
+        ]),
+      ]));
+    }
+    var fields = alreadyIdentified
+      ? [['subject', 'Subject', 'text']]
+      : [
+        ['name', 'Name', 'text'],
+        ['email', 'Email', 'email'],
+        ['phone', 'Phone', 'tel'],
+        ['subject', 'Subject', 'text'],
+      ];
     fields.forEach(function (f) {
       var label = el('label', { class: 'ccw-label' }, [f[1]]);
       var input = el('input', { class: 'ccw-input', type: f[2], value: self.formData[f[0]] || '' });

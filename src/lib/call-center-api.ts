@@ -94,7 +94,10 @@ export interface CallCenterPlatformSettings {
   callback_min_form_seconds: number;
   ringback_enabled: boolean;
   ringback_mode: 'tone' | 'music' | 'off';
+  ringback_music_path?: string | null;
   ringback_music_url: string | null;
+  ringback_announcement_audio_path?: string | null;
+  ringback_queue_audio_paths?: Record<string, string> | null;
   queue_show_position: boolean;
   queue_show_eta: boolean;
   queue_eta_seconds_per_position: number;
@@ -536,6 +539,24 @@ export const callCenterAdminApi = {
     jsonFetch<{ settings: CallCenterPlatformSettings }>(`/api/call-center/admin/platform`, {
       method: 'PUT', body: JSON.stringify(patch),
     }),
+  uploadRingbackAudio: async (input: { kind: 'music' | 'announcement' | 'queue'; file: File; queue_position?: number }) => {
+    const buf = await input.file.arrayBuffer();
+    let bin = ''; const bytes = new Uint8Array(buf);
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return jsonFetch<{ settings: CallCenterPlatformSettings; url: string; file_key: string }>(
+      `/api/call-center/admin/platform/ringback-audio`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          kind: input.kind,
+          queue_position: input.queue_position,
+          fileName: input.file.name,
+          contentType: input.file.type || 'audio/mpeg',
+          data: btoa(bin),
+        }),
+      },
+    );
+  },
   listWorkspaces: () =>
     jsonFetch<{ workspaces: Array<{ workspace_id: string; enabled: boolean; voice_enabled: boolean; video_enabled: boolean; callback_enabled: boolean; public_key: string | null; updated_at: string; workspaces: { name: string; slug: string } | null }> }>(
       `/api/call-center/admin/workspaces`,

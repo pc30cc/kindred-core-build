@@ -142,16 +142,13 @@
 
   // ── Visitor-side ringback (on-hold) audio ────────────────────────────
   var Ringback = (function () {
-    var ctx = null, timer = null, holdTimer = null, speakTimer = null, active = false, audioEl = null, mode = 'off', lastCfg = null, needsGesture = false, unlockHandlersInstalled = false;
+    var ctx = null, timer = null, holdTimer = null, speakTimer = null, announceDelayTimer = null, active = false, audioEl = null, announceAudioEl = null, mode = 'off', lastCfg = null, needsGesture = false, unlockHandlersInstalled = false;
     var phase = 'hold';
     var locale = 'en';
     var announceText = '';
+    var queuePosition = null;
     var lastSpeakAt = 0, pendingVoiceRetry = null, holdNodes = [];
     var LANG_MAP = { en: 'en-US', fa: 'fa-IR', tr: 'tr-TR' };
-    var SPOKEN_FALLBACK = {
-      fa: 'Shomaa dar safe entezar hastid. Lotfan sabr konid. Be zoodi shomaa raa be operator motasel mikonim.',
-      tr: 'Bekleme kuyruğundasınız. Lütfen bekleyin, kısa süre içinde sizi bir operatöre bağlayacağız.',
-    };
     function ensure() {
       try {
         if (typeof window === 'undefined') return null;
@@ -287,6 +284,32 @@
         });
       } catch (_) { stopHoldNodes(); }
     }
+    function getAnnouncementUrl() {
+      var cfg = lastCfg || {};
+      var q = cfg.ringback_queue_audio_urls || {};
+      var key = queuePosition == null ? '' : String(queuePosition);
+      return (key && q[key]) || cfg.ringback_announcement_audio_url || '';
+    }
+    function playAnnouncementAudio(force) {
+      if (!active || phase !== 'hold') return false;
+      var url = getAnnouncementUrl();
+      if (!url) return false;
+      var now = Date.now();
+      if (!force && now - lastSpeakAt < 14000) return true;
+      try {
+        if (!announceAudioEl || announceAudioEl.src !== url) {
+          if (announceAudioEl) { try { announceAudioEl.pause(); } catch (_) {} }
+          announceAudioEl = new Audio(url);
+        }
+        announceAudioEl.loop = false;
+        announceAudioEl.volume = 0.72;
+        announceAudioEl.currentTime = 0;
+        var p = announceAudioEl.play();
+        lastSpeakAt = now;
+        if (p && p.then) p.then(function () { needsGesture = false; }).catch(function () { needsGesture = true; installUnlockHandlers(); });
+        return true;
+      } catch (_) { needsGesture = true; installUnlockHandlers(); return true; }
+    }
     function getVoices() {
       try { return (window.speechSynthesis && window.speechSynthesis.getVoices && window.speechSynthesis.getVoices()) || []; } catch (_) { return []; }
     }
@@ -304,16 +327,16 @@
     }
     function speakAnnounce(force) {
       if (!active || phase !== 'hold' || !announceText) return;
+      if (playAnnouncementAudio(force)) return;
+      // Persian browser TTS is unreliable on many systems and can read the
+      // sentence with an English/default engine. For fa, only use an explicit
+      // uploaded audio file; otherwise keep the generated hold music playing.
+      if (locale === 'fa') return;
       var now = Date.now();
       if (!force && now - lastSpeakAt < 12000) return;
       try {
         if (typeof window === 'undefined' || !window.speechSynthesis) return;
         var voice = pickVoice(locale);
-        // Never let an English/default voice read Persian/Turkish script. That
-        // was the source of the repeated "داد داد" sound. Wait briefly for
-        // real voices to load; if no matching voice exists, use a Latin-script
-        // localized fallback so the message remains understandable instead of
-        // being garbled by the wrong speech engine.
         if (!voice && locale !== 'en') {
           if (!pendingVoiceRetry) {
             pendingVoiceRetry = setTimeout(function () {
@@ -323,13 +346,14 @@
           }
           if (now - lastSpeakAt < 2600) return;
         }
-        var spokenText = (!voice && SPOKEN_FALLBACK[locale]) ? SPOKEN_FALLBACK[locale] : announceText;
+        if (!voice && locale !== 'en') return;
+        var spokenText = announceText;
         var u = new window.SpeechSynthesisUtterance(spokenText);
         u.lang = LANG_MAP[locale] || 'en-US';
         if (voice) u.voice = voice;
-        u.rate = locale === 'fa' ? 0.86 : 0.92;
+        u.rate = 0.88;
         u.pitch = 1;
-        u.volume = 0.9;
+        u.volume = 0.62;
         try { window.speechSynthesis.cancel(); } catch (_) {}
         lastSpeakAt = now;
         window.speechSynthesis.speak(u);
@@ -339,6 +363,7 @@
       if (timer) { try { clearInterval(timer); } catch (_) {} timer = null; }
       if (holdTimer) { try { clearInterval(holdTimer); } catch (_) {} holdTimer = null; }
       if (speakTimer) { try { clearInterval(speakTimer); } catch (_) {} speakTimer = null; }
+      if (announceDelayTimer) { try { clearTimeout(announceDelayTimer); } catch (_) {} announceDelayTimer = null; }
       if (pendingVoiceRetry) { try { clearTimeout(pendingVoiceRetry); } catch (_) {} pendingVoiceRetry = null; }
       stopHoldNodes();
     }
@@ -351,7 +376,7 @@
       if (mode !== 'tone') {
         // music URL handles its own loop; only schedule announcements during hold
         if (phase === 'hold' && announceText) {
-          speakAnnounce(true);
+          announceDelayTimer = setTimeout(function () { announceDelayTimer = null; speakAnnounce(true); }, 1400);
           speakTimer = setInterval(function () { speakAnnounce(false); }, 18000);
         }
         return;
@@ -363,7 +388,7 @@
         holdMusicLoop();
         holdTimer = setInterval(holdMusicLoop, 11000);
         if (announceText) {
-          speakAnnounce(true);
+          announceDelayTimer = setTimeout(function () { announceDelayTimer = null; speakAnnounce(true); }, 1400);
           speakTimer = setInterval(function () { speakAnnounce(false); }, 18000);
         }
       }
@@ -373,6 +398,9 @@
       setLocale: function (loc, text) {
         if (loc) locale = String(loc);
         if (text != null) announceText = String(text || '');
+      },
+      setQueuePosition: function (pos) {
+        queuePosition = typeof pos === 'number' ? pos : null;
       },
       setPhase: function (p) {
         var next = p === 'ring' ? 'ring' : 'hold';
@@ -423,6 +451,7 @@
         clearTimers();
         try { if (typeof window !== 'undefined' && window.speechSynthesis) window.speechSynthesis.cancel(); } catch (_) {}
         if (audioEl) { try { audioEl.pause(); audioEl.src = ''; } catch (_) {} audioEl = null; }
+        if (announceAudioEl) { try { announceAudioEl.pause(); announceAudioEl.src = ''; } catch (_) {} announceAudioEl = null; }
       },
       startFromGesture: function (cfg) {
         lastCfg = cfg || lastCfg || {};
@@ -615,6 +644,7 @@
     try { Ringback.prime(); } catch (_) {}
     try {
       Ringback.setLocale(this.locale, this.t('queue_wait_announce'));
+      Ringback.setQueuePosition(this.queuePosition);
       Ringback.setPhase('hold');
     } catch (_) {}
     try {
@@ -680,6 +710,7 @@
       try {
         var qe = (self.bootstrap && self.bootstrap.queue_experience) || {};
         Ringback.setLocale(self.locale, self.t('queue_wait_announce'));
+        Ringback.setQueuePosition(self.queuePosition);
         // Always begin in hold phase — gentle pad + spoken "please wait"
         // announcement. Phase only flips to 'ring' when the server reports
         // call.state = 'ringing' / 'connecting' / 'active' (operator is
@@ -739,6 +770,7 @@
       var c = r.body.call; if (!c) return;
       self.call = c;
       if (typeof r.body.position === 'number') self.queuePosition = r.body.position;
+      try { Ringback.setQueuePosition(self.queuePosition); } catch (_) {}
       if (typeof r.body.eta_seconds === 'number') self.queueEta = r.body.eta_seconds;
       if (['cancelled', 'ended', 'missed', 'failed'].indexOf(c.state) >= 0) {
         self.stopPolling(); self.stopTimer(); try { Ringback.stop(); } catch (_) {}

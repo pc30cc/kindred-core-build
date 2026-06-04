@@ -33,7 +33,10 @@ export interface PlatformCallCenterSettings {
   /** Ringback (on-hold) audio played to the visitor while waiting. */
   ringback_enabled: boolean;
   ringback_mode: 'tone' | 'music' | 'off';
+  ringback_music_path: string | null;
   ringback_music_url: string | null;
+  ringback_announcement_audio_path: string | null;
+  ringback_queue_audio_paths: Record<string, string> | null;
   /** Queue experience for the visitor. */
   queue_show_position: boolean;
   queue_show_eta: boolean;

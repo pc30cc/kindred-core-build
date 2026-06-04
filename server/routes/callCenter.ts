@@ -31,7 +31,7 @@ import {
   getCallCenterRecordingStatus,
   RecordingControlException,
 } from '../services/callCenter/recordingControl.js';
-import { uploadFile, deleteFile, resolveStorageConfig } from '../services/storage/index.js';
+import { uploadFile, deleteFile, resolveStorageConfig, resolveGlobalStorageConfig, uploadWithConfig, deleteWithConfig, getFileUrlWithConfig } from '../services/storage/index.js';
 import {
   listDepartments, getDepartment, createDepartment, updateDepartment, deleteDepartment,
   listDepartmentAgents, addDepartmentAgent, updateDepartmentAgent, removeDepartmentAgent,
@@ -951,7 +951,10 @@ const platformPatchSchema = z.object({
   // schema and silently dropped by z.object.strip() in the previous task.
   ringback_enabled: z.boolean().optional(),
   ringback_mode: z.enum(['tone', 'music', 'off']).optional(),
+  ringback_music_path: z.string().nullable().optional(),
   ringback_music_url: z.string().nullable().optional(),
+  ringback_announcement_audio_path: z.string().nullable().optional(),
+  ringback_queue_audio_paths: z.record(z.string()).nullable().optional(),
   queue_show_position: z.boolean().optional(),
   queue_show_eta: z.boolean().optional(),
   queue_eta_seconds_per_position: z.number().int().min(0).optional(),
@@ -984,6 +987,62 @@ callCenterRouter.put('/admin/platform', async (req, res) => {
     } as any);
   } catch {/* audit_logs may not exist; ignore */}
   res.json({ settings: updated });
+});
+
+const MAX_RINGBACK_AUDIO_BYTES = 12 * 1024 * 1024;
+const ALLOWED_RINGBACK_AUDIO_MIME = new Set(['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/ogg', 'audio/webm', 'audio/mp4', 'audio/aac']);
+const ringbackAudioUploadSchema = z.object({
+  kind: z.enum(['music', 'announcement', 'queue']),
+  queue_position: z.number().int().min(1).max(6).optional(),
+  fileName: z.string().min(1).max(160),
+  contentType: z.string().min(1).max(80),
+  data: z.string().min(1),
+});
+
+callCenterRouter.post('/admin/platform/ringback-audio', async (req, res) => {
+  const ctx = await requireGlobalAdmin(req, res);
+  if (!ctx) return;
+  const parsed = ringbackAudioUploadSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_body', details: parsed.error.flatten() });
+  const input = parsed.data;
+  if (input.kind === 'queue' && !input.queue_position) return res.status(400).json({ error: 'queue_position_required' });
+  if (!ALLOWED_RINGBACK_AUDIO_MIME.has(input.contentType)) return res.status(415).json({ error: 'unsupported_audio_type' });
+  let buffer: Buffer;
+  try { buffer = Buffer.from(input.data, 'base64'); } catch { return res.status(400).json({ error: 'invalid_data' }); }
+  if (buffer.length === 0 || buffer.length > MAX_RINGBACK_AUDIO_BYTES) return res.status(413).json({ error: 'file_too_large' });
+  const storage = await resolveGlobalStorageConfig(ctx.config);
+  if (!storage) return res.status(500).json({ error: 'global_storage_not_configured' });
+  const safe = input.fileName.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 90);
+  const slot = input.kind === 'queue' ? `queue-${input.queue_position}` : input.kind;
+  const fileKey = `platform/call-center/ringback/${slot}/${crypto.randomUUID()}-${safe}`;
+  const uploaded = await uploadWithConfig(storage, {
+    workspaceId: '00000000-0000-0000-0000-000000000000', fileKey, data: buffer, contentType: input.contentType,
+  });
+  const url = uploaded.url || getFileUrlWithConfig(storage, fileKey);
+  if (!uploaded.success || !url) return res.status(500).json({ error: 'audio_upload_failed', details: uploaded.error });
+  const current = await getPlatformCallCenterSettings(ctx.config);
+  const patch: Record<string, unknown> = {};
+  let previousPath: string | null = null;
+  if (input.kind === 'music') {
+    previousPath = current.ringback_music_path;
+    patch.ringback_music_path = fileKey;
+    patch.ringback_music_url = url;
+    patch.ringback_mode = 'music';
+    patch.ringback_enabled = true;
+  } else if (input.kind === 'announcement') {
+    previousPath = current.ringback_announcement_audio_path;
+    patch.ringback_announcement_audio_path = fileKey;
+  } else {
+    const map = { ...((current.ringback_queue_audio_paths || {}) as Record<string, string>) };
+    previousPath = map[String(input.queue_position)] || null;
+    map[String(input.queue_position)] = fileKey;
+    patch.ringback_queue_audio_paths = map;
+  }
+  const updated = await updatePlatformCallCenterSettings(ctx.config, patch as any);
+  if (previousPath && previousPath !== fileKey) {
+    try { await deleteWithConfig(storage, previousPath); } catch { /* best-effort */ }
+  }
+  res.json({ settings: updated, url, file_key: fileKey });
 });
 
 callCenterRouter.get('/admin/workspaces', async (req, res) => {

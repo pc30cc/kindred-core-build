@@ -5163,9 +5163,12 @@ export type Database = {
           queue_offer_callback_after_seconds: number
           queue_show_eta: boolean
           queue_show_position: boolean
+          ringback_announcement_audio_path: string | null
           ringback_enabled: boolean
           ringback_mode: string
+          ringback_music_path: string | null
           ringback_music_url: string | null
+          ringback_queue_audio_paths: Json
           screen_share_enabled: boolean
           singleton: boolean
           updated_at: string
@@ -5201,9 +5204,12 @@ export type Database = {
           queue_offer_callback_after_seconds?: number
           queue_show_eta?: boolean
           queue_show_position?: boolean
+          ringback_announcement_audio_path?: string | null
           ringback_enabled?: boolean
           ringback_mode?: string
+          ringback_music_path?: string | null
           ringback_music_url?: string | null
+          ringback_queue_audio_paths?: Json
           screen_share_enabled?: boolean
           singleton?: boolean
           updated_at?: string
@@ -5239,9 +5245,12 @@ export type Database = {
           queue_offer_callback_after_seconds?: number
           queue_show_eta?: boolean
           queue_show_position?: boolean
+          ringback_announcement_audio_path?: string | null
           ringback_enabled?: boolean
           ringback_mode?: string
+          ringback_music_path?: string | null
           ringback_music_url?: string | null
+          ringback_queue_audio_paths?: Json
           screen_share_enabled?: boolean
           singleton?: boolean
           updated_at?: string

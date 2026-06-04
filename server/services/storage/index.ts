@@ -59,7 +59,7 @@ const ALLOWED_TYPES = new Set([
   'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml',
   'application/pdf', 'text/plain', 'text/html', 'text/css',
   'application/javascript', 'application/json',
-  'video/mp4', 'audio/mpeg', 'audio/wav',
+  'video/mp4', 'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/ogg', 'audio/webm', 'audio/mp4', 'audio/aac',
   'application/zip', 'application/gzip',
   // AI Agent file ingestion (Pass E4-A/B)
   'text/markdown', 'text/x-markdown', 'application/x-markdown',
@@ -244,7 +244,7 @@ async function localUpload(config: StorageConfig, req: UploadRequest): Promise<S
 
 async function localDelete(config: StorageConfig, fileKey: string): Promise<StorageResult> {
   const filePath = path.join(config.localPath || '/tmp/storage', fileKey);
-  try { fs.unlinkSync(filePath); } catch {}
+  try { fs.unlinkSync(filePath); } catch { /* file may already be gone */ }
   return { success: true };
 }
 
@@ -399,6 +399,25 @@ export async function resolveStorageConfig(serverConfig: ServerConfig, workspace
   return { provider: 'local', localPath: '/tmp/storage' };
 }
 
+/**
+ * Resolve the app-wide storage provider only (no workspace override).
+ * Used for platform-owned assets such as global call-center ringback audio.
+ */
+export async function resolveGlobalStorageConfig(serverConfig: ServerConfig): Promise<StorageConfig | null> {
+  const sb = getServiceClient(serverConfig);
+  const { data: globalConfig } = await sb
+    .from('app_runtime_config')
+    .select('value')
+    .eq('key', 'default_storage_provider')
+    .maybeSingle();
+
+  if (!globalConfig?.value) return null;
+  const c = globalConfig.value as any;
+  const providerName = c.provider_name || c.provider || 'local';
+  const providerConfig = c.config && typeof c.config === 'object' ? c.config : c;
+  return mapDBConfigToStorage(providerName, providerConfig);
+}
+
 function mapDBConfigToStorage(provider: string, c: any): StorageConfig {
   // Bunny Storage now ships with FTP-style fields in the admin UI
   // (username / hostname / connection_type / port / password). Map them
@@ -519,6 +538,12 @@ export async function getFileUrl(
 ): Promise<string | null> {
   const storageConfig = await resolveStorageConfig(serverConfig, workspaceId);
   if (!storageConfig) return null;
+  const handler = urlHandlers[storageConfig.provider];
+  if (!handler) return null;
+  return handler(storageConfig, fileKey);
+}
+
+export function getFileUrlWithConfig(storageConfig: StorageConfig, fileKey: string): string | null {
   const handler = urlHandlers[storageConfig.provider];
   if (!handler) return null;
   return handler(storageConfig, fileKey);

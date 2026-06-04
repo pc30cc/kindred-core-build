@@ -66,6 +66,73 @@
     return null;
   }
 
+  // ── Visitor-side ringback (on-hold) audio ────────────────────────────
+  var Ringback = (function () {
+    var ctx = null, timer = null, active = false, audioEl = null, mode = 'off';
+    function ensure() {
+      try {
+        if (typeof window === 'undefined') return null;
+        var C = window.AudioContext || window.webkitAudioContext;
+        if (!C) return null;
+        if (!ctx) ctx = new C();
+        if (ctx.state === 'suspended') { try { ctx.resume(); } catch (_) {} }
+        return ctx;
+      } catch (_) { return null; }
+    }
+    function ringOnce() {
+      var c = ensure(); if (!c) return;
+      try {
+        var t0 = c.currentTime;
+        // Classic phone-style "brrring" — two tones at 440/480Hz, 1.2s on, then silent.
+        var pattern = [
+          { f1: 440, f2: 480, at: 0.0, dur: 0.5 },
+          { f1: 440, f2: 480, at: 0.55, dur: 0.5 },
+        ];
+        for (var i = 0; i < pattern.length; i++) {
+          var n = pattern[i];
+          [n.f1, n.f2].forEach(function (f) {
+            var osc = c.createOscillator();
+            var g = c.createGain();
+            osc.type = 'sine'; osc.frequency.setValueAtTime(f, t0 + n.at);
+            g.gain.setValueAtTime(0.0001, t0 + n.at);
+            g.gain.exponentialRampToValueAtTime(0.08, t0 + n.at + 0.03);
+            g.gain.setValueAtTime(0.08, t0 + n.at + n.dur - 0.05);
+            g.gain.exponentialRampToValueAtTime(0.0001, t0 + n.at + n.dur);
+            osc.connect(g).connect(c.destination);
+            osc.start(t0 + n.at);
+            osc.stop(t0 + n.at + n.dur + 0.02);
+          });
+        }
+      } catch (_) {}
+    }
+    return {
+      start: function (cfg) {
+        if (active) return;
+        active = true;
+        mode = (cfg && cfg.ringback_mode) || 'tone';
+        if (!cfg || cfg.ringback_enabled === false || mode === 'off') { active = false; return; }
+        if (mode === 'music' && cfg.ringback_music_url) {
+          try {
+            audioEl = new Audio(cfg.ringback_music_url);
+            audioEl.loop = true; audioEl.volume = 0.5;
+            var p = audioEl.play();
+            if (p && p.catch) p.catch(function () { /* autoplay blocked */ });
+          } catch (_) {}
+          return;
+        }
+        // tone
+        ringOnce();
+        timer = setInterval(ringOnce, 3000);
+      },
+      stop: function () {
+        active = false;
+        if (timer) { try { clearInterval(timer); } catch (_) {} timer = null; }
+        if (audioEl) { try { audioEl.pause(); audioEl.src = ''; } catch (_) {} audioEl = null; }
+      },
+      isActive: function () { return active; },
+    };
+  })();
+
   function CallCenterWidgetCtor() {
     this.state = STATES.LOADING;
     this.bootstrap = null;

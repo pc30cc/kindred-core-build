@@ -877,13 +877,16 @@
   CallCenterWidgetCtor.prototype.render = function () {
     if (!this.root) return;
     var self = this;
+    var tr = function (key, vars) { return self.t(key, vars); };
     var pos = this.position();
     this.root.innerHTML = '';
+    this.root.setAttribute('lang', this.locale);
+    this.root.setAttribute('dir', (LOCALE_META[this.locale] && LOCALE_META[this.locale].dir) || 'ltr');
     var caps = (this.bootstrap && this.bootstrap.capabilities) || {};
     var cfg = (this.bootstrap && this.bootstrap.config) || {};
 
     // Launcher always present
-    var launcherText = this.isOnline() ? 'Talk now' : 'Callback';
+    var launcherText = this.isOnline() ? tr('talk_now') : tr('callback');
     var launcher = el('button', {
       class: 'ccw-launcher ' + pos,
       'aria-label': launcherText,
@@ -892,7 +895,7 @@
       el('span', { class: 'ccw-launcher-pulse' }, [el('span', { class: 'ccw-launcher-icon' }, ['☎'])]),
       el('span', { class: 'ccw-launcher-copy' }, [
         el('span', { class: 'ccw-launcher-text' }, [launcherText]),
-        el('span', { class: 'ccw-launcher-sub' }, [this.isOnline() ? 'Live support' : 'Leave details']),
+        el('span', { class: 'ccw-launcher-sub' }, [this.isOnline() ? tr('live_support') : tr('leave_details')]),
       ]),
       this.isOnline() ? el('span', { class: 'ccw-launcher-dot' }) : null,
     ]);
@@ -907,12 +910,13 @@
         el('span', { class: 'ccw-avatar-badge' }),
       ]),
       el('div', { class: 'ccw-header-copy' }, [
-        el('div', { class: 'ccw-title' }, [cfg.display_name || 'Support']),
+        el('div', { class: 'ccw-title' }, [cfg.display_name || tr('support')]),
         el('div', { class: 'ccw-sub' }, [
           el('span', { class: 'ccw-status-dot ' + (this.isOnline() ? 'online' : 'offline') }),
-          this.isOnline() ? 'Operators available' : 'Callback desk',
+          this.isOnline() ? tr('operators_available') : tr('callback_desk'),
         ]),
       ]),
+      this.renderLocaleSwitcher(),
       el('button', { class: 'ccw-close', on: { click: function () { self.toggleOpen(); } } }, ['×']),
     ]);
     panel.appendChild(header);

@@ -396,6 +396,12 @@ export default function CallCenterSettingsPage() {
 }
 
 // ── Widget text overrides editor ──────────────────────────────
+const CALLBACK_TEXT_KEYS = new Set([
+  'callback', 'leave_details', 'callback_desk',
+  'leave_callback_request', 'offline_copy',
+  'request_callback', 'request_callback_instead',
+]);
+
 const WIDGET_TEXT_KEYS: { key: string; label: string; placeholder: Record<string, string> }[] = [
   { key: 'talk_now',            label: 'Launcher text (online)',     placeholder: { en: 'Talk now',            fa: 'همین حالا تماس بگیرید', tr: 'Şimdi konuş' } },
   { key: 'live_support',        label: 'Launcher subtitle (online)', placeholder: { en: 'Live support',        fa: 'پشتیبانی آنلاین',     tr: 'Canlı destek' } },

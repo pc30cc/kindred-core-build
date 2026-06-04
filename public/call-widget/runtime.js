@@ -80,7 +80,12 @@
     this.timer = null;
     this.poll = null;
     this.open = false;
-    this.formData = { name: '', email: '', phone: '', subject: '', call_type: 'voice', consent: false, department_id: '' };
+    this.formData = {
+      name: '', email: '', phone: '', subject: '', message: '',
+      call_type: 'voice', consent: false, department_id: '',
+      callback_channel: 'audio', callback_urgency: 'normal',
+      callback_when: 'now', callback_scheduled_for: '',
+    };
   }
 
   CallCenterWidgetCtor.prototype.mount = function (opts) {

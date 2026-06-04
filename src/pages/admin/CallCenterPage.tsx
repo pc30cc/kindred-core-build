@@ -297,6 +297,98 @@ export default function AdminCallCenterPage() {
         <Button variant="outline" onClick={invalidate}>Invalidate cache</Button>
       </div>
 
+      <Card className="p-5 space-y-5">
+        <div className="flex items-start gap-2">
+          <PhoneCall className="h-5 w-5 text-primary mt-0.5" />
+          <div>
+            <h2 className="font-semibold">Ringback & Queue experience</h2>
+            <p className="text-xs text-muted-foreground">
+              Audio played to the visitor while they wait for an operator, plus the on-screen queue UX.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-start justify-between gap-3 py-1">
+          <div className="min-w-0">
+            <Label>Enable ringback / hold audio</Label>
+            <p className="text-xs text-muted-foreground">Master switch for the visitor-side on-hold audio.</p>
+          </div>
+          <Switch
+            checked={!!draft.ringback_enabled}
+            onCheckedChange={(v) => setDraft({ ...draft, ringback_enabled: v })}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label className="flex items-center gap-2"><Music className="h-3.5 w-3.5" /> Ringback mode</Label>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            {RINGBACK_MODES.map((m) => {
+              const active = (draft.ringback_mode || 'tone') === m.value;
+              return (
+                <button
+                  key={m.value}
+                  type="button"
+                  onClick={() => setDraft({ ...draft, ringback_mode: m.value })}
+                  className={`text-start rounded-lg border p-3 transition ${active ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-input hover:bg-muted/40'}`}
+                >
+                  <div className="text-sm font-semibold">{m.label}</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">{m.hint}</div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {(draft.ringback_mode === 'music') && (
+          <div>
+            <Label>Hold music URL (.mp3 / .ogg / .wav)</Label>
+            <Input
+              type="url"
+              placeholder="https://cdn.example.com/hold-music.mp3"
+              value={draft.ringback_music_url ?? ''}
+              onChange={(e) => setDraft({ ...draft, ringback_music_url: e.target.value })}
+            />
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Must be publicly reachable and served with permissive CORS. Falls back to silence if the file fails to load.
+            </p>
+          </div>
+        )}
+
+        <div className="space-y-2 pt-2 border-t">
+          {QUEUE_TOGGLES.map(([k, label, hint]) => (
+            <div key={k as string} className="flex items-start justify-between gap-3 py-1">
+              <div className="min-w-0">
+                <Label>{label}</Label>
+                <p className="text-xs text-muted-foreground">{hint}</p>
+              </div>
+              <Switch
+                checked={!!(draft as any)[k]}
+                onCheckedChange={(v) => setDraft({ ...draft, [k]: v } as any)}
+              />
+            </div>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {QUEUE_NUMBERS.map(([k, label, hint]) => (
+            <div key={k as string}>
+              <Label>{label}</Label>
+              <Input
+                type="number"
+                min={0}
+                value={String((draft as any)[k] ?? 0)}
+                onChange={(e) => setDraft({ ...draft, [k]: Math.max(0, parseInt(e.target.value || '0', 10)) } as any)}
+              />
+              <p className="text-[11px] text-muted-foreground mt-1">{hint}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex gap-2 pt-2">
+          <Button onClick={save} disabled={update.isPending}>Save ringback & queue settings</Button>
+        </div>
+      </Card>
+
       <Card className="p-5 space-y-3">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div>

@@ -115,6 +115,27 @@ async function issueContinuityCookieForContact(
   if (issued?.token) setContinuityCookie(res, issued.token, req);
 }
 
+async function restoreContactFromContinuityCookie(
+  req: any,
+  config: ServerConfig,
+  workspaceId: string,
+  visitorId: string,
+): Promise<{ id: string; name: string | null; email: string | null; phone: string | null; avatar_url: string | null } | null> {
+  const token = readContinuityCookie(req);
+  if (!token) return null;
+  const sb = getServiceClient(config);
+  const restored = await resolveContinuityToken(sb, workspaceId, token);
+  if (!restored.valid || !restored.contactId) return null;
+  await sb.rpc('merge_visitor_into_contact', {
+    _workspace_id: workspaceId,
+    _visitor_id: visitorId,
+    _contact_id: restored.contactId,
+    _method: 'token',
+    _metadata: { source: 'call_widget_continuity' },
+  });
+  return findContactById(config, restored.contactId);
+}
+
 /**
  * Ensure a visitor_sessions row exists for (workspace, visitor) so that
  * mergeVisitorIdentity (which UPDATEs the row) can pin contact_id.
@@ -206,7 +227,9 @@ async function identifyVisitorForCall(
 }> {
   const { visitorId } = resolveVisitorIdentity(req, res, workspaceId);
   await ensureVisitorSessionRow(config, workspaceId, visitorId, origin, submitted.page_url ?? null);
-  const existing = await findLinkedContactForVisitor(config, workspaceId, visitorId);
+  const existing =
+    await findLinkedContactForVisitor(config, workspaceId, visitorId) ||
+    await restoreContactFromContinuityCookie(req, config, workspaceId, visitorId);
 
   const hasSubmittedIdentity = !!(submitted.name || submitted.email || submitted.phone);
   if (!hasSubmittedIdentity && !existing) {
@@ -234,6 +257,7 @@ async function identifyVisitorForCall(
       .select('id, name, email, phone')
       .eq('id', merge.contactId)
       .maybeSingle();
+    await issueContinuityCookieForContact(req, res, config, workspaceId, merge.contactId);
     return { visitorId, contactId: merge.contactId, contact: contact || null };
   } catch (e: any) {
     console.warn('[call-widget] identifyVisitorForCall merge failed:', e?.message || e);

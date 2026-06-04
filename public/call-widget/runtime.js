@@ -47,7 +47,7 @@
       operators_available: 'اپراتورها آماده‌اند', callback_desk: 'میز درخواست تماس', loading: 'در حال بارگذاری…', offline: 'آفلاین',
       leave_callback_request: 'درخواست تماس ثبت کنید', offline_copy: 'تیم ما الان آفلاین است، اما می‌توانیم با شما تماس بگیریم.', request_callback: 'درخواست تماس',
       live_now: 'آنلاین', channels: 'صوتی · تصویری · درخواست تماس', talk_to_team: 'با تیم ما صحبت کنید', online_copy: 'یک تماس صوتی یا تصویری امن را با اولین اپراتور آزاد شروع کنید.',
-      secure_line: 'خط امن', queue_aware: 'مدیریت صف', fast_handoff: 'اتصال سریع', voice_call: 'تماس صوتی', video_call: 'تماس تصویری', request_callback_instead: 'به‌جای آن درخواست تماس بدهید',
+      secure_line: 'خط امن', queue_aware: 'مدیریت صف', fast_handoff: 'اتصال سریع', voice_call: 'تماس صوتی', video_call: 'تماس تصویری', request_callback_instead: 'درخواست تماس',
       you_are_next: 'نفر بعدی شما هستید', holding_place: 'جای شما محفوظ است', queue_copy_many: 'درخواست شما در صف تماس زنده است. این پنجره را باز نگه دارید تا اپراتور متصل شود.', queue_copy_next: 'در حال زنگ زدن به اولین اپراتور آزاد هستیم.',
       ringing_enabled: 'صدای زنگ فعال است', ringing_operator: 'در حال زنگ زدن به اپراتور', waiting_time: 'زمان انتظار', enable_ringing_sound: '🔊 فعال کردن صدای زنگ', you_next_line: 'شما نفر بعدی صف هستید', you_queue_number: 'شما نفر {n} صف هستید',
       queue_position: 'جایگاه در صف', eta: 'زمان تقریبی', eta_under_min: 'زمان انتظار: کمتر از ۱ دقیقه', eta_minutes: 'زمان انتظار: حدود {n} دقیقه', tired_waiting: 'از انتظار خسته شدید؟ می‌توانیم با شما تماس بگیریم.', cancel_call: 'لغو تماس',

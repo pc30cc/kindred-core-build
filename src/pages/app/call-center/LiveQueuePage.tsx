@@ -386,29 +386,52 @@ export default function LiveQueuePage() {
   }, [accepted, detail]);
 
   return (
+    <TooltipProvider delayDuration={200}>
     <div className="flex flex-col h-full gap-4">
       {/* Command bar */}
-      <Card className="p-3 flex flex-wrap items-center gap-2">
-        <div className="flex items-center gap-2 me-2">
-          <div className="h-8 w-8 rounded-md bg-primary/10 text-primary flex items-center justify-center">
+      <Card className="p-3 flex flex-wrap items-center gap-3 bg-gradient-to-r from-primary/5 via-background to-background border-primary/10">
+        <div className="flex items-center gap-2.5 me-2">
+          <div className="h-9 w-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center ring-1 ring-primary/20">
             <Headphones className="h-4 w-4" />
           </div>
           <div>
             <div className="text-sm font-semibold leading-tight">Live Desk</div>
-            <div className="text-[11px] text-muted-foreground flex items-center gap-1">
-              <RadioTower className="h-3 w-3" /> Polling 5s
+            <div className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+              <span className="relative inline-flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+              </span>
+              <RadioTower className="h-3 w-3" /> Live · polling 5s
             </div>
           </div>
         </div>
         <div className="flex flex-wrap gap-2 ms-auto">
-          <StatChip label="Waiting" value={overview?.waiting_calls ?? queue.length} tone={(overview?.waiting_calls ?? 0) > 0 ? 'warn' : 'muted'} />
-          <StatChip label="Active" value={overview?.active_calls ?? 0} tone={(overview?.active_calls ?? 0) > 0 ? 'ok' : 'muted'} />
-          <StatChip label="Missed today" value={overview?.missed_today ?? 0} tone={(overview?.missed_today ?? 0) > 0 ? 'danger' : 'muted'} />
-          <StatChip label="Provider" value={overview?.provider?.ready ? 'Ready' : 'Down'} tone={overview?.provider?.ready ? 'ok' : 'warn'} />
+          <StatChip label="Waiting" icon={Inbox}
+            value={overview?.waiting_calls ?? rawQueue.length}
+            tone={(overview?.waiting_calls ?? 0) > 0 ? 'warn' : 'muted'} />
+          <StatChip label="Active" icon={Activity}
+            value={overview?.active_calls ?? 0}
+            tone={(overview?.active_calls ?? 0) > 0 ? 'ok' : 'muted'} />
+          <StatChip label="Longest wait" icon={Clock}
+            value={queueStats.count > 0
+              ? `${Math.floor(queueStats.longest / 60)}:${(queueStats.longest % 60).toString().padStart(2, '0')}`
+              : '—'}
+            tone={queueStats.longest > 180 ? 'danger' : queueStats.longest > 60 ? 'warn' : 'muted'} />
+          <StatChip label="SLA breached" icon={AlertTriangle}
+            value={queueStats.breached}
+            tone={queueStats.breached > 0 ? 'danger' : 'muted'} />
+          <StatChip label="Missed today" icon={PhoneOff}
+            value={overview?.missed_today ?? 0}
+            tone={(overview?.missed_today ?? 0) > 0 ? 'danger' : 'muted'} />
+          <StatChip label="Today" icon={PhoneCall}
+            value={overview?.today_calls ?? 0} tone="primary" />
+          <StatChip label="Provider" icon={RadioTower}
+            value={overview?.provider?.ready ? 'Ready' : 'Down'}
+            tone={overview?.provider?.ready ? 'ok' : 'danger'} />
         </div>
       </Card>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[320px_minmax(0,1fr)_320px] gap-4 flex-1 min-h-0">
+      <div className="grid grid-cols-1 lg:grid-cols-[340px_minmax(0,1fr)_340px] gap-4 flex-1 min-h-0">
         {/* Queue column */}
         <div className="space-y-2 overflow-y-auto pr-1">
           <div className="flex items-center justify-between sticky top-0 bg-background py-1 z-10">

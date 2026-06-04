@@ -863,9 +863,31 @@ callCenterRouter.post('/callbacks/:id/complete', async (req, res) => {
   if (!ctx) return;
   const sb = getServiceClient(ctx.config);
   const now = new Date().toISOString();
-  await sb.from('callback_requests').update({
+  const note = typeof req.body?.note === 'string' ? req.body.note.trim() : '';
+  const patch: Record<string, unknown> = {
     status: 'completed', completed_at: now, handled_by: ctx.userId, updated_at: now,
-  }).eq('id', req.params.id).eq('workspace_id', wid);
+  };
+  if (note) {
+    // Read current row to merge notes + metadata.resolution_note
+    const { data: existing } = await sb
+      .from('callback_requests')
+      .select('notes, metadata')
+      .eq('id', req.params.id)
+      .eq('workspace_id', wid)
+      .maybeSingle();
+    const prevNotes = (existing?.notes || '').trim();
+    const stamp = new Date().toISOString();
+    const line = `[${stamp}] (resolution) ${note}`;
+    patch.notes = prevNotes ? `${prevNotes}\n${line}` : line;
+    const meta = (existing?.metadata as Record<string, unknown> | null) || {};
+    patch.metadata = {
+      ...meta,
+      resolution_note: note,
+      resolved_at: stamp,
+      resolved_by: ctx.userId,
+    };
+  }
+  await sb.from('callback_requests').update(patch).eq('id', req.params.id).eq('workspace_id', wid);
   res.json({ ok: true });
 });
 

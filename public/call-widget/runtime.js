@@ -521,6 +521,10 @@
     // (a different click than the initial Voice/Video button).
     try { Ringback.prime(); } catch (_) {}
     try {
+      Ringback.setLocale(this.locale, this.t('queue_wait_announce'));
+      Ringback.setPhase('hold');
+    } catch (_) {}
+    try {
       // Start while still inside the click gesture. Starting after the
       // /calls/request promise resolves is blocked by Safari/Chrome autoplay
       // rules on many devices, even if the AudioContext was primed earlier.
@@ -582,6 +586,11 @@
       // Start ringback (visitor-side on-hold audio).
       try {
         var qe = (self.bootstrap && self.bootstrap.queue_experience) || {};
+        Ringback.setLocale(self.locale, self.t('queue_wait_announce'));
+        // Begin in hold phase — gentle pad + spoken "please wait" announcement.
+        // Phase will flip to 'ring' once we are first in queue / state=ringing.
+        var initialPhase = (self.queuePosition === 1) ? 'ring' : 'hold';
+        Ringback.setPhase(initialPhase);
         Ringback.start(qe);
         if (Ringback.needsGesture && Ringback.needsGesture()) self.render();
       } catch (_) {}

@@ -5149,6 +5149,14 @@ export type Database = {
           max_monthly_call_minutes_per_workspace: number
           max_queue_size_per_workspace: number
           max_recording_storage_mb: number
+          operator_new_call_sound_enabled: boolean
+          queue_eta_seconds_per_position: number
+          queue_offer_callback_after_seconds: number
+          queue_show_eta: boolean
+          queue_show_position: boolean
+          ringback_enabled: boolean
+          ringback_mode: string
+          ringback_music_url: string | null
           screen_share_enabled: boolean
           singleton: boolean
           updated_at: string
@@ -5177,6 +5185,14 @@ export type Database = {
           max_monthly_call_minutes_per_workspace?: number
           max_queue_size_per_workspace?: number
           max_recording_storage_mb?: number
+          operator_new_call_sound_enabled?: boolean
+          queue_eta_seconds_per_position?: number
+          queue_offer_callback_after_seconds?: number
+          queue_show_eta?: boolean
+          queue_show_position?: boolean
+          ringback_enabled?: boolean
+          ringback_mode?: string
+          ringback_music_url?: string | null
           screen_share_enabled?: boolean
           singleton?: boolean
           updated_at?: string
@@ -5205,6 +5221,14 @@ export type Database = {
           max_monthly_call_minutes_per_workspace?: number
           max_queue_size_per_workspace?: number
           max_recording_storage_mb?: number
+          operator_new_call_sound_enabled?: boolean
+          queue_eta_seconds_per_position?: number
+          queue_offer_callback_after_seconds?: number
+          queue_show_eta?: boolean
+          queue_show_position?: boolean
+          ringback_enabled?: boolean
+          ringback_mode?: string
+          ringback_music_url?: string | null
           screen_share_enabled?: boolean
           singleton?: boolean
           updated_at?: string

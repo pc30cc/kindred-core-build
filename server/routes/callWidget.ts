@@ -95,20 +95,53 @@ async function ensureVisitorSessionRow(
     .eq('visitor_id', visitorId)
     .limit(1)
     .maybeSingle();
+  let sessionId: string | null = existing?.id ?? null;
   if (existing?.id) {
     // Touch last_seen_at so the visitor appears live during/after the call.
     await sb
       .from('visitor_sessions')
       .update({ last_seen_at: new Date().toISOString() })
       .eq('id', existing.id);
-    return;
+  } else {
+    const { data: created } = await sb.from('visitor_sessions').insert({
+      workspace_id: workspaceId,
+      visitor_id: visitorId,
+      current_page: pageUrl || origin || null,
+      metadata: { source: 'call_widget' },
+    }).select('id').maybeSingle();
+    sessionId = created?.id ?? null;
   }
-  await sb.from('visitor_sessions').insert({
-    workspace_id: workspaceId,
-    visitor_id: visitorId,
-    current_page: pageUrl || origin || null,
-    metadata: { source: 'call_widget' },
-  });
+
+  // Ensure the call-widget visitor appears in the Online Visitors list with
+  // their real contact name. Without a presence row, the intelligence query
+  // (presence JOIN sessions) excludes them and they look "anonymous" via the
+  // chat-widget heartbeat row that belongs to a different visitor_id.
+  if (sessionId) {
+    try {
+      const { data: existingPresence } = await sb
+        .from('visitor_presence')
+        .select('id')
+        .eq('visitor_session_id', sessionId)
+        .maybeSingle();
+      const nowIso = new Date().toISOString();
+      if (existingPresence?.id) {
+        await sb.from('visitor_presence').update({
+          status: 'online',
+          current_page: pageUrl || origin || null,
+          updated_at: nowIso,
+        }).eq('id', existingPresence.id);
+      } else {
+        await sb.from('visitor_presence').insert({
+          workspace_id: workspaceId,
+          visitor_session_id: sessionId,
+          status: 'online',
+          current_page: pageUrl || origin || null,
+        });
+      }
+    } catch (e: any) {
+      console.warn('[call-widget] presence upsert failed:', e?.message || e);
+    }
+  }
 }
 
 /**
@@ -278,6 +311,20 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
   try {
     const { visitorId } = resolveVisitorIdentity(req, res, ws.workspace_id);
     const contact = await findLinkedContactForVisitor(config, ws.workspace_id, visitorId);
+    // Make the call-widget visitor show up in the Online Visitors list as
+    // soon as the widget loads — with their real contact name if known.
+    await ensureVisitorSessionRow(config, ws.workspace_id, visitorId, origin, origin);
+    if (contact) {
+      // Re-pin contact_id on every refresh (cheap, idempotent) so a returning
+      // identified visitor is never shown as Anonymous.
+      const sbPin = getServiceClient(config);
+      await sbPin
+        .from('visitor_sessions')
+        .update({ contact_id: contact.id })
+        .eq('workspace_id', ws.workspace_id)
+        .eq('visitor_id', visitorId)
+        .is('contact_id', null);
+    }
     visitorBlock = {
       id: visitorId,
       contact: contact

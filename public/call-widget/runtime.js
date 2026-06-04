@@ -169,7 +169,7 @@
     var needsDepartmentChoice = list2.length > 1;
     // Returning visitors with a known contact identity skip the pre-call
     // form unless we still need consent / department choice / a notice.
-    var alreadyIdentified = !!(this.identifiedContact && (this.identifiedContact.email || this.identifiedContact.phone));
+    var alreadyIdentified = !!(this.identifiedContact && this.identifiedContact.id);
     var needFormFields = cfg.pre_call_form_enabled && !alreadyIdentified;
     if (needFormFields || consentNeeded || passiveNotice || needsDepartmentChoice) {
       this.state = STATES.PRE_CALL; this.render(); return;
@@ -218,6 +218,12 @@
         self.state = STATES.ERROR; self.render(); return;
       }
       self.session = r.body.session || self.session;
+      if (r.body.contact && r.body.contact.id) {
+        self.identifiedContact = r.body.contact;
+        self.formData.name = r.body.contact.name || self.formData.name || '';
+        self.formData.email = r.body.contact.email || self.formData.email || '';
+        self.formData.phone = r.body.contact.phone || self.formData.phone || '';
+      }
       self.callId = r.body.call_id;
       self.queueStartedAt = Date.now();
       self.state = STATES.QUEUE;

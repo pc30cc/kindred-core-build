@@ -352,6 +352,12 @@ function disabledResponse(reason: string, message?: Record<string, unknown>) {
 // ── Bootstrap ─────────────────────────────────────────────────────────────
 callWidgetRouter.get('/bootstrap', async (req, res) => {
   const config = (req as any).serverConfig as ServerConfig;
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0, s-maxage=0');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.setHeader('Surrogate-Control', 'no-store');
+  res.setHeader('CDN-Cache-Control', 'no-store');
+  res.setHeader('Cloudflare-CDN-Cache-Control', 'no-store');
   const ws = await resolveWorkspace(config, {
     workspaceId: req.query.workspaceId ? String(req.query.workspaceId) : undefined,
     publicKey: req.query.publicKey ? String(req.query.publicKey) : undefined,

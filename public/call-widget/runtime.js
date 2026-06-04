@@ -927,6 +927,20 @@
     this.root.appendChild(panel);
   };
 
+  CallCenterWidgetCtor.prototype.renderLocaleSwitcher = function () {
+    var self = this;
+    if (!this.availableLocales || this.availableLocales.length <= 1) return null;
+    var select = el('select', { class: 'ccw-lang', 'aria-label': 'Widget language' });
+    this.availableLocales.forEach(function (code) {
+      var meta = LOCALE_META[code] || { label: code.toUpperCase(), short: code.toUpperCase() };
+      var option = el('option', { value: code }, [meta.short]);
+      if (self.locale === code) option.selected = true;
+      select.appendChild(option);
+    });
+    select.addEventListener('change', function (e) { self.setLocale(e.target.value); });
+    return select;
+  };
+
   CallCenterWidgetCtor.prototype.renderState = function (caps, cfg) {
     var self = this;
     switch (this.state) {

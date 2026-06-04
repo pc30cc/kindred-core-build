@@ -447,6 +447,7 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
   res.json({
     status: 'ok',
     session,
+    assets_version: CALL_WIDGET_ASSETS_VERSION,
     workspace_id: ws.workspace_id,
     visitor: visitorBlock,
     config: {

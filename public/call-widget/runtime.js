@@ -307,9 +307,16 @@
     // Re-prime in case the user reached submitCall via the pre-call form
     // (a different click than the initial Voice/Video button).
     try { Ringback.prime(); } catch (_) {}
+    try {
+      // Start while still inside the click gesture. Starting after the
+      // /calls/request promise resolves is blocked by Safari/Chrome autoplay
+      // rules on many devices, even if the AudioContext was primed earlier.
+      Ringback.startFromGesture((this.bootstrap && this.bootstrap.queue_experience) || {});
+    } catch (_) {}
     var rec = (this.bootstrap && this.bootstrap.recording) || {};
     var consentNeeded = !!(rec.effective_enabled && rec.consent_required);
     if (consentNeeded && !this.formData.consent) {
+      try { Ringback.stop(); } catch (_) {}
       this.error = 'Recording consent is required to continue.';
       this.render(); return;
     }
@@ -333,6 +340,7 @@
       },
     }).then(function (r) {
       if (!r.ok) {
+        try { Ringback.stop(); } catch (_) {}
         var code = r.body && r.body.error;
         if (code === 'recording_consent_required') {
           self.error = 'Please accept the recording consent to start the call.';
@@ -362,10 +370,12 @@
       try {
         var qe = (self.bootstrap && self.bootstrap.queue_experience) || {};
         Ringback.start(qe);
+        if (Ringback.needsGesture && Ringback.needsGesture()) self.render();
       } catch (_) {}
       self.startPolling();
       self.startTimer();
     }).catch(function (e) {
+      try { Ringback.stop(); } catch (_) {}
       self.error = sanitize(String(e && e.message || e));
       self.state = STATES.ERROR; self.render();
     });

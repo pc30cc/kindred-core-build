@@ -26,6 +26,12 @@ import {
   readVisitorCookie,
 } from '../services/widget/visitorIdentity.js';
 import { mergeVisitorIdentity } from '../services/widget/identityMerge.js';
+import {
+  persistContinuityToken,
+  readContinuityCookie,
+  resolveContinuityToken,
+  setContinuityCookie,
+} from '../services/widget/continuity.js';
 
 export const callWidgetRouter = Router();
 
@@ -73,6 +79,40 @@ async function findLinkedContactForVisitor(
     .eq('id', session.contact_id)
     .maybeSingle();
   return contact || null;
+}
+
+async function findContactById(
+  config: ServerConfig,
+  contactId: string,
+): Promise<{ id: string; name: string | null; email: string | null; phone: string | null; avatar_url: string | null } | null> {
+  const sb = getServiceClient(config);
+  const { data: contact } = await sb
+    .from('contacts')
+    .select('id, name, email, phone, avatar_url')
+    .eq('id', contactId)
+    .maybeSingle();
+  return contact || null;
+}
+
+async function issueContinuityCookieForContact(
+  req: any,
+  res: any,
+  config: ServerConfig,
+  workspaceId: string,
+  contactId: string,
+): Promise<void> {
+  if (readContinuityCookie(req)) return;
+  const sb = getServiceClient(config);
+  const issued = await persistContinuityToken(sb, {
+    workspaceId,
+    contactId,
+    deviceInfo: {
+      source: 'call_widget',
+      ua: req.headers['user-agent'] || null,
+      origin: getOrigin(req),
+    },
+  });
+  if (issued?.token) setContinuityCookie(res, issued.token, req);
 }
 
 /**

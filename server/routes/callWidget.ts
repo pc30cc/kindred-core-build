@@ -840,25 +840,33 @@ callWidgetRouter.get('/calls/:id/status', async (req, res) => {
     .select('id,state,ended_at,end_reason,provider,provider_room_id,call_type,recording_enabled,recording_state')
     .eq('id', req.params.id).maybeSingle();
   if (!call) return res.status(404).json({ error: 'not_found' });
-  // Compute live queue position + ETA while still waiting.
+  // Compute live queue position + ETA from the queue table, not from
+  // call_sessions.state. Widget calls are created as `pending` while their
+  // queue row is `queued/offered`, so gating this on call.state === `queued`
+  // leaves visitors stuck with the initial position forever.
   let position: number | null = null;
   let eta_seconds: number | null = null;
-  if (call && (call as any).state === 'queued') {
+  const callState = String((call as any).state || '');
+  if (call && !['cancelled', 'ended', 'missed', 'failed', 'active', 'ringing', 'connecting'].includes(callState)) {
     const { data: entry } = await sb.from('call_queue_entries')
-      .select('id,created_at,workspace_id,channel')
+      .select('id,created_at,workspace_id,channel,priority,state')
       .eq('call_session_id', req.params.id).maybeSingle();
-    if (entry) {
-      const { count: ahead } = await sb.from('call_queue_entries')
-        .select('id', { count: 'exact', head: true })
+    if (entry && ['queued', 'offered'].includes(String((entry as any).state || ''))) {
+      const { data: activeRows } = await sb.from('call_queue_entries')
+        .select('id,created_at,priority')
         .eq('workspace_id', (entry as any).workspace_id)
+        .eq('entry_source', 'call_widget')
         .in('state', ['queued', 'offered'])
-        .lt('created_at', (entry as any).created_at);
-      position = (ahead || 0) + 1;
+        .order('priority', { ascending: false })
+        .order('created_at', { ascending: true })
+        .limit(500);
+      const idx = (activeRows || []).findIndex((row: any) => row.id === (entry as any).id);
+      position = idx >= 0 ? idx + 1 : null;
       try {
         const platform = await getPlatformCallCenterSettings(config);
         const perPos = Math.max(5, platform.queue_eta_seconds_per_position || 45);
-        eta_seconds = Math.max(0, (position - 1)) * perPos + perPos;
-      } catch { eta_seconds = (position - 1) * 45 + 30; }
+        eta_seconds = position ? Math.max(0, (position - 1)) * perPos + perPos : null;
+      } catch { eta_seconds = position ? (position - 1) * 45 + 30 : null; }
     }
   }
   res.json({ call, position, eta_seconds });

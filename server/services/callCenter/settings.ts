@@ -241,3 +241,29 @@ export function originAllowed(
     return false;
   });
 }
+
+/**
+ * Resolve effective widget i18n config for a workspace.
+ *  - `available` = intersection(platform.widget_available_locales, workspace.widget_enabled_locales ?? all-available)
+ *    (always falls back to ['en'] if everything resolves to empty).
+ *  - `default_locale` = workspace.widget_default_locale if it is in `available`,
+ *    else platform.widget_default_locale if it is in `available`,
+ *    else first locale in `available`.
+ */
+export function computeEffectiveCallCenterLocales(
+  platform: PlatformCallCenterSettings,
+  workspace: WorkspaceCallCenterSettings,
+): { default_locale: string; available: string[]; platform_available: string[] } {
+  const platformAvailable = (platform.widget_available_locales || []).filter(Boolean);
+  const wsEnabled = workspace.widget_enabled_locales;
+  const filtered = (wsEnabled && wsEnabled.length > 0)
+    ? wsEnabled.filter((l) => platformAvailable.includes(l))
+    : platformAvailable.slice();
+  const available = filtered.length > 0 ? filtered : ['en'];
+  const wsDefault = workspace.widget_default_locale || null;
+  const platDefault = platform.widget_default_locale || 'en';
+  const def = (wsDefault && available.includes(wsDefault))
+    ? wsDefault
+    : (available.includes(platDefault) ? platDefault : available[0]);
+  return { default_locale: def, available, platform_available: platformAvailable };
+}

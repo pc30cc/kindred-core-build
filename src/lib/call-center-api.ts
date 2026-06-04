@@ -238,6 +238,7 @@ export interface CallCenterCapabilities {
   platform_enabled: boolean;
   workspace_enabled: boolean;
   workspace_call_center_visible: boolean;
+  platform_callback_enabled: boolean;
   settings_exists: boolean;
   effective: CallCenterEffectiveCaps;
   recording?: RecordingCapability;

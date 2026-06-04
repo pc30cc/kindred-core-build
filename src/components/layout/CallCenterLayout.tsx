@@ -12,11 +12,11 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { callCenterApi } from '@/lib/call-center-api';
 import { useAuth } from '@/features/auth/AuthContext';
 
-const tabs = [
+const ALL_TABS = [
   { to: '', icon: LayoutDashboard, label: 'Overview', end: true },
   { to: 'queue', icon: Headphones, label: 'Live Desk' },
   { to: 'calls', icon: Phone, label: 'Calls' },
-  { to: 'callbacks', icon: PhoneCall, label: 'Callbacks' },
+  { to: 'callbacks', icon: PhoneCall, label: 'Callbacks', requiresCallback: true },
   { to: 'install', icon: Code2, label: 'Install Widget' },
   { to: 'settings', icon: SettingsIcon, label: 'Settings' },
 ];
@@ -44,6 +44,8 @@ export function CallCenterLayout() {
   const { data: caps } = useCallCenterCapabilities(workspace?.id);
   const { data: overview } = useCallCenterOverview(workspace?.id);
   const qc = useQueryClient();
+  const callbackOn = caps?.platform_callback_enabled !== false;
+  const tabs = ALL_TABS.filter((t) => !t.requiresCallback || callbackOn);
 
   const { data: agentStatus } = useQuery({
     queryKey: ['call-center', 'agent-status', workspace?.id],

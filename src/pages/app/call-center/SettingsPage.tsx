@@ -275,9 +275,11 @@ export default function CallCenterSettingsPage() {
         <Row label="Video calls" locked={!platformVideo ? 'Disabled by platform' : undefined}>
           <Switch checked={!!s.video_enabled} onCheckedChange={(v) => setS({ ...s, video_enabled: v })} disabled={!platformVideo} />
         </Row>
-        <Row label="Callback requests" locked={!platformCallback ? 'Disabled by platform' : undefined}>
-          <Switch checked={!!s.callback_enabled} onCheckedChange={(v) => setS({ ...s, callback_enabled: v })} disabled={!platformCallback} />
-        </Row>
+        {platformCallback && (
+          <Row label="Callback requests">
+            <Switch checked={!!s.callback_enabled} onCheckedChange={(v) => setS({ ...s, callback_enabled: v })} />
+          </Row>
+        )}
         <Row label="Pre-call form" hint="Ask visitors for name/email/subject before connecting.">
           <Switch checked={!!s.pre_call_form_enabled} onCheckedChange={(v) => setS({ ...s, pre_call_form_enabled: v })} />
         </Row>
@@ -293,7 +295,7 @@ export default function CallCenterSettingsPage() {
             <SelectTrigger className="w-60"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="hide">Hide widget</SelectItem>
-              <SelectItem value="show_callback">Show callback request</SelectItem>
+              {platformCallback && <SelectItem value="show_callback">Show callback request</SelectItem>}
               <SelectItem value="show_message">Show offline message</SelectItem>
             </SelectContent>
           </Select>
@@ -394,6 +396,12 @@ export default function CallCenterSettingsPage() {
 }
 
 // ── Widget text overrides editor ──────────────────────────────
+const CALLBACK_TEXT_KEYS = new Set([
+  'callback', 'leave_details', 'callback_desk',
+  'leave_callback_request', 'offline_copy',
+  'request_callback', 'request_callback_instead',
+]);
+
 const WIDGET_TEXT_KEYS: { key: string; label: string; placeholder: Record<string, string> }[] = [
   { key: 'talk_now',            label: 'Launcher text (online)',     placeholder: { en: 'Talk now',            fa: 'همین حالا تماس بگیرید', tr: 'Şimdi konuş' } },
   { key: 'live_support',        label: 'Launcher subtitle (online)', placeholder: { en: 'Live support',        fa: 'پشتیبانی آنلاین',     tr: 'Canlı destek' } },
@@ -433,6 +441,8 @@ function WidgetTextsEditor({
 
   const all: Record<string, Record<string, string>> = settings.widget_custom_texts || {};
   const current = all[locale] || {};
+  const callbackOn = platform?.callback_requests_enabled !== false;
+  const visibleKeys = WIDGET_TEXT_KEYS.filter((k) => callbackOn || !CALLBACK_TEXT_KEYS.has(k.key));
 
   function setField(key: string, val: string) {
     const nextLocale = { ...current };
@@ -465,7 +475,7 @@ function WidgetTextsEditor({
         </Select>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {WIDGET_TEXT_KEYS.map(({ key, label, placeholder }) => (
+        {visibleKeys.map(({ key, label, placeholder }) => (
           <div key={key} className="space-y-1">
             <Label className="text-xs">{label}</Label>
             <Input

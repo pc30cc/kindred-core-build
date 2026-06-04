@@ -943,23 +943,24 @@
 
   CallCenterWidgetCtor.prototype.renderState = function (caps, cfg) {
     var self = this;
+    var tr = function (key, vars) { return self.t(key, vars); };
     switch (this.state) {
       case STATES.LOADING:
-        return el('div', { class: 'ccw-loading' }, [el('div', { class: 'ccw-spinner' }), el('div', { class: 'ccw-muted' }, ['Loading…'])]);
+        return el('div', { class: 'ccw-loading' }, [el('div', { class: 'ccw-spinner' }), el('div', { class: 'ccw-muted' }, [tr('loading')])]);
 
       case STATES.OFFLINE: {
         var off = el('div', { class: 'ccw-stack' }, [
           el('div', { class: 'ccw-hero' }, [
             el('div', { class: 'ccw-hero-topline' }, [
-              el('span', { class: 'ccw-live-chip muted' }, ['Offline']),
-              el('span', { class: 'ccw-hero-route' }, ['Callback desk']),
+              el('span', { class: 'ccw-live-chip muted' }, [tr('offline')]),
+              el('span', { class: 'ccw-hero-route' }, [tr('callback_desk')]),
             ]),
             el('div', { class: 'ccw-hero-icon' }, ['↩']),
-            el('div', { class: 'ccw-hero-title' }, ['Leave a callback request']),
-            el('div', { class: 'ccw-hero-sub' }, ['Our team is offline right now, but we can call you back.']),
+            el('div', { class: 'ccw-hero-title' }, [tr('leave_callback_request')]),
+            el('div', { class: 'ccw-hero-sub' }, [tr('offline_copy')]),
           ]),
         ]);
-        if (caps.callback) off.appendChild(el('button', { class: 'ccw-btn primary', on: { click: function () { self.openCallback(); } } }, ['Request callback']));
+        if (caps.callback) off.appendChild(el('button', { class: 'ccw-btn primary', on: { click: function () { self.openCallback(); } } }, [tr('request_callback')]));
         return off;
       }
 
@@ -969,24 +970,24 @@
         var box = el('div', { class: 'ccw-stack' }, [
           el('div', { class: 'ccw-hero' }, [
             el('div', { class: 'ccw-hero-topline' }, [
-              el('span', { class: 'ccw-live-chip' }, ['Live now']),
-              el('span', { class: 'ccw-hero-route' }, ['Voice · Video · Callback']),
+              el('span', { class: 'ccw-live-chip' }, [tr('live_now')]),
+              el('span', { class: 'ccw-hero-route' }, [tr('channels')]),
             ]),
-            el('div', { class: 'ccw-hero-title' }, ['Talk to our team']),
-            el('div', { class: 'ccw-hero-sub' }, ['Start a secure voice or video call with the next available operator.']),
+            el('div', { class: 'ccw-hero-title' }, [tr('talk_to_team')]),
+            el('div', { class: 'ccw-hero-sub' }, [tr('online_copy')]),
             el('div', { class: 'ccw-hero-metrics' }, [
-              el('span', {}, ['Secure line']),
-              el('span', {}, ['Queue aware']),
-              el('span', {}, ['Fast handoff']),
+              el('span', {}, [tr('secure_line')]),
+              el('span', {}, [tr('queue_aware')]),
+              el('span', {}, [tr('fast_handoff')]),
             ]),
           ]),
         ]);
         var row = el('div', { class: 'ccw-row' });
-        if (caps.voice) row.appendChild(el('button', { class: 'ccw-btn primary', on: { click: function () { self.startCall('voice'); } } }, [el('span', { class: 'ccw-btn-ico' }, ['☎']), 'Voice call']));
-        if (caps.video) row.appendChild(el('button', { class: 'ccw-btn secondary', on: { click: function () { self.startCall('video'); } } }, [el('span', { class: 'ccw-btn-ico' }, ['◉']), 'Video call']));
+        if (caps.voice) row.appendChild(el('button', { class: 'ccw-btn primary', on: { click: function () { self.startCall('voice'); } } }, [el('span', { class: 'ccw-btn-ico' }, ['☎']), tr('voice_call')]));
+        if (caps.video) row.appendChild(el('button', { class: 'ccw-btn secondary', on: { click: function () { self.startCall('video'); } } }, [el('span', { class: 'ccw-btn-ico' }, ['◉']), tr('video_call')]));
         box.appendChild(row);
         if (caps.callback && showCbOnline) {
-          box.appendChild(el('button', { class: 'ccw-btn secondary', on: { click: function () { self.openCallback(); } } }, ['Request callback instead']));
+          box.appendChild(el('button', { class: 'ccw-btn secondary', on: { click: function () { self.openCallback(); } } }, [tr('request_callback_instead')]));
         }
         return box;
       }

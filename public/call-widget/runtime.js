@@ -509,6 +509,16 @@
   CallCenterWidgetCtor.prototype.submitCallback = function () {
     var self = this;
     this.error = null;
+    var scheduledIso = null;
+    if (this.formData.callback_when === 'later' && this.formData.callback_scheduled_for) {
+      var t = new Date(this.formData.callback_scheduled_for);
+      if (!isNaN(t.getTime()) && t.getTime() > Date.now() - 60000) {
+        scheduledIso = t.toISOString();
+      } else {
+        this.error = 'Please pick a valid future time.';
+        this.render(); return;
+      }
+    }
     this.api('/api/call-widget/callbacks/request', {
       method: 'POST',
       body: {
@@ -516,6 +526,10 @@
         email: this.formData.email || null,
         phone: this.formData.phone || null,
         subject: this.formData.subject || null,
+        message: this.formData.message || null,
+        channel: this.formData.callback_channel || 'audio',
+        urgency: this.formData.callback_urgency || 'normal',
+        scheduled_for: scheduledIso,
         page_url: location.href,
         department_id: this.formData.department_id || null,
       },

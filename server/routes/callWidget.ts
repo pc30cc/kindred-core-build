@@ -440,6 +440,25 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
   // "fetch failed" — Supabase REST connection can be reset between idle
   // pooled HTTP/1.1 keep-alives in long-running Node processes.
   const dbCallType = dbCallTypeForDept;
+  // Identity merge: turn this visitor into a contact (or recognise an
+  // existing one) BEFORE inserting the call so the call row carries the
+  // correct visitor name / contact link from the start.
+  const identity = await identifyVisitorForCall(
+    req,
+    res,
+    config,
+    ws.workspace_id,
+    getOrigin(req),
+    {
+      name: parsed.data.visitor_name,
+      email: parsed.data.visitor_email,
+      phone: parsed.data.visitor_phone,
+      page_url: parsed.data.page_url,
+    },
+  );
+  const finalVisitorName = parsed.data.visitor_name || identity.contact?.name || null;
+  const finalVisitorEmail = parsed.data.visitor_email || identity.contact?.email || null;
+  const finalVisitorPhone = parsed.data.visitor_phone || identity.contact?.phone || null;
   const insertPayload = {
     workspace_id: ws.workspace_id,
     entry_source: 'call_widget',
@@ -449,9 +468,9 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
     context_id: null,
     state: 'pending',
     initiated_by_type: 'visitor',
-    visitor_name: parsed.data.visitor_name || null,
-    visitor_email: parsed.data.visitor_email || null,
-    visitor_phone: parsed.data.visitor_phone || null,
+    visitor_name: finalVisitorName,
+    visitor_email: finalVisitorEmail,
+    visitor_phone: finalVisitorPhone,
     subject: parsed.data.subject || null,
     page_url: parsed.data.page_url || null,
     page_title: parsed.data.page_title || null,
@@ -467,6 +486,8 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
       form_data: parsed.data.form_data || null,
       consent_recording: consentGiven,
       recording: recordingMeta,
+      visitor_id: identity.visitorId,
+      contact_id: identity.contactId,
     },
   };
   let call: any = null;

@@ -244,7 +244,7 @@ async function localUpload(config: StorageConfig, req: UploadRequest): Promise<S
 
 async function localDelete(config: StorageConfig, fileKey: string): Promise<StorageResult> {
   const filePath = path.join(config.localPath || '/tmp/storage', fileKey);
-  try { fs.unlinkSync(filePath); } catch {}
+  try { fs.unlinkSync(filePath); } catch { /* file may already be gone */ }
   return { success: true };
 }
 

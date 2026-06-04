@@ -250,6 +250,9 @@
 
   CallCenterWidgetCtor.prototype.startCall = function (callType) {
     var cfg = this.bootstrap.config || {};
+    // Prime audio output inside this click handler so the ringback can
+    // actually play later, after the async /calls/request round-trip.
+    try { Ringback.prime(); } catch (_) {}
     this.formData.call_type = callType;
     // Auto-select sole department for the chosen channel, otherwise reset.
     var depts = (this.bootstrap && this.bootstrap.departments) || {};
@@ -273,6 +276,9 @@
 
   CallCenterWidgetCtor.prototype.submitCall = function () {
     var self = this;
+    // Re-prime in case the user reached submitCall via the pre-call form
+    // (a different click than the initial Voice/Video button).
+    try { Ringback.prime(); } catch (_) {}
     var rec = (this.bootstrap && this.bootstrap.recording) || {};
     var consentNeeded = !!(rec.effective_enabled && rec.consent_required);
     if (consentNeeded && !this.formData.consent) {

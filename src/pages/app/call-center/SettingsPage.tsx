@@ -165,6 +165,11 @@ export default function CallCenterSettingsPage() {
             </SelectContent>
           </Select>
         </Row>
+        <WidgetTextsEditor
+          settings={s}
+          platform={platform}
+          onChange={(next) => setS({ ...s, widget_custom_texts: next })}
+        />
       </Section>
 
       {(() => {

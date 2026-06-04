@@ -1,17 +1,18 @@
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import {
   useCallCenterOverview, useCallCenterSettings, useCallCenterQueue,
-  useCallCenterCalls, useCallCenterCallbacks,
+  useCallCenterCalls, useCallCenterCallbacks, useCallCenterAgentPresence,
 } from '@/hooks/useCallCenter';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import {
-  AlertCircle, CheckCircle2, Circle, Phone, PhoneCall, Clock,
-  PhoneIncoming, PhoneMissed, Users, Server, Globe,
-  ArrowRight, ListChecks,
+  AlertCircle, CheckCircle2, Phone, PhoneCall, Clock,
+  PhoneIncoming, PhoneMissed, Users, Activity, TrendingUp,
+  ArrowRight, Radio, Headphones, UserCheck, Timer, Flame,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useMemo } from 'react';
 
 function StatCard({ icon: Icon, label, value, tone = 'default' }: { icon: any; label: string; value: React.ReactNode; tone?: 'default' | 'warn' | 'danger' | 'ok' }) {
   const map: Record<string, string> = {
@@ -33,20 +34,16 @@ function StatCard({ icon: Icon, label, value, tone = 'default' }: { icon: any; l
   );
 }
 
-function ChecklistItem({ status, label, action }: { status: 'ok' | 'warn' | 'missing'; label: string; action?: { to: string; label: string } }) {
-  const Icon = status === 'ok' ? CheckCircle2 : status === 'warn' ? AlertCircle : Circle;
-  const color = status === 'ok' ? 'text-emerald-500' : status === 'warn' ? 'text-amber-500' : 'text-destructive';
-  return (
-    <div className="flex items-center gap-3 py-2 px-1">
-      <Icon className={cn('h-4 w-4 shrink-0', color)} />
-      <span className="text-sm flex-1">{label}</span>
-      {status !== 'ok' && action && (
-        <Button asChild size="sm" variant="ghost" className="h-7 text-xs">
-          <Link to={action.to}>{action.label} <ArrowRight className="h-3 w-3 ms-1" /></Link>
-        </Button>
-      )}
-    </div>
-  );
+function fmtDuration(s: number) {
+  if (!s || s < 0) return '0s';
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return m > 0 ? `${m}m ${sec}s` : `${sec}s`;
+}
+
+function waitTime(createdAt: string) {
+  const diff = Math.floor((Date.now() - new Date(createdAt).getTime()) / 1000);
+  return fmtDuration(diff);
 }
 
 export default function CallCenterOverviewPage() {
@@ -56,148 +53,274 @@ export default function CallCenterOverviewPage() {
   const { data: queueData } = useCallCenterQueue(workspace?.id);
   const { data: callsData } = useCallCenterCalls(workspace?.id);
   const { data: callbacksData } = useCallCenterCallbacks(workspace?.id);
+  const { data: presenceData } = useCallCenterAgentPresence(workspace?.id);
 
   const platformOk = !!settings?.platform?.call_center_enabled;
   const wsEnabled = !!settings?.settings?.enabled;
   const providerReady = !!overview?.provider?.ready;
-  const allowedDomains = settings?.settings?.allowed_domains || [];
-  const hasDomains = allowedDomains.length > 0;
-  const hasPublicKey = !!settings?.settings?.public_key;
-  const voiceVideo = !!(settings?.settings?.voice_enabled || settings?.settings?.video_enabled);
 
   let statusTone: 'ok' | 'warn' | 'danger' = 'ok';
-  let statusText = 'Ready';
-  let cta: { to: string; label: string } = { to: 'queue', label: 'Open Live Desk' };
-  if (!platformOk) { statusTone = 'danger'; statusText = 'Disabled by platform'; cta = { to: 'settings', label: 'View Settings' }; }
-  else if (!wsEnabled) { statusTone = 'warn'; statusText = 'Disabled for workspace'; cta = { to: 'settings', label: 'Enable in Settings' }; }
-  else if (!providerReady) { statusTone = 'warn'; statusText = 'Calls service not ready'; cta = { to: 'settings', label: 'View Settings' }; }
-  else if (!hasDomains) { statusTone = 'warn'; statusText = 'No allowed domains'; cta = { to: 'install', label: 'Add domain' }; }
+  let statusText = 'Operations live';
+  if (!platformOk) { statusTone = 'danger'; statusText = 'Service disabled'; }
+  else if (!wsEnabled) { statusTone = 'warn'; statusText = 'Workspace offline'; }
+  else if (!providerReady) { statusTone = 'warn'; statusText = 'Calls service degraded'; }
 
-  const recentQueue = (queueData?.queue || []).slice(0, 5);
-  const recentMissed = (callsData?.calls || []).filter((c) => c.state === 'missed').slice(0, 3);
-  const recentCallbacks = (callbacksData?.callbacks || []).slice(0, 3);
+  const queue = queueData?.queue || [];
+  const recentQueue = queue.slice(0, 6);
+  const calls = callsData?.calls || [];
+  const recentMissed = calls.filter((c) => c.state === 'missed').slice(0, 4);
+  const callbacks = callbacksData?.callbacks || [];
+  const pendingCallbacks = callbacks.filter((c) => c.status === 'pending' || c.status === 'in_progress').slice(0, 4);
+
+  const presence = presenceData?.presence || [];
+  const agentStats = useMemo(() => {
+    const available = presence.filter((p) => p.status === 'available').length;
+    const busy = presence.filter((p) => p.status === 'busy' || p.active_call_count > 0).length;
+    const away = presence.filter((p) => p.status === 'away').length;
+    const offline = presence.filter((p) => p.status === 'offline').length;
+    const total = presence.length;
+    const utilization = total > 0 ? Math.round((busy / total) * 100) : 0;
+    return { available, busy, away, offline, total, utilization };
+  }, [presence]);
+
+  // SLA metrics
+  const slaStats = useMemo(() => {
+    const now = Date.now();
+    const waits = queue.map((q) => Math.floor((now - new Date(q.created_at).getTime()) / 1000));
+    const longest = waits.length > 0 ? Math.max(...waits) : 0;
+    const avg = waits.length > 0 ? Math.round(waits.reduce((a, b) => a + b, 0) / waits.length) : 0;
+    const breached = waits.filter((w) => w > 60).length;
+    const todayCompleted = calls.filter((c) => c.state === 'completed');
+    const avgHandle = todayCompleted.length > 0
+      ? Math.round(todayCompleted.reduce((s, c) => s + (c.duration_seconds || 0), 0) / todayCompleted.length)
+      : 0;
+    const answered = calls.filter((c) => c.state === 'completed' || c.state === 'in_progress' || c.state === 'active').length;
+    const totalToday = overview?.today_calls ?? calls.length;
+    const answerRate = totalToday > 0 ? Math.round((answered / totalToday) * 100) : 100;
+    return { longest, avg, breached, avgHandle, answerRate };
+  }, [queue, calls, overview?.today_calls]);
 
   return (
     <div className="space-y-6">
-      {/* Hero status */}
-      <Card className={cn('p-5 border-2',
-        statusTone === 'ok' && 'border-emerald-500/30 bg-gradient-to-br from-emerald-500/5 to-transparent',
-        statusTone === 'warn' && 'border-amber-500/30 bg-gradient-to-br from-amber-500/5 to-transparent',
-        statusTone === 'danger' && 'border-destructive/30 bg-gradient-to-br from-destructive/5 to-transparent',
-      )}>
-        <div className="flex items-start gap-4 flex-wrap">
-          <div className="flex-1 min-w-[260px]">
-            <div className="text-xs uppercase tracking-wide text-muted-foreground">Call Center status</div>
-            <div className="text-2xl font-semibold mt-1 flex items-center gap-2">
-              {statusTone === 'ok' ? <CheckCircle2 className="h-6 w-6 text-emerald-500" /> :
-                statusTone === 'danger' ? <AlertCircle className="h-6 w-6 text-destructive" /> :
-                <AlertCircle className="h-6 w-6 text-amber-500" />}
-              {statusText}
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-4 text-sm">
-              <div>
-                <div className="text-xs text-muted-foreground">Calls service</div>
-                <div className="font-medium">{providerReady ? 'Ready' : 'Not ready'}</div>
-              </div>
-              <div>
-                <div className="text-xs text-muted-foreground">Allowed domains</div>
-                <div className="font-medium">{allowedDomains.length}</div>
-              </div>
-              <div>
-                <div className="text-xs text-muted-foreground">Public key</div>
-                <div className="font-medium">{hasPublicKey ? 'configured' : '—'}</div>
-              </div>
-            </div>
+      {/* Wallboard header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <div className={cn(
+            'h-10 w-10 rounded-xl flex items-center justify-center',
+            statusTone === 'ok' && 'bg-emerald-500/10 text-emerald-500',
+            statusTone === 'warn' && 'bg-amber-500/10 text-amber-500',
+            statusTone === 'danger' && 'bg-destructive/10 text-destructive',
+          )}>
+            {statusTone === 'ok'
+              ? <Radio className="h-5 w-5 animate-pulse" />
+              : <AlertCircle className="h-5 w-5" />}
           </div>
-          <Button asChild size="lg"><Link to={cta.to}>{cta.label} <ArrowRight className="h-4 w-4 ms-1" /></Link></Button>
+          <div>
+            <div className="text-xs uppercase tracking-wide text-muted-foreground">Live wallboard</div>
+            <div className="text-xl font-semibold leading-tight">{statusText}</div>
+          </div>
         </div>
-      </Card>
-
-      {/* Live ops */}
-      <div>
-        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Live operations</h2>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-          <StatCard icon={Clock} label="Waiting" value={overview?.waiting_calls ?? 0} tone={(overview?.waiting_calls ?? 0) > 0 ? 'warn' : 'default'} />
-          <StatCard icon={PhoneIncoming} label="Active" value={overview?.active_calls ?? 0} tone={(overview?.active_calls ?? 0) > 0 ? 'ok' : 'default'} />
-          <StatCard icon={PhoneMissed} label="Missed today" value={overview?.missed_today ?? 0} tone={(overview?.missed_today ?? 0) > 0 ? 'danger' : 'default'} />
-          <StatCard icon={Phone} label="Total today" value={overview?.today_calls ?? 0} />
-          <StatCard icon={PhoneCall} label="Callbacks" value={overview?.callbacks_pending ?? 0} />
-          <StatCard icon={Server} label="Calls service" value={providerReady ? 'Ready' : 'Down'} tone={providerReady ? 'ok' : 'warn'} />
+        <div className="flex items-center gap-2">
+          <Button asChild variant="outline" size="sm"><Link to="callbacks">Callbacks <ArrowRight className="h-3 w-3 ms-1" /></Link></Button>
+          <Button asChild size="sm"><Link to="queue"><Headphones className="h-4 w-4 me-1" /> Open Live Desk</Link></Button>
         </div>
       </div>
 
-      {/* Activity preview + checklist */}
+      {/* Primary KPI strip */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        <StatCard icon={Clock} label="Waiting" value={overview?.waiting_calls ?? queue.length} tone={(overview?.waiting_calls ?? 0) > 0 ? 'warn' : 'default'} />
+        <StatCard icon={PhoneIncoming} label="Active" value={overview?.active_calls ?? 0} tone={(overview?.active_calls ?? 0) > 0 ? 'ok' : 'default'} />
+        <StatCard icon={PhoneMissed} label="Missed today" value={overview?.missed_today ?? 0} tone={(overview?.missed_today ?? 0) > 0 ? 'danger' : 'default'} />
+        <StatCard icon={Phone} label="Total today" value={overview?.today_calls ?? 0} />
+        <StatCard icon={PhoneCall} label="Pending callbacks" value={overview?.callbacks_pending ?? 0} tone={(overview?.callbacks_pending ?? 0) > 0 ? 'warn' : 'default'} />
+        <StatCard icon={UserCheck} label="Agents available" value={`${agentStats.available}/${agentStats.total}`} tone={agentStats.available > 0 ? 'ok' : 'warn'} />
+      </div>
+
+      {/* SLA + agent utilization */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Card className="p-5 lg:col-span-2 space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="font-semibold">Recent activity</h3>
-            <Button asChild size="sm" variant="ghost"><Link to="queue">View all</Link></Button>
-          </div>
-          <div>
-            <div className="text-xs text-muted-foreground mb-1">Waiting</div>
-            {recentQueue.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No calls in queue.</p>
-            ) : (
-              <ul className="divide-y">
-                {recentQueue.map((q) => (
-                  <li key={q.id} className="py-2 flex items-center gap-2 text-sm">
-                    {q.channel === 'video' ? <PhoneIncoming className="h-3.5 w-3.5 text-primary" /> : <Phone className="h-3.5 w-3.5 text-primary" />}
-                    <span className="flex-1 truncate">{q.call_session?.visitor_name || q.call_session?.visitor_email || 'Anonymous'}</span>
-                    <span className="text-xs text-muted-foreground">{new Date(q.created_at).toLocaleTimeString()}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-          {recentMissed.length > 0 && (
-            <div>
-              <div className="text-xs text-muted-foreground mb-1">Missed today</div>
-              <ul className="divide-y">
-                {recentMissed.map((c) => (
-                  <li key={c.id} className="py-2 flex items-center gap-2 text-sm">
-                    <PhoneMissed className="h-3.5 w-3.5 text-destructive" />
-                    <span className="flex-1 truncate">{c.visitor_name || c.visitor_email || 'Anonymous'}</span>
-                    <span className="text-xs text-muted-foreground">{new Date(c.created_at).toLocaleTimeString()}</span>
-                  </li>
-                ))}
-              </ul>
+        <Card className="p-5 lg:col-span-2">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Timer className="h-4 w-4 text-primary" />
+              <h3 className="font-semibold">Service level</h3>
             </div>
-          )}
-          {recentCallbacks.length > 0 && (
+            <span className="text-xs text-muted-foreground">Live</span>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div>
-              <div className="text-xs text-muted-foreground mb-1">Recent callbacks</div>
-              <ul className="divide-y">
-                {recentCallbacks.map((c) => (
-                  <li key={c.id}>
-                    <Link
-                      to={`callbacks?focus=${c.id}`}
-                      className="py-2 flex items-center gap-2 text-sm hover:bg-muted/40 rounded px-2 -mx-2 transition"
-                    >
-                      <PhoneCall className="h-3.5 w-3.5 text-primary" />
-                      <span className="flex-1 truncate">{(c.metadata as any)?.name || c.contact_phone || c.contact_email || 'Anonymous'}</span>
-                      <span className="text-xs text-muted-foreground">{c.status}</span>
-                      <ArrowRight className="h-3 w-3 text-muted-foreground" />
-                    </Link>
-                  </li>
-                ))}
-              </ul>
+              <div className="text-xs text-muted-foreground">Longest wait</div>
+              <div className={cn('text-2xl font-semibold mt-1', slaStats.longest > 60 && 'text-destructive')}>
+                {fmtDuration(slaStats.longest)}
+              </div>
             </div>
+            <div>
+              <div className="text-xs text-muted-foreground">Avg wait</div>
+              <div className="text-2xl font-semibold mt-1">{fmtDuration(slaStats.avg)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground">SLA breached</div>
+              <div className={cn('text-2xl font-semibold mt-1', slaStats.breached > 0 && 'text-destructive')}>
+                {slaStats.breached}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground">Answer rate</div>
+              <div className="text-2xl font-semibold mt-1">{slaStats.answerRate}%</div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground">Avg handle time</div>
+              <div className="text-2xl font-semibold mt-1">{fmtDuration(slaStats.avgHandle)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground">Utilization</div>
+              <div className="text-2xl font-semibold mt-1">{agentStats.utilization}%</div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground">In conversation</div>
+              <div className="text-2xl font-semibold mt-1">{agentStats.busy}</div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground">Away / offline</div>
+              <div className="text-2xl font-semibold mt-1">{agentStats.away + agentStats.offline}</div>
+            </div>
+          </div>
+        </Card>
+
+        <Card className="p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Users className="h-4 w-4 text-primary" />
+              <h3 className="font-semibold">Agent presence</h3>
+            </div>
+            <Button asChild size="sm" variant="ghost" className="h-7 text-xs">
+              <Link to="settings">Manage</Link>
+            </Button>
+          </div>
+          <div className="space-y-2">
+            {[
+              { label: 'Available', value: agentStats.available, dot: 'bg-emerald-500' },
+              { label: 'On call / busy', value: agentStats.busy, dot: 'bg-primary' },
+              { label: 'Away', value: agentStats.away, dot: 'bg-amber-500' },
+              { label: 'Offline', value: agentStats.offline, dot: 'bg-muted-foreground/40' },
+            ].map((row) => {
+              const pct = agentStats.total > 0 ? (row.value / agentStats.total) * 100 : 0;
+              return (
+                <div key={row.label}>
+                  <div className="flex items-center justify-between text-sm mb-1">
+                    <span className="flex items-center gap-2">
+                      <span className={cn('h-2 w-2 rounded-full', row.dot)} />
+                      {row.label}
+                    </span>
+                    <span className="text-muted-foreground tabular-nums">{row.value}</span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                    <div className={cn('h-full', row.dot)} style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      </div>
+
+      {/* Live queue + activity */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Card className="p-5">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Activity className="h-4 w-4 text-primary" />
+              <h3 className="font-semibold">Live queue</h3>
+              {queue.length > 0 && <span className="text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary">{queue.length}</span>}
+            </div>
+            <Button asChild size="sm" variant="ghost" className="h-7 text-xs"><Link to="queue">Open <ArrowRight className="h-3 w-3 ms-1" /></Link></Button>
+          </div>
+          {recentQueue.length === 0 ? (
+            <div className="text-center py-8 text-sm text-muted-foreground">
+              <CheckCircle2 className="h-6 w-6 mx-auto mb-2 text-emerald-500/70" />
+              Queue is clear
+            </div>
+          ) : (
+            <ul className="divide-y">
+              {recentQueue.map((q) => {
+                const wait = Math.floor((Date.now() - new Date(q.created_at).getTime()) / 1000);
+                const breached = wait > 60;
+                return (
+                  <li key={q.id} className="py-2.5 flex items-center gap-3 text-sm">
+                    {q.channel === 'video'
+                      ? <PhoneIncoming className="h-4 w-4 text-primary shrink-0" />
+                      : <Phone className="h-4 w-4 text-primary shrink-0" />}
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-medium">
+                        {q.call_session?.visitor_name || q.call_session?.visitor_email || 'Anonymous'}
+                      </div>
+                      {q.call_session?.subject && (
+                        <div className="text-xs text-muted-foreground truncate">{q.call_session.subject}</div>
+                      )}
+                    </div>
+                    <span className={cn(
+                      'text-xs tabular-nums px-2 py-0.5 rounded',
+                      breached ? 'bg-destructive/10 text-destructive' : 'bg-muted',
+                    )}>
+                      {breached && <Flame className="inline h-3 w-3 me-1" />}
+                      {waitTime(q.created_at)}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
           )}
         </Card>
 
         <Card className="p-5">
-          <div className="flex items-center gap-2 mb-3">
-            <ListChecks className="h-4 w-4 text-primary" />
-            <h3 className="font-semibold">Setup checklist</h3>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <TrendingUp className="h-4 w-4 text-primary" />
+              <h3 className="font-semibold">Needs attention</h3>
+            </div>
           </div>
-          <div className="divide-y">
-            <ChecklistItem status={platformOk ? 'ok' : 'missing'} label="Platform enabled" />
-            <ChecklistItem status={wsEnabled ? 'ok' : 'warn'} label="Workspace enabled" action={{ to: 'settings', label: 'Enable' }} />
-            <ChecklistItem status={voiceVideo ? 'ok' : 'warn'} label="Voice or video enabled" action={{ to: 'settings', label: 'Configure' }} />
-            <ChecklistItem status={providerReady ? 'ok' : 'missing'} label="Calls service ready" />
-            <ChecklistItem status={hasDomains ? 'ok' : 'missing'} label="Allowed domain added" action={{ to: 'install', label: 'Add' }} />
-            <ChecklistItem status={hasPublicKey ? 'ok' : 'warn'} label="Public key generated" />
-          </div>
+          {recentMissed.length === 0 && pendingCallbacks.length === 0 ? (
+            <div className="text-center py-8 text-sm text-muted-foreground">
+              <CheckCircle2 className="h-6 w-6 mx-auto mb-2 text-emerald-500/70" />
+              Nothing pending — great work
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {recentMissed.length > 0 && (
+                <div>
+                  <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Missed calls</div>
+                  <ul className="divide-y">
+                    {recentMissed.map((c) => (
+                      <li key={c.id} className="py-2 flex items-center gap-2 text-sm">
+                        <PhoneMissed className="h-3.5 w-3.5 text-destructive shrink-0" />
+                        <span className="flex-1 truncate">{c.visitor_name || c.visitor_email || 'Anonymous'}</span>
+                        <span className="text-xs text-muted-foreground">{new Date(c.created_at).toLocaleTimeString()}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {pendingCallbacks.length > 0 && (
+                <div>
+                  <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Pending callbacks</div>
+                  <ul className="divide-y">
+                    {pendingCallbacks.map((c) => (
+                      <li key={c.id}>
+                        <Link
+                          to={`callbacks?focus=${c.id}`}
+                          className="py-2 flex items-center gap-2 text-sm hover:bg-muted/40 rounded px-2 -mx-2 transition"
+                        >
+                          <PhoneCall className="h-3.5 w-3.5 text-primary shrink-0" />
+                          <span className="flex-1 truncate">{(c.metadata as any)?.name || c.contact_phone || c.contact_email || 'Anonymous'}</span>
+                          <span className="text-xs px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400">{c.status}</span>
+                          <ArrowRight className="h-3 w-3 text-muted-foreground" />
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
         </Card>
       </div>
     </div>

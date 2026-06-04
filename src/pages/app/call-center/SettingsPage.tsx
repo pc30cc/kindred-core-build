@@ -295,7 +295,7 @@ export default function CallCenterSettingsPage() {
             <SelectTrigger className="w-60"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="hide">Hide widget</SelectItem>
-              <SelectItem value="show_callback">Show callback request</SelectItem>
+              {platformCallback && <SelectItem value="show_callback">Show callback request</SelectItem>}
               <SelectItem value="show_message">Show offline message</SelectItem>
             </SelectContent>
           </Select>

@@ -362,20 +362,55 @@ export default function AdminCallCenterPage() {
           </div>
         </div>
 
-        {(draft.ringback_mode === 'music') && (
+        <div className="space-y-3 rounded-lg border border-input p-3">
           <div>
-            <Label>Hold music URL (.mp3 / .ogg / .wav)</Label>
-            <Input
-              type="url"
-              placeholder="https://cdn.example.com/hold-music.mp3"
-              value={draft.ringback_music_url ?? ''}
-              onChange={(e) => setDraft({ ...draft, ringback_music_url: e.target.value })}
-            />
+            <Label className="flex items-center gap-2"><Upload className="h-3.5 w-3.5" /> Provider-backed audio uploads</Label>
             <p className="text-[11px] text-muted-foreground mt-1">
-              Must be publicly reachable and served with permissive CORS. Falls back to silence if the file fails to load.
+              Files are stored through the active global storage provider. The widget resolves the current provider URL on bootstrap.
             </p>
           </div>
-        )}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Hold music loop</Label>
+              <Input
+                type="file"
+                accept="audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/ogg,audio/webm,audio/mp4,audio/aac"
+                disabled={audioBusy === 'music'}
+                onChange={(e) => uploadRingbackAudio('music', e.target.files?.[0] || null)}
+              />
+              {draft.ringback_music_url && <audio className="w-full h-8" controls src={draft.ringback_music_url} />}
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">General waiting announcement</Label>
+              <Input
+                type="file"
+                accept="audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/ogg,audio/webm,audio/mp4,audio/aac"
+                disabled={audioBusy === 'announcement'}
+                onChange={(e) => uploadRingbackAudio('announcement', e.target.files?.[0] || null)}
+              />
+              <p className="text-[11px] text-muted-foreground">Use this for “لطفا جهت ارتباط با کارشناسان ما منتظر بمانید”.</p>
+            </div>
+          </div>
+          <div className="space-y-2 pt-2 border-t">
+            <Label className="text-xs">Queue-position waiting audio 1–6</Label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+              {[1, 2, 3, 4, 5, 6].map((pos) => (
+                <div key={pos} className="space-y-1 rounded-md border border-input p-2">
+                  <Label className="text-[11px]">Queue {pos}</Label>
+                  <Input
+                    type="file"
+                    accept="audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/ogg,audio/webm,audio/mp4,audio/aac"
+                    disabled={audioBusy === `queue-${pos}`}
+                    onChange={(e) => uploadRingbackAudio('queue', e.target.files?.[0] || null, pos)}
+                  />
+                  {(draft.ringback_queue_audio_paths || {})[String(pos)] && (
+                    <p className="text-[10px] text-muted-foreground">Uploaded</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
 
         <div className="space-y-2 pt-2 border-t">
           {QUEUE_TOGGLES.map(([k, label, hint]) => (

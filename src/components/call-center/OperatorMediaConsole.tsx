@@ -583,10 +583,16 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
       phase === 'ended_by_visitor' ||
       phase === 'backend_end_failed' ||
       phase === 'reconnect_failed' ||
-      phase === 'token_expired';
+      phase === 'token_expired' ||
+      phase === 'visitor_disconnected' ||
+      phase === 'error';
     if (!terminal) return;
     // backend_end_failed gives the operator a chance to Retry — wait longer.
-    const delay = phase === 'backend_end_failed' ? 6000 : 1600;
+    const delay =
+      phase === 'backend_end_failed' ? 6000
+      : phase === 'visitor_disconnected' ? 2500
+      : phase === 'error' ? 4000
+      : 1600;
     const t = setTimeout(() => { try { onEndedConfirmed(); } catch { /* noop */ } }, delay);
     return () => clearTimeout(t);
   }, [phase, onEndedConfirmed]);

@@ -351,6 +351,7 @@ const settingsPatchSchema = z.object({
   default_department_id: z.string().uuid().nullable().optional(),
   widget_default_locale: z.enum(['en', 'fa', 'tr']).nullable().optional(),
   widget_enabled_locales: z.array(z.enum(['en', 'fa', 'tr'])).nullable().optional(),
+  widget_custom_texts: z.record(z.record(z.string().max(200))).nullable().optional(),
 });
 
 callCenterRouter.put('/settings', async (req, res) => {

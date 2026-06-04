@@ -783,6 +783,7 @@
 
   CallCenterWidgetCtor.prototype.renderForm = function (cfg, forCall) {
     var self = this;
+    var policy = (self.bootstrap && self.bootstrap.callback_policy) || {};
     var box = el('div', { class: 'ccw-stack' });
     if (!forCall) {
       box.appendChild(el('div', { class: 'ccw-cb-intro' }, [
@@ -842,9 +843,9 @@
     var fields = alreadyIdentified
       ? [['subject', 'Subject', 'text']]
       : [
-        ['name', 'Name', 'text'],
-        ['email', 'Email', 'email'],
-        ['phone', 'Phone', 'tel'],
+        ['name', 'Full name', 'text'],
+        ['email', !forCall && policy.require_contact ? 'Email *' : 'Email', 'email'],
+        ['phone', !forCall && policy.require_contact ? 'Phone *' : 'Phone', 'tel'],
         ['subject', 'Subject', 'text'],
       ];
     fields.forEach(function (f) {
@@ -854,9 +855,27 @@
       box.appendChild(label);
       box.appendChild(input);
     });
+    if (!forCall && policy.require_contact && !alreadyIdentified) {
+      box.appendChild(el('div', { class: 'ccw-muted', style: 'font-size:11px;margin-top:-4px;' }, [
+        '* Email or phone is required so we can reach you.',
+      ]));
+    }
     if (!forCall) {
+      // Honeypot (anti-bot): visually hidden, never tabbable.
+      if (policy.honeypot_enabled !== false) {
+        var hp = el('input', {
+          type: 'text', name: 'company_website', autocomplete: 'off', tabindex: '-1', 'aria-hidden': 'true',
+          style: 'position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden;opacity:0;',
+        });
+        hp.value = self.formData.hp_company || '';
+        hp.addEventListener('input', function (e) { self.formData.hp_company = e.target.value; });
+        box.appendChild(hp);
+      }
       // Message textarea
-      box.appendChild(el('label', { class: 'ccw-label' }, ['Message (optional)']));
+      var msgLabel = policy.min_message_length > 0
+        ? 'Message (min ' + policy.min_message_length + ' chars)'
+        : 'Message (optional)';
+      box.appendChild(el('label', { class: 'ccw-label' }, [msgLabel]));
       var ta = el('textarea', { class: 'ccw-textarea', placeholder: 'Briefly describe what you need help with…' });
       ta.value = self.formData.message || '';
       ta.addEventListener('input', function (e) { self.formData.message = e.target.value; });

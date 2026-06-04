@@ -270,10 +270,28 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
     public_key: ws.public_key,
     origin,
   });
+  // Resolve / create dvsid visitor cookie so the same identity is shared
+  // with the chat widget and the visitors panel. Look up any contact
+  // previously linked to this visitor so the widget can pre-fill the
+  // pre-call form and (when complete) skip it entirely on return visits.
+  let visitorBlock: { id: string; contact: { id: string; name: string | null; email: string | null; phone: string | null } | null } | null = null;
+  try {
+    const { visitorId } = resolveVisitorIdentity(req, res, ws.workspace_id);
+    const contact = await findLinkedContactForVisitor(config, ws.workspace_id, visitorId);
+    visitorBlock = {
+      id: visitorId,
+      contact: contact
+        ? { id: contact.id, name: contact.name, email: contact.email, phone: contact.phone }
+        : null,
+    };
+  } catch (e: any) {
+    console.warn('[call-widget/bootstrap] visitor resolve failed:', e?.message || e);
+  }
   res.json({
     status: 'ok',
     session,
     workspace_id: ws.workspace_id,
+    visitor: visitorBlock,
     config: {
       display_name: ws.display_name,
       avatar_url: ws.avatar_url,

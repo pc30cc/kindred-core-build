@@ -51,7 +51,11 @@
       // can't reuse a stale entry because the URL changes per load.
       var v = (bootstrap && (bootstrap.assets_version || bootstrap.session)) || String(Date.now());
       var versionToken = encodeURIComponent(String(v).slice(0, 16));
-      var bust = '?v=' + versionToken;
+      // Per-page-load suffix: this widget is distributed cross-origin and
+      // some customer/CDN/browser layers have already cached old fixed-path
+      // assets. A deterministic token is not enough when frontend/API deploys
+      // are split, so include time to force a fresh runtime every load.
+      var bust = '?v=' + versionToken + '&t=' + Date.now();
       // Inject CSS
       var link = document.createElement('link');
       link.rel = 'stylesheet';

@@ -12,9 +12,13 @@
 
 import crypto from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Request, Response } from 'express';
+import { isSecureRequest } from './visitorIdentity.js';
 
 const CONTINUITY_TOKEN_BYTES = 48;
 const CONTINUITY_TTL_DAYS = 90;
+const CONTINUITY_COOKIE_NAME = 'dvcid';
+const CONTINUITY_TTL_SECONDS = CONTINUITY_TTL_DAYS * 24 * 60 * 60;
 
 function hashContinuityToken(token: string): string {
   // Use HMAC for keyed hash so a DB leak alone doesn't allow precomputed attacks
@@ -59,6 +63,27 @@ export async function persistContinuityToken(
   });
   if (error) return null;
   return { token: issued.token, expiresAt: issued.expiresAt };
+}
+
+export function setContinuityCookie(res: Response, token: string, req?: Request | null): void {
+  const secure = isSecureRequest(req ?? null);
+  const attrs = [
+    `${CONTINUITY_COOKIE_NAME}=${encodeURIComponent(token)}`,
+    'Path=/api',
+    'HttpOnly',
+    `Max-Age=${CONTINUITY_TTL_SECONDS}`,
+    `SameSite=${secure ? 'None' : 'Lax'}`,
+  ];
+  if (secure) {
+    attrs.push('Secure');
+    attrs.push('Partitioned');
+  }
+  res.append('Set-Cookie', attrs.join('; '));
+}
+
+export function readContinuityCookie(req: Request): string | null {
+  const raw = (req as any).cookies?.[CONTINUITY_COOKIE_NAME];
+  return typeof raw === 'string' && raw.length > 20 ? raw : null;
 }
 
 export interface ResolveContinuityResult {

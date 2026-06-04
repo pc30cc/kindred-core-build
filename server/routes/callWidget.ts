@@ -36,8 +36,41 @@ import {
 } from '../services/widget/continuity.js';
 import { getClientIp, hashIp } from '../utils/clientIp.js';
 import crypto from 'crypto';
+import { readFileSync, existsSync } from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 export const callWidgetRouter = Router();
+
+// Compute a deterministic version token for /call-widget/runtime.{js,css}
+// so the loader can append `?v=<token>` and bypass any stale browser /
+// CDN cache. Computed at startup from the file contents (md5 hash), with
+// a graceful fallback to the server start timestamp when the files are
+// not reachable from this process (e.g. when nginx is the only thing
+// serving them in production split deployments). Re-computing on every
+// request is unnecessary — the loader itself is no-store so a process
+// restart on deploy is enough to roll the token.
+const CALL_WIDGET_ASSETS_VERSION: string = (() => {
+  try {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const candidates = [
+      path.resolve(here, '..', '..', 'public', 'call-widget'),
+      path.resolve(here, '..', 'public', 'call-widget'),
+      path.resolve(process.cwd(), 'public', 'call-widget'),
+    ];
+    for (const dir of candidates) {
+      const js = path.join(dir, 'runtime.js');
+      const css = path.join(dir, 'runtime.css');
+      if (existsSync(js) && existsSync(css)) {
+        const h = crypto.createHash('md5');
+        h.update(readFileSync(js));
+        h.update(readFileSync(css));
+        return h.digest('hex').slice(0, 12);
+      }
+    }
+  } catch {/* fall through */}
+  return String(Date.now()).slice(-12);
+})();
 
 // Dynamic CORS per workspace allowed_domains
 callWidgetRouter.use(async (req, res, next) => {
@@ -414,6 +447,7 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
   res.json({
     status: 'ok',
     session,
+    assets_version: CALL_WIDGET_ASSETS_VERSION,
     workspace_id: ws.workspace_id,
     visitor: visitorBlock,
     config: {

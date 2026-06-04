@@ -177,6 +177,48 @@ server {
         try_files $uri =404;
     }
 
+    # ─────────────────────────────────────────────────────────────────────
+    # Call Center widget assets — these are NOT content-hashed (loader +
+    # runtime live at fixed paths under /call-widget/). If we let nginx
+    # fall through to `location /` they pick up heuristic browser caching
+    # AND Cloudflare's default Edge TTL, which is exactly what caused
+    # "some browsers show the new widget, others show the old one even
+    # after a CF cache purge". Force no-store on the loader/runtime so
+    # every page load re-validates. Only the vendor SDK (LiveKit UMD) is
+    # safe to cache long-term because its filename is stable AND its
+    # contents are pinned to a specific upstream version.
+    # ─────────────────────────────────────────────────────────────────────
+    location ^~ /call-widget/ {
+        root /usr/share/nginx/html;
+        types {
+            application/javascript js;
+            text/css              css;
+            application/json      json;
+        }
+        add_header Access-Control-Allow-Origin "*" always;
+        add_header Cross-Origin-Resource-Policy "cross-origin" always;
+        add_header Access-Control-Allow-Methods "GET, OPTIONS" always;
+
+        # Long-cache the self-hosted vendor SDK (stable contents).
+        location ~* "^/call-widget/vendor/" {
+            root /usr/share/nginx/html;
+            expires 365d;
+            add_header Cache-Control "public, max-age=31536000, immutable" always;
+            add_header Access-Control-Allow-Origin "*" always;
+            add_header Cross-Origin-Resource-Policy "cross-origin" always;
+            try_files $uri =404;
+        }
+
+        # Loader + runtime (unhashed) — never cache anywhere.
+        expires -1;
+        add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+        add_header Pragma "no-cache" always;
+        add_header CDN-Cache-Control "no-store" always;
+        add_header Cloudflare-CDN-Cache-Control "no-store" always;
+        add_header X-Widget-Asset "call-widget" always;
+        try_files $uri =404;
+    }
+
     # SPA fallback — only for non-widget paths
     location / {
         try_files $uri $uri/ /index.html;

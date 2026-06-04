@@ -363,6 +363,7 @@
       if (timer) { try { clearInterval(timer); } catch (_) {} timer = null; }
       if (holdTimer) { try { clearInterval(holdTimer); } catch (_) {} holdTimer = null; }
       if (speakTimer) { try { clearInterval(speakTimer); } catch (_) {} speakTimer = null; }
+      if (announceDelayTimer) { try { clearTimeout(announceDelayTimer); } catch (_) {} announceDelayTimer = null; }
       if (pendingVoiceRetry) { try { clearTimeout(pendingVoiceRetry); } catch (_) {} pendingVoiceRetry = null; }
       stopHoldNodes();
     }
@@ -375,7 +376,7 @@
       if (mode !== 'tone') {
         // music URL handles its own loop; only schedule announcements during hold
         if (phase === 'hold' && announceText) {
-          speakAnnounce(true);
+          announceDelayTimer = setTimeout(function () { announceDelayTimer = null; speakAnnounce(true); }, 1400);
           speakTimer = setInterval(function () { speakAnnounce(false); }, 18000);
         }
         return;
@@ -387,7 +388,7 @@
         holdMusicLoop();
         holdTimer = setInterval(holdMusicLoop, 11000);
         if (announceText) {
-          speakAnnounce(true);
+          announceDelayTimer = setTimeout(function () { announceDelayTimer = null; speakAnnounce(true); }, 1400);
           speakTimer = setInterval(function () { speakAnnounce(false); }, 18000);
         }
       }
@@ -397,6 +398,9 @@
       setLocale: function (loc, text) {
         if (loc) locale = String(loc);
         if (text != null) announceText = String(text || '');
+      },
+      setQueuePosition: function (pos) {
+        queuePosition = typeof pos === 'number' ? pos : null;
       },
       setPhase: function (p) {
         var next = p === 'ring' ? 'ring' : 'hold';
@@ -447,6 +451,7 @@
         clearTimers();
         try { if (typeof window !== 'undefined' && window.speechSynthesis) window.speechSynthesis.cancel(); } catch (_) {}
         if (audioEl) { try { audioEl.pause(); audioEl.src = ''; } catch (_) {} audioEl = null; }
+        if (announceAudioEl) { try { announceAudioEl.pause(); announceAudioEl.src = ''; } catch (_) {} announceAudioEl = null; }
       },
       startFromGesture: function (cfg) {
         lastCfg = cfg || lastCfg || {};

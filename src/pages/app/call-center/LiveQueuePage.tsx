@@ -3,13 +3,20 @@ import { useCallCenterQueue, useCallCenterCall, useCallCenterOverview } from '@/
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Separator } from '@/components/ui/separator';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { callCenterApi, type CallCenterRecordingStatus } from '@/lib/call-center-api';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from '@/hooks/use-toast';
 import {
-  Phone, Video, Globe, Headphones, RadioTower, Inbox, PhoneOff, Mic, MicOff,
+  Phone, Video, Globe, Headphones, RadioTower, Inbox, PhoneOff, MicOff,
   CameraOff, ArrowRightLeft, PhoneCall, AlertTriangle, Disc, Square, Loader2, RefreshCw,
+  Search, Clock, User, Mail, Smartphone, Copy, Check, ChevronRight, Activity,
+  FileText, History, ArrowUp, ArrowDown,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Link, useParams } from 'react-router-dom';
@@ -155,18 +162,56 @@ function urgencyTone(iso: string): 'neutral' | 'warn' | 'danger' {
   return 'neutral';
 }
 
-function StatChip({ label, value, tone = 'muted' }: { label: string; value: React.ReactNode; tone?: 'muted' | 'ok' | 'warn' | 'danger' }) {
+function StatChip({
+  label, value, icon: Icon, tone = 'muted',
+}: {
+  label: string;
+  value: React.ReactNode;
+  icon?: React.ComponentType<{ className?: string }>;
+  tone?: 'muted' | 'ok' | 'warn' | 'danger' | 'primary';
+}) {
   const map = {
-    muted: 'bg-muted/60 text-foreground',
-    ok: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
-    warn: 'bg-amber-500/10 text-amber-700 dark:text-amber-300',
-    danger: 'bg-destructive/10 text-destructive',
+    muted: 'bg-muted/60 text-foreground ring-border',
+    primary: 'bg-primary/10 text-primary ring-primary/20',
+    ok: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 ring-emerald-500/20',
+    warn: 'bg-amber-500/10 text-amber-700 dark:text-amber-300 ring-amber-500/20',
+    danger: 'bg-destructive/10 text-destructive ring-destructive/20',
   } as const;
   return (
-    <div className={cn('rounded-md px-2.5 py-1.5 text-xs flex items-center gap-1.5', map[tone])}>
-      <span className="text-muted-foreground">{label}</span>
-      <span className="font-semibold">{value}</span>
+    <div className={cn('rounded-lg px-3 py-2 ring-1 flex items-center gap-2.5 min-w-[110px]', map[tone])}>
+      {Icon && <Icon className="h-4 w-4 opacity-80" />}
+      <div className="leading-tight">
+        <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
+        <div className="text-sm font-semibold tabular-nums">{value}</div>
+      </div>
     </div>
+  );
+}
+
+function formatWait(iso: string) {
+  const s = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return m > 0 ? `${m}:${r.toString().padStart(2, '0')}` : `0:${r.toString().padStart(2, '0')}`;
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        navigator.clipboard?.writeText(text).then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1200);
+        });
+      }}
+      className="opacity-60 hover:opacity-100 transition-opacity"
+      title="Copy"
+    >
+      {copied ? <Check className="h-3 w-3 text-emerald-600" /> : <Copy className="h-3 w-3" />}
+    </button>
   );
 }
 
@@ -180,6 +225,10 @@ export default function LiveQueuePage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [selectedCallId, setSelectedCallId] = useState<string | null>(null);
   const [notes, setNotes] = useState('');
+  const [search, setSearch] = useState('');
+  const [channelFilter, setChannelFilter] = useState<'all' | 'voice' | 'video'>('all');
+  const [sortMode, setSortMode] = useState<'wait_desc' | 'wait_asc'>('wait_desc');
+  const [contextTab, setContextTab] = useState<'contact' | 'timeline' | 'notes'>('contact');
   const [accepted, setAccepted] = useState<{
     callId: string;
     token: string;
@@ -199,7 +248,44 @@ export default function LiveQueuePage() {
     return () => clearInterval(t);
   }, [accepted?.callId, qc]);
 
-  const queue = data?.queue || [];
+  const rawQueue = data?.queue || [];
+  const queue = useMemo(() => {
+    const q = (rawQueue as any[]).filter((entry) => {
+      const c = entry.call_session;
+      if (channelFilter !== 'all') {
+        const ch = entry.channel || (c?.call_type === 'video' ? 'video' : 'voice');
+        if (channelFilter === 'video' && ch !== 'video') return false;
+        if (channelFilter === 'voice' && ch === 'video') return false;
+      }
+      if (search.trim()) {
+        const needle = search.trim().toLowerCase();
+        const hay = [
+          c?.visitor_name, c?.visitor_email, c?.visitor_phone, c?.subject, c?.page_title, c?.page_url,
+        ].filter(Boolean).join(' ').toLowerCase();
+        if (!hay.includes(needle)) return false;
+      }
+      return true;
+    });
+    q.sort((a, b) => {
+      const ta = new Date(a.created_at).getTime();
+      const tb = new Date(b.created_at).getTime();
+      return sortMode === 'wait_desc' ? ta - tb : tb - ta;
+    });
+    return q;
+  }, [rawQueue, channelFilter, search, sortMode]);
+
+  // Queue analytics
+  const queueStats = useMemo(() => {
+    if (rawQueue.length === 0) return { count: 0, longest: 0, avg: 0, voice: 0, video: 0, breached: 0 };
+    const now = Date.now();
+    const waits = rawQueue.map((q: any) => Math.floor((now - new Date(q.created_at).getTime()) / 1000));
+    const longest = Math.max(...waits);
+    const avg = Math.round(waits.reduce((a, b) => a + b, 0) / waits.length);
+    const voice = rawQueue.filter((q: any) => (q.channel || 'voice') !== 'video').length;
+    const video = rawQueue.length - voice;
+    const breached = waits.filter((w) => w > 180).length;
+    return { count: rawQueue.length, longest, avg, voice, video, breached };
+  }, [rawQueue]);
 
   // Auto-select first queue item — done in effect, not during render
   useEffect(() => {
@@ -300,37 +386,121 @@ export default function LiveQueuePage() {
   }, [accepted, detail]);
 
   return (
+    <TooltipProvider delayDuration={200}>
     <div className="flex flex-col h-full gap-4">
       {/* Command bar */}
-      <Card className="p-3 flex flex-wrap items-center gap-2">
-        <div className="flex items-center gap-2 me-2">
-          <div className="h-8 w-8 rounded-md bg-primary/10 text-primary flex items-center justify-center">
+      <Card className="p-3 flex flex-wrap items-center gap-3 bg-gradient-to-r from-primary/5 via-background to-background border-primary/10">
+        <div className="flex items-center gap-2.5 me-2">
+          <div className="h-9 w-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center ring-1 ring-primary/20">
             <Headphones className="h-4 w-4" />
           </div>
           <div>
             <div className="text-sm font-semibold leading-tight">Live Desk</div>
-            <div className="text-[11px] text-muted-foreground flex items-center gap-1">
-              <RadioTower className="h-3 w-3" /> Polling 5s
+            <div className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+              <span className="relative inline-flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+              </span>
+              <RadioTower className="h-3 w-3" /> Live · polling 5s
             </div>
           </div>
         </div>
         <div className="flex flex-wrap gap-2 ms-auto">
-          <StatChip label="Waiting" value={overview?.waiting_calls ?? queue.length} tone={(overview?.waiting_calls ?? 0) > 0 ? 'warn' : 'muted'} />
-          <StatChip label="Active" value={overview?.active_calls ?? 0} tone={(overview?.active_calls ?? 0) > 0 ? 'ok' : 'muted'} />
-          <StatChip label="Missed today" value={overview?.missed_today ?? 0} tone={(overview?.missed_today ?? 0) > 0 ? 'danger' : 'muted'} />
-          <StatChip label="Provider" value={overview?.provider?.ready ? 'Ready' : 'Down'} tone={overview?.provider?.ready ? 'ok' : 'warn'} />
+          <StatChip label="Waiting" icon={Inbox}
+            value={overview?.waiting_calls ?? rawQueue.length}
+            tone={(overview?.waiting_calls ?? 0) > 0 ? 'warn' : 'muted'} />
+          <StatChip label="Active" icon={Activity}
+            value={overview?.active_calls ?? 0}
+            tone={(overview?.active_calls ?? 0) > 0 ? 'ok' : 'muted'} />
+          <StatChip label="Longest wait" icon={Clock}
+            value={queueStats.count > 0
+              ? `${Math.floor(queueStats.longest / 60)}:${(queueStats.longest % 60).toString().padStart(2, '0')}`
+              : '—'}
+            tone={queueStats.longest > 180 ? 'danger' : queueStats.longest > 60 ? 'warn' : 'muted'} />
+          <StatChip label="SLA breached" icon={AlertTriangle}
+            value={queueStats.breached}
+            tone={queueStats.breached > 0 ? 'danger' : 'muted'} />
+          <StatChip label="Missed today" icon={PhoneOff}
+            value={overview?.missed_today ?? 0}
+            tone={(overview?.missed_today ?? 0) > 0 ? 'danger' : 'muted'} />
+          <StatChip label="Today" icon={PhoneCall}
+            value={overview?.today_calls ?? 0} tone="primary" />
+          <StatChip label="Provider" icon={RadioTower}
+            value={overview?.provider?.ready ? 'Ready' : 'Down'}
+            tone={overview?.provider?.ready ? 'ok' : 'danger'} />
         </div>
       </Card>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[320px_minmax(0,1fr)_320px] gap-4 flex-1 min-h-0">
+      <div className="grid grid-cols-1 lg:grid-cols-[340px_minmax(0,1fr)_340px] gap-4 flex-1 min-h-0">
         {/* Queue column */}
-        <div className="space-y-2 overflow-y-auto pr-1">
-          <div className="flex items-center justify-between sticky top-0 bg-background py-1 z-10">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-2">
-              <Inbox className="h-3.5 w-3.5" /> Queue ({queue.length})
-            </h2>
+        <Card className="flex flex-col overflow-hidden p-0">
+          <div className="px-3 pt-3 pb-2 border-b bg-muted/30">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-2">
+                <Inbox className="h-3.5 w-3.5" />
+                Queue
+                <Badge variant="secondary" className="ms-1 h-5 px-1.5 text-[10px]">
+                  {queue.length}
+                  {queue.length !== rawQueue.length && <span className="opacity-60">/{rawQueue.length}</span>}
+                </Badge>
+              </h2>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="icon" variant="ghost" className="h-6 w-6"
+                    onClick={() => setSortMode((m) => (m === 'wait_desc' ? 'wait_asc' : 'wait_desc'))}
+                  >
+                    {sortMode === 'wait_desc' ? <ArrowDown className="h-3.5 w-3.5" /> : <ArrowUp className="h-3.5 w-3.5" />}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="left">
+                  Sort: {sortMode === 'wait_desc' ? 'Longest waiting first' : 'Newest first'}
+                </TooltipContent>
+              </Tooltip>
+            </div>
+            <div className="relative mb-2">
+              <Search className="h-3.5 w-3.5 absolute start-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search visitor, email, page…"
+                className="h-8 ps-8 text-xs"
+              />
+            </div>
+            <div className="flex gap-1">
+              {([
+                { k: 'all', label: 'All', count: rawQueue.length },
+                { k: 'voice', label: 'Voice', count: queueStats.voice, icon: Phone },
+                { k: 'video', label: 'Video', count: queueStats.video, icon: Video },
+              ] as const).map((opt) => {
+                const OptIcon = (opt as any).icon as React.ComponentType<{ className?: string }> | undefined;
+                return (
+                <button
+                  key={opt.k}
+                  onClick={() => setChannelFilter(opt.k as any)}
+                  className={cn(
+                    'flex-1 inline-flex items-center justify-center gap-1.5 text-[11px] py-1 rounded-md border transition-colors',
+                    channelFilter === opt.k
+                      ? 'bg-primary/10 border-primary/30 text-primary font-medium'
+                      : 'border-transparent text-muted-foreground hover:bg-muted',
+                  )}
+                >
+                  {OptIcon ? <OptIcon className="h-3 w-3" /> : null}
+                  {opt.label}
+                  <span className="text-[10px] opacity-60">{opt.count}</span>
+                </button>
+                );
+              })}
+            </div>
           </div>
-          {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
+          <div className="flex-1 overflow-y-auto p-2 space-y-2">
+          {isLoading && (
+            <div className="space-y-2">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="h-24 rounded-lg bg-muted/40 animate-pulse" />
+              ))}
+            </div>
+          )}
           {!isLoading && queue.length === 0 && (
             <Card className="p-6 text-center space-y-3">
               <Headphones className="h-8 w-8 mx-auto text-muted-foreground" />
@@ -344,72 +514,178 @@ export default function LiveQueuePage() {
               </div>
             </Card>
           )}
-          {queue.map((q, idx) => {
+          {!isLoading && queue.length === 0 && rawQueue.length > 0 && (
+            <div className="text-xs text-muted-foreground text-center p-6">
+              No matches for current filters.
+            </div>
+          )}
+          {queue.map((q: any, idx: number) => {
             const c = q.call_session;
             const tone = urgencyTone(q.created_at);
             const isSel = selectedCallId === q.call_session_id;
+            const isAccepted = accepted?.callId === q.call_session_id;
+            const waitSec = Math.floor((Date.now() - new Date(q.created_at).getTime()) / 1000);
+            const slaPct = Math.min(100, (waitSec / 180) * 100);
+            const isVideo = q.channel === 'video' || c?.call_type === 'video';
+            const name = c?.visitor_name || c?.visitor_email || c?.visitor_phone || 'Anonymous';
+            const initial = name.slice(0, 1).toUpperCase();
             return (
-              <Card
+              <div
                 key={q.id}
                 onClick={() => setSelectedCallId(q.call_session_id)}
                 className={cn(
-                  'p-3 cursor-pointer transition-all border-2',
-                  isSel ? 'border-primary shadow-md' : 'border-transparent hover:border-border',
-                  tone === 'warn' && !isSel && 'border-amber-500/30',
-                  tone === 'danger' && !isSel && 'border-destructive/40 bg-destructive/5',
+                  'group relative rounded-lg border bg-card cursor-pointer transition-all overflow-hidden',
+                  isSel
+                    ? 'border-primary shadow-sm ring-1 ring-primary/30'
+                    : 'border-border hover:border-primary/40 hover:shadow-sm',
+                  tone === 'danger' && !isSel && 'border-destructive/40',
                 )}
               >
-                <div className="flex items-start gap-2.5">
-                  <div className="rounded-lg bg-primary/10 text-primary p-1.5">
-                    {q.channel === 'video' ? <Video className="h-3.5 w-3.5" /> : <Phone className="h-3.5 w-3.5" />}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <div className="font-medium truncate text-sm">
-                        {c?.visitor_name || c?.visitor_email || c?.visitor_phone || 'Anonymous'}
+                {/* Urgency stripe */}
+                <div className={cn(
+                  'absolute start-0 top-0 bottom-0 w-1',
+                  tone === 'danger' ? 'bg-destructive' : tone === 'warn' ? 'bg-amber-500' : 'bg-emerald-500',
+                )} />
+                <div className="p-3 ps-3.5">
+                  <div className="flex items-start gap-2.5">
+                    <div className="relative">
+                      <div className="h-9 w-9 rounded-full bg-gradient-to-br from-primary/20 to-primary/5 text-primary flex items-center justify-center text-sm font-semibold ring-1 ring-primary/15">
+                        {initial}
                       </div>
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted ms-auto">#{idx + 1}</span>
+                      <div className={cn(
+                        'absolute -bottom-0.5 -end-0.5 h-4 w-4 rounded-full flex items-center justify-center ring-2 ring-card',
+                        isVideo ? 'bg-indigo-500 text-white' : 'bg-emerald-500 text-white',
+                      )}>
+                        {isVideo ? <Video className="h-2.5 w-2.5" /> : <Phone className="h-2.5 w-2.5" />}
+                      </div>
                     </div>
-                    <div className={cn('text-[11px] mt-0.5',
-                      tone === 'danger' ? 'text-destructive font-medium' : tone === 'warn' ? 'text-amber-600' : 'text-muted-foreground',
-                    )}>
-                      waiting {waitTime(q.created_at)}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <div className="font-medium truncate text-sm">{name}</div>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted ms-auto tabular-nums">#{idx + 1}</span>
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <div className={cn(
+                          'text-[11px] tabular-nums font-medium flex items-center gap-1',
+                          tone === 'danger' ? 'text-destructive' : tone === 'warn' ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground',
+                        )}>
+                          <Clock className="h-3 w-3" />
+                          {formatWait(q.created_at)}
+                        </div>
+                        {q.priority > 0 && (
+                          <Badge variant="outline" className="h-4 px-1 text-[9px]">P{q.priority}</Badge>
+                        )}
+                        {isAccepted && (
+                          <Badge className="h-4 px-1 text-[9px] bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30">
+                            on call
+                          </Badge>
+                        )}
+                      </div>
+                      {c?.subject && (
+                        <div className="text-[11px] text-muted-foreground truncate mt-1">{c.subject}</div>
+                      )}
+                      {c?.page_title && (
+                        <div className="text-[10px] text-muted-foreground truncate mt-0.5 flex items-center gap-1">
+                          <Globe className="h-2.5 w-2.5 shrink-0" />
+                          <span className="truncate">{c.page_title}</span>
+                        </div>
+                      )}
                     </div>
-                    {c?.subject && <div className="text-[11px] text-muted-foreground truncate mt-0.5">{c.subject}</div>}
+                  </div>
+                  {/* SLA bar */}
+                  <div className="mt-2.5 h-1 rounded-full bg-muted overflow-hidden">
+                    <div
+                      className={cn(
+                        'h-full transition-all',
+                        tone === 'danger' ? 'bg-destructive' : tone === 'warn' ? 'bg-amber-500' : 'bg-emerald-500',
+                      )}
+                      style={{ width: `${slaPct}%` }}
+                    />
+                  </div>
+                  <div className="flex gap-1.5 mt-2.5">
+                    <Button
+                      variant="outline" size="sm" className="flex-1 h-7 text-xs"
+                      onClick={(e) => { e.stopPropagation(); reject(q.call_session_id); }}
+                      disabled={busy === q.call_session_id || isAccepted}
+                    >
+                      Reject
+                    </Button>
+                    <Button
+                      size="sm" className="flex-1 h-7 text-xs"
+                      onClick={(e) => { e.stopPropagation(); accept(q.call_session_id); }}
+                      disabled={busy === q.call_session_id || isAccepted}
+                    >
+                      {busy === q.call_session_id
+                        ? <Loader2 className="h-3 w-3 animate-spin" />
+                        : isAccepted ? 'On call' : (<><PhoneCall className="h-3 w-3 me-1" />Accept</>)}
+                    </Button>
                   </div>
                 </div>
-                <div className="flex gap-1.5 mt-2.5">
-                  <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={(e) => { e.stopPropagation(); reject(q.call_session_id); }} disabled={busy === q.call_session_id}>Reject</Button>
-                  <Button size="sm" className="flex-1 h-7 text-xs" onClick={(e) => { e.stopPropagation(); accept(q.call_session_id); }} disabled={busy === q.call_session_id}>Accept</Button>
-                </div>
-              </Card>
+              </div>
             );
           })}
-        </div>
+          </div>
+        </Card>
 
         {/* Workspace column */}
-        <div className="space-y-3 overflow-y-auto">
+        <div className="space-y-3 overflow-y-auto min-h-0">
           {!detail ? (
-            <Card className="p-12 text-center">
-              <PhoneCall className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
-              <p className="text-sm font-medium">No call selected</p>
-              <p className="text-xs text-muted-foreground">Pick a call from the queue to start handling it.</p>
+            <Card className="p-16 text-center border-dashed">
+              <div className="h-16 w-16 rounded-full bg-primary/5 mx-auto flex items-center justify-center mb-4 ring-1 ring-primary/10">
+                <PhoneCall className="h-7 w-7 text-primary/60" />
+              </div>
+              <p className="text-base font-semibold">No call selected</p>
+              <p className="text-sm text-muted-foreground mt-1 max-w-sm mx-auto">
+                Pick a call from the queue on the left to view visitor context and start handling it.
+              </p>
             </Card>
           ) : (
             <>
-              <Card className="p-5 bg-gradient-to-br from-primary/5 to-transparent border-primary/20">
+              <Card className="p-5 bg-gradient-to-br from-primary/5 via-card to-card border-primary/20 overflow-hidden relative">
+                {detail.call.state === 'ringing' && (
+                  <div className="absolute top-0 inset-x-0 h-0.5 bg-amber-500 animate-pulse" />
+                )}
                 <div className="flex items-start gap-4 flex-wrap">
-                  <div className="h-14 w-14 rounded-full bg-primary/15 text-primary flex items-center justify-center text-lg font-semibold">
-                    {(detail.call.visitor_name || detail.call.visitor_email || 'A').slice(0, 1).toUpperCase()}
+                  <div className="relative shrink-0">
+                    <div className="h-16 w-16 rounded-full bg-gradient-to-br from-primary/30 to-primary/10 text-primary flex items-center justify-center text-xl font-semibold ring-2 ring-primary/15">
+                      {(detail.call.visitor_name || detail.call.visitor_email || 'A').slice(0, 1).toUpperCase()}
+                    </div>
+                    <div className={cn(
+                      'absolute -bottom-0.5 -end-0.5 h-5 w-5 rounded-full flex items-center justify-center ring-2 ring-card',
+                      detail.call.call_type === 'video' ? 'bg-indigo-500 text-white' : 'bg-emerald-500 text-white',
+                    )}>
+                      {detail.call.call_type === 'video' ? <Video className="h-3 w-3" /> : <Phone className="h-3 w-3" />}
+                    </div>
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-xl font-semibold leading-tight">
+                    <div className="text-xl font-semibold leading-tight truncate">
                       {detail.call.visitor_name || detail.call.visitor_email || detail.call.visitor_phone || 'Anonymous visitor'}
                     </div>
-                    <div className="flex flex-wrap gap-2 mt-2">
-                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-background border">{detail.call.call_type === 'video' ? 'Video' : 'Voice'}</span>
-                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-background border">{detail.call.state}</span>
-                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-background border">{detail.call.provider || 'no provider'}</span>
+                    <div className="flex flex-wrap items-center gap-3 mt-1.5 text-xs text-muted-foreground">
+                      {detail.call.visitor_email && (
+                        <span className="inline-flex items-center gap-1"><Mail className="h-3 w-3" />{detail.call.visitor_email}</span>
+                      )}
+                      {detail.call.visitor_phone && (
+                        <span className="inline-flex items-center gap-1"><Smartphone className="h-3 w-3" />{detail.call.visitor_phone}</span>
+                      )}
+                      <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" />
+                        {new Date(detail.call.created_at).toLocaleTimeString()}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 mt-2.5">
+                      <Badge variant="secondary" className="capitalize">{detail.call.call_type === 'video' ? 'Video' : 'Voice'}</Badge>
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          'capitalize',
+                          detail.call.state === 'active' && 'border-emerald-500/40 text-emerald-700 dark:text-emerald-300 bg-emerald-500/10',
+                          detail.call.state === 'ringing' && 'border-amber-500/40 text-amber-700 dark:text-amber-300 bg-amber-500/10',
+                          detail.call.state === 'ended' && 'border-muted text-muted-foreground',
+                        )}
+                      >
+                        {detail.call.state}
+                      </Badge>
+                      <Badge variant="outline">{detail.call.provider || 'no provider'}</Badge>
                       <RecordingBadge rec={overview?.recording} meta={(detail.call as any)?.metadata?.recording} />
                     </div>
                   </div>
@@ -417,12 +693,14 @@ export default function LiveQueuePage() {
                     {detail.call.state === 'pending' && (
                       <>
                         <Button variant="outline" onClick={() => reject(detail.call.id)}>Reject</Button>
-                        <Button onClick={() => accept(detail.call.id)}>Accept</Button>
+                        <Button onClick={() => accept(detail.call.id)}>
+                          <PhoneCall className="h-4 w-4 me-1.5" />Accept
+                        </Button>
                       </>
                     )}
                     {isActive && !(accepted && accepted.callId === detail.call.id) && (
                       <Button variant="destructive" onClick={() => endActive(detail.call.id)}>
-                        <PhoneOff className="h-4 w-4 me-1" /> End
+                        <PhoneOff className="h-4 w-4 me-1.5" /> End
                       </Button>
                     )}
                   </div>
@@ -452,26 +730,34 @@ export default function LiveQueuePage() {
                 )}
                 </>
               ) : (
-                <Card className="p-5 border-dashed">
+                <Card className="p-6 border-dashed bg-muted/20">
                   <div className="flex items-start gap-3">
-                    <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
-                    <div className="text-sm">
-                      <div className="font-medium">Accept the call to start media</div>
+                    <div className="h-8 w-8 rounded-full bg-amber-500/15 text-amber-600 flex items-center justify-center shrink-0">
+                      <AlertTriangle className="h-4 w-4" />
+                    </div>
+                    <div className="text-sm flex-1">
+                      <div className="font-semibold">Media console is idle</div>
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        The operator media console activates after you accept the call.
+                        Accept the call to open audio/video, recording, and call controls.
                       </p>
                     </div>
+                    {detail.call.state === 'pending' && (
+                      <Button size="sm" onClick={() => accept(detail.call.id)}>
+                        <PhoneCall className="h-3.5 w-3.5 me-1.5" /> Accept now
+                      </Button>
+                    )}
                   </div>
-                  <div className="flex flex-wrap gap-2 mt-4">
+                  <Separator className="my-4" />
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                     {[
                       { icon: MicOff, label: 'Mute' },
                       { icon: CameraOff, label: 'Camera' },
                       { icon: ArrowRightLeft, label: 'Transfer' },
                       { icon: PhoneOff, label: 'End' },
                     ].map((b) => (
-                      <Button key={b.label} variant="outline" size="sm" disabled>
-                        <b.icon className="h-3.5 w-3.5 me-1.5" />{b.label}
-                      </Button>
+                      <div key={b.label} className="flex items-center justify-center gap-1.5 h-9 text-xs rounded-md border border-dashed text-muted-foreground">
+                        <b.icon className="h-3.5 w-3.5" />{b.label}
+                      </div>
                     ))}
                   </div>
                 </Card>
@@ -512,50 +798,124 @@ export default function LiveQueuePage() {
         </div>
 
         {/* Context column */}
-        <div className="space-y-3 overflow-y-auto">
+        <Card className="flex flex-col overflow-hidden p-0 min-h-0">
           {detail ? (
-            <>
-              <Card className="p-4 space-y-2">
-                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Contact</div>
-                <div className="text-sm space-y-1">
-                  <div className="font-medium">{detail.call.visitor_name || 'Anonymous'}</div>
-                  {detail.call.visitor_email && <div className="text-muted-foreground">{detail.call.visitor_email}</div>}
-                  {detail.call.visitor_phone && <div className="text-muted-foreground">{detail.call.visitor_phone}</div>}
-                </div>
-              </Card>
-              <Card className="p-4 space-y-2">
-                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Timeline</div>
-                <ol className="space-y-1 text-xs max-h-56 overflow-y-auto">
-                  {detail.events.length === 0 && <li className="text-muted-foreground">No events.</li>}
-                  {detail.events.map((e) => (
-                    <li key={e.id} className="flex gap-2">
-                      <span className="text-muted-foreground shrink-0">{new Date(e.created_at).toLocaleTimeString()}</span>
-                      <span className="truncate">{e.event_type}</span>
-                    </li>
-                  ))}
-                </ol>
-              </Card>
-              <Card className="p-4 space-y-2">
-                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Private notes</div>
-                <Textarea
-                  placeholder="Private call notes — coming soon"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  rows={4}
-                  disabled
-                  className="text-sm"
-                />
-              </Card>
-              <Card className="p-4">
-                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Previous calls</div>
-                <p className="text-xs text-muted-foreground">Call history will appear here.</p>
-              </Card>
-            </>
+            <Tabs value={contextTab} onValueChange={(v) => setContextTab(v as any)} className="flex flex-col h-full">
+              <TabsList className="grid grid-cols-3 m-2 mb-0">
+                <TabsTrigger value="contact" className="text-xs gap-1.5"><User className="h-3.5 w-3.5" />Contact</TabsTrigger>
+                <TabsTrigger value="timeline" className="text-xs gap-1.5"><History className="h-3.5 w-3.5" />Timeline</TabsTrigger>
+                <TabsTrigger value="notes" className="text-xs gap-1.5"><FileText className="h-3.5 w-3.5" />Notes</TabsTrigger>
+              </TabsList>
+              <div className="flex-1 overflow-y-auto p-3 space-y-3">
+                <TabsContent value="contact" className="m-0 space-y-3">
+                  <div className="space-y-2.5">
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Name</div>
+                      <div className="text-sm font-medium">{detail.call.visitor_name || 'Anonymous'}</div>
+                    </div>
+                    {detail.call.visitor_email && (
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Email</div>
+                        <div className="text-sm flex items-center gap-1.5 group">
+                          <Mail className="h-3.5 w-3.5 text-muted-foreground" />
+                          <a href={`mailto:${detail.call.visitor_email}`} className="hover:underline truncate">{detail.call.visitor_email}</a>
+                          <CopyButton text={detail.call.visitor_email} />
+                        </div>
+                      </div>
+                    )}
+                    {detail.call.visitor_phone && (
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Phone</div>
+                        <div className="text-sm flex items-center gap-1.5 group">
+                          <Smartphone className="h-3.5 w-3.5 text-muted-foreground" />
+                          <a href={`tel:${detail.call.visitor_phone}`} className="hover:underline">{detail.call.visitor_phone}</a>
+                          <CopyButton text={detail.call.visitor_phone} />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  {(detail.call.page_url || detail.call.subject) && (
+                    <>
+                      <Separator />
+                      <div className="space-y-2">
+                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Page context</div>
+                        {detail.call.subject && (
+                          <div className="text-sm"><span className="text-muted-foreground">Subject: </span>{detail.call.subject}</div>
+                        )}
+                        {detail.call.page_url && (
+                          <div className="text-sm flex items-center gap-1.5">
+                            <Globe className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                            <a href={detail.call.page_url} target="_blank" rel="noreferrer" className="underline truncate">
+                              {detail.call.page_title || detail.call.page_url}
+                            </a>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+                  {preCall && typeof preCall === 'object' && Object.keys(preCall).length > 0 && (
+                    <>
+                      <Separator />
+                      <div className="space-y-1.5">
+                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Pre-call form</div>
+                        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs">
+                          {Object.entries(preCall).map(([k, v]) => (
+                            <div key={k} className="contents">
+                              <dt className="text-muted-foreground capitalize">{k}</dt>
+                              <dd className="truncate font-medium">{String(v ?? '—')}</dd>
+                            </div>
+                          ))}
+                        </dl>
+                      </div>
+                    </>
+                  )}
+                  <Separator />
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">Previous calls</div>
+                    <p className="text-xs text-muted-foreground">Call history will appear here.</p>
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="timeline" className="m-0">
+                  {detail.events.length === 0 ? (
+                    <p className="text-xs text-muted-foreground text-center py-6">No events yet.</p>
+                  ) : (
+                    <ol className="relative space-y-3 ps-4 before:absolute before:start-1 before:top-1.5 before:bottom-1.5 before:w-px before:bg-border">
+                      {detail.events.map((e) => (
+                        <li key={e.id} className="relative">
+                          <span className="absolute -start-[14px] top-1.5 h-2 w-2 rounded-full bg-primary ring-2 ring-background" />
+                          <div className="text-[10px] text-muted-foreground tabular-nums">{new Date(e.created_at).toLocaleTimeString()}</div>
+                          <div className="text-xs font-medium">{e.event_type.replace(/_/g, ' ')}</div>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                </TabsContent>
+
+                <TabsContent value="notes" className="m-0">
+                  <Textarea
+                    placeholder="Private call notes — coming soon"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    rows={10}
+                    disabled
+                    className="text-sm resize-none"
+                  />
+                  <p className="text-[11px] text-muted-foreground mt-2">
+                    Notes will be saved to the call timeline once enabled.
+                  </p>
+                </TabsContent>
+              </div>
+            </Tabs>
           ) : (
-            <Card className="p-6 text-center text-xs text-muted-foreground">Select a call to view context.</Card>
+            <div className="p-8 text-center text-xs text-muted-foreground">
+              <ChevronRight className="h-5 w-5 mx-auto mb-2 opacity-40" />
+              Select a call to view context.
+            </div>
           )}
-        </div>
+        </Card>
       </div>
     </div>
+    </TooltipProvider>
   );
 }

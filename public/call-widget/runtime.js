@@ -105,6 +105,20 @@
     return str;
   }
 
+  function normalizeLocale(locale) {
+    locale = String(locale || '').toLowerCase().slice(0, 2);
+    return SUPPORTED_LOCALES.indexOf(locale) >= 0 ? locale : null;
+  }
+
+  function formatText(text, vars) {
+    text = String(text == null ? '' : text);
+    vars = vars || {};
+    Object.keys(vars).forEach(function (k) {
+      text = text.replace(new RegExp('\\{' + k + '\\}', 'g'), String(vars[k]));
+    });
+    return text;
+  }
+
   /**
    * CC-2H Phase 5 — Map common LiveKit transport failures to
    * actionable, secret-free messages.
@@ -266,6 +280,9 @@
     };
     this.callbackOpenedAt = 0;
     this.callbackCooldownUntil = 0;
+    this.locale = 'en';
+    this.availableLocales = ['en'];
+    this.localeStorageKey = 'ccw_locale';
   }
 
   CallCenterWidgetCtor.prototype.mount = function (opts) {

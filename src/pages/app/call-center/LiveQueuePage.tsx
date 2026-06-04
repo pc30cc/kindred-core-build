@@ -472,7 +472,9 @@ export default function LiveQueuePage() {
                 { k: 'all', label: 'All', count: rawQueue.length },
                 { k: 'voice', label: 'Voice', count: queueStats.voice, icon: Phone },
                 { k: 'video', label: 'Video', count: queueStats.video, icon: Video },
-              ] as const).map((opt) => (
+              ] as const).map((opt) => {
+                const OptIcon = (opt as any).icon as React.ComponentType<{ className?: string }> | undefined;
+                return (
                 <button
                   key={opt.k}
                   onClick={() => setChannelFilter(opt.k as any)}
@@ -483,11 +485,12 @@ export default function LiveQueuePage() {
                       : 'border-transparent text-muted-foreground hover:bg-muted',
                   )}
                 >
-                  {(opt as any).icon ? <((opt as any).icon) className="h-3 w-3" /> : null}
+                  {OptIcon ? <OptIcon className="h-3 w-3" /> : null}
                   {opt.label}
                   <span className="text-[10px] opacity-60">{opt.count}</span>
                 </button>
-              ))}
+                );
+              })}
             </div>
           </div>
           <div className="flex-1 overflow-y-auto p-2 space-y-2">

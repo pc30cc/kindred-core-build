@@ -10,7 +10,7 @@ import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from '@/hooks/use-toast';
-import { AlertCircle, ShieldCheck, Server, Building2, Search, Activity, Loader2, CheckCircle2, XCircle, AlertTriangle, ShieldAlert, PhoneCall, Music, Languages } from 'lucide-react';
+import { AlertCircle, ShieldCheck, Server, Building2, Search, Activity, Loader2, CheckCircle2, XCircle, AlertTriangle, ShieldAlert, PhoneCall, Music, Languages, Upload } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 const WIDGET_LOCALES: Array<{ code: 'en' | 'fa' | 'tr'; label: string; native: string }> = [
@@ -65,8 +65,8 @@ const CALLBACK_NUMBERS: Array<[keyof CallCenterPlatformSettings, string, string]
 ];
 
 const RINGBACK_MODES: Array<{ value: 'tone' | 'music' | 'off'; label: string; hint: string }> = [
-  { value: 'tone', label: 'Classic phone ringing tone', hint: 'Synthesized in-browser. No audio file required.' },
-  { value: 'music', label: 'Hold music (custom URL)', hint: 'Plays a looping audio file from the URL below.' },
+  { value: 'tone', label: 'Generated soft hold music', hint: 'In-browser fallback music. Persian TTS is not used.' },
+  { value: 'music', label: 'Uploaded hold music', hint: 'Loops the uploaded provider-backed audio file.' },
   { value: 'off', label: 'Silent', hint: 'No audio is played while the visitor is waiting.' },
 ];
 
@@ -118,6 +118,7 @@ export default function AdminCallCenterPage() {
   const [diag, setDiag] = useState<LiveKitDiagnostics | null>(null);
   const [diagBusy, setDiagBusy] = useState(false);
   const [diagErr, setDiagErr] = useState<string | null>(null);
+  const [audioBusy, setAudioBusy] = useState<string | null>(null);
   const firstWorkspaceId = ws?.workspaces?.[0]?.workspace_id || null;
 
   async function runDiagnostics() {
@@ -172,6 +173,21 @@ export default function AdminCallCenterPage() {
   async function invalidate() {
     await callCenterAdminApi.invalidateCache();
     toast({ title: 'Cache invalidated' });
+  }
+
+  async function uploadRingbackAudio(kind: 'music' | 'announcement' | 'queue', file: File | null, queuePosition?: number) {
+    if (!file) return;
+    const key = kind === 'queue' ? `queue-${queuePosition}` : kind;
+    setAudioBusy(key);
+    try {
+      const r = await callCenterAdminApi.uploadRingbackAudio({ kind, file, queue_position: queuePosition });
+      setDraft({ ...r.settings });
+      toast({ title: 'Audio uploaded', description: 'Stored through the active storage provider.' });
+    } catch (e: any) {
+      toast({ title: 'Upload failed', description: e.message, variant: 'destructive' });
+    } finally {
+      setAudioBusy(null);
+    }
   }
 
   return (

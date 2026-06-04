@@ -952,6 +952,7 @@ callWidgetRouter.post('/callbacks/request', async (req, res) => {
       department_id: cbDepartmentId,
       visitor_id: null as string | null,
       contact_id: null as string | null,
+      ip_hash: ipHash,
     },
   }).select('*').maybeSingle();
   if (error) return res.status(500).json({ error: 'callback_create_failed', message: error.message });

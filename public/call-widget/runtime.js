@@ -400,7 +400,18 @@
         if (text != null) announceText = String(text || '');
       },
       setQueuePosition: function (pos) {
-        queuePosition = typeof pos === 'number' ? pos : null;
+        var next = typeof pos === 'number' ? pos : null;
+        if (next === queuePosition) return;
+        queuePosition = next;
+        // Position changed → force re-announcement so visitor hears the new
+        // position-specific audio (or generic announcement) immediately.
+        if (active && phase === 'hold') {
+          try {
+            if (announceAudioEl) { try { announceAudioEl.pause(); } catch (_) {} announceAudioEl = null; }
+          } catch (_) {}
+          lastSpeakAt = 0;
+          try { speakAnnounce(true); } catch (_) {}
+        }
       },
       setPhase: function (p) {
         var next = p === 'ring' ? 'ring' : 'hold';

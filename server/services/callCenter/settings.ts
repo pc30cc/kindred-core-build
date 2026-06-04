@@ -74,6 +74,8 @@ export interface WorkspaceCallCenterSettings {
   /** Widget language overrides (workspace scope). Null = inherit platform. */
   widget_default_locale: 'en' | 'fa' | 'tr' | null;
   widget_enabled_locales: string[] | null;
+  /** Per-locale overrides for widget labels (header, buttons, launcher). */
+  widget_custom_texts: Record<string, Record<string, string>> | null;
   created_at: string;
   updated_at: string;
 }

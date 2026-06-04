@@ -142,16 +142,13 @@
 
   // ── Visitor-side ringback (on-hold) audio ────────────────────────────
   var Ringback = (function () {
-    var ctx = null, timer = null, holdTimer = null, speakTimer = null, active = false, audioEl = null, mode = 'off', lastCfg = null, needsGesture = false, unlockHandlersInstalled = false;
+    var ctx = null, timer = null, holdTimer = null, speakTimer = null, announceDelayTimer = null, active = false, audioEl = null, announceAudioEl = null, mode = 'off', lastCfg = null, needsGesture = false, unlockHandlersInstalled = false;
     var phase = 'hold';
     var locale = 'en';
     var announceText = '';
+    var queuePosition = null;
     var lastSpeakAt = 0, pendingVoiceRetry = null, holdNodes = [];
     var LANG_MAP = { en: 'en-US', fa: 'fa-IR', tr: 'tr-TR' };
-    var SPOKEN_FALLBACK = {
-      fa: 'Shomaa dar safe entezar hastid. Lotfan sabr konid. Be zoodi shomaa raa be operator motasel mikonim.',
-      tr: 'Bekleme kuyruğundasınız. Lütfen bekleyin, kısa süre içinde sizi bir operatöre bağlayacağız.',
-    };
     function ensure() {
       try {
         if (typeof window === 'undefined') return null;

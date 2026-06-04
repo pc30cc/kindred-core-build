@@ -108,10 +108,15 @@ function widgetAssetHeaders(res: express.Response, filePath: string) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   if (/livekit-client\.umd\.min\.js$/i.test(filePath)) {
     res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-  } else if (/\/l\.js$/i.test(filePath)) {
-    res.setHeader('Cache-Control', 'no-store');
   } else {
-    res.setHeader('Cache-Control', 'public, max-age=60');
+    // Loader + runtime are NOT content-hashed. If we let CDNs cache them
+    // even briefly, customers see stale widget UI after every deploy and
+    // a Cloudflare purge isn't always enough (heuristic / edge TTL).
+    // Force no-store everywhere so each page load fetches fresh bytes.
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('CDN-Cache-Control', 'no-store');
+    res.setHeader('Cloudflare-CDN-Cache-Control', 'no-store');
   }
 }
 

@@ -12,6 +12,7 @@ import {
   getOrCreateWorkspaceSettings,
   getPlatformCallCenterSettings,
   computeEffectiveCallCenterCaps,
+  computeEffectiveCallCenterLocales,
   originAllowed,
   type WorkspaceCallCenterSettings,
 } from '../services/callCenter/settings.js';

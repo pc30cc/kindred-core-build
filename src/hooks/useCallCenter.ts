@@ -61,6 +61,7 @@ export function useCallCenterCall(workspaceId?: string | null, callId?: string |
     queryKey: ['call-center', 'call', workspaceId, callId],
     enabled: !!workspaceId && !!callId,
     queryFn: () => callCenterApi.getCall(workspaceId!, callId!),
+    refetchInterval: 4000,
   });
 }
 export function useCallCenterCallbacks(workspaceId?: string | null, status?: string) {

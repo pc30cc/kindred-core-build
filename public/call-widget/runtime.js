@@ -133,6 +133,7 @@
       method: opts.method || 'GET',
       headers: Object.assign(headers, opts.headers || {}),
       body: opts.body ? JSON.stringify(opts.body) : undefined,
+      credentials: 'include',
     }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, body: j }; }); });
   };
 

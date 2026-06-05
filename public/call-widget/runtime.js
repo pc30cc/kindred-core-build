@@ -1394,6 +1394,14 @@
               unlockBtn.setAttribute('aria-label', tr('enable_ringing_sound'));
             }
           }
+          // Any click anywhere on the queue card counts as a user gesture —
+          // use it to unlock and resume the queue audio immediately, then
+          // re-render so the locked icon disappears.
+          card.addEventListener('click', function onceUnlock() {
+            try { card.removeEventListener('click', onceUnlock); } catch (_) {}
+            try { Ringback.startFromGesture((self.bootstrap && self.bootstrap.queue_experience) || {}); } catch (_) {}
+            setTimeout(function () { try { self.render(); } catch (_) {} }, 60);
+          }, { once: true, capture: true });
         }
         // Position-in-queue chip
         if (qe.show_position !== false && self.queuePosition) {

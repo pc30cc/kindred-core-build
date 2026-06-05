@@ -733,9 +733,19 @@
       }
       self.callId = r.body.call_id;
       self.persistActiveSession();
-      self.queueStartedAt = Date.now();
+      var startedAt = r.body.created_at ? Date.parse(r.body.created_at) : NaN;
+      self.queueStartedAt = isNaN(startedAt) ? Date.now() : startedAt;
       self.queuePosition = typeof r.body.queue_position === 'number' ? r.body.queue_position : null;
       self.queueEta = null;
+      if (r.body.call_type) self.formData.call_type = (r.body.call_type === 'video') ? 'video' : 'voice';
+      if (['active', 'ringing', 'connecting'].indexOf(String(r.body.call_state || '')) >= 0) {
+        self.state = STATES.IN_CALL;
+        self.render();
+        try { Ringback.stop(); } catch (_) {}
+        self.startPolling();
+        self.requestJoinToken();
+        return;
+      }
       self.state = STATES.QUEUE;
       self.render();
       // Start ringback (visitor-side on-hold audio).

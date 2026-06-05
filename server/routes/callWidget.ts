@@ -422,8 +422,10 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
   // previously linked to this visitor so the widget can pre-fill the
   // pre-call form and (when complete) skip it entirely on return visits.
   let visitorBlock: { id: string; contact: { id: string; name: string | null; email: string | null; phone: string | null } | null } | null = null;
+  let resolvedVisitorId: string | null = null;
   try {
     const { visitorId } = resolveVisitorIdentity(req, res, ws.workspace_id);
+    resolvedVisitorId = visitorId;
     // Make the call-widget visitor show up in the Online Visitors list as
     // soon as the widget loads — with their real contact name if known.
     await ensureVisitorSessionRow(config, ws.workspace_id, visitorId, origin, origin);
@@ -450,6 +452,76 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
     };
   } catch (e: any) {
     console.warn('[call-widget/bootstrap] visitor resolve failed:', e?.message || e);
+  }
+  // Resume in-flight call across page refresh / navigation.
+  // Look up any non-terminal call_session for this visitor and, if found,
+  // hand the widget a session token bound to that call_id so it can keep
+  // polling status without creating a new queue entry.
+  let activeCall: {
+    call_id: string;
+    state: string;
+    call_type: string;
+    created_at: string | null;
+    queue_position: number | null;
+    session: string;
+  } | null = null;
+  if (resolvedVisitorId) {
+    try {
+      const sbActive = getServiceClient(config);
+      const { data: rows } = await sbActive
+        .from('call_sessions')
+        .select('id,state,call_type,created_at,metadata')
+        .eq('workspace_id', ws.workspace_id)
+        .eq('entry_source', 'call_widget')
+        .in('state', ['pending', 'queued', 'ringing', 'connecting', 'active'])
+        .order('created_at', { ascending: false })
+        .limit(20);
+      const mine = (rows || []).find(
+        (r: any) => (r.metadata as any)?.visitor_id === resolvedVisitorId,
+      );
+      if (mine) {
+        const callId = (mine as any).id as string;
+        const callState = String((mine as any).state || '');
+        // Compute live queue position when still queued.
+        let position: number | null = null;
+        if (!['active', 'ringing', 'connecting'].includes(callState)) {
+          const { data: entry } = await sbActive
+            .from('call_queue_entries')
+            .select('id,workspace_id,state')
+            .eq('call_session_id', callId)
+            .maybeSingle();
+          if (entry && ['queued', 'offered'].includes(String((entry as any).state || ''))) {
+            const { data: activeRows } = await sbActive
+              .from('call_queue_entries')
+              .select('id,created_at,priority')
+              .eq('workspace_id', (entry as any).workspace_id)
+              .eq('entry_source', 'call_widget')
+              .in('state', ['queued', 'offered'])
+              .order('priority', { ascending: false })
+              .order('created_at', { ascending: true })
+              .limit(500);
+            const idx = (activeRows || []).findIndex((row: any) => row.id === (entry as any).id);
+            position = idx >= 0 ? idx + 1 : null;
+          }
+        }
+        const resumedSession = signWidgetSession(config, {
+          workspace_id: ws.workspace_id,
+          public_key: ws.public_key,
+          call_id: callId,
+          origin,
+        });
+        activeCall = {
+          call_id: callId,
+          state: callState,
+          call_type: String((mine as any).call_type || 'audio'),
+          created_at: (mine as any).created_at || null,
+          queue_position: position,
+          session: resumedSession,
+        };
+      }
+    } catch (e: any) {
+      console.warn('[call-widget/bootstrap] active_call lookup failed:', e?.message || e);
+    }
   }
   const ringbackAudio = await (async () => {
     const musicPath = (platform as any).ringback_music_path as string | null;
@@ -524,6 +596,7 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
     recording,
     provider_ready,
     departments,
+    active_call: activeCall,
   });
 });
 

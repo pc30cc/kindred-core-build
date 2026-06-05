@@ -951,8 +951,10 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
     workspace_id: ws.workspace_id,
     public_key: ws.public_key,
     call_id: call!.id,
+    visitor_id: identity.visitorId,
     origin: session.origin || null,
   });
+  setActiveCallCookie(res, req, config, ws.workspace_id, call!.id, getOrigin(req));
 
   await publishQueueEvent(config, ws.workspace_id, 'call_requested', { call_id: call!.id });
   try {
@@ -1000,6 +1002,7 @@ callWidgetRouter.post('/calls/:id/cancel', async (req, res) => {
   });
   await publishQueueEvent(config, session.workspace_id, 'call_cancelled', { call_id: req.params.id });
   await publishCallEvent(config, session.workspace_id, req.params.id, 'call_cancelled', {});
+  clearActiveCallCookie(res, req);
   res.json({ ok: true });
 });
 

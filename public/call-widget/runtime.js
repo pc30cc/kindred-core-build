@@ -1203,9 +1203,20 @@
     this.disconnectRoom();
     try { Ringback.stop(); } catch (_) {}
     if (!this.callId) { this.reset(); return; }
+    // Snapshot for the rating screen.
+    this.endedCallId = this.callId;
+    this.endedDuration = this.callStartedAt ? Math.floor((Date.now() - this.callStartedAt) / 1000) : 0;
     this.api('/api/call-widget/calls/' + this.callId + '/cancel', { method: 'POST' }).then(function () {
-      self.stopPolling(); self.stopTimer();
-      self.reset();
+      self.stopPolling(); self.stopTimer(); self.stopCallTimer();
+      // If the call actually connected, go to ENDED so the visitor can rate.
+      if (self.endedDuration > 0) {
+        self.clearActiveSession();
+        self.callId = null; self.call = null;
+        self.state = STATES.ENDED;
+        self.render();
+      } else {
+        self.reset();
+      }
     });
   };
 
@@ -1213,10 +1224,20 @@
     this.disconnectRoom();
     try { Ringback.stop(); } catch (_) {}
     this.clearActiveSession();
+    this.stopCallTimer();
     this.callId = null; this.call = null; this.queueStartedAt = null;
     this.queuePosition = null; this.queueEta = null;
     this.connectStatus = null; this.joinInfo = null; this.error = null;
     this.micOn = false; this.camOn = false; this._remoteHolder = null;
+    this.operatorName = null;
+    this.callStartedAt = null;
+    this.transferring = false;
+    this.endedCallId = null;
+    this.endedDuration = 0;
+    this.ratingSubmitted = false;
+    this.ratingValue = 0;
+    this.ratingComment = '';
+    this._lastAgentId = null;
     this.state = this.isOnline() ? STATES.ONLINE : STATES.OFFLINE;
     this.render();
   };

@@ -142,7 +142,12 @@
 
   // ── Visitor-side ringback (on-hold) audio ────────────────────────────
   var Ringback = (function () {
-    var ctx = null, timer = null, holdTimer = null, speakTimer = null, announceDelayTimer = null, active = false, audioEl = null, announceAudioEl = null, mode = 'off', lastCfg = null, needsGesture = false, unlockHandlersInstalled = false;
+    var ctx = null, timer = null, holdTimer = null, speakTimer = null, announceDelayTimer = null, active = false, audioEl = null, announceAudioEl = null, mode = 'off', lastCfg = null, needsGesture = false, unlockHandlersInstalled = false, muted = false;
+    try {
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        muted = window.sessionStorage.getItem('ccw_ringback_muted') === '1';
+      }
+    } catch (_) {}
     var phase = 'hold';
     var locale = 'en';
     var announceText = '';
@@ -202,7 +207,7 @@
       nodes.forEach(function (n) { try { n.stop(0); } catch (_) {} });
     }
     function ringOnce() {
-      var c = ensure(); if (!c || !active || mode !== 'tone') return;
+      var c = ensure(); if (!c || !active || mode !== 'tone' || muted) return;
       if (c.state && c.state !== 'running') {
         needsGesture = true; installUnlockHandlers();
         try {
@@ -237,7 +242,7 @@
       } catch (_) { needsGesture = true; installUnlockHandlers(); }
     }
     function holdMusicLoop() {
-      var c = ensure(); if (!c || !active || mode !== 'tone') return;
+      var c = ensure(); if (!c || !active || mode !== 'tone' || muted) return;
       if (c.state && c.state !== 'running') {
         needsGesture = true; installUnlockHandlers();
         try { var p = c.resume && c.resume(); if (p && p.then) p.then(function () { needsGesture = false; }).catch(function () {}); } catch (_) {}
@@ -291,7 +296,7 @@
       return (key && q[key]) || cfg.ringback_announcement_audio_url || '';
     }
     function playAnnouncementAudio(force) {
-      if (!active || phase !== 'hold') return false;
+      if (!active || phase !== 'hold' || muted) return false;
       var url = getAnnouncementUrl();
       if (!url) return false;
       var now = Date.now();
@@ -326,7 +331,7 @@
       return null;
     }
     function speakAnnounce(force) {
-      if (!active || phase !== 'hold' || !announceText) return;
+      if (!active || phase !== 'hold' || !announceText || muted) return;
       if (playAnnouncementAudio(force)) return;
       // Persian browser TTS is unreliable on many systems and can read the
       // sentence with an English/default engine. For fa, only use an explicit
@@ -371,7 +376,7 @@
       clearTimers();
       if (!active) return;
       if (audioEl) {
-        try { audioEl.volume = phase === 'ring' ? 0.62 : 0.38; } catch (_) {}
+        try { audioEl.volume = muted ? 0 : (phase === 'ring' ? 0.62 : 0.38); } catch (_) {}
       }
       if (mode !== 'tone') {
         // music URL handles its own loop; only schedule announcements during hold
@@ -471,6 +476,23 @@
       },
       needsGesture: function () { return !!needsGesture; },
       isActive: function () { return active; },
+      isMuted: function () { return !!muted; },
+      setMuted: function (m) {
+        muted = !!m;
+        try {
+          if (typeof window !== 'undefined' && window.sessionStorage) {
+            window.sessionStorage.setItem('ccw_ringback_muted', muted ? '1' : '0');
+          }
+        } catch (_) {}
+        if (audioEl) { try { audioEl.volume = muted ? 0 : (phase === 'ring' ? 0.62 : 0.38); } catch (_) {} }
+        if (muted) {
+          clearTimers();
+          try { if (typeof window !== 'undefined' && window.speechSynthesis) window.speechSynthesis.cancel(); } catch (_) {}
+          if (announceAudioEl) { try { announceAudioEl.pause(); } catch (_) {} }
+        } else if (active) {
+          startPhase();
+        }
+      },
     };
   })();
 

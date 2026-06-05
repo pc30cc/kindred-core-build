@@ -95,7 +95,17 @@
       callback_scheduled: 'Geri arama planlandı', reach_out: 'Ekibimiz {when} size ulaşacak.', asap: 'en kısa sürede', video_callback: 'Görüntülü geri arama', phone_callback: 'Telefonla geri arama', reference: 'Referans', type: 'Tür', done: 'Tamam', call_ended: 'Arama sona erdi.', error_prefix: 'Hata: {error}', unknown: 'bilinmiyor', back: 'Geri',
       request_callback_title: 'Geri arama iste', callback_intro: 'Size nasıl ulaşacağımızı yazın — ekibimiz hızlıca döner.', callback_type: 'Geri arama türü', phone: '🎙 Telefon', video: '🎥 Video', department: 'Departman', choose_department: 'Departman seçin', known_contact: 'Bilinen kişi', contact_saved: 'İletişim bilgileri kayıtlı', subject: 'Konu', full_name: 'Ad soyad', email: 'E-posta', email_required: 'E-posta *', phone_field: 'Telefon', phone_required: 'Telefon *', contact_required_note: '* Size ulaşabilmemiz için e-posta veya telefon gerekir.', message_min: 'Mesaj (en az {n} karakter)', message_optional: 'Mesaj (isteğe bağlı)', message_placeholder: 'Neye ihtiyacınız olduğunu kısaca yazın…', when_call: 'Ne zaman arayalım?', schedule: '🗓 Planla', priority: 'Öncelik', normal: 'Normal', urgent: '🔥 Acil', consent_required: ' Bu aramanın kalite ve güvenlik için kaydedilmesine izin veriyorum. (gerekli)', call_may_record: 'Bu arama kalite ve güvenlik için kaydedilebilir.', start_call: 'Aramayı başlat', send_request: 'İstek gönder',
       err_recording_required: 'Devam etmek için kayıt onayı gereklidir.', err_recording_accept: 'Aramayı başlatmak için lütfen kayıt onayını kabul edin.', err_department: 'Bu departman bu arama türü için uygun değil. Lütfen başka bir departman seçin.', err_failed_start: 'Arama başlatılamadı.', err_wait_seconds: 'Yeni istek göndermeden önce lütfen {n} sn bekleyin.', err_contact_required: 'Size ulaşabilmemiz için lütfen e-posta veya telefon girin.', err_message_short: 'Lütfen isteğinizi en az {n} karakterle açıklayın.', err_future_time: 'Lütfen gelecekte geçerli bir zaman seçin.', err_too_fast: 'Çok hızlı oldu. Lütfen formu doldurmak için biraz zaman ayırın.', err_cooldown: 'Zaten bir geri arama istediniz. Lütfen {n} sn bekleyin.', err_rate_limited: 'Ağınızdan çok fazla geri arama isteği geldi. Lütfen daha sonra deneyin.', err_callback_unavailable: 'Geri arama istekleri şu anda kullanılamıyor.', err_failed: 'Başarısız.',
-      queue_wait_announce: 'Bekleme kuyruğundasınız. Lütfen bekleyin, kısa süre içinde sizi bir operatöre bağlayacağız.'
+      queue_wait_announce: 'Bekleme kuyruğundasınız. Lütfen bekleyin, kısa süre içinde sizi bir operatöre bağlayacağız.',
+      tap_to_hear: 'Sesi açmak için dokunun',
+      operator_label: 'Operatör',
+      call_duration: 'Süre',
+      transferring_call: 'Başka bir operatöre aktarılıyor…',
+      rate_call_title: 'Arama nasıldı?',
+      rate_call_sub: 'Geri bildiriminiz ekibimizin gelişmesine yardımcı olur.',
+      rate_comment_ph: 'Yorum ekle (isteğe bağlı)',
+      rate_submit: 'Puanı gönder',
+      rate_skip: 'Atla',
+      rate_thanks: 'Geri bildiriminiz için teşekkürler!'
     },
   };
 

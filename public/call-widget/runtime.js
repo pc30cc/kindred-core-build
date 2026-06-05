@@ -1008,6 +1008,7 @@
   };
 
   CallCenterWidgetCtor.prototype.cancelCall = function () {
+    // (resumeActiveCall lives just above)
     var self = this;
     this.disconnectRoom();
     try { Ringback.stop(); } catch (_) {}

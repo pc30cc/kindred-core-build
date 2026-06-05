@@ -662,6 +662,7 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
       video: effective.video_enabled,
       callback: effective.callback_enabled,
       recording: effective.recording_enabled,
+      operator_video_visible: ws.operator_video_visible_to_visitor !== false,
     },
     callback_policy: {
       enabled: effective.callback_enabled,

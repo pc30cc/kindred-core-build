@@ -60,6 +60,7 @@ export interface CallCenterWorkspaceSettings {
   offline_behavior: string;
   recording_enabled: boolean;
   recording_consent_required: boolean;
+  operator_video_visible_to_visitor?: boolean;
   routing_mode: string;
   default_department_id: string | null;
   created_at: string;

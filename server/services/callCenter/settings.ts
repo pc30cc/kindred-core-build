@@ -70,6 +70,8 @@ export interface WorkspaceCallCenterSettings {
   offline_behavior: string;
   recording_enabled: boolean;
   recording_consent_required: boolean;
+  /** When false, the visitor's widget does not render the operator's camera (audio still flows). */
+  operator_video_visible_to_visitor: boolean;
   routing_mode: string;
   default_department_id: string | null;
   departments_enabled: boolean;

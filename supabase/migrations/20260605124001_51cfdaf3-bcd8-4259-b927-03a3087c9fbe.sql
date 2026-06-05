@@ -1,0 +1,1 @@
+ALTER TABLE public.call_center_settings ADD COLUMN IF NOT EXISTS operator_video_visible_to_visitor BOOLEAN NOT NULL DEFAULT true;

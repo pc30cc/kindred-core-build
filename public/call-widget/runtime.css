@@ -250,6 +250,26 @@
   background: hsl(222 47% 5%);
   box-shadow: 0 12px 28px hsl(var(--ccw-shadow) / .25);
   object-fit: cover;
+  /* Match the chat-widget call stage: un-mirror the operator's camera
+     so text/logos in the operator's environment read correctly. */
+  transform: scaleX(-1);
+}
+.ccw-card.ccw-incall.video .ccw-media { position: relative; }
+.ccw-video-overlay {
+  position: absolute; left: 10px; right: 10px; bottom: 10px;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 6px 12px; border-radius: 999px;
+  background: linear-gradient(180deg, hsl(0 0% 0% / .15), hsl(0 0% 0% / .55));
+  color: hsl(0 0% 100%);
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+  text-shadow: 0 1px 2px hsl(0 0% 0% / .55);
+}
+.ccw-video-overlay-name { font-size: 13px; font-weight: 800; letter-spacing: .01em; }
+.ccw-video-overlay-duration { font-size: 13px; font-weight: 800; font-variant-numeric: tabular-nums; display: inline-flex; align-items: center; gap: 6px; }
+.ccw-video-overlay-duration::before {
+  content: ""; width: 8px; height: 8px; border-radius: 999px; background: hsl(140 70% 55%);
+  box-shadow: 0 0 0 0 hsl(140 70% 55% / .7); animation: ccw-pulse 1.6s ease-in-out infinite;
 }
 .ccw-video-meta {
   margin-top: 12px;

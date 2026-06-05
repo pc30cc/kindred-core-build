@@ -348,6 +348,7 @@ const settingsPatchSchema = z.object({
   offline_behavior: z.string().optional(),
   recording_enabled: z.boolean().optional(),
   recording_consent_required: z.boolean().optional(),
+  operator_video_visible_to_visitor: z.boolean().optional(),
   routing_mode: z.string().optional(),
   default_department_id: z.string().uuid().nullable().optional(),
   widget_default_locale: z.enum(['en', 'fa', 'tr']).nullable().optional(),

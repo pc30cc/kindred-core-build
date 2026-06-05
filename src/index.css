@@ -437,22 +437,21 @@ html[lang="en"] * {
 }
 
 /* ─────────────────────────────────────────────────────────────────────
-   Call video orientation. Remote video is shown un-mirrored so the
-   other person's environment (text, scenes) reads correctly. Local
-   self-view is mirrored — that's the natural "mirror" feel everyone
-   expects when seeing themselves.
+   Call video orientation. Match the chat widget call stage correction:
+   both local and remote streams are flipped once so camera output is
+   displayed in the expected direction across visitor/operator surfaces.
    ───────────────────────────────────────────────────────────────────── */
 .call-video-remote,
 [data-remote-video],
 [data-remote-video] video {
-  transform: none !important;
+  transform: scaleX(-1) !important;
   scale: 1 !important;
   rotate: 0deg !important;
 }
 .call-video-local,
 [data-local-video],
 [data-local-video] video {
-  transform: none !important;
+  transform: scaleX(-1) !important;
   scale: 1 !important;
   rotate: 0deg !important;
 }

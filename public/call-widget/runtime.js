@@ -1060,7 +1060,14 @@
           }
           var el = track.attach();
           el.autoplay = true;
-          if (track.kind === 'video') { el.playsInline = true; }
+          if (track.kind === 'video') {
+            el.playsInline = true;
+            el.setAttribute('data-remote-video', 'true');
+            el.setAttribute('data-orientation-correction', 'scaleX(-1)');
+            try { el.style.transform = 'scaleX(-1)'; } catch (_) {}
+            try { el.style.scale = '1'; } catch (_) {}
+            try { el.style.rotate = '0deg'; } catch (_) {}
+          }
           el.setAttribute('data-track-sid', sid);
           self._attachedTracks[sid] = el;
           self._remoteHolder && self._remoteHolder.appendChild(el);
@@ -1125,6 +1132,10 @@
                 var lv = track.attach();
                 lv.autoplay = true; lv.playsInline = true; lv.muted = true;
                 lv.setAttribute('data-local-video', 'true');
+                lv.setAttribute('data-orientation-correction', 'scaleX(-1)');
+                try { lv.style.transform = 'scaleX(-1)'; } catch (_) {}
+                try { lv.style.scale = '1'; } catch (_) {}
+                try { lv.style.rotate = '0deg'; } catch (_) {}
                 self._localVideoEl = lv;
                 self._localVideoTrack = track;
                 self.render();
@@ -1206,6 +1217,10 @@
             var lv = track.attach();
             lv.autoplay = true; lv.playsInline = true; lv.muted = true;
             lv.setAttribute('data-local-video', 'true');
+            lv.setAttribute('data-orientation-correction', 'scaleX(-1)');
+            try { lv.style.transform = 'scaleX(-1)'; } catch (_) {}
+            try { lv.style.scale = '1'; } catch (_) {}
+            try { lv.style.rotate = '0deg'; } catch (_) {}
             self._localVideoEl = lv;
             self._localVideoTrack = track;
           }
@@ -1771,16 +1786,14 @@
             try { pip.appendChild(self._localVideoEl); } catch (_) {}
             media.appendChild(pip);
           }
-        }
-        card.appendChild(media);
-        if (isLive && isVideoCall && !self.transferring) {
-          card.appendChild(el('div', { class: 'ccw-video-info' }, [
+          media.appendChild(el('div', { class: 'ccw-video-info' }, [
             el('div', { class: 'ccw-video-info-name' }, [self.operatorName || tr('operator') || 'Operator']),
             el('div', { class: 'ccw-video-info-duration' }, [
               el('span', { class: 'ccw-call-duration-value' }, [fmtTime(self.callStartedAt ? (Date.now() - self.callStartedAt) : 0)]),
             ]),
           ]));
         }
+        card.appendChild(media);
         var controls = el('div', { class: 'ccw-row' });
         if (status === 'in_call' || status === 'operator_connected' || status === 'waiting_for_operator' || status === 'media_reconnecting') {
           controls.appendChild(el('button', { class: 'ccw-btn secondary', on: { click: function () { self.toggleMic(); } } }, [self.micOn ? tr('mute') : tr('unmute')]));

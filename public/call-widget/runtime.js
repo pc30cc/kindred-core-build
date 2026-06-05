@@ -1052,6 +1052,12 @@
         try {
           var sid = track.sid || track.trackSid || (participant && participant.identity) + ':' + track.kind;
           if (self._attachedTracks[sid]) return;
+          // Workspace can hide the operator's camera from the visitor. We
+          // still subscribe to the audio so the call is functional.
+          if (track.kind === 'video') {
+            var caps_ = (self.bootstrap && self.bootstrap.capabilities) || {};
+            if (caps_.operator_video_visible === false) return;
+          }
           var el = track.attach();
           el.autoplay = true;
           if (track.kind === 'video') { el.playsInline = true; }

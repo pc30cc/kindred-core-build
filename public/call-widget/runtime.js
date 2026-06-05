@@ -1007,8 +1007,47 @@
     this._remoteCount = 0;
   };
 
+  CallCenterWidgetCtor.prototype.resumeActiveCall = function () {
+    var ac = this.bootstrap && this.bootstrap.active_call;
+    if (!ac || !ac.call_id) return;
+    if (ac.session) this.session = ac.session;
+    this.callId = ac.call_id;
+    this.formData.call_type = (ac.call_type === 'video') ? 'video' : 'voice';
+    var startedAt = null;
+    if (ac.created_at) {
+      var ts = Date.parse(ac.created_at);
+      if (!isNaN(ts)) startedAt = ts;
+    }
+    this.queueStartedAt = startedAt || Date.now();
+    this.queuePosition = typeof ac.queue_position === 'number' ? ac.queue_position : null;
+    this.open = true;
+    if (['active', 'ringing', 'connecting'].indexOf(ac.state) >= 0) {
+      this.state = STATES.IN_CALL;
+      this.render();
+      try {
+        var qe = (this.bootstrap && this.bootstrap.queue_experience) || {};
+        Ringback.setLocale(this.locale, this.t('queue_wait_announce'));
+        Ringback.setPhase('ring');
+        Ringback.start(qe);
+      } catch (_) {}
+      this.startPolling();
+      this.requestJoinToken();
+    } else {
+      this.state = STATES.QUEUE;
+      this.render();
+      try {
+        var qe2 = (this.bootstrap && this.bootstrap.queue_experience) || {};
+        Ringback.setLocale(this.locale, this.t('queue_wait_announce'));
+        Ringback.setQueuePosition(this.queuePosition);
+        Ringback.setPhase('hold');
+        Ringback.start(qe2);
+      } catch (_) {}
+      this.startPolling();
+      this.startTimer();
+    }
+  };
+
   CallCenterWidgetCtor.prototype.cancelCall = function () {
-    // (resumeActiveCall lives just above)
     var self = this;
     this.disconnectRoom();
     try { Ringback.stop(); } catch (_) {}

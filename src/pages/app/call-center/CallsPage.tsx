@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { callCenterApi } from '@/lib/call-center-api';
 import { useQueryClient } from '@tanstack/react-query';
-import { Phone, Video, Search, Copy } from 'lucide-react';
+import { Phone, Video, Search, Copy, Star } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 
@@ -179,6 +179,35 @@ export default function CallsPage() {
                   </div>
                 );
               })()}
+              {(detail as any).rating && (
+                <div className="space-y-2 rounded-md border p-3 bg-amber-500/5 border-amber-500/30">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Visitor rating
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <Star
+                        key={n}
+                        className={cn(
+                          'h-4 w-4',
+                          n <= ((detail as any).rating.rating || 0)
+                            ? 'fill-amber-400 text-amber-400'
+                            : 'text-muted-foreground/40',
+                        )}
+                      />
+                    ))}
+                    <span className="ms-1 text-xs text-muted-foreground">
+                      {(detail as any).rating.rating}/5
+                    </span>
+                  </div>
+                  {(detail as any).rating.comment && (
+                    <p className="text-sm whitespace-pre-wrap">{(detail as any).rating.comment}</p>
+                  )}
+                  <div className="text-[11px] text-muted-foreground">
+                    {new Date((detail as any).rating.created_at).toLocaleString()}
+                  </div>
+                </div>
+              )}
               <div className="flex gap-2">
                 <Button size="sm" variant="outline" onClick={() => { navigator.clipboard.writeText(detail.call.id); toast({ title: 'Call ID copied' }); }}>
                   <Copy className="h-3.5 w-3.5 me-1" /> Copy ID

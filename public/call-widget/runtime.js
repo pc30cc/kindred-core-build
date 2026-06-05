@@ -1058,6 +1058,12 @@
           el.setAttribute('data-track-sid', sid);
           self._attachedTracks[sid] = el;
           self._remoteHolder && self._remoteHolder.appendChild(el);
+          if (track.kind === 'audio') {
+            try {
+              var ms = el.srcObject || (track.mediaStreamTrack ? new MediaStream([track.mediaStreamTrack]) : null);
+              if (ms) self._startAudioMeter(ms);
+            } catch (_) {}
+          }
         } catch (_) {}
       }
       function detach(track) {
@@ -1178,6 +1184,52 @@
     }
     this._attachedTracks = {};
     this._remoteCount = 0;
+    this._stopAudioMeter();
+  };
+
+  CallCenterWidgetCtor.prototype._startAudioMeter = function (mediaStream) {
+    if (!mediaStream || this._audioMeterStream === mediaStream) return;
+    try {
+      var Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      if (!this._audioCtx) this._audioCtx = new Ctx();
+      if (this._audioCtx.state === 'suspended') { try { this._audioCtx.resume(); } catch (_) {} }
+      try { this._audioSource && this._audioSource.disconnect(); } catch (_) {}
+      this._audioSource = this._audioCtx.createMediaStreamSource(mediaStream);
+      this._audioAnalyser = this._audioCtx.createAnalyser();
+      this._audioAnalyser.fftSize = 64;
+      this._audioAnalyser.smoothingTimeConstant = 0.75;
+      this._audioSource.connect(this._audioAnalyser);
+      this._audioMeterStream = mediaStream;
+      this._audioBuf = new Uint8Array(this._audioAnalyser.frequencyBinCount);
+      var self = this;
+      if (this._audioRaf) cancelAnimationFrame(this._audioRaf);
+      var loop = function () {
+        self._audioRaf = requestAnimationFrame(loop);
+        if (!self._audioAnalyser) return;
+        try { self._audioAnalyser.getByteFrequencyData(self._audioBuf); } catch (_) { return; }
+        var bars = self._waveBars;
+        if (!bars || !bars.length) return;
+        var n = bars.length;
+        var binStep = Math.max(1, Math.floor(self._audioBuf.length / n));
+        for (var i = 0; i < n; i++) {
+          var v = self._audioBuf[i * binStep] || 0;
+          var pct = Math.max(0.16, Math.min(1, v / 180));
+          bars[i].style.transform = 'scaleY(' + pct.toFixed(3) + ')';
+        }
+      };
+      loop();
+    } catch (_) {}
+  };
+
+  CallCenterWidgetCtor.prototype._stopAudioMeter = function () {
+    try { if (this._audioRaf) cancelAnimationFrame(this._audioRaf); } catch (_) {}
+    this._audioRaf = null;
+    try { this._audioSource && this._audioSource.disconnect(); } catch (_) {}
+    this._audioSource = null;
+    this._audioAnalyser = null;
+    this._audioMeterStream = null;
+    this._waveBars = null;
   };
 
   CallCenterWidgetCtor.prototype.resumeActiveCall = function () {
@@ -1600,12 +1652,20 @@
         if (status === 'room_connect_failed') msg = tr('room_failed', { error: self.error || tr('unknown') });
         if (status === 'token_expired') msg = tr('token_expired');
         var isLive = (status === 'in_call' || status === 'operator_connected');
-        var card = el('div', { class: 'ccw-card ccw-incall' + (isLive ? ' live' : '') + (self.transferring ? ' transferring' : '') }, [
+        var isVideoCall = (self.call && self.call.call_type === 'video') || self.formData.call_type === 'video';
+        var card = el('div', { class: 'ccw-card ccw-incall' + (isLive ? ' live' : '') + (self.transferring ? ' transferring' : '') + (isVideoCall ? ' video' : '') }, [
           el('div', { class: 'ccw-pill' }, [isLive ? tr('in_call') : status === 'waiting_for_operator' ? tr('connected_waiting') : tr('connecting')]),
           el('div', { class: 'ccw-label' }, [self.transferring ? tr('transferring_call') : msg]),
         ]);
-        // Beautiful "connected" hero: pulsing avatar + audio wave bars
-        if (isLive && !self.transferring) {
+        // Beautiful "connected" hero — voice only. Video calls show the
+        // video stream as the centerpiece with an overlay instead.
+        if (isLive && !self.transferring && !isVideoCall) {
+          var waveBars = [];
+          for (var _wi = 1; _wi <= 7; _wi++) {
+            waveBars.push(el('span', { class: 'b' + _wi }));
+          }
+          self._waveBars = waveBars;
+          var waveEl = el('div', { class: 'ccw-wave live' }, waveBars);
           card.appendChild(el('div', { class: 'ccw-live-hero' }, [
             el('div', { class: 'ccw-live-avatar' }, [
               el('span', { class: 'ccw-live-pulse p1' }),
@@ -1620,18 +1680,21 @@
                 el('span', { class: 'ccw-live-duration-label' }, [tr('call_duration')]),
                 el('span', { class: 'ccw-call-duration-value' }, [fmtTime(self.callStartedAt ? (Date.now() - self.callStartedAt) : 0)]),
               ]),
-              el('div', { class: 'ccw-wave' }, [
-                el('span', { class: 'b1' }), el('span', { class: 'b2' }),
-                el('span', { class: 'b3' }), el('span', { class: 'b4' }),
-                el('span', { class: 'b5' }), el('span', { class: 'b6' }),
-                el('span', { class: 'b7' }),
-              ]),
+              waveEl,
             ]),
           ]));
         } else if (self.transferring) {
           card.appendChild(el('div', { class: 'ccw-transfer-hero' }, [
             el('span', { class: 'ccw-transfer-spinner' }),
             el('div', { class: 'ccw-transfer-text' }, [tr('transferring_call')]),
+          ]));
+        } else if (isLive && isVideoCall) {
+          // Minimal meta strip above the video tile
+          card.appendChild(el('div', { class: 'ccw-video-meta' }, [
+            self.operatorName ? el('div', { class: 'ccw-video-op-name' }, [self.operatorName]) : null,
+            el('div', { class: 'ccw-video-duration' }, [
+              el('span', { class: 'ccw-call-duration-value' }, [fmtTime(self.callStartedAt ? (Date.now() - self.callStartedAt) : 0)]),
+            ]),
           ]));
         }
         // Recording indicator (passive). Backend status drives this; never trust client.

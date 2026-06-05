@@ -414,6 +414,86 @@ function clearActiveCallCookie(res: any, req: any): void {
   res.append('Set-Cookie', attrs.join('; '));
 }
 
+async function buildActiveCallPayload(
+  config: ServerConfig,
+  req: any,
+  res: any,
+  ws: WorkspaceCallCenterSettings,
+  origin: string | null,
+  visitorId: string | null,
+): Promise<{ call_id: string; state: string; call_type: string; created_at: string | null; queue_position: number | null; session: string } | null> {
+  const sbActive = getServiceClient(config);
+  let mine: any = null;
+  const cookieCall = readActiveCallCookie(config, req, ws.workspace_id, origin);
+  if (cookieCall?.callId) {
+    const { data } = await sbActive
+      .from('call_sessions')
+      .select('id,state,call_type,created_at,metadata')
+      .eq('workspace_id', ws.workspace_id)
+      .eq('entry_source', 'call_widget')
+      .eq('id', cookieCall.callId)
+      .maybeSingle();
+    if (data && ACTIVE_CALL_STATES.includes(String((data as any).state || ''))) {
+      mine = data;
+    } else if (data && TERMINAL_CALL_STATES.includes(String((data as any).state || ''))) {
+      clearActiveCallCookie(res, req);
+    }
+  }
+  if (!mine && visitorId) {
+    const { data: rows } = await sbActive
+      .from('call_sessions')
+      .select('id,state,call_type,created_at,metadata')
+      .eq('workspace_id', ws.workspace_id)
+      .eq('entry_source', 'call_widget')
+      .in('state', ACTIVE_CALL_STATES)
+      .order('created_at', { ascending: false })
+      .limit(50);
+    mine = (rows || []).find((r: any) => (r.metadata as any)?.visitor_id === visitorId) || null;
+  }
+  if (!mine) return null;
+
+  const callId = String(mine.id);
+  const callState = String(mine.state || 'pending');
+  let position: number | null = null;
+  if (!['active', 'ringing', 'connecting'].includes(callState)) {
+    const { data: entry } = await sbActive
+      .from('call_queue_entries')
+      .select('id,workspace_id,state')
+      .eq('call_session_id', callId)
+      .maybeSingle();
+    if (entry && ['queued', 'offered'].includes(String((entry as any).state || ''))) {
+      const { data: activeRows } = await sbActive
+        .from('call_queue_entries')
+        .select('id,created_at,priority')
+        .eq('workspace_id', (entry as any).workspace_id)
+        .eq('entry_source', 'call_widget')
+        .in('state', ['queued', 'offered'])
+        .order('priority', { ascending: false })
+        .order('created_at', { ascending: true })
+        .limit(500);
+      const idx = (activeRows || []).findIndex((row: any) => row.id === (entry as any).id);
+      position = idx >= 0 ? idx + 1 : null;
+    }
+  }
+
+  const resumedSession = signWidgetSession(config, {
+    workspace_id: ws.workspace_id,
+    public_key: ws.public_key,
+    call_id: callId,
+    visitor_id: visitorId,
+    origin,
+  });
+  setActiveCallCookie(res, req, config, ws.workspace_id, callId, origin);
+  return {
+    call_id: callId,
+    state: callState,
+    call_type: String(mine.call_type || 'audio'),
+    created_at: mine.created_at || null,
+    queue_position: position,
+    session: resumedSession,
+  };
+}
+
 // ── Bootstrap ─────────────────────────────────────────────────────────────
 callWidgetRouter.get('/bootstrap', async (req, res) => {
   const config = (req as any).serverConfig as ServerConfig;

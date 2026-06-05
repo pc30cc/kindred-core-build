@@ -348,7 +348,11 @@ export const callCenterApi = {
     return jsonFetch<{ calls: CallSession[] }>(`/api/call-center/calls?${p}`);
   },
   getCall: (workspaceId: string, callId: string) =>
-    jsonFetch<{ call: CallSession; events: CallEvent[] }>(
+    jsonFetch<{
+      call: CallSession;
+      events: CallEvent[];
+      rating: { rating: number; comment: string | null; created_at: string } | null;
+    }>(
       `/api/call-center/calls/${callId}?workspaceId=${encodeURIComponent(workspaceId)}`,
     ),
   acceptCall: (workspaceId: string, callId: string) =>

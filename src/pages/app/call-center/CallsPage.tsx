@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { callCenterApi } from '@/lib/call-center-api';
 import { useQueryClient } from '@tanstack/react-query';
-import { Phone, Video, Search, Copy } from 'lucide-react';
+import { Phone, Video, Search, Copy, Star } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 
@@ -102,6 +102,7 @@ export default function CallsPage() {
               <th className="text-start py-2 px-3">Type</th>
               <th className="text-start py-2 px-3">State</th>
               <th className="text-start py-2 px-3">Duration</th>
+              <th className="text-start py-2 px-3">Rating</th>
               <th className="text-start py-2 px-3">Page</th>
               <th className="text-start py-2 px-3">Created</th>
             </tr>
@@ -126,12 +127,22 @@ export default function CallsPage() {
                 </td>
                 <td className="py-2 px-3"><span className={cn('text-xs px-2 py-0.5 rounded-full', stateTone(c.state))}>{c.state}</span></td>
                 <td className="py-2 px-3">{fmtDuration(c.duration_seconds)}</td>
+                <td className="py-2 px-3">
+                  {(c as any).rating ? (
+                    <span className="inline-flex items-center gap-1 text-xs">
+                      <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
+                      {(c as any).rating.rating}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">—</span>
+                  )}
+                </td>
                 <td className="py-2 px-3 text-xs text-muted-foreground truncate max-w-[200px]">{c.page_title || c.page_url || '—'}</td>
                 <td className="py-2 px-3 text-xs text-muted-foreground">{new Date(c.created_at).toLocaleString()}</td>
               </tr>
               );
             })}
-            {filtered.length === 0 && (<tr><td colSpan={6} className="py-8 text-center text-sm text-muted-foreground">No calls match your filters.</td></tr>)}
+            {filtered.length === 0 && (<tr><td colSpan={7} className="py-8 text-center text-sm text-muted-foreground">No calls match your filters.</td></tr>)}
           </tbody>
         </table>
       </Card>
@@ -179,6 +190,35 @@ export default function CallsPage() {
                   </div>
                 );
               })()}
+              {(detail as any).rating && (
+                <div className="space-y-2 rounded-md border p-3 bg-amber-500/5 border-amber-500/30">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Visitor rating
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <Star
+                        key={n}
+                        className={cn(
+                          'h-4 w-4',
+                          n <= ((detail as any).rating.rating || 0)
+                            ? 'fill-amber-400 text-amber-400'
+                            : 'text-muted-foreground/40',
+                        )}
+                      />
+                    ))}
+                    <span className="ms-1 text-xs text-muted-foreground">
+                      {(detail as any).rating.rating}/5
+                    </span>
+                  </div>
+                  {(detail as any).rating.comment && (
+                    <p className="text-sm whitespace-pre-wrap">{(detail as any).rating.comment}</p>
+                  )}
+                  <div className="text-[11px] text-muted-foreground">
+                    {new Date((detail as any).rating.created_at).toLocaleString()}
+                  </div>
+                </div>
+              )}
               <div className="flex gap-2">
                 <Button size="sm" variant="outline" onClick={() => { navigator.clipboard.writeText(detail.call.id); toast({ title: 'Call ID copied' }); }}>
                   <Copy className="h-3.5 w-3.5 me-1" /> Copy ID

@@ -465,7 +465,27 @@ callCenterRouter.get('/calls', async (req, res) => {
   if (status) q = q.eq('state', status);
   const { data, error } = await q;
   if (error) return res.status(500).json({ error: error.message });
-  res.json({ calls: data || [] });
+  // Attach the latest visitor rating per call (best-effort, single roundtrip)
+  const calls = data || [];
+  if (calls.length > 0) {
+    const ids = calls.map((c: any) => c.id);
+    const { data: ratings } = await sb.from('call_ratings')
+      .select('call_session_id, rating, comment, created_at')
+      .eq('workspace_id', wid)
+      .in('call_session_id', ids);
+    const map = new Map<string, any>();
+    for (const r of ratings || []) {
+      const prev = map.get((r as any).call_session_id);
+      if (!prev || new Date((r as any).created_at) > new Date(prev.created_at)) {
+        map.set((r as any).call_session_id, r);
+      }
+    }
+    for (const c of calls) {
+      const r = map.get((c as any).id);
+      (c as any).rating = r ? { rating: r.rating, comment: r.comment, created_at: r.created_at } : null;
+    }
+  }
+  res.json({ calls });
 });
 
 callCenterRouter.get('/calls/:id', async (req, res) => {
@@ -476,7 +496,15 @@ callCenterRouter.get('/calls/:id', async (req, res) => {
   const { data: call } = await sb.from('call_sessions').select('*').eq('id', req.params.id).eq('workspace_id', wid).maybeSingle();
   if (!call) return res.status(404).json({ error: 'not_found' });
   const { data: events } = await sb.from('call_events').select('*').eq('call_session_id', req.params.id).order('created_at', { ascending: true });
-  res.json({ call, events: events || [] });
+  // Visitor rating + comment (optional — there may be no rating yet)
+  const { data: rating } = await sb.from('call_ratings')
+    .select('rating, comment, created_at')
+    .eq('call_session_id', req.params.id)
+    .eq('workspace_id', wid)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  res.json({ call, events: events || [], rating: rating || null });
 });
 
 // ── Live queue ────────────────────────────────────────────────────────────

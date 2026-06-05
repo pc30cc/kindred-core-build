@@ -3424,6 +3424,36 @@ export type Database = {
           },
         ]
       }
+      call_ratings: {
+        Row: {
+          call_session_id: string
+          comment: string | null
+          created_at: string
+          id: string
+          rating: number
+          visitor_id: string | null
+          workspace_id: string
+        }
+        Insert: {
+          call_session_id: string
+          comment?: string | null
+          created_at?: string
+          id?: string
+          rating: number
+          visitor_id?: string | null
+          workspace_id: string
+        }
+        Update: {
+          call_session_id?: string
+          comment?: string | null
+          created_at?: string
+          id?: string
+          rating?: number
+          visitor_id?: string | null
+          workspace_id?: string
+        }
+        Relationships: []
+      }
       call_recordings: {
         Row: {
           call_session_id: string

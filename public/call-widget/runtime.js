@@ -1034,6 +1034,7 @@
     if (!ac || !ac.call_id) return;
     if (ac.session) this.session = ac.session;
     this.callId = ac.call_id;
+    this.persistActiveSession();
     this.formData.call_type = (ac.call_type === 'video') ? 'video' : 'voice';
     var startedAt = null;
     if (ac.created_at) {
@@ -1083,6 +1084,7 @@
   CallCenterWidgetCtor.prototype.reset = function () {
     this.disconnectRoom();
     try { Ringback.stop(); } catch (_) {}
+    this.clearActiveSession();
     this.callId = null; this.call = null; this.queueStartedAt = null;
     this.queuePosition = null; this.queueEta = null;
     this.connectStatus = null; this.joinInfo = null; this.error = null;

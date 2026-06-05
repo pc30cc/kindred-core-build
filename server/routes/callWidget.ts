@@ -26,6 +26,7 @@ import { resolveGlobalStorageConfig, getFileUrlWithConfig } from '../services/st
 import {
   resolveVisitorIdentity,
   readVisitorCookie,
+  isSecureRequest,
 } from '../services/widget/visitorIdentity.js';
 import { mergeVisitorIdentity } from '../services/widget/identityMerge.js';
 import {
@@ -348,6 +349,69 @@ async function resolveWorkspace(
 
 function disabledResponse(reason: string, message?: Record<string, unknown>) {
   return { status: 'disabled', reason, message: message || null };
+}
+
+const ACTIVE_CALL_COOKIE_NAME = 'dvccall';
+const ACTIVE_CALL_TTL_SECONDS = 60 * 60 * 6; // enough for refresh/navigation; DB state remains authoritative
+const ACTIVE_CALL_STATES = ['pending', 'queued', 'ringing', 'connecting', 'active'];
+const TERMINAL_CALL_STATES = ['cancelled', 'ended', 'missed', 'failed'];
+
+function activeCallCookieSecret(config: ServerConfig): string {
+  return `call-widget-active:${(config as any).widgetTokenSecret || (config as any).sessionSecret || config.supabaseServiceRoleKey}`;
+}
+
+function signActiveCallCookie(config: ServerConfig, body: string): string {
+  return crypto.createHmac('sha256', activeCallCookieSecret(config)).update(body).digest('base64url');
+}
+
+function encodeActiveCallCookie(config: ServerConfig, payload: { c: string; w: string; o: string | null; iat: number; exp: number }): string {
+  const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  return `${body}.${signActiveCallCookie(config, body)}`;
+}
+
+function readActiveCallCookie(config: ServerConfig, req: any, workspaceId: string, origin: string | null): { callId: string } | null {
+  const raw = (req as any).cookies?.[ACTIVE_CALL_COOKIE_NAME] as string | undefined;
+  if (!raw) return null;
+  const dot = raw.lastIndexOf('.');
+  if (dot < 1) return null;
+  const body = raw.slice(0, dot);
+  const sig = raw.slice(dot + 1);
+  const expected = signActiveCallCookie(config, body);
+  if (sig.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as { c?: string; w?: string; o?: string | null; exp?: number };
+    if (!payload.c || payload.w !== workspaceId || !payload.exp || payload.exp < Math.floor(Date.now() / 1000)) return null;
+    if (payload.o && origin && payload.o !== origin) return null;
+    return { callId: payload.c };
+  } catch { return null; }
+}
+
+function setActiveCallCookie(res: any, req: any, config: ServerConfig, workspaceId: string, callId: string, origin: string | null): void {
+  const now = Math.floor(Date.now() / 1000);
+  const value = encodeActiveCallCookie(config, { c: callId, w: workspaceId, o: origin || null, iat: now, exp: now + ACTIVE_CALL_TTL_SECONDS });
+  const secure = isSecureRequest(req);
+  const attrs = [
+    `${ACTIVE_CALL_COOKIE_NAME}=${value}`,
+    'Path=/api',
+    'HttpOnly',
+    `Max-Age=${ACTIVE_CALL_TTL_SECONDS}`,
+    `SameSite=${secure ? 'None' : 'Lax'}`,
+  ];
+  if (secure) attrs.push('Secure', 'Partitioned');
+  res.append('Set-Cookie', attrs.join('; '));
+}
+
+function clearActiveCallCookie(res: any, req: any): void {
+  const secure = isSecureRequest(req);
+  const attrs = [
+    `${ACTIVE_CALL_COOKIE_NAME}=`,
+    'Path=/api',
+    'HttpOnly',
+    'Max-Age=0',
+    `SameSite=${secure ? 'None' : 'Lax'}`,
+  ];
+  if (secure) attrs.push('Secure', 'Partitioned');
+  res.append('Set-Cookie', attrs.join('; '));
 }
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────

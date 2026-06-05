@@ -1184,6 +1184,52 @@
     }
     this._attachedTracks = {};
     this._remoteCount = 0;
+    this._stopAudioMeter();
+  };
+
+  CallCenterWidgetCtor.prototype._startAudioMeter = function (mediaStream) {
+    if (!mediaStream || this._audioMeterStream === mediaStream) return;
+    try {
+      var Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      if (!this._audioCtx) this._audioCtx = new Ctx();
+      if (this._audioCtx.state === 'suspended') { try { this._audioCtx.resume(); } catch (_) {} }
+      try { this._audioSource && this._audioSource.disconnect(); } catch (_) {}
+      this._audioSource = this._audioCtx.createMediaStreamSource(mediaStream);
+      this._audioAnalyser = this._audioCtx.createAnalyser();
+      this._audioAnalyser.fftSize = 64;
+      this._audioAnalyser.smoothingTimeConstant = 0.75;
+      this._audioSource.connect(this._audioAnalyser);
+      this._audioMeterStream = mediaStream;
+      this._audioBuf = new Uint8Array(this._audioAnalyser.frequencyBinCount);
+      var self = this;
+      if (this._audioRaf) cancelAnimationFrame(this._audioRaf);
+      var loop = function () {
+        self._audioRaf = requestAnimationFrame(loop);
+        if (!self._audioAnalyser) return;
+        try { self._audioAnalyser.getByteFrequencyData(self._audioBuf); } catch (_) { return; }
+        var bars = self._waveBars;
+        if (!bars || !bars.length) return;
+        var n = bars.length;
+        var binStep = Math.max(1, Math.floor(self._audioBuf.length / n));
+        for (var i = 0; i < n; i++) {
+          var v = self._audioBuf[i * binStep] || 0;
+          var pct = Math.max(0.16, Math.min(1, v / 180));
+          bars[i].style.transform = 'scaleY(' + pct.toFixed(3) + ')';
+        }
+      };
+      loop();
+    } catch (_) {}
+  };
+
+  CallCenterWidgetCtor.prototype._stopAudioMeter = function () {
+    try { if (this._audioRaf) cancelAnimationFrame(this._audioRaf); } catch (_) {}
+    this._audioRaf = null;
+    try { this._audioSource && this._audioSource.disconnect(); } catch (_) {}
+    this._audioSource = null;
+    this._audioAnalyser = null;
+    this._audioMeterStream = null;
+    this._waveBars = null;
   };
 
   CallCenterWidgetCtor.prototype.resumeActiveCall = function () {

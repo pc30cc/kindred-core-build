@@ -1058,6 +1058,12 @@
           el.setAttribute('data-track-sid', sid);
           self._attachedTracks[sid] = el;
           self._remoteHolder && self._remoteHolder.appendChild(el);
+          if (track.kind === 'audio') {
+            try {
+              var ms = el.srcObject || (track.mediaStreamTrack ? new MediaStream([track.mediaStreamTrack]) : null);
+              if (ms) self._startAudioMeter(ms);
+            } catch (_) {}
+          }
         } catch (_) {}
       }
       function detach(track) {

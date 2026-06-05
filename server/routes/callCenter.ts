@@ -476,7 +476,15 @@ callCenterRouter.get('/calls/:id', async (req, res) => {
   const { data: call } = await sb.from('call_sessions').select('*').eq('id', req.params.id).eq('workspace_id', wid).maybeSingle();
   if (!call) return res.status(404).json({ error: 'not_found' });
   const { data: events } = await sb.from('call_events').select('*').eq('call_session_id', req.params.id).order('created_at', { ascending: true });
-  res.json({ call, events: events || [] });
+  // Visitor rating + comment (optional — there may be no rating yet)
+  const { data: rating } = await sb.from('call_ratings')
+    .select('rating, comment, created_at')
+    .eq('call_session_id', req.params.id)
+    .eq('workspace_id', wid)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  res.json({ call, events: events || [], rating: rating || null });
 });
 
 // ── Live queue ────────────────────────────────────────────────────────────

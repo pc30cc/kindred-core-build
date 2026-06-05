@@ -609,63 +609,10 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
     queue_position: number | null;
     session: string;
   } | null = null;
-  if (resolvedVisitorId) {
-    try {
-      const sbActive = getServiceClient(config);
-      const { data: rows } = await sbActive
-        .from('call_sessions')
-        .select('id,state,call_type,created_at,metadata')
-        .eq('workspace_id', ws.workspace_id)
-        .eq('entry_source', 'call_widget')
-        .in('state', ['pending', 'queued', 'ringing', 'connecting', 'active'])
-        .order('created_at', { ascending: false })
-        .limit(20);
-      const mine = (rows || []).find(
-        (r: any) => (r.metadata as any)?.visitor_id === resolvedVisitorId,
-      );
-      if (mine) {
-        const callId = (mine as any).id as string;
-        const callState = String((mine as any).state || '');
-        // Compute live queue position when still queued.
-        let position: number | null = null;
-        if (!['active', 'ringing', 'connecting'].includes(callState)) {
-          const { data: entry } = await sbActive
-            .from('call_queue_entries')
-            .select('id,workspace_id,state')
-            .eq('call_session_id', callId)
-            .maybeSingle();
-          if (entry && ['queued', 'offered'].includes(String((entry as any).state || ''))) {
-            const { data: activeRows } = await sbActive
-              .from('call_queue_entries')
-              .select('id,created_at,priority')
-              .eq('workspace_id', (entry as any).workspace_id)
-              .eq('entry_source', 'call_widget')
-              .in('state', ['queued', 'offered'])
-              .order('priority', { ascending: false })
-              .order('created_at', { ascending: true })
-              .limit(500);
-            const idx = (activeRows || []).findIndex((row: any) => row.id === (entry as any).id);
-            position = idx >= 0 ? idx + 1 : null;
-          }
-        }
-        const resumedSession = signWidgetSession(config, {
-          workspace_id: ws.workspace_id,
-          public_key: ws.public_key,
-          call_id: callId,
-          origin,
-        });
-        activeCall = {
-          call_id: callId,
-          state: callState,
-          call_type: String((mine as any).call_type || 'audio'),
-          created_at: (mine as any).created_at || null,
-          queue_position: position,
-          session: resumedSession,
-        };
-      }
-    } catch (e: any) {
-      console.warn('[call-widget/bootstrap] active_call lookup failed:', e?.message || e);
-    }
+  try {
+    activeCall = await buildActiveCallPayload(config, req, res, ws, origin, resolvedVisitorId);
+  } catch (e: any) {
+    console.warn('[call-widget/bootstrap] active_call lookup failed:', e?.message || e);
   }
   const ringbackAudio = await (async () => {
     const musicPath = (platform as any).ringback_music_path as string | null;

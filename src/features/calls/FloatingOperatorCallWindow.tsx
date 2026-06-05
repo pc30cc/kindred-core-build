@@ -7,13 +7,18 @@
  */
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { Mic, MicOff, Video, VideoOff, PhoneOff, Maximize2, Minimize2, PanelRightOpen, Loader2, GripHorizontal, Signal, UserMinus, Settings2 } from 'lucide-react';
+import { Mic, MicOff, Video, VideoOff, PhoneOff, Maximize2, Minimize2, PanelRightOpen, Loader2, GripHorizontal, Signal, UserMinus, Settings2, ArrowRightLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 import { useOperatorCall } from './OperatorCallContext';
 import { VideoCallStage, AudioCallStage, LocalVideoPiP } from './CallStage';
 import { useTranslation } from '@/i18n';
+import { useCallCenterAgentPresence, useTransferCall } from '@/hooks/useCallCenter';
+import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
+import { useAuth } from '@/features/auth/AuthContext';
+import { toast } from '@/hooks/use-toast';
 
 const EXPANDED_W = 860;
 const EXPANDED_H = 560;
@@ -24,6 +29,35 @@ const EXPANDED_PORTRAIT_H = 640;
 export function FloatingOperatorCallWindow() {
   const { surface, live, floatingMode, setFloatingMode, hangup, closeTerminal, lastEnded, videoQuality, setVideoQuality } = useOperatorCall();
   const i18n = useTranslation();
+  const { user } = useAuth();
+  const workspaceId = surface.workspaceId || null;
+  const callId = (surface as any).callSessionId || surface.invitation?.call_session_id || null;
+  const presence = useCallCenterAgentPresence(workspaceId);
+  const members = useWorkspaceMembers(workspaceId || undefined);
+  const transferMut = useTransferCall(workspaceId || undefined);
+  const [transferOpen, setTransferOpen] = useState(false);
+  const availableTargets = useMemo(() => {
+    const rows = presence.data?.presence || [];
+    const memberMap = new Map((members.data || []).map((m) => [m.user_id, m]));
+    return rows
+      .filter((p) => p.user_id !== user?.id)
+      .filter((p) => p.status === 'available' || p.status === 'online' || p.status === 'on_break')
+      .map((p) => ({
+        user_id: p.user_id,
+        name: memberMap.get(p.user_id)?.full_name || memberMap.get(p.user_id)?.email || p.user_id.slice(0, 8),
+        status: p.status,
+      }));
+  }, [presence.data, members.data, user?.id]);
+  const doTransfer = async (agentId: string) => {
+    if (!callId || !workspaceId) return;
+    try {
+      await transferMut.mutateAsync({ callId, payload: { to_agent_id: agentId, reason: 'operator_transfer' } });
+      setTransferOpen(false);
+      toast({ title: 'Call transferred', description: 'Routing to the selected operator…' });
+    } catch (e: any) {
+      toast({ title: 'Transfer failed', description: String(e?.message || e), variant: 'destructive' });
+    }
+  };
   const safeT = (key: string, fallback: string): string => {
     const value = (i18n.t as unknown as (k: string) => string)(key);
     return value && value !== key ? value : fallback;

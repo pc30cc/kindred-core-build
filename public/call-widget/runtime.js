@@ -1743,6 +1743,11 @@
               el('span', { class: 'ccw-call-duration-value' }, [fmtTime(self.callStartedAt ? (Date.now() - self.callStartedAt) : 0)]),
             ]),
           ]));
+          if (self._localVideoEl && self.camOn) {
+            var pip = el('div', { class: 'ccw-local-pip' });
+            try { pip.appendChild(self._localVideoEl); } catch (_) {}
+            media.appendChild(pip);
+          }
         }
         card.appendChild(media);
         var controls = el('div', { class: 'ccw-row' });

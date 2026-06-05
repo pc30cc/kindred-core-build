@@ -31,7 +31,7 @@ export function FloatingOperatorCallWindow() {
   const i18n = useTranslation();
   const { user } = useAuth();
   const workspaceId = surface.workspaceId || null;
-  const callId = (surface as any).callSessionId || surface.invitation?.call_session_id || null;
+  const callId = surface.callSessionId || surface.invitation?.call_session_id || null;
   const presence = useCallCenterAgentPresence(workspaceId);
   const members = useWorkspaceMembers(workspaceId || undefined);
   const transferMut = useTransferCall(workspaceId || undefined);

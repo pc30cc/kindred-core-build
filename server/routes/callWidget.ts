@@ -1023,9 +1023,26 @@ callWidgetRouter.get('/calls/:id/status', async (req, res) => {
   if (session.call_id !== req.params.id) return res.status(403).json({ error: 'forbidden' });
   const sb = getServiceClient(config);
   const { data: call } = await sb.from('call_sessions')
-    .select('id,state,ended_at,end_reason,provider,provider_room_id,call_type,recording_enabled,recording_state')
+    .select('id,state,ended_at,end_reason,provider,provider_room_id,call_type,recording_enabled,recording_state,assigned_agent_id,started_at,duration_seconds')
     .eq('id', req.params.id).maybeSingle();
   if (!call) return res.status(404).json({ error: 'not_found' });
+  // Resolve operator display name for the visitor UI. Only the
+  // operator's first/display name is exposed — never email or role.
+  let operator_name: string | null = null;
+  const agentId = (call as any).assigned_agent_id as string | null;
+  if (agentId) {
+    try {
+      const { data: prof } = await sb.from('profiles')
+        .select('full_name,display_name,first_name')
+        .eq('id', agentId).maybeSingle();
+      if (prof) {
+        operator_name = (prof as any).display_name
+          || (prof as any).full_name
+          || (prof as any).first_name
+          || null;
+      }
+    } catch {/* ignore */}
+  }
   // Compute live queue position + ETA from the queue table, not from
   // call_sessions.state. Widget calls are created as `pending` while their
   // queue row is `queued/offered`, so gating this on call.state === `queued`
@@ -1055,7 +1072,7 @@ callWidgetRouter.get('/calls/:id/status', async (req, res) => {
       } catch { eta_seconds = position ? (position - 1) * 45 + 30 : null; }
     }
   }
-  res.json({ call, position, eta_seconds });
+  res.json({ call, position, eta_seconds, operator_name });
 });
 
 // ── Visitor join token (only after operator accepts) ──────────────────────
@@ -1278,4 +1295,34 @@ callWidgetRouter.post('/callbacks/request', async (req, res) => {
   }
   await publishQueueEvent(config, ws.workspace_id, 'callback_requested', { callback_id: data!.id });
   res.json({ ok: true, callback_id: data!.id });
+});
+
+// ── Post-call rating submitted by the visitor (1–5 stars + optional comment)
+const ratingSchema = z.object({
+  rating: z.number().int().min(1).max(5),
+  comment: z.string().max(1000).optional().nullable(),
+});
+callWidgetRouter.post('/calls/:id/rate', async (req, res) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const guard = requireWidgetSession(req, config);
+  if (!guard.ok) return res.status(guard.status).json({ error: guard.error });
+  const session = guard.session;
+  if (session.call_id !== req.params.id) return res.status(403).json({ error: 'forbidden' });
+  const parsed = ratingSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_body' });
+  const sb = getServiceClient(config);
+  const { data: call } = await sb.from('call_sessions')
+    .select('id,workspace_id,state').eq('id', req.params.id).maybeSingle();
+  if (!call) return res.status(404).json({ error: 'not_found' });
+  try {
+    await sb.from('call_ratings').upsert({
+      call_session_id: req.params.id,
+      workspace_id: (call as any).workspace_id,
+      rating: parsed.data.rating,
+      comment: parsed.data.comment || null,
+    }, { onConflict: 'call_session_id' });
+    res.json({ ok: true });
+  } catch (e: any) {
+    res.status(500).json({ error: 'rating_failed', message: String(e?.message || e) });
+  }
 });

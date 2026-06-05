@@ -41,7 +41,17 @@
       callback_scheduled: 'Callback scheduled', reach_out: 'Our team will reach out {when}.', asap: 'as soon as possible', video_callback: 'Video callback', phone_callback: 'Phone callback', reference: 'Reference', type: 'Type', done: 'Done', call_ended: 'Call ended.', error_prefix: 'Error: {error}', unknown: 'unknown', back: 'Back',
       request_callback_title: 'Request a callback', callback_intro: 'Tell us how to reach you — our team calls back fast.', callback_type: 'Callback type', phone: '🎙 Phone', video: '🎥 Video', department: 'Department', choose_department: 'Choose a department', known_contact: 'Known contact', contact_saved: 'Contact details already saved', subject: 'Subject', full_name: 'Full name', email: 'Email', email_required: 'Email *', phone_field: 'Phone', phone_required: 'Phone *', contact_required_note: '* Email or phone is required so we can reach you.', message_min: 'Message (min {n} chars)', message_optional: 'Message (optional)', message_placeholder: 'Briefly describe what you need help with…', when_call: 'When should we call?', schedule: '🗓 Schedule', priority: 'Priority', normal: 'Normal', urgent: '🔥 Urgent', consent_required: ' I consent to this call being recorded for quality and security. (required)', call_may_record: 'This call may be recorded for quality and security.', start_call: 'Start call', send_request: 'Send request',
       err_recording_required: 'Recording consent is required to continue.', err_recording_accept: 'Please accept the recording consent to start the call.', err_department: 'This department is not available for this call type. Please choose another department.', err_failed_start: 'Failed to start call.', err_wait_seconds: 'Please wait {n}s before sending another request.', err_contact_required: 'Please provide your email or phone so we can reach you.', err_message_short: 'Please describe your request in at least {n} characters.', err_future_time: 'Please pick a valid future time.', err_too_fast: 'That was too fast. Please take a moment to fill in the form.', err_cooldown: 'You already requested a callback. Please wait {n}s before sending another.', err_rate_limited: 'Too many callback requests from your network. Please try again later.', err_callback_unavailable: 'Callback requests are currently unavailable.', err_failed: 'Failed.',
-      queue_wait_announce: 'You are in the waiting queue. Please wait, we will connect you shortly.'
+      queue_wait_announce: 'You are in the waiting queue. Please wait, we will connect you shortly.',
+      tap_to_hear: 'Tap to enable sound',
+      operator_label: 'Operator',
+      call_duration: 'Duration',
+      transferring_call: 'Transferring to another operator…',
+      rate_call_title: 'How was your call?',
+      rate_call_sub: 'Your feedback helps our team improve.',
+      rate_comment_ph: 'Add a comment (optional)',
+      rate_submit: 'Submit rating',
+      rate_skip: 'Skip',
+      rate_thanks: 'Thank you for your feedback!'
     },
     fa: {
       talk_now: 'همین حالا تماس بگیرید', callback: 'درخواست تماس', live_support: 'پشتیبانی آنلاین', leave_details: 'ثبت اطلاعات', support: 'پشتیبانی',
@@ -58,7 +68,17 @@
       callback_scheduled: 'درخواست تماس ثبت شد', reach_out: 'تیم ما {when} با شما تماس می‌گیرد.', asap: 'در اولین فرصت', video_callback: 'تماس تصویری', phone_callback: 'تماس تلفنی', reference: 'کد پیگیری', type: 'نوع', done: 'تمام', call_ended: 'تماس پایان یافت.', error_prefix: 'خطا: {error}', unknown: 'نامشخص', back: 'بازگشت',
       request_callback_title: 'درخواست تماس', callback_intro: 'راه ارتباطی را وارد کنید — تیم ما سریع تماس می‌گیرد.', callback_type: 'نوع تماس', phone: '🎙 تلفنی', video: '🎥 تصویری', department: 'دپارتمان', choose_department: 'یک دپارتمان انتخاب کنید', known_contact: 'مخاطب شناخته‌شده', contact_saved: 'اطلاعات تماس قبلاً ذخیره شده است', subject: 'موضوع', full_name: 'نام کامل', email: 'ایمیل', email_required: 'ایمیل *', phone_field: 'تلفن', phone_required: 'تلفن *', contact_required_note: '* ایمیل یا تلفن برای تماس با شما الزامی است.', message_min: 'پیام (حداقل {n} کاراکتر)', message_optional: 'پیام (اختیاری)', message_placeholder: 'کوتاه توضیح دهید چه کمکی نیاز دارید…', when_call: 'چه زمانی تماس بگیریم؟', schedule: '🗓 زمان‌بندی', priority: 'اولویت', normal: 'عادی', urgent: '🔥 فوری', consent_required: ' رضایت می‌دهم این تماس برای کیفیت و امنیت ضبط شود. (الزامی)', call_may_record: 'ممکن است این تماس برای کیفیت و امنیت ضبط شود.', start_call: 'شروع تماس', send_request: 'ارسال درخواست',
       err_recording_required: 'برای ادامه، رضایت ضبط تماس الزامی است.', err_recording_accept: 'برای شروع تماس لطفاً رضایت ضبط را تأیید کنید.', err_department: 'این دپارتمان برای این نوع تماس در دسترس نیست. لطفاً دپارتمان دیگری انتخاب کنید.', err_failed_start: 'شروع تماس ناموفق بود.', err_wait_seconds: 'لطفاً {n} ثانیه قبل از ارسال درخواست بعدی صبر کنید.', err_contact_required: 'لطفاً ایمیل یا تلفن خود را وارد کنید تا بتوانیم با شما تماس بگیریم.', err_message_short: 'لطفاً درخواست خود را حداقل در {n} کاراکتر توضیح دهید.', err_future_time: 'لطفاً یک زمان معتبر در آینده انتخاب کنید.', err_too_fast: 'خیلی سریع بود. لطفاً کمی برای تکمیل فرم زمان بگذارید.', err_cooldown: 'قبلاً درخواست تماس ثبت کرده‌اید. لطفاً {n} ثانیه صبر کنید.', err_rate_limited: 'درخواست‌های زیادی از شبکه شما ارسال شده است. بعداً دوباره تلاش کنید.', err_callback_unavailable: 'درخواست تماس در حال حاضر در دسترس نیست.', err_failed: 'ناموفق بود.',
-      queue_wait_announce: 'شما در صف انتظار هستید. لطفاً صبر کنید، به‌زودی شما را به اپراتور متصل می‌کنیم.'
+      queue_wait_announce: 'شما در صف انتظار هستید. لطفاً صبر کنید، به‌زودی شما را به اپراتور متصل می‌کنیم.',
+      tap_to_hear: 'برای شنیدن صدا کلیک کنید',
+      operator_label: 'اپراتور',
+      call_duration: 'مدت مکالمه',
+      transferring_call: 'در حال انتقال به اپراتور دیگر…',
+      rate_call_title: 'تماس چطور بود؟',
+      rate_call_sub: 'نظر شما به بهبود تیم ما کمک می‌کند.',
+      rate_comment_ph: 'افزودن نظر (اختیاری)',
+      rate_submit: 'ثبت امتیاز',
+      rate_skip: 'رد کردن',
+      rate_thanks: 'از بازخورد شما متشکریم!'
     },
     tr: {
       talk_now: 'Şimdi konuş', callback: 'Geri arama', live_support: 'Canlı destek', leave_details: 'Bilgilerini bırak', support: 'Destek',
@@ -75,7 +95,17 @@
       callback_scheduled: 'Geri arama planlandı', reach_out: 'Ekibimiz {when} size ulaşacak.', asap: 'en kısa sürede', video_callback: 'Görüntülü geri arama', phone_callback: 'Telefonla geri arama', reference: 'Referans', type: 'Tür', done: 'Tamam', call_ended: 'Arama sona erdi.', error_prefix: 'Hata: {error}', unknown: 'bilinmiyor', back: 'Geri',
       request_callback_title: 'Geri arama iste', callback_intro: 'Size nasıl ulaşacağımızı yazın — ekibimiz hızlıca döner.', callback_type: 'Geri arama türü', phone: '🎙 Telefon', video: '🎥 Video', department: 'Departman', choose_department: 'Departman seçin', known_contact: 'Bilinen kişi', contact_saved: 'İletişim bilgileri kayıtlı', subject: 'Konu', full_name: 'Ad soyad', email: 'E-posta', email_required: 'E-posta *', phone_field: 'Telefon', phone_required: 'Telefon *', contact_required_note: '* Size ulaşabilmemiz için e-posta veya telefon gerekir.', message_min: 'Mesaj (en az {n} karakter)', message_optional: 'Mesaj (isteğe bağlı)', message_placeholder: 'Neye ihtiyacınız olduğunu kısaca yazın…', when_call: 'Ne zaman arayalım?', schedule: '🗓 Planla', priority: 'Öncelik', normal: 'Normal', urgent: '🔥 Acil', consent_required: ' Bu aramanın kalite ve güvenlik için kaydedilmesine izin veriyorum. (gerekli)', call_may_record: 'Bu arama kalite ve güvenlik için kaydedilebilir.', start_call: 'Aramayı başlat', send_request: 'İstek gönder',
       err_recording_required: 'Devam etmek için kayıt onayı gereklidir.', err_recording_accept: 'Aramayı başlatmak için lütfen kayıt onayını kabul edin.', err_department: 'Bu departman bu arama türü için uygun değil. Lütfen başka bir departman seçin.', err_failed_start: 'Arama başlatılamadı.', err_wait_seconds: 'Yeni istek göndermeden önce lütfen {n} sn bekleyin.', err_contact_required: 'Size ulaşabilmemiz için lütfen e-posta veya telefon girin.', err_message_short: 'Lütfen isteğinizi en az {n} karakterle açıklayın.', err_future_time: 'Lütfen gelecekte geçerli bir zaman seçin.', err_too_fast: 'Çok hızlı oldu. Lütfen formu doldurmak için biraz zaman ayırın.', err_cooldown: 'Zaten bir geri arama istediniz. Lütfen {n} sn bekleyin.', err_rate_limited: 'Ağınızdan çok fazla geri arama isteği geldi. Lütfen daha sonra deneyin.', err_callback_unavailable: 'Geri arama istekleri şu anda kullanılamıyor.', err_failed: 'Başarısız.',
-      queue_wait_announce: 'Bekleme kuyruğundasınız. Lütfen bekleyin, kısa süre içinde sizi bir operatöre bağlayacağız.'
+      queue_wait_announce: 'Bekleme kuyruğundasınız. Lütfen bekleyin, kısa süre içinde sizi bir operatöre bağlayacağız.',
+      tap_to_hear: 'Sesi açmak için dokunun',
+      operator_label: 'Operatör',
+      call_duration: 'Süre',
+      transferring_call: 'Başka bir operatöre aktarılıyor…',
+      rate_call_title: 'Arama nasıldı?',
+      rate_call_sub: 'Geri bildiriminiz ekibimizin gelişmesine yardımcı olur.',
+      rate_comment_ph: 'Yorum ekle (isteğe bağlı)',
+      rate_submit: 'Puanı gönder',
+      rate_skip: 'Atla',
+      rate_thanks: 'Geri bildiriminiz için teşekkürler!'
     },
   };
 
@@ -519,6 +549,15 @@
     this.timer = null;
     this.poll = null;
     this.open = false;
+    this.operatorName = null;
+    this.callStartedAt = null;
+    this.callTimer = null;
+    this.transferring = false;
+    this.endedCallId = null;
+    this.endedDuration = 0;
+    this.ratingSubmitted = false;
+    this.ratingValue = 0;
+    this.ratingComment = '';
     this.formData = {
       name: '', email: '', phone: '', subject: '', message: '',
       call_type: 'voice', consent: false, department_id: '',
@@ -824,6 +863,37 @@
     this._calloutShown = false;
   };
 
+  // ── In-call duration timer (visitor-side) ──────────────────────────
+  CallCenterWidgetCtor.prototype.startCallTimer = function () {
+    var self = this;
+    this.stopCallTimer();
+    this.callTimer = setInterval(function () {
+      if (!self.callStartedAt) return;
+      var el = self.root.querySelector('.ccw-call-duration-value');
+      if (el) el.textContent = fmtTime(Date.now() - self.callStartedAt);
+    }, 1000);
+  };
+  CallCenterWidgetCtor.prototype.stopCallTimer = function () {
+    if (this.callTimer) { try { clearInterval(this.callTimer); } catch (_) {} this.callTimer = null; }
+  };
+
+  CallCenterWidgetCtor.prototype.submitRating = function () {
+    var self = this;
+    if (!self.endedCallId || !self.ratingValue) return;
+    var id = self.endedCallId;
+    self.api('/api/call-widget/calls/' + id + '/rate', {
+      method: 'POST',
+      body: { rating: self.ratingValue, comment: self.ratingComment || null },
+    }).then(function () {
+      self.ratingSubmitted = true;
+      self.render();
+    }).catch(function () {
+      // Even on failure, treat as submitted so the visitor isn't stuck.
+      self.ratingSubmitted = true;
+      self.render();
+    });
+  };
+
   CallCenterWidgetCtor.prototype.startPolling = function () {
     var self = this;
     this.stopPolling();
@@ -842,8 +912,44 @@
       if (typeof r.body.position === 'number') self.queuePosition = r.body.position;
       try { Ringback.setQueuePosition(self.queuePosition); } catch (_) {}
       if (typeof r.body.eta_seconds === 'number') self.queueEta = r.body.eta_seconds;
+      // Track operator name + detect transfer (operator changed mid-call).
+      var newOpName = r.body.operator_name || null;
+      var prevAgent = self._lastAgentId || null;
+      var nextAgent = c.assigned_agent_id || null;
+      if (prevAgent && nextAgent && prevAgent !== nextAgent && self.state === STATES.IN_CALL) {
+        // Operator transfer detected — flip to "transferring" affordance,
+        // resume hold music briefly, then surface new operator name.
+        self.transferring = true;
+        self.operatorName = null;
+        self.callStartedAt = null;
+        self.stopCallTimer();
+        try {
+          var qe = (self.bootstrap && self.bootstrap.queue_experience) || {};
+          Ringback.setLocale(self.locale, self.t('queue_wait_announce'));
+          Ringback.setPhase('hold');
+          Ringback.start(qe);
+        } catch (_) {}
+        self.render();
+      }
+      self._lastAgentId = nextAgent;
+      if (newOpName && newOpName !== self.operatorName) {
+        self.operatorName = newOpName;
+        if (self.transferring) self.transferring = false;
+        self.render();
+      }
+      // Initialise call-duration timer the first time the server reports a started_at.
+      if (c.started_at && !self.callStartedAt) {
+        var ts = Date.parse(c.started_at);
+        if (!isNaN(ts)) {
+          self.callStartedAt = ts;
+          if (self.state === STATES.IN_CALL) self.startCallTimer();
+        }
+      }
       if (['cancelled', 'ended', 'missed', 'failed'].indexOf(c.state) >= 0) {
-        self.stopPolling(); self.stopTimer(); try { Ringback.stop(); } catch (_) {}
+        self.stopPolling(); self.stopTimer(); self.stopCallTimer();
+        try { Ringback.stop(); } catch (_) {}
+        self.endedCallId = self.callId;
+        self.endedDuration = self.callStartedAt ? Math.floor((Date.now() - self.callStartedAt) / 1000) : 0;
         self.clearActiveSession();
         self.state = STATES.ENDED; self.render(); return;
       }
@@ -854,6 +960,9 @@
           self.state = STATES.IN_CALL; self.render();
           self.requestJoinToken();
         }
+        // If we've reached connected state and have a start time, ensure
+        // the duration ticker is running (survives across re-renders).
+        if (self.callStartedAt && !self.callTimer) self.startCallTimer();
       } else {
         // Still queued — refresh queue UI with latest position/eta.
         // Keep playing soft hold music + announcement; do NOT ring just
@@ -1111,9 +1220,20 @@
     this.disconnectRoom();
     try { Ringback.stop(); } catch (_) {}
     if (!this.callId) { this.reset(); return; }
+    // Snapshot for the rating screen.
+    this.endedCallId = this.callId;
+    this.endedDuration = this.callStartedAt ? Math.floor((Date.now() - this.callStartedAt) / 1000) : 0;
     this.api('/api/call-widget/calls/' + this.callId + '/cancel', { method: 'POST' }).then(function () {
-      self.stopPolling(); self.stopTimer();
-      self.reset();
+      self.stopPolling(); self.stopTimer(); self.stopCallTimer();
+      // If the call actually connected, go to ENDED so the visitor can rate.
+      if (self.endedDuration > 0) {
+        self.clearActiveSession();
+        self.callId = null; self.call = null;
+        self.state = STATES.ENDED;
+        self.render();
+      } else {
+        self.reset();
+      }
     });
   };
 
@@ -1121,10 +1241,20 @@
     this.disconnectRoom();
     try { Ringback.stop(); } catch (_) {}
     this.clearActiveSession();
+    this.stopCallTimer();
     this.callId = null; this.call = null; this.queueStartedAt = null;
     this.queuePosition = null; this.queueEta = null;
     this.connectStatus = null; this.joinInfo = null; this.error = null;
     this.micOn = false; this.camOn = false; this._remoteHolder = null;
+    this.operatorName = null;
+    this.callStartedAt = null;
+    this.transferring = false;
+    this.endedCallId = null;
+    this.endedDuration = 0;
+    this.ratingSubmitted = false;
+    this.ratingValue = 0;
+    this.ratingComment = '';
+    this._lastAgentId = null;
     this.state = this.isOnline() ? STATES.ONLINE : STATES.OFFLINE;
     this.render();
   };
@@ -1365,7 +1495,7 @@
           ]),
           el('div', { class: 'ccw-wait-wrap' }, [
             el('span', { class: 'ccw-wait-label' }, [tr('waiting_time')]),
-            el('div', { class: 'ccw-wait-timer', html: '0:00' }),
+            el('div', { class: 'ccw-wait-timer', html: fmtTime(self.queueStartedAt ? (Date.now() - self.queueStartedAt) : 0) }),
             el('button', {
               class: 'ccw-sound-toggle' + ((Ringback.isMuted && Ringback.isMuted()) || (Ringback.needsGesture && Ringback.needsGesture()) ? ' muted' : ''),
               type: 'button',
@@ -1387,6 +1517,11 @@
             }, [(Ringback.isMuted && Ringback.isMuted()) || (Ringback.needsGesture && Ringback.needsGesture()) ? '🔇' : '🔊']),
           ]),
         ]);
+        // Gesture-required hint label (rendered separately below the toggle so
+        // the visitor clearly sees a call-to-action under the muted speaker).
+        if (Ringback.needsGesture && Ringback.needsGesture()) {
+          card.appendChild(el('div', { class: 'ccw-tap-hint' }, [tr('tap_to_hear')]));
+        }
         if (Ringback.needsGesture && Ringback.needsGesture()) {
           // Audio is locked by browser autoplay policy — show the same
           // small toggle styling but in "unlock" affordance. Visitor taps
@@ -1458,10 +1593,41 @@
         if (status === 'camera_permission_denied') msg = tr('camera_denied');
         if (status === 'room_connect_failed') msg = tr('room_failed', { error: self.error || tr('unknown') });
         if (status === 'token_expired') msg = tr('token_expired');
-        var card = el('div', { class: 'ccw-card' }, [
-          el('div', { class: 'ccw-pill' }, [status === 'in_call' || status === 'operator_connected' ? tr('in_call') : status === 'waiting_for_operator' ? tr('connected_waiting') : tr('connecting')]),
-          el('div', { class: 'ccw-label' }, [msg]),
+        var isLive = (status === 'in_call' || status === 'operator_connected');
+        var card = el('div', { class: 'ccw-card ccw-incall' + (isLive ? ' live' : '') + (self.transferring ? ' transferring' : '') }, [
+          el('div', { class: 'ccw-pill' }, [isLive ? tr('in_call') : status === 'waiting_for_operator' ? tr('connected_waiting') : tr('connecting')]),
+          el('div', { class: 'ccw-label' }, [self.transferring ? tr('transferring_call') : msg]),
         ]);
+        // Beautiful "connected" hero: pulsing avatar + audio wave bars
+        if (isLive && !self.transferring) {
+          card.appendChild(el('div', { class: 'ccw-live-hero' }, [
+            el('div', { class: 'ccw-live-avatar' }, [
+              el('span', { class: 'ccw-live-pulse p1' }),
+              el('span', { class: 'ccw-live-pulse p2' }),
+              el('span', { class: 'ccw-live-pulse p3' }),
+              el('span', { class: 'ccw-live-core' }, [self.operatorName ? self.operatorName.charAt(0).toUpperCase() : '☎']),
+            ]),
+            el('div', { class: 'ccw-live-meta' }, [
+              self.operatorName ? el('div', { class: 'ccw-live-op-name' }, [self.operatorName]) : null,
+              el('div', { class: 'ccw-live-op-role' }, [tr('operator_label')]),
+              el('div', { class: 'ccw-live-duration' }, [
+                el('span', { class: 'ccw-live-duration-label' }, [tr('call_duration')]),
+                el('span', { class: 'ccw-call-duration-value' }, [fmtTime(self.callStartedAt ? (Date.now() - self.callStartedAt) : 0)]),
+              ]),
+              el('div', { class: 'ccw-wave' }, [
+                el('span', { class: 'b1' }), el('span', { class: 'b2' }),
+                el('span', { class: 'b3' }), el('span', { class: 'b4' }),
+                el('span', { class: 'b5' }), el('span', { class: 'b6' }),
+                el('span', { class: 'b7' }),
+              ]),
+            ]),
+          ]));
+        } else if (self.transferring) {
+          card.appendChild(el('div', { class: 'ccw-transfer-hero' }, [
+            el('span', { class: 'ccw-transfer-spinner' }),
+            el('div', { class: 'ccw-transfer-text' }, [tr('transferring_call')]),
+          ]));
+        }
         // Recording indicator (passive). Backend status drives this; never trust client.
         var recBoot = (self.bootstrap && self.bootstrap.recording) || {};
         var callRecState = self.call && self.call.recording_state;
@@ -1518,10 +1684,61 @@
             el('button', { class: 'ccw-btn primary', on: { click: function () { self.reset(); } } }, [tr('done')]),
           ]);
         }
-        return el('div', { class: 'ccw-stack' }, [
-          el('div', { class: 'ccw-card' }, [el('div', {}, [tr('call_ended')])]),
-          el('button', { class: 'ccw-btn primary', on: { click: function () { self.reset(); } } }, [tr('done')]),
+        // Post-call rating screen (only when the call actually started).
+        var stack = [];
+        var durLabel = self.endedDuration > 0 ? fmtTime(self.endedDuration * 1000) : null;
+        var endedCard = el('div', { class: 'ccw-card ccw-ended-card' }, [
+          el('div', { class: 'ccw-ended-icon' }, ['✓']),
+          el('div', { class: 'ccw-ended-title' }, [tr('call_ended')]),
         ]);
+        if (self.operatorName) {
+          endedCard.appendChild(el('div', { class: 'ccw-muted', style: 'text-align:center;' }, [self.operatorName]));
+        }
+        if (durLabel) {
+          endedCard.appendChild(el('div', { class: 'ccw-ended-duration' }, [
+            el('span', {}, [tr('call_duration')]),
+            el('strong', {}, [durLabel]),
+          ]));
+        }
+        stack.push(endedCard);
+        if (self.endedCallId && !self.ratingSubmitted) {
+          var rateBox = el('div', { class: 'ccw-rate-box' }, [
+            el('div', { class: 'ccw-rate-title' }, [tr('rate_call_title')]),
+            el('div', { class: 'ccw-rate-sub' }, [tr('rate_call_sub')]),
+          ]);
+          var stars = el('div', { class: 'ccw-rate-stars' });
+          var renderStars = function () {
+            stars.innerHTML = '';
+            for (var i = 1; i <= 5; i++) {
+              (function (n) {
+                var btn = el('button', {
+                  class: 'ccw-star' + (self.ratingValue >= n ? ' filled' : ''),
+                  type: 'button',
+                  'aria-label': String(n),
+                  on: { click: function () { self.ratingValue = n; renderStars(); } },
+                }, ['★']);
+                stars.appendChild(btn);
+              })(i);
+            }
+          };
+          renderStars();
+          rateBox.appendChild(stars);
+          var ta = el('textarea', { class: 'ccw-textarea', placeholder: tr('rate_comment_ph') });
+          ta.value = self.ratingComment || '';
+          ta.addEventListener('input', function (e) { self.ratingComment = e.target.value; });
+          rateBox.appendChild(ta);
+          rateBox.appendChild(el('div', { class: 'ccw-row' }, [
+            el('button', { class: 'ccw-btn secondary', on: { click: function () { self.reset(); } } }, [tr('rate_skip')]),
+            el('button', { class: 'ccw-btn primary', on: { click: function () { self.submitRating(); } } }, [tr('rate_submit')]),
+          ]));
+          stack.push(rateBox);
+        } else if (self.ratingSubmitted) {
+          stack.push(el('div', { class: 'ccw-rate-thanks' }, [tr('rate_thanks')]));
+          stack.push(el('button', { class: 'ccw-btn primary', on: { click: function () { self.reset(); } } }, [tr('done')]));
+        } else {
+          stack.push(el('button', { class: 'ccw-btn primary', on: { click: function () { self.reset(); } } }, [tr('done')]));
+        }
+        return el('div', { class: 'ccw-stack' }, stack);
       }
 
       case STATES.ERROR:

@@ -7,13 +7,18 @@
  */
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { Mic, MicOff, Video, VideoOff, PhoneOff, Maximize2, Minimize2, PanelRightOpen, Loader2, GripHorizontal, Signal, UserMinus, Settings2 } from 'lucide-react';
+import { Mic, MicOff, Video, VideoOff, PhoneOff, Maximize2, Minimize2, PanelRightOpen, Loader2, GripHorizontal, Signal, UserMinus, Settings2, ArrowRightLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 import { useOperatorCall } from './OperatorCallContext';
 import { VideoCallStage, AudioCallStage, LocalVideoPiP } from './CallStage';
 import { useTranslation } from '@/i18n';
+import { useCallCenterAgentPresence, useTransferCall } from '@/hooks/useCallCenter';
+import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
+import { useAuth } from '@/features/auth/AuthContext';
+import { toast } from '@/hooks/use-toast';
 
 const EXPANDED_W = 860;
 const EXPANDED_H = 560;
@@ -24,6 +29,35 @@ const EXPANDED_PORTRAIT_H = 640;
 export function FloatingOperatorCallWindow() {
   const { surface, live, floatingMode, setFloatingMode, hangup, closeTerminal, lastEnded, videoQuality, setVideoQuality } = useOperatorCall();
   const i18n = useTranslation();
+  const { user } = useAuth();
+  const workspaceId = surface.workspaceId || null;
+  const callId = surface.invitation?.call_session_id || null;
+  const presence = useCallCenterAgentPresence(workspaceId);
+  const members = useWorkspaceMembers(workspaceId || undefined);
+  const transferMut = useTransferCall(workspaceId || undefined);
+  const [transferOpen, setTransferOpen] = useState(false);
+  const availableTargets = useMemo(() => {
+    const rows = presence.data?.presence || [];
+    const memberMap = new Map((members.data || []).map((m) => [m.user_id, m]));
+    return rows
+      .filter((p) => p.user_id !== user?.id)
+      .filter((p) => p.status === 'available')
+      .map((p) => ({
+        user_id: p.user_id,
+        name: memberMap.get(p.user_id)?.full_name || memberMap.get(p.user_id)?.email || p.user_id.slice(0, 8),
+        status: p.status,
+      }));
+  }, [presence.data, members.data, user?.id]);
+  const doTransfer = async (agentId: string) => {
+    if (!callId || !workspaceId) return;
+    try {
+      await transferMut.mutateAsync({ callId, payload: { to_agent_id: agentId, reason: 'operator_transfer' } });
+      setTransferOpen(false);
+      toast({ title: 'Call transferred', description: 'Routing to the selected operator…' });
+    } catch (e: any) {
+      toast({ title: 'Transfer failed', description: String(e?.message || e), variant: 'destructive' });
+    }
+  };
   const safeT = (key: string, fallback: string): string => {
     const value = (i18n.t as unknown as (k: string) => string)(key);
     return value && value !== key ? value : fallback;
@@ -302,6 +336,36 @@ export function FloatingOperatorCallWindow() {
                 <SelectItem value="hd">{safeT('inbox.callSurface.qualityHd', 'HD (1080p)')}</SelectItem>
               </SelectContent>
             </Select>
+          )}
+          {!isRemoteEndedTerminal && surface.phase === 'connected' && callId && (
+            <Popover open={transferOpen} onOpenChange={setTransferOpen}>
+              <PopoverTrigger asChild>
+                <Button size="sm" variant="outline" className="h-12 w-12 rounded-full border-call-stage-foreground/20 bg-card/75 p-0 text-foreground shadow-elevated backdrop-blur-xl hover:bg-card" aria-label="Transfer call" title="Transfer call">
+                  <ArrowRightLeft className="h-5 w-5" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-72 p-2">
+                <div className="px-2 py-1 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Transfer to</div>
+                {availableTargets.length === 0 ? (
+                  <div className="px-2 py-3 text-sm text-muted-foreground">No available operators</div>
+                ) : (
+                  <div className="flex max-h-64 flex-col gap-1 overflow-auto py-1">
+                    {availableTargets.map((t) => (
+                      <button
+                        key={t.user_id}
+                        type="button"
+                        onClick={() => void doTransfer(t.user_id)}
+                        disabled={transferMut.isPending}
+                        className="flex items-center justify-between gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-muted disabled:opacity-50"
+                      >
+                        <span className="truncate font-medium">{t.name}</span>
+                        <span className="text-[10px] font-bold uppercase text-success">{t.status}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </PopoverContent>
+            </Popover>
           )}
           <Button size="sm" variant="default" className="h-12 rounded-full bg-destructive px-6 text-destructive-foreground shadow-elevated hover:bg-destructive/90" onClick={stop(isRemoteEndedTerminal ? closeTerminal : hangup)} aria-label={isRemoteEndedTerminal ? safeT('inbox.callSurface.close', 'Close') : safeT('inbox.callSurface.hangup', 'End call')} title={isRemoteEndedTerminal ? safeT('inbox.callSurface.close', 'Close') : safeT('inbox.callSurface.hangup', 'End call')}>
             <PhoneOff className="h-5 w-5" />

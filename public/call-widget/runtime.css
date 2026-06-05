@@ -258,36 +258,34 @@
 .ccw-card.ccw-incall.video .ccw-media { position: relative; }
 /* Visitor self-view (small PiP in top-right of the video tile) */
 .ccw-local-pip {
-  position: absolute; top: 10px; right: 10px;
-  width: 96px; height: 72px;
-  border-radius: 10px; overflow: hidden;
+  position: absolute; bottom: 10px; right: 10px;
+  width: 84px; height: 60px;
+  border-radius: 8px; overflow: hidden;
   background: hsl(222 47% 5%);
-  border: 2px solid hsl(0 0% 100% / .85);
-  box-shadow: 0 6px 14px hsl(0 0% 0% / .45);
+  border: 1px solid hsl(0 0% 100% / .35);
+  box-shadow: 0 4px 10px hsl(0 0% 0% / .35);
   z-index: 3;
 }
 .ccw-local-pip video {
   width: 100%; height: 100%; object-fit: cover;
-  /* Mirror the local self-view — natural "mirror" feel. */
-  transform: scaleX(-1);
+  /* Show real, un-mirrored video on both sides. */
+  transform: none;
   display: block;
 }
 @media (max-width: 480px) {
-  .ccw-local-pip { width: 84px; height: 64px; top: 8px; right: 8px; }
+  .ccw-local-pip { width: 72px; height: 52px; bottom: 8px; right: 8px; }
 }
-.ccw-video-overlay {
-  position: absolute; left: 10px; right: 10px; bottom: 10px;
+.ccw-video-info {
+  margin-top: 10px;
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  padding: 6px 12px; border-radius: 999px;
-  background: linear-gradient(180deg, hsl(0 0% 0% / .15), hsl(0 0% 0% / .55));
-  color: hsl(0 0% 100%);
-  backdrop-filter: blur(6px);
-  pointer-events: none;
-  text-shadow: 0 1px 2px hsl(0 0% 0% / .55);
+  padding: 8px 12px; border-radius: 12px;
+  background: hsl(var(--ccw-surface));
+  border: 1px solid hsl(var(--ccw-line));
+  color: hsl(var(--ccw-text));
 }
-.ccw-video-overlay-name { font-size: 13px; font-weight: 800; letter-spacing: .01em; }
-.ccw-video-overlay-duration { font-size: 13px; font-weight: 800; font-variant-numeric: tabular-nums; display: inline-flex; align-items: center; gap: 6px; }
-.ccw-video-overlay-duration::before {
+.ccw-video-info-name { font-size: 13px; font-weight: 700; letter-spacing: .01em; }
+.ccw-video-info-duration { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; display: inline-flex; align-items: center; gap: 6px; color: hsl(var(--ccw-primary)); }
+.ccw-video-info-duration::before {
   content: ""; width: 8px; height: 8px; border-radius: 999px; background: hsl(140 70% 55%);
   box-shadow: 0 0 0 0 hsl(140 70% 55% / .7); animation: ccw-pulse 1.6s ease-in-out infinite;
 }

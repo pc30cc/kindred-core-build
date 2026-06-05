@@ -1367,7 +1367,7 @@
             el('span', { class: 'ccw-wait-label' }, [tr('waiting_time')]),
             el('div', { class: 'ccw-wait-timer', html: '0:00' }),
             el('button', {
-              class: 'ccw-sound-toggle' + (Ringback.isMuted && Ringback.isMuted() ? ' muted' : ''),
+              class: 'ccw-sound-toggle' + ((Ringback.isMuted && Ringback.isMuted()) || (Ringback.needsGesture && Ringback.needsGesture()) ? ' muted' : ''),
               type: 'button',
               title: Ringback.isMuted && Ringback.isMuted() ? tr('unmute_sound') : tr('mute_sound'),
               'aria-label': Ringback.isMuted && Ringback.isMuted() ? tr('unmute_sound') : tr('mute_sound'),
@@ -1384,7 +1384,7 @@
                 }
                 self.render();
               } },
-            }, [Ringback.isMuted && Ringback.isMuted() ? '🔇' : '🔊']),
+            }, [(Ringback.isMuted && Ringback.isMuted()) || (Ringback.needsGesture && Ringback.needsGesture()) ? '🔇' : '🔊']),
           ]),
         ]);
         if (Ringback.needsGesture && Ringback.needsGesture()) {

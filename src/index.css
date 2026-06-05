@@ -437,22 +437,21 @@ html[lang="en"] * {
 }
 
 /* ─────────────────────────────────────────────────────────────────────
-   Real-world call orientation correction. Browser/WebRTC raw camera output
-   was visually flipped in production, so every displayed camera video gets
-   the same correction. This intentionally fixes the human-visible result;
-   do not replace with transform:none unless verified with a physical test.
+   Call video orientation. Remote video is shown un-mirrored so the
+   other person's environment (text, scenes) reads correctly. Local
+   self-view is mirrored — that's the natural "mirror" feel everyone
+   expects when seeing themselves.
    ───────────────────────────────────────────────────────────────────── */
-.call-video,
-.call-video video,
-.call-video-local,
 .call-video-remote,
-[data-call-video],
-[data-local-video],
 [data-remote-video],
-[data-call-video] video,
-[data-local-video] video,
-[data-remote-video] video,
-video.call-video {
+[data-remote-video] video {
+  transform: none !important;
+  scale: 1 !important;
+  rotate: 0deg !important;
+}
+.call-video-local,
+[data-local-video],
+[data-local-video] video {
   transform: scaleX(-1) !important;
   scale: 1 !important;
   rotate: 0deg !important;

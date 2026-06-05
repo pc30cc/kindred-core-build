@@ -1192,8 +1192,32 @@
     if (!this.lkRoom) return;
     var next = !this.camOn;
     var self = this;
-    this.lkRoom.localParticipant.setCameraEnabled(next).then(function () {
-      self.camOn = next; self.render();
+    this.lkRoom.localParticipant.setCameraEnabled(next).then(function (pub) {
+      self.camOn = next;
+      if (next) {
+        try {
+          var track = pub && pub.track;
+          if (!track) {
+            var lpubs = self.lkRoom.localParticipant.videoTrackPublications || self.lkRoom.localParticipant.videoTracks;
+            lpubs && lpubs.forEach && lpubs.forEach(function (p) { if (p && p.track && !track) track = p.track; });
+          }
+          if (track) {
+            if (self._localVideoEl) { try { self._localVideoEl.remove(); } catch(_) {} }
+            var lv = track.attach();
+            lv.autoplay = true; lv.playsInline = true; lv.muted = true;
+            lv.setAttribute('data-local-video', 'true');
+            self._localVideoEl = lv;
+            self._localVideoTrack = track;
+          }
+        } catch (_) {}
+      } else {
+        try {
+          if (self._localVideoTrack && self._localVideoEl) { self._localVideoTrack.detach(self._localVideoEl); }
+          if (self._localVideoEl) { self._localVideoEl.remove(); }
+        } catch (_) {}
+        self._localVideoEl = null; self._localVideoTrack = null;
+      }
+      self.render();
     });
   };
   CallCenterWidgetCtor.prototype.disconnectRoom = function () {
@@ -1207,6 +1231,11 @@
     }
     this._attachedTracks = {};
     this._remoteCount = 0;
+    try {
+      if (this._localVideoTrack && this._localVideoEl) { this._localVideoTrack.detach(this._localVideoEl); }
+      if (this._localVideoEl) { this._localVideoEl.remove(); }
+    } catch (_) {}
+    this._localVideoEl = null; this._localVideoTrack = null;
     this._stopAudioMeter();
   };
 

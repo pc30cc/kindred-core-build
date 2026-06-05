@@ -609,13 +609,11 @@
   CallCenterWidgetCtor.prototype.persistActiveSession = function () {
     if (!this.activeSessionKey || !this.session || !this.callId) return;
     try { window.sessionStorage.setItem(this.activeSessionKey, this.session); } catch (_) {}
-    try { window.localStorage.setItem(this.activeSessionKey, this.session); } catch (_) {}
   };
 
   CallCenterWidgetCtor.prototype.clearActiveSession = function () {
     if (!this.activeSessionKey) return;
     try { window.sessionStorage.removeItem(this.activeSessionKey); } catch (_) {}
-    try { window.localStorage.removeItem(this.activeSessionKey); } catch (_) {}
   };
 
   CallCenterWidgetCtor.prototype.api = function (path, opts) {
@@ -624,7 +622,7 @@
     if (this.session) headers['x-cc-session'] = this.session;
     try {
       if (this.activeSessionKey) {
-        var activeSession = window.sessionStorage.getItem(this.activeSessionKey) || window.localStorage.getItem(this.activeSessionKey);
+        var activeSession = window.sessionStorage.getItem(this.activeSessionKey);
         if (activeSession) headers['x-cc-active-call'] = activeSession;
       }
     } catch (_) {}

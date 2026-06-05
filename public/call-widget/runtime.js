@@ -1659,10 +1659,12 @@
         if (status === 'token_expired') msg = tr('token_expired');
         var isLive = (status === 'in_call' || status === 'operator_connected');
         var isVideoCall = (self.call && self.call.call_type === 'video') || self.formData.call_type === 'video';
-        var card = el('div', { class: 'ccw-card ccw-incall' + (isLive ? ' live' : '') + (self.transferring ? ' transferring' : '') + (isVideoCall ? ' video' : '') }, [
+        var hideHeader = isVideoCall && isLive && !self.transferring;
+        var cardChildren = hideHeader ? [] : [
           el('div', { class: 'ccw-pill' }, [isLive ? tr('in_call') : status === 'waiting_for_operator' ? tr('connected_waiting') : tr('connecting')]),
           el('div', { class: 'ccw-label' }, [self.transferring ? tr('transferring_call') : msg]),
-        ]);
+        ];
+        var card = el('div', { class: 'ccw-card ccw-incall' + (isLive ? ' live' : '') + (self.transferring ? ' transferring' : '') + (isVideoCall ? ' video' : '') }, cardChildren);
         // Beautiful "connected" hero — voice only. Video calls show the
         // video stream as the centerpiece with an overlay instead.
         if (isLive && !self.transferring && !isVideoCall) {
@@ -1695,13 +1697,8 @@
             el('div', { class: 'ccw-transfer-text' }, [tr('transferring_call')]),
           ]));
         } else if (isLive && isVideoCall) {
-          // Minimal meta strip above the video tile
-          card.appendChild(el('div', { class: 'ccw-video-meta' }, [
-            self.operatorName ? el('div', { class: 'ccw-video-op-name' }, [self.operatorName]) : null,
-            el('div', { class: 'ccw-video-duration' }, [
-              el('span', { class: 'ccw-call-duration-value' }, [fmtTime(self.callStartedAt ? (Date.now() - self.callStartedAt) : 0)]),
-            ]),
-          ]));
+          // Video calls: no header strip; we overlay name + timer on the
+          // video tile itself (see ccw-video-overlay).
         }
         // Recording indicator (passive). Backend status drives this; never trust client.
         var recBoot = (self.bootstrap && self.bootstrap.recording) || {};
@@ -1721,6 +1718,14 @@
           for (var i = 0; i < keys.length; i++) {
             try { media.appendChild(self._attachedTracks[keys[i]]); } catch (_) {}
           }
+        }
+        if (isLive && isVideoCall && !self.transferring) {
+          media.appendChild(el('div', { class: 'ccw-video-overlay' }, [
+            self.operatorName ? el('div', { class: 'ccw-video-overlay-name' }, [self.operatorName]) : null,
+            el('div', { class: 'ccw-video-overlay-duration' }, [
+              el('span', { class: 'ccw-call-duration-value' }, [fmtTime(self.callStartedAt ? (Date.now() - self.callStartedAt) : 0)]),
+            ]),
+          ]));
         }
         card.appendChild(media);
         var controls = el('div', { class: 'ccw-row' });

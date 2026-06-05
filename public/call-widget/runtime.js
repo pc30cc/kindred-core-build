@@ -1766,12 +1766,6 @@
           }
         }
         if (isLive && isVideoCall && !self.transferring) {
-          media.appendChild(el('div', { class: 'ccw-video-overlay' }, [
-            self.operatorName ? el('div', { class: 'ccw-video-overlay-name' }, [self.operatorName]) : null,
-            el('div', { class: 'ccw-video-overlay-duration' }, [
-              el('span', { class: 'ccw-call-duration-value' }, [fmtTime(self.callStartedAt ? (Date.now() - self.callStartedAt) : 0)]),
-            ]),
-          ]));
           if (self._localVideoEl && self.camOn) {
             var pip = el('div', { class: 'ccw-local-pip' });
             try { pip.appendChild(self._localVideoEl); } catch (_) {}
@@ -1779,6 +1773,14 @@
           }
         }
         card.appendChild(media);
+        if (isLive && isVideoCall && !self.transferring) {
+          card.appendChild(el('div', { class: 'ccw-video-info' }, [
+            el('div', { class: 'ccw-video-info-name' }, [self.operatorName || tr('operator') || 'Operator']),
+            el('div', { class: 'ccw-video-info-duration' }, [
+              el('span', { class: 'ccw-call-duration-value' }, [fmtTime(self.callStartedAt ? (Date.now() - self.callStartedAt) : 0)]),
+            ]),
+          ]));
+        }
         var controls = el('div', { class: 'ccw-row' });
         if (status === 'in_call' || status === 'operator_connected' || status === 'waiting_for_operator' || status === 'media_reconnecting') {
           controls.appendChild(el('button', { class: 'ccw-btn secondary', on: { click: function () { self.toggleMic(); } } }, [self.micOn ? tr('mute') : tr('unmute')]));

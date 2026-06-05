@@ -594,7 +594,6 @@
     this.render();
     // Resume any in-flight call across refresh / navigation.
     try { this.resumeActiveCall(); } catch (_) {}
-    if (!(this.bootstrap && this.bootstrap.active_call)) this.clearActiveSession();
   };
 
   CallCenterWidgetCtor.prototype.isOnline = function () {

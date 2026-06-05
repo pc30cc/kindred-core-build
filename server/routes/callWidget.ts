@@ -26,6 +26,7 @@ import { resolveGlobalStorageConfig, getFileUrlWithConfig } from '../services/st
 import {
   resolveVisitorIdentity,
   readVisitorCookie,
+  isSecureRequest,
 } from '../services/widget/visitorIdentity.js';
 import { mergeVisitorIdentity } from '../services/widget/identityMerge.js';
 import {
@@ -80,7 +81,7 @@ callWidgetRouter.use(async (req, res, next) => {
     res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Access-Control-Allow-Headers', 'authorization, content-type, x-cc-session');
+    res.setHeader('Access-Control-Allow-Headers', 'authorization, content-type, x-cc-session, x-cc-active-call');
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
   }
   if (req.method === 'OPTIONS') return res.status(204).end();
@@ -350,6 +351,155 @@ function disabledResponse(reason: string, message?: Record<string, unknown>) {
   return { status: 'disabled', reason, message: message || null };
 }
 
+const ACTIVE_CALL_COOKIE_NAME = 'dvccall';
+const ACTIVE_CALL_TTL_SECONDS = 60 * 60 * 6; // enough for refresh/navigation; DB state remains authoritative
+const ACTIVE_CALL_STATES = ['pending', 'queued', 'ringing', 'connecting', 'active'];
+const TERMINAL_CALL_STATES = ['cancelled', 'ended', 'missed', 'failed'];
+
+function activeCallCookieSecret(config: ServerConfig): string {
+  return `call-widget-active:${(config as any).widgetTokenSecret || (config as any).sessionSecret || config.supabaseServiceRoleKey}`;
+}
+
+function signActiveCallCookie(config: ServerConfig, body: string): string {
+  return crypto.createHmac('sha256', activeCallCookieSecret(config)).update(body).digest('base64url');
+}
+
+function encodeActiveCallCookie(config: ServerConfig, payload: { c: string; w: string; o: string | null; iat: number; exp: number }): string {
+  const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  return `${body}.${signActiveCallCookie(config, body)}`;
+}
+
+function readActiveCallCookie(config: ServerConfig, req: any, workspaceId: string, origin: string | null): { callId: string } | null {
+  const raw = (req as any).cookies?.[ACTIVE_CALL_COOKIE_NAME] as string | undefined;
+  if (!raw) return null;
+  const dot = raw.lastIndexOf('.');
+  if (dot < 1) return null;
+  const body = raw.slice(0, dot);
+  const sig = raw.slice(dot + 1);
+  const expected = signActiveCallCookie(config, body);
+  if (sig.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as { c?: string; w?: string; o?: string | null; exp?: number };
+    if (!payload.c || payload.w !== workspaceId || !payload.exp || payload.exp < Math.floor(Date.now() / 1000)) return null;
+    if (payload.o && origin && payload.o !== origin) return null;
+    return { callId: payload.c };
+  } catch { return null; }
+}
+
+function setActiveCallCookie(res: any, req: any, config: ServerConfig, workspaceId: string, callId: string, origin: string | null): void {
+  const now = Math.floor(Date.now() / 1000);
+  const value = encodeActiveCallCookie(config, { c: callId, w: workspaceId, o: origin || null, iat: now, exp: now + ACTIVE_CALL_TTL_SECONDS });
+  const secure = isSecureRequest(req);
+  const attrs = [
+    `${ACTIVE_CALL_COOKIE_NAME}=${value}`,
+    'Path=/api',
+    'HttpOnly',
+    `Max-Age=${ACTIVE_CALL_TTL_SECONDS}`,
+    `SameSite=${secure ? 'None' : 'Lax'}`,
+  ];
+  if (secure) attrs.push('Secure', 'Partitioned');
+  res.append('Set-Cookie', attrs.join('; '));
+}
+
+function clearActiveCallCookie(res: any, req: any): void {
+  const secure = isSecureRequest(req);
+  const attrs = [
+    `${ACTIVE_CALL_COOKIE_NAME}=`,
+    'Path=/api',
+    'HttpOnly',
+    'Max-Age=0',
+    `SameSite=${secure ? 'None' : 'Lax'}`,
+  ];
+  if (secure) attrs.push('Secure', 'Partitioned');
+  res.append('Set-Cookie', attrs.join('; '));
+}
+
+async function buildActiveCallPayload(
+  config: ServerConfig,
+  req: any,
+  res: any,
+  ws: WorkspaceCallCenterSettings,
+  origin: string | null,
+  visitorId: string | null,
+): Promise<{ call_id: string; state: string; call_type: string; created_at: string | null; queue_position: number | null; session: string } | null> {
+  const sbActive = getServiceClient(config);
+  let mine: any = null;
+  const headerSession = verifyWidgetSession(config, String(req.headers['x-cc-active-call'] || ''));
+  const headerCallId = headerSession && headerSession.workspace_id === ws.workspace_id && headerSession.call_id && (!headerSession.origin || !origin || headerSession.origin === origin)
+    ? String(headerSession.call_id)
+    : null;
+  const cookieCall = readActiveCallCookie(config, req, ws.workspace_id, origin);
+  const preferredCallIds = [headerCallId, cookieCall?.callId].filter(Boolean) as string[];
+  for (const preferredCallId of preferredCallIds) {
+    const { data } = await sbActive
+      .from('call_sessions')
+      .select('id,state,call_type,created_at,metadata')
+      .eq('workspace_id', ws.workspace_id)
+      .eq('entry_source', 'call_widget')
+      .eq('id', preferredCallId)
+      .maybeSingle();
+    if (data && ACTIVE_CALL_STATES.includes(String((data as any).state || ''))) {
+      mine = data;
+      break;
+    } else if (data && TERMINAL_CALL_STATES.includes(String((data as any).state || ''))) {
+      clearActiveCallCookie(res, req);
+    }
+  }
+  if (!mine && visitorId) {
+    const { data: rows } = await sbActive
+      .from('call_sessions')
+      .select('id,state,call_type,created_at,metadata')
+      .eq('workspace_id', ws.workspace_id)
+      .eq('entry_source', 'call_widget')
+      .in('state', ACTIVE_CALL_STATES)
+      .order('created_at', { ascending: false })
+      .limit(50);
+    mine = (rows || []).find((r: any) => (r.metadata as any)?.visitor_id === visitorId) || null;
+  }
+  if (!mine) return null;
+
+  const callId = String(mine.id);
+  const callState = String(mine.state || 'pending');
+  let position: number | null = null;
+  if (!['active', 'ringing', 'connecting'].includes(callState)) {
+    const { data: entry } = await sbActive
+      .from('call_queue_entries')
+      .select('id,workspace_id,state')
+      .eq('call_session_id', callId)
+      .maybeSingle();
+    if (entry && ['queued', 'offered'].includes(String((entry as any).state || ''))) {
+      const { data: activeRows } = await sbActive
+        .from('call_queue_entries')
+        .select('id,created_at,priority')
+        .eq('workspace_id', (entry as any).workspace_id)
+        .eq('entry_source', 'call_widget')
+        .in('state', ['queued', 'offered'])
+        .order('priority', { ascending: false })
+        .order('created_at', { ascending: true })
+        .limit(500);
+      const idx = (activeRows || []).findIndex((row: any) => row.id === (entry as any).id);
+      position = idx >= 0 ? idx + 1 : null;
+    }
+  }
+
+  const resumedSession = signWidgetSession(config, {
+    workspace_id: ws.workspace_id,
+    public_key: ws.public_key,
+    call_id: callId,
+    visitor_id: visitorId,
+    origin,
+  });
+  setActiveCallCookie(res, req, config, ws.workspace_id, callId, origin);
+  return {
+    call_id: callId,
+    state: callState,
+    call_type: String(mine.call_type || 'audio'),
+    created_at: mine.created_at || null,
+    queue_position: position,
+    session: resumedSession,
+  };
+}
+
 // ── Bootstrap ─────────────────────────────────────────────────────────────
 callWidgetRouter.get('/bootstrap', async (req, res) => {
   const config = (req as any).serverConfig as ServerConfig;
@@ -465,63 +615,10 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
     queue_position: number | null;
     session: string;
   } | null = null;
-  if (resolvedVisitorId) {
-    try {
-      const sbActive = getServiceClient(config);
-      const { data: rows } = await sbActive
-        .from('call_sessions')
-        .select('id,state,call_type,created_at,metadata')
-        .eq('workspace_id', ws.workspace_id)
-        .eq('entry_source', 'call_widget')
-        .in('state', ['pending', 'queued', 'ringing', 'connecting', 'active'])
-        .order('created_at', { ascending: false })
-        .limit(20);
-      const mine = (rows || []).find(
-        (r: any) => (r.metadata as any)?.visitor_id === resolvedVisitorId,
-      );
-      if (mine) {
-        const callId = (mine as any).id as string;
-        const callState = String((mine as any).state || '');
-        // Compute live queue position when still queued.
-        let position: number | null = null;
-        if (!['active', 'ringing', 'connecting'].includes(callState)) {
-          const { data: entry } = await sbActive
-            .from('call_queue_entries')
-            .select('id,workspace_id,state')
-            .eq('call_session_id', callId)
-            .maybeSingle();
-          if (entry && ['queued', 'offered'].includes(String((entry as any).state || ''))) {
-            const { data: activeRows } = await sbActive
-              .from('call_queue_entries')
-              .select('id,created_at,priority')
-              .eq('workspace_id', (entry as any).workspace_id)
-              .eq('entry_source', 'call_widget')
-              .in('state', ['queued', 'offered'])
-              .order('priority', { ascending: false })
-              .order('created_at', { ascending: true })
-              .limit(500);
-            const idx = (activeRows || []).findIndex((row: any) => row.id === (entry as any).id);
-            position = idx >= 0 ? idx + 1 : null;
-          }
-        }
-        const resumedSession = signWidgetSession(config, {
-          workspace_id: ws.workspace_id,
-          public_key: ws.public_key,
-          call_id: callId,
-          origin,
-        });
-        activeCall = {
-          call_id: callId,
-          state: callState,
-          call_type: String((mine as any).call_type || 'audio'),
-          created_at: (mine as any).created_at || null,
-          queue_position: position,
-          session: resumedSession,
-        };
-      }
-    } catch (e: any) {
-      console.warn('[call-widget/bootstrap] active_call lookup failed:', e?.message || e);
-    }
+  try {
+    activeCall = await buildActiveCallPayload(config, req, res, ws, origin, resolvedVisitorId);
+  } catch (e: any) {
+    console.warn('[call-widget/bootstrap] active_call lookup failed:', e?.message || e);
   }
   const ringbackAudio = await (async () => {
     const musicPath = (platform as any).ringback_music_path as string | null;
@@ -703,6 +800,35 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
     notice_version: parsed.data.recording_notice_version || null,
     artifact_id: null as string | null,
   };
+  // Resolve visitor identity BEFORE creating anything. This lets refreshes,
+  // page changes, duplicate clicks, and lost/partitioned visitor cookies reuse
+  // the in-flight call instead of creating another queue row.
+  const identity = await identifyVisitorForCall(
+    req,
+    res,
+    config,
+    ws.workspace_id,
+    getOrigin(req),
+    {
+      name: parsed.data.visitor_name,
+      email: parsed.data.visitor_email,
+      phone: parsed.data.visitor_phone,
+      page_url: parsed.data.page_url,
+    },
+  );
+  const existingActiveCall = await buildActiveCallPayload(config, req, res, ws, getOrigin(req), identity.visitorId);
+  if (existingActiveCall) {
+    return res.json({
+      status: 'resumed',
+      call_id: existingActiveCall.call_id,
+      call_state: existingActiveCall.state,
+      call_type: existingActiveCall.call_type,
+      created_at: existingActiveCall.created_at,
+      queue_position: existingActiveCall.queue_position,
+      session: existingActiveCall.session,
+      contact: identity.contact,
+    });
+  }
   // Provider check (fail closed)
   let providerId: string;
   try {
@@ -726,22 +852,6 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
   // "fetch failed" — Supabase REST connection can be reset between idle
   // pooled HTTP/1.1 keep-alives in long-running Node processes.
   const dbCallType = dbCallTypeForDept;
-  // Identity merge: turn this visitor into a contact (or recognise an
-  // existing one) BEFORE inserting the call so the call row carries the
-  // correct visitor name / contact link from the start.
-  const identity = await identifyVisitorForCall(
-    req,
-    res,
-    config,
-    ws.workspace_id,
-    getOrigin(req),
-    {
-      name: parsed.data.visitor_name,
-      email: parsed.data.visitor_email,
-      phone: parsed.data.visitor_phone,
-      page_url: parsed.data.page_url,
-    },
-  );
   const finalVisitorName = parsed.data.visitor_name || identity.contact?.name || null;
   const finalVisitorEmail = parsed.data.visitor_email || identity.contact?.email || null;
   const finalVisitorPhone = parsed.data.visitor_phone || identity.contact?.phone || null;
@@ -849,8 +959,10 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
     workspace_id: ws.workspace_id,
     public_key: ws.public_key,
     call_id: call!.id,
+    visitor_id: identity.visitorId,
     origin: session.origin || null,
   });
+  setActiveCallCookie(res, req, config, ws.workspace_id, call!.id, getOrigin(req));
 
   await publishQueueEvent(config, ws.workspace_id, 'call_requested', { call_id: call!.id });
   try {
@@ -898,6 +1010,7 @@ callWidgetRouter.post('/calls/:id/cancel', async (req, res) => {
   });
   await publishQueueEvent(config, session.workspace_id, 'call_cancelled', { call_id: req.params.id });
   await publishCallEvent(config, session.workspace_id, req.params.id, 'call_cancelled', {});
+  clearActiveCallCookie(res, req);
   res.json({ ok: true });
 });
 

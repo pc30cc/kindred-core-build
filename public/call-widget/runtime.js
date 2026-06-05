@@ -481,6 +481,7 @@
     this.origin = '';
     this.assetsVersion = '';
     this.runtimeAssetSuffix = '';
+    this.activeSessionKey = '';
     this.session = null;
     this.callId = null;
     this.call = null;
@@ -546,6 +547,7 @@
     this.origin = opts.origin;
     this.assetsVersion = opts.assetsVersion || (opts.bootstrap && opts.bootstrap.assets_version) || '';
     this.runtimeAssetSuffix = opts.runtimeAssetSuffix || (this.assetsVersion ? ('?v=' + encodeURIComponent(String(this.assetsVersion).slice(0, 16))) : '');
+    this.activeSessionKey = opts.activeSessionKey || '';
     this.bootstrap = opts.bootstrap;
     this.session = opts.bootstrap && opts.bootstrap.session;
     this.initLocale();
@@ -604,10 +606,26 @@
     return p === 'left' ? 'left' : 'right';
   };
 
+  CallCenterWidgetCtor.prototype.persistActiveSession = function () {
+    if (!this.activeSessionKey || !this.session || !this.callId) return;
+    try { window.sessionStorage.setItem(this.activeSessionKey, this.session); } catch (_) {}
+  };
+
+  CallCenterWidgetCtor.prototype.clearActiveSession = function () {
+    if (!this.activeSessionKey) return;
+    try { window.sessionStorage.removeItem(this.activeSessionKey); } catch (_) {}
+  };
+
   CallCenterWidgetCtor.prototype.api = function (path, opts) {
     opts = opts || {};
     var headers = { 'Content-Type': 'application/json' };
     if (this.session) headers['x-cc-session'] = this.session;
+    try {
+      if (this.activeSessionKey) {
+        var activeSession = window.sessionStorage.getItem(this.activeSessionKey);
+        if (activeSession) headers['x-cc-active-call'] = activeSession;
+      }
+    } catch (_) {}
     return fetch(this.apiBase + path, {
       method: opts.method || 'GET',
       headers: Object.assign(headers, opts.headers || {}),
@@ -714,9 +732,20 @@
         self.formData.phone = r.body.contact.phone || self.formData.phone || '';
       }
       self.callId = r.body.call_id;
-      self.queueStartedAt = Date.now();
+      self.persistActiveSession();
+      var startedAt = r.body.created_at ? Date.parse(r.body.created_at) : NaN;
+      self.queueStartedAt = isNaN(startedAt) ? Date.now() : startedAt;
       self.queuePosition = typeof r.body.queue_position === 'number' ? r.body.queue_position : null;
       self.queueEta = null;
+      if (r.body.call_type) self.formData.call_type = (r.body.call_type === 'video') ? 'video' : 'voice';
+      if (['active', 'ringing', 'connecting'].indexOf(String(r.body.call_state || '')) >= 0) {
+        self.state = STATES.IN_CALL;
+        self.render();
+        try { Ringback.stop(); } catch (_) {}
+        self.startPolling();
+        self.requestJoinToken();
+        return;
+      }
       self.state = STATES.QUEUE;
       self.render();
       // Start ringback (visitor-side on-hold audio).
@@ -787,6 +816,7 @@
       if (typeof r.body.eta_seconds === 'number') self.queueEta = r.body.eta_seconds;
       if (['cancelled', 'ended', 'missed', 'failed'].indexOf(c.state) >= 0) {
         self.stopPolling(); self.stopTimer(); try { Ringback.stop(); } catch (_) {}
+        self.clearActiveSession();
         self.state = STATES.ENDED; self.render(); return;
       }
       if (['active', 'ringing', 'connecting'].indexOf(c.state) >= 0) {
@@ -1012,6 +1042,7 @@
     if (!ac || !ac.call_id) return;
     if (ac.session) this.session = ac.session;
     this.callId = ac.call_id;
+    this.persistActiveSession();
     this.formData.call_type = (ac.call_type === 'video') ? 'video' : 'voice';
     var startedAt = null;
     if (ac.created_at) {
@@ -1061,6 +1092,7 @@
   CallCenterWidgetCtor.prototype.reset = function () {
     this.disconnectRoom();
     try { Ringback.stop(); } catch (_) {}
+    this.clearActiveSession();
     this.callId = null; this.call = null; this.queueStartedAt = null;
     this.queuePosition = null; this.queueEta = null;
     this.connectStatus = null; this.joinInfo = null; this.error = null;

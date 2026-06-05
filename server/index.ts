@@ -179,6 +179,7 @@ const PUBLIC_WIDGET_REALTIME_PATHS = new Set([
 app.use((req, res, next) => {
   if (
     req.path.startsWith('/api/widget') ||
+    req.path.startsWith('/api/call-widget') ||
     req.path.startsWith('/api/visitors') ||
     PUBLIC_WIDGET_REALTIME_PATHS.has(req.path)
   ) {

@@ -606,6 +606,18 @@
     return p === 'left' ? 'left' : 'right';
   };
 
+  CallCenterWidgetCtor.prototype.persistActiveSession = function () {
+    if (!this.activeSessionKey || !this.session || !this.callId) return;
+    try { window.sessionStorage.setItem(this.activeSessionKey, this.session); } catch (_) {}
+    try { window.localStorage.setItem(this.activeSessionKey, this.session); } catch (_) {}
+  };
+
+  CallCenterWidgetCtor.prototype.clearActiveSession = function () {
+    if (!this.activeSessionKey) return;
+    try { window.sessionStorage.removeItem(this.activeSessionKey); } catch (_) {}
+    try { window.localStorage.removeItem(this.activeSessionKey); } catch (_) {}
+  };
+
   CallCenterWidgetCtor.prototype.api = function (path, opts) {
     opts = opts || {};
     var headers = { 'Content-Type': 'application/json' };

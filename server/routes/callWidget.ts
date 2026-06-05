@@ -424,17 +424,23 @@ async function buildActiveCallPayload(
 ): Promise<{ call_id: string; state: string; call_type: string; created_at: string | null; queue_position: number | null; session: string } | null> {
   const sbActive = getServiceClient(config);
   let mine: any = null;
+  const headerSession = verifyWidgetSession(config, String(req.headers['x-cc-active-call'] || ''));
+  const headerCallId = headerSession?.workspace_id === ws.workspace_id && headerSession.call_id && (!headerSession.origin || !origin || headerSession.origin === origin)
+    ? headerSession.call_id
+    : null;
   const cookieCall = readActiveCallCookie(config, req, ws.workspace_id, origin);
-  if (cookieCall?.callId) {
+  const preferredCallIds = [headerCallId, cookieCall?.callId].filter(Boolean) as string[];
+  for (const preferredCallId of preferredCallIds) {
     const { data } = await sbActive
       .from('call_sessions')
       .select('id,state,call_type,created_at,metadata')
       .eq('workspace_id', ws.workspace_id)
       .eq('entry_source', 'call_widget')
-      .eq('id', cookieCall.callId)
+      .eq('id', preferredCallId)
       .maybeSingle();
     if (data && ACTIVE_CALL_STATES.includes(String((data as any).state || ''))) {
       mine = data;
+      break;
     } else if (data && TERMINAL_CALL_STATES.includes(String((data as any).state || ''))) {
       clearActiveCallCookie(res, req);
     }

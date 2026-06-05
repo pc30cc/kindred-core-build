@@ -590,6 +590,8 @@
     }
     this.state = (this.isOnline() ? STATES.ONLINE : STATES.OFFLINE);
     this.render();
+    // Resume any in-flight call across refresh / navigation.
+    try { this.resumeActiveCall(); } catch (_) {}
   };
 
   CallCenterWidgetCtor.prototype.isOnline = function () {

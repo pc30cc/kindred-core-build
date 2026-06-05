@@ -28,14 +28,19 @@
   }
 
   var apiBase = (s.getAttribute('api-base') || origin).replace(/\/$/, '');
+  var activeSessionKey = 'ccw_active_call_session:' + (workspaceId || publicKey || 'default') + ':' + apiBase;
+  var activeSession = null;
+  try { activeSession = window.sessionStorage.getItem(activeSessionKey) || window.localStorage.getItem(activeSessionKey); } catch (_) {}
 
   var qs = workspaceId
     ? 'workspaceId=' + encodeURIComponent(workspaceId)
     : 'publicKey=' + encodeURIComponent(publicKey);
 
+  var bootstrapHeaders = { 'Accept': 'application/json' };
+  if (activeSession) bootstrapHeaders['x-cc-active-call'] = activeSession;
   fetch(apiBase + '/api/call-widget/bootstrap?' + qs, {
     credentials: 'include',
-    headers: { 'Accept': 'application/json' },
+    headers: bootstrapHeaders,
   })
     .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, body: j }; }); })
     .then(function (resp) {
@@ -76,6 +81,7 @@
               origin: origin,
               assetsVersion: versionToken,
               runtimeAssetSuffix: bust,
+              activeSessionKey: activeSessionKey,
               bootstrap: bootstrap,
             });
           }

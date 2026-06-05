@@ -473,6 +473,12 @@
         lastCfg = cfg || lastCfg || {};
         unlock();
         this.start(lastCfg);
+        // After refresh/navigation the first user tap must unlock the actual
+        // uploaded queue-position announcement too, not only the background
+        // hold music. Play it immediately while the gesture is still active.
+        if (active && phase === 'hold' && !muted) {
+          try { speakAnnounce(true); } catch (_) {}
+        }
       },
       needsGesture: function () { return !!needsGesture; },
       isActive: function () { return active; },

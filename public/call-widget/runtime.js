@@ -1113,7 +1113,24 @@
         });
       }).then(function () {
         if (wantVideo) {
-          return room.localParticipant.setCameraEnabled(true).catch(function (err) {
+          return room.localParticipant.setCameraEnabled(true).then(function (pub) {
+            try {
+              var track = pub && pub.track;
+              if (!track) {
+                var lpubs = room.localParticipant.videoTrackPublications || room.localParticipant.videoTracks;
+                lpubs && lpubs.forEach && lpubs.forEach(function (p) { if (p && p.track && !track) track = p.track; });
+              }
+              if (track) {
+                if (self._localVideoEl) { try { self._localVideoEl.remove(); } catch(_) {} }
+                var lv = track.attach();
+                lv.autoplay = true; lv.playsInline = true; lv.muted = true;
+                lv.setAttribute('data-local-video', 'true');
+                self._localVideoEl = lv;
+                self._localVideoTrack = track;
+                self.render();
+              }
+            } catch (_) {}
+          }).catch(function (err) {
             self.connectStatus = 'camera_permission_denied';
             self.error = sanitize(String(err && err.message || err));
             self.render();

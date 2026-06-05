@@ -41,7 +41,7 @@ export function FloatingOperatorCallWindow() {
     const memberMap = new Map((members.data || []).map((m) => [m.user_id, m]));
     return rows
       .filter((p) => p.user_id !== user?.id)
-      .filter((p) => p.status === 'available' || p.status === 'online' || p.status === 'on_break')
+      .filter((p) => p.status === 'available')
       .map((p) => ({
         user_id: p.user_id,
         name: memberMap.get(p.user_id)?.full_name || memberMap.get(p.user_id)?.email || p.user_id.slice(0, 8),

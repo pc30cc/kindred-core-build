@@ -250,11 +250,31 @@
   background: hsl(222 47% 5%);
   box-shadow: 0 12px 28px hsl(var(--ccw-shadow) / .25);
   object-fit: cover;
-  /* Match the chat-widget call stage: un-mirror the operator's camera
-     so text/logos in the operator's environment read correctly. */
-  transform: scaleX(-1);
+  /* Remote (operator) video is shown un-mirrored so text/logos in their
+     environment read correctly. The visitor's own self-view PiP below
+     is mirrored separately. */
+  transform: none;
 }
 .ccw-card.ccw-incall.video .ccw-media { position: relative; }
+/* Visitor self-view (small PiP in top-right of the video tile) */
+.ccw-local-pip {
+  position: absolute; top: 10px; right: 10px;
+  width: 96px; height: 72px;
+  border-radius: 10px; overflow: hidden;
+  background: hsl(222 47% 5%);
+  border: 2px solid hsl(0 0% 100% / .85);
+  box-shadow: 0 6px 14px hsl(0 0% 0% / .45);
+  z-index: 3;
+}
+.ccw-local-pip video {
+  width: 100%; height: 100%; object-fit: cover;
+  /* Mirror the local self-view — natural "mirror" feel. */
+  transform: scaleX(-1);
+  display: block;
+}
+@media (max-width: 480px) {
+  .ccw-local-pip { width: 84px; height: 64px; top: 8px; right: 8px; }
+}
 .ccw-video-overlay {
   position: absolute; left: 10px; right: 10px; bottom: 10px;
   display: flex; align-items: center; justify-content: space-between; gap: 10px;

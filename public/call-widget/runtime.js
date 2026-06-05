@@ -877,6 +877,23 @@
     if (this.callTimer) { try { clearInterval(this.callTimer); } catch (_) {} this.callTimer = null; }
   };
 
+  CallCenterWidgetCtor.prototype.submitRating = function () {
+    var self = this;
+    if (!self.endedCallId || !self.ratingValue) return;
+    var id = self.endedCallId;
+    self.api('/api/call-widget/calls/' + id + '/rate', {
+      method: 'POST',
+      body: { rating: self.ratingValue, comment: self.ratingComment || null },
+    }).then(function () {
+      self.ratingSubmitted = true;
+      self.render();
+    }).catch(function () {
+      // Even on failure, treat as submitted so the visitor isn't stuck.
+      self.ratingSubmitted = true;
+      self.render();
+    });
+  };
+
   CallCenterWidgetCtor.prototype.startPolling = function () {
     var self = this;
     this.stopPolling();

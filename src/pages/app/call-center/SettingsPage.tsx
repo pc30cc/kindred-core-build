@@ -81,7 +81,7 @@ export default function CallCenterSettingsPage() {
       'pre_call_form_enabled', 'offline_behavior', 'recording_enabled',
       'recording_consent_required', 'routing_mode', 'widget_position',
       'default_department_id', 'widget_default_locale', 'widget_enabled_locales',
-      'widget_custom_texts',
+      'widget_custom_texts', 'operator_video_visible_to_visitor',
     ];
     return keys.some((k) => JSON.stringify(s[k]) !== JSON.stringify(original[k]));
   }, [s, original]);
@@ -108,6 +108,7 @@ export default function CallCenterSettingsPage() {
       widget_default_locale: s.widget_default_locale ?? null,
       widget_enabled_locales: s.widget_enabled_locales ?? null,
       widget_custom_texts: s.widget_custom_texts ?? {},
+      operator_video_visible_to_visitor: s.operator_video_visible_to_visitor !== false,
     });
     setOriginal({ ...s });
     toast({ title: 'Saved' });
@@ -282,6 +283,17 @@ export default function CallCenterSettingsPage() {
         )}
         <Row label="Pre-call form" hint="Ask visitors for name/email/subject before connecting.">
           <Switch checked={!!s.pre_call_form_enabled} onCheckedChange={(v) => setS({ ...s, pre_call_form_enabled: v })} />
+        </Row>
+        <Row
+          label="Visitor sees operator video"
+          hint="When off, the operator's camera is hidden from the visitor during video calls (audio still works). On by default."
+          locked={!platformVideo ? 'Video disabled by platform' : undefined}
+        >
+          <Switch
+            checked={s.operator_video_visible_to_visitor !== false}
+            disabled={!platformVideo}
+            onCheckedChange={(v) => setS({ ...s, operator_video_visible_to_visitor: v })}
+          />
         </Row>
       </Section>
 

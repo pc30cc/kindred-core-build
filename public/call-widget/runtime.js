@@ -1478,7 +1478,7 @@
           ]),
           el('div', { class: 'ccw-wait-wrap' }, [
             el('span', { class: 'ccw-wait-label' }, [tr('waiting_time')]),
-            el('div', { class: 'ccw-wait-timer', html: '0:00' }),
+            el('div', { class: 'ccw-wait-timer', html: fmtTime(self.queueStartedAt ? (Date.now() - self.queueStartedAt) : 0) }),
             el('button', {
               class: 'ccw-sound-toggle' + ((Ringback.isMuted && Ringback.isMuted()) || (Ringback.needsGesture && Ringback.needsGesture()) ? ' muted' : ''),
               type: 'button',
@@ -1500,6 +1500,11 @@
             }, [(Ringback.isMuted && Ringback.isMuted()) || (Ringback.needsGesture && Ringback.needsGesture()) ? '🔇' : '🔊']),
           ]),
         ]);
+        // Gesture-required hint label (rendered separately below the toggle so
+        // the visitor clearly sees a call-to-action under the muted speaker).
+        if (Ringback.needsGesture && Ringback.needsGesture()) {
+          card.appendChild(el('div', { class: 'ccw-tap-hint' }, [tr('tap_to_hear')]));
+        }
         if (Ringback.needsGesture && Ringback.needsGesture()) {
           // Audio is locked by browser autoplay policy — show the same
           // small toggle styling but in "unlock" affordance. Visitor taps

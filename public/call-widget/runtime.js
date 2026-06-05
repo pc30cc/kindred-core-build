@@ -41,7 +41,17 @@
       callback_scheduled: 'Callback scheduled', reach_out: 'Our team will reach out {when}.', asap: 'as soon as possible', video_callback: 'Video callback', phone_callback: 'Phone callback', reference: 'Reference', type: 'Type', done: 'Done', call_ended: 'Call ended.', error_prefix: 'Error: {error}', unknown: 'unknown', back: 'Back',
       request_callback_title: 'Request a callback', callback_intro: 'Tell us how to reach you — our team calls back fast.', callback_type: 'Callback type', phone: '🎙 Phone', video: '🎥 Video', department: 'Department', choose_department: 'Choose a department', known_contact: 'Known contact', contact_saved: 'Contact details already saved', subject: 'Subject', full_name: 'Full name', email: 'Email', email_required: 'Email *', phone_field: 'Phone', phone_required: 'Phone *', contact_required_note: '* Email or phone is required so we can reach you.', message_min: 'Message (min {n} chars)', message_optional: 'Message (optional)', message_placeholder: 'Briefly describe what you need help with…', when_call: 'When should we call?', schedule: '🗓 Schedule', priority: 'Priority', normal: 'Normal', urgent: '🔥 Urgent', consent_required: ' I consent to this call being recorded for quality and security. (required)', call_may_record: 'This call may be recorded for quality and security.', start_call: 'Start call', send_request: 'Send request',
       err_recording_required: 'Recording consent is required to continue.', err_recording_accept: 'Please accept the recording consent to start the call.', err_department: 'This department is not available for this call type. Please choose another department.', err_failed_start: 'Failed to start call.', err_wait_seconds: 'Please wait {n}s before sending another request.', err_contact_required: 'Please provide your email or phone so we can reach you.', err_message_short: 'Please describe your request in at least {n} characters.', err_future_time: 'Please pick a valid future time.', err_too_fast: 'That was too fast. Please take a moment to fill in the form.', err_cooldown: 'You already requested a callback. Please wait {n}s before sending another.', err_rate_limited: 'Too many callback requests from your network. Please try again later.', err_callback_unavailable: 'Callback requests are currently unavailable.', err_failed: 'Failed.',
-      queue_wait_announce: 'You are in the waiting queue. Please wait, we will connect you shortly.'
+      queue_wait_announce: 'You are in the waiting queue. Please wait, we will connect you shortly.',
+      tap_to_hear: 'Tap to enable sound',
+      operator_label: 'Operator',
+      call_duration: 'Duration',
+      transferring_call: 'Transferring to another operator…',
+      rate_call_title: 'How was your call?',
+      rate_call_sub: 'Your feedback helps our team improve.',
+      rate_comment_ph: 'Add a comment (optional)',
+      rate_submit: 'Submit rating',
+      rate_skip: 'Skip',
+      rate_thanks: 'Thank you for your feedback!'
     },
     fa: {
       talk_now: 'همین حالا تماس بگیرید', callback: 'درخواست تماس', live_support: 'پشتیبانی آنلاین', leave_details: 'ثبت اطلاعات', support: 'پشتیبانی',
@@ -58,7 +68,17 @@
       callback_scheduled: 'درخواست تماس ثبت شد', reach_out: 'تیم ما {when} با شما تماس می‌گیرد.', asap: 'در اولین فرصت', video_callback: 'تماس تصویری', phone_callback: 'تماس تلفنی', reference: 'کد پیگیری', type: 'نوع', done: 'تمام', call_ended: 'تماس پایان یافت.', error_prefix: 'خطا: {error}', unknown: 'نامشخص', back: 'بازگشت',
       request_callback_title: 'درخواست تماس', callback_intro: 'راه ارتباطی را وارد کنید — تیم ما سریع تماس می‌گیرد.', callback_type: 'نوع تماس', phone: '🎙 تلفنی', video: '🎥 تصویری', department: 'دپارتمان', choose_department: 'یک دپارتمان انتخاب کنید', known_contact: 'مخاطب شناخته‌شده', contact_saved: 'اطلاعات تماس قبلاً ذخیره شده است', subject: 'موضوع', full_name: 'نام کامل', email: 'ایمیل', email_required: 'ایمیل *', phone_field: 'تلفن', phone_required: 'تلفن *', contact_required_note: '* ایمیل یا تلفن برای تماس با شما الزامی است.', message_min: 'پیام (حداقل {n} کاراکتر)', message_optional: 'پیام (اختیاری)', message_placeholder: 'کوتاه توضیح دهید چه کمکی نیاز دارید…', when_call: 'چه زمانی تماس بگیریم؟', schedule: '🗓 زمان‌بندی', priority: 'اولویت', normal: 'عادی', urgent: '🔥 فوری', consent_required: ' رضایت می‌دهم این تماس برای کیفیت و امنیت ضبط شود. (الزامی)', call_may_record: 'ممکن است این تماس برای کیفیت و امنیت ضبط شود.', start_call: 'شروع تماس', send_request: 'ارسال درخواست',
       err_recording_required: 'برای ادامه، رضایت ضبط تماس الزامی است.', err_recording_accept: 'برای شروع تماس لطفاً رضایت ضبط را تأیید کنید.', err_department: 'این دپارتمان برای این نوع تماس در دسترس نیست. لطفاً دپارتمان دیگری انتخاب کنید.', err_failed_start: 'شروع تماس ناموفق بود.', err_wait_seconds: 'لطفاً {n} ثانیه قبل از ارسال درخواست بعدی صبر کنید.', err_contact_required: 'لطفاً ایمیل یا تلفن خود را وارد کنید تا بتوانیم با شما تماس بگیریم.', err_message_short: 'لطفاً درخواست خود را حداقل در {n} کاراکتر توضیح دهید.', err_future_time: 'لطفاً یک زمان معتبر در آینده انتخاب کنید.', err_too_fast: 'خیلی سریع بود. لطفاً کمی برای تکمیل فرم زمان بگذارید.', err_cooldown: 'قبلاً درخواست تماس ثبت کرده‌اید. لطفاً {n} ثانیه صبر کنید.', err_rate_limited: 'درخواست‌های زیادی از شبکه شما ارسال شده است. بعداً دوباره تلاش کنید.', err_callback_unavailable: 'درخواست تماس در حال حاضر در دسترس نیست.', err_failed: 'ناموفق بود.',
-      queue_wait_announce: 'شما در صف انتظار هستید. لطفاً صبر کنید، به‌زودی شما را به اپراتور متصل می‌کنیم.'
+      queue_wait_announce: 'شما در صف انتظار هستید. لطفاً صبر کنید، به‌زودی شما را به اپراتور متصل می‌کنیم.',
+      tap_to_hear: 'برای شنیدن صدا کلیک کنید',
+      operator_label: 'اپراتور',
+      call_duration: 'مدت مکالمه',
+      transferring_call: 'در حال انتقال به اپراتور دیگر…',
+      rate_call_title: 'تماس چطور بود؟',
+      rate_call_sub: 'نظر شما به بهبود تیم ما کمک می‌کند.',
+      rate_comment_ph: 'افزودن نظر (اختیاری)',
+      rate_submit: 'ثبت امتیاز',
+      rate_skip: 'رد کردن',
+      rate_thanks: 'از بازخورد شما متشکریم!'
     },
     tr: {
       talk_now: 'Şimdi konuş', callback: 'Geri arama', live_support: 'Canlı destek', leave_details: 'Bilgilerini bırak', support: 'Destek',

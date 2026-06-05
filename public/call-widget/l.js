@@ -30,7 +30,7 @@
   var apiBase = (s.getAttribute('api-base') || origin).replace(/\/$/, '');
   var activeSessionKey = 'ccw_active_call_session:' + (workspaceId || publicKey || 'default') + ':' + apiBase;
   var activeSession = null;
-  try { activeSession = window.sessionStorage.getItem(activeSessionKey) || window.localStorage.getItem(activeSessionKey); } catch (_) {}
+  try { activeSession = window.sessionStorage.getItem(activeSessionKey); } catch (_) {}
 
   var qs = workspaceId
     ? 'workspaceId=' + encodeURIComponent(workspaceId)

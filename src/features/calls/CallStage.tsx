@@ -201,7 +201,7 @@ export function VideoCallStage({ remote, size = 'small' }: VideoStageProps) {
             muted
             aria-hidden="true"
             className="pointer-events-none absolute inset-0 h-full w-full object-cover scale-110 blur-2xl opacity-50"
-            style={{ transform: 'scaleX(-1) scale(1.1)' }}
+            style={{ transform: 'scale(1.1)' }}
           />
           <video
             ref={(el) => {
@@ -219,7 +219,7 @@ export function VideoCallStage({ remote, size = 'small' }: VideoStageProps) {
             data-remote-video
             data-call-video-role="operator-remote"
             data-orientation-correction={CALL_VIDEO_ORIENTATION_CORRECTION_MODE}
-            style={CALL_VIDEO_STYLE}
+            style={{ transform: 'none', scale: 1, rotate: '0deg' }}
             onLoadedMetadata={(e) => applyVideoOrientationClass(e.currentTarget, 'operator-remote', 'call-video')}
             onResize={(e) => applyVideoOrientationClass(e.currentTarget, 'operator-remote', 'call-video')}
           />

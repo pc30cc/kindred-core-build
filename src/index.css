@@ -441,13 +441,16 @@ html[lang="en"] * {
    both local and remote streams are flipped once so camera output is
    displayed in the expected direction across visitor/operator surfaces.
    ───────────────────────────────────────────────────────────────────── */
+/* Remote stream (the other person) is shown un-mirrored so the visitor's
+   real face/orientation is preserved on the operator's screen. */
 .call-video-remote,
 [data-remote-video],
 [data-remote-video] video {
-  transform: scaleX(-1) !important;
+  transform: none !important;
   scale: 1 !important;
   rotate: 0deg !important;
 }
+/* Local self-view is mirrored only for natural "mirror" feel. */
 .call-video-local,
 [data-local-video],
 [data-local-video] video {

@@ -1050,12 +1050,13 @@ callWidgetRouter.get('/calls/:id/status', async (req, res) => {
   if (agentId) {
     try {
       const { data: prof } = await sb.from('profiles')
-        .select('full_name,display_name,first_name')
+        .select('full_name,email')
         .eq('id', agentId).maybeSingle();
       if (prof) {
-        operator_name = (prof as any).display_name
-          || (prof as any).full_name
-          || (prof as any).first_name
+        const fn = (prof as any).full_name as string | null;
+        const em = (prof as any).email as string | null;
+        operator_name = (fn && fn.trim())
+          || (em ? em.split('@')[0] : null)
           || null;
       }
     } catch {/* ignore */}

@@ -1296,3 +1296,33 @@ callWidgetRouter.post('/callbacks/request', async (req, res) => {
   await publishQueueEvent(config, ws.workspace_id, 'callback_requested', { callback_id: data!.id });
   res.json({ ok: true, callback_id: data!.id });
 });
+
+// ── Post-call rating submitted by the visitor (1–5 stars + optional comment)
+const ratingSchema = z.object({
+  rating: z.number().int().min(1).max(5),
+  comment: z.string().max(1000).optional().nullable(),
+});
+callWidgetRouter.post('/calls/:id/rate', async (req, res) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const guard = requireWidgetSession(req, config);
+  if (!guard.ok) return res.status(guard.status).json({ error: guard.error });
+  const session = guard.session;
+  if (session.call_id !== req.params.id) return res.status(403).json({ error: 'forbidden' });
+  const parsed = ratingSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_body' });
+  const sb = getServiceClient(config);
+  const { data: call } = await sb.from('call_sessions')
+    .select('id,workspace_id,state').eq('id', req.params.id).maybeSingle();
+  if (!call) return res.status(404).json({ error: 'not_found' });
+  try {
+    await sb.from('call_ratings').upsert({
+      call_session_id: req.params.id,
+      workspace_id: (call as any).workspace_id,
+      rating: parsed.data.rating,
+      comment: parsed.data.comment || null,
+    }, { onConflict: 'call_session_id' });
+    res.json({ ok: true });
+  } catch (e: any) {
+    res.status(500).json({ error: 'rating_failed', message: String(e?.message || e) });
+  }
+});

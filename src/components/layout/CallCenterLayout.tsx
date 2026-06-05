@@ -44,7 +44,13 @@ export function CallCenterLayout() {
   const { data: caps } = useCallCenterCapabilities(workspace?.id);
   const { data: overview } = useCallCenterOverview(workspace?.id);
   const qc = useQueryClient();
-  const callbackOn = caps?.platform_callback_enabled !== false;
+  // Hide the Callbacks tab until capabilities are loaded — prevents the
+  // tab from flashing on refresh when it has been disabled. Require BOTH
+  // platform-level and workspace-level callback flags.
+  const callbackOn =
+    !!caps &&
+    caps.platform_callback_enabled !== false &&
+    caps.effective?.callback_enabled !== false;
   const tabs = ALL_TABS.filter((t) => !t.requiresCallback || callbackOn);
 
   const { data: agentStatus } = useQuery({

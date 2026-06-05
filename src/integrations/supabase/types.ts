@@ -3013,6 +3013,7 @@ export type Database = {
           enabled: boolean
           id: string
           offline_behavior: string
+          operator_video_visible_to_visitor: boolean
           pre_call_form_enabled: boolean
           pre_call_form_schema: Json
           public_key: string | null
@@ -3043,6 +3044,7 @@ export type Database = {
           enabled?: boolean
           id?: string
           offline_behavior?: string
+          operator_video_visible_to_visitor?: boolean
           pre_call_form_enabled?: boolean
           pre_call_form_schema?: Json
           public_key?: string | null
@@ -3073,6 +3075,7 @@ export type Database = {
           enabled?: boolean
           id?: string
           offline_behavior?: string
+          operator_video_visible_to_visitor?: boolean
           pre_call_form_enabled?: boolean
           pre_call_form_schema?: Json
           public_key?: string | null

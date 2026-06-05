@@ -220,6 +220,7 @@
 .ccw-wave .b5 { animation-delay: .48s; }
 .ccw-wave .b6 { animation-delay: .60s; }
 .ccw-wave .b7 { animation-delay: .72s; }
+.ccw-wave.live span { animation: none; transition: transform .08s linear; }
 @keyframes ccw-wave {
   0%, 100% { transform: scaleY(.30); opacity: .65; }
   50% { transform: scaleY(1.0); opacity: 1; }
@@ -239,6 +240,26 @@
   animation: ccw-spin 1s linear infinite;
 }
 .ccw-transfer-text { font-size: 13px; font-weight: 700; color: hsl(var(--ccw-warm)); }
+
+/* ── Video-call layout (no big icon, no fake waveform) ──────────── */
+.ccw-card.ccw-incall.video .ccw-media { margin-top: 12px; }
+.ccw-card.ccw-incall.video .ccw-media video {
+  width: 100%;
+  max-height: 360px;
+  border-radius: 14px;
+  background: hsl(222 47% 5%);
+  box-shadow: 0 12px 28px hsl(var(--ccw-shadow) / .25);
+  object-fit: cover;
+}
+.ccw-video-meta {
+  margin-top: 12px;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 8px 12px; border-radius: 12px;
+  background: linear-gradient(135deg, hsl(var(--ccw-primary) / .10), hsl(var(--ccw-accent) / .10));
+  border: 1px solid hsl(var(--ccw-line));
+}
+.ccw-video-op-name { font-size: 14px; font-weight: 800; color: hsl(var(--ccw-ink)); }
+.ccw-video-duration { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 800; color: hsl(var(--ccw-primary-deep)); font-variant-numeric: tabular-nums; }
 
 /* ── Ended + Rating ─────────────────────────────────────────────── */
 .ccw-ended-card { text-align: center; padding: 18px; }

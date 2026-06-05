@@ -1652,12 +1652,20 @@
         if (status === 'room_connect_failed') msg = tr('room_failed', { error: self.error || tr('unknown') });
         if (status === 'token_expired') msg = tr('token_expired');
         var isLive = (status === 'in_call' || status === 'operator_connected');
-        var card = el('div', { class: 'ccw-card ccw-incall' + (isLive ? ' live' : '') + (self.transferring ? ' transferring' : '') }, [
+        var isVideoCall = (self.call && self.call.call_type === 'video') || self.formData.call_type === 'video';
+        var card = el('div', { class: 'ccw-card ccw-incall' + (isLive ? ' live' : '') + (self.transferring ? ' transferring' : '') + (isVideoCall ? ' video' : '') }, [
           el('div', { class: 'ccw-pill' }, [isLive ? tr('in_call') : status === 'waiting_for_operator' ? tr('connected_waiting') : tr('connecting')]),
           el('div', { class: 'ccw-label' }, [self.transferring ? tr('transferring_call') : msg]),
         ]);
-        // Beautiful "connected" hero: pulsing avatar + audio wave bars
-        if (isLive && !self.transferring) {
+        // Beautiful "connected" hero — voice only. Video calls show the
+        // video stream as the centerpiece with an overlay instead.
+        if (isLive && !self.transferring && !isVideoCall) {
+          var waveBars = [];
+          for (var _wi = 1; _wi <= 7; _wi++) {
+            waveBars.push(el('span', { class: 'b' + _wi }));
+          }
+          self._waveBars = waveBars;
+          var waveEl = el('div', { class: 'ccw-wave live' }, waveBars);
           card.appendChild(el('div', { class: 'ccw-live-hero' }, [
             el('div', { class: 'ccw-live-avatar' }, [
               el('span', { class: 'ccw-live-pulse p1' }),
@@ -1672,18 +1680,21 @@
                 el('span', { class: 'ccw-live-duration-label' }, [tr('call_duration')]),
                 el('span', { class: 'ccw-call-duration-value' }, [fmtTime(self.callStartedAt ? (Date.now() - self.callStartedAt) : 0)]),
               ]),
-              el('div', { class: 'ccw-wave' }, [
-                el('span', { class: 'b1' }), el('span', { class: 'b2' }),
-                el('span', { class: 'b3' }), el('span', { class: 'b4' }),
-                el('span', { class: 'b5' }), el('span', { class: 'b6' }),
-                el('span', { class: 'b7' }),
-              ]),
+              waveEl,
             ]),
           ]));
         } else if (self.transferring) {
           card.appendChild(el('div', { class: 'ccw-transfer-hero' }, [
             el('span', { class: 'ccw-transfer-spinner' }),
             el('div', { class: 'ccw-transfer-text' }, [tr('transferring_call')]),
+          ]));
+        } else if (isLive && isVideoCall) {
+          // Minimal meta strip above the video tile
+          card.appendChild(el('div', { class: 'ccw-video-meta' }, [
+            self.operatorName ? el('div', { class: 'ccw-video-op-name' }, [self.operatorName]) : null,
+            el('div', { class: 'ccw-video-duration' }, [
+              el('span', { class: 'ccw-call-duration-value' }, [fmtTime(self.callStartedAt ? (Date.now() - self.callStartedAt) : 0)]),
+            ]),
           ]));
         }
         // Recording indicator (passive). Backend status drives this; never trust client.

@@ -134,7 +134,21 @@
 .ccw-progress-bar { height: 4px; border-radius: 999px; background: hsl(0 0% 100% / .18); overflow: hidden; }
 .ccw-progress-bar::after { content: ""; display: block; height: 100%; width: 100%; border-radius: inherit; background: linear-gradient(90deg, hsl(var(--ccw-accent)), hsl(var(--ccw-warm))); transform: translateX(-110%); animation: ccw-bar 1.8s ease-in-out infinite; }
 .ccw-progress-bar.b2::after { animation-delay: .16s; } .ccw-progress-bar.b3::after { animation-delay: .32s; } .ccw-progress-bar.b4::after { animation-delay: .48s; } .ccw-progress-bar.b5::after { animation-delay: .64s; }
-.ccw-wait-wrap { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border-radius: 14px; background: hsl(0 0% 100% / .10); border: 1px solid hsl(0 0% 100% / .14); }
+.ccw-wait-wrap { position: relative; z-index: 1; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: 14px; background: hsl(0 0% 100% / .10); border: 1px solid hsl(0 0% 100% / .14); }
+.ccw-wait-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; }
+.ccw-wait-hint {
+  width: 100%;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 800;
+  color: hsl(48 100% 88%);
+  background: hsl(0 0% 0% / .28);
+  border: 1px solid hsl(48 100% 75% / .45);
+  border-radius: 10px;
+  padding: 6px 8px;
+  letter-spacing: .1px;
+  animation: ccw-pulse 1.6s ease-in-out infinite;
+}
 .ccw-wait-label { color: hsl(210 40% 96% / .76); font-size: 11px; font-weight: 800; text-transform: uppercase; }
 .ccw-wait-timer { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 26px; font-weight: 900; color: hsl(0 0% 100%); }
 .ccw-audio-unlock { position: relative; z-index: 1; width: 100%; min-height: 40px; margin-top: 12px; border-radius: 12px; border: 1px solid hsl(var(--ccw-warm) / .40); background: hsl(var(--ccw-warm) / .16); color: hsl(38 92% 92%); font-family: inherit; font-size: 12px; font-weight: 850; cursor: pointer; }

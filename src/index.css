@@ -452,7 +452,7 @@ html[lang="en"] * {
 .call-video-local,
 [data-local-video],
 [data-local-video] video {
-  transform: scaleX(-1) !important;
+  transform: none !important;
   scale: 1 !important;
   rotate: 0deg !important;
 }

@@ -425,8 +425,8 @@ async function buildActiveCallPayload(
   const sbActive = getServiceClient(config);
   let mine: any = null;
   const headerSession = verifyWidgetSession(config, String(req.headers['x-cc-active-call'] || ''));
-  const headerCallId = headerSession?.workspace_id === ws.workspace_id && headerSession.call_id && (!headerSession.origin || !origin || headerSession.origin === origin)
-    ? headerSession.call_id
+  const headerCallId = headerSession && headerSession.workspace_id === ws.workspace_id && headerSession.call_id && (!headerSession.origin || !origin || headerSession.origin === origin)
+    ? String(headerSession.call_id)
     : null;
   const cookieCall = readActiveCallCookie(config, req, ws.workspace_id, origin);
   const preferredCallIds = [headerCallId, cookieCall?.callId].filter(Boolean) as string[];

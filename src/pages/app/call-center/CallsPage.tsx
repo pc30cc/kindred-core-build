@@ -102,6 +102,7 @@ export default function CallsPage() {
               <th className="text-start py-2 px-3">Type</th>
               <th className="text-start py-2 px-3">State</th>
               <th className="text-start py-2 px-3">Duration</th>
+              <th className="text-start py-2 px-3">Rating</th>
               <th className="text-start py-2 px-3">Page</th>
               <th className="text-start py-2 px-3">Created</th>
             </tr>
@@ -126,12 +127,22 @@ export default function CallsPage() {
                 </td>
                 <td className="py-2 px-3"><span className={cn('text-xs px-2 py-0.5 rounded-full', stateTone(c.state))}>{c.state}</span></td>
                 <td className="py-2 px-3">{fmtDuration(c.duration_seconds)}</td>
+                <td className="py-2 px-3">
+                  {(c as any).rating ? (
+                    <span className="inline-flex items-center gap-1 text-xs">
+                      <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
+                      {(c as any).rating.rating}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">—</span>
+                  )}
+                </td>
                 <td className="py-2 px-3 text-xs text-muted-foreground truncate max-w-[200px]">{c.page_title || c.page_url || '—'}</td>
                 <td className="py-2 px-3 text-xs text-muted-foreground">{new Date(c.created_at).toLocaleString()}</td>
               </tr>
               );
             })}
-            {filtered.length === 0 && (<tr><td colSpan={6} className="py-8 text-center text-sm text-muted-foreground">No calls match your filters.</td></tr>)}
+            {filtered.length === 0 && (<tr><td colSpan={7} className="py-8 text-center text-sm text-muted-foreground">No calls match your filters.</td></tr>)}
           </tbody>
         </table>
       </Card>

@@ -822,6 +822,8 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
       status: 'resumed',
       call_id: existingActiveCall.call_id,
       call_state: existingActiveCall.state,
+      call_type: existingActiveCall.call_type,
+      created_at: existingActiveCall.created_at,
       queue_position: existingActiveCall.queue_position,
       session: existingActiveCall.session,
       contact: identity.contact,

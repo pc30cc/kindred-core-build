@@ -1023,9 +1023,26 @@ callWidgetRouter.get('/calls/:id/status', async (req, res) => {
   if (session.call_id !== req.params.id) return res.status(403).json({ error: 'forbidden' });
   const sb = getServiceClient(config);
   const { data: call } = await sb.from('call_sessions')
-    .select('id,state,ended_at,end_reason,provider,provider_room_id,call_type,recording_enabled,recording_state')
+    .select('id,state,ended_at,end_reason,provider,provider_room_id,call_type,recording_enabled,recording_state,assigned_agent_id,started_at,duration_seconds')
     .eq('id', req.params.id).maybeSingle();
   if (!call) return res.status(404).json({ error: 'not_found' });
+  // Resolve operator display name for the visitor UI. Only the
+  // operator's first/display name is exposed — never email or role.
+  let operator_name: string | null = null;
+  const agentId = (call as any).assigned_agent_id as string | null;
+  if (agentId) {
+    try {
+      const { data: prof } = await sb.from('profiles')
+        .select('full_name,display_name,first_name')
+        .eq('id', agentId).maybeSingle();
+      if (prof) {
+        operator_name = (prof as any).display_name
+          || (prof as any).full_name
+          || (prof as any).first_name
+          || null;
+      }
+    } catch {/* ignore */}
+  }
   // Compute live queue position + ETA from the queue table, not from
   // call_sessions.state. Widget calls are created as `pending` while their
   // queue row is `queued/offered`, so gating this on call.state === `queued`
@@ -1055,7 +1072,7 @@ callWidgetRouter.get('/calls/:id/status', async (req, res) => {
       } catch { eta_seconds = position ? (position - 1) * 45 + 30 : null; }
     }
   }
-  res.json({ call, position, eta_seconds });
+  res.json({ call, position, eta_seconds, operator_name });
 });
 
 // ── Visitor join token (only after operator accepts) ──────────────────────

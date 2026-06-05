@@ -481,6 +481,7 @@
     this.origin = '';
     this.assetsVersion = '';
     this.runtimeAssetSuffix = '';
+    this.activeSessionKey = '';
     this.session = null;
     this.callId = null;
     this.call = null;
@@ -546,6 +547,7 @@
     this.origin = opts.origin;
     this.assetsVersion = opts.assetsVersion || (opts.bootstrap && opts.bootstrap.assets_version) || '';
     this.runtimeAssetSuffix = opts.runtimeAssetSuffix || (this.assetsVersion ? ('?v=' + encodeURIComponent(String(this.assetsVersion).slice(0, 16))) : '');
+    this.activeSessionKey = opts.activeSessionKey || '';
     this.bootstrap = opts.bootstrap;
     this.session = opts.bootstrap && opts.bootstrap.session;
     this.initLocale();
@@ -608,6 +610,12 @@
     opts = opts || {};
     var headers = { 'Content-Type': 'application/json' };
     if (this.session) headers['x-cc-session'] = this.session;
+    try {
+      if (this.activeSessionKey) {
+        var activeSession = window.sessionStorage.getItem(this.activeSessionKey) || window.localStorage.getItem(this.activeSessionKey);
+        if (activeSession) headers['x-cc-active-call'] = activeSession;
+      }
+    } catch (_) {}
     return fetch(this.apiBase + path, {
       method: opts.method || 'GET',
       headers: Object.assign(headers, opts.headers || {}),

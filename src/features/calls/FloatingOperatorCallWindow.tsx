@@ -337,6 +337,36 @@ export function FloatingOperatorCallWindow() {
               </SelectContent>
             </Select>
           )}
+          {!isRemoteEndedTerminal && surface.phase === 'connected' && callId && (
+            <Popover open={transferOpen} onOpenChange={setTransferOpen}>
+              <PopoverTrigger asChild>
+                <Button size="sm" variant="outline" className="h-12 w-12 rounded-full border-call-stage-foreground/20 bg-card/75 p-0 text-foreground shadow-elevated backdrop-blur-xl hover:bg-card" aria-label="Transfer call" title="Transfer call">
+                  <ArrowRightLeft className="h-5 w-5" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-72 p-2">
+                <div className="px-2 py-1 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Transfer to</div>
+                {availableTargets.length === 0 ? (
+                  <div className="px-2 py-3 text-sm text-muted-foreground">No available operators</div>
+                ) : (
+                  <div className="flex max-h-64 flex-col gap-1 overflow-auto py-1">
+                    {availableTargets.map((t) => (
+                      <button
+                        key={t.user_id}
+                        type="button"
+                        onClick={() => void doTransfer(t.user_id)}
+                        disabled={transferMut.isPending}
+                        className="flex items-center justify-between gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-muted disabled:opacity-50"
+                      >
+                        <span className="truncate font-medium">{t.name}</span>
+                        <span className="text-[10px] font-bold uppercase text-success">{t.status}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </PopoverContent>
+            </Popover>
+          )}
           <Button size="sm" variant="default" className="h-12 rounded-full bg-destructive px-6 text-destructive-foreground shadow-elevated hover:bg-destructive/90" onClick={stop(isRemoteEndedTerminal ? closeTerminal : hangup)} aria-label={isRemoteEndedTerminal ? safeT('inbox.callSurface.close', 'Close') : safeT('inbox.callSurface.hangup', 'End call')} title={isRemoteEndedTerminal ? safeT('inbox.callSurface.close', 'Close') : safeT('inbox.callSurface.hangup', 'End call')}>
             <PhoneOff className="h-5 w-5" />
             <span className="text-[13px] font-bold">{isRemoteEndedTerminal ? safeT('inbox.callSurface.close', 'Close') : safeT('inbox.callSurface.hangup', 'End')}</span>

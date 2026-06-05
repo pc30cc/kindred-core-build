@@ -549,6 +549,15 @@
     this.timer = null;
     this.poll = null;
     this.open = false;
+    this.operatorName = null;
+    this.callStartedAt = null;
+    this.callTimer = null;
+    this.transferring = false;
+    this.endedCallId = null;
+    this.endedDuration = 0;
+    this.ratingSubmitted = false;
+    this.ratingValue = 0;
+    this.ratingComment = '';
     this.formData = {
       name: '', email: '', phone: '', subject: '', message: '',
       call_type: 'voice', consent: false, department_id: '',

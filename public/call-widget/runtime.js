@@ -938,12 +938,18 @@
         self.render();
       }
       // Initialise call-duration timer the first time the server reports a started_at.
-      if (c.started_at && !self.callStartedAt) {
-        var ts = Date.parse(c.started_at);
+      // Initialise call-duration timer as soon as the call is connected.
+      // Prefer server `started_at`; fall back to "now" the first time we
+      // observe an active/ringing/connecting state so the visitor never
+      // sees a stuck 0:00 just because the DB column lags behind.
+      if (!self.callStartedAt) {
+        var ts = c.started_at ? Date.parse(c.started_at) : NaN;
         if (!isNaN(ts)) {
           self.callStartedAt = ts;
-          if (self.state === STATES.IN_CALL) self.startCallTimer();
+        } else if (['active', 'ringing', 'connecting'].indexOf(c.state) >= 0) {
+          self.callStartedAt = Date.now();
         }
+        if (self.callStartedAt && self.state === STATES.IN_CALL) self.startCallTimer();
       }
       if (['cancelled', 'ended', 'missed', 'failed'].indexOf(c.state) >= 0) {
         self.stopPolling(); self.stopTimer(); self.stopCallTimer();
@@ -1494,9 +1500,10 @@
             el('span', { class: 'ccw-progress-bar b5' }),
           ]),
           el('div', { class: 'ccw-wait-wrap' }, [
-            el('span', { class: 'ccw-wait-label' }, [tr('waiting_time')]),
-            el('div', { class: 'ccw-wait-timer', html: fmtTime(self.queueStartedAt ? (Date.now() - self.queueStartedAt) : 0) }),
-            el('button', {
+            el('div', { class: 'ccw-wait-row' }, [
+              el('span', { class: 'ccw-wait-label' }, [tr('waiting_time')]),
+              el('div', { class: 'ccw-wait-timer', html: fmtTime(self.queueStartedAt ? (Date.now() - self.queueStartedAt) : 0) }),
+              el('button', {
               class: 'ccw-sound-toggle' + ((Ringback.isMuted && Ringback.isMuted()) || (Ringback.needsGesture && Ringback.needsGesture()) ? ' muted' : ''),
               type: 'button',
               title: Ringback.isMuted && Ringback.isMuted() ? tr('unmute_sound') : tr('mute_sound'),
@@ -1514,14 +1521,13 @@
                 }
                 self.render();
               } },
-            }, [(Ringback.isMuted && Ringback.isMuted()) || (Ringback.needsGesture && Ringback.needsGesture()) ? '🔇' : '🔊']),
+              }, [(Ringback.isMuted && Ringback.isMuted()) || (Ringback.needsGesture && Ringback.needsGesture()) ? '🔇' : '🔊']),
+            ]),
+            (Ringback.needsGesture && Ringback.needsGesture())
+              ? el('div', { class: 'ccw-wait-hint' }, [tr('tap_to_hear')])
+              : null,
           ]),
         ]);
-        // Gesture-required hint label (rendered separately below the toggle so
-        // the visitor clearly sees a call-to-action under the muted speaker).
-        if (Ringback.needsGesture && Ringback.needsGesture()) {
-          card.appendChild(el('div', { class: 'ccw-tap-hint' }, [tr('tap_to_hear')]));
-        }
         if (Ringback.needsGesture && Ringback.needsGesture()) {
           // Audio is locked by browser autoplay policy — show the same
           // small toggle styling but in "unlock" affordance. Visitor taps

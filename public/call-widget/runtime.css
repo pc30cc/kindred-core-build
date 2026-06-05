@@ -154,6 +154,98 @@
 @keyframes ccw-phone-shake { 0%, 62%, 100% { transform: rotate(0deg); } 66% { transform: rotate(-8deg); } 70% { transform: rotate(8deg); } 74% { transform: rotate(-6deg); } 78% { transform: rotate(6deg); } }
 @keyframes ccw-bar { 0% { transform: translateX(-110%); } 45%, 100% { transform: translateX(110%); } }
 @keyframes ccw-sweep { 0%, 52% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+
+/* ── Tap-to-hear hint (queue) ───────────────────────────────────── */
+.ccw-tap-hint {
+  margin-top: 8px; text-align: center; font-size: 12px; font-weight: 700;
+  color: hsl(var(--ccw-primary-deep));
+  background: hsl(var(--ccw-primary) / .08);
+  border: 1px dashed hsl(var(--ccw-primary) / .45);
+  border-radius: 10px; padding: 8px 10px;
+  animation: ccw-pulse 1.6s ease-in-out infinite;
+}
+.ccw-sound-toggle.locked, .ccw-sound-toggle.muted {
+  animation: ccw-pulse 1.6s ease-in-out infinite;
+  box-shadow: 0 0 0 0 hsl(var(--ccw-primary) / .55);
+}
+
+/* ── In-call hero (operator + duration + waveform) ──────────────── */
+.ccw-card.ccw-incall { background: linear-gradient(160deg, hsl(0 0% 100%), hsl(var(--ccw-panel))); }
+.ccw-card.ccw-incall.live { border: 1px solid hsl(var(--ccw-accent) / .35); box-shadow: 0 8px 24px hsl(var(--ccw-accent) / .12); }
+.ccw-live-hero { display: grid; grid-template-columns: 92px 1fr; gap: 14px; align-items: center; margin-top: 12px; }
+.ccw-live-avatar { position: relative; width: 92px; height: 92px; display: grid; place-items: center; }
+.ccw-live-avatar .ccw-live-pulse {
+  position: absolute; inset: 0; border-radius: 999px;
+  border: 2px solid hsl(var(--ccw-accent) / .55);
+  animation: ccw-live-ring 2.4s ease-out infinite;
+}
+.ccw-live-avatar .ccw-live-pulse.p2 { animation-delay: .8s; }
+.ccw-live-avatar .ccw-live-pulse.p3 { animation-delay: 1.6s; }
+.ccw-live-core {
+  position: relative; z-index: 2; width: 64px; height: 64px; border-radius: 999px;
+  display: grid; place-items: center; font-size: 22px; font-weight: 900; color: hsl(0 0% 100%);
+  background: linear-gradient(135deg, hsl(var(--ccw-primary)) 0%, hsl(var(--ccw-accent)) 100%);
+  box-shadow: 0 8px 22px hsl(var(--ccw-primary) / .35);
+}
+.ccw-live-meta { min-width: 0; }
+.ccw-live-op-name { font-size: 16px; font-weight: 800; color: hsl(var(--ccw-ink)); line-height: 1.2; }
+.ccw-live-op-role { font-size: 11px; font-weight: 600; color: hsl(var(--ccw-muted)); margin-top: 2px; text-transform: uppercase; letter-spacing: .4px; }
+.ccw-live-duration { margin-top: 6px; display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: hsl(var(--ccw-primary) / .08); }
+.ccw-live-duration-label { font-size: 10px; font-weight: 700; color: hsl(var(--ccw-muted)); text-transform: uppercase; letter-spacing: .4px; }
+.ccw-call-duration-value { font-size: 13px; font-weight: 800; color: hsl(var(--ccw-primary-deep)); font-variant-numeric: tabular-nums; }
+.ccw-wave { display: inline-flex; gap: 3px; align-items: flex-end; height: 18px; margin-top: 8px; }
+.ccw-wave span {
+  display: inline-block; width: 3px; height: 100%; border-radius: 2px;
+  background: linear-gradient(180deg, hsl(var(--ccw-primary)), hsl(var(--ccw-accent)));
+  transform-origin: bottom; animation: ccw-wave 1.1s ease-in-out infinite;
+}
+.ccw-wave .b1 { animation-delay: 0s; }
+.ccw-wave .b2 { animation-delay: .12s; }
+.ccw-wave .b3 { animation-delay: .24s; }
+.ccw-wave .b4 { animation-delay: .36s; }
+.ccw-wave .b5 { animation-delay: .48s; }
+.ccw-wave .b6 { animation-delay: .60s; }
+.ccw-wave .b7 { animation-delay: .72s; }
+@keyframes ccw-wave {
+  0%, 100% { transform: scaleY(.30); opacity: .65; }
+  50% { transform: scaleY(1.0); opacity: 1; }
+}
+@keyframes ccw-live-ring {
+  0% { transform: scale(.55); opacity: .85; }
+  100% { transform: scale(1.18); opacity: 0; }
+}
+
+/* ── Transfer indicator ─────────────────────────────────────────── */
+.ccw-card.ccw-incall.transferring { border-color: hsl(var(--ccw-warm) / .55); background: hsl(var(--ccw-warm) / .06); }
+.ccw-transfer-hero { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+.ccw-transfer-spinner {
+  width: 28px; height: 28px; border-radius: 999px;
+  border: 3px solid hsl(var(--ccw-warm) / .25);
+  border-top-color: hsl(var(--ccw-warm));
+  animation: ccw-spin 1s linear infinite;
+}
+.ccw-transfer-text { font-size: 13px; font-weight: 700; color: hsl(var(--ccw-warm)); }
+
+/* ── Ended + Rating ─────────────────────────────────────────────── */
+.ccw-ended-card { text-align: center; padding: 18px; }
+.ccw-ended-icon { width: 48px; height: 48px; margin: 0 auto 8px; border-radius: 999px; background: hsl(var(--ccw-accent) / .15); color: hsl(var(--ccw-accent)); display: grid; place-items: center; font-size: 22px; font-weight: 900; }
+.ccw-ended-title { font-size: 15px; font-weight: 800; color: hsl(var(--ccw-ink)); }
+.ccw-ended-duration { margin-top: 8px; display: inline-flex; gap: 6px; align-items: center; font-size: 12px; color: hsl(var(--ccw-muted)); }
+.ccw-ended-duration strong { color: hsl(var(--ccw-primary-deep)); font-variant-numeric: tabular-nums; }
+
+.ccw-rate-box { padding: 14px; border-radius: 14px; background: hsl(var(--ccw-panel)); border: 1px solid hsl(var(--ccw-line)); }
+.ccw-rate-title { font-size: 14px; font-weight: 800; color: hsl(var(--ccw-ink)); text-align: center; }
+.ccw-rate-sub { font-size: 12px; color: hsl(var(--ccw-muted)); margin-top: 4px; text-align: center; }
+.ccw-rate-stars { display: flex; justify-content: center; gap: 6px; margin: 12px 0; }
+.ccw-star {
+  width: 38px; height: 38px; border-radius: 10px; border: 1px solid hsl(var(--ccw-line));
+  background: hsl(0 0% 100%); font-size: 22px; color: hsl(var(--ccw-line));
+  cursor: pointer; transition: transform .14s ease, color .14s ease, background .14s ease;
+}
+.ccw-star:hover { transform: translateY(-2px); }
+.ccw-star.filled { color: hsl(var(--ccw-warm)); background: hsl(var(--ccw-warm) / .12); border-color: hsl(var(--ccw-warm) / .55); }
+.ccw-rate-thanks { text-align: center; padding: 14px; font-weight: 700; color: hsl(var(--ccw-accent)); }
+
 @media (max-width: 480px) {
   .ccw-launcher { right: 14px; bottom: 14px; min-height: 54px; }
   .ccw-launcher.left { left: 14px; right: auto; }

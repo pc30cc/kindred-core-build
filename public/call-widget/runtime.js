@@ -863,6 +863,20 @@
     this._calloutShown = false;
   };
 
+  // ── In-call duration timer (visitor-side) ──────────────────────────
+  CallCenterWidgetCtor.prototype.startCallTimer = function () {
+    var self = this;
+    this.stopCallTimer();
+    this.callTimer = setInterval(function () {
+      if (!self.callStartedAt) return;
+      var el = self.root.querySelector('.ccw-call-duration-value');
+      if (el) el.textContent = fmtTime(Date.now() - self.callStartedAt);
+    }, 1000);
+  };
+  CallCenterWidgetCtor.prototype.stopCallTimer = function () {
+    if (this.callTimer) { try { clearInterval(this.callTimer); } catch (_) {} this.callTimer = null; }
+  };
+
   CallCenterWidgetCtor.prototype.startPolling = function () {
     var self = this;
     this.stopPolling();

@@ -992,24 +992,40 @@ callWidgetRouter.post('/calls/:id/cancel', async (req, res) => {
   if (session.call_id !== req.params.id) return res.status(403).json({ error: 'forbidden' });
   const sb = getServiceClient(config);
   // Preserve detailed reason in metadata; constraint allows only the four canonical end_reason values.
-  const { data: prev } = await sb.from('call_sessions').select('metadata').eq('id', req.params.id).maybeSingle();
+  const { data: prev } = await sb.from('call_sessions')
+    .select('metadata, connected_at, started_at, created_at, state')
+    .eq('id', req.params.id).maybeSingle();
   const prevMeta = (prev?.metadata as any) || {};
+  // If the call had already connected to an operator, treat the visitor
+  // hangup as a normal "ended" call and compute duration_seconds from the
+  // earliest known anchor. Otherwise it's a true pre-connect cancel.
+  const anchorIso = (prev as any)?.connected_at
+    || (prev as any)?.started_at
+    || (prev as any)?.created_at
+    || null;
+  const wasConnected = !!(prev as any)?.connected_at;
+  const endedAtMs = Date.now();
+  const endedAtIso = new Date(endedAtMs).toISOString();
+  const duration = anchorIso
+    ? Math.max(0, Math.round((endedAtMs - new Date(anchorIso).getTime()) / 1000))
+    : 0;
   await sb.from('call_sessions').update({
-    state: 'cancelled',
-    ended_at: new Date().toISOString(),
+    state: wasConnected ? 'ended' : 'cancelled',
+    ended_at: endedAtIso,
+    duration_seconds: wasConnected ? duration : null,
     end_reason: 'visitor_ended',
     ended_by: 'visitor',
-    metadata: { ...prevMeta, call_center_reason: 'visitor_cancelled' },
+    metadata: { ...prevMeta, call_center_reason: wasConnected ? 'visitor_hangup' : 'visitor_cancelled' },
   }).eq('id', req.params.id).eq('workspace_id', session.workspace_id);
   await sb.from('call_queue_entries').update({
-    state: 'cancelled', ended_at: new Date().toISOString(), ended_reason: 'visitor_cancelled',
+    state: 'cancelled', ended_at: endedAtIso, ended_reason: wasConnected ? 'visitor_hangup' : 'visitor_cancelled',
   }).eq('call_session_id', req.params.id).eq('workspace_id', session.workspace_id);
   await sb.from('call_events').insert({
-    call_session_id: req.params.id, event_type: 'call_cancelled', actor_type: 'visitor',
-    payload: { reason: 'visitor_cancelled' },
+    call_session_id: req.params.id, event_type: wasConnected ? 'call_ended' : 'call_cancelled', actor_type: 'visitor',
+    payload: { reason: wasConnected ? 'visitor_hangup' : 'visitor_cancelled', duration_seconds: wasConnected ? duration : null },
   });
-  await publishQueueEvent(config, session.workspace_id, 'call_cancelled', { call_id: req.params.id });
-  await publishCallEvent(config, session.workspace_id, req.params.id, 'call_cancelled', {});
+  await publishQueueEvent(config, session.workspace_id, wasConnected ? 'call_ended' : 'call_cancelled', { call_id: req.params.id });
+  await publishCallEvent(config, session.workspace_id, req.params.id, wasConnected ? 'call_ended' : 'call_cancelled', { duration_seconds: wasConnected ? duration : null });
   clearActiveCallCookie(res, req);
   res.json({ ok: true });
 });

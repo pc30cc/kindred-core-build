@@ -138,6 +138,11 @@
 .ccw-wait-label { color: hsl(210 40% 96% / .76); font-size: 11px; font-weight: 800; text-transform: uppercase; }
 .ccw-wait-timer { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 26px; font-weight: 900; color: hsl(0 0% 100%); }
 .ccw-audio-unlock { position: relative; z-index: 1; width: 100%; min-height: 40px; margin-top: 12px; border-radius: 12px; border: 1px solid hsl(var(--ccw-warm) / .40); background: hsl(var(--ccw-warm) / .16); color: hsl(38 92% 92%); font-family: inherit; font-size: 12px; font-weight: 850; cursor: pointer; }
+.ccw-sound-toggle { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; margin-inline-start: 8px; border-radius: 999px; border: 1px solid hsl(0 0% 100% / .22); background: hsl(0 0% 100% / .12); color: hsl(0 0% 100%); font-size: 15px; line-height: 1; cursor: pointer; transition: background .15s ease, border-color .15s ease, transform .15s ease; }
+.ccw-sound-toggle:hover { background: hsl(0 0% 100% / .20); border-color: hsl(0 0% 100% / .34); }
+.ccw-sound-toggle:active { transform: scale(.94); }
+.ccw-sound-toggle.muted { background: hsl(0 84% 60% / .22); border-color: hsl(0 84% 60% / .48); color: hsl(0 100% 96%); }
+.ccw-sound-toggle.locked { background: hsl(var(--ccw-warm) / .26); border-color: hsl(var(--ccw-warm) / .60); color: hsl(38 92% 96%); animation: ccw-pulse 1.6s ease-in-out infinite; }
 .ccw-queue-pos, .ccw-queue-eta { position: relative; z-index: 1; display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 9px; padding: 10px 11px; border-radius: 13px; background: hsl(0 0% 100% / .10); border: 1px solid hsl(0 0% 100% / .13); color: hsl(210 40% 96% / .72); font-size: 11px; font-weight: 800; }
 .ccw-queue-pos strong, .ccw-queue-eta strong { color: hsl(0 0% 100%); font-size: 12px; text-align: right; }
 .ccw-callback-offer { padding: 14px; border-radius: 16px; background: linear-gradient(135deg, hsl(var(--ccw-warm) / .16), hsl(24 94% 96%)); border: 1px solid hsl(var(--ccw-warm) / .32); display: flex; flex-direction: column; gap: 10px; }

@@ -1667,10 +1667,61 @@
             el('button', { class: 'ccw-btn primary', on: { click: function () { self.reset(); } } }, [tr('done')]),
           ]);
         }
-        return el('div', { class: 'ccw-stack' }, [
-          el('div', { class: 'ccw-card' }, [el('div', {}, [tr('call_ended')])]),
-          el('button', { class: 'ccw-btn primary', on: { click: function () { self.reset(); } } }, [tr('done')]),
+        // Post-call rating screen (only when the call actually started).
+        var stack = [];
+        var durLabel = self.endedDuration > 0 ? fmtTime(self.endedDuration * 1000) : null;
+        var endedCard = el('div', { class: 'ccw-card ccw-ended-card' }, [
+          el('div', { class: 'ccw-ended-icon' }, ['✓']),
+          el('div', { class: 'ccw-ended-title' }, [tr('call_ended')]),
         ]);
+        if (self.operatorName) {
+          endedCard.appendChild(el('div', { class: 'ccw-muted', style: 'text-align:center;' }, [self.operatorName]));
+        }
+        if (durLabel) {
+          endedCard.appendChild(el('div', { class: 'ccw-ended-duration' }, [
+            el('span', {}, [tr('call_duration')]),
+            el('strong', {}, [durLabel]),
+          ]));
+        }
+        stack.push(endedCard);
+        if (self.endedCallId && !self.ratingSubmitted) {
+          var rateBox = el('div', { class: 'ccw-rate-box' }, [
+            el('div', { class: 'ccw-rate-title' }, [tr('rate_call_title')]),
+            el('div', { class: 'ccw-rate-sub' }, [tr('rate_call_sub')]),
+          ]);
+          var stars = el('div', { class: 'ccw-rate-stars' });
+          var renderStars = function () {
+            stars.innerHTML = '';
+            for (var i = 1; i <= 5; i++) {
+              (function (n) {
+                var btn = el('button', {
+                  class: 'ccw-star' + (self.ratingValue >= n ? ' filled' : ''),
+                  type: 'button',
+                  'aria-label': String(n),
+                  on: { click: function () { self.ratingValue = n; renderStars(); } },
+                }, ['★']);
+                stars.appendChild(btn);
+              })(i);
+            }
+          };
+          renderStars();
+          rateBox.appendChild(stars);
+          var ta = el('textarea', { class: 'ccw-textarea', placeholder: tr('rate_comment_ph') });
+          ta.value = self.ratingComment || '';
+          ta.addEventListener('input', function (e) { self.ratingComment = e.target.value; });
+          rateBox.appendChild(ta);
+          rateBox.appendChild(el('div', { class: 'ccw-row' }, [
+            el('button', { class: 'ccw-btn secondary', on: { click: function () { self.reset(); } } }, [tr('rate_skip')]),
+            el('button', { class: 'ccw-btn primary', on: { click: function () { self.submitRating(); } } }, [tr('rate_submit')]),
+          ]));
+          stack.push(rateBox);
+        } else if (self.ratingSubmitted) {
+          stack.push(el('div', { class: 'ccw-rate-thanks' }, [tr('rate_thanks')]));
+          stack.push(el('button', { class: 'ccw-btn primary', on: { click: function () { self.reset(); } } }, [tr('done')]));
+        } else {
+          stack.push(el('button', { class: 'ccw-btn primary', on: { click: function () { self.reset(); } } }, [tr('done')]));
+        }
+        return el('div', { class: 'ccw-stack' }, stack);
       }
 
       case STATES.ERROR:

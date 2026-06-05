@@ -895,8 +895,44 @@
       if (typeof r.body.position === 'number') self.queuePosition = r.body.position;
       try { Ringback.setQueuePosition(self.queuePosition); } catch (_) {}
       if (typeof r.body.eta_seconds === 'number') self.queueEta = r.body.eta_seconds;
+      // Track operator name + detect transfer (operator changed mid-call).
+      var newOpName = r.body.operator_name || null;
+      var prevAgent = self._lastAgentId || null;
+      var nextAgent = c.assigned_agent_id || null;
+      if (prevAgent && nextAgent && prevAgent !== nextAgent && self.state === STATES.IN_CALL) {
+        // Operator transfer detected — flip to "transferring" affordance,
+        // resume hold music briefly, then surface new operator name.
+        self.transferring = true;
+        self.operatorName = null;
+        self.callStartedAt = null;
+        self.stopCallTimer();
+        try {
+          var qe = (self.bootstrap && self.bootstrap.queue_experience) || {};
+          Ringback.setLocale(self.locale, self.t('queue_wait_announce'));
+          Ringback.setPhase('hold');
+          Ringback.start(qe);
+        } catch (_) {}
+        self.render();
+      }
+      self._lastAgentId = nextAgent;
+      if (newOpName && newOpName !== self.operatorName) {
+        self.operatorName = newOpName;
+        if (self.transferring) self.transferring = false;
+        self.render();
+      }
+      // Initialise call-duration timer the first time the server reports a started_at.
+      if (c.started_at && !self.callStartedAt) {
+        var ts = Date.parse(c.started_at);
+        if (!isNaN(ts)) {
+          self.callStartedAt = ts;
+          if (self.state === STATES.IN_CALL) self.startCallTimer();
+        }
+      }
       if (['cancelled', 'ended', 'missed', 'failed'].indexOf(c.state) >= 0) {
-        self.stopPolling(); self.stopTimer(); try { Ringback.stop(); } catch (_) {}
+        self.stopPolling(); self.stopTimer(); self.stopCallTimer();
+        try { Ringback.stop(); } catch (_) {}
+        self.endedCallId = self.callId;
+        self.endedDuration = self.callStartedAt ? Math.floor((Date.now() - self.callStartedAt) / 1000) : 0;
         self.clearActiveSession();
         self.state = STATES.ENDED; self.render(); return;
       }
@@ -907,6 +943,9 @@
           self.state = STATES.IN_CALL; self.render();
           self.requestJoinToken();
         }
+        // If we've reached connected state and have a start time, ensure
+        // the duration ticker is running (survives across re-renders).
+        if (self.callStartedAt && !self.callTimer) self.startCallTimer();
       } else {
         // Still queued — refresh queue UI with latest position/eta.
         // Keep playing soft hold music + announcement; do NOT ring just

@@ -1360,13 +1360,40 @@
           el('div', { class: 'ccw-wait-wrap' }, [
             el('span', { class: 'ccw-wait-label' }, [tr('waiting_time')]),
             el('div', { class: 'ccw-wait-timer', html: '0:00' }),
+            el('button', {
+              class: 'ccw-sound-toggle' + (Ringback.isMuted && Ringback.isMuted() ? ' muted' : ''),
+              type: 'button',
+              title: Ringback.isMuted && Ringback.isMuted() ? tr('unmute_sound') : tr('mute_sound'),
+              'aria-label': Ringback.isMuted && Ringback.isMuted() ? tr('unmute_sound') : tr('mute_sound'),
+              on: { click: function (ev) {
+                try { ev && ev.stopPropagation && ev.stopPropagation(); } catch (_) {}
+                var nowMuted = !(Ringback.isMuted && Ringback.isMuted());
+                if (nowMuted) {
+                  Ringback.setMuted(true);
+                } else {
+                  Ringback.setMuted(false);
+                  if (Ringback.needsGesture && Ringback.needsGesture()) {
+                    try { Ringback.startFromGesture((self.bootstrap && self.bootstrap.queue_experience) || {}); } catch (_) {}
+                  }
+                }
+                self.render();
+              } },
+            }, [Ringback.isMuted && Ringback.isMuted() ? '🔇' : '🔊']),
           ]),
         ]);
         if (Ringback.needsGesture && Ringback.needsGesture()) {
-          card.appendChild(el('button', {
-            class: 'ccw-audio-unlock',
-            on: { click: function () { Ringback.startFromGesture(qe); self.render(); } },
-          }, [tr('enable_ringing_sound')]));
+          // Audio is locked by browser autoplay policy — show the same
+          // small toggle styling but in "unlock" affordance. Visitor taps
+          // it once to allow the queue audio without ending the call.
+          var waitWrap = card.querySelector('.ccw-wait-wrap');
+          if (waitWrap) {
+            var unlockBtn = waitWrap.querySelector('.ccw-sound-toggle');
+            if (unlockBtn) {
+              unlockBtn.classList.add('locked');
+              unlockBtn.setAttribute('title', tr('enable_ringing_sound'));
+              unlockBtn.setAttribute('aria-label', tr('enable_ringing_sound'));
+            }
+          }
         }
         // Position-in-queue chip
         if (qe.show_position !== false && self.queuePosition) {

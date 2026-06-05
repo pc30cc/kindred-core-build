@@ -794,6 +794,33 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
     notice_version: parsed.data.recording_notice_version || null,
     artifact_id: null as string | null,
   };
+  // Resolve visitor identity BEFORE creating anything. This lets refreshes,
+  // page changes, duplicate clicks, and lost/partitioned visitor cookies reuse
+  // the in-flight call instead of creating another queue row.
+  const identity = await identifyVisitorForCall(
+    req,
+    res,
+    config,
+    ws.workspace_id,
+    getOrigin(req),
+    {
+      name: parsed.data.visitor_name,
+      email: parsed.data.visitor_email,
+      phone: parsed.data.visitor_phone,
+      page_url: parsed.data.page_url,
+    },
+  );
+  const existingActiveCall = await buildActiveCallPayload(config, req, res, ws, getOrigin(req), identity.visitorId);
+  if (existingActiveCall) {
+    return res.json({
+      status: 'resumed',
+      call_id: existingActiveCall.call_id,
+      call_state: existingActiveCall.state,
+      queue_position: existingActiveCall.queue_position,
+      session: existingActiveCall.session,
+      contact: identity.contact,
+    });
+  }
   // Provider check (fail closed)
   let providerId: string;
   try {
@@ -817,22 +844,6 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
   // "fetch failed" — Supabase REST connection can be reset between idle
   // pooled HTTP/1.1 keep-alives in long-running Node processes.
   const dbCallType = dbCallTypeForDept;
-  // Identity merge: turn this visitor into a contact (or recognise an
-  // existing one) BEFORE inserting the call so the call row carries the
-  // correct visitor name / contact link from the start.
-  const identity = await identifyVisitorForCall(
-    req,
-    res,
-    config,
-    ws.workspace_id,
-    getOrigin(req),
-    {
-      name: parsed.data.visitor_name,
-      email: parsed.data.visitor_email,
-      phone: parsed.data.visitor_phone,
-      page_url: parsed.data.page_url,
-    },
-  );
   const finalVisitorName = parsed.data.visitor_name || identity.contact?.name || null;
   const finalVisitorEmail = parsed.data.visitor_email || identity.contact?.email || null;
   const finalVisitorPhone = parsed.data.visitor_phone || identity.contact?.phone || null;

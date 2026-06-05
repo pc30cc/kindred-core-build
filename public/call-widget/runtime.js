@@ -734,6 +734,7 @@
         self.formData.phone = r.body.contact.phone || self.formData.phone || '';
       }
       self.callId = r.body.call_id;
+      self.persistActiveSession();
       self.queueStartedAt = Date.now();
       self.queuePosition = typeof r.body.queue_position === 'number' ? r.body.queue_position : null;
       self.queueEta = null;
@@ -807,6 +808,7 @@
       if (typeof r.body.eta_seconds === 'number') self.queueEta = r.body.eta_seconds;
       if (['cancelled', 'ended', 'missed', 'failed'].indexOf(c.state) >= 0) {
         self.stopPolling(); self.stopTimer(); try { Ringback.stop(); } catch (_) {}
+        self.clearActiveSession();
         self.state = STATES.ENDED; self.render(); return;
       }
       if (['active', 'ringing', 'connecting'].indexOf(c.state) >= 0) {

@@ -81,6 +81,15 @@ The middleware's existing fail-closed behaviour (deny when the usage
 function throws) is preserved on purpose — unsupported keys must not
 silently let traffic through.
 
+## Current consumers
+
+_As of Phase 2: none._ The resolver is wired up and unit-correct, but
+no route attaches `requireLimit(key, usageFnForLimit(key))` yet.
+
+The gating gap is **not** in this module — see
+`docs/ENFORCEMENT_COVERAGE_AUDIT.md` §7 for the concrete blockers
+(plan-data backfill, admin-bypass policy on `requireLimit`).
+
 ## Adding a new resolver
 
 1. Confirm the metric is either (a) a column on `workspace_usage_counters`,

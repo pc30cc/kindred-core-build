@@ -2304,9 +2304,11 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 /* ─── Input bar / composer ─── */
 .shell[data-template="template2"] .input-bar {
   border-top: 1px solid var(--gs-t2-border);
-  padding: 10px 12px 12px;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
   background: #fff;
   gap: 6px;
+  display: flex;
+  align-items: center;
   flex-shrink: 0;
 }
 .shell[data-template="template2"] .input,
@@ -2316,7 +2318,10 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
   background: var(--gs-t2-surface);
   border: 1px solid transparent;
   font-size: 14px;
-  padding: 10px 14px;
+  padding: 12px 16px;
+  min-height: 44px;
+  flex: 1;
+  min-width: 0;
   transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
 }
 .shell[data-template="template2"] .input:focus,
@@ -2333,9 +2338,14 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 .shell[data-template="template2"] .send-btn {
   background: linear-gradient(160deg, var(--gs-t2-primary-2) 0%, var(--gs-t2-primary) 100%) !important;
   color: #fff !important;
-  width: 38px;
-  height: 38px;
-  border-radius: 12px !important;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  border-radius: 14px !important;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   box-shadow: 0 6px 14px -4px rgba(37, 99, 235, 0.55);
   transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
 }
@@ -2345,23 +2355,99 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
   box-shadow: 0 10px 20px -6px rgba(37, 99, 235, 0.6);
 }
 .shell[data-template="template2"] .send-btn:active { transform: scale(0.94); }
-.shell[data-template="template2"] .send-btn svg { width: 16px; height: 16px; fill: currentColor; }
+.shell[data-template="template2"] .send-btn svg { width: 18px; height: 18px; fill: currentColor; }
+/* In RTL the paper-plane icon should point toward the start (right). */
+.shell[data-template="template2"][dir="rtl"] .send-btn svg,
+.shell[data-template="template2"] .panel-rtl .send-btn svg {
+  transform: scaleX(-1);
+}
 
 /* Attach / emoji / mic icon buttons in composer */
 .shell[data-template="template2"] .attach-btn,
 .shell[data-template="template2"] .emoji-btn,
 .shell[data-template="template2"] .mic-btn {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  border-radius: 12px;
   color: #6b7280;
   background: transparent;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
 }
 .shell[data-template="template2"] .attach-btn:hover:not(:disabled),
 .shell[data-template="template2"] .emoji-btn:hover,
 .shell[data-template="template2"] .mic-btn:hover {
   background: var(--gs-t2-surface);
   color: var(--gs-t2-primary);
+}
+.shell[data-template="template2"] .attach-btn:active,
+.shell[data-template="template2"] .emoji-btn:active,
+.shell[data-template="template2"] .mic-btn:active {
+  transform: scale(0.94);
+}
+
+/* Composer order — LTR default: [send] [emoji] [attach] [input] [mic]
+   visually mirrors the reference design (send leads on the action side). */
+.shell[data-template="template2"] .send-btn   { order: 1; }
+.shell[data-template="template2"] .emoji-btn  { order: 2; }
+.shell[data-template="template2"] .attach-btn { order: 3; }
+.shell[data-template="template2"] .input      { order: 4; }
+.shell[data-template="template2"] .mic-btn    { order: 5; }
+
+/* RTL — flexbox already mirrors; explicit orders keep mic on the start (right)
+   and send on the end (left), matching the reference screenshot. */
+.shell[data-template="template2"][dir="rtl"] .mic-btn,
+.shell[data-template="template2"] .panel-rtl .mic-btn    { order: 1; }
+.shell[data-template="template2"][dir="rtl"] .input,
+.shell[data-template="template2"] .panel-rtl .input      { order: 2; text-align: right; }
+.shell[data-template="template2"][dir="rtl"] .attach-btn,
+.shell[data-template="template2"] .panel-rtl .attach-btn { order: 3; }
+.shell[data-template="template2"][dir="rtl"] .emoji-btn,
+.shell[data-template="template2"] .panel-rtl .emoji-btn  { order: 4; }
+.shell[data-template="template2"][dir="rtl"] .send-btn,
+.shell[data-template="template2"] .panel-rtl .send-btn   { order: 5; }
+
+/* ─── Emoji popover ─── */
+.shell[data-template="template2"] .emoji-pop {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 2px;
+  padding: 8px;
+  margin: 0 12px 6px;
+  background: #fff;
+  border: 1px solid var(--gs-t2-border);
+  border-radius: 14px;
+  box-shadow: 0 12px 30px -10px rgba(15, 23, 42, 0.18);
+  max-height: 220px;
+  overflow-y: auto;
+  animation: gs-emoji-pop 160ms ease-out;
+}
+@keyframes gs-emoji-pop {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.shell[data-template="template2"] .emoji-pop-item {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 10px;
+  font-size: 20px;
+  cursor: pointer;
+  transition: background 0.12s ease, transform 0.1s ease;
+}
+.shell[data-template="template2"] .emoji-pop-item:hover {
+  background: var(--gs-t2-surface);
+  transform: scale(1.1);
 }
 
 /* ─── Prechat form ─── */

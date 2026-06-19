@@ -55,6 +55,11 @@ Plan keys are an upper bound on what the control plane will let
 through. The control plane stays authoritative for per-call defaults
 and provider selection.
 
+The canonical composer that materialises this rule lives at
+`server/services/calls/entitlementComposer.ts`. See
+`docs/CALL_ENTITLEMENT_COMPOSITION.md` for the per-surface table
+and route audit.
+
 ## Future enforcement readiness
 
 The following routes are the natural attachment points for a future

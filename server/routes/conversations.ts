@@ -372,6 +372,14 @@ conversationsRouter.post('/start-from-visitor', async (req, res) => {
       return res.json({ ok: true, conversation_id: existing.id, created: false });
     }
 
+    // Phase 5 — enforce max_conversations only on the actual creation
+    // branch. Reuse of an existing open/pending conversation above does
+    // not count. workspace_id is already verified via authorizeWorkspaceMember.
+    {
+      const ok = await enforceMaxConversationsLimit(req, res);
+      if (!ok) return;
+    }
+
     // Create a new conversation. We do NOT seed a message — the operator
     // composes their first message in the inbox, which routes through the
     // existing /send-message endpoint (carrying realtime publish, attachments,

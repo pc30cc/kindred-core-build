@@ -42,6 +42,7 @@ import { emitLog } from '../services/observability/metrics.js';
 import { markHumanTakeover } from '../services/ai-agent/handoffState.js';
 import { maybeCreateLearningCandidateFromOperatorReply } from '../services/ai-agent/learning/candidates.js';
 import { markSpam, unmarkSpam } from '../services/spam/state.js';
+import { enforceMaxConversationsLimit } from '../services/billing/conversationLimit.js';
 
 export const conversationsRouter = Router();
 

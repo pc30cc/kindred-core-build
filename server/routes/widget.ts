@@ -1250,6 +1250,15 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
 
     // Create new conversation
     if (!convId) {
+      // Phase 5 — enforce max_conversations only on this creation
+      // branch. Replies into an existing conversation (the branches
+      // above) intentionally bypass the cap. workspace_id has already
+      // been resolved via resolveWorkspaceId() + widget token checks.
+      {
+        const ok = await enforceMaxConversationsLimit(req, res);
+        if (!ok) return;
+      }
+
       // Find or create contact
       let contactId: string | null = null;
 

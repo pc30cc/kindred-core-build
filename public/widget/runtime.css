@@ -2113,7 +2113,7 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
    ────────────────────────────────────────────────────────────────────
    All rules are scoped under .shell[data-template="template2"] so they have
    ZERO impact on the default template. Visual goals:
-     • IRANYekanX typography (Persian + Latin)
+     • Vazirmatn typography (Persian + Latin)
      • Vivid blue accent (#0066ff / #06f)
      • Rounded 16px panel, soft elevated shadow, crisp white surface
      • Pill-shaped composer + rounded message bubbles
@@ -2132,7 +2132,7 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
   --gs-t2-muted: #6b7280;
 }
 
-/* Typography — apply IRANYekanX to every element inside the ila template.
+/* Typography — premium typography for template2.
    Falls back gracefully when the webfont hasn't loaded yet. */
 .shell[data-template="template2"],
 .shell[data-template="template2"] *,

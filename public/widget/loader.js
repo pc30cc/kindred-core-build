@@ -191,6 +191,27 @@
     "box-shadow:0 4px 12px rgba(0,0,0,.08);z-index:2147483647;display:none;}",
     ".error-toast.visible{display:block;}",
     "@media(max-width:480px){.launcher{width:50px;height:50px;}}",
+    /* Welcome toast (shown by template2 — distinct from runtime.css .gs-toast).
+       Lives in the loader so it can render BEFORE runtime.js is fetched. */
+    ".gs-welcome-toast{position:fixed;z-index:2147483645;bottom:96px;right:24px;",
+    "max-width:300px;background:#fff;color:#1F2937;padding:12px 14px 12px 16px;",
+    "border-radius:14px;box-shadow:0 14px 40px -10px rgba(0,51,153,.28),0 0 0 1px rgba(15,23,42,.05);",
+    "cursor:pointer;font-family:'Vazirmatn',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;",
+    "opacity:0;transform:translateY(10px) scale(.96);pointer-events:none;",
+    "transition:opacity .25s ease,transform .3s cubic-bezier(.34,1.56,.64,1);}",
+    ".gs-welcome-toast.bottom-left{left:24px;right:auto;}",
+    ".gs-welcome-toast.visible{opacity:1;transform:translateY(0) scale(1);pointer-events:auto;}",
+    ".gs-welcome-toast .gs-wt-row{display:flex;gap:10px;align-items:flex-start;}",
+    ".gs-welcome-toast .gs-wt-avatar{width:34px;height:34px;border-radius:50%;flex-shrink:0;",
+    "background:linear-gradient(160deg,#0052ff,#2b86ff);display:flex;align-items:center;justify-content:center;color:#fff;}",
+    ".gs-welcome-toast .gs-wt-avatar svg{width:18px;height:18px;}",
+    ".gs-welcome-toast .gs-wt-title{font-size:13px;font-weight:700;color:#0052ff;margin-bottom:2px;}",
+    ".gs-welcome-toast .gs-wt-body{font-size:13px;line-height:1.45;color:#374151;}",
+    ".gs-welcome-toast .gs-wt-close{position:absolute;top:6px;left:8px;width:20px;height:20px;",
+    "border:none;background:transparent;color:#9CA3AF;cursor:pointer;border-radius:50%;",
+    "display:flex;align-items:center;justify-content:center;font-size:16px;line-height:1;}",
+    ".gs-welcome-toast .gs-wt-close:hover{background:#F3F4F6;color:#374151;}",
+    ".gs-welcome-toast[dir=rtl] .gs-wt-close{left:auto;right:8px;}",
   ].join("");
 
   // ─── <gs-widget> custom element ───

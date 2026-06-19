@@ -247,16 +247,13 @@ widgetAttachmentsRouter.post('/:id/upload', enforceWidgetToken, async (req: Requ
     return res.status(413).json({ error: 'Uploaded size exceeds declared size' });
   }
 
-  // ── storage_gb cap enforcement (Phase 14, widget-attachment rollout) ──
-  // Reuses the same narrow pattern as POST /api/storage/upload and operator
-  // POST /api/conversation-attachments/:id/upload. Forward-correct only; see
-  // docs/STORAGE_LIMIT_POLICY.md. No route-local storage math — the shared
-  // resolver reads canonical workspace_usage_counters.storage_bytes.
-  //
+  // ── storage_gb cap enforcement (visitor-facing) ──
+  // Mirrors the operator upload routes; see docs/STORAGE_LIMIT_POLICY.md.
   // workspace_id is the server-resolved one from the validated widget token
-  // (X-Widget-Token + cookie); we inject it into req.body so the shared
-  // extractWorkspaceId() helper sees the trusted value (the body schema is
-  // {data: base64} and never carried workspace_id from the visitor).
+  // (X-Widget-Token + cookie). We inject it into req.body so the shared
+  // extractWorkspaceId() helper sees the trusted value — the body schema is
+  // {data: base64} and intentionally never carried workspace_id from the
+  // visitor. Forward-correct only; no route-local storage math.
   (req.body as any).workspace_id = workspaceId;
   const limitMw = requireLimit('storage_gb', usageFnForLimit('storage_gb'));
   let proceeded = false;

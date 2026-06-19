@@ -38,7 +38,7 @@ only deterministic, repo-grounded tests.
   - Each storage upload route (`storage.ts`, `conversationAttachments.ts`,
     `widgetAttachments.ts`) attaches the `storage_gb` limit gate.
 
-- `src/test/billing/requireLimitMiddleware.test.ts` (Phase 17 — runtime)
+- `src/test/billing/requireLimitMiddleware.test.ts` (runtime)
   - Drives the real `requireLimit` middleware with a mocked
     `@supabase/supabase-js` client. Verifies actual branching:
     allow-below-limit calls `next()`, at/over-limit returns 403 without
@@ -47,7 +47,7 @@ only deterministic, repo-grounded tests.
     resolver fails closed (403). This is the highest-leverage runtime check
     behind every rolled-out limit gate.
 
-- `src/test/billing/conversationLimitHelper.test.ts` (Phase 17 — runtime)
+- `src/test/billing/conversationLimitHelper.test.ts` (runtime)
   - Exercises `enforceMaxConversationsLimit` end-to-end through the shared
     middleware. Confirms the create branch proceeds when below the cap,
     returns false with a 403 when the cap is reached, and surfaces 400 when
@@ -55,7 +55,7 @@ only deterministic, repo-grounded tests.
     helper" rule remains protected by the import-seam invariants in
     `singleWriterInvariants.test.ts`.
 
-- `src/test/billing/visitorLimitHelper.test.ts` (Phase 17 — runtime)
+- `src/test/billing/visitorLimitHelper.test.ts` (runtime)
   - Exercises `enforceMaxVisitorsLimitIfNewThisMonth` against a mocked
     `visitor_sessions` membership read and a mocked entitlement RPC.
     Confirms in-month revisits short-circuit (no RPC call), true new-this-
@@ -63,7 +63,7 @@ only deterministic, repo-grounded tests.
     cap-reached writes 403, and the documented fail-OPEN behavior on
     membership-read errors is preserved.
 
-- `src/test/billing/conversationAttachmentsRoute.test.ts` (Phase 18 — runtime)
+- `src/test/billing/conversationAttachmentsRoute.test.ts` (runtime)
   - Drives the operator `POST /api/conversation-attachments/:id/upload`
     handler with a mocked supabase client, mocked `requireLimit`, and a
     mocked `uploadFile`. Verifies the cleanup branch: when the storage_gb
@@ -71,13 +71,13 @@ only deterministic, repo-grounded tests.
     `error_message` referencing `storage_gb` AND `uploadFile` is never
     called. Allow branch confirms the normal `'uploaded'` transition.
 
-- `src/test/billing/widgetAttachmentsRoute.test.ts` (Phase 18 — runtime)
+- `src/test/billing/widgetAttachmentsRoute.test.ts` (runtime)
   - Same shape for the visitor-facing `POST /api/widget/attachments/:id/upload`
     route (with `enforceWidgetToken` / `resolveWorkspaceId` mocked). Covers
     the deny → row marked `'failed'` cleanup and the allow → `'uploaded'`
     transition. This is the highest-risk public surface for the storage cap.
 
-- `src/test/billing/aiKbJobsRoute.test.ts` (Phase 18 — runtime)
+- `src/test/billing/aiKbJobsRoute.test.ts` (runtime)
   - Drives `POST /api/ai-kb/jobs` directly. Verifies:
     1. global admin bypass — the shared `requireLimit` gate is NOT consulted
        and the `ai_kb_jobs` row is inserted with `admin_override=true`;
@@ -110,9 +110,9 @@ These are deterministic, do not depend on external services, and run as part of
 
 ## Intentionally not covered (deferred)
 
-- **End-to-end Express + real Supabase integration tests.** Phase 18 closed
-  the high-value behavior gaps (AI KB admin bypass / over-cap deny, and
-  attachment denial cleanup) at the route-handler level with module-boundary
+- **End-to-end Express + real Supabase integration tests.** The high-value
+  behavior gaps (AI KB admin bypass / over-cap deny, attachment denial
+  cleanup) are covered at the route-handler level with module-boundary
   mocks. A real-server harness (supertest + live PostgREST) is intentionally
   deferred — additional cost without proportional coverage gain now that the
   branching, middleware contract, and cleanup writes all have runtime

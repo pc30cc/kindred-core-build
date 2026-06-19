@@ -1,8 +1,6 @@
 /**
  * Conversation limit enforcement helper.
  *
- * Phase 5 — widget-aware rollout of `max_conversations`.
- *
  * The shared `requireLimit('max_conversations', usageFnForLimit('max_conversations'))`
  * middleware is invoked **inline**, only on actual conversation-creation
  * branches (widget first-message, widget offline-message capture, and

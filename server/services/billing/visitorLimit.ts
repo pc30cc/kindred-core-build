@@ -1,9 +1,8 @@
 /**
  * Visitor limit enforcement helper.
  *
- * Phase 9 — `max_visitors` rollout aligned with the Phase 7 locked
- * semantics: distinct `visitor_id` per workspace per UTC calendar
- * month. The single canonical writer of
+ * Locked semantics: distinct `visitor_id` per workspace per UTC
+ * calendar month. The single canonical writer of
  * `workspace_usage_counters.visitors_count` is the DB trigger
  * `trg_visitor_sessions_count_visitor`. This helper does NOT write
  * that counter and never invokes any custom counting math; it only

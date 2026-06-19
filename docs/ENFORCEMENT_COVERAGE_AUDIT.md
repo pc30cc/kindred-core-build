@@ -195,22 +195,23 @@ Notes:
   They still need workspace/widget-aware policy decisions before any
   middleware is attached.
 
-## 9. Phase 4 — Conversation creation readiness (no rollout)
+## 9. Phase 5 — `max_conversations` widget-aware rollout
 
-Outcome: **`max_conversations` remains DEFERRED.** No route was gated
-this phase. Full route truth and the recommended unblock sequence
-live in [`CONVERSATION_LIMIT_POLICY.md`](./CONVERSATION_LIMIT_POLICY.md).
+Outcome: **GATED on all conversation-creation branches**, widget and
+operator alike. Full policy in
+[`CONVERSATION_LIMIT_POLICY.md`](./CONVERSATION_LIMIT_POLICY.md).
 
-Summary of the audit:
-
-| Route | Classification |
+| Route / branch | Classification |
 |---|---|
-| `POST /api/conversations/start-from-visitor` | AMBIGUOUS — DEFERRED. Operator-initiated, idempotent (reuses open conversations); not the dominant creator, so isolated gating would produce asymmetric enforcement vs widget traffic. |
-| `POST /api/conversations/send-message` | NOT A CREATION ROUTE. Sends into an existing conversation — must never be gated by `max_conversations`. |
-| `POST /api/widget/message` | DO NOT GATE (this phase). Visitor/public traffic, post-`enforceWidgetToken`; needs a widget-aware adapter and defined cap-reached UX before middleware. |
-| `POST /api/widget/offline-messages` | DO NOT GATE (this phase). Same widget/public concerns as above. |
-| `services/ai-agent/intro.ts` | NOT A ROUTE. Internal server-side intro insert. |
+| `POST /api/widget/message` — `if (!convId)` creation branch | **GATED** via `enforceMaxConversationsLimit(req, res)` |
+| `POST /api/widget/offline-messages` — pre-insert | **GATED** via `enforceMaxConversationsLimit(req, res)` |
+| `POST /api/conversations/start-from-visitor` — after reuse short-circuit | **GATED** via `enforceMaxConversationsLimit(req, res)` |
+| `POST /api/widget/message` — existing-conversation branch | NEVER gated (replies are not creation) |
+| `POST /api/conversations/send-message` | NEVER gated (replies are not creation) |
+| `services/ai-agent/intro.ts` (internal) | Deferred — not an HTTP route, requires a separate decision on AI-intro counting |
 
-Hard rule preserved: `requireLimit('max_conversations', …)` will only
-ever be attached on **conversation-creation branches**, never on
-message-send branches inside an existing conversation.
+Hard rule preserved: `requireLimit('max_conversations', …)` is only
+attached on actual creation branches, never on message-send into an
+existing conversation. Usage math is shared via
+`usageFnForLimit('max_conversations')` — no ad-hoc counting was
+introduced. No global admin bypass was added to `requireLimit`.

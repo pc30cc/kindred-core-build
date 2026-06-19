@@ -43,14 +43,12 @@ routes that already deduct via the RPC.
 | `POST /api/ai/test`                                  | n/a (caller-supplied keys) | Not gated — correct  |
 | `GET  /api/ai/config/:workspaceId`                   | n/a (read-only)            | Not gated — correct  |
 
-## Phase 15 decision: no new rollout
+## Why other AI surfaces aren't gated
 
-The disciplined outcome of this phase is **no additional gate**. The
-canonical AI-credit gate is already attached to the single generic
-billable LLM surface (`/api/ai/complete`) and the worker per-page
-consumer. Every other candidate is variable, bespoke, or behavior-
-changing in a way that needs an explicit policy decision before
-enforcement:
+The canonical AI-credit gate is attached to the single generic billable
+LLM surface (`/api/ai/complete`) and the worker per-page consumer. Every
+other candidate is variable, bespoke, or behavior-changing in a way
+that needs an explicit policy decision before enforcement:
 
 - **`/playground/test`** — owner/admin testing surface. Has its own
   per-user rate limit. Today it does not consume workspace AI credits.

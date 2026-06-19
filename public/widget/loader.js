@@ -303,6 +303,79 @@
     setTimeout(function () { errorToastEl.classList.remove("visible"); }, 6000);
   }
 
+  // Welcome toast — used by template2 to surface a friendly nudge a few
+  // seconds after the page loads, similar to popular SaaS chat widgets.
+  // Lives in the loader so it appears BEFORE runtime.js is fetched.
+  var welcomeToastEl = null;
+  var welcomeToastShown = false;
+  function scheduleWelcomeToast(config, posClass) {
+    if (welcomeToastShown) return;
+    if (!shadowRoot) return;
+    // Respect dismissal across page navigations (per-tab).
+    try {
+      if (sessionStorage.getItem("__gs_wt_dismissed") === "1") return;
+    } catch (_) {}
+    var delayMs = 3500;
+    setTimeout(function () { showWelcomeToast(config, posClass); }, delayMs);
+  }
+  function showWelcomeToast(config, posClass) {
+    if (welcomeToastShown) return;
+    if (!shadowRoot) return;
+    var shellDiv = shadowRoot.querySelector(".shell");
+    if (!shellDiv) return;
+    welcomeToastShown = true;
+    welcomeToastEl = document.createElement("div");
+    welcomeToastEl.className = "gs-welcome-toast " + (posClass || "bottom-right");
+    var brandName = (config && config.brandName) ? String(config.brandName) : "Support";
+    var welcomeMsg = (config && config.welcomeMessage)
+      ? String(config.welcomeMessage)
+      : "سلام! چطور می‌توانم کمکتان کنم؟";
+    var safeName = brandName.replace(/[&<>"']/g, function (c) {
+      return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c];
+    });
+    var safeMsg = welcomeMsg.replace(/[&<>"']/g, function (c) {
+      return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c];
+    });
+    welcomeToastEl.innerHTML =
+      '<button type="button" class="gs-wt-close" aria-label="Close">×</button>' +
+      '<div class="gs-wt-row">' +
+        '<div class="gs-wt-avatar">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>' +
+        '</div>' +
+        '<div class="gs-wt-text">' +
+          '<div class="gs-wt-title">' + safeName + '</div>' +
+          '<div class="gs-wt-body">' + safeMsg + '</div>' +
+        '</div>' +
+      '</div>';
+    shellDiv.appendChild(welcomeToastEl);
+    // Animate in next frame.
+    requestAnimationFrame(function () {
+      if (welcomeToastEl) welcomeToastEl.classList.add("visible");
+    });
+    // Click body → open widget; click × → dismiss only.
+    welcomeToastEl.addEventListener("click", function (e) {
+      var target = e.target;
+      if (target && target.classList && target.classList.contains("gs-wt-close")) {
+        dismissWelcomeToast(true);
+        return;
+      }
+      dismissWelcomeToast(false);
+      if (launcherEl) launcherEl.click();
+    });
+    // Auto-hide after 12s if untouched.
+    setTimeout(function () { dismissWelcomeToast(false); }, 12000);
+  }
+  function dismissWelcomeToast(persist) {
+    if (!welcomeToastEl) return;
+    welcomeToastEl.classList.remove("visible");
+    if (persist) {
+      try { sessionStorage.setItem("__gs_wt_dismissed", "1"); } catch (_) {}
+    }
+    var el = welcomeToastEl;
+    welcomeToastEl = null;
+    setTimeout(function () { if (el && el.parentNode) el.parentNode.removeChild(el); }, 300);
+  }
+
   function applyConfigToShell(config) {
     if (!shadowRoot) return;
     var shellDiv = shadowRoot.querySelector(".shell");

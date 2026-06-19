@@ -232,3 +232,18 @@ coordinated migration with explicit deprecation windows.
 No implementation rename or refactor has been performed as part of
 this audit. The codebase remains identical apart from documentation
 files (`README.md`, `NAMING.md`, `DEPLOYMENT.md`).
+
+---
+
+## 7. Migration-readiness package
+
+Coordinated future migration is governed by:
+
+- [`docs/adr/ADR-001-canonical-internal-naming.md`](docs/adr/ADR-001-canonical-internal-naming.md)
+- [`docs/adr/ADR-002-legacy-identifier-migration-policy.md`](docs/adr/ADR-002-legacy-identifier-migration-policy.md)
+- [`docs/LEGACY_IDENTIFIER_INVENTORY.md`](docs/LEGACY_IDENTIFIER_INVENTORY.md)
+- [`docs/LEGACY_MIGRATION_PLAN.md`](docs/LEGACY_MIGRATION_PLAN.md)
+- [`docs/LEGACY_NAMING_DECISION_MATRIX.md`](docs/LEGACY_NAMING_DECISION_MATRIX.md)
+
+Any rename of a contract-bearing legacy identifier requires explicit
+approval per ADR-002 — no silent renames.

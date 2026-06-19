@@ -86,6 +86,72 @@ They should not be renamed without coordinated rollout.
 | `ila`, `IRANYekanXILACHAT`, `ILA Style`, `ila.chat` | (none in source) | Removed from active code. A single line in `supabase/migrations/<timestamp>_…sql` performs `DELETE … WHERE slug='ila'` for cleanup of legacy production rows; this is intentional and must remain. |
 | `Kindred Core` | This file + README + DEPLOYMENT | Documentation-only canonical name. |
 
+### 2.6 Additional brand-string findings (precise citations)
+
+These are user-visible or comment-visible strings that pre-date this
+audit. **Not changed.**
+
+| String | File : line | Visibility |
+|---|---|---|
+| `Growth Suite server running on port ${config.port}` | `server/index.ts:360` | Backend startup log only |
+| `Growth Suite — Self-Host Deployment Guide` | `SELF_HOST_GUIDE.md:1` | Doc heading |
+| `Adapted from WebYar Growth Suite widget system.` | `server/routes/widget.ts:4` | Source comment |
+| `Adapted from WebYar Growth Suite security model:` | `server/services/widget/security.ts:4` | Source comment |
+| i18n key `account.subtitle` rendered with `brand: 'Growth Suite'` | `src/pages/app/settings/ProfilePage.tsx:238`, `src/i18n/locales/en.ts:642` | User-visible (Profile page) |
+| `<title>Platform</title>`, `og:title`, `og:description` | `index.html:6,9,10` | User-visible HTML defaults |
+| `Platform preview` (alt text) | `src/pages/auth/LoginPage.tsx:255` | User-visible |
+| Default email `from_name` = `'Platform'` | `server/services/email/index.ts:167` | Outbound email sender name |
+| Auth fallback brand label `'App'` | `src/pages/auth/ForgotPasswordPage.tsx:22`, `ResetPasswordPage.tsx:29` | User-visible auth pages |
+| `window.__gs` queue array on login-page snippet | `index.html:21`, `SELF_HOST_GUIDE.md:194,195,207` | Documented widget embed contract |
+
+### 2.7 Additional server log prefixes (extends §2.4)
+
+Found in `server/**/*.ts` — used by ops dashboards, must not be
+renamed without coordinated rollout:
+
+`[worker]`, `[ai-kb worker]`, `[regression-worker]`, `[startup]`,
+`[gate-bypass]`, `[FeatureGating]`, `[ModuleGating]`, `[AICredits]`,
+`[UsageTracking]`, `[security]`, `[account]`, `[ai]`, `[ai-agent]`,
+`[learn]`, `[auth-email]`, `[auth]`, `[call_center]`, `[call-widget]`,
+`[call-widget/bootstrap]`, `[call-widget/calls/request]`,
+`[call-widget/callbacks]`, `[calls]`, `[cdn]`, plus the
+`[realtime/...]` family already listed in §2.4.
+
+### 2.8 Additional widget-runtime log prefixes (extends §2.4)
+
+`[Widget]` (`public/widget/loader.js:50,56`), `[Widget Runtime]`
+(`public/widget/runtime.js:49,55`), `[Widget AI Agent]`
+(`public/widget/runtime.js:2259,5435,5442,5455,5489,5518,5524`),
+`[Widget KB]` (`public/widget/runtime.js:3308`).
+
+### 2.9 Branding resolution — two parallel layers
+
+The runtime brand string is **not** a single value. It is resolved
+from two independent tables in this priority order:
+
+1. **Workspace-level** (`workspace_branding`, +
+   `workspace_branding_localized`) — fetched by
+   `src/hooks/useBranding.ts` and provided to
+   `src/features/branding/BrandingContext.tsx`. Drives `<title>`,
+   favicon, meta description, OG image, canonical URL.
+   - `WorkspaceBranding` shape: `src/types/models.ts:66–79`.
+   - `<title>` priority chain: `branding.meta_title` →
+     `branding.platform_name` → hardcoded `'Platform'`
+     (`BrandingContext.tsx:12,25`, `index.html:6`).
+2. **Platform-level** (`platform_branding`,
+   `platform_branding_localized`, `platform_domains`) — fetched by
+   `src/hooks/usePlatformBranding.ts` and the per-locale variant in
+   `src/hooks/usePublicBranding.ts`. Used by public-facing surfaces
+   (auth pages, public site, knowledge base) and carries fields like
+   `widget_display_name`, `legal_company_display_name`,
+   `browser_title_format`, etc.
+   - Auth fallback brand label is hardcoded `'App'` when no row is
+     present (`ForgotPasswordPage.tsx:22`, `ResetPasswordPage.tsx:29`).
+
+No `brand_label` / `brandLabel` column exists anywhere in the
+codebase. The brand label flows exclusively through the two layers
+above.
+
 ---
 
 ## 3. Naming inconsistencies and likely reasons

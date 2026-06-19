@@ -1823,7 +1823,7 @@
       if (shellStore.get().isOpen) return;
       ensureToastEl();
       if (!toastEl) return;
-      var name = senderName ? String(senderName) : (ctx.config.brandName || 'Support');
+      var name = senderName ? String(senderName) : (ctx.config.brandName || I18n.t(ctx.locale, 'support'));
       var msg = String(preview || '');
       if (msg.length > 90) msg = msg.slice(0, 87) + '…';
       toastEl.innerHTML =

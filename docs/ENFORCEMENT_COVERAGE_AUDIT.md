@@ -113,7 +113,7 @@ would deny legitimate traffic on day one.
 |---|---|---|---|
 | `max_conversations` | yes (`workspace_usage_counters.conversations_count`) | **DO NOT GATE** | The key is **not** present in any seeded plan's `billing_plans.limits` jsonb. `check_workspace_entitlement` returns `allowed:false / reason:feature_not_in_plan` for unknown keys (fail-closed by design). Attaching `requireLimit('max_conversations', …)` would deny `POST /conversations/start-from-visitor` for **every** workspace. Backfill plan limits first. |
 | `max_visitors` | yes (`workspace_usage_counters.visitors_count`) | **DO NOT GATE** | Same plan-limits gap as above, plus visitor tracking flows through public/widget paths where a workspace-scoped middleware would either fail-closed for anonymous traffic or be bypassed entirely. |
-| `storage_gb` | yes (`workspace_usage_counters.storage_bytes`) | **DO NOT GATE** | Same plan-limits gap. Also: `POST /api/storage/upload` accepts service-role / anon tokens used by widget attachment flows — gating fail-closed would break visitor-side uploads system-wide. |
+| `storage_gb` | yes (`workspace_usage_counters.storage_bytes`, now backed by canonical producer `trg_storage_usage_logs_apply`) | **DO NOT GATE (this phase)** | Counter is now real and forward-correct. Rollout deferred to its own narrow phase, starting with `POST /api/storage/upload`. Widget-attachment branches still need widget-runtime UX before any 403 can be surfaced cleanly. |
 | `ai_kb_jobs_per_month` | yes (`countJobsThisMonth`) | **STILL AMBIGUOUS — DEFERRED** | Key **is** present in plan limits, but `POST /api/ai-kb/jobs` already enforces this exact rule in-handler **with an admin bypass** (`!auth.isAdmin && jobsUsed >= …`). `requireLimit` has no admin bypass, so layering it on top would regress Super-Admin workflows that currently rely on the in-handler bypass. Migrating this route is a refactor, not a Phase-2 add. |
 
 **Routes gated in Phase 2:** none.
@@ -518,37 +518,42 @@ trail.
 
 - Column: `workspace_usage_counters.storage_bytes` — declared in
   `supabase/migrations/20260415220905_*.sql`, default `0`.
-- Producer: **none.** No trigger, no application-side increment. The
-  column is structurally always `0`.
-- `storage_usage_logs` is written by `server/services/storage/index.ts`
-  on every upload/delete attempt but is never aggregated into
-  `workspace_usage_counters`.
-- Delete log rows do not currently capture `file_size`, so even a
-  trigger over `storage_usage_logs` cannot decrement correctly today.
-- Resolver `resolveStorageGb` (`usageResolvers.ts`) reads
-  `storage_bytes` and converts to GB. It is internally correct — the
-  failure is **upstream**: it reads a counter nothing increments.
+- Producer: **`trg_storage_usage_logs_apply` →
+  `public.apply_storage_usage_log()`** on `storage_usage_logs`. Sole
+  writer. Increments on successful uploads with `file_size > 0`,
+  decrements on successful deletes (clamped at zero), seeds new
+  monthly rows from the prior period to preserve cumulative occupancy.
+- `deleteFile()` in `server/services/storage/index.ts` now resolves
+  `file_size` from the most recent successful upload row for the same
+  `(workspace_id, file_key)` and stamps it on the delete log row, so
+  the trigger decrements exactly. No guessed sizes.
+- Resolver `resolveStorageGb` is unchanged. It reads the same
+  current-month row the producer writes to.
+- Backfill is intentionally skipped: historical delete rows lack
+  `file_size`, so a backfill would systematically over-count.
+  See `docs/STORAGE_COUNTER_ARCHITECTURE.md`.
 
-### Why no rollout
+### Why no rollout (this phase)
 
-Attaching `requireLimit('storage_gb', usageFnForLimit('storage_gb'))`
-to any upload route today would be a silent no-op (cap unreachable),
-and would convert into an uncontrollable mass-rollout the moment a
-producer is added. Both failure modes violate the conservative-rollout
-rule.
+The producer is now live, but rollout is intentionally a separate,
+narrow follow-up phase. This phase is strictly the counter-truth
+phase: install one canonical writer, fix delete accounting, document
+the invariants. Attaching `requireLimit` is the next phase, starting
+with `POST /api/storage/upload`.
 
 ### What this phase changed
 
-- Documented the locked semantics and cap-reached policy in
-  `docs/STORAGE_LIMIT_POLICY.md`.
-- Recorded the producer gap as the **single** blocker.
-- No route, schema, env, key, middleware, or service code was changed.
-- `resolveStorageGb`, `usageFnForLimit('storage_gb')`, and the
-  capability registry entry for `storage_gb` are untouched.
+- Installed canonical producer trigger
+  (`trg_storage_usage_logs_apply`) — sole writer of `storage_bytes`.
+- Patched `deleteFile()` in `server/services/storage/index.ts` to
+  capture freed `file_size` on every delete log row.
+- Added `docs/STORAGE_COUNTER_ARCHITECTURE.md` with full invariants.
+- Updated `docs/STORAGE_LIMIT_POLICY.md` to reflect producer status.
+- `resolveStorageGb`, `usageFnForLimit('storage_gb')`, the capability
+  registry entry, and every upload route remain untouched.
 
 ### Deferred to later phases
 
-- Producer migration (trigger + delete-size capture + backfill).
 - First rollout: `POST /api/storage/upload`.
 - Conversation-attachments rollout.
 - Widget-attachments rollout (paired with widget-runtime UX).

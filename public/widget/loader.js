@@ -592,6 +592,7 @@
       launcherEl.classList.add("revealed");
     }
     launcherEl.addEventListener("click", function () {
+      dismissWelcomeToast(true);
       if (opts.errorMessage) { showShellError(opts.errorMessage); return; }
       if (opts.launcherOnly) { showShellError("Chat is not configured."); return; }
       onLauncherClick();

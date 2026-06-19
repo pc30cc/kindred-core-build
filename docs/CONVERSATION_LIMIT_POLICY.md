@@ -1,8 +1,8 @@
 # Conversation Limit Policy
 
-_Status: **ROLLED OUT (Phase 5)** — `max_conversations` is enforced on
-all conversation-creation branches, widget and operator alike.
-Replies into existing conversations remain ungated by design._
+_Status: **rolled out** — `max_conversations` is enforced on all
+conversation-creation branches, widget and operator alike. Replies
+into existing conversations remain ungated by design._
 
 ## Conversation creation surfaces (route truth)
 

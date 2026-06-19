@@ -70,6 +70,7 @@ import { loadWidgetPlatformRuntimeSettings } from '../services/widget/platformSe
 import { isActionActive } from '../services/observability/autoActionsCache.js';
 import { emitMetric, emitLog } from '../services/observability/metrics.js';
 import { resolveEffectivePolicy } from '../services/realtime/effectivePolicy.js';
+import { enforceMaxConversationsLimit } from '../services/billing/conversationLimit.js';
 
 export const widgetRouter = Router();
 
@@ -1249,6 +1250,15 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
 
     // Create new conversation
     if (!convId) {
+      // Phase 5 — enforce max_conversations only on this creation
+      // branch. Replies into an existing conversation (the branches
+      // above) intentionally bypass the cap. workspace_id has already
+      // been resolved via resolveWorkspaceId() + widget token checks.
+      {
+        const ok = await enforceMaxConversationsLimit(req, res);
+        if (!ok) return;
+      }
+
       // Find or create contact
       let contactId: string | null = null;
 
@@ -2294,6 +2304,13 @@ widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: R
   }
 
   // Create conversation tagged 'offline'.
+  // Phase 5 — offline capture is always a new conversation row, so
+  // enforce max_conversations here. workspace_id is verified above
+  // against the widget token (`tokenWs === workspace_id`).
+  {
+    const ok = await enforceMaxConversationsLimit(req, res);
+    if (!ok) return;
+  }
   const { data: conv, error: convErr } = await supabase
     .from('conversations')
     .insert({

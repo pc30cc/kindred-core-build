@@ -42,6 +42,7 @@ import { emitLog } from '../services/observability/metrics.js';
 import { markHumanTakeover } from '../services/ai-agent/handoffState.js';
 import { maybeCreateLearningCandidateFromOperatorReply } from '../services/ai-agent/learning/candidates.js';
 import { markSpam, unmarkSpam } from '../services/spam/state.js';
+import { enforceMaxConversationsLimit } from '../services/billing/conversationLimit.js';
 
 export const conversationsRouter = Router();
 
@@ -369,6 +370,14 @@ conversationsRouter.post('/start-from-visitor', async (req, res) => {
 
     if (existing?.id) {
       return res.json({ ok: true, conversation_id: existing.id, created: false });
+    }
+
+    // Phase 5 — enforce max_conversations only on the actual creation
+    // branch. Reuse of an existing open/pending conversation above does
+    // not count. workspace_id is already verified via authorizeWorkspaceMember.
+    {
+      const ok = await enforceMaxConversationsLimit(req, res);
+      if (!ok) return;
     }
 
     // Create a new conversation. We do NOT seed a message — the operator

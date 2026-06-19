@@ -109,3 +109,22 @@ Aggregation lives in `GET /api/plans/workspace/:id/effective` so frontends do no
 - Migrating legacy unknown keys discovered by `/admin/diagnostics`.
 - Registry-aware admin plan editor UI rewrite.
 - Reconciling the free/paid plan seed JSON with the registry.
+
+---
+
+## 9. Call surfaces (plan ↔ runtime composition)
+
+Plan keys for call surfaces are an upper bound, not a replacement,
+for the runtime control plane in `server/services/calls/controlPlane.ts`.
+
+- Plan-level: `voice_video` (module), `voice` / `video` (channels),
+  `call_center` (module), `call_recording` / `call_queue` /
+  `call_callbacks` (features).
+- Runtime-level (kept as-is): global gates
+  (`*_enabled_global`), workspace overrides on
+  `workspace_provider_settings(provider_type='call')`, and per-call
+  defaults (max participants, bitrates, retention).
+
+Effective state = `plan AND control_plane.enabled AND <feature>_enabled_global AND workspace_override`.
+See `docs/CALL_SURFACES_PLAN_MODEL.md` for the full mapping and the
+routes earmarked for a future enforcement pass.

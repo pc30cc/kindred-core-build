@@ -71,6 +71,7 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
   { key: 'api_access',        type: 'module', label: 'API Access',         group: 'modules', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 100 },
   { key: 'voice_video',       type: 'module', label: 'Voice & Video',      group: 'modules', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 110 },
   { key: 'help_center',       type: 'module', label: 'Help Center',        group: 'modules', defaultValue: true,  planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 120 },
+  { key: 'call_center',       type: 'module', label: 'Call Center',        group: 'modules', description: 'Call queue, routing, invitations and callbacks suite. Bounded by Voice & Video and the global call control plane.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 115 },
 
   // ─── Channels ───
   { key: 'chat_widget', type: 'channel', label: 'Chat Widget', group: 'channels', defaultValue: true,  planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 10 },
@@ -91,6 +92,11 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
   { key: 'audit_logs',            type: 'feature', label: 'Audit Logs',             group: 'security', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true,  sortOrder: 20 },
   { key: 'white_label',           type: 'feature', label: 'White-label Branding',   group: 'branding', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true,  sortOrder: 10 },
   { key: 'remove_powered_by',     type: 'feature', label: 'Remove "Powered by"',    group: 'branding', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true,  sortOrder: 20 },
+
+  // ─── Call surface features (plan-level toggles bounded by call control plane) ───
+  { key: 'call_recording',        type: 'feature', label: 'Call Recording',         group: 'calls',    description: 'Allow operators to record voice/video calls. Bounded by global call_recording_enabled_global runtime gate.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true,  sortOrder: 10 },
+  { key: 'call_queue',            type: 'feature', label: 'Call Queue',             group: 'calls',    description: 'Plan-level access to the call queue / routing surface. Bounded by global call_queue_enabled_global runtime gate.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true,  sortOrder: 20 },
+  { key: 'call_callbacks',        type: 'feature', label: 'Call Callbacks',         group: 'calls',    description: 'Allow visitors to request a callback when SLA is breached. Bounded by global callback_offer_after_timeout runtime gate.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true,  sortOrder: 30 },
 
   // ─── Numeric limits ───
   { key: 'max_agents',            type: 'limit', label: 'Max Agents',                 group: 'team',  defaultValue: 1,    planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 10 },

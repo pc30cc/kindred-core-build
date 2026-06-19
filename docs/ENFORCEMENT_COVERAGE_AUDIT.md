@@ -162,3 +162,35 @@ middleware (with explicit bypass) is recorded there.
 
 Phase 3 (selective `requireLimit` rollout) is now unblocked at the
 data layer. It is still NOT executed in this phase.
+
+## 8. Phase 3 — AI KB jobs migrated to shared `requireLimit`
+
+`POST /api/ai-kb/jobs` is now the **first** real consumer of
+`requireLimit(...)` + `usageFnForLimit(...)`. The route-local logic is:
+
+1. Authenticate caller and resolve `auth.isAdmin` (Super Admin) as today.
+2. Run existing module gating (`knowledge_base`, `ai_kb_builder`).
+3. If `auth.isAdmin` → bypass the cap (preserves the prior in-handler
+   `!auth.isAdmin && …` admin bypass exactly).
+4. Otherwise invoke
+   `requireLimit('ai_kb_jobs_per_month', usageFnForLimit('ai_kb_jobs_per_month'))`
+   inline. The middleware writes its own 403 on cap-reached / not-in-plan;
+   the handler returns early when the middleware did not call `next()`.
+5. Continue to the unchanged job-creation flow (plan snapshot, insert,
+   usage log).
+
+Notes:
+
+- The duplicate in-handler monthly count (`countJobsThisMonth` +
+  `jobsUsed >= limitsInfo.limits.jobsPerMonth`) was removed — it is now
+  resolved by `usageFnForLimit('ai_kb_jobs_per_month')`, which delegates
+  to the same `countJobsThisMonth` helper.
+- `resolveAiKbLimits` is still called because the `plan_snapshot`
+  written into `ai_kb_jobs` carries plan slug + per-job caps the worker
+  reads. That snapshot semantics is unchanged.
+- No global admin short-circuit was added to `requireLimit`. The bypass
+  is explicit and visible at the call site.
+- All other numeric-limit routes (`max_conversations`, `max_visitors`,
+  `storage_gb`, `ai_credits_per_month`) **remain deferred** per §7.
+  They still need workspace/widget-aware policy decisions before any
+  middleware is attached.

@@ -83,16 +83,19 @@ silently let traffic through.
 
 ## Current consumers
 
-_As of Phase 2: none._ The resolver is wired up and unit-correct, but
-no route attaches `requireLimit(key, usageFnForLimit(key))` yet.
+| Route | Limit key | Bypass |
+|---|---|---|
+| `POST /api/ai-kb/jobs` (`server/routes/aiKb.ts`) | `ai_kb_jobs_per_month` | Route-local Super Admin (`auth.isAdmin`) skips the middleware entirely. |
 
-Plan-data alignment for the resolver-ready keys is now complete — see
-`docs/PLAN_LIMIT_ALIGNMENT.md`. Every active plan carries
-`max_conversations`, `max_visitors`, `storage_gb`, `ai_credits_per_month`,
-and `ai_kb_jobs_per_month` in `billing_plans.limits`, so
-`check_workspace_entitlement` no longer fail-closes for these keys.
-The remaining blocker before route gating is the admin-bypass policy
-decision (recorded in `PLAN_LIMIT_ALIGNMENT.md`).
+Phase 3 migrated the AI KB monthly job cap from in-handler counting to
+`requireLimit('ai_kb_jobs_per_month', usageFnForLimit('ai_kb_jobs_per_month'))`.
+The previous duplicate `countJobsThisMonth` + threshold check in the
+handler was removed; the resolver now owns counting.
+
+All other resolver-ready keys (`max_conversations`, `max_visitors`,
+`storage_gb`, `ai_credits_per_month`) remain unattached. They need
+route-level policy decisions (especially around widget/anonymous
+traffic) before middleware is wired up.
 
 ## Adding a new resolver
 

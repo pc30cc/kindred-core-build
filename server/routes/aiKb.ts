@@ -21,6 +21,8 @@ import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { checkModuleAccess } from '../middleware/featureGating.js';
+import { requireLimit } from '../middleware/featureGating.js';
+import { usageFnForLimit } from '../services/billing/usageResolvers.js';
 import { isGlobalAdmin, logGateBypass } from '../middleware/adminBypass.js';
 import { resolveSourceDomain } from '../services/ai-kb/sourceDomain.js';
 import { resolveAiKbLimits, countJobsThisMonth } from '../services/ai-kb/limits.js';
@@ -188,15 +190,25 @@ aiKbRouter.post('/jobs', async (req: Request, res: Response) => {
   }
 
   const limitsInfo = await resolveAiKbLimits(config, workspaceId);
-  const jobsUsed = await countJobsThisMonth(config, workspaceId);
-  if (!auth.isAdmin && jobsUsed >= limitsInfo.limits.jobsPerMonth) {
-    return res.status(403).json({
-      error: 'monthly_job_limit_reached',
-      plan: limitsInfo.planSlug,
-      jobs_used_this_month: jobsUsed,
-      limit: limitsInfo.limits.jobsPerMonth,
-      upgrade_required: true,
+
+  // ── Monthly job cap enforcement ────────────────────────────
+  // Phase 3 migration: route-local Super Admin bypass + shared
+  // requireLimit/usageFnForLimit. The bypass is kept explicit and
+  // local (per docs/PLAN_LIMIT_ALIGNMENT.md) — we do NOT add a
+  // global admin short-circuit to requireLimit.
+  if (!auth.isAdmin) {
+    const limitMw = requireLimit(
+      'ai_kb_jobs_per_month',
+      usageFnForLimit('ai_kb_jobs_per_month'),
+    );
+    let proceeded = false;
+    await limitMw(req, res, () => {
+      proceeded = true;
     });
+    if (!proceeded) {
+      // Middleware already wrote a 403 response.
+      return;
+    }
   }
 
   const planSnapshot: PlanSnapshot = {

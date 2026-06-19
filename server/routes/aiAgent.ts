@@ -10,7 +10,7 @@ import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { isGlobalAdmin } from '../middleware/adminBypass.js';
-import { checkModuleAccess } from '../middleware/featureGating.js';
+import { checkModuleAccess, requireModule } from '../middleware/featureGating.js';
 import {
   getOrCreateSettings,
   updateSettings,
@@ -688,7 +688,11 @@ const playgroundSchema = z.object({
   modelOverride: z.string().max(100).optional(),
 });
 
-aiAgentRouter.post('/playground/test', async (req: Request, res: Response) => {
+// Phase 1 entitlement enforcement: playground is by definition an
+// `ai_assistant` module surface — gate it with the canonical middleware
+// so plan/override changes take effect uniformly. Existing per-user
+// rate limit and member auth are preserved.
+aiAgentRouter.post('/playground/test', requireModule('ai_assistant'), async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
   const parsed = playgroundSchema.safeParse(req.body);
   if (!parsed.success) {

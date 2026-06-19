@@ -38,6 +38,31 @@ only deterministic, repo-grounded tests.
   - Each storage upload route (`storage.ts`, `conversationAttachments.ts`,
     `widgetAttachments.ts`) attaches the `storage_gb` limit gate.
 
+- `src/test/billing/requireLimitMiddleware.test.ts` (Phase 17 — runtime)
+  - Drives the real `requireLimit` middleware with a mocked
+    `@supabase/supabase-js` client. Verifies actual branching:
+    allow-below-limit calls `next()`, at/over-limit returns 403 without
+    `next()`, `limit === -1` skips usage comparison entirely, plan-disallowed
+    returns 403, missing `workspace_id` returns 400, and a throwing usage
+    resolver fails closed (403). This is the highest-leverage runtime check
+    behind every rolled-out limit gate.
+
+- `src/test/billing/conversationLimitHelper.test.ts` (Phase 17 — runtime)
+  - Exercises `enforceMaxConversationsLimit` end-to-end through the shared
+    middleware. Confirms the create branch proceeds when below the cap,
+    returns false with a 403 when the cap is reached, and surfaces 400 when
+    no `workspace_id` is present. The "reply branches must NOT call this
+    helper" rule remains protected by the import-seam invariants in
+    `singleWriterInvariants.test.ts`.
+
+- `src/test/billing/visitorLimitHelper.test.ts` (Phase 17 — runtime)
+  - Exercises `enforceMaxVisitorsLimitIfNewThisMonth` against a mocked
+    `visitor_sessions` membership read and a mocked entitlement RPC.
+    Confirms in-month revisits short-circuit (no RPC call), true new-this-
+    month visitors invoke `requireLimit` and proceed when allowed,
+    cap-reached writes 403, and the documented fail-OPEN behavior on
+    membership-read errors is preserved.
+
 ## Invariants protected by CI
 
 These are deterministic, do not depend on external services, and run as part of
@@ -53,14 +78,20 @@ These are deterministic, do not depend on external services, and run as part of
 | Single canonical writer for counters | `singleWriterInvariants.test.ts` |
 | Limit helpers reuse shared middleware contract | `singleWriterInvariants.test.ts` |
 | Storage upload surfaces still gated | `singleWriterInvariants.test.ts` |
+| `requireLimit` allow / deny / unlimited / fail-closed branches | `requireLimitMiddleware.test.ts` |
+| Conversation create gate proceeds / 403 on cap | `conversationLimitHelper.test.ts` |
+| Visitor revisit skip / new-this-month gate / fail-open | `visitorLimitHelper.test.ts` |
 
 ## Intentionally not covered (deferred)
 
-- **Live route HTTP behavior** (admin bypass, 403 shape, attachment
-  `status='failed'` rollback): would require booting the Express app and
-  Supabase mocks. The wiring invariants above catch the common regression of
-  "someone removed `requireLimit`"; full HTTP behavior is currently validated
-  manually per `docs/ENFORCEMENT_COVERAGE_AUDIT.md`.
+- **Full Express HTTP route tests** for `aiKb.ts` admin-bypass branch and the
+  attachment `status='failed'` cleanup writes on denial. The middleware
+  branching itself is now covered at runtime by Phase 17 tests above; the
+  per-route cleanup write and admin-bypass short-circuit remain protected by
+  the source-level wiring invariants and are validated manually per
+  `docs/ENFORCEMENT_COVERAGE_AUDIT.md`. Booting Express + Supabase mocks for
+  full HTTP coverage is intentionally deferred — the cost/benefit ratio is
+  unfavorable while the middleware seam itself is now runtime-tested.
 - **Live counter increment behavior** under the DB trigger: covered by the
   migration and validated manually; this phase only protects the application
   side of the single-writer contract.

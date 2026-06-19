@@ -8,8 +8,10 @@ import { useEffect, useState } from 'react';
 import {
   fetchCapabilityCatalog,
   fetchWorkspaceEffective,
+  fetchEntitlementDiagnostics,
   type CapabilityDefinition,
   type WorkspaceEffectiveEntitlements,
+  type EntitlementDiagnostics,
 } from '@/lib/entitlements-api';
 
 export function useCapabilityCatalog() {
@@ -33,6 +35,7 @@ export function useWorkspaceEffectiveEntitlements(workspaceId: string | null | u
   const [data, setData] = useState<WorkspaceEffectiveEntitlements | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     if (!workspaceId) { setData(null); return; }
@@ -43,7 +46,26 @@ export function useWorkspaceEffectiveEntitlements(workspaceId: string | null | u
       .catch((e) => { if (!cancelled) setError(e?.message || String(e)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [workspaceId]);
+  }, [workspaceId, reloadKey]);
 
-  return { data, loading, error };
+  return { data, loading, error, reload: () => setReloadKey((k) => k + 1) };
+}
+
+export function useEntitlementDiagnostics() {
+  const [data, setData] = useState<EntitlementDiagnostics | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    fetchEntitlementDiagnostics()
+      .then((r) => { if (!cancelled) setData(r); })
+      .catch((e) => { if (!cancelled) setError(e?.message || String(e)); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [reloadKey]);
+
+  return { data, loading, error, reload: () => setReloadKey((k) => k + 1) };
 }

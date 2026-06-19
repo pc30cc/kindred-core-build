@@ -47,6 +47,14 @@ export interface WorkspaceEffectiveEntitlements {
   raw: { entitlements: Record<string, unknown>; limits: Record<string, unknown> };
 }
 
+export interface EntitlementDiagnostics {
+  registrySize: number;
+  plansChecked: number;
+  unknownKeysInDb: Array<{ planSlug: string; key: string; bucket: 'entitlements' | 'limits' }>;
+  registryKeysMissingEverywhere: string[];
+  invalidLimitValues: Array<{ planSlug: string; key: string; value: unknown }>;
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, { headers: { 'Content-Type': 'application/json' } });
   if (!res.ok) {
@@ -89,6 +97,43 @@ export async function fetchEntitlementDiagnostics() {
     registryKeysMissingEverywhere: string[];
     invalidLimitValues: Array<{ planSlug: string; key: string; value: unknown }>;
   }>(`/api/plans/admin/diagnostics`);
+}
+
+/** Set or clear a workspace module override (Super Admin). */
+export async function setWorkspaceModuleOverride(input: {
+  workspaceId: string; moduleKey: string; enabled: boolean; adminNotes?: string;
+}) {
+  const res = await fetch(`${API_BASE}/api/plans/admin/overrides/module`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(`Override failed: ${res.status}`);
+  return res.json();
+}
+
+export async function setWorkspaceChannelOverride(input: {
+  workspaceId: string; channelKey: string; enabled: boolean; adminNotes?: string;
+}) {
+  const res = await fetch(`${API_BASE}/api/plans/admin/overrides/channel`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(`Override failed: ${res.status}`);
+  return res.json();
+}
+
+export async function deleteWorkspaceModuleOverride(id: string) {
+  const res = await fetch(`${API_BASE}/api/plans/admin/overrides/module/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`Delete override failed: ${res.status}`);
+  return res.json();
+}
+
+export async function deleteWorkspaceChannelOverride(id: string) {
+  const res = await fetch(`${API_BASE}/api/plans/admin/overrides/channel/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`Delete override failed: ${res.status}`);
+  return res.json();
 }
 
 /** Group capabilities by `group` field, preserving sortOrder. */

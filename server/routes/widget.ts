@@ -1,8 +1,6 @@
 /**
  * Widget API — Full-featured widget backend
- * 
- * Adapted from WebYar Growth Suite widget system.
- * 
+ *
  * Endpoints:
  *  - POST /bootstrap        — Public. Issues HMAC session token
  *  - GET  /config           — Token-secured. Full widget config

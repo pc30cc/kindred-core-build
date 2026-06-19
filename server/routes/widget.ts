@@ -71,6 +71,7 @@ import { isActionActive } from '../services/observability/autoActionsCache.js';
 import { emitMetric, emitLog } from '../services/observability/metrics.js';
 import { resolveEffectivePolicy } from '../services/realtime/effectivePolicy.js';
 import { enforceMaxConversationsLimit } from '../services/billing/conversationLimit.js';
+import { enforceMaxVisitorsLimitIfNewThisMonth } from '../services/billing/visitorLimit.js';
 
 export const widgetRouter = Router();
 
@@ -1520,6 +1521,18 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
           }
         }
       } else if (visitor_id) {
+        // Phase 10 — gate true-new-this-month visitors on the public widget
+        // /track endpoint. Reuses the Phase 9 helper so the trigger remains
+        // the sole writer of `workspace_usage_counters.visitors_count` and
+        // in-month revisits / 30-min reconnects stay ungated.
+        const ok = await enforceMaxVisitorsLimitIfNewThisMonth(
+          req,
+          res,
+          supabase,
+          workspaceId,
+          visitor_id,
+        );
+        if (!ok) return;
         const { data: newSession } = await supabase
           .from('visitor_sessions').insert({
             workspace_id: workspaceId,

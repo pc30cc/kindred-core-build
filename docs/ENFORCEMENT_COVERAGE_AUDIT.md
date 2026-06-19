@@ -474,3 +474,26 @@ the only remaining blocker for the gate.
 No other limit keys touched in this phase. `storage_gb`,
 `ai_credits_per_month`, and any storage/upload work remain deferred
 per §7.
+
+## Phase 10 — max_visitors coverage broadening
+
+Applied the existing `enforceMaxVisitorsLimitIfNewThisMonth` helper
+to the second true session-creation branch:
+`server/routes/widget.ts` `POST /track` `else if (visitor_id)`
+sub-branch (~line 1524). Reuses the Phase 9 contract verbatim — no
+second helper, no second writer of `workspace_usage_counters.visitors_count`.
+
+Branches still ungated and intentionally deferred:
+
+- `callWidget.ts` `ensureVisitorSessionRow` insert — best-effort
+  semantics; gating would convert a swallow-on-failure code path
+  into a hard 403 on call-widget entry. Needs an explicit
+  cap-reached UX decision before adoption.
+- `widgetIdentity.ts`, `widgetCallInvitations.ts`, `calls.ts` —
+  not session-creation branches (SELECT only).
+- `widget.ts` `/track` 30-min reconnect branch, page-view branch,
+  presence inserts — not creation branches per locked semantics.
+
+Trigger `trg_visitor_sessions_count_visitor` is still the only
+writer. `resolveMaxVisitors` and `usageFnForLimit('max_visitors')`
+unchanged. All gated branches now share one discriminator contract.

@@ -215,3 +215,38 @@ does not apply. No global admin short-circuit added to
   they share the same 30-min granularity and would need the same
   discriminator to be wired in if a future phase decides to
   broaden coverage.
+## 7. Phase 10 — Coverage broadening (secondary widget /track branch)
+
+**Date:** 2026-06-19. Status: **partial broadening applied**.
+
+**Secondary branch audit:**
+
+| Site | Inserts `visitor_sessions`? | True creation? | `workspace_id` + `visitor_id` trusted? | Helper fits? | Decision |
+|---|---|---|---|---|---|
+| `widget.ts` `POST /track` `else if (visitor_id)` (line ~1524) | yes | yes (no recent 30-min session) | yes — `resolveWorkspaceId` + body `visitor_id` | yes (mirrors `visitors.ts` /track) | **SAFE TO ADOPT** |
+| `widgetIdentity.ts` lines 139/290/454 | no — SELECT only | n/a | n/a | n/a | NOT A CREATION BRANCH |
+| `callWidget.ts` `ensureVisitorSessionRow` (line ~212) | yes | yes (only when no row exists at all) | partial — called from call-widget bootstrap; failures intentionally swallowed | risky — would convert a best-effort row into a hard 403 cap-block on call entry | **STILL DEFERRED** |
+| `widgetCallInvitations.ts` line ~316 | SELECT only (lookup) | n/a | n/a | n/a | NOT A CREATION BRANCH |
+| `calls.ts` line ~164 | SELECT only | n/a | n/a | n/a | NOT A CREATION BRANCH |
+
+**Rollout applied:** `widget.ts` `POST /track` insert sub-branch only.
+The existing `enforceMaxVisitorsLimitIfNewThisMonth` helper is
+invoked immediately before the `visitor_sessions` insert. No second
+helper, no second writer, no new discriminator variant. The 30-min
+reconnect / update branch above it remains untouched, page-view
+inserts remain untouched, and `visitor_presence` writes remain
+untouched.
+
+**Why `callWidget.ts` stays deferred:** the ensure-session path is
+explicitly best-effort ("failures are swallowed; the merge will
+still run"). Attaching `requireLimit` there would convert a
+historically silent branch into a hard 403 on call-widget entry,
+which is a UX regression we are not authorized to make in this
+phase. Call-widget visitors that have never been tracked through
+the chat widget will therefore not yet consume the cap until a
+future phase wires the helper in deliberately with the correct
+cap-reached UX.
+
+**Invariants preserved:** trigger remains the sole writer of
+`visitors_count`; `resolveMaxVisitors` unchanged; locked semantics
+unchanged; fail-open behavior unchanged.

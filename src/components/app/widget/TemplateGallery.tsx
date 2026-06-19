@@ -38,27 +38,78 @@ function TemplateThumb({
   primaryColor: string;
   brandLabel: string;
 }) {
-  // Allow templates to declare a custom thumbnail later via metadata.
-  const previewKind = (template.metadata as any)?.preview?.kind || 'default';
+  // Per-template visual variants — each slug renders a faithful mini-mock
+  // that mirrors what the visitor will actually see.
+  const slug = template.slug;
+  const tplPrimary =
+    (template.metadata as any)?.primary ||
+    (slug === 'template2' ? '#0066ff' : primaryColor);
 
+  // Variant: template2 — curved blue header, rounded 16px panel, pill input
+  if (slug === 'template2') {
+    const grad = `linear-gradient(160deg, #0052ff 0%, ${tplPrimary} 50%, #2b86ff 100%)`;
+    return (
+      <div className="relative aspect-[4/3] w-full overflow-hidden rounded-md bg-muted/40 border border-border">
+        <div className="absolute inset-0 p-2 space-y-1.5">
+          <div className="h-2 w-3/5 bg-muted rounded" />
+          <div className="h-1.5 w-full bg-muted/70 rounded" />
+          <div className="h-1.5 w-4/5 bg-muted/70 rounded" />
+          <div className="h-10 w-full bg-muted/40 rounded mt-1.5" />
+        </div>
+        <div
+          className="absolute right-2 bottom-7 w-[60%] overflow-hidden bg-white border border-black/5"
+          style={{ height: '66%', borderRadius: 12, boxShadow: '0 12px 24px -6px rgba(0,82,255,0.32), 0 4px 10px -2px rgba(0,0,0,0.10)' }}
+        >
+          <div className="relative px-2 pt-2 pb-3" style={{ background: grad }}>
+            <div className="text-white text-[8px] font-bold truncate">{brandLabel}</div>
+            <div className="text-white/80 text-[6.5px] mt-0.5">Online now</div>
+            <div
+              className="absolute left-0 right-0 -bottom-px h-2 bg-white"
+              style={{ borderTopLeftRadius: 10, borderTopRightRadius: 10 }}
+            />
+          </div>
+          <div className="p-1.5 space-y-1 pt-2">
+            <div className="rounded-[8px] px-1.5 py-1 text-[7px] text-foreground bg-muted max-w-[88%]" style={{ borderBottomLeftRadius: 3 }}>
+              Hi! How can we help?
+            </div>
+            <div
+              className="rounded-[8px] px-1.5 py-1 text-[7px] text-white max-w-[78%] ms-auto"
+              style={{ background: tplPrimary, borderBottomRightRadius: 3, boxShadow: '0 2px 6px rgba(0,82,255,0.25)' }}
+            >
+              I have a question
+            </div>
+          </div>
+          <div className="absolute bottom-0 inset-x-0 border-t border-border bg-white px-1.5 py-1">
+            <div className="bg-muted h-2" style={{ borderRadius: 999 }} />
+          </div>
+        </div>
+        <div
+          className="absolute right-2 bottom-1.5 h-5 w-5 rounded-full flex items-center justify-center"
+          style={{ background: grad, boxShadow: '0 8px 16px -4px rgba(0,82,255,0.55), 0 3px 6px rgba(0,0,0,0.16)' }}
+        >
+          <MessageSquare className="h-2.5 w-2.5 text-white" />
+        </div>
+      </div>
+    );
+  }
+
+  // Default variant — classic rounded panel
+  const previewKind = (template.metadata as any)?.preview?.kind || 'default';
   return (
     <div className="relative aspect-[4/3] w-full overflow-hidden rounded-md bg-muted/40 border border-border">
-      {/* Mock website plate */}
       <div className="absolute inset-0 p-2 space-y-1.5">
         <div className="h-2 w-3/5 bg-muted rounded" />
         <div className="h-1.5 w-full bg-muted/70 rounded" />
         <div className="h-1.5 w-4/5 bg-muted/70 rounded" />
         <div className="h-10 w-full bg-muted/40 rounded mt-1.5" />
       </div>
-
-      {/* Floating panel mock */}
       <div
         className="absolute right-2 bottom-7 w-[58%] rounded-md shadow-md overflow-hidden bg-card border border-border"
         style={{ height: '64%' }}
       >
         <div
           className="px-2 py-1.5 text-white text-[8px] font-semibold truncate"
-          style={{ background: primaryColor }}
+          style={{ background: tplPrimary }}
         >
           {brandLabel}
         </div>
@@ -69,7 +120,7 @@ function TemplateThumb({
           {previewKind !== 'minimal' && (
             <div
               className="rounded px-1.5 py-1 text-[7px] text-white max-w-[80%] ms-auto"
-              style={{ background: primaryColor }}
+              style={{ background: tplPrimary }}
             >
               I have a question
             </div>
@@ -79,11 +130,9 @@ function TemplateThumb({
           <div className="bg-muted rounded-full h-2" />
         </div>
       </div>
-
-      {/* Launcher dot */}
       <div
         className="absolute right-2 bottom-1.5 h-4 w-4 rounded-full flex items-center justify-center shadow"
-        style={{ background: primaryColor }}
+        style={{ background: tplPrimary }}
       >
         <MessageSquare className="h-2 w-2 text-white" />
       </div>

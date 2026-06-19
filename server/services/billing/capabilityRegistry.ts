@@ -1,0 +1,212 @@
+/**
+ * ============================================================
+ * CENTRAL CAPABILITY REGISTRY
+ * ------------------------------------------------------------
+ * Single source of truth for entitlement/module/channel/limit
+ * keys consumed by:
+ *   - Admin plan editor (rendering)
+ *   - App-side billing UI (display)
+ *   - Backend validation & diagnostics (plan payload sanity)
+ *   - Effective-state aggregation
+ *
+ * Design rules:
+ *  1. Additive only. Existing keys MUST NOT be renamed.
+ *  2. Keys here mirror what is already stored in
+ *     `billing_plans.entitlements` / `billing_plans.limits`
+ *     and what `requireFeature/requireModule/requireChannel`
+ *     middleware consumes. Adding to this registry does NOT
+ *     change any contract — it only documents and centralises.
+ *  3. The registry is metadata. Plan JSON values, workspace
+ *     overrides, usage counters, and middleware enforcement
+ *     remain authoritative — see docs/ENTITLEMENT_ARCHITECTURE.md.
+ * ============================================================
+ */
+
+export type CapabilityType = 'feature' | 'module' | 'channel' | 'limit';
+export type CapabilityUnit =
+  | 'count' | 'bytes' | 'mb' | 'gb' | 'seconds' | 'minutes'
+  | 'per_month' | 'per_day' | 'percent' | 'boolean' | 'days';
+
+export interface CapabilityDefinition {
+  /** Stable key. MUST match existing plan JSON / middleware key. */
+  key: string;
+  type: CapabilityType;
+  /** Short, user-facing label (English; localisation handled in UI). */
+  label: string;
+  description?: string;
+  /** Logical grouping for admin/app UI. */
+  group: string;
+  /** Default value applied when neither plan nor override defines it. */
+  defaultValue: boolean | number | null;
+  /** Whether Super Admin can configure this on a plan. */
+  planConfigurable: boolean;
+  /** Whether Super Admin can override this per workspace. */
+  workspaceOverridable: boolean;
+  /** Whether this should appear in customer-facing billing UI. */
+  userVisible: boolean;
+  /** Internal/admin-only — never shown to end users. */
+  internalOnly?: boolean;
+  /** Unit hint for `limit` types. */
+  unit?: CapabilityUnit;
+  /** Sort order within group (ascending). */
+  sortOrder?: number;
+}
+
+/**
+ * The registry. Keep this list aligned with the keys actually
+ * read by `featureGating.ts`, `aiAgent`, `aiKb`, plan defaults,
+ * and the admin/app billing UI.
+ */
+export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
+  // ─── Modules (boolean access at module level) ───
+  { key: 'chat',              type: 'module', label: 'Live Chat',          group: 'modules', defaultValue: true,  planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 10 },
+  { key: 'knowledge_base',    type: 'module', label: 'Knowledge Base',     group: 'modules', defaultValue: true,  planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 20 },
+  { key: 'ai_assistant',      type: 'module', label: 'AI Assistant',       group: 'modules', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 30 },
+  { key: 'visitor_tracking',  type: 'module', label: 'Visitor Tracking',   group: 'modules', defaultValue: true,  planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 40 },
+  { key: 'email_campaigns',   type: 'module', label: 'Email Campaigns',    group: 'modules', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 50 },
+  { key: 'automation',        type: 'module', label: 'Automation',         group: 'modules', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 60 },
+  { key: 'analytics',         type: 'module', label: 'Analytics',          group: 'modules', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 70 },
+  { key: 'omnichannel',       type: 'module', label: 'Omnichannel',        group: 'modules', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 80 },
+  { key: 'custom_branding',   type: 'module', label: 'Custom Branding',    group: 'modules', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 90 },
+  { key: 'api_access',        type: 'module', label: 'API Access',         group: 'modules', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 100 },
+  { key: 'voice_video',       type: 'module', label: 'Voice & Video',      group: 'modules', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 110 },
+  { key: 'help_center',       type: 'module', label: 'Help Center',        group: 'modules', defaultValue: true,  planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 120 },
+
+  // ─── Channels ───
+  { key: 'chat_widget', type: 'channel', label: 'Chat Widget', group: 'channels', defaultValue: true,  planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 10 },
+  { key: 'email',       type: 'channel', label: 'Email',       group: 'channels', defaultValue: true,  planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 20 },
+  { key: 'whatsapp',    type: 'channel', label: 'WhatsApp',    group: 'channels', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 30 },
+  { key: 'sms',         type: 'channel', label: 'SMS',         group: 'channels', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 40 },
+  { key: 'instagram',   type: 'channel', label: 'Instagram',   group: 'channels', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 50 },
+  { key: 'telegram',    type: 'channel', label: 'Telegram',    group: 'channels', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 60 },
+  { key: 'voice',       type: 'channel', label: 'Voice Calls', group: 'channels', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 70 },
+  { key: 'video',       type: 'channel', label: 'Video Calls', group: 'channels', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 80 },
+
+  // ─── Boolean feature flags ───
+  { key: 'advanced_ai_agent',     type: 'feature', label: 'Advanced AI Agent',      group: 'ai',       defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true,  sortOrder: 10 },
+  { key: 'ai_operator_assist',    type: 'feature', label: 'AI Operator Assist',     group: 'ai',       defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true,  sortOrder: 20 },
+  { key: 'ai_kb_builder',         type: 'feature', label: 'AI KB Builder',          group: 'ai',       defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true,  sortOrder: 30 },
+  { key: 'priority_support',      type: 'feature', label: 'Priority Support',       group: 'support',  defaultValue: false, planConfigurable: true, workspaceOverridable: false, userVisible: true, sortOrder: 10 },
+  { key: 'sso',                   type: 'feature', label: 'SSO / SAML',             group: 'security', defaultValue: false, planConfigurable: true, workspaceOverridable: false, userVisible: true, sortOrder: 10 },
+  { key: 'audit_logs',            type: 'feature', label: 'Audit Logs',             group: 'security', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true,  sortOrder: 20 },
+  { key: 'white_label',           type: 'feature', label: 'White-label Branding',   group: 'branding', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true,  sortOrder: 10 },
+  { key: 'remove_powered_by',     type: 'feature', label: 'Remove "Powered by"',    group: 'branding', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true,  sortOrder: 20 },
+
+  // ─── Numeric limits ───
+  { key: 'max_agents',            type: 'limit', label: 'Max Agents',                 group: 'team',  defaultValue: 1,    planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 10 },
+  { key: 'max_workspaces',        type: 'limit', label: 'Max Workspaces',             group: 'team',  defaultValue: 1,    planConfigurable: true, workspaceOverridable: false, userVisible: true, unit: 'count', sortOrder: 20 },
+  { key: 'max_conversations',     type: 'limit', label: 'Conversations / month',      group: 'usage', defaultValue: 100,  planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'per_month', sortOrder: 10 },
+  { key: 'max_visitors',          type: 'limit', label: 'Tracked Visitors / month',   group: 'usage', defaultValue: 1000, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'per_month', sortOrder: 20 },
+  { key: 'ai_credits_per_month',  type: 'limit', label: 'AI Credits / month',         group: 'ai',    defaultValue: 0,    planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'per_month', sortOrder: 100 },
+  { key: 'ai_kb_max_pages',       type: 'limit', label: 'AI KB — Max pages per job',  group: 'ai',    defaultValue: 50,   planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 110 },
+  { key: 'ai_kb_max_depth',       type: 'limit', label: 'AI KB — Crawl depth',        group: 'ai',    defaultValue: 2,    planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 120 },
+  { key: 'ai_kb_jobs_per_month',  type: 'limit', label: 'AI KB — Jobs / month',       group: 'ai',    defaultValue: 5,    planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'per_month', sortOrder: 130 },
+  { key: 'ai_kb_file_size_mb',    type: 'limit', label: 'AI KB — Max file size',      group: 'ai',    defaultValue: 10,   planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'mb', sortOrder: 140 },
+  { key: 'ai_kb_file_count',      type: 'limit', label: 'AI KB — Max files',          group: 'ai',    defaultValue: 20,   planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 150 },
+  { key: 'storage_gb',            type: 'limit', label: 'Storage',                    group: 'usage', defaultValue: 1,    planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'gb', sortOrder: 30 },
+  { key: 'data_retention_days',   type: 'limit', label: 'Data Retention',             group: 'usage', defaultValue: 30,   planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'days', sortOrder: 40 },
+];
+
+// ─── Helpers ───
+
+const BY_KEY: Map<string, CapabilityDefinition> = new Map(
+  CAPABILITY_REGISTRY.map((c) => [c.key, c]),
+);
+
+export function getCapability(key: string): CapabilityDefinition | undefined {
+  return BY_KEY.get(key);
+}
+
+export function listCapabilities(filter?: { type?: CapabilityType; group?: string }): CapabilityDefinition[] {
+  return CAPABILITY_REGISTRY.filter((c) =>
+    (!filter?.type || c.type === filter.type) &&
+    (!filter?.group || c.group === filter.group),
+  );
+}
+
+/**
+ * Validate a plan payload's `entitlements` + `limits` against
+ * the registry. Returns issues; never throws.
+ *
+ * Backward-compatible: unknown keys are reported as warnings,
+ * not errors — they remain accepted by the existing CRUD API.
+ */
+export interface PlanValidationIssue {
+  level: 'error' | 'warning';
+  key: string;
+  message: string;
+}
+
+export function validatePlanPayload(payload: {
+  entitlements?: Record<string, unknown>;
+  limits?: Record<string, unknown>;
+}): { valid: boolean; issues: PlanValidationIssue[] } {
+  const issues: PlanValidationIssue[] = [];
+  const ent = payload.entitlements || {};
+  const lim = payload.limits || {};
+
+  for (const [key, value] of Object.entries(ent)) {
+    const def = BY_KEY.get(key);
+    if (!def) {
+      issues.push({ level: 'warning', key, message: `Unknown entitlement key '${key}' (not in registry)` });
+      continue;
+    }
+    if (def.type === 'limit') {
+      issues.push({ level: 'warning', key, message: `Key '${key}' is a limit; expected in 'limits' not 'entitlements'` });
+    }
+    if (typeof value !== 'boolean') {
+      issues.push({ level: 'error', key, message: `Entitlement '${key}' must be boolean` });
+    }
+  }
+
+  for (const [key, value] of Object.entries(lim)) {
+    const def = BY_KEY.get(key);
+    if (!def) {
+      issues.push({ level: 'warning', key, message: `Unknown limit key '${key}' (not in registry)` });
+      continue;
+    }
+    if (def.type !== 'limit') {
+      issues.push({ level: 'warning', key, message: `Key '${key}' is not a 'limit' in registry (type=${def.type})` });
+    }
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      issues.push({ level: 'error', key, message: `Limit '${key}' must be a finite number (use -1 for unlimited)` });
+    }
+  }
+
+  return { valid: !issues.some((i) => i.level === 'error'), issues };
+}
+
+/**
+ * Compare a set of plan rows against the registry — surfaces
+ * keys present in DB but unknown to registry (drift/legacy)
+ * and registry keys missing from every plan (gaps).
+ */
+export function diagnoseAgainstPlans(plans: Array<{
+  id: string; slug: string; entitlements?: Record<string, unknown> | null; limits?: Record<string, unknown> | null;
+}>): {
+  unknownKeysInDb: Array<{ planSlug: string; key: string; bucket: 'entitlements' | 'limits' }>;
+  registryKeysMissingEverywhere: string[];
+  invalidLimitValues: Array<{ planSlug: string; key: string; value: unknown }>;
+} {
+  const unknownKeysInDb: Array<{ planSlug: string; key: string; bucket: 'entitlements' | 'limits' }> = [];
+  const invalidLimitValues: Array<{ planSlug: string; key: string; value: unknown }> = [];
+  const seenKeys = new Set<string>();
+
+  for (const p of plans) {
+    for (const k of Object.keys(p.entitlements || {})) {
+      seenKeys.add(k);
+      if (!BY_KEY.has(k)) unknownKeysInDb.push({ planSlug: p.slug, key: k, bucket: 'entitlements' });
+    }
+    for (const [k, v] of Object.entries(p.limits || {})) {
+      seenKeys.add(k);
+      if (!BY_KEY.has(k)) unknownKeysInDb.push({ planSlug: p.slug, key: k, bucket: 'limits' });
+      if (typeof v !== 'number' || !Number.isFinite(v)) invalidLimitValues.push({ planSlug: p.slug, key: k, value: v });
+    }
+  }
+
+  const registryKeysMissingEverywhere = CAPABILITY_REGISTRY
+    .filter((c) => c.planConfigurable && !seenKeys.has(c.key))
+    .map((c) => c.key);
+
+  return { unknownKeysInDb, registryKeysMissingEverywhere, invalidLimitValues };
+}

@@ -109,9 +109,10 @@ describe("conversationAttachments POST /:id/upload — entitlement cleanup", () 
     state.user = { data: { user: { id: "user-1" } }, error: null };
     state.isMember = { data: true, error: null };
     state.attachmentRow = {
-      id: "att-1",
-      workspace_id: "ws-1",
-      storage_path: "workspace/ws-1/attachments/2026/06/uuid-name.png",
+      id: "11111111-1111-1111-1111-111111111111",
+      workspace_id: "22222222-2222-2222-2222-222222222222",
+      storage_path:
+        "workspace/22222222-2222-2222-2222-222222222222/attachments/2026/06/uuid-name.png",
       mime_type: "image/png",
       size_bytes: 12,
       status: "uploading",
@@ -132,7 +133,10 @@ describe("conversationAttachments POST /:id/upload — entitlement cleanup", () 
     state.gateAllow = false;
     const handler = getHandler("post", "/:id/upload");
     const tinyB64 = Buffer.from("hello world!").toString("base64");
-    const { req, res, get } = makeReqRes({ workspace_id: "ws-1", data: tinyB64 });
+    const { req, res, get } = makeReqRes({
+      workspace_id: "22222222-2222-2222-2222-222222222222",
+      data: tinyB64,
+    });
     await handler(req, res, () => {});
     expect(state.uploadCalled).toBe(false);
     expect(uploadFileMock).not.toHaveBeenCalled();
@@ -148,7 +152,10 @@ describe("conversationAttachments POST /:id/upload — entitlement cleanup", () 
     state.gateAllow = true;
     const handler = getHandler("post", "/:id/upload");
     const tinyB64 = Buffer.from("hello world!").toString("base64");
-    const { req, res, get } = makeReqRes({ workspace_id: "ws-1", data: tinyB64 });
+    const { req, res, get } = makeReqRes({
+      workspace_id: "22222222-2222-2222-2222-222222222222",
+      data: tinyB64,
+    });
     await handler(req, res, () => {});
     expect(uploadFileMock).toHaveBeenCalledTimes(1);
     expect(state.updates.some((u) => u.patch.status === "failed")).toBe(false);

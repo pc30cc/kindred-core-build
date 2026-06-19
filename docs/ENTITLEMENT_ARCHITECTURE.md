@@ -126,5 +126,8 @@ for the runtime control plane in `server/services/calls/controlPlane.ts`.
   defaults (max participants, bitrates, retention).
 
 Effective state = `plan AND control_plane.enabled AND <feature>_enabled_global AND workspace_override`.
-See `docs/CALL_SURFACES_PLAN_MODEL.md` for the full mapping and the
-routes earmarked for a future enforcement pass.
+The canonical composer is `server/services/calls/entitlementComposer.ts`
+(`composeCallEntitlements` pure / `loadEffectiveCallEntitlements` async).
+No call route is gated on it yet. See
+`docs/CALL_ENTITLEMENT_COMPOSITION.md` for the per-surface table and
+`docs/CALL_SURFACES_PLAN_MODEL.md` for the registry mapping.

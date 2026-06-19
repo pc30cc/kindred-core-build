@@ -662,3 +662,48 @@ Forward-correct rollout decision".
 - `widgetAttachments.ts` rollout — visitor-facing UX for a 403 must
   land first.
 - Backfill of historical occupancy — unchanged stance from Phase 12.
+
+## Phase 14 — widget-attachment storage rollout
+
+### Status
+
+**Gated:** `POST /api/widget/attachments/:id/upload`.
+
+### Implementation
+
+- After token enforcement, row lookup, path scope check, and the
+  declared-size guard, inject the trusted `workspace_id` (resolved
+  from the widget token) into `req.body.workspace_id` and invoke
+  `requireLimit('storage_gb', usageFnForLimit('storage_gb'))` once
+  inline. Mirrors `server/routes/storage.ts` and
+  `server/routes/conversationAttachments.ts`.
+- On rejection the reserved `conversation_attachments` row is flipped
+  to `status = 'failed'` (the middleware has already written the 403).
+
+### Visitor-facing behavior
+
+- Standard `requireLimit` 403 surfaces to the widget runtime as a
+  generic upload failure — acceptable for v1.
+- No read/download paths affected; only new uploads can be denied.
+- No bespoke error mapping, no widget UX redesign.
+
+### Backward-compatibility safeguards
+
+- `storage_gb = -1` (unlimited) bypasses the comparison — unchanged.
+- All prior 400/403/404/409/413/500 paths still run before the gate.
+- Counter producer, resolver, capability registry, and middleware
+  contracts untouched.
+
+### Validation
+
+- Confirmed `/init` does **not** call `uploadFile()`; only `/:id/upload`
+  does. Single byte-creating branch gated.
+- Confirmed `extractWorkspaceId` reads `req.body.workspace_id` after
+  injection; the injected value is the server-resolved trusted one.
+- Confirmed reserved-row failure flip mirrors operator-side behavior.
+
+### Intentionally deferred
+
+- Bespoke widget UX for cap-reached 403 (friendlier message, retry
+  disable, admin-side telemetry banner).
+- Historical storage backfill — unchanged stance from Phase 12.

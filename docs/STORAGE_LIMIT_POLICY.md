@@ -173,3 +173,55 @@ only on the single safest operator-side route.
   remain **explicitly deferred**. They require visitor-facing UX for a
   403 (clear error surface, retry/disable behavior) before gating; that
   is a later, UX-aware phase.
+
+## Phase 14 — widget-attachment rollout
+
+### Outcome
+
+**Gated.** Visitor-facing widget attachment uploads now enforce
+`storage_gb` on the actual byte-creating branch.
+
+### Route audit
+
+- `POST /api/widget/attachments/init` — reserves a row; **does NOT**
+  create stored bytes. Not gated.
+- `POST /api/widget/attachments/:id/upload` — **the only** widget
+  branch that writes through canonical `uploadFile()`. **Gated.**
+- `GET /api/widget/attachments/:id` — read-only proxy. Not gated.
+- `enrichMessagesWithAttachments` / `attachUploadedFileToMessage` —
+  metadata helpers. Not gated.
+
+Trust at gate time:
+- `workspace_id` comes from `resolveWorkspaceId(req, res)` (validated
+  X-Widget-Token + dvsid cookie). It is never trusted from the visitor
+  body. We inject the resolved id into `req.body.workspace_id` solely
+  so the shared `extractWorkspaceId()` helper sees the same trusted
+  value the operator routes use.
+- Gate runs after token enforcement, row lookup
+  (`workspace_id`/status/path checks), and the declared-size guard,
+  immediately before `uploadFile()`.
+
+### Visitor-facing cap-reached policy
+
+- Existing attachments and downloads are **unaffected** (no read paths
+  gated, no provider behavior change).
+- Only **new** widget attachment uploads are denied, with the standard
+  `requireLimit` 403 (`{ error, feature: 'storage_gb', limit, ... }`).
+  Widget runtime treats this as a generic upload failure — acceptable
+  for v1; no bespoke error mapping introduced.
+- On rejection the reserved `conversation_attachments` row is flipped
+  to `status = 'failed'` (mirrors operator `/conversation-attachments`
+  behavior), so the visitor's widget does not see a stranded
+  `'uploading'` row and a fresh `/init` is required for retry.
+- No counter side-effects: the producer only fires on successful
+  `storage_usage_logs` inserts, and those are not written when the
+  upload is blocked.
+
+### Invariants reaffirmed
+
+- Canonical `storage_bytes` producer remains the **sole** writer.
+- `requireLimit('storage_gb', usageFnForLimit('storage_gb'))` is the
+  **only** gate; no route-local storage math.
+- Operator-side rollout (Phases 12 & 13) is unchanged. Widget-side was
+  the remaining public-sensitive surface and is now closed.
+- No schema/route/env/key/middleware rename.

@@ -608,6 +608,15 @@
         csOperatorEnded: 'Operator ended the call',
         csVisitorEnded: 'You ended the call',
         csCallEnded: 'Call ended',
+        // Misc fallbacks
+        support: 'Support',
+        operator: 'Operator',
+        team: 'Team',
+        anonymous: 'Anonymous',
+        poweredBy: 'Powered by',
+        welcomeFallback: 'Hi there 👋\nHow can we help you today?',
+        teamLabel: 'Support team',
+        onlineLabel: 'online',
       },
       fa: {
         chat: 'گفتگو', help: 'مرکز راهنما',
@@ -738,6 +747,14 @@
         csErrAccessDenied: 'به این تماس دسترسی ندارید.',
         csErrOriginDenied: 'این سایت مجاز به برقراری تماس نیست.',
         csErrUnknown: 'مشکلی پیش آمد. لطفاً دوباره تلاش کنید.',
+        support: 'پشتیبانی',
+        operator: 'اپراتور',
+        team: 'تیم',
+        anonymous: 'ناشناس',
+        poweredBy: 'قدرت گرفته از',
+        welcomeFallback: 'سلام 👋\nچطور می‌توانیم به شما کمک کنیم؟',
+        teamLabel: 'تیم پشتیبانی',
+        onlineLabel: 'آنلاین',
       },
       tr: {
         chat: 'Sohbet', help: 'Yardım Merkezi',
@@ -868,6 +885,14 @@
         csErrAccessDenied: 'Bu aramaya erişiminiz yok.',
         csErrOriginDenied: 'Bu site arama başlatamaz.',
         csErrUnknown: 'Bir şeyler ters gitti. Lütfen tekrar deneyin.',
+        support: 'Destek',
+        operator: 'Operatör',
+        team: 'Ekip',
+        anonymous: 'Anonim',
+        poweredBy: 'Sağlayan',
+        welcomeFallback: 'Merhaba 👋\nSize nasıl yardımcı olabiliriz?',
+        teamLabel: 'Destek ekibi',
+        onlineLabel: 'çevrimiçi',
       },
     };
     return {
@@ -1798,7 +1823,7 @@
       if (shellStore.get().isOpen) return;
       ensureToastEl();
       if (!toastEl) return;
-      var name = senderName ? String(senderName) : (ctx.config.brandName || 'Support');
+      var name = senderName ? String(senderName) : (ctx.config.brandName || I18n.t(ctx.locale, 'support'));
       var msg = String(preview || '');
       if (msg.length > 90) msg = msg.slice(0, 87) + '…';
       toastEl.innerHTML =
@@ -2817,7 +2842,7 @@
           if (isLastInStreak) {
             if (m.senderAvatar) {
               avatarHtml = '<span class="msg-avatar has-img">' +
-                '<img src="' + Util.escapeHtml(m.senderAvatar) + '" alt="' + Util.escapeHtml(m.senderName || 'Operator') + '" loading="lazy" decoding="async" />' +
+                '<img src="' + Util.escapeHtml(m.senderAvatar) + '" alt="' + Util.escapeHtml(m.senderName || t('operator')) + '" loading="lazy" decoding="async" />' +
               '</span>';
             } else {
               var initial = ((m.senderName || ctx.config.brandName || 'S').trim().charAt(0) || 'S').toUpperCase();
@@ -3696,16 +3721,26 @@
       return { open: function(){}, close: function(){}, toggle: function(){}, setUnread: function(){} };
     }
 
-    var ctx = {
-      config: config,
-      apiBase: config._apiBase || config.apiBase || '',
-      assetBase: config._assetBase || config.assetBase || '',
-      workspaceId: config.workspaceId || '',
-      sessionToken: config._sessionToken || '',
-      locale: config.locale || 'en',
-      primaryColor: config.primaryColor || '#3B82F6',
-      shell: shell,
-    };
+     // Honor the workspace's "Widget Language" setting. When set to a
+     // specific locale (fa/en/tr) it overrides the workspace default
+     // locale that drives the rest of the platform. 'auto' falls back
+     // to the workspace locale (which itself falls back to the visitor
+     // browser language during signup).
+     var resolvedLocale = (function () {
+       var wl = config.widgetLanguage;
+       if (typeof wl === 'string' && wl && wl !== 'auto') return wl;
+       return config.locale || 'en';
+     })();
+     var ctx = {
+       config: config,
+       apiBase: config._apiBase || config.apiBase || '',
+       assetBase: config._assetBase || config.assetBase || '',
+       workspaceId: config.workspaceId || '',
+       sessionToken: config._sessionToken || '',
+       locale: resolvedLocale,
+       primaryColor: config.primaryColor || '#3B82F6',
+       shell: shell,
+     };
 
     // ─── Token manager (Task 2): proactive refresh + reactive 401/403 retry.
     // Wraps every authenticated widget request. ctx.sessionToken stays as a
@@ -4889,13 +4924,13 @@
     // ─── Build panel ───
     var posClass = uiPrefsStore.get().position;
     var brandName = config.brandName || '';
-    var welcomeMessage = config.welcomeMessage || 'Hi there 👋\nHow can we help you today?';
+     var welcomeMessage = config.welcomeMessage || t('welcomeFallback');
     // Header title — show the workspace's "Launcher Text" (configurable per
     // workspace under Widget settings). Falls back to brand name only if the
     // workspace hasn't customized it.
     var headerTitle = (config.launcherText && String(config.launcherText).trim())
       || brandName
-      || 'Support';
+      || t('support');
     // Operator team — surfaced in the header as a stacked avatar row, the
     // way Intercom / Crisp / Drift do. Replaces the single workspace-logo
     // badge that used to sit there.
@@ -4906,6 +4941,15 @@
 
     var panel = document.createElement('div');
     panel.className = 'panel ' + posClass;
+    // Apply RTL to the entire panel when the resolved widget locale is RTL
+    // (currently only fa). Without this, the body, tabs, composer and
+    // attachments stay LTR even though the strings are Persian.
+    if ((ctx.locale || 'en').toLowerCase().split('-')[0] === 'fa') {
+      panel.setAttribute('dir', 'rtl');
+      panel.classList.add('panel-rtl');
+    } else {
+      panel.setAttribute('dir', 'ltr');
+    }
 
     // Operator avatar stack (max 4). Each operator becomes a small circular
     // avatar overlapping the next one, falling back to their initial when no
@@ -4914,11 +4958,11 @@
     var teamStackHtml = '';
     if (teamMembers.length) {
       var stackInner = teamMembers.map(function (op) {
-        var name = (op && op.name) ? String(op.name) : 'Operator';
+         var name = (op && op.name) ? String(op.name) : t('operator');
         var avatar = op && op.avatar ? String(op.avatar) : '';
         var online = !!(op && op.online);
         var onlineCls = online ? ' is-online' : '';
-        var dotHtml = online ? '<span class="header-op-dot" aria-label="online"></span>' : '';
+         var dotHtml = online ? '<span class="header-op-dot" aria-label="' + Util.escapeHtml(t('onlineLabel')) + '"></span>' : '';
         if (avatar) {
           return '<span class="header-op-avatar has-img' + onlineCls + '" title="' + Util.escapeHtml(name) + '">' +
             '<img src="' + Util.escapeHtml(avatar) + '" alt="' + Util.escapeHtml(name) + '" loading="lazy" decoding="async" />' +
@@ -4931,7 +4975,7 @@
           dotHtml +
         '</span>';
       }).join('');
-      teamStackHtml = '<div class="header-op-stack" aria-label="Support team">' + stackInner + '</div>';
+       teamStackHtml = '<div class="header-op-stack" aria-label="' + Util.escapeHtml(t('teamLabel')) + '">' + stackInner + '</div>';
     }
 
     var headerRtl = (ctx.locale || 'en').toLowerCase().split('-')[0] === 'fa';
@@ -4984,8 +5028,8 @@
         '</button>' +
         '</div>'
       : '';
-    var poweredHtml = brandName
-      ? '<div class="powered">Powered by <a href="#">' + Util.escapeHtml(brandName) + '</a></div>'
+     var poweredHtml = brandName
+       ? '<div class="powered">' + Util.escapeHtml(t('poweredBy')) + ' <a href="#">' + Util.escapeHtml(brandName) + '</a></div>'
       : '';
 
     panel.innerHTML = headerHtml + tabsHtml + bodyHtml + inputHtml + poweredHtml +
@@ -5398,7 +5442,7 @@
         if (caps.audio) capHtml += '<span class="dept-option__cap" title="Voice" aria-label="Voice">' + __DEPT_ICONS.audio + '</span>';
         if (caps.video) capHtml += '<span class="dept-option__cap" title="Video" aria-label="Video">' + __DEPT_ICONS.video + '</span>';
         html += '<button type="button" class="dept-option" data-dept-id="' + Util.escapeHtml(d.id) + '">' +
-          '<span class="dept-option__name">' + Util.escapeHtml(d.name || 'Team') + '</span>' +
+          '<span class="dept-option__name">' + Util.escapeHtml(d.name || t('team')) + '</span>' +
           '<span class="dept-option__caps" aria-hidden="true">' + capHtml + '</span>' +
         '</button>';
       }

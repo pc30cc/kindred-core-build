@@ -627,7 +627,7 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       primaryColor: ws.primary_color || branding?.primary_color || '#3B82F6',
       secondaryColor: ws.secondary_color || '#6366f1',
       logoUrl: ws.logo_url || branding?.logo_url || null,
-      launcherText: ws.launcher_text || 'Chat with us',
+      launcherText: ws.launcher_text || '',
       // Three-tier resolution: workspace override → platform default → hardcoded fallback.
       // Stored in `widget_settings.welcome_message` (per-workspace) or
       // `widget_platform_settings.default_welcome_message` (platform-wide).
@@ -636,7 +636,7 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
           ? ws.welcome_message
           : null)
         || platformWidget?.default_welcome_message
-        || 'Hello! How can we help you?',
+        || '',
       greetingMessage: ws.greeting_message || '',
       placeholderText: ws.placeholder_text || '',
       offlineMessage: ws.offline_message || '',

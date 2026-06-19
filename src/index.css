@@ -58,7 +58,7 @@
     --surface-elevated: 0 0% 100%;
     --surface-sunken: 210 40% 98%;
 
-    /* Gradients & Shadows — WebYar-inspired */
+    /* Gradients & Shadows */
     --gradient-primary: linear-gradient(135deg, hsl(221 83% 53%), hsl(221 83% 45%));
     --gradient-sidebar: linear-gradient(180deg, hsl(0 0% 100%), hsl(220 16% 98%));
     --gradient-card-hover: linear-gradient(135deg, hsl(220 14% 97%), hsl(220 12% 95%));
@@ -222,7 +222,7 @@
     @apply font-semibold tracking-tight;
   }
 
-  /* Scrollbar styling — WebYar-inspired */
+  /* Scrollbar styling */
   ::-webkit-scrollbar {
     width: 5px;
     height: 5px;
@@ -239,7 +239,7 @@
   }
 }
 
-/* ─── Component classes — WebYar-quality patterns ─── */
+/* ─── Component classes ─── */
 @layer components {
   .stat-card {
     @apply bg-card border border-border rounded-xl p-5 transition-all duration-200;

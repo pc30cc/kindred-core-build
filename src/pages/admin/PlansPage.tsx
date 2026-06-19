@@ -27,13 +27,16 @@ import {
   validatePlanPayload,
   setWorkspaceModuleOverride,
   setWorkspaceChannelOverride,
+  deleteWorkspaceModuleOverride,
+  deleteWorkspaceChannelOverride,
+  fetchWorkspaceOverrides,
   groupCapabilities,
   type CapabilityDefinition,
 } from '@/lib/entitlements-api';
 import {
   Plus, Edit2, Trash2, Shield, CreditCard, Users, Loader2,
   CheckCircle2, XCircle, Crown, Globe, AlertTriangle, Activity,
-  SlidersHorizontal, Settings2, RefreshCw, Info,
+  SlidersHorizontal, Settings2, RefreshCw, Info, RotateCcw,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useQuery } from '@tanstack/react-query';

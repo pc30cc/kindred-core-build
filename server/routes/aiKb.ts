@@ -192,10 +192,9 @@ aiKbRouter.post('/jobs', async (req: Request, res: Response) => {
   const limitsInfo = await resolveAiKbLimits(config, workspaceId);
 
   // ── Monthly job cap enforcement ────────────────────────────
-  // Phase 3 migration: route-local Super Admin bypass + shared
-  // requireLimit/usageFnForLimit. The bypass is kept explicit and
-  // local (per docs/PLAN_LIMIT_ALIGNMENT.md) — we do NOT add a
-  // global admin short-circuit to requireLimit.
+  // Route-local Super Admin bypass + shared requireLimit/usageFnForLimit.
+  // The bypass is kept explicit and local (per docs/PLAN_LIMIT_ALIGNMENT.md)
+  // — we do NOT add a global admin short-circuit to requireLimit.
   if (!auth.isAdmin) {
     const limitMw = requireLimit(
       'ai_kb_jobs_per_month',

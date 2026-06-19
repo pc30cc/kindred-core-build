@@ -514,11 +514,35 @@ export async function deleteFile(
   const sb = getServiceClient(serverConfig);
   try {
     const result = await handler(storageConfig, fileKey);
+    // Resolve freed bytes from the latest successful upload log for this
+    // (workspace, file_key). The canonical storage_bytes producer (DB trigger
+    // on storage_usage_logs) decrements only when file_size is present, so
+    // missing this lookup would silently leak counter occupancy. We never
+    // guess sizes — if no prior upload row is found, file_size stays null
+    // and the trigger correctly skips the decrement.
+    let freedBytes: number | null = null;
+    if (result.success) {
+      const { data: prior } = await sb
+        .from('storage_usage_logs')
+        .select('file_size')
+        .eq('workspace_id', workspaceId)
+        .eq('file_key', fileKey)
+        .eq('operation', 'upload')
+        .eq('success', true)
+        .not('file_size', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (prior && typeof (prior as any).file_size === 'number') {
+        freedBytes = (prior as any).file_size as number;
+      }
+    }
     await sb.from('storage_usage_logs').insert({
       workspace_id: workspaceId,
       provider_name: storageConfig.provider,
       operation: 'delete',
       file_key: fileKey,
+      file_size: freedBytes,
       success: result.success,
       error_message: result.error,
     });

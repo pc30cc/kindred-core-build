@@ -4924,13 +4924,13 @@
     // ─── Build panel ───
     var posClass = uiPrefsStore.get().position;
     var brandName = config.brandName || '';
-    var welcomeMessage = config.welcomeMessage || 'Hi there 👋\nHow can we help you today?';
+     var welcomeMessage = config.welcomeMessage || t('welcomeFallback');
     // Header title — show the workspace's "Launcher Text" (configurable per
     // workspace under Widget settings). Falls back to brand name only if the
     // workspace hasn't customized it.
     var headerTitle = (config.launcherText && String(config.launcherText).trim())
       || brandName
-      || 'Support';
+      || t('support');
     // Operator team — surfaced in the header as a stacked avatar row, the
     // way Intercom / Crisp / Drift do. Replaces the single workspace-logo
     // badge that used to sit there.
@@ -4949,11 +4949,11 @@
     var teamStackHtml = '';
     if (teamMembers.length) {
       var stackInner = teamMembers.map(function (op) {
-        var name = (op && op.name) ? String(op.name) : 'Operator';
+         var name = (op && op.name) ? String(op.name) : t('operator');
         var avatar = op && op.avatar ? String(op.avatar) : '';
         var online = !!(op && op.online);
         var onlineCls = online ? ' is-online' : '';
-        var dotHtml = online ? '<span class="header-op-dot" aria-label="online"></span>' : '';
+         var dotHtml = online ? '<span class="header-op-dot" aria-label="' + Util.escapeHtml(t('onlineLabel')) + '"></span>' : '';
         if (avatar) {
           return '<span class="header-op-avatar has-img' + onlineCls + '" title="' + Util.escapeHtml(name) + '">' +
             '<img src="' + Util.escapeHtml(avatar) + '" alt="' + Util.escapeHtml(name) + '" loading="lazy" decoding="async" />' +
@@ -4966,7 +4966,7 @@
           dotHtml +
         '</span>';
       }).join('');
-      teamStackHtml = '<div class="header-op-stack" aria-label="Support team">' + stackInner + '</div>';
+       teamStackHtml = '<div class="header-op-stack" aria-label="' + Util.escapeHtml(t('teamLabel')) + '">' + stackInner + '</div>';
     }
 
     var headerRtl = (ctx.locale || 'en').toLowerCase().split('-')[0] === 'fa';
@@ -5019,8 +5019,8 @@
         '</button>' +
         '</div>'
       : '';
-    var poweredHtml = brandName
-      ? '<div class="powered">Powered by <a href="#">' + Util.escapeHtml(brandName) + '</a></div>'
+     var poweredHtml = brandName
+       ? '<div class="powered">' + Util.escapeHtml(t('poweredBy')) + ' <a href="#">' + Util.escapeHtml(brandName) + '</a></div>'
       : '';
 
     panel.innerHTML = headerHtml + tabsHtml + bodyHtml + inputHtml + poweredHtml +

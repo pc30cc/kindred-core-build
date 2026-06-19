@@ -1,6 +1,6 @@
 # Enforcement Coverage Audit
 
-_Last updated: Phase 1 enforcement pass._
+_Last updated: Phase 2 enforcement pass (no new route gates — see §7)._
 
 This audit classifies every plan-relevant backend route surface and records
 exactly which middleware (`requireFeature`, `requireModule`, `requireChannel`,
@@ -99,3 +99,40 @@ These are correct as-is and must stay reachable regardless of plan state.
 4. Add a small CI check that fails if any `require*(...)` call references
    a capability key absent from `CAPABILITY_REGISTRY`.
 5. Run `GET /api/plans/admin/diagnostics` periodically to surface drift.
+
+## 7. Phase 2 — Limit enforcement candidate audit
+
+Phase 2 set out to attach `requireLimit(...)` to 1–2 obviously-safe routes
+using the new shared usage foundation (`server/services/billing/usageResolvers.ts`).
+
+After a route-truthful audit, **no route met the bar this phase**. The
+blockers below are concrete, not speculative — gating any candidate now
+would deny legitimate traffic on day one.
+
+| Limit key | Usage resolver ready? | Gate-now classification | Blocker |
+|---|---|---|---|
+| `max_conversations` | yes (`workspace_usage_counters.conversations_count`) | **DO NOT GATE** | The key is **not** present in any seeded plan's `billing_plans.limits` jsonb. `check_workspace_entitlement` returns `allowed:false / reason:feature_not_in_plan` for unknown keys (fail-closed by design). Attaching `requireLimit('max_conversations', …)` would deny `POST /conversations/start-from-visitor` for **every** workspace. Backfill plan limits first. |
+| `max_visitors` | yes (`workspace_usage_counters.visitors_count`) | **DO NOT GATE** | Same plan-limits gap as above, plus visitor tracking flows through public/widget paths where a workspace-scoped middleware would either fail-closed for anonymous traffic or be bypassed entirely. |
+| `storage_gb` | yes (`workspace_usage_counters.storage_bytes`) | **DO NOT GATE** | Same plan-limits gap. Also: `POST /api/storage/upload` accepts service-role / anon tokens used by widget attachment flows — gating fail-closed would break visitor-side uploads system-wide. |
+| `ai_kb_jobs_per_month` | yes (`countJobsThisMonth`) | **STILL AMBIGUOUS — DEFERRED** | Key **is** present in plan limits, but `POST /api/ai-kb/jobs` already enforces this exact rule in-handler **with an admin bypass** (`!auth.isAdmin && jobsUsed >= …`). `requireLimit` has no admin bypass, so layering it on top would regress Super-Admin workflows that currently rely on the in-handler bypass. Migrating this route is a refactor, not a Phase-2 add. |
+
+**Routes gated in Phase 2:** none.
+**Capability registry / route / env / schema renames in Phase 2:** none.
+
+### Required precondition for Phase 3
+
+Before any of the above can be safely gated, plan-data must catch up
+with the registry:
+
+1. Backfill `billing_plans.limits` jsonb with `max_conversations`,
+   `max_visitors`, and `storage_gb` for every active plan (use `-1`
+   for unlimited where appropriate).
+2. Decide the admin-bypass policy for `requireLimit` — either add an
+   admin short-circuit to the middleware itself, or accept that the
+   middleware applies to admins too and adjust ops workflows.
+3. Only then move `POST /api/ai-kb/jobs` from in-handler enforcement
+   to `requireLimit('ai_kb_jobs_per_month', usageFnForLimit('ai_kb_jobs_per_month'))`,
+   in a single focused pass that also removes the duplicated count.
+
+The shared usage foundation (`usageResolvers.ts`) is ready and waiting;
+the gap is on the plan-data and middleware-policy side.

@@ -33,6 +33,8 @@ import {
   verifyConversationOwnership,
 } from '../services/widget/security.js';
 import { uploadFile, downloadFile } from '../services/storage/index.js';
+import { requireLimit } from '../middleware/featureGating.js';
+import { usageFnForLimit } from '../services/billing/usageResolvers.js';
 
 export const widgetAttachmentsRouter = Router();
 
@@ -243,6 +245,30 @@ widgetAttachmentsRouter.post('/:id/upload', enforceWidgetToken, async (req: Requ
   if (buf.length > row.size_bytes + 4) {
     // Allow a tiny base64 rounding margin only
     return res.status(413).json({ error: 'Uploaded size exceeds declared size' });
+  }
+
+  // ── storage_gb cap enforcement (Phase 14, widget-attachment rollout) ──
+  // Reuses the same narrow pattern as POST /api/storage/upload and operator
+  // POST /api/conversation-attachments/:id/upload. Forward-correct only; see
+  // docs/STORAGE_LIMIT_POLICY.md. No route-local storage math — the shared
+  // resolver reads canonical workspace_usage_counters.storage_bytes.
+  //
+  // workspace_id is the server-resolved one from the validated widget token
+  // (X-Widget-Token + cookie); we inject it into req.body so the shared
+  // extractWorkspaceId() helper sees the trusted value (the body schema is
+  // {data: base64} and never carried workspace_id from the visitor).
+  (req.body as any).workspace_id = workspaceId;
+  const limitMw = requireLimit('storage_gb', usageFnForLimit('storage_gb'));
+  let proceeded = false;
+  await limitMw(req, res, () => { proceeded = true; });
+  if (!proceeded) {
+    // Cap reached: middleware already wrote a 403. Mark the reserved row
+    // failed so the visitor's widget doesn't see a stranded 'uploading'
+    // attachment row, and so /init's reserved slot is released.
+    await sb.from('conversation_attachments')
+      .update({ status: 'failed', error_message: 'storage_gb limit reached' })
+      .eq('id', row.id);
+    return;
   }
 
   try {

@@ -69,10 +69,9 @@ vi.mock("../../../server/services/billing/usageResolvers.js", () => ({
   usageFnForLimit: () => () => 0,
 }));
 
-const uploadFileMock = vi.fn(async () => {
-  state.uploadCalled = true;
-  return { success: true };
-});
+const { uploadFileMock } = vi.hoisted(() => ({
+  uploadFileMock: vi.fn(async () => ({ success: true })),
+}));
 vi.mock("../../../server/services/storage/index.js", () => ({
   uploadFile: uploadFileMock,
 }));
@@ -122,7 +121,11 @@ describe("conversationAttachments POST /:id/upload — entitlement cleanup", () 
     state.updates = [];
     state.uploadCalled = false;
     state.gateAllow = true;
-    uploadFileMock.mockClear();
+    uploadFileMock.mockReset();
+    uploadFileMock.mockImplementation(async () => {
+      state.uploadCalled = true;
+      return { success: true };
+    });
   });
 
   it("when storage_gb gate rejects, marks reserved row 'failed' and does NOT upload", async () => {

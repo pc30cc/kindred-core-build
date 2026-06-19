@@ -2304,6 +2304,13 @@ widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: R
   }
 
   // Create conversation tagged 'offline'.
+  // Phase 5 — offline capture is always a new conversation row, so
+  // enforce max_conversations here. workspace_id is verified above
+  // against the widget token (`tokenWs === workspace_id`).
+  {
+    const ok = await enforceMaxConversationsLimit(req, res);
+    if (!ok) return;
+  }
   const { data: conv, error: convErr } = await supabase
     .from('conversations')
     .insert({

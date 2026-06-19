@@ -90,6 +90,63 @@ The next storage phase must, in this order:
 
 Until step 3 lands, no upload route is gated.
 
+## Phase 12 — Forward-correct rollout decision (ACCEPTED)
+
+**Decision:** Position **A — Accept forward-correct rollout now**, but
+only on the single safest operator-side route.
+
+### Why accepted
+
+- The canonical `storage_bytes` producer (DB trigger on
+  `storage_usage_logs`, see `docs/STORAGE_COUNTER_ARCHITECTURE.md`) is
+  live and the resolver `resolveStorageGb` reads it as the single source
+  of truth. New uploads/deletes are counted exactly.
+- Backfill is intentionally skipped because historical delete logs lack
+  `file_size`; reconstructing occupancy would over-count and silently
+  inflate enforcement against existing workspaces. A wrong backfill is
+  worse than a forward-correct start.
+- The first rollout site (`POST /api/storage/upload`) is
+  operator-authenticated (bearer must equal anon or service-role key).
+  It is not reachable from widget/public flows, so a 403 here is
+  recoverable through normal operator UX, not visitor-facing breakage.
+
+### Consequence (must be communicated)
+
+- Existing workspaces effectively **start at zero** for `storage_bytes`
+  and accumulate forward. They will not hit `storage_gb` caps until
+  forward traffic alone fills the plan limit.
+- This is a deliberate **conservative** tradeoff: operators are never
+  blocked for storage they uploaded before the producer existed.
+- Backfill remains a future option once historical `file_size` data is
+  reconstructable; it is **not** required to ship Phase 12.
+
+### Route gated in Phase 12
+
+- `POST /api/storage/upload` — single gate using
+  `requireLimit('storage_gb', usageFnForLimit('storage_gb'))`, applied
+  after the existing bearer-token auth and size validation, before the
+  call into `uploadFile()`. No route-local storage math.
+
+### Routes intentionally **not** gated in Phase 12
+
+- `POST /api/conversation-attachments/:id/upload` — operator path, but
+  deferred to keep Phase 12 to a single route. Will be gated next phase.
+- `widgetAttachments.ts` upload paths — widget/public-facing; deferred
+  pending widget-runtime UX for a 403 surface (visitor-side error
+  rendering, retry/disable behavior).
+- `POST /api/storage/test`, `POST /api/storage/delete`, `GET
+  /api/storage/url`, `GET /api/storage/config/:workspaceId` — not
+  storage-creation routes; deletes only decrement, the rest read.
+
+### Invariants reaffirmed
+
+- Trigger on `storage_usage_logs` remains the **sole** writer of
+  `workspace_usage_counters.storage_bytes`.
+- `resolveStorageGb` / `usageFnForLimit('storage_gb')` is the **only**
+  usage source for the gate.
+- No second producer, no route-local counting, no schema/route/env
+  rename, no widget UX change.
+
 ## Hard rules
 
 - The producer, once shipped, is the **only** writer of

@@ -63,6 +63,30 @@ only deterministic, repo-grounded tests.
     cap-reached writes 403, and the documented fail-OPEN behavior on
     membership-read errors is preserved.
 
+- `src/test/billing/conversationAttachmentsRoute.test.ts` (Phase 18 — runtime)
+  - Drives the operator `POST /api/conversation-attachments/:id/upload`
+    handler with a mocked supabase client, mocked `requireLimit`, and a
+    mocked `uploadFile`. Verifies the cleanup branch: when the storage_gb
+    gate denies, the reserved row is updated to `status='failed'` with
+    `error_message` referencing `storage_gb` AND `uploadFile` is never
+    called. Allow branch confirms the normal `'uploaded'` transition.
+
+- `src/test/billing/widgetAttachmentsRoute.test.ts` (Phase 18 — runtime)
+  - Same shape for the visitor-facing `POST /api/widget/attachments/:id/upload`
+    route (with `enforceWidgetToken` / `resolveWorkspaceId` mocked). Covers
+    the deny → row marked `'failed'` cleanup and the allow → `'uploaded'`
+    transition. This is the highest-risk public surface for the storage cap.
+
+- `src/test/billing/aiKbJobsRoute.test.ts` (Phase 18 — runtime)
+  - Drives `POST /api/ai-kb/jobs` directly. Verifies:
+    1. global admin bypass — the shared `requireLimit` gate is NOT consulted
+       and the `ai_kb_jobs` row is inserted with `admin_override=true`;
+    2. non-admin over the monthly cap — the gate writes 403 and NO row is
+       inserted (route honors middleware short-circuit, no duplicate count
+       math);
+    3. non-admin under the cap — the gate is invoked once and the job row
+       is inserted normally.
+
 ## Invariants protected by CI
 
 These are deterministic, do not depend on external services, and run as part of
@@ -81,17 +105,18 @@ These are deterministic, do not depend on external services, and run as part of
 | `requireLimit` allow / deny / unlimited / fail-closed branches | `requireLimitMiddleware.test.ts` |
 | Conversation create gate proceeds / 403 on cap | `conversationLimitHelper.test.ts` |
 | Visitor revisit skip / new-this-month gate / fail-open | `visitorLimitHelper.test.ts` |
+| Storage cap denial → reserved attachment row marked `failed` | `conversationAttachmentsRoute.test.ts`, `widgetAttachmentsRoute.test.ts` |
+| AI KB jobs admin bypass / non-admin over-cap deny / under-cap allow | `aiKbJobsRoute.test.ts` |
 
 ## Intentionally not covered (deferred)
 
-- **Full Express HTTP route tests** for `aiKb.ts` admin-bypass branch and the
-  attachment `status='failed'` cleanup writes on denial. The middleware
-  branching itself is now covered at runtime by Phase 17 tests above; the
-  per-route cleanup write and admin-bypass short-circuit remain protected by
-  the source-level wiring invariants and are validated manually per
-  `docs/ENFORCEMENT_COVERAGE_AUDIT.md`. Booting Express + Supabase mocks for
-  full HTTP coverage is intentionally deferred — the cost/benefit ratio is
-  unfavorable while the middleware seam itself is now runtime-tested.
+- **End-to-end Express + real Supabase integration tests.** Phase 18 closed
+  the high-value behavior gaps (AI KB admin bypass / over-cap deny, and
+  attachment denial cleanup) at the route-handler level with module-boundary
+  mocks. A real-server harness (supertest + live PostgREST) is intentionally
+  deferred — additional cost without proportional coverage gain now that the
+  branching, middleware contract, and cleanup writes all have runtime
+  verification.
 - **Live counter increment behavior** under the DB trigger: covered by the
   migration and validated manually; this phase only protects the application
   side of the single-writer contract.

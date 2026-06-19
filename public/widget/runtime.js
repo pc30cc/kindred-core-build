@@ -5398,6 +5398,63 @@
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); trySend(); }
     });
 
+    // ─── Template2 — emoji picker + mic placeholder ───
+    var emojiBtn = panel.querySelector('[data-emoji-btn]');
+    var micBtn = panel.querySelector('[data-mic-btn]');
+    var emojiPop = null;
+    function closeEmojiPop() {
+      if (emojiPop && emojiPop.parentNode) emojiPop.parentNode.removeChild(emojiPop);
+      emojiPop = null;
+      document.removeEventListener('click', onDocClickEmoji, true);
+    }
+    function onDocClickEmoji(e) {
+      if (!emojiPop) return;
+      if (emojiPop.contains(e.target) || (emojiBtn && emojiBtn.contains(e.target))) return;
+      closeEmojiPop();
+    }
+    if (emojiBtn && msgInput) {
+      emojiBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        if (emojiPop) { closeEmojiPop(); return; }
+        var emojis = ['😀','😁','😂','🤣','😊','😍','🥰','😘','😎','🤩','🤔','😅','😉','😢','😭','😡','👍','👎','👏','🙏','💙','💚','💛','❤️','🔥','✨','🎉','✅','❌','📎','📷','📝'];
+        emojiPop = document.createElement('div');
+        emojiPop.className = 'emoji-pop';
+        emojiPop.setAttribute('role', 'dialog');
+        emojiPop.innerHTML = emojis.map(function (em) {
+          return '<button type="button" class="emoji-pop-item" data-em="' + em + '">' + em + '</button>';
+        }).join('');
+        var inputBarEl = panel.querySelector('[data-input-bar]');
+        if (inputBarEl && inputBarEl.parentNode) {
+          inputBarEl.parentNode.insertBefore(emojiPop, inputBarEl);
+        } else {
+          panel.appendChild(emojiPop);
+        }
+        emojiPop.addEventListener('click', function (ev) {
+          var btn = ev.target.closest('[data-em]');
+          if (!btn) return;
+          var em = btn.getAttribute('data-em');
+          try {
+            var start = msgInput.selectionStart || 0;
+            var end = msgInput.selectionEnd || 0;
+            var v = msgInput.value || '';
+            msgInput.value = v.slice(0, start) + em + v.slice(end);
+            msgInput.selectionStart = msgInput.selectionEnd = start + em.length;
+          } catch (_) {
+            msgInput.value = (msgInput.value || '') + em;
+          }
+          msgInput.focus();
+          closeEmojiPop();
+        });
+        setTimeout(function () { document.addEventListener('click', onDocClickEmoji, true); }, 0);
+      });
+    }
+    if (micBtn) {
+      micBtn.addEventListener('click', function () {
+        // Voice input not yet implemented — keep as visual control.
+        try { micBtn.animate([{ transform: 'scale(1)' }, { transform: 'scale(0.92)' }, { transform: 'scale(1)' }], { duration: 180 }); } catch (_) {}
+      });
+    }
+
     // ─── Render dispatcher ───
     function renderLoading() {
       if (body) body.innerHTML = '<div class="empty"><p>' + Util.escapeHtml(t('loading')) + '</p></div>';

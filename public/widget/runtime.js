@@ -5009,6 +5009,7 @@
     }
     var bodyHtml = '<div class="body" data-body></div>';
     var attachCfg = (ctx.config && ctx.config.attachments) || { enabled: false };
+    var isT2 = (ctx.templateSlug === 'template2');
     var inputHtml = chatEnabled
       ? '<div class="typing-row" data-typing-row hidden aria-live="polite">' +
           '<span class="typing-dots"><span></span><span></span><span></span></span>' +
@@ -5016,6 +5017,14 @@
         '</div>' +
         '<div class="attach-tray" data-attach-tray hidden></div>' +
         '<div class="input-bar" data-input-bar>' +
+        '<button type="button" class="send-btn" data-send-btn style="background:' + ctx.primaryColor + '">' +
+        '<svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>' +
+        '</button>' +
+        (isT2
+          ? '<button type="button" class="emoji-btn" data-emoji-btn aria-label="Emoji" title="Emoji">' +
+              '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>' +
+            '</button>'
+          : '') +
         (attachCfg.enabled
           ? '<button type="button" class="attach-btn" data-attach-btn title="' + Util.escapeHtml(t('attachFile') || 'Attach file') + '" aria-label="' + Util.escapeHtml(t('attachFile') || 'Attach file') + '">' +
               '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>' +
@@ -5023,9 +5032,11 @@
             '<input type="file" data-attach-input hidden accept="' + (attachCfg.allowedMimes || []).join(',') + '" />'
           : '') +
         '<input class="input" data-msg-input placeholder="' + Util.escapeHtml(t('typeMsg')) + '" />' +
-        '<button type="button" class="send-btn" data-send-btn style="background:' + ctx.primaryColor + '">' +
-        '<svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>' +
-        '</button>' +
+        (isT2
+          ? '<button type="button" class="mic-btn" data-mic-btn aria-label="Voice" title="Voice">' +
+              '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>' +
+            '</button>'
+          : '') +
         '</div>'
       : '';
      var poweredHtml = brandName
@@ -5386,6 +5397,63 @@
     if (msgInput) msgInput.addEventListener('keydown', function (e) {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); trySend(); }
     });
+
+    // ─── Template2 — emoji picker + mic placeholder ───
+    var emojiBtn = panel.querySelector('[data-emoji-btn]');
+    var micBtn = panel.querySelector('[data-mic-btn]');
+    var emojiPop = null;
+    function closeEmojiPop() {
+      if (emojiPop && emojiPop.parentNode) emojiPop.parentNode.removeChild(emojiPop);
+      emojiPop = null;
+      document.removeEventListener('click', onDocClickEmoji, true);
+    }
+    function onDocClickEmoji(e) {
+      if (!emojiPop) return;
+      if (emojiPop.contains(e.target) || (emojiBtn && emojiBtn.contains(e.target))) return;
+      closeEmojiPop();
+    }
+    if (emojiBtn && msgInput) {
+      emojiBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        if (emojiPop) { closeEmojiPop(); return; }
+        var emojis = ['😀','😁','😂','🤣','😊','😍','🥰','😘','😎','🤩','🤔','😅','😉','😢','😭','😡','👍','👎','👏','🙏','💙','💚','💛','❤️','🔥','✨','🎉','✅','❌','📎','📷','📝'];
+        emojiPop = document.createElement('div');
+        emojiPop.className = 'emoji-pop';
+        emojiPop.setAttribute('role', 'dialog');
+        emojiPop.innerHTML = emojis.map(function (em) {
+          return '<button type="button" class="emoji-pop-item" data-em="' + em + '">' + em + '</button>';
+        }).join('');
+        var inputBarEl = panel.querySelector('[data-input-bar]');
+        if (inputBarEl && inputBarEl.parentNode) {
+          inputBarEl.parentNode.insertBefore(emojiPop, inputBarEl);
+        } else {
+          panel.appendChild(emojiPop);
+        }
+        emojiPop.addEventListener('click', function (ev) {
+          var btn = ev.target.closest('[data-em]');
+          if (!btn) return;
+          var em = btn.getAttribute('data-em');
+          try {
+            var start = msgInput.selectionStart || 0;
+            var end = msgInput.selectionEnd || 0;
+            var v = msgInput.value || '';
+            msgInput.value = v.slice(0, start) + em + v.slice(end);
+            msgInput.selectionStart = msgInput.selectionEnd = start + em.length;
+          } catch (_) {
+            msgInput.value = (msgInput.value || '') + em;
+          }
+          msgInput.focus();
+          closeEmojiPop();
+        });
+        setTimeout(function () { document.addEventListener('click', onDocClickEmoji, true); }, 0);
+      });
+    }
+    if (micBtn) {
+      micBtn.addEventListener('click', function () {
+        // Voice input not yet implemented — keep as visual control.
+        try { micBtn.animate([{ transform: 'scale(1)' }, { transform: 'scale(0.92)' }, { transform: 'scale(1)' }], { duration: 180 }); } catch (_) {}
+      });
+    }
 
     // ─── Render dispatcher ───
     function renderLoading() {

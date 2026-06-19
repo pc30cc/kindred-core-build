@@ -4941,6 +4941,15 @@
 
     var panel = document.createElement('div');
     panel.className = 'panel ' + posClass;
+    // Apply RTL to the entire panel when the resolved widget locale is RTL
+    // (currently only fa). Without this, the body, tabs, composer and
+    // attachments stay LTR even though the strings are Persian.
+    if ((ctx.locale || 'en').toLowerCase().split('-')[0] === 'fa') {
+      panel.setAttribute('dir', 'rtl');
+      panel.classList.add('panel-rtl');
+    } else {
+      panel.setAttribute('dir', 'ltr');
+    }
 
     // Operator avatar stack (max 4). Each operator becomes a small circular
     // avatar overlapping the next one, falling back to their initial when no

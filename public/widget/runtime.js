@@ -608,6 +608,15 @@
         csOperatorEnded: 'Operator ended the call',
         csVisitorEnded: 'You ended the call',
         csCallEnded: 'Call ended',
+        // Misc fallbacks
+        support: 'Support',
+        operator: 'Operator',
+        team: 'Team',
+        anonymous: 'Anonymous',
+        poweredBy: 'Powered by',
+        welcomeFallback: 'Hi there 👋\nHow can we help you today?',
+        teamLabel: 'Support team',
+        onlineLabel: 'online',
       },
       fa: {
         chat: 'گفتگو', help: 'مرکز راهنما',

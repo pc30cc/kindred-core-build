@@ -17,6 +17,8 @@ import {
   listCapabilities,
   validatePlanPayload,
   diagnoseAgainstPlans,
+  normalizePlanLimitsForCreate,
+  USAGE_BACKED_LIMIT_KEYS,
 } from '../services/billing/capabilityRegistry.js';
 
 export const plansRouter = Router();
@@ -239,9 +241,14 @@ plansRouter.post('/admin', async (req, res) => {
     return res.status(400).json({ error: 'Plan payload invalid', issues: validation.issues });
   }
 
+  // Plan-data alignment (Phase: Limits Backfill): when creating a NEW plan,
+  // ensure resolver-ready limit keys exist. Additive only — never overwrites
+  // a value the admin supplied. Legacy/unknown keys pass through untouched.
+  const normalizedLimits = normalizePlanLimitsForCreate(limits);
+
   const { data, error } = await supabase.from('billing_plans').insert({
     name, slug, description: description || null,
-    prices: prices || {}, entitlements: entitlements || {}, limits: limits || {},
+    prices: prices || {}, entitlements: entitlements || {}, limits: normalizedLimits,
     is_free: is_free || false, is_active: is_active !== false,
     sort_order: sort_order || 0, trial_days: trial_days || 0,
     default_currency: default_currency || 'USD',
@@ -520,9 +527,22 @@ plansRouter.get('/admin/diagnostics', async (req, res) => {
     .eq('is_active', true);
   if (error) return res.status(500).json({ error: error.message });
   const report = diagnoseAgainstPlans((data || []) as any);
+
+  // Phase: Limits Backfill — surface plans that are missing resolver-ready
+  // limit keys, so operators can see drift before it blocks Phase 3.
+  const usageBackedKeysMissingByPlan = (data || []).map((p: any) => {
+    const lim = (p.limits || {}) as Record<string, unknown>;
+    const missing = USAGE_BACKED_LIMIT_KEYS.filter(
+      (k) => !Object.prototype.hasOwnProperty.call(lim, k),
+    );
+    return { planSlug: p.slug, missing };
+  }).filter((r: any) => r.missing.length > 0);
+
   res.json({
     registrySize: CAPABILITY_REGISTRY.length,
     plansChecked: (data || []).length,
+    usageBackedLimitKeys: USAGE_BACKED_LIMIT_KEYS,
+    usageBackedKeysMissingByPlan,
     ...report,
   });
 });

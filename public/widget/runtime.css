@@ -2138,20 +2138,21 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 .shell[data-template="template2"] *,
 .shell[data-template="template2"] *::before,
 .shell[data-template="template2"] *::after {
-  font-family: Vazirmatn, -apple-system, BlinkMacSystemFont,
+  font-family: "Vazirmatn", -apple-system, BlinkMacSystemFont,
     "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
 /* ─── Panel ─── */
 .shell[data-template="template2"] .panel {
-  width: 392px;
-  height: min(640px, calc(100vh - 96px));
-  border-radius: 20px;
+  width: 380px;
+  height: min(620px, calc(100vh - 96px));
+  border-radius: 22px;
   background: var(--gs-t2-bg);
   color: var(--gs-t2-text);
+  overflow: hidden;
   box-shadow:
-    0 24px 64px -16px rgba(15, 23, 42, 0.22),
-    0 4px 12px -2px rgba(15, 23, 42, 0.08),
+    0 30px 70px -20px rgba(0, 51, 153, 0.30),
+    0 8px 20px -6px rgba(15, 23, 42, 0.10),
     0 0 0 1px rgba(15, 23, 42, 0.04);
   transition:
     opacity 0.28s ease,
@@ -2160,34 +2161,54 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 .shell[data-template="template2"] .panel.bottom-right { bottom: 96px; right: 24px; }
 .shell[data-template="template2"] .panel.bottom-left  { bottom: 96px; left: 24px; }
 
-/* ─── Header — clean gradient, no patterned overlay ─── */
+/* ─── Header — vivid blue gradient with curved bottom (ila-style) ─── */
 .shell[data-template="template2"] .header {
-  background: linear-gradient(135deg, var(--gs-t2-primary) 0%, #1e7bff 60%, #4f9bff 100%);
+  position: relative;
+  background: linear-gradient(160deg, #0052ff 0%, #0066ff 45%, #2b86ff 100%);
   color: #fff;
-  padding: 18px 18px 22px;
+  padding: 22px 20px 34px;
+  border-radius: 22px 22px 28px 28px / 22px 22px 22px 22px;
 }
 .shell[data-template="template2"] .header::before {
-  content: none; /* drop the default texture for a flat header */
+  /* subtle radial glow accent in the corner */
+  content: "";
+  position: absolute;
+  top: -40%;
+  right: -10%;
+  width: 240px;
+  height: 240px;
+  background: radial-gradient(circle at center, rgba(255,255,255,0.18), transparent 60%);
+  pointer-events: none;
+}
+.shell[data-template="template2"] .header::after {
+  /* curved bottom edge */
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: -1px;
+  height: 24px;
+  background: var(--gs-t2-bg);
+  border-radius: 22px 22px 0 0;
 }
 .shell[data-template="template2"] .header-title {
-  font-size: 18px;
+  font-size: 19px;
   font-weight: 700;
-  letter-spacing: 0;
+  letter-spacing: -0.01em;
 }
 .shell[data-template="template2"] .header-subtitle {
-  font-size: 13px;
+  font-size: 12.5px;
   opacity: 0.92;
   font-weight: 400;
   margin-top: 4px;
 }
 .shell[data-template="template2"] .header-op-avatar {
-  box-shadow: 0 0 0 2px #fff, 0 2px 8px rgba(0, 0, 0, 0.16);
+  box-shadow: 0 0 0 3px rgba(255,255,255,0.95), 0 4px 12px rgba(0, 0, 0, 0.22);
+  border-radius: 50%;
 }
 .shell[data-template="template2"] .header-op-avatar.is-online {
   box-shadow:
-    0 0 0 2px #fff,
-    0 0 0 4px rgba(44, 200, 150, 0.45),
-    0 2px 8px rgba(0, 0, 0, 0.18);
+    0 0 0 3px #fff,
+    0 0 0 5px rgba(44, 200, 150, 0.55),
+    0 4px 12px rgba(0, 0, 0, 0.22);
 }
 
 /* ─── Tabs ─── */

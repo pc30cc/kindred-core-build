@@ -69,7 +69,7 @@ across the cache horizon and is explicitly out of scope.
 | Prefix | Where | Notes |
 |---|---|---|
 | `[Widget Runtime]` | `public/widget/runtime.js` | Visitor browser console |
-| `[Loader …]` | `public/widget/loader.js` | Visitor browser console |
+| `[Widget]` | `public/widget/loader.js` | Visitor browser console (loader log prefix; see §2.8) |
 | `[call-widget]` | `public/call-widget/l.js` | Visitor browser console |
 | `[widget-hash]` | `scripts/widget-hash.js` | Build output |
 | `[worker]` | `worker/index.ts` | Worker container logs |
@@ -199,7 +199,7 @@ README and ADRs:
 >   `growth-suite-server` (server)
 > - widget DOM/JS prefixes: `__gs_runtime`, `<gs-widget>`,
 >   `.gs-launcher`
-> - log prefixes: `[Widget Runtime]`, `[Loader …]`, `[call-widget]`,
+> - log prefixes: `[Widget Runtime]`, `[Widget]` (loader), `[call-widget]`,
 >   `[widget-hash]`, `[worker]`, `[realtime/...]`
 > - documentation title: "Growth Suite — Self-Host Deployment Guide"
 >

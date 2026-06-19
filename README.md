@@ -291,8 +291,8 @@ and runtime bundle. They do not share runtime code at the bundle level.
   and listed in the `widget_templates` table. The selected slug for a
   workspace is read from `widget_settings.template_slug`.
 - **Internal identifiers** (legacy, intentionally preserved):
-  `__gs_runtime`, `<gs-widget>`, `.gs-launcher`, log prefix
-  `[Widget Runtime]`, loader log prefix `[Loader]` with constant
+  `__gs_runtime`, `<gs-widget>`, `.gs-launcher`, runtime log prefix
+  `[Widget Runtime]`, loader log prefix `[Widget]` with constant
   `LOADER_VERSION` (e.g. `"2026-04-22-token-bus-v1"`).
   See `NAMING.md` and the migration-readiness package under `docs/`
   (`ADR-001`, `ADR-002`, `LEGACY_IDENTIFIER_INVENTORY.md`,

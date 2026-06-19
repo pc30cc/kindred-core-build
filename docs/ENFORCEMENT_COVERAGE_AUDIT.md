@@ -497,3 +497,58 @@ Branches still ungated and intentionally deferred:
 Trigger `trg_visitor_sessions_count_visitor` is still the only
 writer. `resolveMaxVisitors` and `usageFnForLimit('max_visitors')`
 unchanged. All gated branches now share one discriminator contract.
+
+## Phase 11 — storage_gb readiness audit (no rollout)
+
+Outcome: **rollout deferred.** Full policy and resolution path are in
+`docs/STORAGE_LIMIT_POLICY.md`. Summary recorded here for the audit
+trail.
+
+### Route audit
+
+| Route / branch | Verdict | Notes |
+|---|---|---|
+| `POST /api/storage/upload` (`server/routes/storage.ts`) | **STILL AMBIGUOUS** — would be the eventual first rollout site | Operator-authenticated, lowest-UX-risk. Blocked only by missing producer. |
+| `POST /api/conversation-attachments/:id/upload` | **STILL AMBIGUOUS** | Member-authenticated, but blocked by same producer gap. |
+| `server/routes/widgetAttachments.ts` upload branches | **DO NOT GATE** (this phase, and one more after producer ships) | Public/widget surface. Hard 403 from `requireLimit` would surface as a raw error in the widget runtime. Needs widget UX before gating, even after counter is real. |
+| `server/routes/storage.ts` `POST /delete`, `POST /test` | **NOT A STORAGE-CREATION ROUTE** | Deletes free bytes; `/test` is a config probe. Never gate. |
+| `GET` storage / download paths | **NOT A STORAGE-CREATION ROUTE** | Reads do not consume the cap. |
+
+### Counter / resolver alignment
+
+- Column: `workspace_usage_counters.storage_bytes` — declared in
+  `supabase/migrations/20260415220905_*.sql`, default `0`.
+- Producer: **none.** No trigger, no application-side increment. The
+  column is structurally always `0`.
+- `storage_usage_logs` is written by `server/services/storage/index.ts`
+  on every upload/delete attempt but is never aggregated into
+  `workspace_usage_counters`.
+- Delete log rows do not currently capture `file_size`, so even a
+  trigger over `storage_usage_logs` cannot decrement correctly today.
+- Resolver `resolveStorageGb` (`usageResolvers.ts`) reads
+  `storage_bytes` and converts to GB. It is internally correct — the
+  failure is **upstream**: it reads a counter nothing increments.
+
+### Why no rollout
+
+Attaching `requireLimit('storage_gb', usageFnForLimit('storage_gb'))`
+to any upload route today would be a silent no-op (cap unreachable),
+and would convert into an uncontrollable mass-rollout the moment a
+producer is added. Both failure modes violate the conservative-rollout
+rule.
+
+### What this phase changed
+
+- Documented the locked semantics and cap-reached policy in
+  `docs/STORAGE_LIMIT_POLICY.md`.
+- Recorded the producer gap as the **single** blocker.
+- No route, schema, env, key, middleware, or service code was changed.
+- `resolveStorageGb`, `usageFnForLimit('storage_gb')`, and the
+  capability registry entry for `storage_gb` are untouched.
+
+### Deferred to later phases
+
+- Producer migration (trigger + delete-size capture + backfill).
+- First rollout: `POST /api/storage/upload`.
+- Conversation-attachments rollout.
+- Widget-attachments rollout (paired with widget-runtime UX).

@@ -602,7 +602,13 @@ function WorkspaceConsole({ capabilities }: { capabilities: CapabilityDefinition
     <Card className="bg-card border-border">
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2"><Activity className="w-4 h-4" /> Workspace Effective Entitlements</CardTitle>
-        <CardDescription>Pick a workspace to inspect the resolved plan + overrides + usage. Source badges show where each value comes from.</CardDescription>
+        <CardDescription>
+          Pick a workspace to inspect the resolved plan + overrides + usage. Source badges show where each value comes from:
+          <span className="ml-1"><Badge variant="outline" className="text-[9px] bg-amber-500/15 text-amber-600 border-amber-500/30">override</Badge> = manually forced,
+          <Badge variant="outline" className="ml-1 text-[9px] bg-primary/10 text-primary border-primary/20">plan</Badge> = from plan,
+          <Badge variant="outline" className="ml-1 text-[9px] bg-muted text-muted-foreground border-transparent">default</Badge> = registry default.</span>
+          {' '}Use <em>Clear</em> on an override row to revert that capability to the plan / default.
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex gap-2 items-end flex-wrap">

@@ -10,7 +10,7 @@ import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { isGlobalAdmin } from '../middleware/adminBypass.js';
-import { checkModuleAccess } from '../middleware/featureGating.js';
+import { checkModuleAccess, requireModule } from '../middleware/featureGating.js';
 import {
   getOrCreateSettings,
   updateSettings,

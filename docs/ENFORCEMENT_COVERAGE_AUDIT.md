@@ -215,3 +215,52 @@ attached on actual creation branches, never on message-send into an
 existing conversation. Usage math is shared via
 `usageFnForLimit('max_conversations')` — no ad-hoc counting was
 introduced. No global admin bypass was added to `requireLimit`.
+
+## 10. Phase 6 — `max_visitors` readiness pass (NO ROLLOUT)
+
+Outcome: **DEFERRED.** No route gated. No code changed. Full policy
+and route truth recorded in
+[`VISITOR_LIMIT_POLICY.md`](./VISITOR_LIMIT_POLICY.md).
+
+Single hard blocker:
+`workspace_usage_counters.visitors_count` has **no producer** anywhere
+in the codebase (no trigger, no server increment, no worker write).
+`resolveMaxVisitors` therefore returns `0` for every workspace, and
+attaching `requireLimit('max_visitors', …)` today would be a silent
+no-op gate. That is exactly the failure mode the audit forbids.
+
+Secondary blocker: the product semantics of "a visitor" for the cap
+(unique session vs. distinct `visitor_id` vs. identified contact vs.
+lifetime distinct) are not chosen, so the missing producer cannot be
+designed yet.
+
+Route classification summary (full table in the policy doc):
+
+| Route / branch | Classification |
+|---|---|
+| `POST /api/widget/identify` — first-seen insert | STILL AMBIGUOUS (no counter; semantics undefined) |
+| `POST /api/widget/identify` — revisit update | DO NOT GATE |
+| `POST /api/widget/message` — incidental session insert | STILL AMBIGUOUS; do not stack on existing `max_conversations` gate |
+| `POST /api/widget/message` — reply branch | DO NOT GATE |
+| `POST /api/visitors/track` — insert sub-branch | STILL AMBIGUOUS |
+| `POST /api/visitors/page-view` | DO NOT GATE (page views must never consume `max_visitors`) |
+| `GET /api/visitors/*` | NOT A VISITOR-CREATION ROUTE |
+| Other widget routes (attachments, callbacks, departments, …) | NOT A VISITOR-CREATION ROUTE |
+
+Unblock sequence (must be done before any rollout phase):
+1. Choose visitor semantics (recommend: distinct `visitor_id` per
+   calendar month, de-duped via `identity_merges`).
+2. Wire a single canonical producer for
+   `workspace_usage_counters.visitors_count` (DB trigger on
+   `visitor_sessions` insert, or one server-side increment in the
+   first-track branch). No ad-hoc counting in handlers.
+3. Decide cap-reached widget UX (recommend: deny first-track only;
+   never block revisits, page views, or replies).
+4. Then attach `requireLimit('max_visitors',
+   usageFnForLimit('max_visitors'))` on exactly the new-visitor
+   branch, with route-local `!auth.isAdmin` bypass — no global
+   short-circuit in `requireLimit`.
+
+No other limit keys touched in this phase. `storage_gb`,
+`ai_credits_per_month`, and any storage/upload work remain deferred
+per §7.

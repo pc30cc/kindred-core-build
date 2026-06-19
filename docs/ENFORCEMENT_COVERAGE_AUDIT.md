@@ -264,3 +264,56 @@ Unblock sequence (must be done before any rollout phase):
 No other limit keys touched in this phase. `storage_gb`,
 `ai_credits_per_month`, and any storage/upload work remain deferred
 per §7.
+
+## 11. Phase 7 — Canonical visitor counter producer + semantics lock
+
+Outcome: **counter foundation in place; rollout still deferred to a
+tiny follow-up phase.** No `requireLimit('max_visitors', …)` attached
+yet.
+
+Locked semantics: **distinct `visitor_id` per workspace per UTC
+calendar month.** Revisits, 30-minute reconnects that insert a new
+`visitor_sessions` row, page views, message replies, and
+identity-enrichment updates DO NOT increment. Full rationale and
+rejected alternatives in
+[`VISITOR_COUNTER_ARCHITECTURE.md`](./VISITOR_COUNTER_ARCHITECTURE.md);
+route truth and unblock checklist in
+[`VISITOR_LIMIT_POLICY.md`](./VISITOR_LIMIT_POLICY.md).
+
+Canonical producer (single writer):
+`trg_visitor_sessions_count_visitor` — `AFTER INSERT` row trigger on
+`public.visitor_sessions`, backed by
+`public.tg_visitor_sessions_count_visitor()`. The trigger upserts
+`workspace_usage_counters(workspace_id, period).visitors_count` only
+when no other `visitor_sessions` row exists for the same
+`(workspace_id, visitor_id)` in the current UTC month. Period key
+`to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM')` matches
+`currentMonthPeriod()` in `usageResolvers.ts`.
+
+Double-counting safeguards:
+
+- `RETURN NEW` short-circuit if a prior in-period sibling row
+  exists for `(workspace_id, visitor_id)` — the 30-minute reconnect
+  insert path therefore does not double-count.
+- Trigger fires only on `INSERT` — `UPDATE`s on the existing row
+  (page navigation, geo enrichment, identity attach) never run the
+  counter logic.
+- `visitor_page_views` is a separate table and is unaffected.
+- No application-side increment exists for `visitors_count`; the
+  hard rule recorded in `VISITOR_COUNTER_ARCHITECTURE.md` §4
+  forbids any future server-side increment.
+
+Resolver alignment: `resolveMaxVisitors` is unchanged. It already
+reads `workspace_usage_counters.visitors_count` for the current UTC
+`YYYY-MM` period, which is exactly what the producer writes.
+
+Why no rollout in this phase: the counter has just gone from "always
+0" to "real values starting now". Workspaces have a back-filled
+history of `0`, which is harmless, but cap-reached widget UX
+(deny-first-track only vs. soft-degrade vs. silent drop) was
+intentionally not relitigated in this phase. That single decision is
+the only remaining blocker for the gate.
+
+No other limit keys touched in this phase. `storage_gb`,
+`ai_credits_per_month`, and any storage/upload work remain deferred
+per §7.

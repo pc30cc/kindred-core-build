@@ -1,59 +1,36 @@
 # Visitor Limit Policy & Rollout Readiness
 
-Status: **DEFERRED — no rollout in this phase.**
+Status: **Counter foundation in place (Phase 7). Rollout still
+deferred — one tiny follow-up phase remaining to attach the gate.**
 Scope: `max_visitors` numeric limit only. No storage/upload, no
 conversation rollout, no schema/route renames.
 
-This document is the route-truth and policy reference that the next
-phase must resolve before `requireLimit('max_visitors', …)` can be
-attached anywhere. It exists because `max_visitors` looked like the
-next logical candidate after `max_conversations`, but a careful audit
-showed it is **not yet safe to gate**.
+This document is the route-truth and policy reference for
+`max_visitors`. The original blocker (no producer for
+`workspace_usage_counters.visitors_count`) was resolved in Phase 7;
+see [`VISITOR_COUNTER_ARCHITECTURE.md`](./VISITOR_COUNTER_ARCHITECTURE.md)
+for the locked semantics and the single-writer trigger.
 
 ---
 
 ## 1. Hard blocker (single root cause)
 
-`workspace_usage_counters.visitors_count` is **never written**.
-
-Evidence:
-
-- The column is declared in
-  `supabase/migrations/20260415220905_dd2492ef-…sql` with
-  `DEFAULT 0`.
-- A repo-wide search (`rg visitors_count`) finds **zero** producers:
-  no SQL trigger, no RPC, no server-side increment, no worker job.
-  The only readers are `usageResolvers.ts` (`resolveMaxVisitors`)
-  and the column declaration itself.
-- `visitor_sessions` rows are inserted from multiple paths
-  (`widget.ts`, `widgetIdentity.ts`, `visitors.ts`) **without any
-  corresponding usage-counter update**.
-
-Consequence: `usageFnForLimit('max_visitors')` currently returns `0`
-for every workspace, every period. Attaching
-`requireLimit('max_visitors', …)` today would be a **silent no-op
-gate** — it would never deny, would create the false impression that
-the limit is enforced, and would mask the missing counter pipeline.
-
-This is the same class of risk the audit explicitly warns about: do
-not gate on a counter source that is not aligned with product
-meaning.
+~~`workspace_usage_counters.visitors_count` is never written.~~
+**Resolved in Phase 7.** The canonical producer is now the
+`AFTER INSERT` trigger
+`trg_visitor_sessions_count_visitor` on `public.visitor_sessions`,
+backed by `public.tg_visitor_sessions_count_visitor()`. It is the
+single writer; no server-side increment is permitted. See
+`VISITOR_COUNTER_ARCHITECTURE.md` for the full contract.
 
 ## 2. Product policy still undefined
 
-Even if the counter pipeline existed, the meaning of "a visitor" for
-the cap has not been chosen. The candidate semantics are mutually
-exclusive and produce very different numbers:
-
-| Option | Counts toward `max_visitors` | Notes |
-|---|---|---|
-| A. New `visitor_sessions` row per period | Every first insert in a calendar month | Closest to current schema; double-counts users across browsers/devices. |
-| B. Distinct `visitor_id` per period | Each unique widget-issued visitor identity | Requires de-dup against `identity_merges`. |
-| C. Distinct identified contact per period | Visitors that resolve to a `contacts` row | Excludes anon traffic; smallest number. |
-| D. Lifetime distinct visitors | Not period-scoped | Would require `periodKind: 'lifetime'`, different resolver shape. |
-
-No product decision has been recorded. Until one is, the resolver, the
-counter writer, and the gate cannot be aligned.
+**Resolved in Phase 7.** Locked semantics:
+**distinct `visitor_id` per workspace per UTC calendar month.**
+Revisits, 30-minute reconnects that insert a new
+`visitor_sessions` row, page views, and message replies do not
+increment. Identity-enrichment updates do not increment. Rejected
+alternatives are recorded in `VISITOR_COUNTER_ARCHITECTURE.md` §1.
 
 ## 3. Cap-reached behavior also undefined
 
@@ -94,32 +71,25 @@ Outcome: every candidate is blocked by §1 (no counter writer) and §2
 
 ## 5. What must be true before rollout
 
-The next phase MUST deliver, in this order, before any
-`requireLimit('max_visitors', …)` attachment:
+Status of the unblock checklist after Phase 7:
 
-1. **Pick semantics** from §2 (recommended: Option B — distinct
-   `visitor_id` per calendar month, de-duplicated against
-   `identity_merges`).
-2. **Wire a counter producer** that matches the chosen semantics.
-   Two acceptable implementations:
-   - DB trigger on `visitor_sessions` insert that upserts
-     `workspace_usage_counters(workspace_id, period).visitors_count`
-     for the current `to_char(now(),'YYYY-MM')` period; OR
-   - server-side increment inside the single canonical first-track
-     branch (mirroring the conversation pattern), guarded by the
-     same period key.
-   Whichever is chosen, it must be the **only** writer; no ad-hoc
-   counting inside route handlers.
-3. **Confirm resolver alignment** — `resolveMaxVisitors` already reads
-   `visitors_count` from `workspace_usage_counters`. No resolver
-   change is required if the producer writes that exact column.
-4. **Decide cap-reached UX** per §3 and document it here.
-5. **Then, and only then,** attach `requireLimit('max_visitors',
-   usageFnForLimit('max_visitors'))` on exactly the *new-visitor*
-   branch — never on revisits, never on page views, never on replies.
-   Bypass policy stays route-local (`!auth.isAdmin` where
-   applicable), matching the AI KB jobs and `max_conversations`
-   precedent. No global admin short-circuit in `requireLimit`.
+1. ~~Pick semantics.~~ **Done** — distinct `visitor_id` per UTC
+   calendar month.
+2. ~~Wire a single canonical counter producer.~~ **Done** — DB
+   trigger `trg_visitor_sessions_count_visitor`.
+3. ~~Confirm resolver alignment.~~ **Done** — `resolveMaxVisitors`
+   reads `workspace_usage_counters.visitors_count` for the current
+   UTC `YYYY-MM` period; the producer writes that exact column for
+   that exact period.
+4. **Open** — decide cap-reached widget UX (recommend: deny only
+   the *new-visitor* branch, never revisits/page-views/replies).
+5. **Open** — attach `requireLimit('max_visitors',
+   usageFnForLimit('max_visitors'))` on exactly that new-visitor
+   branch, with route-local `!auth.isAdmin` bypass, matching the
+   AI KB jobs and `max_conversations` precedent. No global admin
+   short-circuit in `requireLimit`.
+
+Items 4–5 are the entire remaining scope for the next phase.
 
 ## 6. Out of scope for this phase
 

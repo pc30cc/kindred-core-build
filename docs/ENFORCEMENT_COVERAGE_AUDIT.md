@@ -707,3 +707,49 @@ Forward-correct rollout decision".
 - Bespoke widget UX for cap-reached 403 (friendlier message, retry
   disable, admin-side telemetry banner).
 - Historical storage backfill — unchanged stance from Phase 12.
+
+## Phase 15 — AI credits readiness audit
+
+### Status
+
+**No new rollout.** AI credit enforcement is already attached to the
+canonical billable LLM surfaces. See `docs/AI_CREDITS_POLICY.md` for
+the full policy.
+
+### Already-enforced surfaces
+
+- `POST /api/ai/complete` — `requireAICredits(1)` (atomic
+  `deduct_ai_credits` RPC).
+- AI-KB worker per-page processing — `consumeAiCredits()` (same RPC).
+
+### Audit results for remaining AI surfaces
+
+| Route                                              | Class             | Reason                                   |
+|----------------------------------------------------|-------------------|------------------------------------------|
+| `POST /api/ai-agent/playground/test`               | STILL AMBIGUOUS   | No prior credit semantics; would change behavior. |
+| `POST /api/ai-agent/operator/suggest-reply`        | STILL AMBIGUOUS   | Conditional `callLLM`; bespoke rate limit; needs per-branch wiring. |
+| `POST /api/ai-agent/generate-business-description` | STILL AMBIGUOUS   | One-shot setup helper; gating mid-phase changes setup flow. |
+| `POST /api/ai/test`                                | DO NOT GATE       | Uses caller-supplied keys, no workspace LLM. |
+| `GET  /api/ai/config/:workspaceId`                 | DO NOT GATE       | Read-only.                               |
+
+### Counter / producer alignment
+
+- Single producer of `workspace_usage_counters.ai_credits_used`:
+  `deduct_ai_credits` RPC.
+- `requireLimit('ai_credits_per_month', usageFnForLimit(...))` is
+  intentionally **not** wired onto AI routes — pairing it with the
+  atomic RPC would create a second accounting path and a TOCTOU race.
+- Resolver and capability-registry entries remain in place for
+  read-only usage display only.
+
+### Backward-compatibility safeguards
+
+- No middleware contract, route name, env var, schema, or key changed.
+- No new code on any AI route in this phase.
+
+### Intentionally deferred
+
+- Operator-assist (`/operator/suggest-reply`) credit wiring — pending
+  decision on `callLLM=false` semantics.
+- Playground credit policy decision.
+- Token-weighted (variable-cost) credit accounting.

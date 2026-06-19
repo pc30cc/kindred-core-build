@@ -3624,6 +3624,44 @@
     prepareShell: function (_shellDiv, _ctx) { /* no-op for default */ },
   });
 
+  // ── ILA Style template (ila.chat-inspired skin) ─────────────────────
+  // Pure CSS skin — all visual changes live in runtime.css scoped to
+  // .shell[data-template="ila"]. This descriptor only injects the
+  // IRANYekanX webfont once (into the document head — Shadow DOM cannot
+  // load @font-face from outside its own stylesheet without it being
+  // declared in the host doc), so the panel can render with the correct
+  // typography. No behavioral changes vs. default.
+  TemplateRegistry.register({
+    slug: 'ila',
+    name: 'ILA Style',
+    prepareCtx: function (_ctx) { /* no-op */ },
+    prepareShell: function (_shellDiv, _ctx) {
+      try {
+        if (typeof document === 'undefined') return;
+        if (document.getElementById('gs-ila-fonts')) return;
+        var s = document.createElement('style');
+        s.id = 'gs-ila-fonts';
+        s.textContent = [
+          "@font-face{font-family:IRANYekanXILACHAT;font-style:normal;font-weight:300;src:url(https://widget.ila.chat/assets/fonts/woff2/IRANYekanX-Light.woff2) format('woff2');font-display:swap}",
+          "@font-face{font-family:IRANYekanXILACHAT;font-style:normal;font-weight:400;src:url(https://widget.ila.chat/assets/fonts/woff2/IRANYekanX-Regular.woff2) format('woff2');font-display:swap}",
+          "@font-face{font-family:IRANYekanXILACHAT;font-style:normal;font-weight:500;src:url(https://widget.ila.chat/assets/fonts/woff2/IRANYekanX-Medium.woff2) format('woff2');font-display:swap}",
+          "@font-face{font-family:IRANYekanXILACHAT;font-style:normal;font-weight:600;src:url(https://widget.ila.chat/assets/fonts/woff2/IRANYekanX-DemiBold.woff2) format('woff2');font-display:swap}",
+          "@font-face{font-family:IRANYekanXILACHAT;font-style:normal;font-weight:700;src:url(https://widget.ila.chat/assets/fonts/woff2/IRANYekanX-Bold.woff2) format('woff2');font-display:swap}"
+        ].join('');
+        document.head.appendChild(s);
+        // Also inject inside the shadow root so :host descendants resolve
+        // the family even before the host doc style is parsed.
+        var sh = (_shellDiv && _shellDiv.shadowRoot) || null;
+        if (sh && !sh.getElementById('gs-ila-fonts-shadow')) {
+          var s2 = document.createElement('style');
+          s2.id = 'gs-ila-fonts-shadow';
+          s2.textContent = s.textContent;
+          sh.appendChild(s2);
+        }
+      } catch (_) { /* font injection optional */ }
+    },
+  });
+
   // Expose for debugging / future runtime template registration from outside.
   __gs_runtime.templates = TemplateRegistry;
 

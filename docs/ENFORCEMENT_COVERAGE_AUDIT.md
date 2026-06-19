@@ -616,3 +616,49 @@ Forward-correct rollout decision".
 - Widget-attachments rollout (paired with widget-runtime UX for 403).
 - Backfill of historical occupancy — only revisit if product decides
   forward-correct enforcement is too lenient for legacy workspaces.
+
+## Phase 13 — conversation-attachment storage_gb rollout
+
+### Audit findings
+
+| Route | Classification | Notes |
+| --- | --- | --- |
+| `POST /api/conversation-attachments/:id/upload` | **SAFE TO GATE NOW** | Operator-authenticated via Supabase user token + `is_workspace_member` RPC. `workspace_id` arrives in the JSON body and is re-checked against the attachment row before upload. Uses canonical `uploadFile()`. Lower risk than widget/public paths — operator UX can surface a 403 without breaking visitors. |
+| `POST /api/conversation-attachments/init` | **NOT A STORAGE-CREATION ROUTE** | Reserves a DB row only; no bytes persisted. Gating here would block visibility into the limit at upload time and split enforcement across two endpoints. |
+| `DELETE /api/conversation-attachments/:id` | **NOT A STORAGE-CREATION ROUTE** | Frees bytes; gating would block quota recovery. |
+| `server/routes/widgetAttachments.ts` (all) | **DO NOT GATE THIS PHASE** | Visitor/public-facing. Needs widget-runtime UX for a 403 before any rollout. Deferred. |
+
+### Rollout applied
+
+- `server/routes/conversationAttachments.ts` — `POST /:id/upload`:
+  after operator auth, attachment-row ownership/state checks, and the
+  declared-size guard, invoke
+  `requireLimit('storage_gb', usageFnForLimit('storage_gb'))` once
+  inline (mirrors `server/routes/storage.ts`). On rejection the
+  middleware has already written 403; we additionally flip the reserved
+  row to `status = 'failed'` so it does not strand in `'uploading'`. No
+  route-local storage math, no second producer.
+
+### Backward-compatibility safeguards
+
+- Plans with `storage_gb = -1` (unlimited) skip the usage comparison —
+  unchanged.
+- All existing 401/403/404/409/413 paths still execute before the gate,
+  so the gate never leaks limit info to unauthorized callers.
+- Counter producer, resolver, capability registry, and middleware
+  contracts untouched.
+
+### Validation
+
+- Confirmed `extractWorkspaceId` reads `req.body.workspace_id`
+  (snake_case), matching this route's payload shape.
+- Confirmed `usageFnForLimit('storage_gb')` resolves through
+  `resolveStorageGb` → `workspace_usage_counters.storage_bytes`
+  (canonical column, single producer).
+- No widget/public attachment route was touched.
+
+### Intentionally deferred
+
+- `widgetAttachments.ts` rollout — visitor-facing UX for a 403 must
+  land first.
+- Backfill of historical occupancy — unchanged stance from Phase 12.

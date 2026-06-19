@@ -885,6 +885,14 @@
         csErrAccessDenied: 'Bu aramaya erişiminiz yok.',
         csErrOriginDenied: 'Bu site arama başlatamaz.',
         csErrUnknown: 'Bir şeyler ters gitti. Lütfen tekrar deneyin.',
+        support: 'Destek',
+        operator: 'Operatör',
+        team: 'Ekip',
+        anonymous: 'Anonim',
+        poweredBy: 'Sağlayan',
+        welcomeFallback: 'Merhaba 👋\nSize nasıl yardımcı olabiliriz?',
+        teamLabel: 'Destek ekibi',
+        onlineLabel: 'çevrimiçi',
       },
     };
     return {

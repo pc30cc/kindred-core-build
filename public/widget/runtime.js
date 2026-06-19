@@ -3696,16 +3696,26 @@
       return { open: function(){}, close: function(){}, toggle: function(){}, setUnread: function(){} };
     }
 
-    var ctx = {
-      config: config,
-      apiBase: config._apiBase || config.apiBase || '',
-      assetBase: config._assetBase || config.assetBase || '',
-      workspaceId: config.workspaceId || '',
-      sessionToken: config._sessionToken || '',
-      locale: config.locale || 'en',
-      primaryColor: config.primaryColor || '#3B82F6',
-      shell: shell,
-    };
+     // Honor the workspace's "Widget Language" setting. When set to a
+     // specific locale (fa/en/tr) it overrides the workspace default
+     // locale that drives the rest of the platform. 'auto' falls back
+     // to the workspace locale (which itself falls back to the visitor
+     // browser language during signup).
+     var resolvedLocale = (function () {
+       var wl = config.widgetLanguage;
+       if (typeof wl === 'string' && wl && wl !== 'auto') return wl;
+       return config.locale || 'en';
+     })();
+     var ctx = {
+       config: config,
+       apiBase: config._apiBase || config.apiBase || '',
+       assetBase: config._assetBase || config.assetBase || '',
+       workspaceId: config.workspaceId || '',
+       sessionToken: config._sessionToken || '',
+       locale: resolvedLocale,
+       primaryColor: config.primaryColor || '#3B82F6',
+       shell: shell,
+     };
 
     // ─── Token manager (Task 2): proactive refresh + reactive 401/403 retry.
     // Wraps every authenticated widget request. ctx.sessionToken stays as a

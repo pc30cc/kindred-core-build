@@ -557,3 +557,62 @@ with `POST /api/storage/upload`.
 - First rollout: `POST /api/storage/upload`.
 - Conversation-attachments rollout.
 - Widget-attachments rollout (paired with widget-runtime UX).
+
+## Phase 12 — storage_gb first narrow rollout (operator upload only)
+
+### Policy decision
+
+**Position A — forward-correct rollout accepted.** Backfill is
+intentionally skipped (historical delete logs lack `file_size`, so
+reconstruction would over-count). Existing workspaces start at zero on
+the canonical counter and accumulate forward; this is the conservative
+tradeoff documented in `docs/STORAGE_LIMIT_POLICY.md` § "Phase 12 —
+Forward-correct rollout decision".
+
+### Storage route audit (Phase 12)
+
+| Route | Verdict | Why |
+| --- | --- | --- |
+| `POST /api/storage/upload` (`server/routes/storage.ts`) | **SAFEST FIRST ROLLOUT SITE — gated this phase** | Bearer must equal anon or service-role key (operator/server-side, not widget). `workspaceId` in body, exposed via `extractWorkspaceId`. Goes through canonical `uploadFile()` → `storage_usage_logs` → trigger. A 403 surfaces in operator UI, not visitor UX. |
+| `POST /api/conversation-attachments/:id/upload` (`server/routes/conversationAttachments.ts`) | **TOO SENSITIVE FOR THIS PHASE** | Operator-authenticated and goes through `uploadFile()`, but Phase 12 is capped at one route. Deferred to its own phase. |
+| `widgetAttachments.ts` upload endpoints | **TOO SENSITIVE FOR THIS PHASE** | Widget/public-facing. A raw 403 needs visitor-side UX (error message, retry, disable upload affordance). Deferred until that UX lands. |
+| `POST /api/storage/delete` | **NOT A STORAGE-CREATION ROUTE** | Frees bytes; gating it would block recovery from a full quota. |
+| `POST /api/storage/test` | **NOT A STORAGE-CREATION ROUTE** | Config probe; logs are best-effort and not workspace-billable. |
+| `GET /api/storage/url`, `GET /api/storage/config/:workspaceId` | **NOT A STORAGE-CREATION ROUTE** | Read-only. |
+
+### Rollout applied
+
+- `server/routes/storage.ts` — `POST /api/storage/upload`: after the
+  existing bearer-token auth, body validation, and size cap, invoke
+  `requireLimit('storage_gb', usageFnForLimit('storage_gb'))` once
+  inline (mirrors the `aiKb.ts` pattern). On rejection the middleware
+  has already written 403 and we early-return. No route-local storage
+  math, no second producer, no schema/route rename.
+
+### Backward-compatibility safeguards
+
+- Workspaces on plans with `storage_gb = -1` (unlimited) skip the usage
+  comparison inside `requireLimit` — unchanged behavior.
+- The bearer-token auth and `MAX_UPLOAD_SIZE` checks run first, so the
+  gate never reveals limit info to unauthenticated callers.
+- `usageFnForLimit('storage_gb')` is the only usage source. If the
+  resolver throws, `requireLimit` fail-closes with a 403 — same
+  contract as every other gated limit.
+- Counter producer, resolver, capability registry, and middleware
+  contracts untouched.
+
+### Validation
+
+- Verified `extractWorkspaceId` reads `req.body.workspaceId` (camelCase),
+  matching the upload route's payload shape.
+- Confirmed `usageFnForLimit('storage_gb')` resolves through
+  `resolveStorageGb` → `workspace_usage_counters.storage_bytes`
+  (canonical column, single producer).
+- No other upload route was modified.
+
+### Intentionally deferred
+
+- Conversation-attachments rollout (own phase).
+- Widget-attachments rollout (paired with widget-runtime UX for 403).
+- Backfill of historical occupancy — only revisit if product decides
+  forward-correct enforcement is too lenient for legacy workspaces.

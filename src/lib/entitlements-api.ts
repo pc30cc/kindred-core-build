@@ -136,6 +136,22 @@ export async function deleteWorkspaceChannelOverride(id: string) {
   return res.json();
 }
 
+export interface WorkspaceOverrideRow {
+  id: string;
+  workspace_id: string;
+  enabled: boolean;
+  admin_notes?: string | null;
+  module_key?: string;
+  channel_key?: string;
+}
+
+/** List existing module + channel overrides for a workspace (Super Admin). */
+export async function fetchWorkspaceOverrides(workspaceId: string) {
+  return get<{ modules: WorkspaceOverrideRow[]; channels: WorkspaceOverrideRow[] }>(
+    `/api/plans/admin/overrides/${workspaceId}`,
+  );
+}
+
 /** Group capabilities by `group` field, preserving sortOrder. */
 export function groupCapabilities(caps: CapabilityDefinition[]): Record<string, CapabilityDefinition[]> {
   const out: Record<string, CapabilityDefinition[]> = {};

@@ -2131,7 +2131,7 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 .shell[data-template="template2"] *,
 .shell[data-template="template2"] *::before,
 .shell[data-template="template2"] *::after {
-  font-family: "Vazirmatn", "IRANYekanXILACHAT", -apple-system, BlinkMacSystemFont,
+  font-family: "Vazirmatn", -apple-system, BlinkMacSystemFont,
     "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
@@ -2180,7 +2180,7 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
   line-height: 1.4;
 }
 
-/* Squircle avatar (rounded square like ila.chat) */
+/* Squircle avatar (rounded-square style for template2) */
 .shell[data-template="template2"] .header-op-avatar {
   width: 44px;
   height: 44px;

@@ -395,7 +395,7 @@
         // difference (request: launcher icon must NOT match the default).
         if (config.templateSlug === "template2") {
           launcherEl.innerHTML =
-            // Rounded squircle bubble with three dots (ila-style)
+            // Rounded squircle bubble with three dots (template2 style)
             '<svg class="chat-icon" viewBox="0 0 32 32" fill="none" stroke="none">' +
               '<path fill="currentColor" d="M16 4C9.373 4 4 8.925 4 15c0 3.43 1.74 6.49 4.46 8.5-.18 1.36-.74 2.96-1.84 4.36-.3.38.02.94.5.86 2.7-.46 4.96-1.6 6.46-2.74 .78.16 1.6.24 2.42.24 6.627 0 12-4.925 12-11S22.627 4 16 4z"/>' +
               '<circle cx="11" cy="15" r="1.5" fill="#fff"/>' +

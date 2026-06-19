@@ -1,7 +1,6 @@
 /**
  * Widget Security — HMAC Session Tokens, Rate Limiting, Origin Enforcement
- * 
- * Adapted from WebYar Growth Suite security model:
+ *
  * - HMAC session tokens with nonce (short-lived, origin-bound)
  * - Single auth header: x-widget-token
  * - Fail-closed origin validation

@@ -294,6 +294,10 @@ and runtime bundle. They do not share runtime code at the bundle level.
   `__gs_runtime`, `<gs-widget>`, `.gs-launcher`, log prefix
   `[Widget Runtime]`, loader log prefix `[Loader]` with constant
   `LOADER_VERSION` (e.g. `"2026-04-22-token-bus-v1"`).
+  See `NAMING.md` and the migration-readiness package under `docs/`
+  (`ADR-001`, `ADR-002`, `LEGACY_IDENTIFIER_INVENTORY.md`,
+  `LEGACY_MIGRATION_PLAN.md`, `LEGACY_NAMING_DECISION_MATRIX.md`) for
+  the full classification and migration policy.
 
 ### Call widget (`public/call-widget/`)
 

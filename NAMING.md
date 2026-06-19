@@ -83,26 +83,37 @@ They should not be renamed without coordinated rollout.
 
 | String | Where | Status |
 |---|---|---|
-| `ila`, `IRANYekanXILACHAT`, `ILA Style`, `ila.chat` | (none in source) | Removed from active code. A single line in `supabase/migrations/<timestamp>_…sql` performs `DELETE … WHERE slug='ila'` for cleanup of legacy production rows; this is intentional and must remain. |
+| `ila`, `IRANYekanXILACHAT`, `ILA Style`, `ila.chat` | (no occurrences in active source) | Removed from active source (final occurrence — `IRANYekanXILACHAT` in `public/widget/runtime.css` font-family — was dropped in the recent safe pass). A single migration (`supabase/migrations/20260619064502_*.sql`) performs `DELETE FROM public.widget_templates WHERE slug = 'ila'` to clean up legacy production rows; this is intentional and must remain. |
 | `Kindred Core` | This file + README + DEPLOYMENT | Documentation-only canonical name. |
 
 ### 2.6 Additional brand-string findings (precise citations)
 
-Pre-existing strings reviewed in this audit. Only safe, non-contract
-strings were changed; everything else is preserved.
+Strings reviewed in this audit. The table is split between items that
+were safely cleaned in the recent pass and items intentionally
+preserved for compatibility.
 
-| String | File : line | Visibility |
+**Cleaned in the recent safe pass** (no behavior or contract change):
+
+| String | File | Resolution |
 |---|---|---|
-| `Growth Suite server running on port ${config.port}` | `server/index.ts:360` | Backend startup log only |
-| `Growth Suite — Self-Host Deployment Guide` | `SELF_HOST_GUIDE.md:1` | Doc heading |
-| `Adapted from WebYar Growth Suite widget system.` | `server/routes/widget.ts:4` | Source comment |
-| `Adapted from WebYar Growth Suite security model:` | `server/services/widget/security.ts:4` | Source comment |
-| i18n key `account.subtitle` rendered with `brand: 'Growth Suite'` | `src/pages/app/settings/ProfilePage.tsx:238`, `src/i18n/locales/en.ts:642` | User-visible (Profile page) |
-| `<title>Platform</title>`, `og:title`, `og:description` | `index.html:6,9,10` | User-visible HTML defaults |
-| `Platform preview` (alt text) | `src/pages/auth/LoginPage.tsx:255` | User-visible |
-| Default email `from_name` = `'Platform'` | `server/services/email/index.ts:167` | Outbound email sender name |
-| Auth fallback brand label `'App'` | `src/pages/auth/ForgotPasswordPage.tsx:22`, `ResetPasswordPage.tsx:29` | User-visible auth pages |
-| `window.__gs` queue array on login-page snippet | `index.html:21`, `SELF_HOST_GUIDE.md:194,195,207` | Documented widget embed contract |
+| `Adapted from WebYar Growth Suite widget system.` | `server/routes/widget.ts` | Source comment removed. |
+| `Adapted from WebYar Growth Suite security model:` | `server/services/widget/security.ts` | Source comment removed. |
+| `WebYar-inspired` / `WebYar-quality` | `src/index.css` | Comments rewritten to neutral wording. |
+| `IRANYekanXILACHAT` (font-family fallback) | `public/widget/runtime.css` | Removed from the template2 font stack; falls back to `Vazirmatn`. |
+| `ila.chat` / `ila-style` (comments) | `public/widget/runtime.css`, `public/widget/loader.js` | Comments rewritten. |
+| i18n `account.subtitle` brand placeholder | `src/pages/app/settings/ProfilePage.tsx` | Now reads `useBrandingContext().platformName` instead of a hardcoded literal. |
+
+**Intentionally preserved for compatibility** (renaming would break ops dashboards, deployed embed snippets, or external links):
+
+| String | Location | Why kept |
+|---|---|---|
+| `Growth Suite server running on port ${config.port}` | `server/index.ts` | Backend startup log; ops dashboards may grep for it. |
+| `Growth Suite — Self-Host Deployment Guide` | `SELF_HOST_GUIDE.md` (heading) | Backward link compatibility. |
+| `<title>Platform</title>`, `og:title`, `og:description` | `index.html` | Intentionally generic white-label defaults. |
+| `Platform preview` (alt text) | `src/pages/auth/LoginPage.tsx` | Generic white-label fallback. |
+| Default email `from_name` = `'Platform'` | `server/services/email/index.ts` | Generic fallback when no branding row is present. |
+| Auth fallback brand label `'App'` | `src/pages/auth/ForgotPasswordPage.tsx`, `ResetPasswordPage.tsx` | Generic fallback before branding loads. |
+| `window.__gs` queue array on login-page snippet | `index.html`, `SELF_HOST_GUIDE.md` | Public widget embed contract. |
 
 ### 2.7 Additional server log prefixes (extends §2.4)
 

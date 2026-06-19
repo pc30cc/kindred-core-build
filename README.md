@@ -36,7 +36,7 @@ all server-side logic runs in the project's own Express server.
 |---|---|---|
 | Public help center | `/help/:locale/...` | Knowledge-base articles, search |
 | Auth | `/auth/...` | Login, signup, invite, password reset, email verification |
-| Workspace app | `/app/w/:workspaceId/...` | Operator inbox, contacts, visitors, KB, widget config, call center |
+| Workspace app | `/app/w/:slug/...` | Operator inbox, contacts, visitors, KB, widget config, call center (the `:slug` param resolves to a workspace) |
 | Platform admin | `/admin/...` | Super-admin dashboard: users, workspaces, providers, billing, plans, observability, branding, domains, audit logs, security, voice/video, AI agent control, widget settings, feature flags |
 | Embeddable chat widget | `/widget/loader.js` + hashed runtime | Customer-site visitor widget |
 | Embeddable call widget | `/call-widget/l.js` + runtime | Standalone voice/video widget |

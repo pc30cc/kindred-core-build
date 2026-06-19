@@ -97,6 +97,14 @@ All other resolver-ready keys (`max_conversations`, `max_visitors`,
 route-level policy decisions (especially around widget/anonymous
 traffic) before middleware is wired up.
 
+`max_conversations` specifically: see
+[`CONVERSATION_LIMIT_POLICY.md`](./CONVERSATION_LIMIT_POLICY.md) for
+the route-truth audit and the policy decisions required before
+`requireLimit('max_conversations', …)` can be attached. The dominant
+creator is the public widget (`POST /api/widget/message` /
+`/offline-messages`), not the operator route, so isolated gating of
+`POST /api/conversations/start-from-visitor` was rejected.
+
 ## Adding a new resolver
 
 1. Confirm the metric is either (a) a column on `workspace_usage_counters`,

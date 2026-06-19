@@ -70,6 +70,7 @@ import { loadWidgetPlatformRuntimeSettings } from '../services/widget/platformSe
 import { isActionActive } from '../services/observability/autoActionsCache.js';
 import { emitMetric, emitLog } from '../services/observability/metrics.js';
 import { resolveEffectivePolicy } from '../services/realtime/effectivePolicy.js';
+import { enforceMaxConversationsLimit } from '../services/billing/conversationLimit.js';
 
 export const widgetRouter = Router();
 

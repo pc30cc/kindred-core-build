@@ -69,7 +69,7 @@ across the cache horizon and is explicitly out of scope.
 | Prefix | Where | Notes |
 |---|---|---|
 | `[Widget Runtime]` | `public/widget/runtime.js` | Visitor browser console |
-| `[Loader …]` | `public/widget/loader.js` | Visitor browser console |
+| `[Widget]` | `public/widget/loader.js` | Visitor browser console (loader log prefix; see §2.8) |
 | `[call-widget]` | `public/call-widget/l.js` | Visitor browser console |
 | `[widget-hash]` | `scripts/widget-hash.js` | Build output |
 | `[worker]` | `worker/index.ts` | Worker container logs |

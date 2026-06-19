@@ -636,7 +636,7 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
           ? ws.welcome_message
           : null)
         || platformWidget?.default_welcome_message
-        || 'Hello! How can we help you?',
+        || '',
       greetingMessage: ws.greeting_message || '',
       placeholderText: ws.placeholder_text || '',
       offlineMessage: ws.offline_message || '',

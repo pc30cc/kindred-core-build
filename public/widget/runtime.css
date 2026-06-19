@@ -2111,7 +2111,7 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 /* ════════════════════════════════════════════════════════════════════
    Template: "ila" — ila.chat-inspired premium skin
    ────────────────────────────────────────────────────────────────────
-   All rules are scoped under .shell[data-template="ila"] so they have
+   All rules are scoped under .shell[data-template="template2"] so they have
    ZERO impact on the default template. Visual goals:
      • IRANYekanX typography (Persian + Latin)
      • Vivid blue accent (#0066ff / #06f)
@@ -2121,34 +2121,34 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
      • Polished launcher with micro-interaction
    ════════════════════════════════════════════════════════════════════ */
 
-.shell[data-template="ila"] {
-  --gs-ila-primary: #0066ff;
-  --gs-ila-primary-hover: #005cd4;
-  --gs-ila-primary-soft: #e6f2ff;
-  --gs-ila-bg: #ffffff;
-  --gs-ila-surface: #f7f8fa;
-  --gs-ila-border: #e7eaee;
-  --gs-ila-text: #1a1a1d;
-  --gs-ila-muted: #6b7280;
+.shell[data-template="template2"] {
+  --gs-t2-primary: #0066ff;
+  --gs-t2-primary-hover: #005cd4;
+  --gs-t2-primary-soft: #e6f2ff;
+  --gs-t2-bg: #ffffff;
+  --gs-t2-surface: #f7f8fa;
+  --gs-t2-border: #e7eaee;
+  --gs-t2-text: #1a1a1d;
+  --gs-t2-muted: #6b7280;
 }
 
 /* Typography — apply IRANYekanX to every element inside the ila template.
    Falls back gracefully when the webfont hasn't loaded yet. */
-.shell[data-template="ila"],
-.shell[data-template="ila"] *,
-.shell[data-template="ila"] *::before,
-.shell[data-template="ila"] *::after {
+.shell[data-template="template2"],
+.shell[data-template="template2"] *,
+.shell[data-template="template2"] *::before,
+.shell[data-template="template2"] *::after {
   font-family: IRANYekanXILACHAT, -apple-system, BlinkMacSystemFont,
     "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
 /* ─── Panel ─── */
-.shell[data-template="ila"] .panel {
+.shell[data-template="template2"] .panel {
   width: 392px;
   height: min(640px, calc(100vh - 96px));
   border-radius: 20px;
-  background: var(--gs-ila-bg);
-  color: var(--gs-ila-text);
+  background: var(--gs-t2-bg);
+  color: var(--gs-t2-text);
   box-shadow:
     0 24px 64px -16px rgba(15, 23, 42, 0.22),
     0 4px 12px -2px rgba(15, 23, 42, 0.08),
@@ -2157,33 +2157,33 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
     opacity 0.28s ease,
     transform 0.32s cubic-bezier(0.22, 1.2, 0.36, 1);
 }
-.shell[data-template="ila"] .panel.bottom-right { bottom: 96px; right: 24px; }
-.shell[data-template="ila"] .panel.bottom-left  { bottom: 96px; left: 24px; }
+.shell[data-template="template2"] .panel.bottom-right { bottom: 96px; right: 24px; }
+.shell[data-template="template2"] .panel.bottom-left  { bottom: 96px; left: 24px; }
 
 /* ─── Header — clean gradient, no patterned overlay ─── */
-.shell[data-template="ila"] .header {
-  background: linear-gradient(135deg, var(--gs-ila-primary) 0%, #1e7bff 60%, #4f9bff 100%);
+.shell[data-template="template2"] .header {
+  background: linear-gradient(135deg, var(--gs-t2-primary) 0%, #1e7bff 60%, #4f9bff 100%);
   color: #fff;
   padding: 18px 18px 22px;
 }
-.shell[data-template="ila"] .header::before {
+.shell[data-template="template2"] .header::before {
   content: none; /* drop the default texture so we get the flat ila look */
 }
-.shell[data-template="ila"] .header-title {
+.shell[data-template="template2"] .header-title {
   font-size: 18px;
   font-weight: 700;
   letter-spacing: 0;
 }
-.shell[data-template="ila"] .header-subtitle {
+.shell[data-template="template2"] .header-subtitle {
   font-size: 13px;
   opacity: 0.92;
   font-weight: 400;
   margin-top: 4px;
 }
-.shell[data-template="ila"] .header-op-avatar {
+.shell[data-template="template2"] .header-op-avatar {
   box-shadow: 0 0 0 2px #fff, 0 2px 8px rgba(0, 0, 0, 0.16);
 }
-.shell[data-template="ila"] .header-op-avatar.is-online {
+.shell[data-template="template2"] .header-op-avatar.is-online {
   box-shadow:
     0 0 0 2px #fff,
     0 0 0 4px rgba(44, 200, 150, 0.45),
@@ -2191,27 +2191,27 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 }
 
 /* ─── Tabs ─── */
-.shell[data-template="ila"] .tabs {
-  background: var(--gs-ila-bg);
-  border-bottom: 1px solid var(--gs-ila-border);
+.shell[data-template="template2"] .tabs {
+  background: var(--gs-t2-bg);
+  border-bottom: 1px solid var(--gs-t2-border);
 }
-.shell[data-template="ila"] .tab {
+.shell[data-template="template2"] .tab {
   font-size: 13px;
   font-weight: 500;
-  color: var(--gs-ila-muted);
+  color: var(--gs-t2-muted);
 }
-.shell[data-template="ila"] .tab.active { color: var(--gs-ila-primary); }
-.shell[data-template="ila"] .tab.active::after {
-  background: var(--gs-ila-primary);
+.shell[data-template="template2"] .tab.active { color: var(--gs-t2-primary); }
+.shell[data-template="template2"] .tab.active::after {
+  background: var(--gs-t2-primary);
   height: 3px;
   border-radius: 3px 3px 0 0;
 }
 
 /* ─── Body / messages ─── */
-.shell[data-template="ila"] .body { background: var(--gs-ila-bg); }
-.shell[data-template="ila"] .messages { gap: 8px; padding: 16px; }
+.shell[data-template="template2"] .body { background: var(--gs-t2-bg); }
+.shell[data-template="template2"] .messages { gap: 8px; padding: 16px; }
 
-.shell[data-template="ila"] .msg {
+.shell[data-template="template2"] .msg {
   border-radius: 16px;
   padding: 10px 14px;
   font-size: 14px;
@@ -2220,80 +2220,80 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
   max-width: 78%;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
-.shell[data-template="ila"] .msg.operator {
-  background: var(--gs-ila-surface);
-  color: var(--gs-ila-text);
+.shell[data-template="template2"] .msg.operator {
+  background: var(--gs-t2-surface);
+  color: var(--gs-t2-text);
   border-bottom-left-radius: 6px;
 }
-.shell[data-template="ila"] .msg.visitor {
-  background: var(--gs-ila-primary);
+.shell[data-template="template2"] .msg.visitor {
+  background: var(--gs-t2-primary);
   color: #fff;
   border-bottom-right-radius: 6px;
   box-shadow: 0 2px 8px rgba(0, 102, 255, 0.22);
 }
 
 /* ─── Composer (pill input) ─── */
-.shell[data-template="ila"] .composer {
-  border-top: 1px solid var(--gs-ila-border);
+.shell[data-template="template2"] .composer {
+  border-top: 1px solid var(--gs-t2-border);
   padding: 12px 14px 14px;
-  background: var(--gs-ila-bg);
+  background: var(--gs-t2-bg);
 }
-.shell[data-template="ila"] .composer .input,
-.shell[data-template="ila"] .composer textarea,
-.shell[data-template="ila"] .composer input[type="text"] {
+.shell[data-template="template2"] .composer .input,
+.shell[data-template="template2"] .composer textarea,
+.shell[data-template="template2"] .composer input[type="text"] {
   border-radius: 14px;
-  background: var(--gs-ila-surface);
-  border: 1px solid var(--gs-ila-border);
+  background: var(--gs-t2-surface);
+  border: 1px solid var(--gs-t2-border);
   font-size: 14px;
   padding: 10px 14px;
   transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
 }
-.shell[data-template="ila"] .composer .input:focus-within,
-.shell[data-template="ila"] .composer textarea:focus,
-.shell[data-template="ila"] .composer input[type="text"]:focus {
+.shell[data-template="template2"] .composer .input:focus-within,
+.shell[data-template="template2"] .composer textarea:focus,
+.shell[data-template="template2"] .composer input[type="text"]:focus {
   background: #fff;
-  border-color: var(--gs-ila-primary);
+  border-color: var(--gs-t2-primary);
   box-shadow: 0 0 0 3px rgba(0, 102, 255, 0.14);
   outline: none;
 }
 
 /* Send button — primary blue circle */
-.shell[data-template="ila"] .composer button[type="submit"],
-.shell[data-template="ila"] .composer .send-btn,
-.shell[data-template="ila"] .send-btn {
-  background: var(--gs-ila-primary);
+.shell[data-template="template2"] .composer button[type="submit"],
+.shell[data-template="template2"] .composer .send-btn,
+.shell[data-template="template2"] .send-btn {
+  background: var(--gs-t2-primary);
   color: #fff;
   border-radius: 12px;
   transition: background 0.15s ease, transform 0.1s ease;
 }
-.shell[data-template="ila"] .composer button[type="submit"]:hover,
-.shell[data-template="ila"] .send-btn:hover {
-  background: var(--gs-ila-primary-hover);
+.shell[data-template="template2"] .composer button[type="submit"]:hover,
+.shell[data-template="template2"] .send-btn:hover {
+  background: var(--gs-t2-primary-hover);
 }
-.shell[data-template="ila"] .composer button[type="submit"]:active,
-.shell[data-template="ila"] .send-btn:active { transform: scale(0.96); }
+.shell[data-template="template2"] .composer button[type="submit"]:active,
+.shell[data-template="template2"] .send-btn:active { transform: scale(0.96); }
 
 /* ─── Prechat form ─── */
-.shell[data-template="ila"] .prechat-control input,
-.shell[data-template="ila"] .prechat-control textarea,
-.shell[data-template="ila"] .prechat-control select {
+.shell[data-template="template2"] .prechat-control input,
+.shell[data-template="template2"] .prechat-control textarea,
+.shell[data-template="template2"] .prechat-control select {
   border-radius: 12px;
-  border: 1px solid var(--gs-ila-border);
+  border: 1px solid var(--gs-t2-border);
   background: #fff;
   font-size: 14px;
   padding: 10px 12px;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
-.shell[data-template="ila"] .prechat-control input:focus,
-.shell[data-template="ila"] .prechat-control textarea:focus,
-.shell[data-template="ila"] .prechat-control select:focus {
-  border-color: var(--gs-ila-primary);
+.shell[data-template="template2"] .prechat-control input:focus,
+.shell[data-template="template2"] .prechat-control textarea:focus,
+.shell[data-template="template2"] .prechat-control select:focus {
+  border-color: var(--gs-t2-primary);
   box-shadow: 0 0 0 3px rgba(0, 102, 255, 0.14);
   outline: none;
 }
-.shell[data-template="ila"] .prechat button[type="submit"],
-.shell[data-template="ila"] .prechat .submit-btn {
-  background: var(--gs-ila-primary);
+.shell[data-template="template2"] .prechat button[type="submit"],
+.shell[data-template="template2"] .prechat .submit-btn {
+  background: var(--gs-t2-primary);
   color: #fff;
   border-radius: 12px;
   font-weight: 500;
@@ -2301,57 +2301,57 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
   font-size: 14px;
   transition: background 0.15s ease;
 }
-.shell[data-template="ila"] .prechat button[type="submit"]:hover,
-.shell[data-template="ila"] .prechat .submit-btn:hover {
-  background: var(--gs-ila-primary-hover);
+.shell[data-template="template2"] .prechat button[type="submit"]:hover,
+.shell[data-template="template2"] .prechat .submit-btn:hover {
+  background: var(--gs-t2-primary-hover);
 }
 
 /* ─── KB search ─── */
-.shell[data-template="ila"] .kb-search {
+.shell[data-template="template2"] .kb-search {
   border-radius: 12px;
-  background: var(--gs-ila-surface);
-  border: 1px solid var(--gs-ila-border);
+  background: var(--gs-t2-surface);
+  border: 1px solid var(--gs-t2-border);
   padding: 10px 14px;
   font-size: 14px;
 }
-.shell[data-template="ila"] .kb-search:focus,
-.shell[data-template="ila"] .kb-search:focus-within {
+.shell[data-template="template2"] .kb-search:focus,
+.shell[data-template="template2"] .kb-search:focus-within {
   background: #fff;
-  border-color: var(--gs-ila-primary);
+  border-color: var(--gs-t2-primary);
   box-shadow: 0 0 0 3px rgba(0, 102, 255, 0.14);
   outline: none;
 }
 
 /* ─── AI badge ─── */
-.shell[data-template="ila"] .msg-ai-badge {
-  background: var(--gs-ila-primary-soft);
-  color: var(--gs-ila-primary);
+.shell[data-template="template2"] .msg-ai-badge {
+  background: var(--gs-t2-primary-soft);
+  color: var(--gs-t2-primary);
   border-radius: 6px;
   font-weight: 700;
 }
 
 /* ─── Presence ─── */
-.shell[data-template="ila"] .presence-dot {
-  box-shadow: 0 0 0 2px var(--gs-ila-primary);
+.shell[data-template="template2"] .presence-dot {
+  box-shadow: 0 0 0 2px var(--gs-t2-primary);
 }
 
 /* ─── Connection banner ─── */
-.shell[data-template="ila"] .connection-banner {
+.shell[data-template="template2"] .connection-banner {
   border-radius: 0 0 12px 12px;
   font-weight: 500;
 }
 
 /* ─── Launcher (the floating button) ─── */
-.shell[data-template="ila"] .launcher,
-.shell[data-template="ila"] .gs-launcher {
-  background: var(--gs-ila-primary);
+.shell[data-template="template2"] .launcher,
+.shell[data-template="template2"] .gs-launcher {
+  background: var(--gs-t2-primary);
   box-shadow:
     0 12px 28px -8px rgba(0, 102, 255, 0.45),
     0 4px 10px -2px rgba(0, 0, 0, 0.12);
   transition: transform 0.18s cubic-bezier(0.22, 1.2, 0.36, 1), box-shadow 0.18s ease;
 }
-.shell[data-template="ila"] .launcher:hover,
-.shell[data-template="ila"] .gs-launcher:hover {
+.shell[data-template="template2"] .launcher:hover,
+.shell[data-template="template2"] .gs-launcher:hover {
   transform: translateY(-2px) scale(1.04);
   box-shadow:
     0 18px 36px -10px rgba(0, 102, 255, 0.55),
@@ -2359,12 +2359,12 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 }
 
 /* ─── Scrollbar ─── */
-.shell[data-template="ila"] .body::-webkit-scrollbar { width: 6px; }
-.shell[data-template="ila"] .body::-webkit-scrollbar-thumb {
+.shell[data-template="template2"] .body::-webkit-scrollbar { width: 6px; }
+.shell[data-template="template2"] .body::-webkit-scrollbar-thumb {
   background: rgba(15, 23, 42, 0.14);
   border-radius: 6px;
 }
 
 /* ─── RTL polish (Persian default for ila) ─── */
-.shell[data-template="ila"][dir="rtl"] .msg.operator { border-bottom-left-radius: 16px; border-bottom-right-radius: 6px; }
-.shell[data-template="ila"][dir="rtl"] .msg.visitor  { border-bottom-right-radius: 16px; border-bottom-left-radius: 6px; }
+.shell[data-template="template2"][dir="rtl"] .msg.operator { border-bottom-left-radius: 16px; border-bottom-right-radius: 6px; }
+.shell[data-template="template2"][dir="rtl"] .msg.visitor  { border-bottom-right-radius: 16px; border-bottom-left-radius: 6px; }

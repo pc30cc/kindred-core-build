@@ -1,14 +1,15 @@
 # Enforcement Coverage Audit
 
-_Last updated: Plan Limits Backfill phase — plan-data alignment complete; see §7 + §8._
-
 This audit classifies every plan-relevant backend route surface and records
 exactly which middleware (`requireFeature`, `requireModule`, `requireChannel`,
 `requireAICredits`, `requireLimit`) is — or is intentionally not — applied.
 
-It is deliberately conservative. Phase 1 added gating only where the policy
-was unambiguous and the risk of blocking legitimate traffic was near-zero.
+It is deliberately conservative. Gating is added only where policy is
+unambiguous and the risk of blocking legitimate traffic is near-zero.
 Everything else is recorded as "ambiguous — deferred" and stays untouched.
+Per-limit truth (`max_conversations`, `max_visitors`, `storage_gb`,
+`ai_credits_per_month`, `ai_kb_jobs_per_month`) lives in the per-limit
+policy docs linked from §6.
 
 ## Legend
 

@@ -462,6 +462,26 @@ function WorkspaceConsole({ capabilities }: { capabilities: CapabilityDefinition
   const [workspaceId, setWorkspaceId] = useState<string>('');
   const { data, loading, error, reload } = useWorkspaceEffectiveEntitlements(workspaceId || null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [moduleOvIds, setModuleOvIds] = useState<Record<string, string>>({});
+  const [channelOvIds, setChannelOvIds] = useState<Record<string, string>>({});
+
+  // Load override IDs (needed for DELETE) whenever workspace or effective data changes.
+  useEffect(() => {
+    let cancelled = false;
+    if (!workspaceId) {
+      setModuleOvIds({});
+      setChannelOvIds({});
+      return;
+    }
+    fetchWorkspaceOverrides(workspaceId)
+      .then((res) => {
+        if (cancelled) return;
+        setModuleOvIds(Object.fromEntries((res.modules || []).map((o) => [o.module_key!, o.id])));
+        setChannelOvIds(Object.fromEntries((res.channels || []).map((o) => [o.channel_key!, o.id])));
+      })
+      .catch(() => { /* non-fatal — clear UI just won't appear */ });
+    return () => { cancelled = true; };
+  }, [workspaceId, data]);
 
   const moduleCaps = capabilities.filter((c) => c.type === 'module');
   const channelCaps = capabilities.filter((c) => c.type === 'channel');
@@ -481,6 +501,27 @@ function WorkspaceConsole({ capabilities }: { capabilities: CapabilityDefinition
       reload();
     } catch (e: any) {
       toast.error(e?.message || 'Override failed');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function clearOverride(kind: 'module' | 'channel', key: string) {
+    if (!workspaceId) return;
+    const id = kind === 'module' ? moduleOvIds[key] : channelOvIds[key];
+    if (!id) {
+      toast.error('Override id not found — please reload');
+      return;
+    }
+    if (!window.confirm(`Remove this ${kind} override? The workspace will inherit from the plan / registry default.`)) return;
+    setBusy(`clear:${kind}:${key}`);
+    try {
+      if (kind === 'module') await deleteWorkspaceModuleOverride(id);
+      else await deleteWorkspaceChannelOverride(id);
+      toast.success(`${kind} override removed — inheriting from plan`);
+      reload();
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to clear override');
     } finally {
       setBusy(null);
     }
@@ -506,26 +547,49 @@ function WorkspaceConsole({ capabilities }: { capabilities: CapabilityDefinition
           const eff = bucket?.[cap.key];
           const value = !!eff?.value;
           const canOverride = kind && cap.workspaceOverridable;
+          const isOverride = eff?.source === 'override';
+          const rowCls = isOverride
+            ? 'border-amber-500/30 bg-amber-500/5'
+            : 'border-transparent bg-muted/30 hover:border-border';
           return (
-            <div key={cap.key} className="flex items-center justify-between gap-2 px-3 py-2 rounded-md bg-muted/30 border border-transparent hover:border-border">
+            <div key={cap.key} className={`flex items-center justify-between gap-2 px-3 py-2 rounded-md border ${rowCls}`}>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
                   {value ? <CheckCircle2 className="w-3.5 h-3.5 text-primary" /> : <XCircle className="w-3.5 h-3.5 text-muted-foreground opacity-50" />}
                   <span className="text-sm">{cap.label}</span>
                   <Badge variant="outline" className="text-[9px] font-mono">{cap.key}</Badge>
                   {eff && sourceBadge(eff.source)}
+                  {isOverride && (
+                    <span className="text-[10px] text-amber-600">override active — {value ? 'forced on' : 'forced off'}</span>
+                  )}
                   {!cap.workspaceOverridable && <Badge variant="secondary" className="text-[9px]">locked</Badge>}
                 </div>
                 {eff?.note && <p className="text-[10px] text-muted-foreground mt-0.5">Note: {eff.note}</p>}
               </div>
               {canOverride && (
-                <Button
-                  size="sm" variant="outline" className="text-[11px] h-7"
-                  disabled={busy === `${kind}:${cap.key}`}
-                  onClick={() => toggleOverride(kind!, cap.key, value)}
-                >
-                  {busy === `${kind}:${cap.key}` ? <Loader2 className="w-3 h-3 animate-spin" /> : (value ? 'Force off' : 'Force on')}
-                </Button>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <Button
+                    size="sm" variant="outline" className="text-[11px] h-7"
+                    disabled={busy === `${kind}:${cap.key}`}
+                    onClick={() => toggleOverride(kind!, cap.key, value)}
+                    title={value ? 'Force this capability off for this workspace' : 'Force this capability on for this workspace'}
+                  >
+                    {busy === `${kind}:${cap.key}` ? <Loader2 className="w-3 h-3 animate-spin" /> : (value ? 'Force off' : 'Force on')}
+                  </Button>
+                  {isOverride && (kind === 'module' ? moduleOvIds[cap.key] : channelOvIds[cap.key]) && (
+                    <Button
+                      size="sm" variant="ghost"
+                      className="text-[11px] h-7 text-amber-600 hover:text-amber-700 hover:bg-amber-500/10"
+                      disabled={busy === `clear:${kind}:${cap.key}`}
+                      onClick={() => clearOverride(kind!, cap.key)}
+                      title="Remove override — workspace will inherit from plan / registry default"
+                    >
+                      {busy === `clear:${kind}:${cap.key}`
+                        ? <Loader2 className="w-3 h-3 animate-spin" />
+                        : (<><RotateCcw className="w-3 h-3 mr-1" /> Clear</>)}
+                    </Button>
+                  )}
+                </div>
               )}
             </div>
           );

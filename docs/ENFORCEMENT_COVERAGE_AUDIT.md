@@ -265,6 +265,81 @@ No other limit keys touched in this phase. `storage_gb`,
 `ai_credits_per_month`, and any storage/upload work remain deferred
 per §7.
 
+## 12. Phase 8 — `max_visitors` widget rollout pass (NO ROLLOUT)
+
+Outcome: **rollout still deferred.** No `requireLimit('max_visitors',
+…)` was attached. The counter foundation from §11 is correct and
+remains the single producer; the blocker this phase exposed is a
+gate-granularity mismatch at the existing visitor-creation routes.
+
+### Branch-level audit
+
+| Branch | First-session-this-month? | `workspace_id` at gate time? | Traffic | Classification |
+|---|---|---|---|---|
+| `POST /api/visitors/track` — insert branch (`visitors.ts` ~L144) | **No.** Fires whenever no session exists in the last **30 minutes**, including same-month revisits. | Yes (body) | Public/widget | **STILL AMBIGUOUS** — gating here would deny same-month revisits when the cap is reached. The trigger correctly does NOT count those, so the gate would over-deny relative to locked semantics. |
+| `POST /api/visitors/track` — update branch (~L134) | No (revisit) | Yes | Public/widget | **UPDATE/REVISIT ONLY — DO NOT GATE.** |
+| `POST /api/widget/message` — visitor-session insert sub-branch (`widget.ts` ~L1522) | **No.** Same 30-minute-window logic as `/track`. Already gated for `max_conversations`. | Yes | Public/widget | **STILL AMBIGUOUS** — same over-deny risk; do not stack a misaligned `max_visitors` gate on top of the `max_conversations` gate. |
+| `POST /api/widget/message` — reply branch | No | n/a | Public/widget | **DO NOT GATE.** |
+| `POST /api/widget/identify` (`widgetIdentity.ts`) | Does not insert `visitor_sessions` rows itself; only resolves cookie identity and reads sessions. | Yes | Public/widget | **NOT A VISITOR-CREATION ROUTE.** |
+| `POST /api/visitors/page-view`, `/heartbeat`, `/disconnect` | No | — | Public/widget | **DO NOT GATE** (page views/heartbeats/disconnects must never consume `max_visitors`). |
+| `POST /api/conversations/start-from-visitor` | No (operates on existing visitor) | Yes | Operator | **DO NOT GATE** for `max_visitors`. |
+| `callWidget.ts` ensure-session insert (~L212), `widgetCallInvitations.ts`, `calls.ts` | No (mirror of the same 30-min reconnect pattern) | Yes | Public/widget | **STILL AMBIGUOUS** — same granularity mismatch. |
+
+No branch in the codebase today represents "first
+`visitor_sessions` row for `(workspace_id, visitor_id)` this UTC
+month". Every existing creation site uses a 30-minute staleness
+window, which is strictly narrower than the locked monthly
+semantics. `requireLimit('max_visitors', …)` reads the counter but
+does not know whether the current request is a true new visitor or
+an in-month revisit, so attaching it at any of these branches would
+contradict the locked rule "subsequent `visitor_sessions` rows for
+the same pair in the same month do NOT count".
+
+### Exact reason rollout stayed deferred
+
+Gate granularity ≠ counter granularity. The counter is per-UTC-month
+distinct; the candidate route branches are per-30-minutes distinct.
+A correct gate therefore needs a **route-local membership pre-check**
+("does any `visitor_sessions` row exist for `(workspace_id,
+visitor_id)` in the current UTC month?") to decide whether the
+request is a true new visitor before invoking
+`requireLimit('max_visitors', usageFnForLimit('max_visitors'))`.
+That pre-check is intentionally out of scope for this phase because
+(a) the brief forbids ad-hoc counting/decision logic in routes
+without an explicit policy decision, and (b) its placement and
+failure mode (silent allow vs. 403) is the open cap-reached UX
+question still tracked in `VISITOR_LIMIT_POLICY.md` §3.
+
+### Cap-reached behavior chosen (for the next phase, not this one)
+
+Recommended and recorded — not yet enforced:
+
+- Deny **only** the true new-visitor branch with the standard
+  `requireLimit` 403 response shape.
+- Allow revisits, updates, page views, heartbeats, disconnects, and
+  message replies to continue unchanged regardless of cap state.
+- No new widget UX surface; the widget's existing `requireLimit`
+  error path (already used for `max_conversations`) is reused.
+- Route-local `!auth.isAdmin` bypass mirroring AI KB jobs and
+  `max_conversations` precedent. No global admin short-circuit added
+  to `requireLimit`.
+
+### Routes/branches gated in this phase
+
+None. No `server/` code changed.
+
+### Producer/resolver invariants preserved
+
+- `trg_visitor_sessions_count_visitor` remains the **sole writer**
+  of `workspace_usage_counters.visitors_count`.
+- `resolveMaxVisitors` / `usageFnForLimit('max_visitors')` unchanged.
+- No second counter path, no server-side increment, no schema or
+  middleware contract changes.
+
+No other limit keys touched in this phase. `storage_gb`,
+`ai_credits_per_month`, and storage/upload work remain deferred
+per §7.
+
 ## 11. Phase 7 — Canonical visitor counter producer + semantics lock
 
 Outcome: **counter foundation in place; rollout still deferred to a

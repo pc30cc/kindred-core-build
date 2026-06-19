@@ -1,7 +1,8 @@
 # Visitor Limit Policy & Rollout Readiness
 
 Status: **Counter foundation in place (Phase 7). Rollout still
-deferred — one tiny follow-up phase remaining to attach the gate.**
+deferred after Phase 8 audit — gate granularity does not yet match
+counter granularity at any existing creation route.**
 Scope: `max_visitors` numeric limit only. No storage/upload, no
 conversation rollout, no schema/route renames.
 
@@ -52,7 +53,8 @@ attached (cf. the same questions resolved for `max_conversations` in
 ## 4. Route truth audit
 
 Classification of every route that could plausibly consume
-`max_visitors`. **No route is `SAFE TO GATE NOW`.**
+`max_visitors`. **No route is `SAFE TO GATE NOW`** — re-confirmed in
+Phase 8 against the locked monthly counter.
 
 | Route | Branch | Creates / counts a visitor? | Workspace_id at MW time? | Classification |
 |---|---|---|---|---|
@@ -66,8 +68,41 @@ Classification of every route that could plausibly consume
 | `POST /api/conversations/start-from-visitor` | reuses existing visitor | No | Yes | **DO NOT GATE** for `max_visitors` — already gated for `max_conversations`. |
 | `widget*Attachments`, `widgetCallbacks`, `widgetCallInvitations`, `widgetDepartments` | various | No | — | **NOT A VISITOR-CREATION ROUTE**. |
 
-Outcome: every candidate is blocked by §1 (no counter writer) and §2
-(undefined semantics). None can be safely gated.
+Outcome (post-Phase 7+8): §1 and §2 are resolved, but every existing
+creation branch (`/api/visitors/track` insert, `/api/widget/message`
+visitor-session insert, `callWidget.ts` ensure-session insert) keys
+off a **30-minute staleness window**, while the counter and locked
+semantics key off a **UTC calendar month**. Attaching the gate at a
+30-minute branch would deny same-month revisits when the cap is
+reached — which the trigger correctly does NOT count — and so
+contradicts the locked rule. None can be safely gated yet.
+
+## 4a. Phase 8 audit — exact blocker
+
+Gate granularity ≠ counter granularity. To gate correctly, the
+chosen branch must run `requireLimit('max_visitors',
+usageFnForLimit('max_visitors'))` **only** when the request would
+actually create the first `visitor_sessions` row for
+`(workspace_id, visitor_id)` this UTC month.
+
+Resolution path for the next phase (not implemented here):
+
+1. Pick a single creation site (preferred: `POST /api/visitors/track`
+   insert sub-branch). Do not touch the others.
+2. Add a **route-local membership pre-check**: "is there any
+   `visitor_sessions` row for `(workspace_id, visitor_id)` with
+   `created_at >= date_trunc('month', now() AT TIME ZONE 'UTC')`?"
+   This mirrors the predicate the trigger already uses; it is a
+   membership read, not a second counter.
+3. If the pre-check says "in-month revisit" → skip the gate, proceed.
+4. If the pre-check says "new this month" → invoke
+   `requireLimit('max_visitors', usageFnForLimit('max_visitors'))`
+   before the insert.
+5. Keep route-local `!auth.isAdmin` bypass; no global short-circuit
+   in `requireLimit`.
+
+The trigger remains the **only** writer of `visitors_count`. The
+pre-check reads `visitor_sessions` only and never writes counters.
 
 ## 5. What must be true before rollout
 
@@ -81,15 +116,19 @@ Status of the unblock checklist after Phase 7:
    reads `workspace_usage_counters.visitors_count` for the current
    UTC `YYYY-MM` period; the producer writes that exact column for
    that exact period.
-4. **Open** — decide cap-reached widget UX (recommend: deny only
-   the *new-visitor* branch, never revisits/page-views/replies).
-5. **Open** — attach `requireLimit('max_visitors',
-   usageFnForLimit('max_visitors'))` on exactly that new-visitor
-   branch, with route-local `!auth.isAdmin` bypass, matching the
-   AI KB jobs and `max_conversations` precedent. No global admin
-   short-circuit in `requireLimit`.
+4. **Decided (recommended, not yet enforced)** — cap-reached UX:
+   deny only the true new-visitor branch with the standard
+   `requireLimit` 403; revisits, updates, page views, heartbeats,
+   disconnects, and replies continue unchanged.
+5. **Open** — add the route-local in-month membership pre-check at
+   one creation site (preferred: `POST /api/visitors/track` insert
+   sub-branch) and attach `requireLimit('max_visitors',
+   usageFnForLimit('max_visitors'))` only on the true-new-visitor
+   path of that pre-check, with route-local `!auth.isAdmin` bypass.
+   No global admin short-circuit in `requireLimit`. No second
+   counter writer.
 
-Items 4–5 are the entire remaining scope for the next phase.
+Item 5 is the entire remaining scope for the next phase.
 
 ## 6. Out of scope for this phase
 

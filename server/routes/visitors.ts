@@ -9,6 +9,7 @@ import { publishVisitorEvent } from '../services/realtime/publish.js';
 import { getClientIp, hashIp } from '../utils/clientIp.js';
 import { resolveVisitorGeo, getActiveGeoProvider } from '../services/geo/index.js';
 import { enrichVisitorSessionGeo } from '../services/geo/index.js';
+import { enforceMaxVisitorsLimitIfNewThisMonth } from '../services/billing/visitorLimit.js';
 
 export const visitorRouter = Router();
 
@@ -142,7 +143,25 @@ visitorRouter.post('/track', async (req: Request, res: Response) => {
         .eq('id', existing.id);
       sessionId = existing.id;
     } else {
-      // Create new session
+      // Create new session.
+      //
+      // Phase 9 — `max_visitors` rollout: this is the only branch in
+      // this route that can produce a true new-this-month visitor.
+      // The helper checks whether `(workspace_id, visitor_id)` already
+      // has any `visitor_sessions` row in the current UTC month; if
+      // so, this is a same-month reconnect (30+ minutes since last
+      // seen) and the cap is intentionally NOT consumed. Otherwise
+      // the shared `requireLimit('max_visitors',
+      // usageFnForLimit('max_visitors'))` middleware decides.
+      // Reconnect/revisit/update/page-view branches stay ungated.
+      const ok = await enforceMaxVisitorsLimitIfNewThisMonth(
+        req,
+        res,
+        supabase,
+        data.workspace_id,
+        data.visitor_id,
+      );
+      if (!ok) return;
       const { data: newSession, error } = await supabase
         .from('visitor_sessions')
         .insert({

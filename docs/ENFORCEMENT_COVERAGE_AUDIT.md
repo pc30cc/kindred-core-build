@@ -340,6 +340,88 @@ No other limit keys touched in this phase. `storage_gb`,
 `ai_credits_per_month`, and storage/upload work remain deferred
 per §7.
 
+## 13. Phase 9 — `max_visitors` minimal rollout (TRUE-NEW BRANCH ONLY)
+
+Outcome: **`max_visitors` is now gated on exactly one branch — the
+true-new-this-month `visitor_sessions` insert in
+`POST /api/visitors/track`.** Reconnects, revisits, updates,
+page views, heartbeats, disconnects, and replies remain ungated.
+The DB trigger `trg_visitor_sessions_count_visitor` remains the
+single writer of `workspace_usage_counters.visitors_count`.
+
+### Chosen rollout site
+
+`POST /api/visitors/track` → `else { /* Create new session */ }`
+sub-branch in `server/routes/visitors.ts`. This is the canonical
+public visitor-tracking ingestion endpoint and the only branch on
+that route that can produce a `visitor_sessions` row for a
+previously-unseen 30-minute window. Other creation paths
+(`widget.ts` visitor-session insert, `callWidget.ts` ensure-session
+insert, `widgetCallInvitations.ts`) share the same 30-min
+granularity and were intentionally **not** gated in this phase to
+keep the rollout to a single product surface.
+
+### True-new-vs-reconnect discriminator
+
+New helper `server/services/billing/visitorLimit.ts` →
+`enforceMaxVisitorsLimitIfNewThisMonth(req, res, supabase,
+workspaceId, visitorId)`:
+
+1. Reads `visitor_sessions` for any row matching
+   `(workspace_id, visitor_id)` with `created_at >= start of current
+   UTC month`. The predicate matches the one used by
+   `tg_visitor_sessions_count_visitor()`, so gate decisions and
+   counter increments cannot disagree.
+2. If a row exists → in-month reconnect/revisit, helper returns
+   `true`, `requireLimit` is **not** invoked, the cap is **not**
+   consumed, and the route proceeds to insert. The trigger then
+   runs its own predicate and correctly leaves `visitors_count`
+   unchanged.
+3. If no row exists → true-new-this-month visitor. The helper
+   invokes `requireLimit('max_visitors',
+   usageFnForLimit('max_visitors'))` inline (same inline pattern as
+   `enforceMaxConversationsLimit`). Cap-reached → standard 403,
+   route aborts before insert.
+4. On read error → fail **open** (treat as reconnect) so transient
+   DB hiccups never block legitimate traffic; the trigger remains
+   source of truth and self-corrects on the next true-new visitor.
+
+The discriminator only **reads** `visitor_sessions`. It never
+increments a counter, never writes a session row, and never invokes
+ad-hoc counting math.
+
+### Routes/branches gated in this phase
+
+- `POST /api/visitors/track` true-new-session insert sub-branch
+  only.
+
+### Branches that stay ungated (re-confirmed)
+
+- `POST /api/visitors/track` update branch (30-min session reuse).
+- `POST /api/visitors/heartbeat`, `/page-view`, `/disconnect`.
+- `POST /api/widget/identify`.
+- `POST /api/widget/message` reply branch and its visitor-session
+  insert sub-branch (already gated for `max_conversations`).
+- `callWidget.ts` ensure-session insert,
+  `widgetCallInvitations.ts`, `calls.ts`.
+- All operator-side reads.
+
+### Producer / resolver invariants preserved
+
+- `trg_visitor_sessions_count_visitor` is still the **only** writer
+  of `workspace_usage_counters.visitors_count`. No second producer
+  introduced.
+- `resolveMaxVisitors` / `usageFnForLimit('max_visitors')` unchanged.
+- No schema, route, env-var, key, or middleware-contract renames.
+- Cap-reached response uses the existing `requireLimit` 403 shape;
+  no new widget UX surface.
+- Bypass: none added — the route is public/widget traffic, so the
+  `!auth.isAdmin` operator-bypass used elsewhere does not apply,
+  and no global admin short-circuit was added to `requireLimit`.
+
+No other limit keys touched. `storage_gb`, `ai_credits_per_month`,
+and storage/upload work remain deferred per §7.
+
 ## 11. Phase 7 — Canonical visitor counter producer + semantics lock
 
 Outcome: **counter foundation in place; rollout still deferred to a

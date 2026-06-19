@@ -1,6 +1,6 @@
 # Enforcement Coverage Audit
 
-_Last updated: Phase 2 enforcement pass (no new route gates — see §7)._
+_Last updated: Plan Limits Backfill phase — plan-data alignment complete; see §7 + §8._
 
 This audit classifies every plan-relevant backend route surface and records
 exactly which middleware (`requireFeature`, `requireModule`, `requireChannel`,
@@ -136,3 +136,29 @@ with the registry:
 
 The shared usage foundation (`usageResolvers.ts`) is ready and waiting;
 the gap is on the plan-data and middleware-policy side.
+
+## 8. Plan Limits Backfill phase (resolved §7 plan-data blocker)
+
+The plan-data half of §7 is now resolved. See `docs/PLAN_LIMIT_ALIGNMENT.md`
+for the full record.
+
+- `billing_plans.limits` now contains `max_conversations`, `max_visitors`,
+  `storage_gb`, `ai_credits_per_month`, and `ai_kb_jobs_per_month` on every
+  active plan (`free`, `pro`, `enterprise`). Values were derived from each
+  plan's pre-existing legacy keys to preserve product semantics; `-1`
+  marks unlimited.
+- `POST /api/plans/admin` now runs `normalizePlanLimitsForCreate(...)` so
+  newly-created plans cannot reintroduce the gap. `PUT` is intentionally
+  left untouched (admin intent stays explicit).
+- `GET /api/plans/admin/diagnostics` now reports
+  `usageBackedLimitKeys` and `usageBackedKeysMissingByPlan` so drift is
+  observable going forward.
+
+The middleware-policy half of §7 — admin-bypass on `requireLimit` — has
+a documented recommendation in `PLAN_LIMIT_ALIGNMENT.md`:
+**keep admin-bypass route-specific; do not add a generic short-circuit
+to the middleware.** The recipe for migrating `POST /api/ai-kb/jobs` to
+middleware (with explicit bypass) is recorded there.
+
+Phase 3 (selective `requireLimit` rollout) is now unblocked at the
+data layer. It is still NOT executed in this phase.

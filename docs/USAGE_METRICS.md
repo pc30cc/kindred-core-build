@@ -86,9 +86,13 @@ silently let traffic through.
 _As of Phase 2: none._ The resolver is wired up and unit-correct, but
 no route attaches `requireLimit(key, usageFnForLimit(key))` yet.
 
-The gating gap is **not** in this module — see
-`docs/ENFORCEMENT_COVERAGE_AUDIT.md` §7 for the concrete blockers
-(plan-data backfill, admin-bypass policy on `requireLimit`).
+Plan-data alignment for the resolver-ready keys is now complete — see
+`docs/PLAN_LIMIT_ALIGNMENT.md`. Every active plan carries
+`max_conversations`, `max_visitors`, `storage_gb`, `ai_credits_per_month`,
+and `ai_kb_jobs_per_month` in `billing_plans.limits`, so
+`check_workspace_entitlement` no longer fail-closes for these keys.
+The remaining blocker before route gating is the admin-bypass policy
+decision (recorded in `PLAN_LIMIT_ALIGNMENT.md`).
 
 ## Adding a new resolver
 

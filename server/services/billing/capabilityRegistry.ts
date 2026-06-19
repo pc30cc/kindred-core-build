@@ -125,6 +125,47 @@ export function listCapabilities(filter?: { type?: CapabilityType; group?: strin
 }
 
 /**
+ * Subset of registry limit keys that have a working usage resolver in
+ * `server/services/billing/usageResolvers.ts`. Listed here (rather than
+ * imported) to avoid pulling backend-only resolver code into this module.
+ * Keep in sync with the `RESOLVERS` map there.
+ */
+export const USAGE_BACKED_LIMIT_KEYS: readonly string[] = [
+  'max_conversations',
+  'max_visitors',
+  'storage_gb',
+  'ai_kb_jobs_per_month',
+  'ai_credits_per_month',
+];
+
+/**
+ * Additive normalizer used when CREATING a new plan. Ensures resolver-ready
+ * limit keys are present so future `requireLimit(...)` enforcement does not
+ * fail-closed on the new plan.
+ *
+ * Rules:
+ *   - Never overwrites a value the caller supplied.
+ *   - Only fills missing keys with the registry `defaultValue`.
+ *   - Only touches keys in `USAGE_BACKED_LIMIT_KEYS`; legacy/unknown keys
+ *     are passed through untouched.
+ *
+ * Returns a new object — does not mutate the input.
+ */
+export function normalizePlanLimitsForCreate(
+  limits: Record<string, unknown> | null | undefined,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...(limits || {}) };
+  for (const key of USAGE_BACKED_LIMIT_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(out, key)) continue;
+    const def = BY_KEY.get(key);
+    if (def && typeof def.defaultValue === 'number') {
+      out[key] = def.defaultValue;
+    }
+  }
+  return out;
+}
+
+/**
  * Validate a plan payload's `entitlements` + `limits` against
  * the registry. Returns issues; never throws.
  *

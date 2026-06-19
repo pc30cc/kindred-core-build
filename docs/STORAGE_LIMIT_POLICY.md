@@ -154,3 +154,22 @@ only on the single safest operator-side route.
 - The resolver may not be widened to read alternative columns.
 - `requireLimit('storage_gb', usageFnForLimit('storage_gb'))` is the
   only gate; no ad-hoc storage math in route handlers.
+
+## Phase 13 — conversation-attachment rollout
+
+- Gated route: `POST /api/conversation-attachments/:id/upload`.
+- Reuses the exact narrow pattern from Phase 12 (inline `requireLimit`
+  invocation, no route-local storage math). Gate runs after operator
+  auth, attachment-row ownership checks, and the declared-size guard,
+  immediately before `uploadFile()`.
+- On a 403 from the gate, the reserved `conversation_attachments` row
+  is flipped to `status = 'failed'` so it does not strand in
+  `'uploading'`. No counter side-effects (the producer only fires on
+  successful `storage_usage_logs` rows, which are not written when the
+  upload is blocked).
+- Forward-correct policy from Phase 12 is unchanged. No backfill, no
+  second producer, no schema/route/env rename.
+- Widget/public attachment uploads (`server/routes/widgetAttachments.ts`)
+  remain **explicitly deferred**. They require visitor-facing UX for a
+  403 (clear error surface, retry/disable behavior) before gating; that
+  is a later, UX-aware phase.

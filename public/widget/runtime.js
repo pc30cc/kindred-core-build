@@ -2842,7 +2842,7 @@
           if (isLastInStreak) {
             if (m.senderAvatar) {
               avatarHtml = '<span class="msg-avatar has-img">' +
-                '<img src="' + Util.escapeHtml(m.senderAvatar) + '" alt="' + Util.escapeHtml(m.senderName || 'Operator') + '" loading="lazy" decoding="async" />' +
+                '<img src="' + Util.escapeHtml(m.senderAvatar) + '" alt="' + Util.escapeHtml(m.senderName || t('operator')) + '" loading="lazy" decoding="async" />' +
               '</span>';
             } else {
               var initial = ((m.senderName || ctx.config.brandName || 'S').trim().charAt(0) || 'S').toUpperCase();
@@ -5433,7 +5433,7 @@
         if (caps.audio) capHtml += '<span class="dept-option__cap" title="Voice" aria-label="Voice">' + __DEPT_ICONS.audio + '</span>';
         if (caps.video) capHtml += '<span class="dept-option__cap" title="Video" aria-label="Video">' + __DEPT_ICONS.video + '</span>';
         html += '<button type="button" class="dept-option" data-dept-id="' + Util.escapeHtml(d.id) + '">' +
-          '<span class="dept-option__name">' + Util.escapeHtml(d.name || 'Team') + '</span>' +
+          '<span class="dept-option__name">' + Util.escapeHtml(d.name || t('team')) + '</span>' +
           '<span class="dept-option__caps" aria-hidden="true">' + capHtml + '</span>' +
         '</button>';
       }

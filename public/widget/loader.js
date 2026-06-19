@@ -295,6 +295,7 @@
       if (config.templateSlug) {
         launcherEl.setAttribute("data-template", config.templateSlug);
         if (shellEl) shellEl.setAttribute("data-template", config.templateSlug);
+        if (shellDiv) shellDiv.setAttribute("data-template", config.templateSlug);
       }
     }
   }

@@ -1,6 +1,11 @@
 # Storage Limit Policy (`storage_gb`)
 
-_Status: **DEFERRED — counter producer missing.** No route gating in this phase._
+_Status: **counter producer installed.** Rollout (attaching `requireLimit`)
+remains a separate follow-up phase. No route gating in this phase._
+
+See `docs/STORAGE_COUNTER_ARCHITECTURE.md` for the canonical producer
+design, double-counting safeguards, and the explicit decision to skip
+historical backfill.
 
 ## Locked semantics
 
@@ -40,26 +45,19 @@ Does **not** count:
 
 ## Counter producer status — **the blocker**
 
-`workspace_usage_counters.storage_bytes` has **no producer today.** The
-column defaults to `0` and is never written.
+`workspace_usage_counters.storage_bytes` now has exactly one canonical
+writer: the trigger `trg_storage_usage_logs_apply` on
+`storage_usage_logs`, defined in the migration that accompanies this
+phase. It increments on successful uploads with a non-null `file_size`,
+decrements on successful deletes (clamped at zero), and carries the
+prior month's value forward across period rollover. `deleteFile()` was
+updated to resolve `file_size` from the most recent successful upload
+log for the same `(workspace_id, file_key)` so deletes decrement
+exactly. Backfill is intentionally skipped — see the architecture doc.
 
-Evidence:
-
-- The migration that created the column
-  (`supabase/migrations/20260415220905_*.sql`) declares
-  `storage_bytes bigint NOT NULL DEFAULT 0` and adds **no trigger**.
-- `server/services/storage/index.ts` writes `storage_usage_logs` rows
-  on upload/delete but never updates `workspace_usage_counters`.
-- No application-side increment of `storage_bytes` exists anywhere in
-  `server/`.
-- Resolver `resolveStorageGb` reads the counter directly:
-  `bytes / 1024^3` → for every workspace today this is **always 0**.
-
-Consequence: attaching `requireLimit('storage_gb', usageFnForLimit('storage_gb'))`
-to any upload route right now would be a **silent no-op** — the cap is
-structurally unreachable. Worse, the moment a producer is later added,
-gating would activate retroactively across every wired route at once,
-producing a hard breakage rather than a controllable rollout.
+Until `requireLimit` is wired to an actual upload route in a follow-up
+phase, no upload is yet gated. The counter is, however, now live and
+will populate from new traffic.
 
 ## Cap-reached product policy (locked, applies once producer ships)
 
@@ -77,27 +75,20 @@ producing a hard breakage rather than a controllable rollout.
 
 The next storage phase must, in this order:
 
-1. Add a canonical single-writer producer for `storage_bytes`. The
-   chosen approach is a Postgres trigger on `storage_usage_logs` that:
-   - On `INSERT` with `operation='upload'` AND `success=true`:
-     `storage_bytes += file_size`.
-   - On `INSERT` with `operation='delete'` AND `success=true`:
-     `storage_bytes -= file_size` (clamped to ≥ 0). Requires the delete
-     log row to record the freed `file_size`, which the current code
-     does **not** do — this must be fixed in the same migration.
-   - Period key is the cumulative bucket (e.g. `'all-time'`) so that
-     rollover does not zero the counter. Resolver must be aligned to
-     read the same period.
-2. Backfill `storage_bytes` from existing `storage_usage_logs` (sum of
-   successful uploads minus successful deletes) so the counter starts
-   accurate, not zero.
-3. Only then attach `requireLimit('storage_gb', usageFnForLimit('storage_gb'))`
+1. ✅ **Done in this phase.** Canonical single-writer producer
+   (`apply_storage_usage_log` trigger) installed; `deleteFile` updated
+   to record freed `file_size`. Period semantics aligned with the
+   resolver via current-month rows + carry-forward seeding.
+2. Backfill is intentionally **skipped** — historical delete rows
+   lack `file_size`, so any backfill would over-count. The counter is
+   forward-correct only.
+3. Attach `requireLimit('storage_gb', usageFnForLimit('storage_gb'))`
    to **`POST /api/storage/upload`** as the first rollout site
    (operator-authenticated, lowest-UX-risk).
 4. Conversation attachments next, in a separate phase.
 5. Widget attachments last, paired with widget-runtime UX for the 403.
 
-Until step 1 lands, no upload route should be gated.
+Until step 3 lands, no upload route is gated.
 
 ## Hard rules
 

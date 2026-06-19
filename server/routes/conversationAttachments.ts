@@ -225,10 +225,11 @@ conversationAttachmentsRouter.post('/:id/upload', async (req, res) => {
       return res.status(413).json({ error: 'Uploaded size exceeds declared size' });
     }
 
-    // ── storage_gb cap enforcement (Phase 13, conversation-attachment rollout) ──
-    // Reuses the same narrow pattern as POST /api/storage/upload. Forward-correct
-    // only; see docs/STORAGE_LIMIT_POLICY.md. No route-local storage math — the
-    // shared resolver reads the canonical workspace_usage_counters.storage_bytes.
+    // ── storage_gb cap enforcement ──
+    // Mirrors POST /api/storage/upload. Forward-correct only; see
+    // docs/STORAGE_LIMIT_POLICY.md. No route-local storage math — the shared
+    // resolver reads canonical workspace_usage_counters.storage_bytes. On a
+    // 403, flip the reserved row to 'failed' so it doesn't strand 'uploading'.
     const limitMw = requireLimit('storage_gb', usageFnForLimit('storage_gb'));
     let proceeded = false;
     await limitMw(req, res, () => { proceeded = true; });

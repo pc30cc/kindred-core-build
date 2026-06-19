@@ -16,6 +16,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from '@/i18n';
+import { useBrandingContext } from '@/features/branding/BrandingContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   fetchAccountMe,

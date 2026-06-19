@@ -2109,7 +2109,7 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 }
 
 /* ════════════════════════════════════════════════════════════════════
-   Template: "ila" — ila.chat-inspired premium skin
+   Template: "template2" — premium skin
    ────────────────────────────────────────────────────────────────────
    All rules are scoped under .shell[data-template="template2"] so they have
    ZERO impact on the default template. Visual goals:
@@ -2138,7 +2138,7 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
 .shell[data-template="template2"] *,
 .shell[data-template="template2"] *::before,
 .shell[data-template="template2"] *::after {
-  font-family: IRANYekanXILACHAT, -apple-system, BlinkMacSystemFont,
+  font-family: Vazirmatn, -apple-system, BlinkMacSystemFont,
     "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
@@ -2167,7 +2167,7 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
   padding: 18px 18px 22px;
 }
 .shell[data-template="template2"] .header::before {
-  content: none; /* drop the default texture so we get the flat ila look */
+  content: none; /* drop the default texture for a flat header */
 }
 .shell[data-template="template2"] .header-title {
   font-size: 18px;
@@ -2365,6 +2365,6 @@ button.kb-article:hover, a.kb-category:hover { background: #F9FAFB; border-color
   border-radius: 6px;
 }
 
-/* ─── RTL polish (Persian default for ila) ─── */
+/* ─── RTL polish (Persian default) ─── */
 .shell[data-template="template2"][dir="rtl"] .msg.operator { border-bottom-left-radius: 16px; border-bottom-right-radius: 6px; }
 .shell[data-template="template2"][dir="rtl"] .msg.visitor  { border-bottom-right-radius: 16px; border-bottom-left-radius: 6px; }

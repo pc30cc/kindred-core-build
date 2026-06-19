@@ -83,7 +83,7 @@ They should not be renamed without coordinated rollout.
 
 | String | Where | Status |
 |---|---|---|
-| `ila`, `IRANYekanXILACHAT`, `ILA Style`, `ila.chat` | (none in source) | Removed from active code. A single line in `supabase/migrations/<timestamp>_…sql` performs `DELETE … WHERE slug='ila'` for cleanup of legacy production rows; this is intentional and must remain. |
+| `ila`, `IRANYekanXILACHAT`, `ILA Style`, `ila.chat` | (no occurrences in active source) | Removed from active source (final occurrence — `IRANYekanXILACHAT` in `public/widget/runtime.css` font-family — was dropped in the recent safe pass). A single migration (`supabase/migrations/20260619064502_*.sql`) performs `DELETE FROM public.widget_templates WHERE slug = 'ila'` to clean up legacy production rows; this is intentional and must remain. |
 | `Kindred Core` | This file + README + DEPLOYMENT | Documentation-only canonical name. |
 
 ### 2.6 Additional brand-string findings (precise citations)

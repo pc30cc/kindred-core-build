@@ -403,6 +403,12 @@
               '<circle cx="21" cy="15" r="1.5" fill="#fff"/>' +
             '</svg>' +
             '<svg class="close-icon" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>';
+          // Inline launcher styling so the distinct skin appears immediately
+          // (before runtime.css lazy-loads on first click).
+          launcherEl.style.background = "linear-gradient(160deg,#0052ff 0%,#0066ff 50%,#2b86ff 100%)";
+          launcherEl.style.width = "60px";
+          launcherEl.style.height = "60px";
+          launcherEl.style.boxShadow = "0 14px 32px -6px rgba(0,82,255,.55),0 6px 14px -2px rgba(0,0,0,.16),inset 0 1px 0 rgba(255,255,255,.18)";
           scheduleWelcomeToast(config, posClass);
         }
       }

@@ -1,0 +1,102 @@
+/**
+ * Entitlements / capability registry — frontend client.
+ *
+ * Thin wrappers around the additive backend endpoints exposed by
+ * `server/routes/plans.ts`. The shapes here mirror the registry
+ * defined in `server/services/billing/capabilityRegistry.ts`.
+ *
+ * The backend remains the source of truth — these helpers exist
+ * so admin / app UI does not duplicate plan interpretation logic.
+ */
+
+import { API_BASE } from './api';
+
+export type CapabilityType = 'feature' | 'module' | 'channel' | 'limit';
+
+export interface CapabilityDefinition {
+  key: string;
+  type: CapabilityType;
+  label: string;
+  description?: string;
+  group: string;
+  defaultValue: boolean | number | null;
+  planConfigurable: boolean;
+  workspaceOverridable: boolean;
+  userVisible: boolean;
+  internalOnly?: boolean;
+  unit?: string;
+  sortOrder?: number;
+}
+
+export interface EffectiveState<T = boolean | number | null> {
+  value: T;
+  source: 'override' | 'plan' | 'default';
+  note?: string | null;
+  unit?: string;
+}
+
+export interface WorkspaceEffectiveEntitlements {
+  workspaceId: string;
+  plan: any;
+  subscription: any;
+  features: Record<string, EffectiveState<boolean>>;
+  modules: Record<string, EffectiveState<boolean>>;
+  channels: Record<string, EffectiveState<boolean>>;
+  limits: Record<string, EffectiveState<number | null>>;
+  usage: Record<string, any> | null;
+  raw: { entitlements: Record<string, unknown>; limits: Record<string, unknown> };
+}
+
+async function get<T>(path: string): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, { headers: { 'Content-Type': 'application/json' } });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(body.error || `Entitlements API error: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function fetchCapabilityCatalog(filter?: { type?: CapabilityType; group?: string }) {
+  const params = new URLSearchParams();
+  if (filter?.type) params.set('type', filter.type);
+  if (filter?.group) params.set('group', filter.group);
+  const qs = params.toString();
+  return get<{ capabilities: CapabilityDefinition[]; total: number }>(`/api/plans/capabilities${qs ? `?${qs}` : ''}`);
+}
+
+export async function fetchWorkspaceEffective(workspaceId: string) {
+  return get<WorkspaceEffectiveEntitlements>(`/api/plans/workspace/${workspaceId}/effective`);
+}
+
+export async function validatePlanPayload(payload: {
+  entitlements?: Record<string, unknown>;
+  limits?: Record<string, unknown>;
+}) {
+  const res = await fetch(`${API_BASE}/api/plans/admin/validate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`Validate failed: ${res.status}`);
+  return res.json() as Promise<{ valid: boolean; issues: Array<{ level: 'error' | 'warning'; key: string; message: string }> }>;
+}
+
+export async function fetchEntitlementDiagnostics() {
+  return get<{
+    registrySize: number;
+    plansChecked: number;
+    unknownKeysInDb: Array<{ planSlug: string; key: string; bucket: 'entitlements' | 'limits' }>;
+    registryKeysMissingEverywhere: string[];
+    invalidLimitValues: Array<{ planSlug: string; key: string; value: unknown }>;
+  }>(`/api/plans/admin/diagnostics`);
+}
+
+/** Group capabilities by `group` field, preserving sortOrder. */
+export function groupCapabilities(caps: CapabilityDefinition[]): Record<string, CapabilityDefinition[]> {
+  const out: Record<string, CapabilityDefinition[]> = {};
+  for (const c of caps) (out[c.group] ||= []).push(c);
+  for (const g of Object.keys(out)) {
+    out[g].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+  }
+  return out;
+}

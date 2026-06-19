@@ -12,6 +12,12 @@ import {
   checkModuleAccess,
   checkChannelAccess,
 } from '../middleware/featureGating.js';
+import {
+  CAPABILITY_REGISTRY,
+  listCapabilities,
+  validatePlanPayload,
+  diagnoseAgainstPlans,
+} from '../services/billing/capabilityRegistry.js';
 
 export const plansRouter = Router();
 
@@ -37,6 +43,21 @@ plansRouter.get('/', async (req, res) => {
   res.json({ plans: data || [] });
 });
 
+// ─────────────────────────────────────────────────────────────
+// CAPABILITY CATALOG (registry-driven)
+// Read-only. Safe to call from admin & app UI.
+// ─────────────────────────────────────────────────────────────
+plansRouter.get('/capabilities', (req, res) => {
+  const { type, group } = req.query as { type?: string; group?: string };
+  const filter: { type?: any; group?: string } = {};
+  if (type === 'feature' || type === 'module' || type === 'channel' || type === 'limit') filter.type = type;
+  if (typeof group === 'string' && group) filter.group = group;
+  res.json({
+    capabilities: listCapabilities(filter),
+    total: CAPABILITY_REGISTRY.length,
+  });
+});
+
 // GET /api/plans/check — check single entitlement
 plansRouter.get('/check', async (req, res) => {
   const { url, key } = getConfig(req);
@@ -46,6 +67,80 @@ plansRouter.get('/check', async (req, res) => {
   try {
     const result = await checkEntitlementFromDB(url, key, workspaceId, feature);
     res.json(result);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+// EFFECTIVE WORKSPACE ENTITLEMENTS (registry-aware aggregation)
+// Aggregates plan + overrides + usage into a single payload that
+// the app/admin UI can render without re-implementing the rules.
+// Backend stays the authority — this is a read-only convenience.
+// ─────────────────────────────────────────────────────────────
+plansRouter.get('/workspace/:workspaceId/effective', async (req, res) => {
+  const { url, key } = getConfig(req);
+  const supabase = createClient(url, key);
+  const { workspaceId } = req.params;
+  try {
+    const info = await getWorkspacePlanInfo(url, key, workspaceId);
+
+    // Pull overrides + current-period usage in parallel.
+    const currentPeriod = new Date().toISOString().slice(0, 7);
+    const [{ data: moduleOverrides }, { data: channelOverrides }, { data: usage }] = await Promise.all([
+      supabase.from('workspace_module_overrides').select('*').eq('workspace_id', workspaceId),
+      supabase.from('workspace_channel_overrides').select('*').eq('workspace_id', workspaceId),
+      supabase.from('workspace_usage_counters').select('*').eq('workspace_id', workspaceId).eq('period', currentPeriod).maybeSingle(),
+    ]);
+
+    const moduleOverrideMap = new Map<string, { enabled: boolean; admin_notes?: string | null }>(
+      (moduleOverrides || []).map((o: any) => [o.module_key, { enabled: o.enabled, admin_notes: o.admin_notes }]),
+    );
+    const channelOverrideMap = new Map<string, { enabled: boolean; admin_notes?: string | null }>(
+      (channelOverrides || []).map((o: any) => [o.channel_key, { enabled: o.enabled, admin_notes: o.admin_notes }]),
+    );
+
+    const planEntitlements = info.entitlements || {};
+    const planLimits = info.limits || {};
+
+    type State = { value: boolean | number | null; source: 'override' | 'plan' | 'default'; note?: string | null };
+    const features: Record<string, State> = {};
+    const modules: Record<string, State> = {};
+    const channels: Record<string, State> = {};
+    const limits: Record<string, State & { unit?: string }> = {};
+
+    for (const cap of CAPABILITY_REGISTRY) {
+      if (cap.type === 'feature') {
+        if (cap.key in planEntitlements) features[cap.key] = { value: !!planEntitlements[cap.key], source: 'plan' };
+        else features[cap.key] = { value: !!cap.defaultValue, source: 'default' };
+      } else if (cap.type === 'module') {
+        const ov = moduleOverrideMap.get(cap.key);
+        if (ov) modules[cap.key] = { value: !!ov.enabled, source: 'override', note: ov.admin_notes ?? null };
+        else if (cap.key in planEntitlements) modules[cap.key] = { value: !!planEntitlements[cap.key], source: 'plan' };
+        else modules[cap.key] = { value: !!cap.defaultValue, source: 'default' };
+      } else if (cap.type === 'channel') {
+        const ov = channelOverrideMap.get(cap.key);
+        if (ov) channels[cap.key] = { value: !!ov.enabled, source: 'override', note: ov.admin_notes ?? null };
+        else if (cap.key in planEntitlements) channels[cap.key] = { value: !!planEntitlements[cap.key], source: 'plan' };
+        else channels[cap.key] = { value: !!cap.defaultValue, source: 'default' };
+      } else if (cap.type === 'limit') {
+        if (cap.key in planLimits) limits[cap.key] = { value: planLimits[cap.key] as number, source: 'plan', unit: cap.unit };
+        else limits[cap.key] = { value: cap.defaultValue as number | null, source: 'default', unit: cap.unit };
+      }
+    }
+
+    res.json({
+      workspaceId,
+      plan: info.plan,
+      subscription: info.subscription,
+      features,
+      modules,
+      channels,
+      limits,
+      usage: usage || null,
+      // Raw plan JSON for debugging / forward-compat consumers.
+      raw: { entitlements: planEntitlements, limits: planLimits },
+    });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
@@ -138,6 +233,12 @@ plansRouter.post('/admin', async (req, res) => {
   const { name, slug, description, prices, entitlements, limits, is_free, is_active, sort_order, trial_days, default_currency, provider_price_ids, localized } = req.body;
   if (!name || !slug) return res.status(400).json({ error: 'name and slug are required' });
 
+  // Soft validation: report registry issues but stay backward-compatible.
+  const validation = validatePlanPayload({ entitlements, limits });
+  if (!validation.valid) {
+    return res.status(400).json({ error: 'Plan payload invalid', issues: validation.issues });
+  }
+
   const { data, error } = await supabase.from('billing_plans').insert({
     name, slug, description: description || null,
     prices: prices || {}, entitlements: entitlements || {}, limits: limits || {},
@@ -150,7 +251,7 @@ plansRouter.post('/admin', async (req, res) => {
 
   if (error) return res.status(500).json({ error: error.message });
   clearEntitlementCache();
-  res.json({ plan: data });
+  res.json({ plan: data, validation });
 });
 
 plansRouter.put('/admin/:planId', async (req, res) => {
@@ -159,10 +260,19 @@ plansRouter.put('/admin/:planId', async (req, res) => {
   const updates = { ...req.body, updated_at: new Date().toISOString() };
   delete updates.id; delete updates.created_at;
 
+  // Soft validation when entitlements/limits are touched.
+  let validation: ReturnType<typeof validatePlanPayload> | undefined;
+  if (updates.entitlements || updates.limits) {
+    validation = validatePlanPayload({ entitlements: updates.entitlements, limits: updates.limits });
+    if (!validation.valid) {
+      return res.status(400).json({ error: 'Plan payload invalid', issues: validation.issues });
+    }
+  }
+
   const { data, error } = await supabase.from('billing_plans').update(updates).eq('id', req.params.planId).select().single();
   if (error) return res.status(500).json({ error: error.message });
   clearEntitlementCache();
-  res.json({ plan: data });
+  res.json({ plan: data, validation });
 });
 
 plansRouter.delete('/admin/:planId', async (req, res) => {
@@ -387,4 +497,32 @@ plansRouter.get('/admin/changes/:workspaceId', async (req, res) => {
     .limit(50);
   if (error) return res.status(500).json({ error: error.message });
   res.json({ changes: data || [] });
+});
+
+// ─────────────────────────────────────────────────────────────
+// ADMIN: Validate a plan payload without persisting
+// ─────────────────────────────────────────────────────────────
+plansRouter.post('/admin/validate', (req, res) => {
+  const { entitlements, limits } = req.body || {};
+  const result = validatePlanPayload({ entitlements, limits });
+  res.json(result);
+});
+
+// ─────────────────────────────────────────────────────────────
+// ADMIN: Diagnostics — registry vs DB drift
+// ─────────────────────────────────────────────────────────────
+plansRouter.get('/admin/diagnostics', async (req, res) => {
+  const { url, key } = getConfig(req);
+  const supabase = createClient(url, key);
+  const { data, error } = await supabase
+    .from('billing_plans')
+    .select('id, slug, entitlements, limits')
+    .eq('is_active', true);
+  if (error) return res.status(500).json({ error: error.message });
+  const report = diagnoseAgainstPlans((data || []) as any);
+  res.json({
+    registrySize: CAPABILITY_REGISTRY.length,
+    plansChecked: (data || []).length,
+    ...report,
+  });
 });

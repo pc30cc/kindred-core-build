@@ -26,6 +26,8 @@ import crypto from 'crypto';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { uploadFile } from '../services/storage/index.js';
+import { requireLimit } from '../middleware/featureGating.js';
+import { usageFnForLimit } from '../services/billing/usageResolvers.js';
 
 export const conversationAttachmentsRouter = Router();
 
@@ -221,6 +223,21 @@ conversationAttachmentsRouter.post('/:id/upload', async (req, res) => {
     const buf = Buffer.from(parsed.data.data, 'base64');
     if (buf.length > row.size_bytes + 4) {
       return res.status(413).json({ error: 'Uploaded size exceeds declared size' });
+    }
+
+    // ── storage_gb cap enforcement (Phase 13, conversation-attachment rollout) ──
+    // Reuses the same narrow pattern as POST /api/storage/upload. Forward-correct
+    // only; see docs/STORAGE_LIMIT_POLICY.md. No route-local storage math — the
+    // shared resolver reads the canonical workspace_usage_counters.storage_bytes.
+    const limitMw = requireLimit('storage_gb', usageFnForLimit('storage_gb'));
+    let proceeded = false;
+    await limitMw(req, res, () => { proceeded = true; });
+    if (!proceeded) {
+      // Mark the reserved row failed so it doesn't linger in 'uploading'.
+      await sb.from('conversation_attachments')
+        .update({ status: 'failed', error_message: 'storage_gb limit reached' })
+        .eq('id', row.id);
+      return; // middleware already wrote 403/400
     }
 
     const result = await uploadFile(config, {

@@ -88,8 +88,8 @@ They should not be renamed without coordinated rollout.
 
 ### 2.6 Additional brand-string findings (precise citations)
 
-These are user-visible or comment-visible strings that pre-date this
-audit. **Not changed.**
+Pre-existing strings reviewed in this audit. Only safe, non-contract
+strings were changed; everything else is preserved.
 
 | String | File : line | Visibility |
 |---|---|---|

@@ -54,11 +54,17 @@ export function useCreateContact(workspaceId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (contact: Partial<Contact>) => {
-      const { data, error } = await supabase
-        .from('contacts')
-        .insert({ ...contact, workspace_id: workspaceId! } as any)
-        .select()
-        .single();
+      // Routes through SECURITY DEFINER RPC (canonical create boundary).
+      const { data, error } = await supabase.rpc('create_contact', {
+        _workspace_id: workspaceId!,
+        _email: (contact as any).email ?? null,
+        _name: (contact as any).name ?? null,
+        _phone: (contact as any).phone ?? null,
+        _avatar_url: (contact as any).avatar_url ?? null,
+        _tags: (contact as any).tags ?? [],
+        _notes: (contact as any).notes ?? null,
+        _metadata: (contact as any).metadata ?? {},
+      } as any);
       if (error) throw error;
       return data;
     },
@@ -71,10 +77,14 @@ export function useBulkCreateContacts(workspaceId: string | undefined) {
   return useMutation({
     mutationFn: async (contacts: Partial<Contact>[]) => {
       if (!contacts.length) return { inserted: 0 };
-      const payload = contacts.map((c) => ({ ...c, workspace_id: workspaceId! })) as any;
-      const { data, error } = await supabase.from('contacts').insert(payload).select();
+      // Routes through SECURITY DEFINER RPC (canonical import boundary).
+      const { data, error } = await supabase.rpc('bulk_create_contacts', {
+        _workspace_id: workspaceId!,
+        _contacts: contacts as any,
+      } as any);
       if (error) throw error;
-      return { inserted: data?.length ?? 0 };
+      const row = Array.isArray(data) ? (data[0] as any) : (data as any);
+      return { inserted: Number(row?.inserted ?? 0) };
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['contacts', workspaceId] }),
   });

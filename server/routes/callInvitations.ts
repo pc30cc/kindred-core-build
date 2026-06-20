@@ -22,6 +22,7 @@ import {
   INVITE_TTL_MIN_SECONDS,
   INVITE_TTL_MAX_SECONDS,
 } from '../services/calls/invitations.js';
+import { loadEffectiveCallEntitlements } from '../services/calls/entitlementComposer.js';
 
 export const callInvitationsRouter = Router();
 
@@ -82,6 +83,20 @@ callInvitationsRouter.post('/', async (req, res) => {
   const { workspace_id, conversation_id, channel, ttl_seconds } = parsed.data;
   if (!(await assertWorkspaceMember(config, workspace_id, auth.userId))) {
     return res.status(403).json({ error: 'not_a_workspace_member' });
+  }
+  // Phase: Call Route Enforcement Rollout — strict deny-on-create only.
+  // Composes plan (voice_video + voice/video channel) AND runtime
+  // (loadEffectiveCallChannels) via the canonical composer. Cancel/get/list
+  // routes intentionally remain ungated so in-flight invitations stay
+  // visible and cancellable after a downgrade.
+  const eff = await loadEffectiveCallEntitlements(config, workspace_id);
+  const allowed = channel === 'audio' ? eff.voice_enabled : eff.video_enabled;
+  if (!allowed) {
+    return res.status(403).json({
+      error: 'plan_forbidden',
+      capability: channel === 'audio' ? 'voice' : 'video',
+      upgrade_required: true,
+    });
   }
   const result = await createInvitation(config, {
     workspaceId: workspace_id,

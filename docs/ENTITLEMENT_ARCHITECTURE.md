@@ -149,3 +149,10 @@ Call Center / Voice & Video / AI.
 - No Contacts route is gated on these keys yet. See
   `docs/CONTACTS_PLAN_MODEL.md` for the per-surface mapping and the
   candidate enforcement boundaries deferred to a later phase.
+- `max_contacts` is **not** in the registry. The contacts creation
+  boundary is PostgREST (not Express), so the only safe enforcement
+  options are a BEFORE-INSERT trigger or SECURITY DEFINER RPC on
+  `public.contacts`. Both require explicit approval and are deferred.
+  Locked semantics and the readiness audit live in
+  `docs/CONTACTS_LIMIT_POLICY.md`. The invariant that every registry
+  limit key has a real enforcement consumer is preserved.

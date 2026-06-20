@@ -135,3 +135,10 @@ unchanged across rollouts. No global admin short-circuit was added to
    phase must either introduce server routes for create/import/bulk
    paths or encode checks in RLS/RPC before any rollout. See
    `docs/CONTACTS_PLAN_MODEL.md`.
+
+   `max_contacts` was audited this phase and **intentionally not
+   added** to the registry: the only safe enforcement boundary is
+   DB-side (trigger or SECURITY DEFINER RPC on `public.contacts`),
+   which requires explicit approval. Semantics are locked
+   (current-occupancy row count, workspace-scoped) in
+   `docs/CONTACTS_LIMIT_POLICY.md`.

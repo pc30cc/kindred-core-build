@@ -128,3 +128,10 @@ unchanged across rollouts. No global admin short-circuit was added to
    `max_conversations`, `callWidget.ts` ensure-session for
    `max_visitors`, operator-assist credit wiring) — see the per-limit
    policy docs.
+5. Contacts surface is now plan-modeled (`contacts` module +
+   `contact_import` / `contact_export` / `contact_tags` /
+   `contact_notes` / `bulk_contact_actions` features) but **not gated**.
+   Today the contacts UI calls Supabase PostgREST directly; a future
+   phase must either introduce server routes for create/import/bulk
+   paths or encode checks in RLS/RPC before any rollout. See
+   `docs/CONTACTS_PLAN_MODEL.md`.

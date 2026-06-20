@@ -131,3 +131,21 @@ The canonical composer is `server/services/calls/entitlementComposer.ts`
 No call route is gated on it yet. See
 `docs/CALL_ENTITLEMENT_COMPOSITION.md` for the per-surface table and
 `docs/CALL_SURFACES_PLAN_MODEL.md` for the registry mapping.
+
+## 10. Contacts surface (plan modeling, no enforcement yet)
+
+The Contacts directory is now plan-shaped through the central registry
+so Super Admin can toggle Contacts capabilities per plan exactly like
+Call Center / Voice & Video / AI.
+
+- Plan-level module: `contacts` (default `true` — directory is on by default).
+- Plan-level features (group: `contacts`): `contact_import`,
+  `contact_export`, `contact_tags`, `contact_notes`,
+  `bulk_contact_actions`.
+- No numeric Contacts limits are added in this phase. The legacy
+  `contacts` numeric key in `billing_plans.limits` seed JSON is
+  intentionally NOT promoted to the registry — there is no usage
+  resolver for it and no enforcement consumer exists yet.
+- No Contacts route is gated on these keys yet. See
+  `docs/CONTACTS_PLAN_MODEL.md` for the per-surface mapping and the
+  candidate enforcement boundaries deferred to a later phase.

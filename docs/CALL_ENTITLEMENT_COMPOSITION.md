@@ -49,9 +49,17 @@ it. Existing handlers that already call `loadEffectiveCallChannels`
 
 ## Rollout status
 
-No call route is gated on this composer in this phase. The composer
-is additive infrastructure so a future phase can attach narrow
-enforcement at the right boundaries without re-deriving the audit.
+**Phase: Call Route Enforcement Rollout — Strict Minimal Pass.**
+One route gated on the composer: `POST /api/call-invitations`
+(operator-side invitation creation). Composition required:
+`voice_video ∧ voice ∧ runtime.voice_enabled` for `channel='audio'`,
+`voice_video ∧ video ∧ runtime.video_enabled` for `channel='video'`.
+Denial returns `403 { error: 'plan_forbidden', capability,
+upgrade_required: true }` and skips `createInvitation`. Cancel
+(`POST /:id/cancel`), get (`GET /:id`), and list (`GET /`) are
+intentionally NOT gated so in-flight invitations remain visible and
+cancellable after a plan downgrade — the deny-on-create / allow-cleanup
+policy holds.
 
 ### Route audit
 
@@ -63,18 +71,19 @@ enforcement at the right boundaries without re-deriving the audit.
 | `callQueue.ts` | `call_center` ∧ `call_queue` | AMBIGUOUS — admit/offer/accept must keep working for in-flight queue entries even if a plan downgrade lands mid-session. Defer until a "drain in-flight" policy is decided. |
 | `callAvailability.ts` | `voice_video` | AMBIGUOUS — visibility of operator availability should arguably remain even when plans deny calls (operators may still toggle status during downgrade). |
 | `callInvitations.ts` (operator) | `voice_video` ∧ (`voice`∨`video`) | FUTURE CANDIDATE — POST `/` is a clean enforcement point but cancel/get must remain. Not gated this phase. |
+| `callInvitations.ts` POST `/` | composed via `loadEffectiveCallEntitlements` | **GATED** — channel-scoped: `eff.voice_enabled` for `audio`, `eff.video_enabled` for `video`. Cancel/get/list ungated. |
 | `widgetCallInvitations.ts` | `voice_video` ∧ visitor channel | ALREADY EFFECTIVELY GUARDED — visitor-initiated paths gate on the runtime visitor toggles via the bootstrap snapshot. |
 | `callbacks.ts` (operator) | `call_center` ∧ `call_callbacks` | FUTURE CANDIDATE — list/patch are stable, but list visibility should likely survive a plan downgrade for cleanup. |
 | `widgetCallbacks.ts` | `call_center` ∧ `call_callbacks` (visitor) | AMBIGUOUS — already guarded by `callback_offer_after_timeout` runtime path; needs care to avoid double-blocking. |
 
-### Why no routes are gated yet
+### Why other routes are still deferred
 
-Each call route either (a) already consults `loadEffectiveCallChannels`,
-(b) is admin-only and role-protected, or (c) has in-flight semantics
-(active queue entries, offered calls, pending callbacks) that a plan
-denial mid-session must not silently break. A safe rollout requires
-a per-handler "deny on create, allow on cancel/cleanup" policy that
-is out of scope for this phase.
+Each remaining call route either (a) already consults
+`loadEffectiveCallChannels`, (b) is admin-only and role-protected, or
+(c) has in-flight semantics (active queue entries, offered calls,
+pending callbacks) that a plan denial mid-session must not silently
+break. The operator invitation POST is the one boundary where denial
+only blocks a brand-new action and never breaks an in-flight one.
 
 ## Numeric limits — still deferred
 

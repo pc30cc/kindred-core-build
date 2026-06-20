@@ -130,15 +130,17 @@ unchanged across rollouts. No global admin short-circuit was added to
    policy docs.
 5. Contacts surface is now plan-modeled (`contacts` module +
    `contact_import` / `contact_export` / `contact_tags` /
-   `contact_notes` / `bulk_contact_actions` features) but **not gated**.
-   Today the contacts UI calls Supabase PostgREST directly; a future
-   phase must either introduce server routes for create/import/bulk
-   paths or encode checks in RLS/RPC before any rollout. See
-   `docs/CONTACTS_PLAN_MODEL.md`.
+   `contact_notes` / `bulk_contact_actions` features). The create/import
+   boundary is now realized as two SECURITY DEFINER RPCs —
+   `public.create_contact` and `public.bulk_create_contacts` — both
+   verifying `auth.uid()` and `is_workspace_member`. UI hooks
+   `useCreateContact` and `useBulkCreateContacts` route through these
+   RPCs. Direct `INSERT` GRANT on `public.contacts` is intentionally
+   left in place for backward compatibility; revoke is deferred to a
+   future, explicitly approved phase.
 
-   `max_contacts` was audited this phase and **intentionally not
-   added** to the registry: the only safe enforcement boundary is
-   DB-side (trigger or SECURITY DEFINER RPC on `public.contacts`),
-   which requires explicit approval. Semantics are locked
+   `max_contacts` itself remains **deferred**: it is not in the
+   registry, has no resolver, and is not enforced. The RPC chokepoint
+   is the future home for that check. Semantics remain locked
    (current-occupancy row count, workspace-scoped) in
    `docs/CONTACTS_LIMIT_POLICY.md`.

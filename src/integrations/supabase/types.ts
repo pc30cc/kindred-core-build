@@ -7764,6 +7764,12 @@ export type Database = {
           }
       admin_security_stats: { Args: never; Returns: Json }
       bootstrap_admin: { Args: { _user_id: string }; Returns: boolean }
+      bulk_create_contacts: {
+        Args: { _contacts: Json; _workspace_id: string }
+        Returns: {
+          inserted: number
+        }[]
+      }
       business_metrics_rollup_and_prune: { Args: never; Returns: Json }
       check_channel_access: {
         Args: { _channel_key: string; _workspace_id: string }
@@ -7782,6 +7788,40 @@ export type Database = {
       count_recent_login_failures: {
         Args: { _email: string; _ip: string; _window_minutes?: number }
         Returns: number
+      }
+      create_contact: {
+        Args: {
+          _avatar_url?: string
+          _email?: string
+          _metadata?: Json
+          _name?: string
+          _notes?: string
+          _phone?: string
+          _tags?: string[]
+          _workspace_id: string
+        }
+        Returns: {
+          avatar_url: string | null
+          created_at: string | null
+          email: string | null
+          id: string
+          is_spam: boolean
+          metadata: Json | null
+          name: string | null
+          notes: string | null
+          phone: string | null
+          spam_marked_at: string | null
+          spam_marked_by: string | null
+          tags: string[] | null
+          updated_at: string | null
+          workspace_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "contacts"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
       create_workspace_atomic: {
         Args: {

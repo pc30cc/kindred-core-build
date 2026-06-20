@@ -1,6 +1,43 @@
 # Contacts Limit Policy (`max_contacts`) — Readiness Audit
 
-Status: **deferred — not added to the capability registry, not enforced.**
+Status: **`max_contacts` still deferred — not added to the capability registry,
+not enforced. The create/import boundary now exists as DB-side SECURITY
+DEFINER RPCs and is wired up in the UI, ready to host the limit when it
+is promoted in a follow-up phase.**
+
+## Boundary status (updated)
+
+- `public.create_contact(...)` — SECURITY DEFINER RPC. Verifies
+  `auth.uid()` and `is_workspace_member`. Inserts a single row into
+  `public.contacts`.
+- `public.bulk_create_contacts(_workspace_id, _contacts jsonb)` —
+  SECURITY DEFINER RPC. Same auth/membership check. Returns
+  `{ inserted }`.
+- Both functions: `REVOKE ALL FROM PUBLIC`, `GRANT EXECUTE TO
+  authenticated, service_role`. `search_path = public`.
+- UI hooks `useCreateContact` and `useBulkCreateContacts` now call these
+  RPCs. No other UI paths insert contacts.
+- **Backward-compat**: existing `INSERT` GRANT on `public.contacts` is
+  intentionally **not** revoked. Server-side flows (widget identity
+  merge, callWidget continuity, privacy export, AI agent, spam guard)
+  use the service-role client and are unaffected. A future phase, gated
+  on explicit approval, may revoke the direct `INSERT` grant from
+  `authenticated` to make the RPC the only path.
+
+## Next-phase prerequisites for `max_contacts` promotion
+
+1. Add `max_contacts` to `capabilityRegistry.ts` under the `contacts`
+   group with a default that matches existing seeded plans.
+2. Add the corresponding usage resolver: `SELECT count(*) FROM
+   public.contacts WHERE workspace_id = $1` (delete frees capacity;
+   edits/tags/notes do not consume; identity merges must not
+   double-count).
+3. Inside both RPCs, after the membership check, read effective
+   entitlements for the workspace and reject with a structured error
+   when the count would exceed `max_contacts`.
+4. Surface in usage diagnostics alongside other usage-backed limits.
+5. Only after (1)–(4) are in place, consider revoking direct `INSERT`
+   on `public.contacts` from `authenticated`.
 
 This document is the readiness result for promoting `max_contacts` from
 an implied/legacy concept in plan seed data into a real, usage-backed,

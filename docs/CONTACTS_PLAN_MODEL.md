@@ -117,3 +117,14 @@ deferred**.
   registry defaults via the existing effective-entitlement resolution.
 - `USAGE_BACKED_LIMIT_KEYS` is unchanged; resolver alignment tests
   continue to pass.
+
+## Numeric limit (`max_contacts`) — deferred
+
+`max_contacts` is **not** in the capability registry. Contacts are
+created directly via PostgREST from the browser
+(`src/hooks/useContacts.ts` → `supabase.from('contacts').insert(...)`),
+so there is no Express boundary to gate. Promotion of `max_contacts`
+requires a DB-side enforcement boundary (BEFORE-INSERT trigger or
+SECURITY DEFINER RPC) and explicit approval. See
+`docs/CONTACTS_LIMIT_POLICY.md` for the full readiness audit,
+locked semantics, and next-phase prerequisites.

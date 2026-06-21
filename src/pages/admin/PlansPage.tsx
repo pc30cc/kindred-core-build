@@ -466,6 +466,8 @@ function WorkspaceConsole({ capabilities }: { capabilities: CapabilityDefinition
   const [busy, setBusy] = useState<string | null>(null);
   const [moduleOvIds, setModuleOvIds] = useState<Record<string, string>>({});
   const [channelOvIds, setChannelOvIds] = useState<Record<string, string>>({});
+  const [limitOvIds, setLimitOvIds] = useState<Record<string, { id: string; value: number }>>({});
+  const [limitDrafts, setLimitDrafts] = useState<Record<string, string>>({});
 
   // Load override IDs (needed for DELETE) whenever workspace or effective data changes.
   useEffect(() => {
@@ -480,6 +482,9 @@ function WorkspaceConsole({ capabilities }: { capabilities: CapabilityDefinition
         if (cancelled) return;
         setModuleOvIds(Object.fromEntries((res.modules || []).map((o) => [o.module_key!, o.id])));
         setChannelOvIds(Object.fromEntries((res.channels || []).map((o) => [o.channel_key!, o.id])));
+        setLimitOvIds(Object.fromEntries(
+          (res.limits || []).map((o) => [o.limit_key!, { id: o.id, value: Number(o.limit_value ?? 0) }]),
+        ));
       })
       .catch(() => { /* non-fatal — clear UI just won't appear */ });
     return () => { cancelled = true; };

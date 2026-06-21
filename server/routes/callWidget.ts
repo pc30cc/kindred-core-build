@@ -18,6 +18,7 @@ import {
 } from '../services/callCenter/settings.js';
 import { signWidgetSession, verifyWidgetSession } from '../services/callCenter/widgetSession.js';
 import { resolveEffectiveCallProvider } from '../services/calls/providerResolver.js';
+import { loadEffectiveCallEntitlements } from '../services/calls/entitlementComposer.js';
 import { publishQueueEvent, publishCallEvent } from '../services/callCenter/realtime.js';
 import { buildClientConnectInfo } from '../services/callCenter/connectInfo.js';
 import { computeRecordingCapability } from '../services/callCenter/recording.js';
@@ -735,6 +736,25 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: 'invalid_body', details: parsed.error.flatten() });
   if (parsed.data.call_type === 'voice' && !effective.voice_enabled) return res.status(403).json({ error: 'feature_not_available' });
   if (parsed.data.call_type === 'video' && !effective.video_enabled) return res.status(403).json({ error: 'feature_not_available' });
+  // Plan composer gate (deny-on-create / visitor-initiated).
+  // Reuses canonical loadEffectiveCallEntitlements — does NOT introduce a
+  // second composer or numeric limit. Runs BEFORE any DB insert / provider
+  // resolution so we never strand half-created call objects on denial.
+  try {
+    const eff = await loadEffectiveCallEntitlements(config, ws.workspace_id);
+    const visitorAllowed = parsed.data.call_type === 'voice'
+      ? eff.visitor_voice_enabled
+      : eff.visitor_video_enabled;
+    if (!visitorAllowed) {
+      return res.status(403).json({
+        error: 'plan_forbidden',
+        capability: parsed.data.call_type === 'voice' ? 'voice' : 'video',
+        upgrade_required: true,
+      });
+    }
+  } catch {
+    return res.status(403).json({ error: 'plan_forbidden', capability: 'voice_video', upgrade_required: true });
+  }
   if (!originAllowed(ws, getOrigin(req))) return res.status(403).json({ error: 'origin_denied' });
   // Validate optional visitor-selected department against canonical schema.
   const dbCallTypeForDept = parsed.data.call_type === 'voice' ? 'audio' : 'video';
@@ -1167,6 +1187,20 @@ callWidgetRouter.post('/callbacks/request', async (req, res) => {
   const platform = await getPlatformCallCenterSettings(config);
   const effective = computeEffectiveCallCenterCaps(platform, ws);
   if (!effective.callback_enabled) return res.status(403).json({ error: 'feature_not_available' });
+  // Plan composer gate — visitor-initiated callback request.
+  // Deny-on-create only; operator-side callbacks list/PATCH stay reachable.
+  try {
+    const eff = await loadEffectiveCallEntitlements(config, ws.workspace_id);
+    if (!eff.callbacks_enabled) {
+      return res.status(403).json({
+        error: 'plan_forbidden',
+        capability: 'call_callbacks',
+        upgrade_required: true,
+      });
+    }
+  } catch {
+    return res.status(403).json({ error: 'plan_forbidden', capability: 'call_callbacks', upgrade_required: true });
+  }
   const parsed = callbackSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_body', details: parsed.error.flatten() });
   // ── Anti-spam enforcement ──────────────────────────────────────────────

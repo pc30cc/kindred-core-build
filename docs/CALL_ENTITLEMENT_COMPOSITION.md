@@ -87,7 +87,10 @@ the moment a brand-new action is requested.
 | `POST /api/call-queue/:workspaceId/:entryId/cancel` | DO NOT GATE | Cleanup — must always succeed. |
 | `POST /api/widget/call-queue/enqueue` | DEFERRED | Visitor-public; denial UX (queue full vs plan-denied) is undefined. |
 | `POST /api/widget/call-queue/:entryId/cancel` | DO NOT GATE | Visitor cleanup. |
-| `POST /api/widget/calls/callbacks/request`, `POST /api/widget/callbacks/request` | DEFERRED | Public visitor path — denial UX still ambiguous; runtime queue gate already provides operational kill-switch. |
+| `POST /api/call-widget/calls/request` | **GATED** | Visitor-initiated new call request. Mapped to `eff.visitor_voice_enabled` / `eff.visitor_video_enabled`. Stable denial: `{ error: "plan_forbidden", capability: "voice" \| "video", upgrade_required: true }`. Runs before any DB insert / provider resolution so no half-created call objects are stranded. |
+| `POST /api/call-widget/callbacks/request` | **GATED** | Visitor-initiated new callback request. Mapped to `eff.callbacks_enabled`. Stable denial: `{ error: "plan_forbidden", capability: "call_callbacks", upgrade_required: true }`. |
+| `POST /api/widget-callbacks/request` | **GATED** | Same surface mounted under the unified widget router. Mapped to `eff.callbacks_enabled` with the same denial shape. |
+| `GET /api/widget-callbacks/status` | DO NOT GATE | Visitor read of own existing callback — required for cleanup / cooldown UI after a downgrade. |
 | `GET / PATCH /api/callbacks/:workspaceId(/...)` | DO NOT GATE | List + status patch (includes 'cancelled' / 'completed') — cleanup. |
 | `POST /api/call-center/callbacks/:id/{assign,complete,cancel}` | DO NOT GATE | All three operate on existing callback rows — cleanup / finalize. |
 | `POST /api/calls/create`, `/:id/{accept,reject,hangup,end,token,invite}` | DEFERRED | Mixed surface: `accept`/`reject`/`hangup`/`end` are cleanup/control; `create`/`invite`/`token` are creates but visitor-side widget paths already mint via the canonical provider stack. Splitting these handlers is non-trivial. |
@@ -105,6 +108,25 @@ queue entry / call / callback (denial would strand in-flight work),
 (c) is a mixed handler whose cleanup branches cannot be cleanly
 separated from create branches. The composer is intentionally not
 invoked there until each surface gets its own drain decision.
+
+### Visitor / drain policy (locked)
+
+- **Deny-on-create**: visitor `POST /api/call-widget/calls/request`,
+  `POST /api/call-widget/callbacks/request`, and
+  `POST /api/widget-callbacks/request` may be denied via the
+  composer. Denial happens **before** provider resolution, queue
+  inserts, and any DB mutation — so no half-created call objects or
+  reserved queue rows are stranded.
+- **Allow-on-cleanup / status / cancel / read**:
+  `GET /api/widget-callbacks/status`, queue cancel paths, operator
+  callback list / counts / PATCH, and all `accept` / `reject` /
+  `hangup` / `end` / `cancel` surfaces remain reachable regardless of
+  plan state so visitors and operators can finish or abort in-flight
+  work.
+- **Stable denial shape**: every newly gated visitor surface returns
+  `{ error: "plan_forbidden", capability: <key>, upgrade_required: true }`
+  with HTTP 403 — never a generic 500. The widget UI can branch on
+  `error === "plan_forbidden"` without parsing prose.
 
 ## Numeric limits — still deferred
 

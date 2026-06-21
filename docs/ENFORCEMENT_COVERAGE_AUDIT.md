@@ -66,7 +66,7 @@ pass should resolve each one in isolation.
 | `server/routes/callQueue.ts` (offer/accept), `widget` `call-queue/enqueue`, `callWidget.ts` `calls/request` and `callbacks/request` | composed call entitlements | DEFERRED — operate on already-existing queue entries OR are public/widget surfaces with undefined denial UX. Need per-surface drain decision before gating. |
 | `server/routes/callAvailability.ts`, `workspaceCalls.ts` | n/a | DO NOT GATE — visibility/configuration screens needed during downgrade management. |
 | `server/routes/cannedResponses.ts` | `requireFeature('automation')` | "Canned responses" and the `automation` feature are not the same concept; gating them under `automation` would over-scope. |
-| `server/routes/email.ts` (`POST /send`) | `requireChannel('email')` | This route also serves transactional/auth emails (password reset, confirmation, notifications). Gating with `requireChannel('email')` would lock out core auth flows on plans where the channel isn't explicitly enabled. The split between "platform email" and "channel email" must be made explicit before gating. |
+| `server/routes/email.ts` (`POST /send`) | `requireChannel('email')` | **RESOLVED via split (Phase: Email Surface Split + Channel Gating).** `POST /api/email/send` stays as the platform/auth/transactional surface and is intentionally NOT plan-gated. A dedicated `POST /api/email/send-channel` was added as the canonical channel-email surface and is gated with `requireChannel('email')`. In-process channel sends use `server/services/email/sendChannelEmail.ts`. See `EMAIL_SURFACE_SPLIT.md`. |
 | `server/routes/storage.ts`, `server/routes/widgetAttachments.ts` | `requireLimit('storage_gb', …)` | No usage helper currently aggregates total stored bytes per workspace. `requireLimit` fails closed when usage cannot be determined — wiring it without that helper would deny every upload. |
 | `server/routes/aiAgent.ts` — settings / sources / runs / qna / knowledge-index endpoints | `requireModule('ai_assistant')` | Many of these paths are currently usable by global admins and free workspaces with admin overrides. Blanket-gating them would surface as a regression for in-flight admin tooling. The agent already has fine-grained guards inside `runPlayground`, `operator/suggest-reply`, etc. Per-route pass needed. |
 | `server/routes/aiKb.ts` — generated/accept|publish, jobs/:id | (none) | These act on already-created jobs whose creation is gated. Re-gating consumption of a paid result would block users from finalising work they already paid for. |
@@ -122,9 +122,8 @@ unchanged across rollouts. No global admin short-circuit was added to
 
 ## 7. Recommended follow-up
 
-1. Decide whether `email.ts` should split into two endpoints — one for
-   platform/auth mail (always allowed) and one for channel-email send
-   (gated by `requireChannel('email')`).
+1. ~~Decide whether `email.ts` should split into two endpoints~~ — **done.**
+   See `EMAIL_SURFACE_SPLIT.md`.
 2. Plan a coordinated `voice_video` rollout: backfill `voice_video=true`
    on plans that should have it, then gate the call routes in one pass.
 3. Run `GET /api/plans/admin/diagnostics` periodically to surface drift

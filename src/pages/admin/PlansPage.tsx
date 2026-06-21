@@ -714,21 +714,74 @@ function WorkspaceConsole({ capabilities }: { capabilities: CapabilityDefinition
 
             <div className="space-y-1.5">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Limits</p>
-              <div className="grid grid-cols-2 gap-2">
+              <p className="text-[10px] text-muted-foreground">
+                Use <code className="bg-muted px-1 rounded">-1</code> for unlimited. Setting a value here overrides the plan limit for this workspace; clearing reverts to the plan / registry default.
+              </p>
+              <div className="grid grid-cols-1 gap-1.5">
                 {limitCaps.map((cap) => {
                   const eff = data.limits?.[cap.key];
                   const val = eff?.value;
-                  const display = val === -1 ? '∞' : val == null ? '—' : Number(val).toLocaleString();
+                  const display = val === -1 ? '∞ (unlimited)' : val == null ? '—' : Number(val).toLocaleString();
+                  const isOverride = eff?.source === 'override';
+                  const ov = limitOvIds[cap.key];
+                  const draft = limitDrafts[cap.key] ?? '';
+                  const canOverride = cap.workspaceOverridable;
+                  const rowCls = isOverride
+                    ? 'border-amber-500/30 bg-amber-500/5'
+                    : 'border-transparent bg-muted/30 hover:border-border';
                   return (
-                    <div key={cap.key} className="flex items-center justify-between px-3 py-2 rounded-md bg-muted/30">
-                      <div className="min-w-0">
+                    <div key={cap.key} className={`flex items-center justify-between gap-2 px-3 py-2 rounded-md border ${rowCls}`}>
+                      <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="text-xs text-foreground">{cap.label}</span>
                           <Badge variant="outline" className="text-[9px] font-mono">{cap.key}</Badge>
                           {eff && sourceBadge(eff.source)}
+                          {isOverride && (
+                            <span className="text-[10px] text-amber-600">override active</span>
+                          )}
+                          {!canOverride && <Badge variant="secondary" className="text-[9px]">locked</Badge>}
                         </div>
+                        <div className="text-[10px] text-muted-foreground mt-0.5">
+                          Effective: <span className="font-mono text-foreground">{display}</span>
+                          {cap.unit ? ` ${cap.unit}` : ''}
+                        </div>
+                        {eff?.note && <p className="text-[10px] text-muted-foreground mt-0.5">Note: {eff.note}</p>}
                       </div>
-                      <span className="text-sm font-mono text-foreground">{display}{cap.unit ? ` ${cap.unit}` : ''}</span>
+                      {canOverride && (
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <Input
+                            type="number"
+                            step={1}
+                            min={-1}
+                            className="h-7 w-24 text-xs font-mono"
+                            placeholder={ov ? String(ov.value) : (typeof val === 'number' ? String(val) : '')}
+                            value={draft}
+                            onChange={(e) => setLimitDrafts((d) => ({ ...d, [cap.key]: e.target.value }))}
+                            onKeyDown={(e) => { if (e.key === 'Enter') applyLimitOverride(cap.key, draft); }}
+                          />
+                          <Button
+                            size="sm" variant="outline" className="text-[11px] h-7"
+                            disabled={busy === `limit:${cap.key}` || draft.trim() === ''}
+                            onClick={() => applyLimitOverride(cap.key, draft)}
+                            title="Set workspace override for this limit"
+                          >
+                            {busy === `limit:${cap.key}` ? <Loader2 className="w-3 h-3 animate-spin" /> : (ov ? 'Update' : 'Set')}
+                          </Button>
+                          {isOverride && ov && (
+                            <Button
+                              size="sm" variant="ghost"
+                              className="text-[11px] h-7 text-amber-600 hover:text-amber-700 hover:bg-amber-500/10"
+                              disabled={busy === `clear:limit:${cap.key}`}
+                              onClick={() => clearLimitOverride(cap.key)}
+                              title="Remove override — workspace will inherit from plan / registry default"
+                            >
+                              {busy === `clear:limit:${cap.key}`
+                                ? <Loader2 className="w-3 h-3 animate-spin" />
+                                : (<><RotateCcw className="w-3 h-3 mr-1" /> Clear</>)}
+                            </Button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}

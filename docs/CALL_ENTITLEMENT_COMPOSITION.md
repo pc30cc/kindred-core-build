@@ -49,41 +49,62 @@ it. Existing handlers that already call `loadEffectiveCallChannels`
 
 ## Rollout status
 
-**Phase: Call Route Enforcement Rollout — Strict Minimal Pass.**
-One route gated on the composer: `POST /api/call-invitations`
-(operator-side invitation creation). Composition required:
-`voice_video ∧ voice ∧ runtime.voice_enabled` for `channel='audio'`,
-`voice_video ∧ video ∧ runtime.video_enabled` for `channel='video'`.
-Denial returns `403 { error: 'plan_forbidden', capability,
-upgrade_required: true }` and skips `createInvitation`. Cancel
-(`POST /:id/cancel`), get (`GET /:id`), and list (`GET /`) are
-intentionally NOT gated so in-flight invitations remain visible and
-cancellable after a plan downgrade — the deny-on-create / allow-cleanup
-policy holds.
+**Phase: Call Route Enforcement Expansion — Strict Drain-Policy Pass.**
+Three operator-side create boundaries are now gated on the canonical
+composer. All three deny with
+`403 { error: 'plan_forbidden', capability, upgrade_required: true }`
+before mutating any state. No cleanup, cancel, status, or read path
+was gated.
+
+| Route | Composed entitlement | Capability label |
+| --- | --- | --- |
+| `POST /api/call-invitations` | channel-scoped: `eff.voice_enabled` (audio) or `eff.video_enabled` (video) | `voice` / `video` |
+| `POST /api/calls/:id/recording/start` | `eff.recording_enabled` | `call_recording` |
+| `POST /api/call-center/calls/:id/recording/start` | `eff.recording_enabled` | `call_recording` |
+
+### Drain policy (locked)
+
+- CREATE / START / ADMIT / REQUEST may be denied by the composer.
+- READ / STATUS / CANCEL / CLEAR / CLEANUP / FINALIZE must remain
+  reachable for already-existing objects after a plan downgrade.
+
+Concretely, the matching `recording/stop`, invitation `cancel`/`get`/
+`list`, queue cancel, callback list/patch, and call `end`/`hangup`
+routes are intentionally NOT gated. The composer is consulted only at
+the moment a brand-new action is requested.
 
 ### Route audit
 
-| Route | Capability shape | Class |
+| Route | Class | Reason |
 | --- | --- | --- |
-| `workspaceCalls.ts` (settings GET/PUT) | `voice_video` | DO NOT GATE — already returns `loadEffectiveCallChannels`; gating would block visibility of the very state operators need to manage. |
-| `adminCalls.ts` | platform-admin | DO NOT GATE — admin surface, already role-protected. |
-| `callCenter.ts` | very mixed: settings, queue, recording, callbacks, departments, presence, admin | AMBIGUOUS — needs per-handler classification before any sweep. Recording start/stop endpoints (`/calls/:id/recording/start|stop`) are the cleanest future candidates for `recording_enabled`. |
-| `callQueue.ts` | `call_center` ∧ `call_queue` | AMBIGUOUS — admit/offer/accept must keep working for in-flight queue entries even if a plan downgrade lands mid-session. Defer until a "drain in-flight" policy is decided. |
-| `callAvailability.ts` | `voice_video` | AMBIGUOUS — visibility of operator availability should arguably remain even when plans deny calls (operators may still toggle status during downgrade). |
-| `callInvitations.ts` (operator) | `voice_video` ∧ (`voice`∨`video`) | FUTURE CANDIDATE — POST `/` is a clean enforcement point but cancel/get must remain. Not gated this phase. |
-| `callInvitations.ts` POST `/` | composed via `loadEffectiveCallEntitlements` | **GATED** — channel-scoped: `eff.voice_enabled` for `audio`, `eff.video_enabled` for `video`. Cancel/get/list ungated. |
-| `widgetCallInvitations.ts` | `voice_video` ∧ visitor channel | ALREADY EFFECTIVELY GUARDED — visitor-initiated paths gate on the runtime visitor toggles via the bootstrap snapshot. |
-| `callbacks.ts` (operator) | `call_center` ∧ `call_callbacks` | FUTURE CANDIDATE — list/patch are stable, but list visibility should likely survive a plan downgrade for cleanup. |
-| `widgetCallbacks.ts` | `call_center` ∧ `call_callbacks` (visitor) | AMBIGUOUS — already guarded by `callback_offer_after_timeout` runtime path; needs care to avoid double-blocking. |
+| `POST /api/call-invitations` | **GATED** | Pure operator create boundary; channel-scoped composer. |
+| `POST /:id/cancel`, `GET /:id`, `GET /` (invitations) | DO NOT GATE | Cleanup / read paths must survive downgrade. |
+| `POST /api/calls/:id/recording/start` | **GATED** | Pure create; composer's `recording_enabled`. |
+| `POST /api/calls/:id/recording/stop` | DO NOT GATE | Cleanup / finalize for in-flight recordings. |
+| `POST /api/call-center/calls/:id/recording/start` | **GATED** | Pure create; same `recording_enabled` mapping. |
+| `POST /api/call-center/calls/:id/recording/stop` (+ status) | DO NOT GATE | Cleanup / finalize. |
+| `POST /api/call-queue/:workspaceId/:entryId/offer` / `accept` | DEFERRED | Acts on already-existing queue entries — denial would strand in-flight queue work. Needs a drain plan before gating. |
+| `POST /api/call-queue/:workspaceId/:entryId/cancel` | DO NOT GATE | Cleanup — must always succeed. |
+| `POST /api/widget/call-queue/enqueue` | DEFERRED | Visitor-public; denial UX (queue full vs plan-denied) is undefined. |
+| `POST /api/widget/call-queue/:entryId/cancel` | DO NOT GATE | Visitor cleanup. |
+| `POST /api/widget/calls/callbacks/request`, `POST /api/widget/callbacks/request` | DEFERRED | Public visitor path — denial UX still ambiguous; runtime queue gate already provides operational kill-switch. |
+| `GET / PATCH /api/callbacks/:workspaceId(/...)` | DO NOT GATE | List + status patch (includes 'cancelled' / 'completed') — cleanup. |
+| `POST /api/call-center/callbacks/:id/{assign,complete,cancel}` | DO NOT GATE | All three operate on existing callback rows — cleanup / finalize. |
+| `POST /api/calls/create`, `/:id/{accept,reject,hangup,end,token,invite}` | DEFERRED | Mixed surface: `accept`/`reject`/`hangup`/`end` are cleanup/control; `create`/`invite`/`token` are creates but visitor-side widget paths already mint via the canonical provider stack. Splitting these handlers is non-trivial. |
+| `POST /api/call-center/calls/:id/{accept,reject,end}` | DO NOT GATE | Cleanup / control surfaces. |
+| `POST /api/call-center/calls/:id/{assign,transfer}` | DEFERRED | Operates on already-active calls; routing-level decision, not a new entitlement boundary. |
+| `widgetCallInvitations.ts` `POST /:id/{join,decline,end}` | ALREADY GUARDED | Already consults `loadCallControlPlane` + `loadWorkspaceCallOverrides` per channel. |
+| `callAvailability.ts`, `callCenter` settings/presence/departments | DO NOT GATE | Visibility/configuration surfaces — denial would block the very screens needed to manage a downgrade. |
+| `adminCalls.ts`, `callCenter` `/admin/*` | DO NOT GATE | Platform-admin only; already role-protected. |
 
-### Why other routes are still deferred
+### Why the deferred routes stay deferred
 
-Each remaining call route either (a) already consults
-`loadEffectiveCallChannels`, (b) is admin-only and role-protected, or
-(c) has in-flight semantics (active queue entries, offered calls,
-pending callbacks) that a plan denial mid-session must not silently
-break. The operator invitation POST is the one boundary where denial
-only blocks a brand-new action and never breaks an in-flight one.
+Every deferred row above either (a) operates on an already-created
+queue entry / call / callback (denial would strand in-flight work),
+(b) is a public/widget surface where denial UX is still undefined, or
+(c) is a mixed handler whose cleanup branches cannot be cleanly
+separated from create branches. The composer is intentionally not
+invoked there until each surface gets its own drain decision.
 
 ## Numeric limits — still deferred
 

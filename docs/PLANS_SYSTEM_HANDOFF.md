@@ -107,8 +107,18 @@ canonical resolver — same payload that the admin and customer UIs read.
   email stays on `POST /api/email/send` (un-gated). Channel email lands
   on `POST /api/email/send-channel` and `sendChannelEmail()`, both
   gated with `requireChannel('email')`. See `EMAIL_SURFACE_SPLIT.md`.
-- `aiAgent.ts` settings/sources/runs/qna gating — needs per-route audit
-  to avoid regressing admin tooling.
+- `aiAgent.ts` per-route audit — **partially resolved** (Phase: AI Agent
+  route audit + selective gating). `POST /generate-business-description`
+  and `POST /learning-candidates/generate` are now gated with
+  `requireModule('ai_assistant')` because both are pure new-action
+  generators with no in-progress state. All settings/platform-settings/
+  sources/data-sources/runs/qna CRUD/knowledge-index/files/workflows/
+  topics/tools/test-cases/test-runs/regression/guidance/routing/learning-
+  candidate finalization/operator-assist analytics/overview/debug routes
+  remain intentionally admin-safe — they are read/status/config/finalize
+  surfaces or operate on already-created rows, and `operator/suggest-
+  reply` keeps its existing in-handler `checkEntitlementFromDB` +
+  dev-bypass logic. See `ENFORCEMENT_COVERAGE_AUDIT.md` §1 and §3.
 
 ### Out of scope
 

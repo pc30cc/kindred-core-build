@@ -789,6 +789,19 @@ callCenterRouter.post('/calls/:id/recording/start', async (req, res) => {
   const wid = String(req.query.workspaceId || req.body?.workspaceId || '');
   const ctx = await requireCallOperator(req, res, wid);
   if (!ctx) return;
+  // Phase: Call Route Enforcement Expansion — strict deny-on-create.
+  // Recording start is a pure new-action boundary; recording stop/status
+  // remain ungated so any in-flight recording can still be finalized
+  // after a plan downgrade. Reuses the canonical composer
+  // (voice_video ∧ call_recording ∧ runtime.recording_enabled).
+  const eff = await loadEffectiveCallEntitlements(ctx.config, wid);
+  if (!eff.recording_enabled) {
+    return res.status(403).json({
+      error: 'plan_forbidden',
+      capability: 'call_recording',
+      upgrade_required: true,
+    });
+  }
   const recType = recordingTypeSchema.safeParse(req.body?.recording_type);
   if (!recType.success) return res.status(400).json({ error: 'invalid_recording_type' });
   try {

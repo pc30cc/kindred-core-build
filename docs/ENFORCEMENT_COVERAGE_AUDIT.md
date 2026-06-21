@@ -157,3 +157,20 @@ unchanged across rollouts. No global admin short-circuit was added to
    batch), and service-role policy (no bypass — internal flows route
    through the same RPC) are recorded in `docs/CONTACTS_LIMIT_POLICY.md`
    for the eventual promotion phase.
+
+   Re-audited a third time in the Max Contacts Promotion + Enforcement —
+   DB-first strict pass (with `REVOKE INSERT FROM authenticated`
+   pre-approved if required). **Still deferred.** Blocker (a) is now
+   removable by approval, but blocker (b) stands on its own: there is
+   no canonical SQL-side entitlement composer, and the only paths to
+   build one in this phase either split the composer (PL/pgSQL
+   reimplementation), introduce DB→HTTP egress, or require a UI/
+   PostgREST redesign that the same approval explicitly forbids.
+   Issuing the revoke without a canonical consumer in the same phase
+   would only narrow the surface and produce advertised-but-not-
+   enforced semantics — strictly worse than the current state. No
+   registry, resolver, schema, or grant changes were made. The single
+   architecturally-sound unblock path (TypeScript resolver + thin
+   Express create endpoint in front of the existing RPCs + revoke,
+   keeping the composer single-sourced) is recorded as the unblock
+   checklist in `docs/CONTACTS_LIMIT_POLICY.md`.

@@ -2300,7 +2300,12 @@ const generateSchema = z.object({
   sinceIso: z.string().datetime().optional(),
   limit: z.number().int().min(1).max(500).optional(),
 });
-aiAgentRouter.post('/learning-candidates/generate', async (req: Request, res: Response) => {
+// Phase: AI Agent route audit + selective gating.
+// `/learning-candidates/generate` is a discrete new generation action that
+// drafts brand-new pending candidates. It does not modify or finalize any
+// existing candidate row, so denial only blocks NEW work — review/approve/
+// reject/convert routes remain ungated. Owner/admin auth still enforced.
+aiAgentRouter.post('/learning-candidates/generate', requireModule('ai_assistant'), async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
   const parsed = generateSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });

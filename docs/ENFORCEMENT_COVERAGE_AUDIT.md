@@ -244,3 +244,18 @@ each mutation. No new backend rollout, route, capability key, or
 schema rename was introduced. Module/channel/feature overrides retain
 their existing interaction pattern; the limit row reuses the same
 source-badge + Clear affordance for visual parity.
+
+## Customer-Facing Usage / Plan Visibility (product completion pass)
+
+`/app/billing` now ships a default **Plan & Usage** tab
+(`src/components/billing/PlanUsagePanel.tsx`) that renders the
+canonical `/api/plans/workspace/:id/effective` payload plus the
+registry catalog. Workspace owners can see plan name, every
+`userVisible` limit's effective value and source, current usage from
+the canonical counter columns where available, modules, channels and
+features. `-1` renders as `Unlimited`. Limits without a canonical
+customer-payload counter render a "not tracked in this view" notice
+rather than fabricated `0 / N` math. Super Admin override mutation
+controls remain exclusive to `PlansPage.tsx`. No enforcement boundary,
+capability key, route, env, or schema changed. See
+`docs/CUSTOMER_USAGE_VISIBILITY.md`.

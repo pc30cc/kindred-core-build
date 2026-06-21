@@ -5,6 +5,152 @@ not enforced. The create/import boundary now exists as DB-side SECURITY
 DEFINER RPCs and is wired up in the UI, ready to host the limit when it
 is promoted in a follow-up phase.**
 
+## Phase re-audit (Max Contacts Promotion + Enforcement — DB-first strict pass, with revoke approved)
+
+The user explicitly approved a stricter pass: DB-first enforcement only,
+with permission to `REVOKE INSERT ON public.contacts FROM authenticated`
+if that is what's required to make enforcement bypass-safe. The
+approval was conditional: "اگر در audit نهایی معلوم شد revoke کردن
+authenticated INSERT یا enforce داخل RPC هنوز ambiguity یا ریسک بالایی
+دارد، rollout ندهید و فقط readiness result برگردانید."
+
+**Final audit outcome: still deferred.** The first blocker (direct DML
+grant) is now removable by approval. The second blocker — absence of a
+canonical SQL-side entitlement composer — remains, and is by itself
+sufficient to block a bypass-safe, non-duplicating enforcement inside
+the RPC. Promoting `max_contacts` and registering a resolver without
+the consumer being wired into a single canonical composer would
+advertise enforcement that is either (a) bypassable, (b) inconsistent
+with the TypeScript composer, or (c) routed through a forbidden
+architecture path. None of these meet the bar.
+
+### Why a check inside the RPC cannot be made canonical in this phase
+
+The effective entitlement composition for a workspace
+(`billing_plans.entitlements/limits` → `workspace_subscriptions`
+overrides → workspace-level overrides → registry defaults) is
+implemented exclusively in TypeScript:
+
+- `server/services/billing/index.ts` (plan lookup, free-plan fallback)
+- `server/middleware/featureGating.ts` (`requireLimit`)
+- `server/services/billing/usageResolvers.ts` (usage side)
+- `server/services/calls/entitlementComposer.ts` (call-surface composer)
+
+There is **no equivalent in SQL**. Migrations contain no
+`effective_limit(...)` / `resolve_entitlement(...)` SQL function and no
+view that produces a single composed `max_contacts` value per
+workspace.
+
+To enforce `max_contacts` inside `create_contact` /
+`bulk_create_contacts`, the RPC would need to compute that value. Each
+option violates a non-negotiable rule:
+
+| Option | Violates |
+| --- | --- |
+| Reimplement plan + subscription + workspace-override resolution in PL/pgSQL | "هیچ second source of truth"; `docs/ENTITLEMENT_ARCHITECTURE.md` invariant that the composer is single-sourced. |
+| Have the RPC call Express over HTTP from inside Postgres | DB→HTTP egress is not an approved architecture; brittle, hard to audit, opaque to the composer. |
+| Move the chokepoint to a new Express contacts route and migrate the UI off PostgREST | "هیچ redesign برای … PostgREST architecture"; out of phase scope. |
+
+Therefore the canonical, bypass-safe, single-chokepoint check that the
+approval requires cannot be built in this phase without either
+splitting the composer or doing redesign work that the same approval
+explicitly forbids.
+
+### Why revoke alone is not enough
+
+`REVOKE INSERT ON public.contacts FROM authenticated` would close the
+browser-side bypass and make the RPCs the only authenticated write
+path. But on its own it does **not** enforce a numeric limit — it only
+narrows the surface. Issuing the revoke without a real, canonical
+enforcement consumer in the same phase would:
+
+- promote `max_contacts` semantics into operator-visible plan UI while
+  the value remains unenforced (advertised-but-not-enforced — the
+  exact failure mode the approval forbids), or
+- couple the revoke to a non-canonical check inside the RPC (the
+  composer-splitting path above).
+
+Both outcomes are strictly worse than the current state, which has a
+single canonical creation chokepoint at the RPC layer and an honest
+"deferred" status on the limit.
+
+### Decisions locked in this phase (for the eventual promotion phase)
+
+These decisions are recorded so a future approved phase does not have
+to relitigate them:
+
+- **Counting model**: live exact count, scoped by `workspace_id`,
+  evaluated at the canonical enforcement point. No counter table, no
+  second metric.
+- **Bulk import semantics**: **all-or-nothing per `bulk_create_contacts`
+  call**. If the post-insert count would exceed `max_contacts`, the
+  entire batch is rejected with a structured error and zero rows
+  inserted. Justification: matches existing `requireLimit(...)`
+  semantics, avoids partial-success ambiguity inside a SECURITY
+  DEFINER context, and produces a deterministic, machine-readable
+  result (`{ inserted: 0, error: 'limit_exceeded', limit, current }`)
+  that the import wizard can surface without a second counting path.
+- **Free-on-delete**: hard delete of a `public.contacts` row
+  immediately frees one unit of capacity. No grace period, no soft
+  delete accounting.
+- **Non-consuming operations**: edit, tag changes, note changes,
+  attachments, and read operations do not consume capacity.
+- **Internal flows**: service-role internal flows (privacy export
+  anonymizer, widget identity merges, AI agent intro/spam-guard
+  reads) are not user-driven create paths and do not bypass the limit
+  by design — they either do not insert or they collapse existing
+  rows. Any future internal flow that needs to insert MUST route
+  through the same RPC (which `service_role` already has `EXECUTE`
+  on) so a single check governs all create paths.
+
+### What was NOT changed in this phase
+
+- `CAPABILITY_REGISTRY` — no `max_contacts` entry added.
+- `USAGE_BACKED_LIMIT_KEYS` / `usageResolvers.ts` — no resolver added.
+- `create_contact` / `bulk_create_contacts` — no enforcement clause
+  added; no migration created.
+- `public.contacts` GRANTs — `INSERT` for `authenticated` is **not**
+  revoked. Doing so without a canonical consumer would only narrow
+  the surface, not deliver the limit, and would risk masking the
+  composer-split problem.
+- No SQL-side effective-limit resolver introduced.
+- No UI soft check introduced.
+- No second counter, second enforcement path, or parallel
+  architecture introduced.
+
+### Unblock checklist (single canonical path; in order)
+
+The single architecturally-sound unblock path is to keep the composer
+in TypeScript and route the create chokepoint through it:
+
+1. Add a TypeScript resolver `resolveMaxContacts` (live `count(*)`
+   via the service-role client, scoped by `workspace_id`) and
+   register it in `usageResolvers.ts` + `USAGE_BACKED_LIMIT_KEYS`.
+2. Add `max_contacts` to `CAPABILITY_REGISTRY` (group: `contacts`,
+   type: `limit`, unit: `count`, occupancy semantics).
+3. Introduce a thin Express endpoint
+   (`POST /api/workspaces/:id/contacts` and `.../contacts/bulk`) that
+   runs `requireLimit('max_contacts', usageFnForLimit('max_contacts'))`
+   and then invokes `create_contact` / `bulk_create_contacts` via
+   the service-role client. The RPCs remain the DB chokepoint; the
+   Express route is the composer chokepoint.
+4. Migrate `useCreateContact` / `useBulkCreateContacts` to call the
+   new Express endpoints (replacing the direct `supabase.rpc(...)`
+   calls). UI surface unchanged.
+5. Only after (1)–(4): `REVOKE INSERT ON public.contacts FROM
+   authenticated;` AND `REVOKE EXECUTE ON FUNCTION create_contact /
+   bulk_create_contacts FROM authenticated;` so the Express route is
+   the only authenticated create path.
+6. Add tests: below-limit success, at-limit denial, bulk all-or-
+   nothing rejection, registry/diagnostics alignment, and a closed-
+   bypass assertion (direct PostgREST insert / direct RPC call from
+   an authenticated JWT both fail).
+
+Step (3)+(4) is a UI/architecture change and was therefore outside
+the bounds of the current approval. It is the only path that
+satisfies all four invariants simultaneously: real consumer,
+bypass-safe, single canonical chokepoint, no parallel architecture.
+
 ## Phase re-audit (Max Contacts Promotion + Enforcement — RPC-Only Pass)
 
 Re-evaluated whether `max_contacts` can now be promoted to a real

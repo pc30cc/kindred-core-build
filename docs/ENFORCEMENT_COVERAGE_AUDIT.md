@@ -193,3 +193,43 @@ unchanged across rollouts. No global admin short-circuit was added to
    `EXECUTE ON create_contact / bulk_create_contacts FROM authenticated`.
    No SQL-side entitlement composer was introduced. Update / delete /
    tags / notes flows remain direct PostgREST and are out of scope.
+
+---
+
+## Workspace-Level Limit Overrides — Cross-cutting pass (2026-06-21)
+
+Closed the long-standing gap where usage-backed numeric limits were
+plan-only. New canonical resolution path:
+
+```
+workspace_limit_overrides[ws][key]  →  billing_plans.limits[key]  →  registry.default
+```
+
+**Implementation:** `public.check_workspace_entitlement` (the single
+RPC every TypeScript enforcement consumer reaches via
+`checkEntitlementFromDB`) now consults `public.workspace_limit_overrides`
+before the plan JSONB. Because every usage-backed limit consumer
+already routes through `requireLimit(...)` → `checkEntitlementFromDB`
+→ this RPC, override support is automatic for:
+
+- `max_conversations`
+- `max_visitors`
+- `storage_gb`
+- `ai_kb_jobs_per_month`
+- `ai_credits_per_month` (also via `deduct_ai_credits`, which itself
+  calls `check_workspace_entitlement`)
+- `max_contacts`
+
+The `-1` unlimited sentinel and all fail-closed branches are preserved.
+The diagnostics endpoint `GET /api/plans/workspace/:id/effective` now
+stamps `source: 'override' | 'plan' | 'default'` on every limit and
+reads the same overrides table — diagnostics, effective-state, and
+enforcement therefore agree by construction.
+
+Admin surface (additive, no rename): `POST /api/plans/admin/overrides/limit`,
+`DELETE /api/plans/admin/overrides/limit/:id`, and the existing
+`GET /api/plans/admin/overrides/:workspaceId` now also returns `limits`.
+Registry guardrails: only keys with `type === 'limit'` and
+`workspaceOverridable !== false` are accepted.
+
+See [USAGE_LIMIT_OVERRIDE_MODEL.md](./USAGE_LIMIT_OVERRIDE_MODEL.md).

@@ -1,6 +1,8 @@
 # Entitlement Architecture
 
-_Last updated: 2026-06-19_
+_Last updated: 2026-06-21. Status: **CORE COMPLETE** — see
+[PLANS_SYSTEM_HANDOFF.md](./PLANS_SYSTEM_HANDOFF.md) for the maintainer
+entry point._
 
 This document describes how plan capabilities, feature gating, module/channel access, and numeric limits flow through the platform. It is the companion to the **Capability Registry** at `server/services/billing/capabilityRegistry.ts`.
 
@@ -107,11 +109,18 @@ The canonical resolver is the SQL RPC `public.check_workspace_entitlement`, whic
 
 ---
 
-## 8. Out of scope (intentionally deferred)
+## 8. Intentionally deferred (recorded, not core blockers)
 
 - Migrating legacy unknown keys discovered by `/admin/diagnostics`.
-- Registry-aware admin plan editor UI rewrite.
 - Reconciling the free/paid plan seed JSON with the registry.
+- Broader call-route enforcement (see `ENFORCEMENT_COVERAGE_AUDIT.md` §3).
+- Splitting `email.ts` into platform/auth vs channel-email before gating.
+
+Optional polish that is **not** unfinished plans work — usage history
+charts, upgrade-recommendation UX, override audit log surfacing,
+`max_contacts` live occupancy on the customer payload, bulk-edit limit
+overrides, unifying the three override tables — is listed in
+[PLANS_SYSTEM_HANDOFF.md](./PLANS_SYSTEM_HANDOFF.md) §4.
 
 ---
 
@@ -131,79 +140,49 @@ for the runtime control plane in `server/services/calls/controlPlane.ts`.
 Effective state = `plan AND control_plane.enabled AND <feature>_enabled_global AND workspace_override`.
 The canonical composer is `server/services/calls/entitlementComposer.ts`
 (`composeCallEntitlements` pure / `loadEffectiveCallEntitlements` async).
-No call route is gated on it yet. See
+`POST /api/callInvitations` is gated on it (channel-scoped). All other
+call routes remain intentionally deferred. See
 `docs/CALL_ENTITLEMENT_COMPOSITION.md` for the per-surface table and
 `docs/CALL_SURFACES_PLAN_MODEL.md` for the registry mapping.
 
-## 10. Contacts surface (plan modeling, no enforcement yet)
+## 10. Contacts surface — final state
 
-The Contacts directory is now plan-shaped through the central registry
-so Super Admin can toggle Contacts capabilities per plan exactly like
-Call Center / Voice & Video / AI.
+The Contacts directory is plan-shaped through the central registry:
 
-- Plan-level module: `contacts` (default `true` — directory is on by default).
-- Plan-level features (group: `contacts`): `contact_import`,
-  `contact_export`, `contact_tags`, `contact_notes`,
-  `bulk_contact_actions`.
-- No numeric Contacts limits are added in this phase. The legacy
-  `contacts` numeric key in `billing_plans.limits` seed JSON is
-  intentionally NOT promoted to the registry — there is no usage
-  resolver for it and no enforcement consumer exists yet.
-- No Contacts route is gated on these keys yet. See
-  `docs/CONTACTS_PLAN_MODEL.md` for the per-surface mapping and the
-  candidate enforcement boundaries deferred to a later phase.
-- `max_contacts` is **not** in the registry. The contacts creation
-  boundary is PostgREST (not Express), so the only safe enforcement
-  options are a BEFORE-INSERT trigger or SECURITY DEFINER RPC on
-  `public.contacts`. Both require explicit approval and are deferred.
-  Locked semantics and the readiness audit live in
-  `docs/CONTACTS_LIMIT_POLICY.md`. The invariant that every registry
-  limit key has a real enforcement consumer is preserved.
-- Update (Max Contacts Promotion + Enforcement — RPC-Only pass):
-  the create/import RPCs (`public.create_contact`,
-  `public.bulk_create_contacts`) now exist as the UI's chokepoint, but
-  `max_contacts` is **still not promoted**. Reconfirmed blockers:
-  (1) `authenticated` retains direct DML on `public.contacts`, making
-  any in-RPC check bypassable; (2) there is no SQL-side entitlement
-  composer — adding one inside the RPC would create a second source of
-  truth for `billing_plans.limits` / `workspace_subscriptions`
-  resolution, which this document forbids. The invariant "one canonical
-  composition layer" is preserved by deferring rather than splitting.
-- Update (Max Contacts Promotion + Enforcement — TS-First Canonical
-  Path pass): `max_contacts` is now **promoted and enforced** through
-  the canonical TypeScript stack, without introducing any SQL-side
-  composer. The chokepoint is a thin Express boundary
-  (`POST /api/contacts`, `POST /api/contacts/bulk`) that runs
-  `requireLimit('max_contacts', usageFnForLimit('max_contacts'))`
-  before inserting via the service-role client. The bypass is closed
-  (revoked `INSERT ON public.contacts` and `EXECUTE` on the legacy
-  RPCs from `authenticated`). The invariant "one canonical composition
-  layer in TypeScript" is preserved — the Express boundary uses the
-  same `checkEntitlementFromDB` + resolver path as
-  `max_conversations`, `max_visitors`, `storage_gb`, etc.
+- Module: `contacts` (default `true`).
+- Features (group: `contacts`): `contact_import`, `contact_export`,
+  `contact_tags`, `contact_notes`, `bulk_contact_actions`.
+- Limit: `max_contacts` — promoted, registry-declared, usage-resolved
+  via a live `count(*)`, and enforced through the canonical TypeScript
+  stack at `POST /api/contacts` and `POST /api/contacts/bulk`.
+  `INSERT ON public.contacts` and `EXECUTE` on the legacy RPCs are
+  revoked from `authenticated`, closing the bypass. No SQL-side
+  composer was introduced.
 
-- Update (Super Admin Limit Override UI Completion — operability
-  pass): The Workspace Console in `PlansPage.tsx` is now the canonical
-  admin surface for workspace-level numeric limit overrides. It reuses
-  the existing additive endpoints
-  (`POST/DELETE /api/plans/admin/overrides/limit`) and the
-  registry-driven rendering model — no second admin surface, no
-  client-side resolver, no key/route/schema rename. Override mutations
-  are followed by a reload of `GET
-  /api/plans/workspace/:id/effective`, so the UI's effective value and
-  `source` badge always match the same payload enforcement consumes.
+Update / delete / tag / note flows remain direct PostgREST and are
+intentionally out of scope. See `docs/CONTACTS_PLAN_MODEL.md` and
+`docs/CONTACTS_LIMIT_POLICY.md` for full details.
 
-- Update (Customer-Facing Usage / Billing Visibility — product
-  completion pass): `src/pages/app/BillingPage.tsx` now defaults to a
-  new **Plan & Usage** tab rendered by
-  `src/components/billing/PlanUsagePanel.tsx`. The panel is read-only
-  and consumes the canonical `GET
-  /api/plans/workspace/:id/effective` payload plus the registry
-  catalog (`userVisible` only). Source badges (`plan` / `override` /
-  `default`) are informational; Super Admin override controls remain
-  exclusively in `PlansPage.tsx`. No backend route, capability key,
-  schema, or env was changed; no second entitlement model was created
-  in the browser. Limits without a canonical counter on the customer
-  payload (e.g. `max_contacts`) render an explicit
-  "usage not tracked in this view" notice instead of fabricated math.
-  See `docs/CUSTOMER_USAGE_VISIBILITY.md`.
+## 11. Workspace-level limit overrides — final state
+
+Numeric limits resolve through:
+
+    workspace_limit_overrides[ws][key] → billing_plans.limits[key] → registry.default
+
+`public.check_workspace_entitlement` consults
+`public.workspace_limit_overrides` before plan JSONB, so every consumer
+routed through `requireLimit` automatically honours overrides. The
+aggregated `GET /api/plans/workspace/:id/effective` payload stamps
+`source: 'override' | 'plan' | 'default'` on every limit; the Super
+Admin Workspace Console and the customer-facing Plan & Usage panel both
+render that exact payload. Mutation lives only in `PlansPage.tsx`.
+
+## 12. Customer-facing visibility — final state
+
+`/app/billing` defaults to a read-only **Plan & Usage** tab
+(`src/components/billing/PlanUsagePanel.tsx`) that consumes the same
+effective-state payload as enforcement, filtered to `userVisible`
+capabilities. `-1` renders as `Unlimited`. Limits without a canonical
+counter on the customer payload render a "not tracked in this view"
+notice instead of fabricated math. No mutation surface exists in the
+customer UI. See `docs/CUSTOMER_USAGE_VISIBILITY.md`.

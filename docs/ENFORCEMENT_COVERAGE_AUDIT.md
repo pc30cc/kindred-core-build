@@ -1,5 +1,10 @@
 # Enforcement Coverage Audit
 
+_Last updated: 2026-06-21. Status: **CORE COMPLETE** — see
+[PLANS_SYSTEM_HANDOFF.md](./PLANS_SYSTEM_HANDOFF.md). Items below remain
+as the per-route source of truth for which surfaces are gated, deferred,
+or intentionally ungated._
+
 This audit classifies every plan-relevant backend route surface and records
 exactly which middleware (`requireFeature`, `requireModule`, `requireChannel`,
 `requireAICredits`, `requireLimit`) is — or is intentionally not — applied.
@@ -128,71 +133,20 @@ unchanged across rollouts. No global admin short-circuit was added to
    `max_conversations`, `callWidget.ts` ensure-session for
    `max_visitors`, operator-assist credit wiring) — see the per-limit
    policy docs.
-5. Contacts surface is now plan-modeled (`contacts` module +
-   `contact_import` / `contact_export` / `contact_tags` /
-   `contact_notes` / `bulk_contact_actions` features). The create/import
-   boundary is now realized as two SECURITY DEFINER RPCs —
-   `public.create_contact` and `public.bulk_create_contacts` — both
-   verifying `auth.uid()` and `is_workspace_member`. UI hooks
-   `useCreateContact` and `useBulkCreateContacts` route through these
-   RPCs. Direct `INSERT` GRANT on `public.contacts` is intentionally
-   left in place for backward compatibility; revoke is deferred to a
-   future, explicitly approved phase.
-
-   `max_contacts` itself remains **deferred**: it is not in the
-   registry, has no resolver, and is not enforced. The RPC chokepoint
-   is the future home for that check. Semantics remain locked
-   (current-occupancy row count, workspace-scoped) in
+5. **Contacts (final state).** Contacts is plan-modeled (`contacts`
+   module + `contact_import` / `contact_export` / `contact_tags` /
+   `contact_notes` / `bulk_contact_actions` features) and `max_contacts`
+   is promoted and enforced through the canonical TypeScript stack at
+   `POST /api/contacts` and `POST /api/contacts/bulk`
+   (`requireLimit('max_contacts', usageFnForLimit('max_contacts'))`).
+   `resolveMaxContacts` lives in `usageResolvers.ts`; the route helper
+   is `server/services/billing/contactsLimit.ts`. Bypass is closed:
+   `INSERT ON public.contacts` and `EXECUTE ON create_contact /
+   bulk_create_contacts` are revoked from `authenticated`. No SQL-side
+   entitlement composer was introduced. Update / delete / tag / note
+   flows remain direct PostgREST and are intentionally out of scope.
+   Counting model and bulk all-or-nothing semantics are recorded in
    `docs/CONTACTS_LIMIT_POLICY.md`.
-
-   Re-audited again in the Max Contacts Promotion + Enforcement —
-   RPC-Only pass. **Still deferred.** Two independent blockers:
-   (a) `authenticated` retains direct DML on `public.contacts`
-   (verified via `pg_class.relacl`), so an in-RPC check is bypassable
-   by `supabase.from('contacts').insert(...)`; (b) there is no SQL-side
-   entitlement composer, and adding one inside the RPC would split the
-   canonical composer between TypeScript and PL/pgSQL — explicitly
-   forbidden by `docs/ENTITLEMENT_ARCHITECTURE.md`. Semantics, counting
-   model (live `count(*)`), bulk-import policy (all-or-nothing per
-   batch), and service-role policy (no bypass — internal flows route
-   through the same RPC) are recorded in `docs/CONTACTS_LIMIT_POLICY.md`
-   for the eventual promotion phase.
-
-   Re-audited a third time in the Max Contacts Promotion + Enforcement —
-   DB-first strict pass (with `REVOKE INSERT FROM authenticated`
-   pre-approved if required). **Still deferred.** Blocker (a) is now
-   removable by approval, but blocker (b) stands on its own: there is
-   no canonical SQL-side entitlement composer, and the only paths to
-   build one in this phase either split the composer (PL/pgSQL
-   reimplementation), introduce DB→HTTP egress, or require a UI/
-   PostgREST redesign that the same approval explicitly forbids.
-   Issuing the revoke without a canonical consumer in the same phase
-   would only narrow the surface and produce advertised-but-not-
-   enforced semantics — strictly worse than the current state. No
-   registry, resolver, schema, or grant changes were made. The single
-   architecturally-sound unblock path (TypeScript resolver + thin
-   Express create endpoint in front of the existing RPCs + revoke,
-   keeping the composer single-sourced) is recorded as the unblock
-   checklist in `docs/CONTACTS_LIMIT_POLICY.md`.
-
-   Re-audited a fourth time in the Max Contacts Promotion + Enforcement —
-   TS-First Canonical Path pass. **Promoted and enforced.** The unblock
-   checklist was executed: `resolveMaxContacts` (live `count(*)`) was
-   added to `usageResolvers.ts`; `max_contacts` was added to
-   `CAPABILITY_REGISTRY` and `USAGE_BACKED_LIMIT_KEYS`; a single helper
-   `server/services/billing/contactsLimit.ts` exposes
-   `enforceMaxContactsCreate` (single create) and
-   `assertContactsBatchFits` (bulk all-or-nothing); a thin Express
-   chokepoint `server/routes/contacts.ts` (`POST /api/contacts` and
-   `POST /api/contacts/bulk`) authenticates, checks membership, and
-   gates create/import through the existing TypeScript composer
-   (`requireLimit` / `checkEntitlementFromDB`); UI hooks
-   `useCreateContact` and `useBulkCreateContacts` were retargeted to
-   the new endpoints; and the bypass was closed by revoking
-   `INSERT ON public.contacts FROM authenticated` and
-   `EXECUTE ON create_contact / bulk_create_contacts FROM authenticated`.
-   No SQL-side entitlement composer was introduced. Update / delete /
-   tags / notes flows remain direct PostgREST and are out of scope.
 
 ---
 

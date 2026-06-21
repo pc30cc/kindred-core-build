@@ -217,7 +217,7 @@ export default function BillingPage() {
         </Card>
       )}
 
-      <Tabs defaultValue="plans">
+      <Tabs defaultValue="usage">
         <TabsList>
           <TabsTrigger value="usage">{locale === 'fa' ? 'پلن و مصرف' : locale === 'tr' ? 'Plan ve Kullanım' : 'Plan & Usage'}</TabsTrigger>
           <TabsTrigger value="plans">{locale === 'fa' ? 'پلن‌ها' : locale === 'tr' ? 'Planlar' : 'Plans'}</TabsTrigger>

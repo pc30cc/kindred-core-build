@@ -87,10 +87,13 @@ Boolean `feature`:
 
 `limit`:
 
-    effective_limit = plan ?? registry.default
+    effective_limit = workspace_limit_override ?? plan ?? registry.default
     blocked = effective_limit !== -1 && usage >= effective_limit
 
 Aggregation lives in `GET /api/plans/workspace/:id/effective` so frontends do not re-implement it.
+The canonical resolver is the SQL RPC `public.check_workspace_entitlement`, which now consults
+`public.workspace_limit_overrides` before the plan limits JSONB. See
+[USAGE_LIMIT_OVERRIDE_MODEL.md](./USAGE_LIMIT_OVERRIDE_MODEL.md) for full precedence and admin-API details.
 
 ---
 

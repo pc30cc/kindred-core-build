@@ -136,18 +136,40 @@ export async function deleteWorkspaceChannelOverride(id: string) {
   return res.json();
 }
 
+/** Set or clear a workspace numeric limit override (Super Admin).
+ *  `limitValue` of -1 means unlimited; >= 0 caps the limit. */
+export async function setWorkspaceLimitOverride(input: {
+  workspaceId: string; limitKey: string; limitValue: number; adminNotes?: string;
+}) {
+  const res = await fetch(`${API_BASE}/api/plans/admin/overrides/limit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(`Override failed: ${res.status}`);
+  return res.json();
+}
+
+export async function deleteWorkspaceLimitOverride(id: string) {
+  const res = await fetch(`${API_BASE}/api/plans/admin/overrides/limit/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`Delete override failed: ${res.status}`);
+  return res.json();
+}
+
 export interface WorkspaceOverrideRow {
   id: string;
   workspace_id: string;
-  enabled: boolean;
+  enabled?: boolean;
   admin_notes?: string | null;
   module_key?: string;
   channel_key?: string;
+  limit_key?: string;
+  limit_value?: number;
 }
 
 /** List existing module + channel overrides for a workspace (Super Admin). */
 export async function fetchWorkspaceOverrides(workspaceId: string) {
-  return get<{ modules: WorkspaceOverrideRow[]; channels: WorkspaceOverrideRow[] }>(
+  return get<{ modules: WorkspaceOverrideRow[]; channels: WorkspaceOverrideRow[]; limits: WorkspaceOverrideRow[] }>(
     `/api/plans/admin/overrides/${workspaceId}`,
   );
 }

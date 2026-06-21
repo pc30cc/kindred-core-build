@@ -89,9 +89,10 @@ plansRouter.get('/workspace/:workspaceId/effective', async (req, res) => {
 
     // Pull overrides + current-period usage in parallel.
     const currentPeriod = new Date().toISOString().slice(0, 7);
-    const [{ data: moduleOverrides }, { data: channelOverrides }, { data: usage }] = await Promise.all([
+    const [{ data: moduleOverrides }, { data: channelOverrides }, { data: limitOverrides }, { data: usage }] = await Promise.all([
       supabase.from('workspace_module_overrides').select('*').eq('workspace_id', workspaceId),
       supabase.from('workspace_channel_overrides').select('*').eq('workspace_id', workspaceId),
+      supabase.from('workspace_limit_overrides').select('*').eq('workspace_id', workspaceId),
       supabase.from('workspace_usage_counters').select('*').eq('workspace_id', workspaceId).eq('period', currentPeriod).maybeSingle(),
     ]);
 
@@ -100,6 +101,9 @@ plansRouter.get('/workspace/:workspaceId/effective', async (req, res) => {
     );
     const channelOverrideMap = new Map<string, { enabled: boolean; admin_notes?: string | null }>(
       (channelOverrides || []).map((o: any) => [o.channel_key, { enabled: o.enabled, admin_notes: o.admin_notes }]),
+    );
+    const limitOverrideMap = new Map<string, { value: number; admin_notes?: string | null }>(
+      (limitOverrides || []).map((o: any) => [o.limit_key, { value: o.limit_value, admin_notes: o.admin_notes }]),
     );
 
     const planEntitlements = info.entitlements || {};
@@ -126,7 +130,9 @@ plansRouter.get('/workspace/:workspaceId/effective', async (req, res) => {
         else if (cap.key in planEntitlements) channels[cap.key] = { value: !!planEntitlements[cap.key], source: 'plan' };
         else channels[cap.key] = { value: !!cap.defaultValue, source: 'default' };
       } else if (cap.type === 'limit') {
-        if (cap.key in planLimits) limits[cap.key] = { value: planLimits[cap.key] as number, source: 'plan', unit: cap.unit };
+        const ov = limitOverrideMap.get(cap.key);
+        if (ov) limits[cap.key] = { value: ov.value, source: 'override', unit: cap.unit, note: ov.admin_notes ?? null };
+        else if (cap.key in planLimits) limits[cap.key] = { value: planLimits[cap.key] as number, source: 'plan', unit: cap.unit };
         else limits[cap.key] = { value: cap.defaultValue as number | null, source: 'default', unit: cap.unit };
       }
     }
@@ -382,12 +388,13 @@ plansRouter.get('/admin/overrides/:workspaceId', async (req, res) => {
   const supabase = createClient(url, key);
   const { workspaceId } = req.params;
 
-  const [{ data: modules }, { data: channels }] = await Promise.all([
+  const [{ data: modules }, { data: channels }, { data: limits }] = await Promise.all([
     supabase.from('workspace_module_overrides').select('*').eq('workspace_id', workspaceId),
     supabase.from('workspace_channel_overrides').select('*').eq('workspace_id', workspaceId),
+    supabase.from('workspace_limit_overrides').select('*').eq('workspace_id', workspaceId),
   ]);
 
-  res.json({ modules: modules || [], channels: channels || [] });
+  res.json({ modules: modules || [], channels: channels || [], limits: limits || [] });
 });
 
 plansRouter.post('/admin/overrides/module', async (req, res) => {
@@ -447,6 +454,51 @@ plansRouter.delete('/admin/overrides/channel/:id', async (req, res) => {
   const { url, key } = getConfig(req);
   const supabase = createClient(url, key);
   const { error } = await supabase.from('workspace_channel_overrides').delete().eq('id', req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
+  clearEntitlementCache();
+  res.json({ success: true });
+});
+
+// ─── Limit overrides (usage-backed numeric limits) ────────────────────
+plansRouter.post('/admin/overrides/limit', async (req, res) => {
+  const { url, key } = getConfig(req);
+  const supabase = createClient(url, key);
+  const { workspaceId, limitKey, limitValue, adminNotes } = req.body || {};
+
+  if (!workspaceId || !limitKey || typeof limitValue !== 'number' || !Number.isFinite(limitValue) || !Number.isInteger(limitValue)) {
+    return res.status(400).json({ error: 'workspaceId, limitKey and integer limitValue are required' });
+  }
+
+  // Guardrail: only allow keys that are actually limits in the registry.
+  const cap = CAPABILITY_REGISTRY.find((c) => c.key === limitKey && c.type === 'limit');
+  if (!cap) return res.status(400).json({ error: `Unknown limit key: ${limitKey}` });
+  if (cap.workspaceOverridable === false) {
+    return res.status(400).json({ error: `Limit '${limitKey}' is not workspace-overridable` });
+  }
+  // -1 means unlimited; otherwise must be >= 0.
+  if (limitValue < -1) return res.status(400).json({ error: 'limitValue must be -1 (unlimited) or >= 0' });
+
+  const { data, error } = await supabase
+    .from('workspace_limit_overrides')
+    .upsert({
+      workspace_id: workspaceId,
+      limit_key: limitKey,
+      limit_value: limitValue,
+      admin_notes: adminNotes || null,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'workspace_id,limit_key' })
+    .select()
+    .single();
+
+  if (error) return res.status(500).json({ error: error.message });
+  clearEntitlementCache(workspaceId);
+  res.json({ override: data });
+});
+
+plansRouter.delete('/admin/overrides/limit/:id', async (req, res) => {
+  const { url, key } = getConfig(req);
+  const supabase = createClient(url, key);
+  const { error } = await supabase.from('workspace_limit_overrides').delete().eq('id', req.params.id);
   if (error) return res.status(500).json({ error: error.message });
   clearEntitlementCache();
   res.json({ success: true });

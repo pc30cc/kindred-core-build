@@ -99,9 +99,10 @@ export async function getDepartment(
 }
 
 // ── Department mutations: management_moved ─────────────────────────────────
-export async function createDepartment(): Promise<never> { throw MANAGEMENT_MOVED; }
-export async function updateDepartment(): Promise<never> { throw MANAGEMENT_MOVED; }
-export async function deleteDepartment(): Promise<never> { throw MANAGEMENT_MOVED; }
+// Accept any args so existing callers still type-check; runtime always throws.
+export async function createDepartment(..._args: unknown[]): Promise<never> { throw MANAGEMENT_MOVED; }
+export async function updateDepartment(..._args: unknown[]): Promise<never> { throw MANAGEMENT_MOVED; }
+export async function deleteDepartment(..._args: unknown[]): Promise<never> { throw MANAGEMENT_MOVED; }
 
 // ── Department agents (canonical workspace_department_members) ────────────
 export async function listDepartmentAgents(
@@ -130,9 +131,9 @@ export async function listDepartmentAgents(
   }));
 }
 
-export async function addDepartmentAgent(): Promise<never> { throw MANAGEMENT_MOVED; }
-export async function updateDepartmentAgent(): Promise<never> { throw MANAGEMENT_MOVED; }
-export async function removeDepartmentAgent(): Promise<never> { throw MANAGEMENT_MOVED; }
+export async function addDepartmentAgent(..._args: unknown[]): Promise<never> { throw MANAGEMENT_MOVED; }
+export async function updateDepartmentAgent(..._args: unknown[]): Promise<never> { throw MANAGEMENT_MOVED; }
+export async function removeDepartmentAgent(..._args: unknown[]): Promise<never> { throw MANAGEMENT_MOVED; }
 
 // ── Agent presence (unchanged — Call Center owned) ────────────────────────
 export async function getAgentPresence(config: ServerConfig, workspaceId: string) {

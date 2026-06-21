@@ -1204,7 +1204,13 @@ aiAgentRouter.post('/qna/:id/reindex', async (req: Request, res: Response) => {
 // ─── POST /generate-business-description ───
 const genDescSchema = z.object({ workspaceId: z.string().uuid() });
 
-aiAgentRouter.post('/generate-business-description', async (req: Request, res: Response) => {
+// Phase: AI Agent route audit + selective gating.
+// This is a brand-new optional generate action that calls a real AI completion.
+// It does not operate on any existing in-progress run/job. Owner/admin auth
+// remains enforced in-handler. Adding `requireModule('ai_assistant')` makes
+// plan/override changes take effect uniformly without stranding any in-flight
+// work.
+aiAgentRouter.post('/generate-business-description', requireModule('ai_assistant'), async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
   const parsed = genDescSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });

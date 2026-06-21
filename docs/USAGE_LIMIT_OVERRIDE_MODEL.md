@@ -100,3 +100,29 @@ upsert/delete, identical to the module/channel override path.
   (overrides are intentionally rare).
 * Module/channel/feature override remain on their respective tables;
   unification with limit overrides is out of scope.
+## Super Admin UI Operability (final pass)
+
+The Super Admin Plans page (`src/pages/admin/PlansPage.tsx` →
+`WorkspaceConsole`) is now the canonical admin surface for
+workspace-level numeric limit overrides. The Limits block in the
+Workspace Effective Entitlements console renders one row per registry
+limit and exposes:
+
+* the resolved effective value with the `override | plan | default`
+  source badge (read from the same backend payload enforcement uses)
+* an inline integer input + **Set / Update** button that calls
+  `setWorkspaceLimitOverride` (canonical `POST
+  /api/plans/admin/overrides/limit`)
+* a **Clear** button on override rows that calls
+  `deleteWorkspaceLimitOverride` (canonical `DELETE
+  /api/plans/admin/overrides/limit/:id`)
+* `-1` is accepted and rendered as `∞ (unlimited)` on the resolved
+  side; non-integer / `< -1` input is rejected client-side before
+  submit (backend validation remains the final authority)
+* after every mutation the effective payload is reloaded so the UI
+  source/value always reflects backend truth — there is no
+  client-side override resolver
+
+The override id + value used by Clear come from `fetchWorkspaceOverrides`,
+which already returns the `limits` array. No second override model
+exists in the browser.

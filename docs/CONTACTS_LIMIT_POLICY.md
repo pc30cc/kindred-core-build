@@ -1,9 +1,76 @@
 # Contacts Limit Policy (`max_contacts`) — Readiness Audit
 
-Status: **`max_contacts` still deferred — not added to the capability registry,
-not enforced. The create/import boundary now exists as DB-side SECURITY
-DEFINER RPCs and is wired up in the UI, ready to host the limit when it
-is promoted in a follow-up phase.**
+Status: **`max_contacts` is now PROMOTED and ENFORCED via a canonical
+TypeScript-first chokepoint.** The browser-side bypass is closed: direct
+`INSERT` on `public.contacts` is revoked from `authenticated`, and direct
+`EXECUTE` on `create_contact` / `bulk_create_contacts` is revoked from
+`authenticated`. The single canonical create/import path is now
+`POST /api/contacts` and `POST /api/contacts/bulk` on the self-hosted
+Express server.
+
+## Phase outcome (Max Contacts Promotion + Enforcement — TS-First Canonical Path)
+
+The earlier blockers (no SQL composer, browser-side INSERT bypass) were
+resolved in this phase WITHOUT introducing a SQL-side composer. The
+chosen path keeps the entitlement composer canonical in TypeScript and
+moves the create/import boundary into Express:
+
+- **Canonical TS chokepoint**: `server/routes/contacts.ts` exposes
+  `POST /api/contacts` (single) and `POST /api/contacts/bulk` (import).
+  Both routes:
+  1. Verify the Bearer token resolves to a Supabase user.
+  2. Verify membership via `is_workspace_member` RPC.
+  3. Compose entitlements + enforce `max_contacts` through the existing
+     TypeScript stack (`requireLimit` / `checkEntitlementFromDB` +
+     `usageFnForLimit('max_contacts')`).
+  4. Insert via the service-role client.
+- **Single helper**: `server/services/billing/contactsLimit.ts` exposes
+  `enforceMaxContactsCreate` (single) and `assertContactsBatchFits`
+  (bulk all-or-nothing). It is the only import seam between the route
+  and the cap, so a single canonical check governs both flows.
+- **Resolver**: `resolveMaxContacts` in
+  `server/services/billing/usageResolvers.ts` performs a live
+  `count(*)` on `public.contacts` scoped by `workspace_id`. No counter
+  table, no second source of truth.
+- **Registry**: `max_contacts` is added to `CAPABILITY_REGISTRY`
+  (`group: contacts`, `type: limit`, `unit: count`, `defaultValue: 100`)
+  and to `USAGE_BACKED_LIMIT_KEYS`. `normalizePlanLimitsForCreate` will
+  populate it on new plans going forward.
+- **Bypass closed**: migration revokes
+  `INSERT ON public.contacts FROM authenticated` and
+  `EXECUTE ON create_contact / bulk_create_contacts FROM authenticated`.
+  The two legacy RPCs are retained for service-role use only; no UI
+  path calls them.
+- **UI migration**: `useCreateContact` / `useBulkCreateContacts` in
+  `src/hooks/useContacts.ts` now call the new Express endpoints via
+  `src/lib/contacts-api.ts`. The component surface is unchanged.
+- **Bulk semantics**: all-or-nothing. If `current + batchSize > limit`
+  the entire batch is rejected with
+  `{ error: 'limit_exceeded', limit, used, requested, inserted: 0 }`
+  and zero rows are inserted. Matches the documented policy.
+
+### What remains direct PostgREST
+
+- `useUpdateContact` / `useDeleteContact` / `useBulkDeleteContacts`
+  remain direct PostgREST calls. They are out of scope for the
+  enforcement boundary (deletion frees capacity; edits/tags/notes do
+  not consume).
+- `SELECT` on `public.contacts` for `authenticated` is unchanged.
+
+### Tests
+
+`src/test/billing/contactsLimitHelper.test.ts` covers:
+- below-limit single create succeeds,
+- at-limit single create denied with 403,
+- bulk batch fits,
+- unlimited (-1) plans always pass bulk,
+- bulk batch rejected as all-or-nothing with structured payload,
+- feature-not-on-plan denial,
+- zero-size batch short-circuits,
+- missing workspace_id → 400.
+
+The earlier deferral discussion is preserved below for archaeological
+context.
 
 ## Phase re-audit (Max Contacts Promotion + Enforcement — DB-first strict pass, with revoke approved)
 

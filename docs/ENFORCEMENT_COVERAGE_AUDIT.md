@@ -174,3 +174,22 @@ unchanged across rollouts. No global admin short-circuit was added to
    Express create endpoint in front of the existing RPCs + revoke,
    keeping the composer single-sourced) is recorded as the unblock
    checklist in `docs/CONTACTS_LIMIT_POLICY.md`.
+
+   Re-audited a fourth time in the Max Contacts Promotion + Enforcement —
+   TS-First Canonical Path pass. **Promoted and enforced.** The unblock
+   checklist was executed: `resolveMaxContacts` (live `count(*)`) was
+   added to `usageResolvers.ts`; `max_contacts` was added to
+   `CAPABILITY_REGISTRY` and `USAGE_BACKED_LIMIT_KEYS`; a single helper
+   `server/services/billing/contactsLimit.ts` exposes
+   `enforceMaxContactsCreate` (single create) and
+   `assertContactsBatchFits` (bulk all-or-nothing); a thin Express
+   chokepoint `server/routes/contacts.ts` (`POST /api/contacts` and
+   `POST /api/contacts/bulk`) authenticates, checks membership, and
+   gates create/import through the existing TypeScript composer
+   (`requireLimit` / `checkEntitlementFromDB`); UI hooks
+   `useCreateContact` and `useBulkCreateContacts` were retargeted to
+   the new endpoints; and the bypass was closed by revoking
+   `INSERT ON public.contacts FROM authenticated` and
+   `EXECUTE ON create_contact / bulk_create_contacts FROM authenticated`.
+   No SQL-side entitlement composer was introduced. Update / delete /
+   tags / notes flows remain direct PostgREST and are out of scope.

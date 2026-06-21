@@ -9,6 +9,7 @@ import { useWorkspaces } from '@/hooks/useWorkspace';
 import { billingGetPlans, billingGetStatus, billingCheckout, billingCancel, billingResume, billingGetPortal, API_BASE } from '@/lib/api';
 import { CreditCard, Check, AlertCircle, ArrowRight, Loader2, ExternalLink, Clock, Shield } from 'lucide-react';
 import { toast } from 'sonner';
+import { PlanUsagePanel } from '@/components/billing/PlanUsagePanel';
 
 const CURRENCY_MAP: Record<string, { symbol: string; locale: string; divider: number }> = {
   USD: { symbol: '$', locale: 'en-US', divider: 100 },
@@ -218,9 +219,14 @@ export default function BillingPage() {
 
       <Tabs defaultValue="plans">
         <TabsList>
+          <TabsTrigger value="usage">{locale === 'fa' ? 'پلن و مصرف' : locale === 'tr' ? 'Plan ve Kullanım' : 'Plan & Usage'}</TabsTrigger>
           <TabsTrigger value="plans">{locale === 'fa' ? 'پلن‌ها' : locale === 'tr' ? 'Planlar' : 'Plans'}</TabsTrigger>
           <TabsTrigger value="payments">{locale === 'fa' ? 'پرداخت‌ها' : locale === 'tr' ? 'Ödemeler' : 'Payments'}</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="usage">
+          {workspace ? <PlanUsagePanel workspaceId={workspace.id} /> : null}
+        </TabsContent>
 
         <TabsContent value="plans" className="space-y-4">
           {/* Interval Toggle */}

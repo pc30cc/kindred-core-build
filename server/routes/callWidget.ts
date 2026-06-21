@@ -1187,6 +1187,20 @@ callWidgetRouter.post('/callbacks/request', async (req, res) => {
   const platform = await getPlatformCallCenterSettings(config);
   const effective = computeEffectiveCallCenterCaps(platform, ws);
   if (!effective.callback_enabled) return res.status(403).json({ error: 'feature_not_available' });
+  // Plan composer gate — visitor-initiated callback request.
+  // Deny-on-create only; operator-side callbacks list/PATCH stay reachable.
+  try {
+    const eff = await loadEffectiveCallEntitlements(config, ws.workspace_id);
+    if (!eff.callbacks_enabled) {
+      return res.status(403).json({
+        error: 'plan_forbidden',
+        capability: 'call_callbacks',
+        upgrade_required: true,
+      });
+    }
+  } catch {
+    return res.status(403).json({ error: 'plan_forbidden', capability: 'call_callbacks', upgrade_required: true });
+  }
   const parsed = callbackSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_body', details: parsed.error.flatten() });
   // ── Anti-spam enforcement ──────────────────────────────────────────────

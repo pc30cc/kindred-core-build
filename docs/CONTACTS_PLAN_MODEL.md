@@ -118,13 +118,24 @@ deferred**.
 - `USAGE_BACKED_LIMIT_KEYS` is unchanged; resolver alignment tests
   continue to pass.
 
-## Numeric limit (`max_contacts`) — deferred
+## Numeric limit (`max_contacts`) — promoted and enforced
 
-`max_contacts` is **not** in the capability registry. Contacts are
-created directly via PostgREST from the browser
-(`src/hooks/useContacts.ts` → `supabase.from('contacts').insert(...)`),
-so there is no Express boundary to gate. Promotion of `max_contacts`
-requires a DB-side enforcement boundary (BEFORE-INSERT trigger or
-SECURITY DEFINER RPC) and explicit approval. See
-`docs/CONTACTS_LIMIT_POLICY.md` for the full readiness audit,
-locked semantics, and next-phase prerequisites.
+`max_contacts` is in the capability registry (`group: contacts`,
+`type: limit`, `unit: count`, `defaultValue: 100`) and listed in
+`USAGE_BACKED_LIMIT_KEYS`. The canonical enforcement path is the
+thin Express chokepoint:
+
+- `POST /api/contacts` (single create)
+- `POST /api/contacts/bulk` (import — all-or-nothing per batch)
+
+Both routes verify Bearer auth + workspace membership and gate on
+`requireLimit('max_contacts', usageFnForLimit('max_contacts'))` before
+inserting via the service-role client. The browser-side bypass is
+closed: direct `INSERT` on `public.contacts` and direct `EXECUTE` on
+the legacy `create_contact` / `bulk_create_contacts` RPCs are revoked
+from `authenticated`. UI hooks `useCreateContact` and
+`useBulkCreateContacts` route through `src/lib/contacts-api.ts` to the
+new endpoints. Update / delete / tags / notes are intentionally
+ungated and remain direct PostgREST. See
+`docs/CONTACTS_LIMIT_POLICY.md` for full semantics, counting model,
+bulk policy, and tests.

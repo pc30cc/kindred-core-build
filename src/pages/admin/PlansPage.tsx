@@ -29,6 +29,8 @@ import {
   setWorkspaceChannelOverride,
   deleteWorkspaceModuleOverride,
   deleteWorkspaceChannelOverride,
+  setWorkspaceLimitOverride,
+  deleteWorkspaceLimitOverride,
   fetchWorkspaceOverrides,
   groupCapabilities,
   type CapabilityDefinition,

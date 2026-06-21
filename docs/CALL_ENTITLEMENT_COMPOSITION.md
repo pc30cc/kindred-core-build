@@ -109,6 +109,25 @@ queue entry / call / callback (denial would strand in-flight work),
 separated from create branches. The composer is intentionally not
 invoked there until each surface gets its own drain decision.
 
+### Visitor / drain policy (locked)
+
+- **Deny-on-create**: visitor `POST /api/call-widget/calls/request`,
+  `POST /api/call-widget/callbacks/request`, and
+  `POST /api/widget-callbacks/request` may be denied via the
+  composer. Denial happens **before** provider resolution, queue
+  inserts, and any DB mutation — so no half-created call objects or
+  reserved queue rows are stranded.
+- **Allow-on-cleanup / status / cancel / read**:
+  `GET /api/widget-callbacks/status`, queue cancel paths, operator
+  callback list / counts / PATCH, and all `accept` / `reject` /
+  `hangup` / `end` / `cancel` surfaces remain reachable regardless of
+  plan state so visitors and operators can finish or abort in-flight
+  work.
+- **Stable denial shape**: every newly gated visitor surface returns
+  `{ error: "plan_forbidden", capability: <key>, upgrade_required: true }`
+  with HTTP 403 — never a generic 500. The widget UI can branch on
+  `error === "plan_forbidden"` without parsing prose.
+
 ## Numeric limits — still deferred
 
 No `max_concurrent_calls` / `max_call_minutes_per_month` /

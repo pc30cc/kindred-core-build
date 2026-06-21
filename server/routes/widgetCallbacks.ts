@@ -8,6 +8,7 @@ import type { ServerConfig } from '../config.js';
 import { createCallbackRequest } from '../services/calls/callbacks.js';
 import { markEntryAsCallback } from '../services/calls/queue.js';
 import { getServiceClient } from '../supabase.js';
+import { loadEffectiveCallEntitlements } from '../services/calls/entitlementComposer.js';
 
 export const widgetCallbacksRouter = Router();
 
@@ -63,6 +64,21 @@ widgetCallbacksRouter.post('/request', async (req, res) => {
   const workspaceId = (req as any)._widgetWorkspaceId as string | undefined;
   const visitorId = (req as any).visitorId as string | undefined;
   if (!workspaceId) return res.status(400).json({ error: 'missing_workspace' });
+  // Plan composer gate — visitor-initiated callback request.
+  // Deny-on-create only; the GET /status path above stays reachable so
+  // visitors with already-created callbacks can still see their state.
+  try {
+    const eff = await loadEffectiveCallEntitlements(config, workspaceId);
+    if (!eff.callbacks_enabled) {
+      return res.status(403).json({
+        error: 'plan_forbidden',
+        capability: 'call_callbacks',
+        upgrade_required: true,
+      });
+    }
+  } catch {
+    return res.status(403).json({ error: 'plan_forbidden', capability: 'call_callbacks', upgrade_required: true });
+  }
   const parsed = z.object({
     channel: z.enum(['audio', 'video']),
     conversation_id: z.string().uuid().optional(),

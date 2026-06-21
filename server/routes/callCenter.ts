@@ -31,6 +31,7 @@ import {
   getCallCenterRecordingStatus,
   RecordingControlException,
 } from '../services/callCenter/recordingControl.js';
+import { loadEffectiveCallEntitlements } from '../services/calls/entitlementComposer.js';
 import { uploadFile, deleteFile, resolveStorageConfig, resolveGlobalStorageConfig, uploadWithConfig, deleteWithConfig, getFileUrlWithConfig } from '../services/storage/index.js';
 import {
   listDepartments, getDepartment, createDepartment, updateDepartment, deleteDepartment,

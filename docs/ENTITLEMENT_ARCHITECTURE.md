@@ -166,3 +166,15 @@ Call Center / Voice & Video / AI.
   truth for `billing_plans.limits` / `workspace_subscriptions`
   resolution, which this document forbids. The invariant "one canonical
   composition layer" is preserved by deferring rather than splitting.
+- Update (Max Contacts Promotion + Enforcement — TS-First Canonical
+  Path pass): `max_contacts` is now **promoted and enforced** through
+  the canonical TypeScript stack, without introducing any SQL-side
+  composer. The chokepoint is a thin Express boundary
+  (`POST /api/contacts`, `POST /api/contacts/bulk`) that runs
+  `requireLimit('max_contacts', usageFnForLimit('max_contacts'))`
+  before inserting via the service-role client. The bypass is closed
+  (revoked `INSERT ON public.contacts` and `EXECUTE` on the legacy
+  RPCs from `authenticated`). The invariant "one canonical composition
+  layer in TypeScript" is preserved — the Express boundary uses the
+  same `checkEntitlementFromDB` + resolver path as
+  `max_conversations`, `max_visitors`, `storage_gb`, etc.

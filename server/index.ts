@@ -40,6 +40,7 @@ import { aiKbRouter } from './routes/aiKb.js';
 import { aiAgentRouter } from './routes/aiAgent.js';
 import { callCenterRouter } from './routes/callCenter.js';
 import { callWidgetRouter } from './routes/callWidget.js';
+import { contactsRouter } from './routes/contacts.js';
 import { startInProcessSourceWorker } from './services/ai-agent/sourceWorker.js';
 import { startCallQueueTicker } from './services/calls/queueTicker.js';
 import { startInvitationExpirySweeper } from './services/calls/invitations.js';
@@ -327,6 +328,11 @@ app.use('/api/workspace-departments', workspaceDepartmentsRouter);
 // Phase 9 — Operator-side Call Invitations (invitation-first calling).
 // Auth + workspace membership enforced inside the router.
 app.use('/api/call-invitations', callInvitationsRouter);
+
+// Contacts — canonical TS-first create / bulk-import chokepoint enforcing
+// `max_contacts`. UI hooks (useCreateContact / useBulkCreateContacts)
+// route here. Update / delete / tags / notes remain direct PostgREST.
+app.use('/api/contacts', contactsRouter);
 
 // AI Knowledge Base Builder — auth + workspace membership enforced inside.
 // Worker that actually crawls + generates runs as a separate process; see

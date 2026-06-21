@@ -197,6 +197,39 @@ async function resolveAiCreditsPerMonth(
   };
 }
 
+/**
+ * `max_contacts` — current occupancy of `public.contacts` for the
+ * workspace. Live exact count via the service-role client.
+ *
+ * Semantics (locked in `docs/CONTACTS_LIMIT_POLICY.md`):
+ *   - Counts every row scoped by `workspace_id`.
+ *   - Deletes free capacity (no soft-delete accounting).
+ *   - Edits, tag changes, note changes do NOT consume capacity.
+ *   - Identity merges collapse rows; net `count(*)` is what counts.
+ * `public.contacts` is workspace-scoped and indexed on `workspace_id`,
+ * so an exact count is cheap at expected cardinality.
+ */
+async function resolveMaxContacts(
+  config: ServerConfig,
+  workspaceId: string,
+): Promise<UsageResolution> {
+  const sb = makeClient(config);
+  const { count, error } = await sb
+    .from('contacts')
+    .select('id', { count: 'exact', head: true })
+    .eq('workspace_id', workspaceId);
+  if (error) throw new Error(`max_contacts_count_failed:${error.message}`);
+  return {
+    value: typeof count === 'number' ? count : 0,
+    period: 'lifetime',
+    periodKind: 'lifetime',
+    source: 'derived_count',
+    isExact: true,
+    supported: true,
+    note: 'count(*) on public.contacts where workspace_id = $1 (occupancy)',
+  };
+}
+
 function unsupported(reason: string, period = currentMonthPeriod()): UsageResolution {
   return {
     value: 0,
@@ -229,6 +262,7 @@ const RESOLVERS: Record<string, Resolver> = {
   storage_gb: resolveStorageGb,
   ai_kb_jobs_per_month: resolveAiKbJobsPerMonth,
   ai_credits_per_month: resolveAiCreditsPerMonth,
+  max_contacts: resolveMaxContacts,
 };
 
 /**

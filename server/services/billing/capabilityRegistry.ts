@@ -119,6 +119,7 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
   { key: 'ai_kb_file_count',      type: 'limit', label: 'AI KB — Max files',          group: 'ai',    defaultValue: 20,   planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 150 },
   { key: 'storage_gb',            type: 'limit', label: 'Storage',                    group: 'usage', defaultValue: 1,    planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'gb', sortOrder: 30 },
   { key: 'data_retention_days',   type: 'limit', label: 'Data Retention',             group: 'usage', defaultValue: 30,   planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'days', sortOrder: 40 },
+  { key: 'max_contacts',          type: 'limit', label: 'Max Contacts',               group: 'contacts', description: 'Maximum number of contact records (rows in public.contacts) per workspace at any one time. Occupancy semantics: deletes free capacity; edits/tags/notes do not consume. Enforced by POST /api/contacts and POST /api/contacts/bulk via requireLimit + live count(*).', defaultValue: 100, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 60 },
 ];
 
 // ─── Helpers ───
@@ -150,6 +151,7 @@ export const USAGE_BACKED_LIMIT_KEYS: readonly string[] = [
   'storage_gb',
   'ai_kb_jobs_per_month',
   'ai_credits_per_month',
+  'max_contacts',
 ];
 
 /**

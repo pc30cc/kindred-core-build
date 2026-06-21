@@ -99,9 +99,27 @@ canonical resolver — same payload that the admin and customer UIs read.
 
 - Migrating legacy unknown plan keys discovered by `/admin/diagnostics`.
 - Reconciling free/paid plan seed JSON with the registry.
-- Broader call-route gating (queue / availability / callbacks / recording
-  / cancel / list). Composer exists; rollout requires a "deny on create,
-  allow on cleanup" drain policy. See `ENFORCEMENT_COVERAGE_AUDIT.md` §3.
+- Broader call-route gating (queue / availability / cancel / list).
+  Composer exists; rollout requires a "deny on create, allow on cleanup"
+  drain policy. See `ENFORCEMENT_COVERAGE_AUDIT.md` §3.
+  - **Recording start** — resolved (Call Route Enforcement Expansion).
+    `POST /api/calls/:id/recording/start` and
+    `POST /api/call-center/calls/:id/recording/start` are gated on
+    `eff.recording_enabled`; `recording/stop` and `recording/status`
+    remain ungated.
+  - **Visitor call/callback request creation** — resolved (Call Public/
+    Queue/Callback Route Enforcement — Strict Visitor-Safe Pass).
+    `POST /api/call-widget/calls/request` is gated on
+    `eff.visitor_voice_enabled` / `eff.visitor_video_enabled`;
+    `POST /api/call-widget/callbacks/request` and
+    `POST /api/widget-callbacks/request` are gated on
+    `eff.callbacks_enabled`. All denials use the stable shape
+    `{ error: "plan_forbidden", capability, upgrade_required: true }`
+    and run before any DB insert / provider resolution. Cleanup, status,
+    cancel, accept, reject, hangup, and end paths remain reachable.
+  - **Queue offer/accept and `call-queue/enqueue`** — still deferred:
+    offer/accept act on already-existing entries, and the visitor
+    `enqueue` denial UX (queue full vs plan-denied) is still undefined.
 - ~~Splitting `email.ts` into platform/auth vs channel-email before gating.~~
   **Resolved (Phase: Email Surface Split + Channel Gating).** Platform
   email stays on `POST /api/email/send` (un-gated). Channel email lands

@@ -7329,6 +7329,44 @@ export type Database = {
           },
         ]
       }
+      workspace_limit_overrides: {
+        Row: {
+          admin_notes: string | null
+          created_at: string
+          id: string
+          limit_key: string
+          limit_value: number
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          admin_notes?: string | null
+          created_at?: string
+          id?: string
+          limit_key: string
+          limit_value: number
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          admin_notes?: string | null
+          created_at?: string
+          id?: string
+          limit_key?: string
+          limit_value?: number
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workspace_limit_overrides_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       workspace_members: {
         Row: {
           created_at: string | null

@@ -192,3 +192,18 @@ Call Center / Voice & Video / AI.
   are followed by a reload of `GET
   /api/plans/workspace/:id/effective`, so the UI's effective value and
   `source` badge always match the same payload enforcement consumes.
+
+- Update (Customer-Facing Usage / Billing Visibility — product
+  completion pass): `src/pages/app/BillingPage.tsx` now defaults to a
+  new **Plan & Usage** tab rendered by
+  `src/components/billing/PlanUsagePanel.tsx`. The panel is read-only
+  and consumes the canonical `GET
+  /api/plans/workspace/:id/effective` payload plus the registry
+  catalog (`userVisible` only). Source badges (`plan` / `override` /
+  `default`) are informational; Super Admin override controls remain
+  exclusively in `PlansPage.tsx`. No backend route, capability key,
+  schema, or env was changed; no second entitlement model was created
+  in the browser. Limits without a canonical counter on the customer
+  payload (e.g. `max_contacts`) render an explicit
+  "usage not tracked in this view" notice instead of fabricated math.
+  See `docs/CUSTOMER_USAGE_VISIBILITY.md`.

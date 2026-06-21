@@ -329,6 +329,11 @@ app.use('/api/workspace-departments', workspaceDepartmentsRouter);
 // Auth + workspace membership enforced inside the router.
 app.use('/api/call-invitations', callInvitationsRouter);
 
+// Contacts — canonical TS-first create / bulk-import chokepoint enforcing
+// `max_contacts`. UI hooks (useCreateContact / useBulkCreateContacts)
+// route here. Update / delete / tags / notes remain direct PostgREST.
+app.use('/api/contacts', contactsRouter);
+
 // AI Knowledge Base Builder — auth + workspace membership enforced inside.
 // Worker that actually crawls + generates runs as a separate process; see
 // worker/intelligence/index.ts and Dockerfile.worker.

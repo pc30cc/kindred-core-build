@@ -40,6 +40,7 @@ import { aiKbRouter } from './routes/aiKb.js';
 import { aiAgentRouter } from './routes/aiAgent.js';
 import { callCenterRouter } from './routes/callCenter.js';
 import { callWidgetRouter } from './routes/callWidget.js';
+import { contactsRouter } from './routes/contacts.js';
 import { startInProcessSourceWorker } from './services/ai-agent/sourceWorker.js';
 import { startCallQueueTicker } from './services/calls/queueTicker.js';
 import { startInvitationExpirySweeper } from './services/calls/invitations.js';

@@ -102,7 +102,11 @@ canonical resolver — same payload that the admin and customer UIs read.
 - Broader call-route gating (queue / availability / callbacks / recording
   / cancel / list). Composer exists; rollout requires a "deny on create,
   allow on cleanup" drain policy. See `ENFORCEMENT_COVERAGE_AUDIT.md` §3.
-- Splitting `email.ts` into platform/auth vs channel-email before gating.
+- ~~Splitting `email.ts` into platform/auth vs channel-email before gating.~~
+  **Resolved (Phase: Email Surface Split + Channel Gating).** Platform
+  email stays on `POST /api/email/send` (un-gated). Channel email lands
+  on `POST /api/email/send-channel` and `sendChannelEmail()`, both
+  gated with `requireChannel('email')`. See `EMAIL_SURFACE_SPLIT.md`.
 - `aiAgent.ts` settings/sources/runs/qna gating — needs per-route audit
   to avoid regressing admin tooling.
 

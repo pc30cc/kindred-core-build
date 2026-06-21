@@ -534,6 +534,55 @@ function WorkspaceConsole({ capabilities }: { capabilities: CapabilityDefinition
     }
   }
 
+  async function applyLimitOverride(key: string, raw: string) {
+    if (!workspaceId) return;
+    const trimmed = (raw ?? '').trim();
+    if (trimmed === '') {
+      toast.error('Enter a value (use -1 for unlimited)');
+      return;
+    }
+    const n = Number(trimmed);
+    if (!Number.isFinite(n) || !Number.isInteger(n) || n < -1) {
+      toast.error('Value must be -1 (unlimited) or a non-negative integer');
+      return;
+    }
+    setBusy(`limit:${key}`);
+    try {
+      await setWorkspaceLimitOverride({
+        workspaceId, limitKey: key, limitValue: n,
+        adminNotes: 'Set from admin console',
+      });
+      toast.success('Limit override applied');
+      setLimitDrafts((d) => { const { [key]: _drop, ...rest } = d; return rest; });
+      reload();
+    } catch (e: any) {
+      toast.error(e?.message || 'Override failed');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function clearLimitOverride(key: string) {
+    if (!workspaceId) return;
+    const entry = limitOvIds[key];
+    if (!entry) {
+      toast.error('Override id not found — please reload');
+      return;
+    }
+    if (!window.confirm('Remove this limit override? The workspace will inherit from the plan / registry default.')) return;
+    setBusy(`clear:limit:${key}`);
+    try {
+      await deleteWorkspaceLimitOverride(entry.id);
+      toast.success('Limit override removed — inheriting from plan');
+      setLimitDrafts((d) => { const { [key]: _drop, ...rest } = d; return rest; });
+      reload();
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to clear override');
+    } finally {
+      setBusy(null);
+    }
+  }
+
   const sourceBadge = (source: string) => {
     const cls =
       source === 'override' ? 'bg-amber-500/15 text-amber-600 border-amber-500/30' :

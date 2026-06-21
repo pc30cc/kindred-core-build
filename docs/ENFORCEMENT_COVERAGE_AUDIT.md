@@ -144,3 +144,16 @@ unchanged across rollouts. No global admin short-circuit was added to
    is the future home for that check. Semantics remain locked
    (current-occupancy row count, workspace-scoped) in
    `docs/CONTACTS_LIMIT_POLICY.md`.
+
+   Re-audited again in the Max Contacts Promotion + Enforcement —
+   RPC-Only pass. **Still deferred.** Two independent blockers:
+   (a) `authenticated` retains direct DML on `public.contacts`
+   (verified via `pg_class.relacl`), so an in-RPC check is bypassable
+   by `supabase.from('contacts').insert(...)`; (b) there is no SQL-side
+   entitlement composer, and adding one inside the RPC would split the
+   canonical composer between TypeScript and PL/pgSQL — explicitly
+   forbidden by `docs/ENTITLEMENT_ARCHITECTURE.md`. Semantics, counting
+   model (live `count(*)`), bulk-import policy (all-or-nothing per
+   batch), and service-role policy (no bypass — internal flows route
+   through the same RPC) are recorded in `docs/CONTACTS_LIMIT_POLICY.md`
+   for the eventual promotion phase.

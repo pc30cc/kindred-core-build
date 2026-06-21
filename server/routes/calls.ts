@@ -29,6 +29,7 @@ import {
   loadCallControlPlane,
   loadWorkspaceCallOverrides,
 } from '../services/calls/controlPlane.js';
+import { loadEffectiveCallEntitlements } from '../services/calls/entitlementComposer.js';
 import {
   getCallNetworkBundle,
   normalizeClientWsUrl,

@@ -156,3 +156,13 @@ Call Center / Voice & Video / AI.
   Locked semantics and the readiness audit live in
   `docs/CONTACTS_LIMIT_POLICY.md`. The invariant that every registry
   limit key has a real enforcement consumer is preserved.
+- Update (Max Contacts Promotion + Enforcement — RPC-Only pass):
+  the create/import RPCs (`public.create_contact`,
+  `public.bulk_create_contacts`) now exist as the UI's chokepoint, but
+  `max_contacts` is **still not promoted**. Reconfirmed blockers:
+  (1) `authenticated` retains direct DML on `public.contacts`, making
+  any in-RPC check bypassable; (2) there is no SQL-side entitlement
+  composer — adding one inside the RPC would create a second source of
+  truth for `billing_plans.limits` / `workspace_subscriptions`
+  resolution, which this document forbids. The invariant "one canonical
+  composition layer" is preserved by deferring rather than splitting.

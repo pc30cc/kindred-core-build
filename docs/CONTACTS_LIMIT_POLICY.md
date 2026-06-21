@@ -5,6 +5,110 @@ not enforced. The create/import boundary now exists as DB-side SECURITY
 DEFINER RPCs and is wired up in the UI, ready to host the limit when it
 is promoted in a follow-up phase.**
 
+## Phase re-audit (Max Contacts Promotion + Enforcement — RPC-Only Pass)
+
+Re-evaluated whether `max_contacts` can now be promoted to a real
+enforced limit using the RPC chokepoint. **Outcome: still deferred.**
+Two independent blockers, either of which is sufficient on its own:
+
+1. **Direct DML on `public.contacts` is still granted to
+   `authenticated`.** Confirmed at audit time via `pg_class.relacl`
+   (`authenticated=arwdDxtm/postgres`). A browser client holding a
+   workspace-member JWT can call `supabase.from('contacts').insert(...)`
+   directly under the existing RLS policies and bypass any check placed
+   inside `create_contact` / `bulk_create_contacts`. The RPCs are the
+   canonical path for the UI, but they are **not** the only reachable
+   write path, so a check inside them is not bypass-safe.
+2. **No canonical limit resolver is reachable from inside Postgres.**
+   The effective-entitlement composer and `usageResolvers.ts` live in
+   the TypeScript backend. There is no SQL-side equivalent. To enforce
+   `max_contacts` inside the RPC we would have to re-implement
+   `billing_plans.limits → workspace_subscriptions overrides → workspace
+   overrides` resolution in PL/pgSQL. That would create a **second
+   source of truth** for entitlement composition, which the architecture
+   rules in `docs/ENTITLEMENT_ARCHITECTURE.md` explicitly forbid.
+
+Either blocker alone forces a defer. Together they make a forced
+rollout strictly worse than the current state (it would advertise
+enforcement that is trivially bypassable and split the composer).
+
+### What was therefore NOT done in this phase
+
+- `max_contacts` was **not** added to `CAPABILITY_REGISTRY` — promoting
+  a limit key without a real, bypass-safe consumer would violate the
+  invariant "no registry limit without a real consumer".
+- `max_contacts` was **not** added to `USAGE_BACKED_LIMIT_KEYS` and no
+  resolver was added to `usageResolvers.ts` — without a consumer the
+  resolver would be dead code, and registering it would silently change
+  `normalizePlanLimitsForCreate` behaviour for new plans.
+- No SQL effective-limit resolver was introduced — would split the
+  entitlement composer.
+- No `INSERT` revoke on `public.contacts` was issued — without (a) a
+  resolver and (b) an enforced check in the RPC, revoking the grant
+  would only narrow the surface without delivering the limit.
+- No UI-side soft check was added — UI checks must never be the source
+  of truth for a billing limit.
+
+### Locked semantics for `max_contacts` (for the eventual promotion phase)
+
+Recorded here so the next phase does not have to relitigate it:
+
+- **Counts**: every row in `public.contacts` scoped by `workspace_id`,
+  regardless of how it was created (UI RPC or service-role internal
+  flow).
+- **Does not count**: edits, tag changes, note changes, attachments,
+  read operations.
+- **Frees capacity**: hard delete of a `public.contacts` row.
+- **Imports**: each successfully inserted row consumes one unit; rows
+  rejected by validation do not consume.
+- **Identity merges**: must not double-count. The merge path collapses
+  rows; net change to `count(*)` is what counts.
+- **Period**: occupancy (current row count), not monthly throughput.
+  Group: `usage`. Unit: `count`.
+
+### Counting model (decision recorded, not implemented)
+
+When the blockers above are removed, the canonical model will be a
+**live exact count inside the RPC**:
+
+```sql
+SELECT count(*) FROM public.contacts WHERE workspace_id = _workspace_id;
+```
+
+Justification: `public.contacts` is workspace-scoped and indexed on
+`workspace_id`; expected cardinality (≤ plan default, e.g. low
+thousands) makes an exact count cheap. A counter table would be a
+second source of truth for an occupancy metric that is already exact in
+the source table. Bulk import behaviour will be **all-or-nothing per
+batch** (the entire `bulk_create_contacts` call is rejected if the
+resulting count would exceed the limit) — this matches existing
+`requireLimit(...)` semantics and avoids partial-success ambiguity in a
+SECURITY DEFINER context.
+
+### Bypass / internal-flow policy (decision recorded)
+
+Service-role flows (privacy export anonymizer, widget identity merges,
+AI agent intro/spam-guard reads) **do not** bypass `max_contacts` by
+design — they either do not insert contacts, or they collapse existing
+rows. If a future internal flow needs to insert, it will route through
+the same RPC (which `service_role` already has `EXECUTE` on) so a
+single check governs all create paths.
+
+### Unblock checklist (in order, for a future approved phase)
+
+1. Add a TypeScript-side `resolveMaxContacts` (live `count(*)` via the
+   service-role client) and register it in `usageResolvers.ts`.
+2. Add `max_contacts` to `CAPABILITY_REGISTRY` and to
+   `USAGE_BACKED_LIMIT_KEYS`.
+3. Make the `create_contact` / `bulk_create_contacts` RPCs call out to
+   a single Express enforcement endpoint **or** introduce a thin Express
+   contacts-create proxy that runs `requireLimit('max_contacts', ...)`
+   before invoking the RPC. Decide that explicitly in the next phase —
+   do not split the composer into SQL.
+4. Only after (1)–(3): `REVOKE INSERT ON public.contacts FROM
+   authenticated;` to close the bypass.
+5. Surface in usage diagnostics.
+
 ## Boundary status (updated)
 
 - `public.create_contact(...)` — SECURITY DEFINER RPC. Verifies

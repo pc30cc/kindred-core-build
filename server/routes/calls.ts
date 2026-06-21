@@ -644,6 +644,23 @@ callsRouter.post('/:id/recording/start', async (req, res) => {
   const ctx = await loadSessionWithMembership(req, res, (req as any).serverConfig, req.params.id);
   if (!ctx) return;
   try {
+    // Phase: Call Route Enforcement Expansion — strict deny-on-create.
+    // Recording start is a pure new-action boundary; recording stop and
+    // session read/cancel/end remain ungated so any in-flight recording
+    // can still be finalized after a plan downgrade. Composes
+    // voice_video ∧ call_recording ∧ runtime.recording_enabled via the
+    // canonical composer.
+    const eff = await loadEffectiveCallEntitlements(
+      (req as any).serverConfig,
+      ctx.session.workspace_id,
+    );
+    if (!eff.recording_enabled) {
+      return res.status(403).json({
+        error: 'plan_forbidden',
+        capability: 'call_recording',
+        upgrade_required: true,
+      });
+    }
     const overrides = await loadWorkspaceCallOverrides((req as any).serverConfig, ctx.session.workspace_id);
     if (!overrides.allow_recording) {
       return res.status(409).json({ error: 'recording_disabled_for_workspace' });

@@ -181,3 +181,14 @@ Call Center / Voice & Video / AI.
   layer in TypeScript" is preserved — the Express boundary uses the
   same `checkEntitlementFromDB` + resolver path as
   `max_conversations`, `max_visitors`, `storage_gb`, etc.
+
+- Update (Super Admin Limit Override UI Completion — operability
+  pass): The Workspace Console in `PlansPage.tsx` is now the canonical
+  admin surface for workspace-level numeric limit overrides. It reuses
+  the existing additive endpoints
+  (`POST/DELETE /api/plans/admin/overrides/limit`) and the
+  registry-driven rendering model — no second admin surface, no
+  client-side resolver, no key/route/schema rename. Override mutations
+  are followed by a reload of `GET
+  /api/plans/workspace/:id/effective`, so the UI's effective value and
+  `source` badge always match the same payload enforcement consumes.

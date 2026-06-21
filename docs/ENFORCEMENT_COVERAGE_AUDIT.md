@@ -233,3 +233,14 @@ Registry guardrails: only keys with `type === 'limit'` and
 `workspaceOverridable !== false` are accepted.
 
 See [USAGE_LIMIT_OVERRIDE_MODEL.md](./USAGE_LIMIT_OVERRIDE_MODEL.md).
+
+## Super Admin Limit Override UI Completion (operability pass)
+
+The Plans admin Workspace Console now exposes set / update / clear
+controls for every registry-declared limit on a per-workspace basis.
+The UI consumes the canonical helpers `setWorkspaceLimitOverride` and
+`deleteWorkspaceLimitOverride`, and reloads the effective payload after
+each mutation. No new backend rollout, route, capability key, or
+schema rename was introduced. Module/channel/feature overrides retain
+their existing interaction pattern; the limit row reuses the same
+source-badge + Clear affordance for visual parity.

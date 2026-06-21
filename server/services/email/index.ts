@@ -40,7 +40,7 @@ export interface SendResult {
  * Priority: workspace override → global default → stub.
  */
 async function resolveProviderConfig(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   workspaceId: string
 ): Promise<ProviderConfig | null> {
   // 1. Workspace-level override
@@ -55,13 +55,15 @@ async function resolveProviderConfig(
   if (wsConfig) return wsConfig as ProviderConfig;
 
   // 2. Global default from app_runtime_config
-  const { data: globalConfig } = await supabase
+  const { data: globalConfig } = await (supabase as any)
     .from('app_runtime_config')
     .select('value')
     .eq('key', 'default_email_provider')
     .maybeSingle();
 
-  if (globalConfig?.value) return globalConfig.value as unknown as ProviderConfig;
+  if (globalConfig && (globalConfig as any).value) {
+    return (globalConfig as any).value as ProviderConfig;
+  }
 
   return null;
 }
@@ -72,7 +74,7 @@ async function resolveProviderConfig(
  * Fallback: requested locale → 'en'.
  */
 async function resolveTemplate(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   _workspaceId: string,
   slug: string,
   locale: string

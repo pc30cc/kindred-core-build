@@ -181,7 +181,7 @@ is_active = true`.
 | Deferred item | Unblock criterion |
 |---|---|
 | `contacts → max_contacts` migration on Pro/Enterprise (would lift effective limit from registry default 100 → 5000/-1) | Admin sign-off that 5000 / unlimited was the intended shipped contact ceiling for Pro / Enterprise, captured in `CONTACTS_LIMIT_POLICY.md`. Then run a one-shot SQL `UPDATE billing_plans SET limits = jsonb_set(limits, '{max_contacts}', limits->'contacts')` per slug, mirror values, leave legacy `contacts` in place for one release. |
-| `team_members / agents → max_agents` migration | Land a `max_agents` usage resolver + `requireLimit('max_agents', ...)` chokepoint first. Migration becomes mechanical at that point. |
+| ~~`team_members / agents → max_agents` migration~~ | **DONE (Service-Role Companion RPC + Max Agents Activation, 2026-06-22).** `billing_plans.limits.max_agents` mirrors `team_members` (`free=2`, `pro=10`, `enterprise=-1`). Legacy `team_members` / `agents` keys are intentionally preserved for one release as soft-warn aliases — see `docs/MAX_AGENTS_POLICY.md` §6. |
 | Filling `max_workspaces`, `data_retention_days`, `ai_kb_file_size_mb`, `ai_kb_file_count` into seeds | Land their respective resolvers / consumers; values currently fall through to registry defaults harmlessly. |
 | Promoting `advanced_analytics`, `ai_kb_max_articles`, `ai_kb_max_chars`, `ai_kb_monthly_credits`, `ai_requests_monthly`, `kb_articles` into the registry as canonical keys | Product decision on whether each tracks a real capability. If yes, add as `feature` / `limit` with a resolver; if no, deprecate via a separate cleanup pass. |
 | Hard-rejecting unknown plan keys on create/update | Out of scope. The shipped contract is soft-warn forever unless explicitly versioned. |
@@ -271,3 +271,16 @@ is_active = true`.
       warn-only).
 - [x] No route, env var, schema, or middleware contract renamed.
 - [x] Repo is cleaner without being riskier (documentation-only delta).
+
+---
+
+## 9. Post-activation cleanup note (2026-06-22)
+
+After `max_agents` activation, this audit's `team_members /
+agents → max_agents` row in §6 is resolved. The legacy keys
+themselves remain intentionally preserved on every active seed row
+for one release. The classification stays **LEGACY PRESERVED** in
+§2.2 — soft-warned by `validatePlanPayload`, pinned by
+`src/test/billing/legacyPlanKeys.test.ts`, and slated for removal
+in a separate post-release cleanup pass (see
+`docs/MAX_AGENTS_POLICY.md` §8.1).

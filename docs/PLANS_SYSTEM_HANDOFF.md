@@ -1,6 +1,7 @@
 # Plans System — Handoff
 
-_Last updated: 2026-06-21. Status: **CORE COMPLETE**._
+_Last updated: 2026-06-22 (Post-Activation Cleanup phase). Status:
+**CORE COMPLETE; `max_agents` LIVE.**_
 
 This is the "start here" document for the next maintainer of the plans
 subsystem. The plans system is a finished subsystem: capability modeling,
@@ -52,9 +53,12 @@ canonical resolver — same payload that the admin and customer UIs read.
 - **Usage-backed limit enforcement** runs through `requireLimit('<key>',
   usageFnForLimit('<key>'))` against the canonical counters. The current
   rolled-out keys are `max_conversations`, `max_visitors`, `storage_gb`,
-  `ai_kb_jobs_per_month`, `ai_credits_per_month`, and `max_contacts`
+  `ai_kb_jobs_per_month`, `ai_credits_per_month`, `max_contacts`
   (TS-first chokepoint at `POST /api/contacts` and
-  `POST /api/contacts/bulk`).
+  `POST /api/contacts/bulk`), and `max_agents` (TS-first chokepoint at
+  `POST /api/workspace-members/accept-invitation` — service-role
+  companion RPC `accept_workspace_invitation_as`; see
+  `docs/MAX_AGENTS_POLICY.md`).
 - **Counter writes** are single-writer per metric (DB trigger or atomic
   RPC). Application code must not write `workspace_usage_counters.*`
   outside the Super Admin "usage adjust" route. Enforced by the CI
@@ -241,47 +245,23 @@ Each can be picked up without reopening the core plans system.
   exact Express-route unblock criterion that gates rollout and the
   `team_members / agents → max_agents` seed migration.
 
-_Status update 2026-06-22 (Workspace Member Write Boundary phase):_
-the canonical Express seat-creation boundary
-(`POST /api/workspace-members/accept-invitation`,
-`server/routes/workspaceMembers.ts`) has shipped. `InvitePage.tsx`
-now calls it instead of the SQL RPC directly. `max_agents` is still
-intentionally **not** enforced; the only remaining blocker is
-revoking `EXECUTE` on `public.accept_workspace_invitation(text)`
-from the `authenticated` role so the Express route is the sole
-reachable path. See `docs/MAX_AGENTS_POLICY.md` §4.1.
-
-_Status update 2026-06-22 (Max Agents Final Activation phase) —
-CORRECTION:_ the "revoke EXECUTE from authenticated" unblock above
-is retracted. The canonical Express route also runs as the
-`authenticated` role (anon-key + user JWT, required so the SECURITY
-DEFINER RPC sees the correct `auth.uid()`), so a plain REVOKE would
-break the canonical path together with the bypass. Closing the
-bypass now requires either adding a new SECURITY DEFINER companion
-RPC `accept_workspace_invitation_as(_token, _user_id)` (granted
-only to `service_role`) or moving the RPC logic into JS in the
-Express route — both deferred to an explicit follow-up. `max_agents`
-remains **not enforced**; no resolver, no middleware, no seed
-migration was applied this phase. See `docs/MAX_AGENTS_POLICY.md`
-§4.2 for the corrected unblock matrix.
-
-_Status update 2026-06-22 (Service-Role Companion RPC + Max Agents
-Activation phase):_ **`max_agents` is now LIVE.** The companion-RPC
-option was applied:
-`public.accept_workspace_invitation_as(_token, _user_id)` is now
-the SECURITY DEFINER service-role-only path the Express route
-calls. `EXECUTE` on the original `accept_workspace_invitation(text)`
-is revoked from `anon`/`authenticated`/`public` (browser bypass
-closed; `service_role` retains EXECUTE for legacy/internal use).
-`resolveMaxAgents` is registered in `usageResolvers.ts` (added to
-`USAGE_BACKED_LIMIT_KEYS`), and
-`requireLimit('max_agents', usageFnForLimit('max_agents'))` is
-mounted on `POST /api/workspace-members/accept-invitation` with an
-already-member skip so re-accepts do not consume a new seat. The
-`team_members → max_agents` seed mirror has been applied
-(free=2 / pro=10 / enterprise=-1); legacy `team_members` and
-`agents` keys are preserved for one release. See
-`docs/MAX_AGENTS_POLICY.md` §4.3.
+_Status update 2026-06-22 (Post-Activation Cleanup phase):_
+`max_agents` is **LIVE**. Canonical chokepoint:
+`POST /api/workspace-members/accept-invitation` →
+service-role-only `accept_workspace_invitation_as(_token, _user_id)`
+RPC; resolver `resolveMaxAgents` (live `count(*)` on
+`workspace_members`); `requireLimit` mounted with an already-member
+skip; browser-side bypass on the original
+`accept_workspace_invitation(text)` RPC is closed (`EXECUTE`
+revoked from `anon`/`authenticated`/`public`, `service_role`
+retained). Seed mirror is in place (`free=2`, `pro=10`,
+`enterprise=-1`). Legacy `team_members` / `agents` plan keys are
+intentionally **preserved for one release** as soft-warn aliases
+— see `docs/MAX_AGENTS_POLICY.md` §6 for the full post-activation
+deprecation classification and §8.1 for the deferred future-removal
+checklist. The earlier per-phase "deferred / blocked / corrected"
+status updates are superseded by this entry; the historical phase
+log lives in `docs/MAX_AGENTS_POLICY.md` §§4.1–4.3.
 
 If this doc disagrees with code, the code wins and this doc must be
 updated — but the system itself is finished.

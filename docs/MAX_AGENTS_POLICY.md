@@ -1,24 +1,31 @@
 # Max Agents — Seat Limit Policy & Rollout Audit
 
-_Last updated: 2026-06-22 (Service-Role Companion RPC + Max Agents
-Activation phase). Status: **`max_agents` is now LIVE.** The
-browser-callable bypass on `accept_workspace_invitation(text)` is
-closed; the canonical Express route uses a service-role-only
-companion RPC; `resolveMaxAgents` is registered; `requireLimit`
-is mounted on the seat-creation path; and the `team_members →
-max_agents` seed migration has been applied._
+_Last updated: 2026-06-22 (Post-Activation Cleanup phase). Status:
+**`max_agents` is LIVE.**_
 
-This is the deliverable of the _Max Agents Resolver + Consumer + Legacy
-Alias Migration Readiness_ phase. The phase's strict objective is to
-turn `max_agents` from an inert canonical limit into a real
-enforced usage-backed limit, **only if** a real semantics + chokepoint
-pair can be locked safely. After audit, that bar is not met yet, and
-per the phase rules ("Prefer one honest defer over one fake
-max_agents rollout") rollout is deferred with an explicit unblock
-matrix.
+Canonical state, after activation:
 
-No middleware, no resolver, no route, and no plan row was changed in
-this phase.
+- Canonical chokepoint: `POST /api/workspace-members/accept-invitation`
+  (`server/routes/workspaceMembers.ts`), gated by
+  `requireLimit('max_agents', usageFnForLimit('max_agents'))`.
+- Canonical RPC: `public.accept_workspace_invitation_as(_token,
+  _user_id)` — `SECURITY DEFINER`, `EXECUTE` granted only to
+  `service_role`. Called from the Express route with a service-role
+  client and the user id taken from the verified JWT.
+- Canonical resolver: `resolveMaxAgents` in
+  `server/services/billing/usageResolvers.ts` (`count(*)` on
+  `public.workspace_members` filtered by `workspace_id`).
+- Browser-side bypass on `accept_workspace_invitation(text)` is
+  closed: `EXECUTE` is revoked from `anon`/`authenticated`/`public`;
+  only `service_role` retains it.
+- Seed mirror applied: `billing_plans.limits.max_agents` is set on
+  every active plan (`free=2`, `pro=10`, `enterprise=-1`). Legacy
+  `team_members` / `agents` keys are intentionally **preserved for
+  one release** as soft-warn aliases.
+
+Sections 1–4 below preserve the original audit trail that led to the
+activation choice. Section 5 onwards reflects post-activation state
+and the cleanup/deprecation policy.
 
 ---
 
@@ -335,25 +342,13 @@ creation, deletion, sub-grouping).
 
 ---
 
-## 5. Rollout actually applied this phase
+## 5. Rollout history (per-phase log, append-only)
 
-- **Documentation only.**
-  - This doc (`docs/MAX_AGENTS_POLICY.md`) added.
-  - Cross-references added in `docs/PLAN_DATA_RECONCILIATION.md`,
-    `docs/PLANS_SYSTEM_HANDOFF.md`, and
-    `docs/ENTITLEMENT_ARCHITECTURE.md`.
-- **No resolver added.** `resolveMaxAgents` is intentionally not
-  registered in `usageResolvers.ts`. Adding an unconsumed resolver
-  would create the false impression that `max_agents` is enforced.
-  The existing `KNOWN_UNSUPPORTED.max_agents` rationale is updated
-  in tandem to point at this doc.
-- **No middleware change.** No route was gated.
-- **No plan-row mutation.** `team_members` and `agents` legacy
-  aliases stay exactly as catalogued in
-  `docs/PLAN_DATA_RECONCILIATION.md` §2.2.
-- **No tests added.** Per the phase rules ("Add focused
-  deterministic tests only if resolver/consumer/enforcement is
-  added") no behavior changed, so no new test is owed.
+The active state is described in §§4.3, 6, and 7. The list below
+is preserved as the historical phase log so future maintainers can
+trace how the activation happened. **The intermediate "deferred /
+blocked / documentation-only" notes here describe earlier phases,
+not current state — see §4.3 and §6 for the live truth.**
 
 ### Update — Workspace Member Write Boundary phase, 2026-06-22
 
@@ -417,38 +412,32 @@ creation, deletion, sub-grouping).
 
 ---
 
-## 6. Legacy alias migration readiness
+## 6. Post-activation deprecation policy
 
-`team_members` and `agents` (in `billing_plans.limits`) remain legacy
-aliases of the same conceptual limit. As of the Service-Role
-Companion RPC + Max Agents Activation phase the `team_members →
-max_agents` mirror has been applied; `agents` is preserved as-is
-for backward compatibility (the only conflicting row, `free`,
-resolved in favour of the more permissive `team_members=2` — see
-`docs/PLAN_DATA_RECONCILIATION.md`). The historic two-blocker
-sequence below is preserved for context:
+After activation, the following classification governs every
+remaining legacy surface around `max_agents`. Items move between
+buckets only via an explicit follow-up cleanup pass — never
+silently.
 
-1. **(this phase, done)** Lock `max_agents` semantics + counting
-   model (§§2–3 above). ✅
-2. **(future phase, blocked)** Land an Express seat-creation route
-   that owns `workspace_members` INSERT, then gate it with
-   `requireLimit('max_agents', usageFnForLimit('max_agents'))` and
-   register `resolveMaxAgents` in `usageResolvers.ts`. ❌
-3. **(after #2)** Run a one-shot SQL `UPDATE billing_plans` that
-   copies `limits->'team_members'` (or `limits->'agents'` for free)
-   into `limits->'max_agents'`. Leave the legacy keys in place for
-   one release. Diagnostics will then show the canonical key
-   present and the legacy key as a soft warning, identical to the
-   `contacts` pattern documented in
-   `docs/PLAN_DATA_RECONCILIATION.md`.
+| Surface | Classification | Rationale |
+|---|---|---|
+| `public.accept_workspace_invitation(text)` RPC body | **KEEP FOR INTERNAL / SERVICE USE.** `EXECUTE` is granted only to `service_role`; `anon`/`authenticated`/`public` are revoked. | No live caller in `server/` or `src/` (verified via `rg`). The RPC is retained because (a) the Supabase generated `types.ts` still references it, (b) it is callable from internal admin / SQL contexts under `service_role`, and (c) dropping it is a destructive DB change that requires its own approval. |
+| Companion RPC `accept_workspace_invitation_as(_token, _user_id)` | **CANONICAL.** | Service-role-only; sole reachable path from the Express route. |
+| `billing_plans.limits.team_members` | **KEEP FOR ONE-RELEASE COMPATIBILITY.** | Mirrors `max_agents` exactly after the seed migration. Preserved so a rollback to the previous release does not lose the seat ceiling. Soft-warned by `validatePlanPayload` and pinned by `src/test/billing/legacyPlanKeys.test.ts`. |
+| `billing_plans.limits.agents` (`free` only) | **KEEP FOR ONE-RELEASE COMPATIBILITY.** | Same family as `team_members`; only present on `free`. Removing now would shrink the rollback surface for no behavior gain. |
+| Diagnostics warning text for `team_members` / `agents` | **KEEP, UNCHANGED.** | The drift is real (legacy aliases exist on every active row) and operators should still see it. Silencing the warning would hide the only reminder that these keys are slated for removal in a follow-up pass. |
+| `KNOWN_UNSUPPORTED.max_agents` entry in `usageResolvers.ts` | **REMOVED.** | Resolver is registered; the entry is gone from the source as part of the activation phase. Verified post-activation. |
+| `requireLimit('max_agents', …)` middleware on the seat-creation route | **CANONICAL.** | Only valid chokepoint for the limit; do not duplicate elsewhere. |
+| Frontend direct `supabase.rpc('accept_workspace_invitation', …)` calls | **REMOVED.** | `InvitePage.tsx` has been migrated to the Express route; `rg` shows no remaining browser-side caller. |
 
-Step 3 is mechanical now (mapping is high-confidence: same
-occupancy semantic, same `-1`-means-unlimited semantic, identical
-per-plan values where present). It is gated on step 2 only because
-running step 3 first would lift Pro/Enterprise from the registry
-default of 1 seat to 10 / unlimited without an enforcement path —
-i.e. customers would see a higher limit in the UI but the limit
-would still be unenforced.
+**Removal not in scope of this cleanup pass:**
+
+- Dropping `public.accept_workspace_invitation(text)` from the
+  database. Deferred until a separate DB-cleanup pass with explicit
+  approval; see §8.
+- Deleting `team_members` / `agents` from active seed rows. Deferred
+  to the next-release cleanup; the one-release compatibility window
+  is intentional.
 
 ---
 
@@ -467,16 +456,36 @@ would still be unenforced.
 
 ---
 
-## 8. Hard acceptance checks (re-verified 2026-06-22)
+## 8. Hard acceptance checks (re-verified 2026-06-22, post-activation cleanup)
 
 - [x] No canonical capability key renamed.
-- [x] `max_agents` is **not** "implemented" — rollout was honestly
-      deferred with explicit unblock criteria.
-- [x] Only one counting model is locked (live exact count); no
-      second seat-count system was introduced.
-- [x] No customer-facing behavior changed.
-- [x] Legacy alias migration is **not** done. The defer is explicit.
+- [x] `max_agents` is LIVE and enforced at the canonical chokepoint.
+- [x] Only one counting model exists (live exact count on
+      `workspace_members`); no second seat-count system was
+      introduced.
+- [x] No customer-facing behavior changed by the cleanup pass.
+- [x] Legacy `team_members` / `agents` keys are intentionally
+      preserved for one release — explicitly classified in §6.
+- [x] Original `accept_workspace_invitation(text)` RPC retained for
+      service-role-only internal use; not dropped (deferred).
 - [x] No route / env / schema / key rename occurred.
-- [x] The repo is more ready for `team_members / agents → max_agents`
-      reconciliation than before: semantics, counting model, and
-      unblock criteria are now locked in writing.
+- [x] Documentation now distinguishes live canonical path,
+      temporary compatibility surfaces, and future removal items
+      without contradicting the runtime state.
+
+### 8.1 Future removal pass — explicit checklist
+
+The next cleanup pass (separate, explicit approval required) may:
+
+1. `DROP FUNCTION public.accept_workspace_invitation(text)` — only
+   after a final audit of internal/service callers and Supabase
+   `types.ts` regeneration.
+2. Run a one-shot SQL `UPDATE billing_plans SET limits =
+   limits - 'team_members' - 'agents'` to retire the legacy aliases
+   from active seeds — only after at least one full release cycle on
+   `max_agents`.
+3. Tighten `validatePlanPayload` to drop the soft-warn entries for
+   `team_members` / `agents` once step 2 is applied.
+
+None of those steps are applied in this cleanup pass. They remain
+deferred by design.

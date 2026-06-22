@@ -433,6 +433,103 @@ function RetentionRestoreButton({ row }: { row: AdminRecordingRow }) {
 }
 
 /**
+ * Single-row "Adopt retention" action for legacy/unmanaged rows.
+ *
+ * Visible ONLY for rows whose `retention_policy` IS NULL AND
+ * `retention_expires_at` IS NULL — i.e. rows the janitor today ignores
+ * by design. Calls the super-admin `/retention-adopt` route which
+ * computes the workspace's current effective retention anchored at the
+ * row's own `created_at`, using the same canonical helpers as
+ * insert-time stamping and restore-to-inherited. Never touches
+ * `legal_hold`. The janitor remains the sole deletion path.
+ */
+function RetentionAdoptButton({ row }: { row: AdminRecordingRow }) {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState('');
+  const mut = useMutation({
+    mutationFn: async () => adoptAdminRecordingRetention(row.id, reason.trim() || undefined),
+    onSuccess: () => {
+      setOpen(false);
+      setReason('');
+      qc.invalidateQueries({ queryKey: ['admin', 'call-recordings'] });
+    },
+  });
+  const isLegacy = row.retention_policy == null && row.retention_expires_at == null;
+  if (!isLegacy) return null;
+  return (
+    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) mut.reset(); }}>
+      <DialogTrigger asChild>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-6 px-2 text-[10px]"
+          data-testid={`retention-adopt-open-${row.id}`}
+          aria-label={`Adopt retention for ${row.id}`}
+        >
+          Adopt retention
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-md" data-testid={`retention-adopt-dialog-${row.id}`}>
+        <DialogHeader>
+          <DialogTitle className="text-sm">Adopt legacy recording into managed retention</DialogTitle>
+          <DialogDescription className="text-xs">
+            Stamps this legacy recording with the workspace's current effective
+            retention, anchored at the recording's creation time. If the
+            resulting expiry already lies in the past, the row becomes eligible
+            for the retention janitor on its next sweep — adoption itself never
+            removes anything. Legal hold is unchanged and still overrides
+            expiry. This action is audit-logged and affects only this one row.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="text-[10px] text-muted-foreground">
+            Currently: legacy / unmanaged (no expiry stamped, janitor skips)
+            {row.legal_hold ? ' · legal hold active' : ''}
+          </div>
+          <div className="space-y-1">
+            <Label className="text-[11px]">Reason (optional)</Label>
+            <Input
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="e.g. Bringing pre-launch recording under policy"
+              maxLength={500}
+              className="h-8 text-xs"
+            />
+          </div>
+          {mut.isError && (
+            <div className="text-[11px] text-destructive" data-testid={`retention-adopt-error-${row.id}`}>
+              {(mut.error as Error)?.message || 'Adoption failed'}
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-8 text-xs"
+            disabled={mut.isPending}
+            onClick={() => setOpen(false)}
+          >
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            className="h-8 text-xs gap-1"
+            disabled={mut.isPending}
+            onClick={() => mut.mutate()}
+            data-testid={`retention-adopt-submit-${row.id}`}
+          >
+            {mut.isPending && <Loader2 className="h-3 w-3 animate-spin" />}
+            Adopt retention
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
  * Inline read-only preview surface for a single recording row.
  *
  * • Bytes flow through the existing super-admin file proxy via

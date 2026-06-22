@@ -730,3 +730,39 @@ Architectural guardrails enforced by the UI:
 - Still deferred after this pass: bulk retention edits / bulk legacy
   adoption / bulk delete, operator-side visibility, waveform/timeline
   UI, annotations/comments.
+
+### Operator-side recording visibility (read-only) — implemented
+- Workspace-scoped, read-only recording access for non-super-admin
+  operators. No retention/legal-hold/override/restore/adopt/delete
+  controls; those remain exclusive to the super-admin Recordings tab.
+- Permission: existing workspace-membership check
+  (`is_workspace_member`) — the same gate that already governs the
+  call detail view. No new role introduced.
+- Backend:
+  - `GET  /api/call-center/calls/:id/recordings?workspaceId=...` —
+    returns artifact metadata only (`id`, `recording_type`,
+    `duration_seconds`, `size_bytes`, `created_at`, `has_storage`).
+    `storage_path`, provider identifiers, retention fields, and
+    legal-hold flags are never returned.
+  - `POST /api/call-center/calls/:id/recordings/:recordingId/playback-token`
+    — mints a short-lived HMAC token bound to the recording id and
+    hard-coded to `disposition='inline'`. Operators cannot mint
+    `attachment`; that remains super-admin only.
+  - Streaming reuses the existing public token-validated route
+    `GET /api/calls/recording-playback/:id?token=...` — same
+    `downloadFileRange` storage path as the super-admin proxy, same
+    Range-request support, no provider URL leakage, no second
+    playback engine.
+- Cross-workspace access (foreign recording id, or recording id paired
+  with a foreign call id) returns a uniform `404 not_found` to avoid
+  leaking the existence of out-of-scope recordings.
+- Frontend: replaces the previous "Playback/download will be added
+  later" placeholder in `Call Center → Calls → detail` with a per-
+  artifact load-on-demand `<audio>`/`<video>` player. No download
+  button, no admin controls.
+- Janitor remains the sole deletion path; this surface never writes to
+  `call_recordings` or storage. Retention semantics, capability keys,
+  env vars, routes, and schema are unchanged.
+- Still deferred after this pass: bulk retention edits / bulk legacy
+  adoption / bulk delete, waveform/timeline UI, annotations/comments,
+  operator-side download (intentionally withheld).

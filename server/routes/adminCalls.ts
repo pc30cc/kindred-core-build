@@ -924,3 +924,114 @@ adminCallsRouter.post('/recordings/:id/retention-override', async (req, res) => 
     legal_hold: !!(prior as any).legal_hold,
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// Per-recording retention RESTORE-TO-INHERITED (super-admin, single row).
+//
+//   POST /api/admin/calls/recordings/:id/retention-restore
+//   Body: { reason?: string }
+//
+// Restore policy (locked):
+//   • Eligible ONLY for rows whose current `retention_policy` starts with
+//     `override:`. Already-inherited rows (`Nd` / `unlimited`) and legacy
+//     unmanaged rows (NULL policy) return 409 — restoring those would
+//     either be a no-op pretending to do work or an implicit legacy
+//     backfill, both of which this pass forbids.
+//   • "Inherited" is defined as: the SAME computation `stampRetention`
+//     would perform today for this row's workspace, anchored at the row's
+//     own `created_at`. That is the only inherited value the retention
+//     model can express — the original creation-time stamp is not
+//     preserved separately. The recomputation is explicit and operator-
+//     triggered, never silent.
+//   • Writes `retention_policy = '<N>d' | 'unlimited'` and
+//     `retention_expires_at = created_at + Nd` (NULL for unlimited),
+//     matching the live janitor contract exactly.
+//   • `legal_hold` is never touched and still wins over expiry.
+//   • The janitor remains the sole deletion path.
+//   • This route never operates on more than the one row addressed.
+const RetentionRestoreBody = z.object({
+  reason: z.string().trim().max(500).optional(),
+});
+
+adminCallsRouter.post('/recordings/:id/retention-restore', async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
+  const sb = getServiceClient(config);
+  const id = String(req.params.id || '');
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'invalid_id' });
+  const parsed = RetentionRestoreBody.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res
+      .status(400)
+      .json({ error: 'invalid_body', detail: parsed.error.flatten().fieldErrors });
+  }
+
+  const { data: prior, error: priorErr } = await sb
+    .from('call_recordings')
+    .select(
+      'id, retention_policy, retention_expires_at, legal_hold, created_at, call_sessions!inner(workspace_id)',
+    )
+    .eq('id', id)
+    .maybeSingle();
+  if (priorErr) return res.status(500).json({ error: priorErr.message });
+  if (!prior) return res.status(404).json({ error: 'not_found' });
+
+  const currentPolicy: string | null = (prior as any).retention_policy ?? null;
+  if (!currentPolicy || !currentPolicy.startsWith('override:')) {
+    return res.status(409).json({
+      error: 'not_overridden',
+      detail:
+        'Only rows currently marked override:* can be restored to inherited retention. ' +
+        'Legacy/unmanaged and already-inherited rows are intentionally not touched.',
+    });
+  }
+
+  const wsId = (prior as any)?.call_sessions?.workspace_id as string | undefined;
+  const createdAt = (prior as any)?.created_at as string | undefined;
+  if (!wsId || !createdAt) {
+    return res.status(500).json({ error: 'row_missing_anchor_fields' });
+  }
+
+  const eff = await resolveEffectiveRecordingRetentionDays(config, wsId);
+  const nextPolicy = eff.days < 0 ? 'unlimited' : `${eff.days}d`;
+  const nextExpiresAt = computeRetentionExpiresAt(createdAt, eff.days);
+
+  const { error: updErr } = await sb
+    .from('call_recordings')
+    .update({
+      retention_expires_at: nextExpiresAt,
+      retention_policy: nextPolicy,
+    })
+    .eq('id', id);
+  if (updErr) return res.status(500).json({ error: updErr.message });
+
+  await sb
+    .from('audit_logs')
+    .insert({
+      action: 'call_recording.retention.restore',
+      entity_type: 'call_recording',
+      entity_id: id,
+      user_id: (req as any).adminUser?.id ?? null,
+      workspace_id: wsId,
+      old_value: {
+        retention_policy: currentPolicy,
+        retention_expires_at: (prior as any).retention_expires_at ?? null,
+      } as any,
+      new_value: {
+        retention_policy: nextPolicy,
+        retention_expires_at: nextExpiresAt,
+        inherited_source: eff.source,
+        inherited_days: eff.days,
+        reason: parsed.data.reason ?? null,
+      } as any,
+    } as any)
+    .then(() => {}, () => {});
+
+  res.json({
+    id,
+    retention_policy: nextPolicy,
+    retention_expires_at: nextExpiresAt,
+    legal_hold: !!(prior as any).legal_hold,
+    inherited_source: eff.source,
+    inherited_days: eff.days,
+  });
+});

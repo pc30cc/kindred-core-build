@@ -440,3 +440,48 @@ export async function setAdminRecordingLegalHold(
   }
   return res.json();
 }
+
+/**
+ * Build the admin recording artifact URL. Used internally by
+ * `fetchAdminRecordingBlob`. NOT a signed URL — the route is protected
+ * by the super-admin bearer header and must be fetched via
+ * `fetchAdminRecordingBlob`, never opened directly in <a href> / <video src>.
+ */
+function adminRecordingFileUrl(id: string, disposition: 'inline' | 'attachment'): string {
+  const qs = disposition === 'attachment' ? '?disposition=attachment' : '';
+  return `${API_BASE}/api/admin/calls/recordings/${encodeURIComponent(id)}/file${qs}`;
+}
+
+/**
+ * Fetches the underlying recording bytes through the super-admin
+ * artifact proxy. Returns a blob + content-type the caller can turn
+ * into an in-memory object URL for inline playback or download.
+ * Provider URLs are never exposed to the browser — all bytes flow
+ * through the canonical storage abstraction on the backend.
+ */
+export async function fetchAdminRecordingBlob(
+  id: string,
+  disposition: 'inline' | 'attachment' = 'inline',
+): Promise<{ blob: Blob; contentType: string; filename: string | null }> {
+  const res = await fetch(adminRecordingFileUrl(id, disposition), {
+    headers: await authHeader(),
+  });
+  if (!res.ok) {
+    let detail = '';
+    try {
+      const j = await res.json();
+      detail = typeof j?.error === 'string' ? j.error : '';
+    } catch {
+      /* ignore */
+    }
+    throw new Error(detail || `HTTP ${res.status}`);
+  }
+  const blob = await res.blob();
+  const cd = res.headers.get('Content-Disposition') || '';
+  const m = /filename="?([^";]+)"?/i.exec(cd);
+  return {
+    blob,
+    contentType: res.headers.get('Content-Type') || blob.type || 'application/octet-stream',
+    filename: m ? m[1] : null,
+  };
+}

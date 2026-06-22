@@ -820,3 +820,35 @@ Architectural guardrails enforced by the UI:
   delete, cross-call / cross-workspace bulk export, server-side
   archive (zip) packaging, waveform/timeline UI, annotations,
   comments.
+
+## Operator recording archive (ZIP) export (read-only)
+
+- Smallest safe server-side packaging surface on top of the existing
+  operator bulk-download authorization. Same gate
+  (`requireCallOperator`), same per-id workspace/call validation, same
+  uniform `not_found` semantics, same canonical storage abstraction
+  (`downloadFile`). No raw provider URLs or credentials are ever
+  exposed; no retention, legal-hold, or deletion semantics change; the
+  janitor remains the sole deletion path.
+- Backend:
+  - `POST /api/call-center/calls/:id/recordings/archive` — body
+    `{ workspaceId, recording_ids: string[] }`. Hard caps: 25 ids per
+    request and 500 MB total payload. Builds a STORE-only ZIP in
+    memory (no DEFLATE — recordings are already compressed media) and
+    sends a single `application/zip; attachment` response with
+    `X-Archive-Included` / `X-Archive-Excluded` headers.
+  - Partial-failure model: cross-workspace, cross-call, missing
+    storage, download failures, and per-request size-cap overruns are
+    omitted from the ZIP and recorded in an inline `manifest.txt`.
+    The endpoint only returns `404 no_recordings_available` when zero
+    recordings could be safely packaged.
+  - Helper: `server/services/calls/zipStore.ts` — minimal STORE-only
+    ZIP writer (no third-party dependency).
+- Frontend: "Download ZIP" button in the call detail sheet's
+  Recordings panel, alongside the existing "Download selected" button.
+  Uses the same selection state; existing per-row and bulk-download
+  flows are untouched.
+- Still deferred: bulk retention edits / bulk legacy adoption / bulk
+  delete, cross-call / cross-workspace archive export, streaming/
+  chunked archive responses (current path is bounded in-memory),
+  waveform/timeline UI, annotations, comments.

@@ -46,6 +46,24 @@ const sbMock: any = {
 
 vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => sbMock }));
 vi.mock('../../../server/middleware/adminBypass.js', () => ({ isGlobalAdmin: async () => false }));
+vi.mock('../../../server/services/storage/index.js', async () => {
+  // Only `downloadFile` is exercised by the archive route in this test file.
+  // Every other export is stubbed to a harmless no-op so importing the
+  // call-center router does not blow up.
+  return {
+    downloadFile: async (_cfg: any, _ws: string, key: string) => {
+      if (key === 'missing.mp4') return { success: false, error: 'gone' };
+      return { success: true, data: Buffer.from(`bytes:${key}`) };
+    },
+    uploadFile: async () => ({ success: false, error: 'noop' }),
+    deleteFile: async () => ({ success: false, error: 'noop' }),
+    resolveStorageConfig: async () => null,
+    resolveGlobalStorageConfig: async () => null,
+    uploadWithConfig: async () => ({ success: false, error: 'noop' }),
+    deleteWithConfig: async () => ({ success: false, error: 'noop' }),
+    getFileUrlWithConfig: () => null,
+  };
+});
 
 import { callCenterRouter } from '../../../server/routes/callCenter';
 
@@ -338,5 +356,104 @@ describe('POST /calls/:id/recordings/bulk-download-tokens', () => {
     await handler(req, res);
     expect(get().statusCode).toBe(400);
     expect(get().jsonBody.error).toBe('invalid_recording_id');
+  });
+});
+
+describe('POST /calls/:id/recordings/archive', () => {
+  const handler = findHandler('post', '/calls/:id/recordings/archive');
+  const REC_A = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
+  const REC_OTHER_WS = 'ffffffff-ffff-ffff-ffff-ffffffffffff';
+
+  function makeRes() {
+    let statusCode = 200;
+    let jsonBody: any;
+    let sent: any = null;
+    const headers: Record<string, string> = {};
+    const res: any = {
+      status(c: number) { statusCode = c; return res; },
+      json(b: any) { jsonBody = b; return res; },
+      setHeader(k: string, v: any) { headers[k.toLowerCase()] = String(v); },
+      send(b: any) { sent = b; return res; },
+    };
+    return { res, get: () => ({ statusCode, jsonBody, sent, headers }) };
+  }
+
+  it('returns a ZIP for authorized recordings and excludes cross-workspace rows via manifest', async () => {
+    const fixtures: Record<string, any> = {
+      [REC_A]: { id: REC_A, storage_path: 'a.mp4', recording_type: 'composite', created_at: '2025-01-01T00:00:00Z', call_session_id: CALL_ID, call_sessions: { workspace_id: WS_OK } },
+      [REC_OTHER_WS]: { id: REC_OTHER_WS, storage_path: 'x.mp4', recording_type: 'composite', created_at: '2025-01-01T00:00:00Z', call_session_id: CALL_ID, call_sessions: { workspace_id: WS_OTHER } },
+    };
+    tableState['call_recordings'] = (_op: string, eqs: Array<[string, any]>) => {
+      const idEq = eqs.find(([c]) => c === 'id');
+      const row = idEq ? fixtures[idEq[1]] : null;
+      return { data: row ?? null, error: null };
+    };
+    const req: any = {
+      params: { id: CALL_ID },
+      query: { workspaceId: WS_OK },
+      body: { recording_ids: [REC_A, REC_OTHER_WS] },
+      headers: { authorization: 'Bearer t' },
+      serverConfig: { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k-operator-test-secret' },
+    };
+    const { res, get } = makeRes();
+    await handler(req, res);
+    const { statusCode, sent, headers } = get();
+    expect(statusCode).toBe(200);
+    expect(headers['content-type']).toBe('application/zip');
+    expect(headers['content-disposition']).toContain('attachment;');
+    expect(headers['x-archive-included']).toBe('1');
+    expect(headers['x-archive-excluded']).toBe('1');
+    // PK\x03\x04 magic
+    expect(Buffer.isBuffer(sent)).toBe(true);
+    expect(sent.slice(0, 4).toString('hex')).toBe('504b0304');
+    // Storage path of cross-workspace row must not appear in the response.
+    expect(sent.toString('binary')).not.toContain('x.mp4');
+  });
+
+  it('returns 404 when no recording could be packaged', async () => {
+    tableState['call_recordings'] = () => ({ data: null, error: null });
+    const req: any = {
+      params: { id: CALL_ID },
+      query: { workspaceId: WS_OK },
+      body: { recording_ids: [REC_A] },
+      headers: { authorization: 'Bearer t' },
+      serverConfig: { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k-operator-test-secret' },
+    };
+    const { res, get } = makeRes();
+    await handler(req, res);
+    expect(get().statusCode).toBe(404);
+    expect(get().jsonBody.error).toBe('no_recordings_available');
+  });
+
+  it('rejects oversized batches and empty bodies before any lookup', async () => {
+    {
+      const req: any = {
+        params: { id: CALL_ID },
+        query: { workspaceId: WS_OK },
+        body: { recording_ids: [] },
+        headers: { authorization: 'Bearer t' },
+        serverConfig: { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k-operator-test-secret' },
+      };
+      const { res, get } = makeRes();
+      await handler(req, res);
+      expect(get().statusCode).toBe(400);
+      expect(get().jsonBody.error).toBe('recording_ids_required');
+    }
+    {
+      const tooMany = Array.from({ length: 26 }, (_, i) =>
+        `aaaaaaaa-aaaa-aaaa-aaaa-${String(i).padStart(12, '0')}`,
+      );
+      const req: any = {
+        params: { id: CALL_ID },
+        query: { workspaceId: WS_OK },
+        body: { recording_ids: tooMany },
+        headers: { authorization: 'Bearer t' },
+        serverConfig: { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k-operator-test-secret' },
+      };
+      const { res, get } = makeRes();
+      await handler(req, res);
+      expect(get().statusCode).toBe(400);
+      expect(get().jsonBody.error).toBe('too_many_recordings');
+    }
   });
 });

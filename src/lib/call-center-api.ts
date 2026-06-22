@@ -502,6 +502,50 @@ export const callCenterApi = {
       `/api/call-center/calls/${encodeURIComponent(callId)}/recordings/bulk-download-tokens?workspaceId=${encodeURIComponent(workspaceId)}`,
       { method: 'POST', body: JSON.stringify({ workspaceId, recording_ids: recordingIds }) },
     ),
+  /**
+   * Operator-side server-side ZIP archive export (read-only, workspace-scoped).
+   *
+   * Posts the selected recording ids and receives a single `application/zip`
+   * response containing every recording the operator is allowed to access on
+   * the given call, plus a `manifest.txt` summarising any per-id exclusions
+   * (cross-workspace, cross-call, missing storage, download failures, or
+   * the per-request size cap). Returns the raw ZIP `Blob`.
+   *
+   * Reuses the canonical operator gate and the canonical storage abstraction
+   * — no raw provider URLs/credentials are ever exposed.
+   */
+  exportCallRecordingsArchive: async (
+    workspaceId: string,
+    callId: string,
+    recordingIds: string[],
+  ): Promise<{ blob: Blob; included: number; excluded: number; filename: string }> => {
+    const res = await fetch(
+      `${API_BASE}/api/call-center/calls/${encodeURIComponent(callId)}/recordings/archive?workspaceId=${encodeURIComponent(workspaceId)}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(await authHeaders()),
+        },
+        body: JSON.stringify({ workspaceId, recording_ids: recordingIds }),
+      },
+    );
+    if (!res.ok) {
+      let body: any = null;
+      try { body = await res.json(); } catch { /* non-JSON */ }
+      const err: any = new Error(body?.error || `HTTP ${res.status}`);
+      err.code = body?.error || null;
+      err.status = res.status;
+      throw err;
+    }
+    const cd = res.headers.get('content-disposition') || '';
+    const m = /filename="([^"]+)"/i.exec(cd);
+    const filename = m?.[1] || `call-${callId.slice(0, 8)}-recordings.zip`;
+    const included = Number(res.headers.get('x-archive-included') || '0');
+    const excluded = Number(res.headers.get('x-archive-excluded') || '0');
+    const blob = await res.blob();
+    return { blob, included, excluded, filename };
+  },
   uploadAvatar: async (workspaceId: string, file: File) => {
     const buf = await file.arrayBuffer();
     let bin = ''; const bytes = new Uint8Array(buf);

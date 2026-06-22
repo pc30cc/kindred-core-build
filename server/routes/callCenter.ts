@@ -33,7 +33,8 @@ import {
 } from '../services/callCenter/recordingControl.js';
 import { mintPlaybackToken } from '../services/calls/recordingPlaybackToken.js';
 import { loadEffectiveCallEntitlements } from '../services/calls/entitlementComposer.js';
-import { uploadFile, deleteFile, resolveStorageConfig, resolveGlobalStorageConfig, uploadWithConfig, deleteWithConfig, getFileUrlWithConfig } from '../services/storage/index.js';
+import { uploadFile, deleteFile, resolveStorageConfig, resolveGlobalStorageConfig, uploadWithConfig, deleteWithConfig, getFileUrlWithConfig, downloadFile } from '../services/storage/index.js';
+import { buildStoreZip, safeArchiveName } from '../services/calls/zipStore.js';
 import {
   listDepartments, getDepartment, createDepartment, updateDepartment, deleteDepartment,
   listDepartmentAgents, addDepartmentAgent, updateDepartmentAgent, removeDepartmentAgent,
@@ -1085,6 +1086,154 @@ callCenterRouter.post('/calls/:id/recordings/bulk-download-tokens', async (req, 
   }
 
   res.json({ limit: BULK_DOWNLOAD_LIMIT, count: results.length, results });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Operator-side server-side ZIP archive export (read-only, workspace-scoped).
+//
+//   POST /api/call-center/calls/:id/recordings/archive
+//   body: { workspaceId, recording_ids: string[] }
+//
+// Packages up to ARCHIVE_LIMIT recordings on a single call that the
+// current operator is already allowed to bulk-download into one ZIP
+// response. This is purely a packaging convenience around the same
+// canonical access model used by `bulk-download-tokens`:
+//
+//   • same operator gate (requireCallOperator)
+//   • same per-id workspace/call validation
+//   • same uniform "not_found" semantics — cross-workspace or cross-call
+//     ids never leak existence
+//   • bytes are read through the canonical storage abstraction
+//     (downloadFile), never via raw provider URLs/credentials
+//
+// Partial-failure model: any id that fails (missing, wrong workspace,
+// wrong call, storage missing, download error) is omitted from the
+// archive and recorded in an inline `manifest.txt` so the operator can
+// see exactly what was excluded and why. The archive itself only fails
+// the request if zero recordings could be packaged.
+//
+// Hard caps protect memory:
+//   • ARCHIVE_LIMIT  — max ids per request (matches bulk download)
+//   • ARCHIVE_MAX_TOTAL_BYTES — total uncompressed payload (per request)
+//
+// No persistent artifact is created on disk or in storage; the ZIP is
+// built in memory and streamed in a single response. No retention,
+// legal-hold, or deletion semantics change. The janitor remains the
+// sole deletion path.
+// ─────────────────────────────────────────────────────────────────────────
+const ARCHIVE_LIMIT = 25;
+const ARCHIVE_MAX_TOTAL_BYTES = 500 * 1024 * 1024; // 500 MB
+
+function archiveExtForContentType(row: any): string {
+  const path = String(row?.storage_path || '').toLowerCase();
+  const ext = path.includes('.') ? path.split('.').pop() || '' : '';
+  const allowed = new Set(['mp4', 'webm', 'mkv', 'ogg', 'm4a', 'mp3', 'wav', 'opus']);
+  if (ext && allowed.has(ext)) return ext;
+  if (row?.recording_type === 'audio_only') return 'm4a';
+  return 'mp4';
+}
+
+callCenterRouter.post('/calls/:id/recordings/archive', async (req, res) => {
+  const wid = String(req.query.workspaceId || req.body?.workspaceId || '');
+  const ctx = await requireCallOperator(req, res, wid);
+  if (!ctx) return;
+  const callId = String(req.params.id || '');
+  if (!/^[0-9a-f-]{36}$/i.test(callId)) return res.status(400).json({ error: 'invalid_call_id' });
+
+  const rawIds = Array.isArray(req.body?.recording_ids) ? req.body.recording_ids : null;
+  if (!rawIds || rawIds.length === 0) {
+    return res.status(400).json({ error: 'recording_ids_required' });
+  }
+  if (rawIds.length > ARCHIVE_LIMIT) {
+    return res.status(400).json({ error: 'too_many_recordings', limit: ARCHIVE_LIMIT });
+  }
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of rawIds) {
+    const id = String(raw || '');
+    if (!/^[0-9a-f-]{36}$/i.test(id)) {
+      return res.status(400).json({ error: 'invalid_recording_id', recording_id: id });
+    }
+    if (!seen.has(id)) { seen.add(id); ids.push(id); }
+  }
+
+  const sb = getServiceClient(ctx.config);
+  const entries: Array<{ name: string; data: Buffer }> = [];
+  const manifest: string[] = [
+    `# Call recording archive`,
+    `call_id: ${callId}`,
+    `workspace_id: ${wid}`,
+    `generated_at: ${new Date().toISOString()}`,
+    ``,
+  ];
+  let totalBytes = 0;
+  let included = 0;
+  let excluded = 0;
+
+  for (const recordingId of ids) {
+    const { data: row, error } = await sb
+      .from('call_recordings')
+      .select('id, storage_path, recording_type, created_at, call_session_id, call_sessions!inner(workspace_id)')
+      .eq('id', recordingId)
+      .maybeSingle();
+    if (error) { manifest.push(`EXCLUDED ${recordingId}  reason=lookup_failed`); excluded++; continue; }
+    if (!row) { manifest.push(`EXCLUDED ${recordingId}  reason=not_found`); excluded++; continue; }
+    if ((row as any).call_session_id !== callId) {
+      manifest.push(`EXCLUDED ${recordingId}  reason=not_found`); excluded++; continue;
+    }
+    if ((row as any)?.call_sessions?.workspace_id !== wid) {
+      manifest.push(`EXCLUDED ${recordingId}  reason=not_found`); excluded++; continue;
+    }
+    const storagePath = (row as any).storage_path as string | null;
+    if (!storagePath) {
+      manifest.push(`EXCLUDED ${recordingId}  reason=missing_storage_path`); excluded++; continue;
+    }
+
+    const dl = await downloadFile(ctx.config, wid, storagePath);
+    if (!dl.success || !dl.data) {
+      manifest.push(`EXCLUDED ${recordingId}  reason=download_failed`);
+      excluded++;
+      continue;
+    }
+    if (totalBytes + dl.data.length > ARCHIVE_MAX_TOTAL_BYTES) {
+      manifest.push(`EXCLUDED ${recordingId}  reason=archive_size_cap_exceeded`);
+      excluded++;
+      continue;
+    }
+
+    const ext = archiveExtForContentType(row);
+    const ts = (row as any).created_at
+      ? new Date((row as any).created_at).toISOString().replace(/[:.]/g, '-')
+      : 'recording';
+    const base = safeArchiveName(
+      `call-recording-${String((row as any).id || 'unknown').slice(0, 12)}-${ts}.${ext}`,
+      `recording-${recordingId.slice(0, 8)}.${ext}`,
+    );
+    entries.push({ name: base, data: dl.data });
+    manifest.push(`INCLUDED ${recordingId}  file=${base}  bytes=${dl.data.length}`);
+    totalBytes += dl.data.length;
+    included++;
+  }
+
+  if (included === 0) {
+    // Nothing safely packageable — surface a structured error rather than
+    // a misleading empty archive.
+    return res.status(404).json({ error: 'no_recordings_available', excluded });
+  }
+
+  manifest.push(``, `summary: included=${included} excluded=${excluded} bytes=${totalBytes}`);
+  entries.push({ name: 'manifest.txt', data: Buffer.from(manifest.join('\n') + '\n', 'utf8') });
+
+  const zip = buildStoreZip(entries);
+  const fname = `call-${callId.slice(0, 8)}-recordings-${new Date().toISOString().replace(/[:.]/g, '-')}.zip`;
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);
+  res.setHeader('Content-Length', String(zip.length));
+  res.setHeader('X-Archive-Included', String(included));
+  res.setHeader('X-Archive-Excluded', String(excluded));
+  return res.status(200).send(zip);
 });
 
 // ── Agent status ──────────────────────────────────────────────────────────

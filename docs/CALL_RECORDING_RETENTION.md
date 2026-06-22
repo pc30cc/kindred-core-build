@@ -649,5 +649,66 @@ and no second access path is introduced.
 - Bulk retention edits / bulk legacy adoption / bulk delete.
 - Cross-call / cross-workspace bulk export (intentionally scoped to one
   call's recordings per request).
-- Server-side archive (zip) packaging.
+- Waveform/timeline UI, annotations, comments.
+
+## Operator-side archive (ZIP) export — implemented (read-only)
+
+Operators can package the same selection they could already bulk-download
+into a single ZIP file with one click. This is a packaging convenience,
+not a new access surface — the same operator gate, same per-id
+workspace/call validation, and the same canonical storage abstraction
+are reused.
+
+### Archive policy (locked)
+- Available to any workspace member who already passes
+  `requireCallOperator` for the target call.
+- Scope: one call per request (page/call-scoped). No cross-call,
+  no cross-workspace export.
+- Hard caps per request: `ARCHIVE_LIMIT = 25` ids,
+  `ARCHIVE_MAX_TOTAL_BYTES = 500 MB` of payload.
+- Method: STORE-only (no DEFLATE) — recordings are already-compressed
+  media, so STORE keeps memory bounded and avoids a third-party
+  archive dependency.
+- Delivery: built in memory and sent as a single
+  `application/zip; attachment` response. No persistent artifact is
+  created on disk or in storage. No temporary lifetime to manage.
+- Partial-failure model: any id that fails (not found, cross-workspace,
+  cross-call, missing storage, download failure, size cap exceeded) is
+  omitted from the ZIP and logged in an inline `manifest.txt`. The
+  request only 404s if zero recordings could be safely packaged.
+
+### Operator backend surface
+- `POST /api/call-center/calls/:id/recordings/archive`
+  - Body: `{ workspaceId, recording_ids: string[] }`.
+  - Auth: workspace operator gate (same as bulk-download-tokens).
+  - Reads bytes via the canonical `downloadFile(...)` storage helper —
+    never a raw provider URL/credential.
+  - Returns `application/zip` with `Content-Disposition: attachment`,
+    plus `X-Archive-Included` / `X-Archive-Excluded` headers.
+  - Cross-workspace or cross-call ids return the same uniform
+    `not_found` exclusion in `manifest.txt`, with no existence leak.
+
+### Operator frontend surface
+- "Download ZIP" button appears next to the existing "Download selected"
+  button in the call detail sheet's recordings panel.
+- Uses the same selection state as bulk download; existing per-row
+  playback and per-row download flows are unchanged.
+- Shows pending state, success toast, and a partial-success toast
+  pointing at `manifest.txt` when any rows were excluded.
+
+### Safeguards
+- Retention semantics did not change; janitor remains the sole deletion
+  path; this surface never writes to storage or `call_recordings`.
+- No route/env/schema/capability-key rename. Existing single-file and
+  bulk-token-mint flows are intact.
+- No raw provider URL or storage path leaks into the response,
+  archive entries, or `manifest.txt` (only the in-archive basename).
+- Hard caps prevent runaway memory use; entries above the size cap
+  are excluded with a clear `manifest.txt` reason.
+
+### Still deferred after the archive export pass
+- Bulk retention edits / bulk legacy adoption / bulk delete.
+- Cross-call / cross-workspace archive export.
+- Streaming/chunked archive responses (current implementation builds
+  the ZIP in memory under the 500 MB cap).
 - Waveform/timeline UI, annotations, comments.

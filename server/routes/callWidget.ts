@@ -872,6 +872,19 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
   ]);
   if ((active || 0) >= effective.max_concurrent_calls) return res.status(429).json({ error: 'limit_reached', kind: 'concurrent' });
   if ((queued || 0) >= effective.max_queue_size) return res.status(429).json({ error: 'limit_reached', kind: 'queue' });
+  // Phase: max_concurrent_calls — Dual-Knob Activation.
+  // The widget-scoped platform-admin knob check above stays as-is
+  // (its meaning has NOT changed: "max simultaneous widget-originated
+  // calls"). The check below enforces the SEPARATE plan-level
+  // workspace-wide ceiling using the canonical active-call counting
+  // model (all entry_source values + 'pending' state included).
+  // Both ceilings may deny; first denial wins. Distinct denial shape
+  // (error = 'plan_limit_reached' | 'plan_forbidden') so callers can
+  // distinguish the two knobs.
+  const planConc = await checkPlanConcurrencyCeiling(config, ws.workspace_id);
+  if (!planConc.allowed) {
+    return res.status(planConc.reason === 'plan_limit_reached' ? 429 : 403).json(planConcurrencyDenialBody(planConc));
+  }
 
   // Create call session + queue entry. Retry once on transient undici
   // "fetch failed" — Supabase REST connection can be reset between idle

@@ -642,3 +642,30 @@ Architectural guardrails enforced by the UI:
   (intentionally absent), per-recording retention overrides,
   operator-side visibility, waveform/timeline UI, optional legacy
   backfill UI.
+
+## Recording per-row retention override (super-admin)
+
+- New backend route
+  `POST /api/admin/calls/recordings/:id/retention-override` mutates
+  only `retention_expires_at` and `retention_policy` on a single row.
+  Modes: `exact` (ISO), `days_from_now` (0..3650), `unlimited`
+  (NULL expiry → janitor never selects). Stamps the policy as
+  `override:exact` / `override:Nd` / `override:unlimited`.
+- `legal_hold` is never touched by this route. Legal hold continues
+  to win over expiry — an expired override on a held row is still
+  not deleted until the hold is released.
+- Legacy/unmanaged rows are only modified through an explicit per-row
+  override; there is no implicit backfill.
+- Clearing an override is intentionally not supported in this pass
+  (no preserved original plan-stamp). Operators set a new explicit
+  value instead.
+- One `audit_logs` row per call with action
+  `call_recording.retention.override`.
+- Frontend: per-row "Override" button in the Expires cell opens a
+  small dialog; rows with a non-plan policy show an "Overridden (…)"
+  tag inline.
+- Janitor is unchanged: still the sole deletion path, still reading
+  the same two fields.
+- Still deferred after this pass: bulk retention edits / bulk delete,
+  clear-override / restore-to-inherited, optional legacy backfill UI,
+  operator-side visibility, waveform/timeline UI.

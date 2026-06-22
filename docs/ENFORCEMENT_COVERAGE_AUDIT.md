@@ -365,3 +365,37 @@ Full audit, behavioral delta, and unblock checklist in
 Counting-Model Migration Pass".
 
 Next phase: "`max_concurrent_calls` Dual-Knob Activation".
+
+---
+
+### June 2026 — `max_concurrent_calls` Dual-Knob Activation (LIVE)
+
+`max_concurrent_calls` moves from DEFERRED to LIVE under the locked
+dual-knob additive model.
+
+- **Resolver:** `resolveMaxConcurrentCalls` in
+  `server/services/billing/usageResolvers.ts` (canonical active-set
+  count, all entry sources). Registered in `RESOLVERS`.
+- **Registry:** `max_concurrent_calls` added (`type: 'limit'`,
+  `defaultValue: -1`, group `calls`) and listed in
+  `USAGE_BACKED_LIMIT_KEYS`.
+- **Enforcement helper:**
+  `server/services/calls/concurrencyLimit.ts#checkPlanConcurrencyCeiling`
+  (single primitive used by both create boundaries).
+- **Consumer 1:** `POST /api/calls/create` (operator) —
+  `server/routes/calls.ts`. Runs after the call-type composer
+  gate; pre-insert; pre-provider-resolution.
+- **Consumer 2:** `POST /api/widget/calls/request` (visitor) —
+  `server/routes/callWidget.ts`. Runs immediately after the
+  existing widget-scoped concurrency check (which is unchanged);
+  pre-insert.
+- **Widget knob:** unchanged (`entry_source = 'call_widget'` count
+  + `429 limit_reached/kind=concurrent` shape). Distinct from the
+  plan denial shape.
+- **Activation migration:** seeds `max_concurrent_calls = -1` on
+  every existing plan to preserve current behavior.
+
+Backlog after this pass:
+- `max_call_minutes_per_month` — still deferred (no
+  monthly-aggregation counter).
+- `recording_retention_days` — still deferred (no janitor).

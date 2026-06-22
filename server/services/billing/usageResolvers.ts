@@ -273,6 +273,57 @@ async function resolveMaxAgents(
   };
 }
 
+/**
+ * `max_concurrent_calls` — workspace-wide live count of currently-active
+ * call_sessions. Backed by the canonical partial index
+ * `idx_call_sessions_state_active (workspace_id, state)` defined in
+ * `supabase/migrations/20260422123023_*.sql`.
+ *
+ * Active set (canonical — locked by the dual-knob activation pass):
+ *   - state IN ('pending','ringing','connecting','active')
+ *   - ALL entry_source values (operator, invitation, callback,
+ *     call_widget, call_center, …) are counted. This is the
+ *     workspace-wide ceiling and is intentionally broader than the
+ *     existing widget-scoped admin knob enforcement at
+ *     `server/routes/callWidget.ts` (which scopes to
+ *     `entry_source = 'call_widget'` and excludes `pending`).
+ *
+ * Composition policy (`docs/CALL_NUMERIC_LIMITS.md` — Dual-Knob):
+ *   the plan-level `max_concurrent_calls` and the widget-scoped admin
+ *   knob `platform_call_center_settings.max_concurrent_calls_per_workspace`
+ *   are TWO DIFFERENT CEILINGS. Both are checked independently at the
+ *   relevant create boundary; the first denial wins. This resolver
+ *   only serves the plan-level ceiling.
+ *
+ * Occupancy semantics:
+ *   - call ends (state → 'ended' / 'failed' / 'rejected' / …) free
+ *     capacity immediately;
+ *   - no settle-time counter column is involved; this is a derived
+ *     live count;
+ *   - `-1` on the plan limit = unlimited (registry-wide convention).
+ */
+async function resolveMaxConcurrentCalls(
+  config: ServerConfig,
+  workspaceId: string,
+): Promise<UsageResolution> {
+  const sb = makeClient(config);
+  const { count, error } = await sb
+    .from('call_sessions')
+    .select('id', { count: 'exact', head: true })
+    .eq('workspace_id', workspaceId)
+    .in('state', ['pending', 'ringing', 'connecting', 'active']);
+  if (error) throw new Error(`max_concurrent_calls_count_failed:${error.message}`);
+  return {
+    value: typeof count === 'number' ? count : 0,
+    period: 'lifetime',
+    periodKind: 'lifetime',
+    source: 'derived_count',
+    isExact: true,
+    supported: true,
+    note: "count(*) on public.call_sessions where workspace_id = $1 AND state IN ('pending','ringing','connecting','active') — canonical active-call set, all entry_source values",
+  };
+}
+
 function unsupported(reason: string, period = currentMonthPeriod()): UsageResolution {
   return {
     value: 0,
@@ -307,6 +358,7 @@ const RESOLVERS: Record<string, Resolver> = {
   ai_credits_per_month: resolveAiCreditsPerMonth,
   max_contacts: resolveMaxContacts,
   max_agents: resolveMaxAgents,
+  max_concurrent_calls: resolveMaxConcurrentCalls,
 };
 
 /**

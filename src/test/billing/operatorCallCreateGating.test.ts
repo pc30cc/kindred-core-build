@@ -13,6 +13,15 @@ vi.mock("../../../server/services/calls/entitlementComposer.js", () => ({
   loadEffectiveCallEntitlements: async () => state.effective,
 }));
 
+// Phase: max_concurrent_calls — Dual-Knob Activation.
+// The operator /create route now also calls the plan-level
+// concurrency ceiling helper. These tests target the composer gate,
+// not the concurrency gate, so we stub the helper to always allow.
+vi.mock("../../../server/services/calls/concurrencyLimit.js", () => ({
+  checkPlanConcurrencyCeiling: async () => ({ allowed: true, limit: -1 }),
+  planConcurrencyDenialBody: (d: any) => ({ error: d.reason, capability: "max_concurrent_calls" }),
+}));
+
 const insertedRows: any[] = [];
 const sbMock: any = {
   auth: { getUser: async () => ({ data: { user: { id: "u-1" } }, error: null }) },

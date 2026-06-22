@@ -453,3 +453,38 @@ Full audit, behavioral delta, and unblock checklist in
 Counting-Model Migration Pass".
 
 Next phase: "`max_concurrent_calls` Dual-Knob Activation".
+
+---
+
+### June 2026 — `max_concurrent_calls` Dual-Knob Activation (LIVE)
+
+Plan-level `max_concurrent_calls` is now live. Two independent
+concurrency ceilings exist, each with its own counting model:
+
+- **Widget knob** (`platform_call_center_settings.max_concurrent_calls_per_workspace`):
+  widget-scoped (`entry_source = 'call_widget'`,
+  `state IN ('active','ringing','connecting')`). Enforced at
+  `POST /api/widget/calls/request`. Unchanged. Denial:
+  `429 { error: 'limit_reached', kind: 'concurrent' }`.
+- **Plan key** (`max_concurrent_calls`): workspace-wide (all
+  `entry_source` values, `state IN ('pending','ringing','connecting','active')`).
+  Enforced at `POST /api/calls/create` AND
+  `POST /api/widget/calls/request` via
+  `checkPlanConcurrencyCeiling` →
+  `server/services/billing/usageResolvers.ts#resolveMaxConcurrentCalls`.
+  Denial: `429 { error: 'plan_limit_reached', capability:
+  'max_concurrent_calls', limit, used, plan }` or
+  `403 { error: 'plan_forbidden', … }`.
+
+Both ceilings independent; first denial wins. NOT composed via
+`min(plan, admin)` — counting models differ. The composer
+(`loadEffectiveCallEntitlements`) is unchanged.
+
+Activation migration backfills every existing
+`billing_plans.limits` with `max_concurrent_calls = -1` (unlimited)
+so behavior is preserved on upgrade. Full details in
+`docs/CALL_NUMERIC_LIMITS.md` — "June 2026 — `max_concurrent_calls`
+Dual-Knob Activation".
+
+`max_call_minutes_per_month` and `recording_retention_days` remain
+deferred (unchanged blockers).

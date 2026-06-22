@@ -31,6 +31,10 @@ import {
 } from '../services/calls/controlPlane.js';
 import { loadEffectiveCallEntitlements } from '../services/calls/entitlementComposer.js';
 import {
+  checkPlanConcurrencyCeiling,
+  planConcurrencyDenialBody,
+} from '../services/calls/concurrencyLimit.js';
+import {
   getCallNetworkBundle,
   normalizeClientWsUrl,
 } from '../services/calls/rtcResolver.js';
@@ -323,6 +327,17 @@ callsRouter.post('/create', async (req, res) => {
         capability: body.call_type === 'video' ? 'voice_video.video' : 'voice_video.voice',
         upgrade_required: true,
       });
+    }
+
+    // Phase: max_concurrent_calls — Dual-Knob Activation.
+    // Workspace-wide plan ceiling. INDEPENDENT of the widget-scoped
+    // platform-admin knob enforced inside server/routes/callWidget.ts —
+    // both ceilings may apply; this is the plan-side one. Runs BEFORE
+    // any provider resolution / DB insert so denial leaves no
+    // half-created call_sessions row behind.
+    const conc = await checkPlanConcurrencyCeiling(config, body.workspace_id);
+    if (!conc.allowed) {
+      return res.status(conc.reason === 'plan_limit_reached' ? 429 : 403).json(planConcurrencyDenialBody(conc));
     }
 
     const { id: providerId, provider } = await resolveEffectiveCallProvider(

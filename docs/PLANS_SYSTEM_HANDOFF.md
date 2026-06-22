@@ -1,6 +1,7 @@
 # Plans System — Handoff
 
-_Last updated: 2026-06-21. Status: **CORE COMPLETE**._
+_Last updated: 2026-06-22 (Post-Activation Cleanup phase). Status:
+**CORE COMPLETE; `max_agents` LIVE.**_
 
 This is the "start here" document for the next maintainer of the plans
 subsystem. The plans system is a finished subsystem: capability modeling,
@@ -52,9 +53,12 @@ canonical resolver — same payload that the admin and customer UIs read.
 - **Usage-backed limit enforcement** runs through `requireLimit('<key>',
   usageFnForLimit('<key>'))` against the canonical counters. The current
   rolled-out keys are `max_conversations`, `max_visitors`, `storage_gb`,
-  `ai_kb_jobs_per_month`, `ai_credits_per_month`, and `max_contacts`
+  `ai_kb_jobs_per_month`, `ai_credits_per_month`, `max_contacts`
   (TS-first chokepoint at `POST /api/contacts` and
-  `POST /api/contacts/bulk`).
+  `POST /api/contacts/bulk`), and `max_agents` (TS-first chokepoint at
+  `POST /api/workspace-members/accept-invitation` — service-role
+  companion RPC `accept_workspace_invitation_as`; see
+  `docs/MAX_AGENTS_POLICY.md`).
 - **Counter writes** are single-writer per metric (DB trigger or atomic
   RPC). Application code must not write `workspace_usage_counters.*`
   outside the Super Admin "usage adjust" route. Enforced by the CI

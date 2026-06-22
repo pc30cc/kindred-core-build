@@ -447,3 +447,17 @@ denial wins).
 
 `recording_retention_days` remains deferred, blocked on missing
 recording-janitor architecture (unchanged, out of scope).
+
+---
+
+## June 2026 — `max_call_minutes_per_month` foundation pass
+
+Foundation landed; activation deferred.
+
+- New monthly counter `workspace_usage_counters.call_minutes_used` (integer, default 0).
+- Sole writer: DB trigger `tg_call_sessions_bill_minutes` on `call_sessions UPDATE OF state` — only fires `OLD.state != 'ended' → NEW.state = 'ended'`, skips when `connected_at` or `ended_at` is null, adds `CEIL((ended_at − connected_at) / 60)` minutes to the UTC-month bucket. End-path-agnostic — covers `endCallSession`, `livekitWebhook room_finished`, and `callWidget cancel-after-connect` without touching their code.
+- Canonical read-side helper: `server/services/calls/billableMinutes.ts → computeBillable(row)` (mirrors the SQL exactly; used by tests).
+- Resolver registered in `usageResolvers.ts`; capability registered in `capabilityRegistry.ts` with `unit: 'minutes'`, default `-1` (unlimited). Added to `USAGE_BACKED_LIMIT_KEYS`.
+- Tests: `src/test/billing/billableCallMinutes.test.ts` (7 cases — non-ended, never-connected, normal CEIL, zero-duration, 1-second→1-minute, UTC month boundary, single-writer lint).
+- **No** create-time enforcement gate was added. See `docs/CALL_NUMERIC_LIMITS.md` for the explicit list of remaining activation blockers (chief one: `connected_at` is only written by the operator accept route).
+- `recording_retention_days` remains deferred.

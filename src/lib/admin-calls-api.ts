@@ -485,3 +485,50 @@ export async function fetchAdminRecordingBlob(
     filename: m ? m[1] : null,
   };
 }
+
+// ────────────────────────────────────────────────────────────────────────
+// Tokenized native playback.
+//
+// Mints a short-lived HMAC URL the browser can hand directly to <audio>
+// or <video> as `src`, enabling native Range/streaming without buffering
+// the full file into a Blob first. The minted URL is bound to one
+// recording id + disposition and expires after a short TTL (server caps
+// at 15 min, defaults to 5 min). No provider URL or credential is ever
+// exposed — the streaming route still proxies bytes through the canonical
+// storage abstraction on the backend.
+// ────────────────────────────────────────────────────────────────────────
+export interface AdminRecordingPlaybackToken {
+  recording_id: string;
+  /** Path-only URL (no origin). Combine with API_BASE for fetch/src usage. */
+  url: string;
+  token: string;
+  disposition: 'inline' | 'attachment';
+  expires_at: string;
+  ttl_seconds: number;
+}
+
+export async function mintAdminRecordingPlaybackToken(
+  id: string,
+  disposition: 'inline' | 'attachment' = 'inline',
+): Promise<AdminRecordingPlaybackToken> {
+  const res = await fetch(
+    `${API_BASE}/api/admin/calls/recordings/${encodeURIComponent(id)}/playback-token`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+      body: JSON.stringify({ disposition }),
+    },
+  );
+  if (!res.ok) {
+    let detail = '';
+    try {
+      const j = await res.json();
+      detail = typeof j?.error === 'string' ? j.error : '';
+    } catch {
+      /* ignore */
+    }
+    throw new Error(detail || `HTTP ${res.status}`);
+  }
+  const json = (await res.json()) as AdminRecordingPlaybackToken;
+  return { ...json, url: `${API_BASE}${json.url}` };
+}

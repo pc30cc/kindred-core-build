@@ -31,6 +31,7 @@ import {
   getCallCenterRecordingStatus,
   RecordingControlException,
 } from '../services/callCenter/recordingControl.js';
+import { mintPlaybackToken } from '../services/calls/recordingPlaybackToken.js';
 import { loadEffectiveCallEntitlements } from '../services/calls/entitlementComposer.js';
 import { uploadFile, deleteFile, resolveStorageConfig, resolveGlobalStorageConfig, uploadWithConfig, deleteWithConfig, getFileUrlWithConfig } from '../services/storage/index.js';
 import {
@@ -855,6 +856,97 @@ callCenterRouter.get('/calls/:id/recording/status', async (req, res) => {
     }
     res.status(500).json({ error: 'recording_status_failed', message: String(e?.message || e) });
   }
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Operator-side recording visibility (read-only, workspace-scoped).
+//
+//   GET  /api/call-center/calls/:id/recordings?workspaceId=...
+//   POST /api/call-center/calls/:id/recordings/:recordingId/playback-token
+//
+// Strictly read-only — does NOT expose retention/legal-hold/override
+// controls, never returns storage_path or provider URLs, and never mutates
+// call_recordings. The janitor remains the sole deletion path. The minted
+// token is hard-coded to disposition='inline' so operators cannot use this
+// surface to force a forced-download flow; super-admin-only attachment
+// minting remains exclusive to /api/admin/calls/recordings/:id/playback-token.
+// ─────────────────────────────────────────────────────────────────────────
+callCenterRouter.get('/calls/:id/recordings', async (req, res) => {
+  const wid = String(req.query.workspaceId || '');
+  const ctx = await requireMember(req, res, wid);
+  if (!ctx) return;
+  const callId = String(req.params.id || '');
+  if (!/^[0-9a-f-]{36}$/i.test(callId)) return res.status(400).json({ error: 'invalid_call_id' });
+  const sb = getServiceClient(ctx.config);
+  // Confirm the call belongs to this workspace BEFORE touching call_recordings —
+  // prevents cross-workspace enumeration via the recordings endpoint.
+  const { data: session, error: sessErr } = await sb
+    .from('call_sessions')
+    .select('id, workspace_id')
+    .eq('id', callId)
+    .maybeSingle();
+  if (sessErr) return res.status(500).json({ error: sessErr.message });
+  if (!session || (session as any).workspace_id !== wid) {
+    return res.status(404).json({ error: 'not_found' });
+  }
+  const { data: rows, error } = await sb
+    .from('call_recordings')
+    .select('id, recording_type, duration_seconds, size_bytes, storage_path, created_at')
+    .eq('call_session_id', callId)
+    .order('created_at', { ascending: true });
+  if (error) return res.status(500).json({ error: error.message });
+  // Strip storage_path / provider metadata from the public shape — operators
+  // only need to know whether the artifact is playable.
+  const recordings = (rows || []).map((r: any) => ({
+    id: r.id,
+    recording_type: r.recording_type,
+    duration_seconds: r.duration_seconds ?? null,
+    size_bytes: r.size_bytes ?? null,
+    created_at: r.created_at,
+    has_storage: Boolean(r.storage_path),
+  }));
+  res.json({ recordings });
+});
+
+callCenterRouter.post('/calls/:id/recordings/:recordingId/playback-token', async (req, res) => {
+  const wid = String(req.query.workspaceId || '');
+  const ctx = await requireMember(req, res, wid);
+  if (!ctx) return;
+  const callId = String(req.params.id || '');
+  const recordingId = String(req.params.recordingId || '');
+  if (!/^[0-9a-f-]{36}$/i.test(callId)) return res.status(400).json({ error: 'invalid_call_id' });
+  if (!/^[0-9a-f-]{36}$/i.test(recordingId)) return res.status(400).json({ error: 'invalid_recording_id' });
+
+  const sb = getServiceClient(ctx.config);
+  const { data: row, error } = await sb
+    .from('call_recordings')
+    .select('id, storage_path, call_session_id, call_sessions!inner(workspace_id)')
+    .eq('id', recordingId)
+    .maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  // Uniform 404 for any workspace/session/recording mismatch — never leak
+  // existence of a recording that belongs to another workspace.
+  if (!row) return res.status(404).json({ error: 'not_found' });
+  if ((row as any).call_session_id !== callId) return res.status(404).json({ error: 'not_found' });
+  if ((row as any)?.call_sessions?.workspace_id !== wid) return res.status(404).json({ error: 'not_found' });
+  if (!(row as any).storage_path) return res.status(410).json({ error: 'missing_storage_path' });
+
+  // Operator surface is inline-only — attachment disposition is reserved
+  // for super-admin tooling. The streaming route enforces the disposition
+  // claim embedded in the token, so this cannot be widened client-side.
+  const minted = mintPlaybackToken(ctx.config, { recordingId, disposition: 'inline' });
+  const url =
+    `/api/calls/recording-playback/${encodeURIComponent(recordingId)}` +
+    `?token=${encodeURIComponent(minted.token)}` +
+    `&disposition=${minted.disposition}`;
+  res.json({
+    recording_id: recordingId,
+    url,
+    token: minted.token,
+    disposition: minted.disposition,
+    expires_at: minted.expires_at,
+    ttl_seconds: minted.ttl_seconds,
+  });
 });
 
 // ── Agent status ──────────────────────────────────────────────────────────

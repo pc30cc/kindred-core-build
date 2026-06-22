@@ -1,11 +1,12 @@
 # Max Agents — Seat Limit Policy & Rollout Audit
 
-_Last updated: 2026-06-22 (Max Agents Final Activation phase).
-Status: **rollout still deferred.** The canonical Express seat-creation
-boundary exists, but the final-pass audit revealed that the previously
-documented "one narrow REVOKE" unblock criterion is **not actually
-narrow** — it would break the Express route itself. See §4.2 below for
-the corrected unblock matrix._
+_Last updated: 2026-06-22 (Service-Role Companion RPC + Max Agents
+Activation phase). Status: **`max_agents` is now LIVE.** The
+browser-callable bypass on `accept_workspace_invitation(text)` is
+closed; the canonical Express route uses a service-role-only
+companion RPC; `resolveMaxAgents` is registered; `requireLimit`
+is mounted on the seat-creation path; and the `team_members →
+max_agents` seed migration has been applied._
 
 This is the deliverable of the _Max Agents Resolver + Consumer + Legacy
 Alias Migration Readiness_ phase. The phase's strict objective is to
@@ -193,6 +194,70 @@ applied. The repo is in the same enforcement state as before this
 phase — but the unblock criterion is now correctly characterised so
 the next phase can pick exactly one of the two options above.
 
+### 4.3 Activation — companion-RPC path applied (2026-06-22)
+
+_Added in the Service-Role Companion RPC + Max Agents Activation
+phase, 2026-06-22._
+
+Option 1 from §4.2 was applied. Concretely:
+
+1. **New RPC** `public.accept_workspace_invitation_as(_token text,
+   _user_id uuid)` — `SECURITY DEFINER`, `SET search_path = public`.
+   Body is the original `accept_workspace_invitation` body verbatim
+   minus the `_user_id := auth.uid()` line; the user id is now an
+   explicit parameter. All RPC-level checks
+   (Invalid / Revoked / Expired / email mismatch / already-member)
+   are preserved unchanged.
+2. **Grants:**
+   - Companion: `REVOKE ALL FROM PUBLIC, anon, authenticated`;
+     `GRANT EXECUTE TO service_role`.
+   - Original `accept_workspace_invitation(text)`: `REVOKE EXECUTE
+     FROM PUBLIC, anon, authenticated` (browser-callable bypass
+     closed). `service_role` retains `EXECUTE` for any
+     legacy/internal use.
+3. **Express route switched.**
+   `server/routes/workspaceMembers.ts` now uses a service-role
+   client and calls `accept_workspace_invitation_as(_token, _user_id)`,
+   passing `_user_id = req.authUser.id` (verified via
+   `getServiceClient(...).auth.getUser(token)` in the existing
+   `requireUser` middleware).
+4. **Pre-flight invitation context resolver.** Before the limit
+   gate, the route looks up the invitation via service_role and
+   mirrors the original RPC's well-formed errors at the Express
+   layer (Invalid / Revoked / Expired / email mismatch). It also
+   detects already-member re-accepts and tags the request so the
+   limit gate is skipped in that case (an existing membership
+   cannot consume a new seat).
+5. **`resolveMaxAgents` registered.** Counts
+   `count(*)` on `public.workspace_members` filtered by
+   `workspace_id`. Added to `RESOLVERS` and to
+   `USAGE_BACKED_LIMIT_KEYS`. Removed from `KNOWN_UNSUPPORTED`.
+6. **`requireLimit('max_agents', usageFnForLimit('max_agents'))`
+   mounted** on `POST /api/workspace-members/accept-invitation`,
+   wrapped so already-member re-accepts skip the gate.
+7. **Seed migration applied.** `billing_plans.limits.max_agents`
+   was backfilled from `limits.team_members` for all plans where
+   the canonical key was absent and the legacy key was present
+   (`free=2`, `pro=10`, `enterprise=-1`). Legacy `team_members`
+   and `agents` keys are intentionally **left in place for one
+   release** so rollback is trivial; the soft-warn validator
+   contract is unchanged.
+
+**Verified live grants (post-migration):**
+
+```
+ proname                            | rolname        | can_execute
+------------------------------------+----------------+------------
+ accept_workspace_invitation        | anon           | f
+ accept_workspace_invitation        | authenticated  | f
+ accept_workspace_invitation        | public         | f
+ accept_workspace_invitation        | service_role   | t
+ accept_workspace_invitation_as     | anon           | f
+ accept_workspace_invitation_as     | authenticated  | f
+ accept_workspace_invitation_as     | public         | f
+ accept_workspace_invitation_as     | service_role   | t
+```
+
 ---
 
 ## 2. Locked semantics (for the future rollout)
@@ -333,13 +398,35 @@ creation, deletion, sub-grouping).
 - **No code change** in this phase — only this doc and cross-linked
   docs. The repo is intentionally in the same runtime state.
 
+### Update — Service-Role Companion RPC + Max Agents Activation phase, 2026-06-22
+
+- **Companion RPC landed**, **bypass closed**, **resolver
+  registered**, **middleware mounted**, **seed migration applied** —
+  see §4.3 above for the full change list.
+- **Tests updated.**
+  `src/test/billing/workspaceMembersAcceptInvitation.test.ts` now
+  covers: pre-flight error mirroring (Invalid / Revoked / Expired /
+  email mismatch), the companion-RPC call shape (name +
+  `_user_id`), an explicit assertion that the original RPC is
+  **never** called from the route, the at-limit 403 path, and the
+  already-member re-accept skip.
+- **No canonical capability key renamed.** No route / env / schema
+  / middleware contract renamed. Customer-facing seat capacity is
+  unchanged for active plans (the seed migration mirrors the same
+  `team_members` numbers verbatim into `max_agents`).
+
 ---
 
 ## 6. Legacy alias migration readiness
 
 `team_members` and `agents` (in `billing_plans.limits`) remain legacy
-aliases of the same conceptual limit — but the migration is **not yet
-mechanical**. Two blockers must clear in order:
+aliases of the same conceptual limit. As of the Service-Role
+Companion RPC + Max Agents Activation phase the `team_members →
+max_agents` mirror has been applied; `agents` is preserved as-is
+for backward compatibility (the only conflicting row, `free`,
+resolved in favour of the more permissive `team_members=2` — see
+`docs/PLAN_DATA_RECONCILIATION.md`). The historic two-blocker
+sequence below is preserved for context:
 
 1. **(this phase, done)** Lock `max_agents` semantics + counting
    model (§§2–3 above). ✅

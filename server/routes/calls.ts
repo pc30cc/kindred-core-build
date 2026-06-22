@@ -329,6 +329,17 @@ callsRouter.post('/create', async (req, res) => {
       });
     }
 
+    // Phase: max_concurrent_calls — Dual-Knob Activation.
+    // Workspace-wide plan ceiling. INDEPENDENT of the widget-scoped
+    // platform-admin knob enforced inside server/routes/callWidget.ts —
+    // both ceilings may apply; this is the plan-side one. Runs BEFORE
+    // any provider resolution / DB insert so denial leaves no
+    // half-created call_sessions row behind.
+    const conc = await checkPlanConcurrencyCeiling(config, body.workspace_id);
+    if (!conc.allowed) {
+      return res.status(conc.reason === 'plan_limit_reached' ? 429 : 403).json(planConcurrencyDenialBody(conc));
+    }
+
     const { id: providerId, provider } = await resolveEffectiveCallProvider(
       config,
       body.workspace_id,

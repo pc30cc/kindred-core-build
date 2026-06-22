@@ -324,4 +324,105 @@ describe('RecordingRetentionPanel', () => {
     expect(text).not.toMatch(/\bdelete\b/);
     expect(text).not.toMatch(/\bpurge\b/);
   });
+
+  it('shows the bulk action bar only after a row is selected', async () => {
+    vi.spyOn(global, 'fetch' as any).mockResolvedValue({
+      ok: true,
+      json: async () => ({ items: FIXTURE_ROWS, total: FIXTURE_ROWS.length, limit: 25, offset: 0 }),
+    } as any);
+    renderPanel();
+    await screen.findByTestId('status-on_hold');
+    expect(screen.queryByTestId('bulk-action-bar')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('bulk-select-rec-1'));
+    expect(await screen.findByTestId('bulk-action-bar')).toBeInTheDocument();
+    expect(screen.getByTestId('bulk-hold-on')).toBeInTheDocument();
+    expect(screen.getByTestId('bulk-hold-off')).toBeInTheDocument();
+  });
+
+  it('bulk ON posts ids+enabled=true to the bulk legal-hold endpoint', async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    vi.spyOn(global, 'fetch' as any).mockImplementation(async (url: any, init?: any) => {
+      calls.push({ url: String(url), init });
+      if (String(url).includes('/legal-hold/bulk')) {
+        return {
+          ok: true,
+          json: async () => ({
+            requested: 2,
+            succeeded: ['rec-1', 'rec-3'],
+            failures: [],
+            enabled: true,
+          }),
+        } as any;
+      }
+      return {
+        ok: true,
+        json: async () => ({ items: FIXTURE_ROWS, total: FIXTURE_ROWS.length, limit: 25, offset: 0 }),
+      } as any;
+    });
+    renderPanel();
+    await screen.findByTestId('status-on_hold');
+    fireEvent.click(screen.getByTestId('bulk-select-rec-1'));
+    fireEvent.click(screen.getByTestId('bulk-select-rec-3'));
+    fireEvent.click(screen.getByTestId('bulk-hold-on'));
+    await waitFor(() => {
+      expect(calls.some((c) => c.url.includes('/api/admin/calls/recordings/legal-hold/bulk'))).toBe(
+        true,
+      );
+    });
+    const bulk = calls.find((c) => c.url.includes('/legal-hold/bulk'))!;
+    expect(bulk.init?.method).toBe('POST');
+    const body = JSON.parse(String(bulk.init?.body));
+    expect(body.enabled).toBe(true);
+    expect(new Set(body.ids)).toEqual(new Set(['rec-1', 'rec-3']));
+  });
+
+  it('bulk OFF posts enabled=false (deterministic set, not toggle) on mixed-state selection', async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    vi.spyOn(global, 'fetch' as any).mockImplementation(async (url: any, init?: any) => {
+      calls.push({ url: String(url), init });
+      if (String(url).includes('/legal-hold/bulk')) {
+        return {
+          ok: true,
+          json: async () => ({
+            requested: 2,
+            succeeded: ['rec-1', 'rec-2'],
+            failures: [],
+            enabled: false,
+          }),
+        } as any;
+      }
+      return {
+        ok: true,
+        json: async () => ({ items: FIXTURE_ROWS, total: FIXTURE_ROWS.length, limit: 25, offset: 0 }),
+      } as any;
+    });
+    renderPanel();
+    await screen.findByTestId('status-on_hold');
+    // rec-1 is retained, rec-2 is on hold — mixed prior states.
+    fireEvent.click(screen.getByTestId('bulk-select-rec-1'));
+    fireEvent.click(screen.getByTestId('bulk-select-rec-2'));
+    fireEvent.click(screen.getByTestId('bulk-hold-off'));
+    await waitFor(() => {
+      expect(calls.some((c) => c.url.includes('/legal-hold/bulk'))).toBe(true);
+    });
+    const body = JSON.parse(String(calls.find((c) => c.url.includes('/legal-hold/bulk'))!.init?.body));
+    expect(body.enabled).toBe(false);
+  });
+
+  it('bulk action bar exposes no destructive controls', async () => {
+    vi.spyOn(global, 'fetch' as any).mockResolvedValue({
+      ok: true,
+      json: async () => ({ items: FIXTURE_ROWS, total: FIXTURE_ROWS.length, limit: 25, offset: 0 }),
+    } as any);
+    renderPanel();
+    await screen.findByTestId('status-on_hold');
+    fireEvent.click(screen.getByTestId('bulk-select-rec-1'));
+    const bar = await screen.findByTestId('bulk-action-bar');
+    const text = (bar.textContent || '').toLowerCase();
+    expect(text).not.toMatch(/\bdelete\b/);
+    expect(text).not.toMatch(/\bpurge\b/);
+    expect(text).not.toMatch(/backfill/);
+    expect(text).not.toMatch(/expir/); // no retention expiry edit
+  });
 });

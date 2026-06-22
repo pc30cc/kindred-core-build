@@ -186,6 +186,17 @@ is_active = true`.
 | Promoting `advanced_analytics`, `ai_kb_max_articles`, `ai_kb_max_chars`, `ai_kb_monthly_credits`, `ai_requests_monthly`, `kb_articles` into the registry as canonical keys | Product decision on whether each tracks a real capability. If yes, add as `feature` / `limit` with a resolver; if no, deprecate via a separate cleanup pass. |
 | Hard-rejecting unknown plan keys on create/update | Out of scope. The shipped contract is soft-warn forever unless explicitly versioned. |
 
+> **Update 2026-06-22 (Max Agents phase).** The `max_agents`
+> semantics, counting model (live `count(*)` on `workspace_members`),
+> and unblock criterion are now formally locked in
+> `docs/MAX_AGENTS_POLICY.md`. The `team_members / agents →
+> max_agents` migration is mechanical now, but still deferred until
+> one new Express route owns the `workspace_members` INSERT path —
+> currently every seat mutation happens directly from the frontend
+> via Supabase RLS, so `requireLimit` has nowhere to attach. Running
+> the seed migration before that route ships would lift the visible
+> Pro/Enterprise seat limit (1 → 10 / unlimited) without enforcement.
+
 ---
 
 ## 7. How to extend this audit safely

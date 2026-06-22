@@ -732,3 +732,71 @@ failure mode the brief forbids.
 - `recording_retention_days` — unchanged. Still blocked on
   missing recording-janitor architecture. Out of scope for this
   phase by directive.
+
+---
+
+## June 2026 — Foundation Pass: `max_call_minutes_per_month`
+
+Status: **foundation landed, activation deferred (honest defer).**
+
+### connected_at coverage audit
+
+| Writer | Path | Behavior |
+|---|---|---|
+| `server/routes/callCenter.ts` `POST /api/calls/:id/accept` | operator accept | sets `connected_at = now()` iff not already set (idempotent) |
+| `server/routes/livekitWebhook.ts` `room_started` | provider webhook | sets `state='active'` + `started_at`; **does NOT touch `connected_at`** |
+| `server/routes/callWidget.ts` `POST /api/widget/calls/:id/cancel` | visitor cancel | reads `connected_at` to branch ended-vs-cancelled; does not write it |
+| `server/services/calls/endSession.ts` | end-of-call settle | reads `connected_at` for duration anchor; does not write it |
+
+The operator accept route is currently the **only** writer of `connected_at`. In all production flows on file, the operator accept precedes the LiveKit `room_started` webhook, so `connected_at` is set before the call goes live. There is no `connected_at` backfill on `room_started`; this is the smallest remaining gap and is the one blocker on the connect-time side.
+
+### Billable-minute signal — locked
+
+Pure helper: `server/services/calls/billableMinutes.ts → computeBillable(row)`.
+
+- Billable iff `state === 'ended'` AND `connected_at != null` AND `ended_at != null`.
+- `seconds = max(0, round((ended_at − connected_at) / 1000))`.
+- `minutes = CEIL(seconds / 60)`; zero-second outcomes produce zero minutes (no write).
+- Period bucket = UTC `YYYY-MM` of `ended_at`.
+- Pre-connect, queue, hold, and recording-only time DO NOT count.
+- `duration_seconds` on `call_sessions` is **not** the billable signal (it anchors on `started_at` / `created_at` when `connected_at` is missing). It remains the UI-facing duration only.
+
+### Monthly aggregate sink — locked
+
+- Column: `public.workspace_usage_counters.call_minutes_used integer NOT NULL DEFAULT 0`.
+- Period semantics: identical to `visitors_count` / `conversations_count` (UTC `YYYY-MM`).
+- This is the **only** monthly sink for call minutes. No second counter, no derived sum.
+
+### Sole writer — locked (DB trigger)
+
+- Trigger `trg_call_sessions_bill_minutes` (`AFTER UPDATE OF state`) → function `public.tg_call_sessions_bill_minutes()`.
+- Fires only on `OLD.state IS DISTINCT FROM 'ended' AND NEW.state = 'ended'`. The OLD-state guard makes a second update to an already-ended row a no-op (idempotent).
+- Skips when `connected_at IS NULL` or `ended_at IS NULL` (locked policy).
+- Increments `call_minutes_used` by `CEIL((ended_at − connected_at) / 60)` for the UTC month of `ended_at`.
+- End-path-agnostic: the same trigger handles `endCallSession`, `livekitWebhook room_finished`, and `callWidget cancel-after-connect` writers — there is one canonical sink even though there are still three application-side end writers.
+- Application code MUST NOT write `call_minutes_used` directly. Enforced by a lint-level test in `src/test/billing/billableCallMinutes.test.ts`.
+
+### Resolver
+
+`max_call_minutes_per_month` is registered in `usageResolvers.ts → RESOLVERS` and reads `workspace_usage_counters.call_minutes_used`. It is also added to `CAPABILITY_REGISTRY` (`unit: 'minutes'`, default `-1` = unlimited) and to `USAGE_BACKED_LIMIT_KEYS`. PlanUsagePanel / admin diagnostics can now display monthly minutes; create-time enforcement is intentionally NOT wired.
+
+### Why activation was NOT performed in this pass
+
+Activation requires a create-time gate (`requireLimit('max_call_minutes_per_month')` or equivalent) on `POST /api/calls/create` (operator) and `POST /api/widget/calls/request` (visitor). That step is deferred because:
+
+1. **`connected_at` is not yet uniformly written on every accept-equivalent path.** In particular, `livekitWebhook room_started` does not backfill `connected_at` when the operator accept did not write it (e.g., future outbound or auto-accept flows). Activating now would under-count billable usage for any such flow and silently let workspaces over the cap continue placing calls.
+2. **Three end-of-call application writers still exist** (`endCallSession`, `livekitWebhook room_finished`, `callWidget cancel`). The DB trigger makes the **counter** safe regardless, but the asymmetry means we cannot yet add an end-time observability hook on a single application chokepoint. This is acceptable for foundation but worth resolving before activation.
+3. **Near-threshold UX semantics** (deny on create vs. allow in-flight calls to finish past the cap) is locked in policy but has no in-flight back-pressure path; that's an activation-time concern.
+
+### Acceptance for this pass
+
+- Only `max_call_minutes_per_month` was in scope. ✅
+- No fake activation. ✅
+- One billable-minute source of truth (`computeBillable` + the trigger SQL mirror it exactly). ✅
+- One monthly aggregate sink (`workspace_usage_counters.call_minutes_used`). ✅
+- No route / env / schema-key rename. ✅
+- Repo is materially closer to true activation than before. ✅
+
+### `recording_retention_days` — still deferred
+
+Unchanged from the prior audit: blocked on missing janitor / retention worker architecture. Not in scope this pass.

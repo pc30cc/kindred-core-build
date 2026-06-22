@@ -429,3 +429,13 @@ or test change.
 
 Backlog after this pass: same as before — `max_call_minutes_per_month`
 and `recording_retention_days` both remain deferred.
+
+---
+
+## June 2026 — `max_call_minutes_per_month` foundation
+
+- Counter column `workspace_usage_counters.call_minutes_used` added.
+- Sole writer is DB trigger `tg_call_sessions_bill_minutes` (idempotent on state→ended transition; skips non-connected outcomes).
+- Resolver `resolveMaxCallMinutesPerMonth` registered; usage is now readable via `resolveUsage('max_call_minutes_per_month')`.
+- Create-time enforcement gate is **NOT** wired. Activation blocked on uniform `connected_at` coverage across all accept-equivalent paths (currently only operator accept writes it; `livekitWebhook room_started` does not backfill).
+- `recording_retention_days`: still deferred (no janitor).

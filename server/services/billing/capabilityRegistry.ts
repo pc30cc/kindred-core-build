@@ -121,6 +121,7 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
   { key: 'data_retention_days',   type: 'limit', label: 'Data Retention',             group: 'usage', defaultValue: 30,   planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'days', sortOrder: 40 },
   { key: 'max_contacts',          type: 'limit', label: 'Max Contacts',               group: 'contacts', description: 'Maximum number of contact records (rows in public.contacts) per workspace at any one time. Occupancy semantics: deletes free capacity; edits/tags/notes do not consume. Enforced by POST /api/contacts and POST /api/contacts/bulk via requireLimit + live count(*).', defaultValue: 100, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 60 },
   { key: 'max_concurrent_calls',  type: 'limit', label: 'Max Concurrent Calls',       group: 'calls',    description: 'Workspace-wide ceiling on simultaneously-active call_sessions (canonical active set: pending, ringing, connecting, active, all entry_source values). Enforced at create-time on POST /api/calls/create (operator) and POST /api/widget/calls/request (visitor) via canonical derived count. Composes additively with the widget-scoped platform-admin knob platform_call_center_settings.max_concurrent_calls_per_workspace — both ceilings may deny new work; first denial wins. -1 = unlimited.', defaultValue: -1, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 70 },
+  { key: 'max_call_minutes_per_month', type: 'limit', label: 'Call Minutes / Month', group: 'calls', description: 'Monthly cap on billable call minutes per workspace (UTC month). Billable = connected calls only: CEIL((ended_at - connected_at) / 60) per finalized call. Pre-connect, queue, hold, and recording-only time do not count. Foundation only — usage is aggregated by the DB trigger tg_call_sessions_bill_minutes into workspace_usage_counters.call_minutes_used. Create-time enforcement is NOT yet wired; see docs/CALL_NUMERIC_LIMITS.md for activation blockers. -1 = unlimited.', defaultValue: -1, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'minutes', sortOrder: 80 },
 ];
 
 // ─── Helpers ───
@@ -155,6 +156,7 @@ export const USAGE_BACKED_LIMIT_KEYS: readonly string[] = [
   'max_contacts',
   'max_agents',
   'max_concurrent_calls',
+  'max_call_minutes_per_month',
 ];
 
 /**

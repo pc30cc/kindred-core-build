@@ -92,7 +92,8 @@ async function readCounterColumn(
     | 'storage_bytes'
     | 'messages_count'
     | 'ai_credits_used'
-    | 'email_sent_count',
+    | 'email_sent_count'
+    | 'call_minutes_used',
 ): Promise<number> {
   const sb = makeClient(config);
   const period = currentMonthPeriod();
@@ -336,6 +337,39 @@ function unsupported(reason: string, period = currentMonthPeriod()): UsageResolu
   };
 }
 
+/**
+ * `max_call_minutes_per_month` — monthly aggregate of billable call
+ * minutes per workspace.
+ *
+ * Source of truth: `workspace_usage_counters.call_minutes_used` (UTC
+ * YYYY-MM bucket). Sole writer is the DB trigger
+ * `tg_call_sessions_bill_minutes` on `public.call_sessions`. Billable
+ * policy (locked in docs/CALL_NUMERIC_LIMITS.md):
+ *   - connected_at IS NOT NULL AND state transitions to 'ended'
+ *   - minutes = CEIL((ended_at - connected_at) / 60)
+ *   - non-connected outcomes and zero-duration outcomes do not count
+ *
+ * Foundation only — registered so usage reads work and the value is
+ * visible to admin/diagnostics. Enforcement at create-time is NOT
+ * wired in this phase (see docs/CALL_NUMERIC_LIMITS.md for the
+ * remaining activation blockers).
+ */
+async function resolveMaxCallMinutesPerMonth(
+  config: ServerConfig,
+  workspaceId: string,
+): Promise<UsageResolution> {
+  const value = await readCounterColumn(config, workspaceId, 'call_minutes_used');
+  return {
+    value,
+    period: currentMonthPeriod(),
+    periodKind: 'calendar_month',
+    source: 'workspace_usage_counters',
+    isExact: true,
+    supported: true,
+    note: 'CEIL(sum(ended_at - connected_at) / 60) for state=ended calls; UTC month bucket',
+  };
+}
+
 // ─── Limit key → resolver registry ──────────────────────────
 
 type Resolver = (config: ServerConfig, workspaceId: string) => Promise<UsageResolution>;
@@ -359,6 +393,7 @@ const RESOLVERS: Record<string, Resolver> = {
   max_contacts: resolveMaxContacts,
   max_agents: resolveMaxAgents,
   max_concurrent_calls: resolveMaxConcurrentCalls,
+  max_call_minutes_per_month: resolveMaxCallMinutesPerMonth,
 };
 
 /**

@@ -7606,6 +7606,7 @@ export type Database = {
           ai_credits_balance: number
           ai_credits_used: number
           ai_requests_count: number
+          call_minutes_used: number
           conversations_count: number
           created_at: string
           email_sent_count: number
@@ -7621,6 +7622,7 @@ export type Database = {
           ai_credits_balance?: number
           ai_credits_used?: number
           ai_requests_count?: number
+          call_minutes_used?: number
           conversations_count?: number
           created_at?: string
           email_sent_count?: number
@@ -7636,6 +7638,7 @@ export type Database = {
           ai_credits_balance?: number
           ai_credits_used?: number
           ai_requests_count?: number
+          call_minutes_used?: number
           conversations_count?: number
           created_at?: string
           email_sent_count?: number

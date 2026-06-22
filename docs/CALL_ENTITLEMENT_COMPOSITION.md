@@ -508,3 +508,14 @@ future activation:
 
 `recording_retention_days` remains deferred (unchanged
 blockers).
+
+---
+
+## June 2026 — `max_call_minutes_per_month` Foundation Pass
+
+- **Billable signal (locked):** `connected_at != null AND state='ended' AND ended_at != null`; `seconds = ended_at − connected_at`; `minutes = CEIL(seconds/60)`. Pure helper: `server/services/calls/billableMinutes.ts`.
+- **Monthly sink (locked):** `workspace_usage_counters.call_minutes_used` (UTC `YYYY-MM`).
+- **Sole writer (locked):** DB trigger `tg_call_sessions_bill_minutes` on `call_sessions UPDATE OF state`, fires only on `OLD.state != 'ended' → NEW.state = 'ended'` (idempotent). End-path-agnostic.
+- **Registered in:** `capabilityRegistry.CAPABILITY_REGISTRY`, `USAGE_BACKED_LIMIT_KEYS`, and `usageResolvers.RESOLVERS`.
+- **NOT activated:** no create-time gate added. Blocker: `connected_at` is only written by the operator accept route; `livekitWebhook room_started` does not backfill it. Activation deferred until `connected_at` coverage is uniform.
+- **`recording_retention_days`:** still deferred (janitor/retention not implemented).

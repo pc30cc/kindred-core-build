@@ -610,3 +610,48 @@ export async function setAdminRecordingRetentionOverride(
   }
   return res.json();
 }
+
+// ────────────────────────────────────────────────────────────────────────
+// Per-recording retention RESTORE-TO-INHERITED (super-admin only).
+//
+// Backed by:
+//   POST /api/admin/calls/recordings/:id/retention-restore
+//
+// Only valid for rows whose `retention_policy` starts with `override:`.
+// Server returns 409 on legacy/unmanaged or already-inherited rows so the
+// UI never silently mutates them. Never touches `legal_hold`. Never
+// deletes. Janitor remains the sole deletion path.
+// ────────────────────────────────────────────────────────────────────────
+export interface RetentionRestoreResult {
+  id: string;
+  retention_policy: string;
+  retention_expires_at: string | null;
+  legal_hold: boolean;
+  inherited_source: string;
+  inherited_days: number;
+}
+
+export async function restoreAdminRecordingRetention(
+  id: string,
+  reason?: string,
+): Promise<RetentionRestoreResult> {
+  const res = await fetch(
+    `${API_BASE}/api/admin/calls/recordings/${encodeURIComponent(id)}/retention-restore`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+      body: JSON.stringify(reason ? { reason } : {}),
+    },
+  );
+  if (!res.ok) {
+    let detail = '';
+    try {
+      const j = await res.json();
+      detail = typeof j?.error === 'string' ? j.error : '';
+    } catch {
+      /* ignore */
+    }
+    throw new Error(detail || `HTTP ${res.status}`);
+  }
+  return res.json();
+}

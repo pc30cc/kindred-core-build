@@ -1,6 +1,9 @@
 # Max Agents — Seat Limit Policy & Rollout Audit
 
-_Last updated: 2026-06-22. Status: **AUDIT COMPLETE — rollout deferred (no safe Express chokepoint exists today)**._
+_Last updated: 2026-06-22 (Workspace Member Write Boundary phase).
+Status: **canonical Express seat-creation boundary has now landed —
+`max_agents` enforcement still deferred, but the remaining blocker is
+narrower (RPC bypass) rather than "no boundary exists at all."**_
 
 This is the deliverable of the _Max Agents Resolver + Consumer + Legacy
 Alias Migration Readiness_ phase. The phase's strict objective is to
@@ -65,6 +68,50 @@ Exhaustive search:
 **There is no Express boundary today where `requireLimit('max_agents',
 …)` can be installed without first introducing a new server endpoint
 that owns the seat-creation moment.**
+
+> **Update — Workspace Member Write Boundary phase, 2026-06-22.**
+> The Express boundary now exists:
+> `POST /api/workspace-members/accept-invitation`
+> (`server/routes/workspaceMembers.ts`). It forwards the user's JWT
+> into a scoped Supabase client and calls the existing
+> `accept_workspace_invitation` SECURITY DEFINER RPC verbatim, so
+> `auth.uid()` semantics are preserved. The frontend
+> `src/pages/auth/InvitePage.tsx` was migrated to call this route
+> instead of `supabase.rpc('accept_workspace_invitation', ...)`
+> directly. Read/update/delete team flows are intentionally
+> untouched (StaffAccessPage, TeamDepartmentsPage, the TeamPage
+> member-listing query, and frontend `workspace_invitations.insert`
+> for token creation all remain as-is).
+>
+> The boundary exists, but **`requireLimit('max_agents', …)` is not
+> mounted yet** — see §4.1 below for the residual bypass that keeps
+> rollout deferred.
+
+### 4.1 Residual bypass (still blocking max_agents enforcement)
+
+The new Express route is **not yet the only path** to the underlying
+RPC. By default, Supabase grants `EXECUTE` on `public` functions to
+the `authenticated` role, so any logged-in user can still call
+`supabase.rpc('accept_workspace_invitation', { _token: ... })`
+directly from the browser. Mounting
+`requireLimit('max_agents', usageFnForLimit('max_agents'))` on the
+Express route alone would be circumventable — and the phase rule
+"Do not bolt max_agents onto a fake or partial consumer" applies.
+
+**Unblock criterion (now reduced to one narrow change):** revoke
+`EXECUTE` on `public.accept_workspace_invitation(text)` from the
+`authenticated` role, leaving it executable only via the service
+role / SECURITY DEFINER call from the Express route. After that
+migration ships:
+
+1. Register `resolveMaxAgents` in `server/services/billing/usageResolvers.ts`.
+2. Mount `requireLimit('max_agents', usageFnForLimit('max_agents'))`
+   on `POST /api/workspace-members/accept-invitation`.
+3. Run the `team_members / agents → max_agents` seed migration —
+   now mechanical (see `docs/PLAN_DATA_RECONCILIATION.md` §6).
+
+No further architectural work is required between today and that
+three-step rollout.
 
 ---
 
@@ -162,6 +209,30 @@ creation, deletion, sub-grouping).
 - **No tests added.** Per the phase rules ("Add focused
   deterministic tests only if resolver/consumer/enforcement is
   added") no behavior changed, so no new test is owed.
+
+### Update — Workspace Member Write Boundary phase, 2026-06-22
+
+- **Express route added:**
+  `server/routes/workspaceMembers.ts` →
+  `POST /api/workspace-members/accept-invitation`. Mounted at
+  `/api/workspace-members` in `server/index.ts`. Narrow: seat
+  creation only, no other CRUD.
+- **Frontend migrated:** `src/pages/auth/InvitePage.tsx` now calls
+  the Express route via `fetch` with the user's access token. The
+  prior `supabase.rpc('accept_workspace_invitation', ...)` call from
+  this page is gone.
+- **Resolver still NOT registered.** Per the residual-bypass
+  argument in §4.1.
+- **No middleware gating yet.** The route is a pure pass-through
+  chokepoint waiting for the RPC EXECUTE revoke.
+- **No plan-row mutation.** Seed migration still gated on §4.1
+  unblock criterion.
+- **Tests added:**
+  `src/test/billing/workspaceMembersAcceptInvitation.test.ts` —
+  8 cases covering auth, body validation, JWT-scoped client
+  construction, RPC error mapping, and an explicit assertion that
+  no `requireLimit`-style middleware is on the route yet (so the
+  defer is fail-loud, not implicit).
 
 ---
 

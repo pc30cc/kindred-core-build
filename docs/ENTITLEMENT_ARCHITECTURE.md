@@ -204,3 +204,16 @@ downstream consumers, and silently mapping them onto canonical keys
 access. The full per-key classification, deferral list, and unblock
 criteria live in `docs/PLAN_DATA_RECONCILIATION.md` — that doc is the
 authoritative audit trail; this section is the pointer.
+
+## 14. Max Agents — seat limit (rollout deferred)
+
+`max_agents` is canonical in the registry but intentionally **not
+yet enforced**. Audit details, locked semantics, the chosen counting
+model, and the precise unblock criterion (one new Express route
+owning `workspace_members` INSERT) live in
+`docs/MAX_AGENTS_POLICY.md`. The `KNOWN_UNSUPPORTED.max_agents`
+rationale in `server/services/billing/usageResolvers.ts` points at
+the same doc. Until rollout, `usageFnForLimit('max_agents')` callers
+receive the documented "unsupported" response — never silently 0 —
+and the customer-facing payload falls through to the registry
+default of 1.

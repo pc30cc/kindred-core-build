@@ -617,3 +617,28 @@ Architectural guardrails enforced by the UI:
   `retention_expires_at`, no deletes. Janitor remains the sole
   deletion path. Inline-only tokens cannot be escalated to forced
   downloads.
+
+### Recording bulk legal-hold (super-admin)
+- One narrow bulk surface added; no rename/relocation of any existing
+  route, env, schema, or capability key.
+  - `POST /api/admin/calls/recordings/legal-hold/bulk` — body
+    `{ ids: string[] (1..200, uuid), enabled: boolean, reason?: string }`.
+- `enabled` is a deterministic SET (not a per-row toggle): every
+  supplied id ends in that state regardless of prior value, which is
+  the only safe behaviour for mixed-state selections.
+- Missing ids are reported per-id under `failures` (status `not_found`);
+  the call still returns 200 with the actually-updated `succeeded` ids.
+- Writes one `audit_logs` row per succeeded id, reusing the same action
+  keys as the per-row endpoint (`bulk: true` in `new_value`).
+- Frontend: Recordings tab grew row-level checkboxes, a
+  "select all visible" checkbox, and a bulk action bar with
+  **Set legal hold ON** / **Set legal hold OFF** / **Clear**.
+  Selections are page-scoped — changing filter/page drops out-of-view
+  ids so the bar never appears to "remember" hidden rows.
+- Read-only with respect to retention: no deletes, no
+  `retention_expires_at` edits, no backfill of `legacy_unmanaged`
+  rows. Janitor remains the sole deletion path.
+- Still deferred after this pass: bulk delete / bulk retention edits
+  (intentionally absent), per-recording retention overrides,
+  operator-side visibility, waveform/timeline UI, optional legacy
+  backfill UI.

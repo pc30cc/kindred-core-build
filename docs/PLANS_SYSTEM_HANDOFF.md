@@ -143,9 +143,19 @@ canonical resolver — same payload that the admin and customer UIs read.
     branch can be isolated. Mapping that would apply when separated:
     audio session → `eff.voice_enabled`, video session →
     `eff.video_enabled`.
-  - **Queue offer/accept and `call-queue/enqueue`** — still deferred:
-    offer/accept act on already-existing entries, and the visitor
-    `enqueue` denial UX (queue full vs plan-denied) is still undefined.
+  - **`call-queue/enqueue`** — **resolved (Phase: Visitor Queue Denial
+    Policy + call-queue/enqueue Selective Gating — Strict Single-Surface
+    Pass).** Gated at `POST /api/widget/call-queue/enqueue` via the
+    canonical composer (`server/services/calls/queueEntitlementGate.ts`).
+    Mapping: `queue_enabled=false` → `capability: 'call_queue'`
+    (precedence); else `audio` → `eff.visitor_voice_enabled`
+    (`capability: 'voice'`), `video` → `eff.visitor_video_enabled`
+    (`capability: 'video'`). `plan_forbidden` (403) is strictly distinct
+    from runtime queue/business-state denials inside `enqueueCall`
+    (`queue_disabled` / `voice_disabled` / `video_disabled` → 409) and
+    from `invalid_body` (400). Cancel/status surfaces remain ungated.
+  - **Queue offer/accept** — still deferred: act on already-existing
+    entries; gating would strand in-flight queue work.
 - ~~Splitting `email.ts` into platform/auth vs channel-email before gating.~~
   **Resolved (Phase: Email Surface Split + Channel Gating).** Platform
   email stays on `POST /api/email/send` (un-gated). Channel email lands

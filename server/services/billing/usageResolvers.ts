@@ -349,10 +349,12 @@ function unsupported(reason: string, period = currentMonthPeriod()): UsageResolu
  *   - minutes = CEIL((ended_at - connected_at) / 60)
  *   - non-connected outcomes and zero-duration outcomes do not count
  *
- * Foundation only — registered so usage reads work and the value is
- * visible to admin/diagnostics. Enforcement at create-time is NOT
- * wired in this phase (see docs/CALL_NUMERIC_LIMITS.md for the
- * remaining activation blockers).
+ * Live — enforced at create-time by
+ * `server/services/calls/monthlyMinutesLimit.ts#checkPlanMonthlyMinutesCeiling`
+ * on `POST /api/calls/create` and `POST /api/widget/calls/request`.
+ * The webhook-driven `room_started` path backfills `connected_at`
+ * when missing, so every call that actually becomes active feeds
+ * the trigger.
  */
 async function resolveMaxCallMinutesPerMonth(
   config: ServerConfig,

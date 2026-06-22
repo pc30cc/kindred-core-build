@@ -317,3 +317,21 @@ models, enforcement boundaries, and unblock paths are documented in
 `docs/CALL_NUMERIC_LIMITS.md`. No registry key was added, no resolver
 was added, no route or middleware changed. `capabilityRegistry.ts`
 and `usageResolvers.ts` remain unchanged.
+
+### June 2026 — `max_concurrent_calls` Precedence Resolution Pass
+
+Single-key follow-up. **Outcome: no rollout.** Precedence rule
+itself is easy and now locked
+(`min(plan, platform_admin)`; `-1`/`null` skipped; canonical
+active-state set; single enforcement path at `/api/calls/create`
+plus `/api/widget/calls/request` through the canonical resolver
+chain). Blocker is not precedence but counting-model semantics: the
+existing widget enforcement counts a strictly narrower row set
+(`entry_source='call_widget'`, states
+`('active','ringing','connecting')`) than the canonical
+`idx_call_sessions_state_active` definition
+(`('pending','ringing','connecting','active')`, all entry sources).
+Activating now would either silently widen the shipped admin knob
+or leave two competing concurrency rules in place — both violate
+phase rules. Full rationale in `docs/CALL_NUMERIC_LIMITS.md`. No
+registry key, resolver, route, middleware, env, or schema changed.

@@ -205,15 +205,20 @@ access. The full per-key classification, deferral list, and unblock
 criteria live in `docs/PLAN_DATA_RECONCILIATION.md` — that doc is the
 authoritative audit trail; this section is the pointer.
 
-## 14. Max Agents — seat limit (rollout deferred)
+## 14. Max Agents — seat limit (LIVE)
 
-`max_agents` is canonical in the registry but intentionally **not
-yet enforced**. Audit details, locked semantics, the chosen counting
-model, and the precise unblock criterion (one new Express route
-owning `workspace_members` INSERT) live in
-`docs/MAX_AGENTS_POLICY.md`. The `KNOWN_UNSUPPORTED.max_agents`
-rationale in `server/services/billing/usageResolvers.ts` points at
-the same doc. Until rollout, `usageFnForLimit('max_agents')` callers
-receive the documented "unsupported" response — never silently 0 —
-and the customer-facing payload falls through to the registry
-default of 1.
+`max_agents` is canonical in the registry **and enforced**. The
+canonical chokepoint is
+`POST /api/workspace-members/accept-invitation`, which calls the
+service-role-only `accept_workspace_invitation_as(_token, _user_id)`
+RPC and is gated by
+`requireLimit('max_agents', usageFnForLimit('max_agents'))`. The
+resolver counts `workspace_members` rows scoped to `workspace_id`.
+The browser-side bypass on the original
+`accept_workspace_invitation(text)` RPC has been closed (EXECUTE
+revoked from `anon`/`authenticated`/`public`; `service_role`
+retained for internal use). Legacy `billing_plans.limits` aliases
+`team_members` and `agents` are intentionally preserved for one
+release as soft-warn entries; the seed mirror to `max_agents` has
+been applied. Audit, semantics, deprecation policy, and the
+future-removal checklist live in `docs/MAX_AGENTS_POLICY.md`.

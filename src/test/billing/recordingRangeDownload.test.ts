@@ -15,27 +15,36 @@
  * unit-tested here because they delegate to the same upstream
  * Range/Content-Range contract via fetch.
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-// Avoid resolving workspace storage configs: hit the local provider directly
-// through the same helper surface, by stubbing resolveStorageConfig via a
-// thin wrapper module-level import. We re-import the module under test.
-import * as storage from '../../../server/services/storage/index';
-
-const ORIGINAL = (storage as any).resolveStorageConfig;
 let tmpDir = '';
+
+vi.mock('../../../server/supabase.js', () => ({
+  getServiceClient: () => ({}),
+}));
+
+// Stub the workspace config resolver to point at a tmp local directory so we
+// exercise the same ranged-read code path used in production without touching
+// any real provider.
+vi.mock('../../../server/services/storage/index', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('../../../server/services/storage/index')>();
+  return {
+    ...mod,
+    resolveStorageConfig: async () => ({ provider: 'local', localPath: tmpDir }),
+  };
+});
+
+import * as storage from '../../../server/services/storage/index';
 
 beforeAll(() => {
   tmpDir = mkdtempSync(join(tmpdir(), 'rec-range-'));
   writeFileSync(join(tmpDir, 'sample.bin'), Buffer.from('0123456789ABCDEF'));
-  (storage as any).resolveStorageConfig = async () => ({ provider: 'local', localPath: tmpDir });
 });
 
 afterAll(() => {
-  (storage as any).resolveStorageConfig = ORIGINAL;
   try { rmSync(tmpDir, { recursive: true, force: true }); } catch { /* noop */ }
 });
 

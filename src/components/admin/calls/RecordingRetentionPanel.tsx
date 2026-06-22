@@ -30,9 +30,12 @@ import {
   setAdminRecordingLegalHold,
   fetchAdminRecordingBlob,
   mintAdminRecordingPlaybackToken,
+  bulkSetAdminRecordingLegalHold,
   type AdminRecordingRow,
   type RecordingRetentionStatus,
 } from '@/lib/admin-calls-api';
+import { Checkbox } from '@/components/ui/checkbox';
+import { ShieldCheck, ShieldOff } from 'lucide-react';
 
 const PAGE_SIZE = 25;
 
@@ -455,6 +458,12 @@ export function RecordingRetentionPanel() {
   const [status, setStatus] = useState<RecordingRetentionStatus | 'all'>('all');
   const [page, setPage] = useState(0);
   const [previewId, setPreviewId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkReason, setBulkReason] = useState('');
+  const [bulkResult, setBulkResult] = useState<
+    | null
+    | { succeeded: number; failures: Array<{ id: string; error: string }>; enabled: boolean }
+  >(null);
 
   const params = useMemo(
     () => ({
@@ -474,6 +483,59 @@ export function RecordingRetentionPanel() {
   const items = q.data?.items ?? [];
   const total = q.data?.total ?? 0;
   const maxPage = Math.max(0, Math.ceil(total / PAGE_SIZE) - 1);
+  const qc = useQueryClient();
+
+  // Drop any selected ids that aren't on the current page so the bulk
+  // bar never appears to "remember" rows the operator can no longer see.
+  useEffect(() => {
+    setSelectedIds((cur) => {
+      if (cur.size === 0) return cur;
+      const visible = new Set(items.map((r) => r.id));
+      const next = new Set<string>();
+      for (const id of cur) if (visible.has(id)) next.add(id);
+      return next.size === cur.size ? cur : next;
+    });
+  }, [items]);
+
+  const allVisibleSelected =
+    items.length > 0 && items.every((r) => selectedIds.has(r.id));
+  const someVisibleSelected = items.some((r) => selectedIds.has(r.id));
+
+  const bulkMut = useMutation({
+    mutationFn: (enabled: boolean) =>
+      bulkSetAdminRecordingLegalHold(
+        Array.from(selectedIds),
+        enabled,
+        bulkReason.trim() || undefined,
+      ),
+    onSuccess: (r) => {
+      setBulkResult({ succeeded: r.succeeded.length, failures: r.failures, enabled: r.enabled });
+      setSelectedIds(new Set());
+      setBulkReason('');
+      qc.invalidateQueries({ queryKey: ['admin', 'call-recordings'] });
+    },
+  });
+
+  function toggleRow(id: string) {
+    setSelectedIds((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  function toggleAllVisible() {
+    setSelectedIds((cur) => {
+      if (allVisibleSelected) {
+        const next = new Set(cur);
+        for (const r of items) next.delete(r.id);
+        return next;
+      }
+      const next = new Set(cur);
+      for (const r of items) next.add(r.id);
+      return next;
+    });
+  }
 
   return (
     <Card>
@@ -550,6 +612,86 @@ export function RecordingRetentionPanel() {
           </div>
         </div>
 
+        {selectedIds.size > 0 && (
+          <div
+            className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-secondary/30 p-2"
+            data-testid="bulk-action-bar"
+          >
+            <span className="text-[11px] font-medium">
+              {selectedIds.size} selected
+            </span>
+            <Input
+              value={bulkReason}
+              onChange={(e) => setBulkReason(e.target.value)}
+              placeholder="Reason (optional)"
+              className="h-7 text-[11px] w-56"
+              maxLength={500}
+              disabled={bulkMut.isPending}
+              data-testid="bulk-reason-input"
+            />
+            <Button
+              size="sm"
+              variant="default"
+              className="h-7 px-2 text-[11px] gap-1"
+              disabled={bulkMut.isPending}
+              onClick={() => bulkMut.mutate(true)}
+              data-testid="bulk-hold-on"
+            >
+              {bulkMut.isPending ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <ShieldCheck className="h-3 w-3" />
+              )}
+              Set legal hold ON
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 px-2 text-[11px] gap-1"
+              disabled={bulkMut.isPending}
+              onClick={() => bulkMut.mutate(false)}
+              data-testid="bulk-hold-off"
+            >
+              {bulkMut.isPending ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <ShieldOff className="h-3 w-3" />
+              )}
+              Set legal hold OFF
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2 text-[11px]"
+              disabled={bulkMut.isPending}
+              onClick={() => setSelectedIds(new Set())}
+              data-testid="bulk-clear"
+            >
+              Clear
+            </Button>
+            {bulkMut.isError && (
+              <span className="text-[10px] text-destructive">
+                {(bulkMut.error as Error)?.message || 'Bulk action failed'}
+              </span>
+            )}
+          </div>
+        )}
+        {bulkResult && (
+          <div
+            className="text-[11px] text-muted-foreground"
+            data-testid="bulk-result"
+          >
+            Legal hold {bulkResult.enabled ? 'ON' : 'OFF'} applied to{' '}
+            {bulkResult.succeeded} recording(s).
+            {bulkResult.failures.length > 0 && (
+              <span className="text-destructive">
+                {' '}
+                {bulkResult.failures.length} failed.
+              </span>
+            )}
+          </div>
+        )}
+
         {q.isLoading ? (
           <div className="flex items-center gap-2 text-xs text-muted-foreground py-8 justify-center">
             <Loader2 className="h-4 w-4 animate-spin" /> Loading recordings…
@@ -567,6 +709,14 @@ export function RecordingRetentionPanel() {
             <table className="w-full text-xs">
               <thead className="bg-secondary/40 text-muted-foreground">
                 <tr>
+                  <th className="p-2 w-8">
+                    <Checkbox
+                      checked={allVisibleSelected}
+                      onCheckedChange={toggleAllVisible}
+                      aria-label="Select all visible recordings"
+                      data-testid="bulk-select-all"
+                    />
+                  </th>
                   <th className="text-left p-2 font-medium">Recording</th>
                   <th className="text-left p-2 font-medium">Workspace</th>
                   <th className="text-left p-2 font-medium">Created</th>
@@ -582,6 +732,14 @@ export function RecordingRetentionPanel() {
                 {items.map((r) => (
                   <Fragment key={r.id}>
                   <tr className="border-t border-border align-top" data-testid={`recording-row-${r.id}`}>
+                    <td className="p-2 align-top">
+                      <Checkbox
+                        checked={selectedIds.has(r.id)}
+                        onCheckedChange={() => toggleRow(r.id)}
+                        aria-label={`Select recording ${r.id}`}
+                        data-testid={`bulk-select-${r.id}`}
+                      />
+                    </td>
                     <td className="p-2 font-mono text-[10px] break-all max-w-[180px]">
                       <div>{r.id}</div>
                       <div className="text-muted-foreground">
@@ -612,7 +770,7 @@ export function RecordingRetentionPanel() {
                       className="border-t border-border bg-secondary/20"
                       data-testid={`recording-preview-row-${r.id}`}
                     >
-                      <td colSpan={9} className="p-3">
+                      <td colSpan={10} className="p-3">
                         <InlinePreview row={r} />
                       </td>
                     </tr>

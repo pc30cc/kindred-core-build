@@ -309,7 +309,40 @@ large recordings.
 
 ### Still deferred after the tokenized playback pass
 - Waveform/timeline UI, annotations, comments.
-- Bulk legal-hold / bulk actions.
 - Per-recording retention overrides.
 - Operator-side visibility.
+- Optional legacy backfill UI.
+
+## Bulk legal-hold (super-admin)
+
+Narrow bulk operability surface — the ONLY field mutated is
+`legal_hold`. Janitor remains the sole deletion path; this surface
+cannot delete, edit `retention_expires_at`, or backfill legacy rows.
+
+### Backend
+`POST /api/admin/calls/recordings/legal-hold/bulk`
+
+Body: `{ ids: string[] (1..200, uuid), enabled: boolean, reason?: string }`
+
+- `enabled` is a deterministic SET, not a toggle. All supplied ids end
+  in that state regardless of prior value (safe for mixed selections).
+- Missing ids are reported per-id under `failures` with `not_found`;
+  the call still returns 200 with the `succeeded` ids.
+- One `audit_logs` row per successfully-updated id, reusing the same
+  action keys as the per-row endpoint (`bulk: true` in `new_value`).
+
+### Frontend
+- Per-row selection checkbox + "select all visible" in the Recordings
+  tab. Selections are scoped to the current page — changing
+  filters/pages drops out-of-view selections.
+- Bulk action bar appears only when at least one row is selected.
+  Buttons: **Set legal hold ON**, **Set legal hold OFF**, **Clear**.
+  Optional reason input is forwarded verbatim.
+- Result summary shows succeeded count and any failures.
+
+### Still deferred after the bulk legal-hold pass
+- Bulk delete / bulk retention edits (intentionally absent).
+- Per-recording retention overrides.
+- Operator-side visibility.
+- Waveform/timeline UI, annotations, comments.
 - Optional legacy backfill UI.

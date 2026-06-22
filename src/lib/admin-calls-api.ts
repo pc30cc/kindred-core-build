@@ -442,6 +442,36 @@ export async function setAdminRecordingLegalHold(
 }
 
 /**
+ * Bulk legal-hold setter (super-admin only). `enabled` is a SET
+ * operation — every supplied id ends in that state regardless of its
+ * prior value. Server returns succeeded/failures buckets; this client
+ * never deletes anything.
+ */
+export interface BulkLegalHoldResult {
+  requested: number;
+  succeeded: string[];
+  failures: Array<{ id: string; error: string }>;
+  enabled: boolean;
+}
+
+export async function bulkSetAdminRecordingLegalHold(
+  ids: string[],
+  enabled: boolean,
+  reason?: string,
+): Promise<BulkLegalHoldResult> {
+  const res = await fetch(`${API_BASE}/api/admin/calls/recordings/legal-hold/bulk`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+    body: JSON.stringify({ ids, enabled, ...(reason ? { reason } : {}) }),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`Bulk legal-hold failed (${res.status}): ${detail || res.statusText}`);
+  }
+  return res.json();
+}
+
+/**
  * Build the admin recording artifact URL. Used internally by
  * `fetchAdminRecordingBlob`. NOT a signed URL — the route is protected
  * by the super-admin bearer header and must be fetched via

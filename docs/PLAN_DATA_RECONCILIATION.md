@@ -74,6 +74,14 @@ is_active = true`.
 | `file_storage_mb`     | 100   | —      | —          | ❌ legacy         | **LEGACY PRESERVED (free only).** Same value as `storage_mb`. Unused by middleware. |
 | `max_contacts`        | —     | —      | —          | ✅ canonical      | **MISSING from every seed.** Registry default = 100. Effective limit today: 100 for all plans. See §3. |
 | `contacts`            | 100   | 5000   | -1         | ❌ legacy         | **DEFERRED — risky migration.** `contacts → max_contacts` is a high-confidence semantic map, but applying it would silently raise Pro from the registry default (100) to 5000 and Enterprise to unlimited — i.e., an upgrade in shipped customer access. Per the phase rules ("no cleanup may silently downgrade or upgrade customer access"), no migration is applied. Resolution requires explicit admin sign-off on the intended Pro/Enterprise contact ceiling. |
+
+> **Cross-namespace collision note.** The string `contacts` is *also* a
+> canonical **module** key in `CAPABILITY_REGISTRY`. When it appears in
+> `billing_plans.limits` it is a legacy limit alias (different
+> namespace). `validatePlanPayload` flags this correctly as
+> `Key 'contacts' is not a 'limit' in registry (type=module)` — a
+> warning, not an error. The two are intentionally not unified: the
+> canonical limit name is `max_contacts`.
 | `max_agents`          | —     | —      | —          | ✅ canonical      | **MISSING from every seed.** No `requireLimit('max_agents', ...)` consumer exists yet, so this is currently inert; registry default 1 applies. Filling will be safe once a usage resolver lands. Deferred. |
 | `team_members`        | 2     | 10     | -1         | ❌ legacy alias   | **LEGACY PRESERVED.** Intended canonical is `max_agents`. No middleware consumer today; migrating now would be cosmetic. Migrate together with `max_agents` resolver introduction. |
 | `agents`              | 1     | —      | —          | ❌ legacy alias   | **LEGACY PRESERVED (free only).** Same family as `team_members`. |

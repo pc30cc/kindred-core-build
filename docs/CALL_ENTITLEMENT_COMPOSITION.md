@@ -341,3 +341,47 @@ After this pass, the most promising remaining item is **call-center
 on existing call_sessions) and therefore likely resolves to the same
 no-rollout result, but has not yet been route-audited under this
 policy. Numeric call limits remain blocked on missing usage resolvers.
+
+## Call-Center Assign / Transfer Drain Policy (June 2026)
+
+Single-surface audit of the only remaining non-numeric call-center
+transition routes:
+
+- `POST /api/call-center/calls/:id/assign`
+  → `assignCallToAgent()` in `server/services/callCenter/routing.ts`.
+  Loads an existing session via `getStandaloneCallCenterSession(...)`;
+  404s if missing. Mutates `call_sessions.assigned_agent_id` and the
+  matching `call_queue_entries` row, emits `call_assigned` event. It
+  cannot create a `call_sessions` row and cannot initiate a new voice
+  or video leg — it only re-points ownership of an already-existing
+  call.
+
+- `POST /api/call-center/calls/:id/transfer`
+  → `transferCall()` in the same service. Also resolves via
+  `getStandaloneCallCenterSession(...)` and explicitly requires the
+  session to be in `active | ringing | connecting | pending` state
+  (`call_not_active` 409 otherwise). It re-targets the existing
+  session to another agent and/or department, optionally picking an
+  agent via `pickAgentForDepartment`. It does not create sessions,
+  does not enqueue, and does not start a new media leg.
+
+**Drain-policy classification matrix:**
+
+| Surface | Creates row? | Starts new leg? | Class |
+|---|---|---|---|
+| `assign`   | No | No | continuity/routing |
+| `transfer` | No | No | continuity/routing |
+
+**Decision: no rollout.** Both handlers are pure continuity/routing
+operations on already-existing, already-admitted call sessions. The
+admit-new-work boundary for call-center work is `/api/calls/create`
+(operator-initiated) and `/api/widget/call-queue/enqueue` (visitor-
+initiated), both already gated. Gating `assign` or `transfer` would
+strand live calls on plan downgrade and violate the locked deny-on-
+create / allow-on-continuity policy. No safe new-action branch exists
+inside either handler.
+
+After this pass, the remaining call-side backlog reduces to **numeric
+call limits** (`max_concurrent_calls`, `max_call_minutes_per_month`,
+`recording_retention_days`), still blocked on missing usage resolvers
+and counters in `usageResolvers.ts` / `capabilityRegistry.ts`.

@@ -41,6 +41,7 @@ import {
   getManifestDiagnostics,
 } from '../services/widget/manifest.js';
 import { resolveCallProvider } from '../services/calls/providerResolver.js';
+import { z as zRec } from 'zod';
 
 export const adminCallsRouter = Router();
 
@@ -389,4 +390,130 @@ adminCallsRouter.put('/role-permissions', async (req, res) => {
   } catch (err: any) {
     res.status(400).json({ error: err?.message || 'update_failed' });
   }
+});
+
+// ─── Recording retention operability (read + legal-hold toggle) ─────
+//
+// Narrow operability surface for the LIVE recording_retention_days
+// system (see docs/CALL_RECORDING_RETENTION.md). Mounted under
+// /api/admin/calls/recordings — the existing super-admin auth on
+// adminRouter applies. This surface is intentionally read-mostly:
+//
+//   • GET  /recordings                  → paginated list with computed
+//                                         retention status badge.
+//   • POST /recordings/:id/legal-hold   → toggles ONLY `legal_hold`.
+//                                         Never deletes. Never touches
+//                                         retention_expires_at. The
+//                                         janitor remains the sole
+//                                         deletion path.
+//
+// Legacy rows (retention_expires_at IS NULL) are labelled
+// `legacy_unmanaged` and intentionally left alone — there is NO
+// backfill action in this phase. Operators who want to manage them
+// can still apply a legal hold; the janitor still ignores NULL.
+
+function retentionStatus(row: any): 'on_hold' | 'expired' | 'expires_at' | 'legacy_unmanaged' {
+  if (row?.legal_hold) return 'on_hold';
+  if (!row?.retention_expires_at) return 'legacy_unmanaged';
+  const exp = new Date(row.retention_expires_at).getTime();
+  if (Number.isFinite(exp) && exp <= Date.now()) return 'expired';
+  return 'expires_at';
+}
+
+adminCallsRouter.get('/recordings', async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
+  const sb = getServiceClient(config);
+  const Q = zRec.object({
+    workspace_id: zRec.string().uuid().optional(),
+    status: zRec.enum(['on_hold', 'expired', 'expires_at', 'legacy_unmanaged']).optional(),
+    limit: zRec.coerce.number().int().min(1).max(200).default(50),
+    offset: zRec.coerce.number().int().min(0).default(0),
+  });
+  const parsed = Q.safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_query', detail: parsed.error.flatten().fieldErrors });
+  const { workspace_id, status, limit, offset } = parsed.data;
+
+  let q = sb
+    .from('call_recordings')
+    .select(
+      'id, call_session_id, provider, recording_type, storage_provider, storage_path, duration_seconds, size_bytes, retention_policy, retention_expires_at, legal_hold, created_at, call_sessions!inner(workspace_id)',
+      { count: 'exact' },
+    )
+    .order('created_at', { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (workspace_id) {
+    q = q.eq('call_sessions.workspace_id', workspace_id);
+  }
+  // Server-side status filters that map 1:1 to indexed columns. The
+  // `expired` filter relies on the same partial index the janitor uses.
+  if (status === 'on_hold') q = q.eq('legal_hold', true);
+  if (status === 'legacy_unmanaged') q = q.is('retention_expires_at', null).eq('legal_hold', false);
+  if (status === 'expires_at') q = q.not('retention_expires_at', 'is', null).eq('legal_hold', false).gt('retention_expires_at', new Date().toISOString());
+  if (status === 'expired') q = q.not('retention_expires_at', 'is', null).eq('legal_hold', false).lte('retention_expires_at', new Date().toISOString());
+
+  const { data, error, count } = await q;
+  if (error) return res.status(500).json({ error: error.message });
+  const items = (data || []).map((r: any) => ({
+    id: r.id,
+    call_session_id: r.call_session_id,
+    workspace_id: r.call_sessions?.workspace_id ?? null,
+    provider: r.provider,
+    recording_type: r.recording_type,
+    storage_provider: r.storage_provider,
+    storage_path: r.storage_path,
+    duration_seconds: r.duration_seconds,
+    size_bytes: r.size_bytes,
+    retention_policy: r.retention_policy,
+    retention_expires_at: r.retention_expires_at,
+    legal_hold: r.legal_hold,
+    created_at: r.created_at,
+    status: retentionStatus(r),
+  }));
+  res.json({ items, total: count ?? items.length, limit, offset });
+});
+
+const LegalHoldBody = zRec.object({
+  enabled: zRec.boolean(),
+  reason: zRec.string().trim().max(500).optional(),
+});
+
+adminCallsRouter.post('/recordings/:id/legal-hold', async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
+  const sb = getServiceClient(config);
+  const id = String(req.params.id || '');
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'invalid_id' });
+  const parsed = LegalHoldBody.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_body', detail: parsed.error.flatten().fieldErrors });
+
+  // Confirm the row exists + grab workspace for the audit log. Using a
+  // separate select avoids relying on .update().select() for join data.
+  const { data: prior, error: priorErr } = await sb
+    .from('call_recordings')
+    .select('id, legal_hold, call_sessions!inner(workspace_id)')
+    .eq('id', id)
+    .maybeSingle();
+  if (priorErr) return res.status(500).json({ error: priorErr.message });
+  if (!prior) return res.status(404).json({ error: 'not_found' });
+
+  // Toggle ONLY `legal_hold`. retention_expires_at is never touched
+  // here — this surface cannot delete or shorten retention.
+  const { error: updErr } = await sb
+    .from('call_recordings')
+    .update({ legal_hold: parsed.data.enabled })
+    .eq('id', id);
+  if (updErr) return res.status(500).json({ error: updErr.message });
+
+  const wsId = (prior as any)?.call_sessions?.workspace_id ?? '00000000-0000-0000-0000-000000000000';
+  await sb.from('audit_logs').insert({
+    action: parsed.data.enabled ? 'call_recording.legal_hold.enable' : 'call_recording.legal_hold.disable',
+    entity_type: 'call_recording',
+    entity_id: id,
+    user_id: (req as any).adminUser?.id ?? null,
+    workspace_id: wsId,
+    old_value: { legal_hold: !!(prior as any).legal_hold } as any,
+    new_value: { legal_hold: parsed.data.enabled, reason: parsed.data.reason ?? null } as any,
+  } as any).then(() => {}, () => {});
+
+  res.json({ id, legal_hold: parsed.data.enabled });
 });

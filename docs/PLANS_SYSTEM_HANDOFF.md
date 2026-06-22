@@ -558,3 +558,8 @@ Architectural guardrails enforced by the UI:
 - No legacy backfill — `legacy_unmanaged` rows are shown as such.
 - Super-admin scoped via the existing `adminRouter` middleware;
   no operator-side surface in this phase.
+
+### Recording artifact access (super-admin, read-only)
+- New route: `GET /api/admin/calls/recordings/:id/file` (super-admin scoped, proxied via canonical `downloadFile`).
+- UI: per-row Open / Save buttons in the existing Recordings tab of Voice & Video Center.
+- Read-only — janitor remains the sole deletion path. No new retention semantics.

@@ -152,3 +152,21 @@ What the UI **intentionally cannot** do (matches backend policy):
 - No implicit/explicit backfill of `legacy_unmanaged` rows.
 - No operator-side surface — super-admin only, scoped by the
   parent `adminRouter` middleware.
+
+---
+
+## Super-admin artifact access (read-only)
+
+Added: super-admin route `GET /api/admin/calls/recordings/:id/file?disposition=inline|attachment`.
+
+- Streams bytes through the canonical storage abstraction (`downloadFile` → `resolveStorageConfig`), the same helper that powers the widget attachment proxy. No provider URLs or credentials are exposed to the browser.
+- Read-only: never mutates `call_recordings`, never touches `retention_expires_at`, never deletes from storage. The retention janitor remains the sole deletion path.
+- Disposition: `inline` (default) for in-tab playback, `attachment` to force a download.
+- Errors: `404 not_found`, `410 missing_storage_path`, `404 storage_object_missing`, `502 provider_download_failed`.
+- UI: the existing Recording Retention panel in Voice & Video Center exposes per-row **Open** and **Save** buttons. Bytes are fetched via authed `fetch` and surfaced through a transient `URL.createObjectURL` (revoked after 60s). No `<a href>` or `<video src>` ever points at the route directly.
+- Legacy (`legacy_unmanaged`) rows: accessible if the underlying object still exists; no implicit backfill of `retention_expires_at`.
+
+### Still deferred after this pass
+- Inline `<audio>`/`<video>` player embedded in the row (current pass opens in a new tab).
+- Range-request / partial-content streaming for very large recordings.
+- Bulk operations, per-recording retention overrides, operator-side visibility, optional legacy backfill UI.

@@ -1,9 +1,11 @@
 # Max Agents — Seat Limit Policy & Rollout Audit
 
-_Last updated: 2026-06-22 (Workspace Member Write Boundary phase).
-Status: **canonical Express seat-creation boundary has now landed —
-`max_agents` enforcement still deferred, but the remaining blocker is
-narrower (RPC bypass) rather than "no boundary exists at all."**_
+_Last updated: 2026-06-22 (Max Agents Final Activation phase).
+Status: **rollout still deferred.** The canonical Express seat-creation
+boundary exists, but the final-pass audit revealed that the previously
+documented "one narrow REVOKE" unblock criterion is **not actually
+narrow** — it would break the Express route itself. See §4.2 below for
+the corrected unblock matrix._
 
 This is the deliverable of the _Max Agents Resolver + Consumer + Legacy
 Alias Migration Readiness_ phase. The phase's strict objective is to
@@ -112,6 +114,84 @@ migration ships:
 
 No further architectural work is required between today and that
 three-step rollout.
+
+### 4.2 Final-pass correction — the REVOKE is not narrow
+
+_Added in the Max Agents Final Activation phase, 2026-06-22._
+
+The previous phase asserted that revoking `EXECUTE` on
+`public.accept_workspace_invitation(text)` from the `authenticated`
+role would close the bypass without affecting the canonical Express
+route. That assertion is **wrong**, and this final-pass audit
+corrects it before any rollout is attempted.
+
+**Live grant audit (2026-06-22):**
+
+```
+ proname                       | rolname        | can_execute
+-------------------------------+----------------+------------
+ accept_workspace_invitation   | anon           | t
+ accept_workspace_invitation   | authenticated  | t
+ accept_workspace_invitation   | service_role   | t
+ accept_workspace_invitation   | public         | t
+```
+
+**Why a plain REVOKE breaks the Express route too:**
+
+`server/routes/workspaceMembers.ts` calls the RPC by constructing a
+Supabase client with the **anon key** plus the user's JWT in the
+`Authorization` header (this is required so the SECURITY DEFINER
+function sees the correct `auth.uid()` for the invite-email
+verification). Under PostgREST, that request is executed as the
+`authenticated` role — the same role a direct browser call uses.
+There is no way to authenticate as the user *and* assume a different
+PostgREST role with the current Supabase JWT model: a service-role
+JWT has no user `sub`, and a user JWT always maps to `authenticated`.
+
+Concretely:
+
+| Caller path | apikey | Authorization JWT | PostgREST role | `auth.uid()` |
+|---|---|---|---|---|
+| Browser direct (the bypass we want to close) | anon | user JWT | `authenticated` | user |
+| Express route (canonical, must keep working) | anon | user JWT | `authenticated` | user |
+| Hypothetical Express-via-service-role | service_role | service-role JWT | `service_role` | **NULL** — RPC fails its `auth.uid() IS NULL` guard |
+
+Rows 1 and 2 are indistinguishable to PostgREST. A `REVOKE EXECUTE …
+FROM authenticated` revokes both at once.
+
+**Therefore the real unblock options are not "one narrow REVOKE" —
+they are one of the following, each requiring explicit approval:**
+
+1. **Add a new SECURITY DEFINER companion RPC**
+   `accept_workspace_invitation_as(_token text, _user_id uuid)` whose
+   `EXECUTE` is granted only to `service_role`, with the original
+   `accept_workspace_invitation(_token)` losing `EXECUTE` from
+   `authenticated`/`anon`/`public`. The Express route then calls the
+   companion RPC with a service-role client and the user id taken
+   from the verified JWT. The original RPC body is preserved
+   verbatim; only the `auth.uid()` source changes (parameter instead
+   of GUC). This is the smallest change that satisfies the phase
+   rule "do not alter the RPC behavior itself" — the body is
+   identical, only the trust boundary moves.
+2. **Replace the RPC call with JS logic in the Express route**, using
+   a service-role client to perform the same SELECT-validate /
+   INSERT-member / UPDATE-use_count sequence the SQL function
+   performs today. Then revoke `EXECUTE` on the original RPC from
+   `authenticated`/`anon`/`public`. Larger blast radius (logic now
+   lives in two places during the transition window) but no new SQL
+   object.
+
+Both options require a SQL migration **and** route logic changes, and
+both are explicitly out of scope for the "Max Agents Final
+Activation — Strict Last-Blocker Pass" rule that says: _"If the
+bypass cannot be closed safely in the same phase, prefer honest
+defer over a partial rollout."_
+
+**Decision (this phase): defer.** No REVOKE was issued, no resolver
+was registered, no middleware was mounted, no seed migration was
+applied. The repo is in the same enforcement state as before this
+phase — but the unblock criterion is now correctly characterised so
+the next phase can pick exactly one of the two options above.
 
 ---
 
@@ -233,6 +313,25 @@ creation, deletion, sub-grouping).
   construction, RPC error mapping, and an explicit assertion that
   no `requireLimit`-style middleware is on the route yet (so the
   defer is fail-loud, not implicit).
+
+### Update — Max Agents Final Activation phase, 2026-06-22
+
+- **Final bypass audit performed.** Live `pg_proc` grants confirmed
+  `EXECUTE` on `accept_workspace_invitation(text)` is still held by
+  `anon`, `authenticated`, `public`, and `service_role`.
+- **Frontend caller audit:** the only browser-side call to the RPC
+  is gone — `rg "accept_workspace_invitation" src/` returns matches
+  only in `types.ts` (generated) and tests. `InvitePage.tsx` already
+  goes through the Express route.
+- **REVOKE not applied.** Per §4.2, a plain
+  `REVOKE EXECUTE … FROM authenticated` would also break the
+  canonical Express route, because both the bypass and the canonical
+  path execute as the `authenticated` role under PostgREST. The
+  prior phase's "narrow revoke" framing was incorrect.
+- **Resolver still NOT registered**, **middleware still NOT mounted**,
+  **seed alias migration still NOT applied**, by design.
+- **No code change** in this phase — only this doc and cross-linked
+  docs. The repo is intentionally in the same runtime state.
 
 ---
 

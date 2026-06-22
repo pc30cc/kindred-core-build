@@ -4,6 +4,7 @@ import { useCallCenterCalls, useCallCenterCall } from '@/hooks/useCallCenter';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { callCenterApi } from '@/lib/call-center-api';
 import { useQueryClient } from '@tanstack/react-query';
@@ -40,6 +41,8 @@ function RecordingPlaybackRow({
   workspaceId,
   callId,
   rec,
+  selected,
+  onToggleSelected,
 }: {
   workspaceId: string;
   callId: string;
@@ -51,6 +54,8 @@ function RecordingPlaybackRow({
     created_at: string;
     has_storage: boolean;
   };
+  selected: boolean;
+  onToggleSelected: (next: boolean) => void;
 }) {
   const [url, setUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -94,6 +99,13 @@ function RecordingPlaybackRow({
   return (
     <div className="rounded border bg-background/50 p-2 space-y-2">
       <div className="flex items-center gap-2 text-xs">
+        <Checkbox
+          checked={selected}
+          disabled={!rec.has_storage}
+          onCheckedChange={(v) => onToggleSelected(v === true)}
+          aria-label="Select recording for bulk download"
+          className="h-3.5 w-3.5"
+        />
         <span className="font-mono text-muted-foreground">{rec.id.slice(0, 8)}…</span>
         <span className="text-muted-foreground">{rec.recording_type || '—'}</span>
         <span className="text-muted-foreground">·</span>
@@ -142,10 +154,13 @@ function RecordingsPanel({ workspaceId, callId }: { workspaceId: string; callId:
       | Awaited<ReturnType<typeof callCenterApi.listCallRecordings>>['recordings']
       | null;
   }>({ loading: true, error: null, recordings: null });
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     setState({ loading: true, error: null, recordings: null });
+    setSelected(new Set());
     callCenterApi
       .listCallRecordings(workspaceId, callId)
       .then((r) => { if (!cancelled) setState({ loading: false, error: null, recordings: r.recordings }); })
@@ -162,10 +177,90 @@ function RecordingsPanel({ workspaceId, callId }: { workspaceId: string; callId:
   if (!state.recordings || state.recordings.length === 0) {
     return <p className="text-[11px] text-muted-foreground">No recording artifacts available.</p>;
   }
+
+  const recs = state.recordings;
+  const selectedIds = recs.filter((r) => selected.has(r.id) && r.has_storage).map((r) => r.id);
+
+  function toggle(id: string, next: boolean) {
+    setSelected((prev) => {
+      const n = new Set(prev);
+      if (next) n.add(id); else n.delete(id);
+      return n;
+    });
+  }
+
+  async function bulkDownload() {
+    if (bulkBusy || selectedIds.length === 0) return;
+    setBulkBusy(true);
+    try {
+      const r = await callCenterApi.mintCallRecordingBulkDownloadTokens(
+        workspaceId, callId, selectedIds,
+      );
+      let ok = 0;
+      let failed = 0;
+      for (const item of r.results) {
+        if ('url' in item) {
+          const a = document.createElement('a');
+          a.href = item.url;
+          a.rel = 'noopener';
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          ok++;
+          // small stagger so browsers don't drop concurrent navigations
+          await new Promise((res) => setTimeout(res, 120));
+        } else {
+          failed++;
+        }
+      }
+      if (failed > 0) {
+        toast({
+          title: 'Bulk download finished with errors',
+          description: `${ok} started, ${failed} failed`,
+          variant: 'destructive',
+        });
+      } else {
+        toast({ title: 'Bulk download started', description: `${ok} recording(s)` });
+      }
+    } catch (e: any) {
+      toast({
+        title: 'Bulk download unavailable',
+        description: e?.message || 'bulk_token_mint_failed',
+        variant: 'destructive',
+      });
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
   return (
     <div className="space-y-2">
-      {state.recordings.map((rec) => (
-        <RecordingPlaybackRow key={rec.id} workspaceId={workspaceId} callId={callId} rec={rec} />
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[11px] text-muted-foreground">
+          {selectedIds.length > 0
+            ? `${selectedIds.length} selected`
+            : 'Select recordings to bulk download'}
+        </span>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 text-xs"
+          onClick={bulkDownload}
+          disabled={bulkBusy || selectedIds.length === 0}
+        >
+          <Download className="h-3 w-3 me-1" />
+          {bulkBusy ? 'Preparing…' : `Download selected${selectedIds.length ? ` (${selectedIds.length})` : ''}`}
+        </Button>
+      </div>
+      {recs.map((rec) => (
+        <RecordingPlaybackRow
+          key={rec.id}
+          workspaceId={workspaceId}
+          callId={callId}
+          rec={rec}
+          selected={selected.has(rec.id)}
+          onToggleSelected={(next) => toggle(rec.id, next)}
+        />
       ))}
       <p className="text-[10px] text-muted-foreground">
         Read-only playback. Retention and legal-hold management is restricted to platform administrators.

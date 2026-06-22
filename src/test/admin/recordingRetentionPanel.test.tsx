@@ -22,17 +22,15 @@ const futureIso = new Date(Date.now() + 7 * 86400_000).toISOString();
 const pastIso = new Date(Date.now() - 1 * 86400_000).toISOString();
 
 const FIXTURE_ROWS = [
-  { id: 'rec-1', status: 'expires_at', legal_hold: false, retention_expires_at: futureIso },
-  { id: 'rec-2', status: 'on_hold', legal_hold: true, retention_expires_at: futureIso },
-  { id: 'rec-3', status: 'expired', legal_hold: false, retention_expires_at: pastIso },
-  { id: 'rec-4', status: 'legacy_unmanaged', legal_hold: false, retention_expires_at: null },
+  { id: 'rec-1', status: 'expires_at', legal_hold: false, retention_expires_at: futureIso, recording_type: 'composite', storage_path: 'path/file.mp4' },
+  { id: 'rec-2', status: 'on_hold', legal_hold: true, retention_expires_at: futureIso, recording_type: 'audio_only', storage_path: 'path/file.m4a' },
+  { id: 'rec-3', status: 'expired', legal_hold: false, retention_expires_at: pastIso, recording_type: null, storage_path: 'path/file.bin' },
+  { id: 'rec-4', status: 'legacy_unmanaged', legal_hold: false, retention_expires_at: null, recording_type: 'composite', storage_path: 'path/file.mp4' },
 ].map((r) => ({
   call_session_id: 'sess',
   workspace_id: 'ws-1',
   provider: 'livekit',
-  recording_type: 'composite',
   storage_provider: 's3',
-  storage_path: 'path/x',
   duration_seconds: 120,
   size_bytes: 1024,
   retention_policy: null,

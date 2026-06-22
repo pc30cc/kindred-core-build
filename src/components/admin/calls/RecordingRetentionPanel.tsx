@@ -33,6 +33,7 @@ import {
   bulkSetAdminRecordingLegalHold,
   setAdminRecordingRetentionOverride,
   restoreAdminRecordingRetention,
+  adoptAdminRecordingRetention,
   type RetentionOverrideInput,
   type AdminRecordingRow,
   type RecordingRetentionStatus,

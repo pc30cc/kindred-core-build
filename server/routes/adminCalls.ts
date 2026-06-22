@@ -482,6 +482,109 @@ const LegalHoldBody = z.object({
   reason: z.string().trim().max(500).optional(),
 });
 
+// ─── Bulk legal-hold (super-admin operability) ─────────────────────
+//
+// Narrow bulk surface that ONLY mutates `legal_hold` on the supplied
+// recording ids. It deliberately does not:
+//   • delete anything (janitor remains the sole deletion path)
+//   • touch retention_expires_at
+//   • backfill legacy_unmanaged rows
+//   • introduce any second hold mechanism
+//
+// Semantics:
+//   • `enabled` is a SET operation, not a toggle. Sending true sets
+//     legal_hold = true on every supplied id whose row exists; sending
+//     false sets it to false. Mixed prior states are intentional —
+//     bulk callers want a deterministic post-state, not a per-row flip.
+//   • Missing ids are reported per-id in `failures`; the call still
+//     returns 200 with `succeeded` listing the ids actually updated.
+//   • One audit_log row is written per successfully-updated id, using
+//     the same action keys as the per-row endpoint so existing audit
+//     consumers don't need any change.
+const BulkLegalHoldBody = z.object({
+  ids: z.array(z.string().uuid()).min(1).max(200),
+  enabled: z.boolean(),
+  reason: z.string().trim().max(500).optional(),
+});
+
+adminCallsRouter.post('/recordings/legal-hold/bulk', async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
+  const sb = getServiceClient(config);
+  const parsed = BulkLegalHoldBody.safeParse(req.body);
+  if (!parsed.success) {
+    return res
+      .status(400)
+      .json({ error: 'invalid_body', detail: parsed.error.flatten().fieldErrors });
+  }
+  // De-dupe while preserving caller order.
+  const ids = Array.from(new Set(parsed.data.ids));
+  const { enabled, reason } = parsed.data;
+
+  const { data: prior, error: priorErr } = await sb
+    .from('call_recordings')
+    .select('id, legal_hold, call_sessions!inner(workspace_id)')
+    .in('id', ids);
+  if (priorErr) return res.status(500).json({ error: priorErr.message });
+
+  const priorById = new Map<string, any>((prior || []).map((r: any) => [r.id, r]));
+  const presentIds = ids.filter((id) => priorById.has(id));
+  const missingIds = ids.filter((id) => !priorById.has(id));
+
+  const succeeded: string[] = [];
+  const failures: Array<{ id: string; error: string }> = missingIds.map((id) => ({
+    id,
+    error: 'not_found',
+  }));
+
+  if (presentIds.length > 0) {
+    const { data: updated, error: updErr } = await sb
+      .from('call_recordings')
+      .update({ legal_hold: enabled })
+      .in('id', presentIds)
+      .select('id');
+    if (updErr) {
+      // Treat the bulk as fully failed for the present subset rather
+      // than partially-applying an unknown subset.
+      for (const id of presentIds) failures.push({ id, error: updErr.message });
+    } else {
+      const updatedIds = new Set((updated || []).map((r: any) => r.id));
+      for (const id of presentIds) {
+        if (updatedIds.has(id)) succeeded.push(id);
+        else failures.push({ id, error: 'update_skipped' });
+      }
+      // Best-effort audit log — same action key as per-row endpoint.
+      const action = enabled
+        ? 'call_recording.legal_hold.enable'
+        : 'call_recording.legal_hold.disable';
+      const adminId = (req as any).adminUser?.id ?? null;
+      const rows = succeeded.map((id) => {
+        const p = priorById.get(id);
+        const wsId =
+          p?.call_sessions?.workspace_id ?? '00000000-0000-0000-0000-000000000000';
+        return {
+          action,
+          entity_type: 'call_recording',
+          entity_id: id,
+          user_id: adminId,
+          workspace_id: wsId,
+          old_value: { legal_hold: !!p?.legal_hold } as any,
+          new_value: { legal_hold: enabled, reason: reason ?? null, bulk: true } as any,
+        };
+      });
+      if (rows.length > 0) {
+        await sb.from('audit_logs').insert(rows as any).then(() => {}, () => {});
+      }
+    }
+  }
+
+  res.json({
+    requested: ids.length,
+    succeeded,
+    failures,
+    enabled,
+  });
+});
+
 adminCallsRouter.post('/recordings/:id/legal-hold', async (req, res) => {
   const config: ServerConfig = (req as any).serverConfig;
   const sb = getServiceClient(config);

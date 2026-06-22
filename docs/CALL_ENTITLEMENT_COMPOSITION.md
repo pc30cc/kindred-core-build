@@ -207,3 +207,72 @@ signal and inventing it inline would be guessing.
   confirm no `max_concurrent_calls` / `max_call_minutes_per_month` /
   `recording_retention_days` resolver exists.
 - No tests added — runtime behavior is unchanged in this pass.
+---
+
+## June 2026 — `POST /api/calls/:id/invite` Route-Shape Split + Selective Gating
+
+Status: **LIVE**. The previously-deferred split landed in this pass.
+
+### Route-shape change
+
+`inviteSchema` now accepts an optional discriminator:
+
+```
+reason: 'new' | 'reissue'  // optional
+```
+
+Semantics:
+
+- `reason: 'new'`  → genuinely new optional-participant add. Gated by
+  the canonical composer.
+- `reason: 'reissue'` → reissue / recovery / re-ring against an
+  already-allowed in-flight session. **Never** gated by the composer;
+  stays reachable so in-flight sessions are not stranded by a plan
+  downgrade.
+- `reason` omitted → treated as `'reissue'` for backward compatibility
+  (see below).
+
+### Selective gating
+
+Only the `'new'` branch consults `loadEffectiveCallEntitlements`:
+
+| `ctx.session.call_type` | Gate                |
+| ----------------------- | ------------------- |
+| `'audio'`               | `eff.voice_enabled` |
+| `'video'`               | `eff.video_enabled` |
+
+Failure response: `403 { error: 'plan_forbidden', capability, upgrade_required: true }`.
+No new capability keys were introduced. The composer is reused; there
+is no second composer and no inline entitlement logic.
+
+### Backward-compatibility rationale
+
+Legacy callers (no `reason`) default to `'reissue'` — i.e. allowed.
+This is the continuity-safe choice because:
+
+1. `POST /api/calls/create` is the canonical deny-on-create boundary.
+   An existing `call_session` already passed plan gating at creation
+   time, so re-inviting on it is continuity behavior.
+2. The deny-on-create / allow-on-continuity policy explicitly
+   prioritizes not stranding in-flight calls over closing a marginal
+   bypass on a non-creation surface.
+3. The only known internal caller (`src/lib/calls-api.ts → callsApi.invite`)
+   is migrated to send `reason: 'new'` explicitly, so the legacy
+   default does not weaken gating for the known new-participant path.
+
+### Files changed
+
+- `server/routes/calls.ts` — `inviteSchema` + handler split.
+- `src/lib/calls-api.ts` — caller migrated to send `reason: 'new'`.
+- `src/test/billing/callsInviteRouteSplit.test.ts` — 5 deterministic
+  tests covering: new-audio deny, new-video deny, new-allow,
+  reissue-reachable-when-disabled, legacy-default-reachable.
+
+### Intentionally deferred (still)
+
+- Call-queue `offer` / `accept` selective gating — operates on existing
+  rows; drain policy still undecided.
+- Call-center `assign` / `transfer` selective gating — same reason.
+- Numeric call limits (`max_concurrent_calls`,
+  `max_call_minutes_per_month`, `recording_retention_days`) — no
+  counters/resolvers exist; activation would be speculative.

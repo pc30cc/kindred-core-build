@@ -1127,6 +1127,7 @@ export function RecordingRetentionPanel() {
                         <div className="flex items-center gap-1">
                           <RetentionOverrideEditor row={r} />
                           <RetentionRestoreButton row={r} />
+                          <RetentionAdoptButton row={r} />
                         </div>
                       </div>
                     </td>

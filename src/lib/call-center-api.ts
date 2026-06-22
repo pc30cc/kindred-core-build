@@ -546,6 +546,49 @@ export const callCenterApi = {
     const blob = await res.blob();
     return { blob, included, excluded, filename };
   },
+  /**
+   * Operator-side workspace-scoped multi-call ZIP archive export (read-only).
+   *
+   * Sibling of `exportCallRecordingsArchive`. Accepts an explicit
+   * `[{ call_id, recording_id }]` selection collected across multiple
+   * calls the operator can already access in the same workspace. The
+   * server independently re-validates each pair, silently excludes any
+   * cross-workspace / cross-call rows via the manifest, and returns a
+   * single ZIP grouped by call directory. Same canonical caps, same
+   * canonical storage abstraction, same uniform not_found semantics.
+   */
+  exportWorkspaceRecordingsArchive: async (
+    workspaceId: string,
+    items: Array<{ call_id: string; recording_id: string }>,
+  ): Promise<{ blob: Blob; included: number; excluded: number; calls: number; filename: string }> => {
+    const res = await fetch(
+      `${API_BASE}/api/call-center/workspaces/recordings/archive?workspaceId=${encodeURIComponent(workspaceId)}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(await authHeaders()),
+        },
+        body: JSON.stringify({ workspaceId, items }),
+      },
+    );
+    if (!res.ok) {
+      let body: any = null;
+      try { body = await res.json(); } catch { /* non-JSON */ }
+      const err: any = new Error(body?.error || `HTTP ${res.status}`);
+      err.code = body?.error || null;
+      err.status = res.status;
+      throw err;
+    }
+    const cd = res.headers.get('content-disposition') || '';
+    const m = /filename="([^"]+)"/i.exec(cd);
+    const filename = m?.[1] || `workspace-${workspaceId.slice(0, 8)}-recordings.zip`;
+    const included = Number(res.headers.get('x-archive-included') || '0');
+    const excluded = Number(res.headers.get('x-archive-excluded') || '0');
+    const calls = Number(res.headers.get('x-archive-calls') || '0');
+    const blob = await res.blob();
+    return { blob, included, excluded, calls, filename };
+  },
   uploadAvatar: async (workspaceId: string, file: File) => {
     const buf = await file.arrayBuffer();
     let bin = ''; const bytes = new Uint8Array(buf);

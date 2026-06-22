@@ -862,3 +862,30 @@ decode audio. Retention, legal-hold, download, and storage semantics are
 unchanged. Real decoded waveforms, annotations, bulk retention/delete,
 cross-workspace export, chunked ZIP, and legacy storage_provider
 backfill remain deferred.
+
+## Workspace-scoped multi-call archive export
+Adds one narrow sibling route alongside the existing single-call
+archive: `POST /api/call-center/workspaces/recordings/archive`. Body
+is `{ workspaceId, items: [{ call_id, recording_id }] }`. Reuses the
+same `requireCallOperator` gate, the same `downloadFile` storage
+abstraction, the same `buildStoreZip` helper, and the same 25-item /
+500 MB caps. Each `(call_id, recording_id)` pair is re-validated
+server-side against `call_sessions.workspace_id` and
+`call_session_id`; cross-workspace / cross-call items are silently
+excluded via `manifest.txt` with a uniform `not_found` reason. Files
+inside the archive are grouped under `call-<call_id[:8]>/...` to
+avoid name collisions. Zero successes returns
+`404 no_recordings_available` instead of an empty ZIP.
+
+Operator UI (`CallsPage.tsx`) gains a per-row checkbox column on the
+calls table and a single "Export selected (ZIP)" header action; it
+resolves recordings per selected call via the existing
+`listCallRecordings` endpoint, caps at 25 items client-side, and
+posts to the new workspace route. Single-call "Download ZIP",
+per-row playback/download, and retention/legal-hold semantics are
+unchanged. The janitor remains the sole deletion path.
+
+Still deferred: cross-workspace export, streaming/chunked ZIP above
+the in-memory cap, bulk retention edits / bulk legacy adoption /
+bulk delete, annotations / comments / decoded waveforms, legacy
+`storage_provider` backfill.

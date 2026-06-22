@@ -306,6 +306,25 @@ callsRouter.post('/create', async (req, res) => {
       return res.status(409).json({ error: 'recording_disabled_for_workspace' });
     }
 
+    // Phase: Operator Call Route Split + Selective Gating —
+    // strict deny-on-create on the operator /create boundary. The handler
+    // is mixed by call_type; we split branch-by-branch via the canonical
+    // composer (audio → eff.voice_enabled, video → eff.video_enabled).
+    // Cleanup/status/finalize/in-flight branches in this file
+    // (accept/reject/hangup/end/token/state/recording stop) remain
+    // intentionally ungated so existing calls can be drained after a
+    // plan downgrade. Recording start retains its own composer gate.
+    const eff = await loadEffectiveCallEntitlements(config, body.workspace_id);
+    const callTypeAllowed =
+      body.call_type === 'video' ? eff.video_enabled : eff.voice_enabled;
+    if (!callTypeAllowed) {
+      return res.status(403).json({
+        error: 'plan_forbidden',
+        capability: body.call_type === 'video' ? 'voice_video.video' : 'voice_video.voice',
+        upgrade_required: true,
+      });
+    }
+
     const { id: providerId, provider } = await resolveEffectiveCallProvider(
       config,
       body.workspace_id,

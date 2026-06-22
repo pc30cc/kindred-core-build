@@ -117,6 +117,21 @@ canonical resolver — same payload that the admin and customer UIs read.
     `{ error: "plan_forbidden", capability, upgrade_required: true }`
     and run before any DB insert / provider resolution. Cleanup, status,
     cancel, accept, reject, hangup, and end paths remain reachable.
+  - **Operator call create** — resolved (Phase: Operator Call Route
+    Split + Selective Gating — Strict Mixed-Handler Pass).
+    `POST /api/calls/create` is gated branch-by-branch via the canonical
+    composer: `audio` → `eff.voice_enabled` (`capability:
+    voice_video.voice`), `video` → `eff.video_enabled` (`capability:
+    voice_video.video`). The check runs before
+    `resolveEffectiveCallProvider` and the `call_sessions` insert, so no
+    half-created sessions are stranded. Cleanup / lifecycle branches in
+    the same router (`/:id/{accept,reject,hangup,end,token}`,
+    `GET /:id/state`) remain ungated.
+  - **Operator `POST /api/calls/:id/invite`** — still deferred: acts on
+    an already-existing `call_sessions` row and may be re-issued
+    mid-call to add additional participants; gating would strand
+    in-flight calls. Held until a participant-class drain decision is
+    made.
   - **Queue offer/accept and `call-queue/enqueue`** — still deferred:
     offer/accept act on already-existing entries, and the visitor
     `enqueue` denial UX (queue full vs plan-denied) is still undefined.

@@ -181,6 +181,162 @@ function LegalHoldToggle({ row }: { row: AdminRecordingRow }) {
 }
 
 /**
+ * Single-row retention override editor.
+ *
+ * Mutates ONLY `retention_expires_at` + `retention_policy` via the
+ * super-admin `/retention-override` route. Never touches `legal_hold`
+ * (the existing per-row Legal hold toggle is the only surface for that).
+ * Never deletes — the janitor remains the sole deletion path. No bulk
+ * surface, no clear-override (operators set a new explicit value instead).
+ *
+ * Modes:
+ *   • Exact date/time
+ *   • Days from now
+ *   • Unlimited (clears the stamped expiry; janitor never selects the row)
+ */
+function RetentionOverrideEditor({ row }: { row: AdminRecordingRow }) {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<'exact' | 'days_from_now' | 'unlimited'>('days_from_now');
+  const [days, setDays] = useState<string>('30');
+  const [exact, setExact] = useState<string>(''); // datetime-local value
+  const [reason, setReason] = useState('');
+
+  const mut = useMutation({
+    mutationFn: async () => {
+      let input: RetentionOverrideInput;
+      if (mode === 'unlimited') {
+        input = { mode: 'unlimited', reason: reason.trim() || undefined };
+      } else if (mode === 'days_from_now') {
+        const n = Number(days);
+        if (!Number.isFinite(n) || n < 0 || n > 3650) throw new Error('days must be 0–3650');
+        input = { mode: 'days_from_now', days: Math.floor(n), reason: reason.trim() || undefined };
+      } else {
+        if (!exact) throw new Error('Pick a date and time');
+        const iso = new Date(exact).toISOString();
+        input = { mode: 'exact', expires_at: iso, reason: reason.trim() || undefined };
+      }
+      return setAdminRecordingRetentionOverride(row.id, input);
+    },
+    onSuccess: () => {
+      setOpen(false);
+      setReason('');
+      qc.invalidateQueries({ queryKey: ['admin', 'call-recordings'] });
+    },
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) mut.reset(); }}>
+      <DialogTrigger asChild>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-6 px-2 text-[10px] gap-1"
+          data-testid={`retention-override-open-${row.id}`}
+          aria-label={`Edit retention override for ${row.id}`}
+        >
+          <CalendarClock className="h-3 w-3" /> Override
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-md" data-testid={`retention-override-dialog-${row.id}`}>
+        <DialogHeader>
+          <DialogTitle className="text-sm">Override retention for this recording</DialogTitle>
+          <DialogDescription className="text-xs">
+            Sets only this row's retention. Legal hold is unchanged and still overrides expiry.
+            The retention janitor remains the sole deletion path. This action is audit-logged.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <Label className="text-[11px]">Mode</Label>
+            <Select value={mode} onValueChange={(v) => setMode(v as any)}>
+              <SelectTrigger
+                className="h-8 text-xs"
+                data-testid={`retention-override-mode-${row.id}`}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="days_from_now">Days from now</SelectItem>
+                <SelectItem value="exact">Exact date/time</SelectItem>
+                <SelectItem value="unlimited">Unlimited (no expiry)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {mode === 'days_from_now' && (
+            <div className="space-y-1">
+              <Label className="text-[11px]">Days</Label>
+              <Input
+                type="number"
+                min={0}
+                max={3650}
+                value={days}
+                onChange={(e) => setDays(e.target.value)}
+                className="h-8 text-xs w-32"
+                data-testid={`retention-override-days-${row.id}`}
+              />
+            </div>
+          )}
+          {mode === 'exact' && (
+            <div className="space-y-1">
+              <Label className="text-[11px]">Expires at</Label>
+              <Input
+                type="datetime-local"
+                value={exact}
+                onChange={(e) => setExact(e.target.value)}
+                className="h-8 text-xs"
+                data-testid={`retention-override-exact-${row.id}`}
+              />
+            </div>
+          )}
+          <div className="space-y-1">
+            <Label className="text-[11px]">Reason (optional)</Label>
+            <Input
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="e.g. Litigation hold extension"
+              maxLength={500}
+              className="h-8 text-xs"
+            />
+          </div>
+          <div className="text-[10px] text-muted-foreground">
+            Current: {row.retention_expires_at ? fmtDate(row.retention_expires_at) : 'no expiry stamped'}
+            {row.retention_policy ? ` · policy ${row.retention_policy}` : ''}
+            {row.legal_hold ? ' · legal hold active' : ''}
+          </div>
+          {mut.isError && (
+            <div className="text-[11px] text-destructive" data-testid={`retention-override-error-${row.id}`}>
+              {(mut.error as Error)?.message || 'Override failed'}
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-8 text-xs"
+            disabled={mut.isPending}
+            onClick={() => setOpen(false)}
+          >
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            className="h-8 text-xs gap-1"
+            disabled={mut.isPending}
+            onClick={() => mut.mutate()}
+            data-testid={`retention-override-submit-${row.id}`}
+          >
+            {mut.isPending && <Loader2 className="h-3 w-3 animate-spin" />}
+            Apply override
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
  * Inline read-only preview surface for a single recording row.
  *
  * • Bytes flow through the existing super-admin file proxy via

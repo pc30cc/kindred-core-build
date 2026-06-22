@@ -120,6 +120,7 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
   { key: 'storage_gb',            type: 'limit', label: 'Storage',                    group: 'usage', defaultValue: 1,    planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'gb', sortOrder: 30 },
   { key: 'data_retention_days',   type: 'limit', label: 'Data Retention',             group: 'usage', defaultValue: 30,   planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'days', sortOrder: 40 },
   { key: 'max_contacts',          type: 'limit', label: 'Max Contacts',               group: 'contacts', description: 'Maximum number of contact records (rows in public.contacts) per workspace at any one time. Occupancy semantics: deletes free capacity; edits/tags/notes do not consume. Enforced by POST /api/contacts and POST /api/contacts/bulk via requireLimit + live count(*).', defaultValue: 100, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 60 },
+  { key: 'max_concurrent_calls',  type: 'limit', label: 'Max Concurrent Calls',       group: 'calls',    description: 'Workspace-wide ceiling on simultaneously-active call_sessions (canonical active set: pending, ringing, connecting, active, all entry_source values). Enforced at create-time on POST /api/calls/create (operator) and POST /api/widget/calls/request (visitor) via canonical derived count. Composes additively with the widget-scoped platform-admin knob platform_call_center_settings.max_concurrent_calls_per_workspace — both ceilings may deny new work; first denial wins. -1 = unlimited.', defaultValue: -1, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 70 },
 ];
 
 // ─── Helpers ───
@@ -153,6 +154,7 @@ export const USAGE_BACKED_LIMIT_KEYS: readonly string[] = [
   'ai_credits_per_month',
   'max_contacts',
   'max_agents',
+  'max_concurrent_calls',
 ];
 
 /**

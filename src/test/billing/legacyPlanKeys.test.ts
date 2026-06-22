@@ -67,7 +67,16 @@ describe("legacy plan keys — soft backward compatibility", () => {
   });
 
   it("legacy keys are not in the registry (no accidental rename collision)", () => {
-    for (const k of [...LEGACY_ENTITLEMENT_KEYS, ...LEGACY_LIMIT_KEYS]) {
+    // Note: the string 'contacts' is intentionally excluded — it is a
+    // canonical *module* key in the registry AND a legacy *limit* key in
+    // seed JSON. The cross-namespace collision is documented in
+    // docs/PLAN_DATA_RECONCILIATION.md §2.2 and surfaces correctly as a
+    // type-mismatch warning via validatePlanPayload (covered above).
+    const noCollision = [
+      ...LEGACY_ENTITLEMENT_KEYS,
+      ...LEGACY_LIMIT_KEYS.filter((k) => k !== "contacts"),
+    ];
+    for (const k of noCollision) {
       expect(getCapability(k), `legacy key '${k}' must not be in registry`).toBeUndefined();
     }
   });

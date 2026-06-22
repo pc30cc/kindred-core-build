@@ -251,5 +251,19 @@ revoking `EXECUTE` on `public.accept_workspace_invitation(text)`
 from the `authenticated` role so the Express route is the sole
 reachable path. See `docs/MAX_AGENTS_POLICY.md` §4.1.
 
+_Status update 2026-06-22 (Max Agents Final Activation phase) —
+CORRECTION:_ the "revoke EXECUTE from authenticated" unblock above
+is retracted. The canonical Express route also runs as the
+`authenticated` role (anon-key + user JWT, required so the SECURITY
+DEFINER RPC sees the correct `auth.uid()`), so a plain REVOKE would
+break the canonical path together with the bypass. Closing the
+bypass now requires either adding a new SECURITY DEFINER companion
+RPC `accept_workspace_invitation_as(_token, _user_id)` (granted
+only to `service_role`) or moving the RPC logic into JS in the
+Express route — both deferred to an explicit follow-up. `max_agents`
+remains **not enforced**; no resolver, no middleware, no seed
+migration was applied this phase. See `docs/MAX_AGENTS_POLICY.md`
+§4.2 for the corrected unblock matrix.
+
 If this doc disagrees with code, the code wins and this doc must be
 updated — but the system itself is finished.

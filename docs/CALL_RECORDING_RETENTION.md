@@ -124,3 +124,31 @@ row protected long-term can still toggle legal hold on it.
 - Per-recording retention overrides.
 - An opt-in admin "backfill expiry for legacy rows" action.
 - Operator-side (non-admin) visibility into recordings.
+
+## Admin UI (super-admin only)
+
+Lives in **Admin → Voice & Video Center → Recordings tab**
+(`src/pages/admin/VoiceVideoPage.tsx` → `RecordingRetentionPanel`).
+
+Implementation:
+- API client: `fetchAdminRecordings`, `setAdminRecordingLegalHold`
+  in `src/lib/admin-calls-api.ts` (consumes the existing routes
+  unchanged — no new backend surface).
+- Panel: `src/components/admin/calls/RecordingRetentionPanel.tsx`
+  + the `RetentionStatusBadge` helper.
+- Tests: `src/test/admin/recordingRetentionPanel.test.tsx`.
+
+What the UI **can** do:
+- Paginated list of recordings with workspace + status filters.
+- Visible fields: id, workspace_id, created_at, duration, size,
+  `retention_expires_at`, computed status, `legal_hold`.
+- Single-row legal-hold toggle (optional reason field).
+
+What the UI **intentionally cannot** do (matches backend policy):
+- No delete or purge controls — the retention janitor is the sole
+  deletion path.
+- No editing of `retention_expires_at` (immutable post-stamp).
+- No bulk actions.
+- No implicit/explicit backfill of `legacy_unmanaged` rows.
+- No operator-side surface — super-admin only, scoped by the
+  parent `adminRouter` middleware.

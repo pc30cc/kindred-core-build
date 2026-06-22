@@ -472,6 +472,36 @@ export const callCenterApi = {
       `/api/call-center/calls/${encodeURIComponent(callId)}/recordings/${encodeURIComponent(recordingId)}/download-token?workspaceId=${encodeURIComponent(workspaceId)}`,
       { method: 'POST', body: JSON.stringify({ workspaceId }) },
     ),
+  /**
+   * Operator-side bulk download orchestration (read-only, workspace-scoped).
+   * Mints attachment-scoped tokens for up to ~25 recordings on a single
+   * call in one request. Reuses the canonical streaming route — no archive
+   * is generated server-side. Per-id results carry either a tokenized URL
+   * or an `error` string so a single bad id never poisons the batch.
+   */
+  mintCallRecordingBulkDownloadTokens: (
+    workspaceId: string,
+    callId: string,
+    recordingIds: string[],
+  ) =>
+    jsonFetch<{
+      limit: number;
+      count: number;
+      results: Array<
+        | {
+            recording_id: string;
+            url: string;
+            token: string;
+            disposition: 'attachment';
+            expires_at: string;
+            ttl_seconds: number;
+          }
+        | { recording_id: string; error: string }
+      >;
+    }>(
+      `/api/call-center/calls/${encodeURIComponent(callId)}/recordings/bulk-download-tokens?workspaceId=${encodeURIComponent(workspaceId)}`,
+      { method: 'POST', body: JSON.stringify({ workspaceId, recording_ids: recordingIds }) },
+    ),
   uploadAvatar: async (workspaceId: string, file: File) => {
     const buf = await file.arrayBuffer();
     let bin = ''; const bytes = new Uint8Array(buf);

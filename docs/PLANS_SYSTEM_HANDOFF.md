@@ -792,5 +792,31 @@ Architectural guardrails enforced by the UI:
   for operators. Janitor remains the sole deletion path. No
   route/env/schema/capability-key rename.
 - Still deferred: bulk retention edits / bulk legacy adoption / bulk
-  delete, bulk download / multi-select export, waveform/timeline UI,
-  annotations/comments.
+  delete, waveform/timeline UI, annotations/comments.
+
+## Operator bulk recording download / multi-select export (read-only)
+
+- Smallest safe orchestration around the per-row operator download
+  mint. No archive job, no second access path.
+- Backend:
+  - `POST /api/call-center/calls/:id/recordings/bulk-download-tokens`
+    — body `{ workspaceId, recording_ids: string[] }`, capped at 25
+    ids per request. Validates each id against the URL's call id and
+    the caller's workspace; mismatches are reported per id as
+    `error: 'not_found'` (same uniform existence-leak-free response
+    the single-row mint uses). Mints attachment-scoped tokens via the
+    same canonical `mintPlaybackToken` helper used by the per-row
+    download endpoint — same TTL, signer, id-binding, and disposition
+    enforcement on the streaming route.
+- Permission model: gated by `requireCallOperator` (same as single-row
+  download). No new role, no admin-surface clone, no bulk delete.
+- Frontend: row-level checkboxes + a single "Download selected (N)"
+  button in the Call detail sheet's Recordings panel. Triggers one
+  bulk-mint request, then a transient anchor click per successful
+  result with a small stagger; partial failures surface in a single
+  destructive toast. Existing single-row preview/download behavior is
+  unchanged.
+- Still deferred: bulk retention edits / bulk legacy adoption / bulk
+  delete, cross-call / cross-workspace bulk export, server-side
+  archive (zip) packaging, waveform/timeline UI, annotations,
+  comments.

@@ -590,5 +590,64 @@ token mint route that reuses the canonical streaming/storage path.
 
 ### Still deferred after the operator-download pass
 - Bulk retention edits / bulk legacy adoption / bulk delete.
-- Bulk download / multi-select export.
+- Bulk download / multi-select export. *(implemented — see below)*
+- Waveform/timeline UI, annotations, comments.
+
+## Operator-side bulk download / multi-select export — implemented (read-only)
+
+Smallest safe orchestration around the existing per-row operator
+download mint: selecting multiple recordings on the Call detail sheet
+and exporting them in one action. No archive is generated server-side
+and no second access path is introduced.
+
+### Permission model
+- Same gate as single-row download (`requireCallOperator`).
+- Bulk endpoint validates every recording id against the URL's call id
+  and the caller's workspace via the existing
+  `call_sessions!inner(workspace_id)` join. Any mismatch is reported
+  per id as `error: 'not_found'` — the uniform existence-leak-free
+  response the inline/single-row mint already uses.
+
+### Operator backend surface
+- `POST /api/call-center/calls/:id/recordings/bulk-download-tokens`
+  - Body: `{ workspaceId, recording_ids: string[] }`
+  - Hard cap: 25 ids per request (`too_many_recordings` on overflow).
+  - Empty input → `400 recording_ids_required`. Non-UUID id →
+    `400 invalid_recording_id` (rejected before any lookup).
+  - Duplicate ids are deduped server-side.
+  - Per-id result: either a tokenized URL (same shape as the single
+    download-token mint, `disposition='attachment'`) or
+    `{ recording_id, error: 'not_found' | 'missing_storage_path' | 'lookup_failed' }`.
+  - Tokens are minted via the same canonical `mintPlaybackToken` helper
+    — same TTL, same signer, same id-bound, same disposition-claim
+    enforcement on the streaming route.
+- No new streaming route, no archive job, no provider URL exposure,
+  no storage_path leakage.
+
+### Operator frontend surface
+- Per-recording checkbox in the Call detail sheet's Recordings panel,
+  plus a single "Download selected (N)" button.
+- Selection is bounded to rows the operator can already preview
+  (`has_storage === true`). The bulk button is disabled at 0 selected.
+- On click: one bulk-mint request → the client triggers a transient
+  anchor click per successful result, with a small stagger so browsers
+  don't drop concurrent navigations. Partial failures are surfaced in
+  a single destructive toast (`N started, M failed`).
+- No new playback engine, no admin controls, no bulk delete or
+  retention mutation.
+
+### Safeguards
+- Janitor remains the sole deletion path; bulk export never writes to
+  `call_recordings` or storage.
+- No route/env/schema/capability-key rename; the existing single-row
+  download-token route and per-row UI are unchanged.
+- Inline playback behavior is unchanged.
+- A single bad id never poisons the batch: per-id results isolate
+  failure modes.
+
+### Still deferred after the bulk-download pass
+- Bulk retention edits / bulk legacy adoption / bulk delete.
+- Cross-call / cross-workspace bulk export (intentionally scoped to one
+  call's recordings per request).
+- Server-side archive (zip) packaging.
 - Waveform/timeline UI, annotations, comments.

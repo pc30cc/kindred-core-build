@@ -1002,6 +1002,91 @@ callCenterRouter.post('/calls/:id/recordings/:recordingId/download-token', async
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+// Operator-side bulk download (read-only, workspace-scoped).
+//
+//   POST /api/call-center/calls/:id/recordings/bulk-download-tokens
+//
+// Mints short-lived attachment-scoped playback tokens for up to
+// BULK_DOWNLOAD_LIMIT recordings on a single call that the operator is
+// already allowed to view. This is purely an orchestration helper around
+// the per-row download-token mint above — same gate, same canonical
+// token model, same streaming route underneath, same uniform 404 for
+// any cross-workspace/cross-call mismatch.
+//
+// The response is a per-id result array (success or { error }) so a
+// single bad id never poisons the whole batch. No archive is generated
+// server-side and no provider URL/storage_path is ever returned.
+// ─────────────────────────────────────────────────────────────────────────
+const BULK_DOWNLOAD_LIMIT = 25;
+
+callCenterRouter.post('/calls/:id/recordings/bulk-download-tokens', async (req, res) => {
+  const wid = String(req.query.workspaceId || req.body?.workspaceId || '');
+  const ctx = await requireCallOperator(req, res, wid);
+  if (!ctx) return;
+  const callId = String(req.params.id || '');
+  if (!/^[0-9a-f-]{36}$/i.test(callId)) return res.status(400).json({ error: 'invalid_call_id' });
+
+  const rawIds = Array.isArray(req.body?.recording_ids) ? req.body.recording_ids : null;
+  if (!rawIds || rawIds.length === 0) {
+    return res.status(400).json({ error: 'recording_ids_required' });
+  }
+  if (rawIds.length > BULK_DOWNLOAD_LIMIT) {
+    return res.status(400).json({ error: 'too_many_recordings', limit: BULK_DOWNLOAD_LIMIT });
+  }
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of rawIds) {
+    const id = String(raw || '');
+    if (!/^[0-9a-f-]{36}$/i.test(id)) {
+      return res.status(400).json({ error: 'invalid_recording_id', recording_id: id });
+    }
+    if (!seen.has(id)) { seen.add(id); ids.push(id); }
+  }
+
+  const sb = getServiceClient(ctx.config);
+  const results: Array<
+    | {
+        recording_id: string;
+        url: string;
+        token: string;
+        disposition: string;
+        expires_at: string;
+        ttl_seconds: number;
+      }
+    | { recording_id: string; error: string }
+  > = [];
+
+  for (const recordingId of ids) {
+    const { data: row, error } = await sb
+      .from('call_recordings')
+      .select('id, storage_path, call_session_id, call_sessions!inner(workspace_id)')
+      .eq('id', recordingId)
+      .maybeSingle();
+    if (error) { results.push({ recording_id: recordingId, error: 'lookup_failed' }); continue; }
+    if (!row) { results.push({ recording_id: recordingId, error: 'not_found' }); continue; }
+    if ((row as any).call_session_id !== callId) { results.push({ recording_id: recordingId, error: 'not_found' }); continue; }
+    if ((row as any)?.call_sessions?.workspace_id !== wid) { results.push({ recording_id: recordingId, error: 'not_found' }); continue; }
+    if (!(row as any).storage_path) { results.push({ recording_id: recordingId, error: 'missing_storage_path' }); continue; }
+
+    const minted = mintPlaybackToken(ctx.config, { recordingId, disposition: 'attachment' });
+    const url =
+      `/api/calls/recording-playback/${encodeURIComponent(recordingId)}` +
+      `?token=${encodeURIComponent(minted.token)}` +
+      `&disposition=${minted.disposition}`;
+    results.push({
+      recording_id: recordingId,
+      url,
+      token: minted.token,
+      disposition: minted.disposition,
+      expires_at: minted.expires_at,
+      ttl_seconds: minted.ttl_seconds,
+    });
+  }
+
+  res.json({ limit: BULK_DOWNLOAD_LIMIT, count: results.length, results });
+});
+
 // ── Agent status ──────────────────────────────────────────────────────────
 callCenterRouter.get('/agent-status', async (req, res) => {
   const wid = String(req.query.workspaceId || '');

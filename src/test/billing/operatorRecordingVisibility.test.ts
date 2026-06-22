@@ -264,3 +264,79 @@ describe('POST /calls/:id/recordings/:recordingId/download-token', () => {
     expect(get().statusCode).toBe(404);
   });
 });
+
+describe('POST /calls/:id/recordings/bulk-download-tokens', () => {
+  const handler = findHandler('post', '/calls/:id/recordings/bulk-download-tokens');
+  const REC_A = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
+  const REC_B = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee';
+  const REC_OTHER_WS = 'ffffffff-ffff-ffff-ffff-ffffffffffff';
+
+  it('mints attachment tokens per-id and isolates cross-workspace/cross-call rows', async () => {
+    const fixtures: Record<string, any> = {
+      [REC_A]: { id: REC_A, storage_path: 'a.mp4', call_session_id: CALL_ID, call_sessions: { workspace_id: WS_OK } },
+      [REC_B]: { id: REC_B, storage_path: 'b.mp4', call_session_id: CALL_ID, call_sessions: { workspace_id: WS_OK } },
+      [REC_OTHER_WS]: { id: REC_OTHER_WS, storage_path: 'x.mp4', call_session_id: CALL_ID, call_sessions: { workspace_id: WS_OTHER } },
+    };
+    tableState['call_recordings'] = (_op: string, eqs: Array<[string, any]>) => {
+      const idEq = eqs.find(([c]) => c === 'id');
+      const row = idEq ? fixtures[idEq[1]] : null;
+      return { data: row ?? null, error: null };
+    };
+    const { req, res, get } = makeReqRes({
+      params: { id: CALL_ID },
+      query: { workspaceId: WS_OK },
+      body: { recording_ids: [REC_A, REC_B, REC_OTHER_WS, REC_A] }, // duplicate is deduped
+    });
+    await handler(req, res);
+    const { statusCode, jsonBody } = get();
+    expect(statusCode).toBe(200);
+    // deduped: 3 unique ids
+    expect(jsonBody.count).toBe(3);
+    const byId: Record<string, any> = {};
+    for (const r of jsonBody.results) byId[r.recording_id] = r;
+    expect(byId[REC_A].disposition).toBe('attachment');
+    expect(byId[REC_A].url).toContain('disposition=attachment');
+    expect(byId[REC_B].disposition).toBe('attachment');
+    // Cross-workspace row returns the same uniform not_found, no token leak.
+    expect(byId[REC_OTHER_WS].error).toBe('not_found');
+    expect(byId[REC_OTHER_WS]).not.toHaveProperty('url');
+    // No provider URL / storage_path leakage anywhere in the response.
+    const s = JSON.stringify(jsonBody);
+    expect(s).not.toContain('storage_path');
+    expect(s).not.toContain('a.mp4');
+    expect(s).not.toContain('b.mp4');
+    expect(s).not.toContain('x.mp4');
+  });
+
+  it('rejects empty and oversized batches', async () => {
+    {
+      const { req, res, get } = makeReqRes({
+        params: { id: CALL_ID }, query: { workspaceId: WS_OK }, body: { recording_ids: [] },
+      });
+      await handler(req, res);
+      expect(get().statusCode).toBe(400);
+      expect(get().jsonBody.error).toBe('recording_ids_required');
+    }
+    {
+      const tooMany = Array.from({ length: 26 }, (_, i) =>
+        `aaaaaaaa-aaaa-aaaa-aaaa-${String(i).padStart(12, '0')}`,
+      );
+      const { req, res, get } = makeReqRes({
+        params: { id: CALL_ID }, query: { workspaceId: WS_OK }, body: { recording_ids: tooMany },
+      });
+      await handler(req, res);
+      expect(get().statusCode).toBe(400);
+      expect(get().jsonBody.error).toBe('too_many_recordings');
+    }
+  });
+
+  it('rejects malformed recording ids before any lookup', async () => {
+    const { req, res, get } = makeReqRes({
+      params: { id: CALL_ID }, query: { workspaceId: WS_OK },
+      body: { recording_ids: ['not-a-uuid'] },
+    });
+    await handler(req, res);
+    expect(get().statusCode).toBe(400);
+    expect(get().jsonBody.error).toBe('invalid_recording_id');
+  });
+});

@@ -39,7 +39,7 @@ describe('recordingPlaybackToken', () => {
     const tok = mintPlaybackToken(otherCfg, { recordingId: RID });
     const v = verifyPlaybackToken(cfg, RID, tok.token);
     expect(v.ok).toBe(false);
-    if (!v.ok) expect(v.reason).toBe('bad_signature');
+    expect(v.ok === false && v.reason).toBe('bad_signature');
   });
 
   it('rejects an expired token', () => {
@@ -48,7 +48,7 @@ describe('recordingPlaybackToken', () => {
     vi.setSystemTime(new Date(Date.now() + 60_000));
     const v = verifyPlaybackToken(cfg, RID, tok.token);
     expect(v.ok).toBe(false);
-    if (!v.ok) expect(v.reason).toBe('expired');
+    expect(v.ok === false && v.reason).toBe('expired');
   });
 
   it('rejects a tampered disposition claim', () => {

@@ -280,6 +280,12 @@ app.use('/api/plans', plansRouter);
 // Admin — moderate rate limit
 app.use('/api/admin', adminRateLimiter, adminRouter);
 
+// Tokenized super-admin recording playback (read-only). Not under
+// /api/admin because native <audio>/<video> elements cannot attach a
+// bearer header — access is governed by short-lived HMAC tokens minted
+// by POST /api/admin/calls/recordings/:id/playback-token.
+app.use('/api/calls/recording-playback', recordingPlaybackRouter);
+
 // Platform admin: Map & Geo (mounted under /api/admin/map-geo, admin role enforced inside)
 app.use('/api/admin/map-geo', adminRateLimiter, mapGeoRouter);
 

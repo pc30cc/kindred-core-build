@@ -6,6 +6,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/lib/supabase';
+import { API_BASE } from '@/lib/api';
 import { toast } from 'sonner';
 import {
   Loader2, CheckCircle2, XCircle, Building2, LogIn, UserPlus,
@@ -85,9 +86,26 @@ export default function InvitePage() {
     if (!token || !user) return;
     setState('accepting');
     try {
-      const { data, error } = await supabase.rpc('accept_workspace_invitation', { _token: token });
-      if (error) throw new Error(error.message);
-      const result = data as any;
+      // Canonical seat-creation boundary lives in the Express server
+      // (POST /api/workspace-members/accept-invitation). The server
+      // forwards the user's JWT into a scoped Supabase client so the
+      // existing `accept_workspace_invitation` SECURITY DEFINER RPC
+      // sees the same `auth.uid()`. See docs/MAX_AGENTS_POLICY.md.
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+      if (!accessToken) throw new Error('Not authenticated');
+      const res = await fetch(`${API_BASE}/api/workspace-members/accept-invitation`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ token }),
+      });
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(result?.error || `Request failed (${res.status})`);
+      }
       setAcceptResult(result);
       if (result.already_member) {
         setState('already_member');

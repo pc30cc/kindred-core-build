@@ -15,6 +15,7 @@ import { aiRouter } from './routes/ai.js';
 import { storageRouter } from './routes/storage.js';
 import { cdnRouter } from './routes/cdn.js';
 import { accountRouter } from './routes/account.js';
+import { workspaceMembersRouter } from './routes/workspaceMembers.js';
 import { notificationsRouter } from './routes/notifications.js';
 import { availabilityRouter } from './routes/availability.js';
 import { billingRouter } from './routes/billing.js';
@@ -257,6 +258,10 @@ app.use('/api/cdn', cdnRouter);
 
 // Account — self-service for the authenticated user (profile, avatar, password)
 app.use('/api/account', accountRouter);
+
+// Canonical server-owned workspace seat-creation boundary.
+// See docs/MAX_AGENTS_POLICY.md and server/routes/workspaceMembers.ts.
+app.use('/api/workspace-members', workspaceMembersRouter);
 
 // Self-service notification preferences
 app.use('/api/notifications', notificationsRouter);

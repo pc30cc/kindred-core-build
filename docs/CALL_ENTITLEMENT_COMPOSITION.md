@@ -404,3 +404,22 @@ Summary:
 No capability key was added or renamed, no resolver was added, no
 route or middleware changed. The canonical composer, registry, and
 plan defaults are untouched.
+
+### June 2026 — `max_concurrent_calls` Precedence Resolution Pass
+
+Single-key follow-up targeting only `max_concurrent_calls`.
+**Outcome: honest defer, no rollout.** Precedence policy is locked
+for the eventual activation (`min(plan, platform_admin)`, with `-1`
+and `null` treated as no contribution; canonical active-state set
+`('pending','ringing','connecting','active')`; single enforcement
+path at `POST /api/calls/create` + `POST /api/widget/calls/request`
+via the canonical resolver chain), but activation cannot ship in
+this pass because the existing widget enforcement at
+`server/routes/callWidget.ts` L863–869 counts a strictly narrower
+set (widget-only entry source, no `pending` state) than the canonical
+`idx_call_sessions_state_active` definition. Unifying counting models
+would silently change shipped admin behavior; leaving both checks
+would create two competing concurrency rules, which Part D forbids.
+Full audit, locked precedence rule, and the three rejected activation
+paths live in `docs/CALL_NUMERIC_LIMITS.md`. No capability key was
+added, no resolver was added, no route or middleware changed.

@@ -167,3 +167,161 @@ This document is the only artifact of this pass besides short
 append-only notes in `docs/CALL_ENTITLEMENT_COMPOSITION.md`,
 `docs/ENFORCEMENT_COVERAGE_AUDIT.md`, and
 `docs/PLANS_SYSTEM_HANDOFF.md`.
+
+---
+
+## June 2026 (follow-up) — `max_concurrent_calls` Precedence Resolution Pass
+
+Strict single-key follow-up to determine whether the precedence
+conflict identified above could be resolved cleanly enough to
+activate `max_concurrent_calls` end-to-end.
+
+### Precedence audit findings
+
+**Existing enforcement (the only concurrency check live today)** lives
+at `server/routes/callWidget.ts` L863–869, inside the visitor widget
+`POST /api/widget/calls/request` handler:
+
+```ts
+const [{ count: active }, { count: queued }] = await Promise.all([
+  sb.from('call_sessions').select('id', { count: 'exact', head: true })
+    .eq('workspace_id', ws.workspace_id)
+    .eq('entry_source', 'call_widget')
+    .in('state', ['active', 'ringing', 'connecting']),
+  ...
+]);
+if ((active || 0) >= effective.max_concurrent_calls)
+  return res.status(429).json({ error: 'limit_reached', kind: 'concurrent' });
+```
+
+`effective.max_concurrent_calls` comes from
+`computeEffectiveCallCenterCaps` in
+`server/services/callCenter/settings.ts` and is simply
+`platform.max_concurrent_calls_per_workspace` — a **super-admin
+global ceiling** applied uniformly to every workspace. It is NOT a
+plan/workspace entitlement; it cannot vary per plan or per workspace.
+
+**Counting model used by the existing check:**
+
+- scoped by `entry_source = 'call_widget'` (operator-initiated and
+  invitation-initiated `call_sessions` are excluded);
+- state set `('active','ringing','connecting')` (excludes
+  `'pending'`).
+
+**Canonical active-call definition** (per
+`supabase/migrations/20260422123023_*.sql`,
+`idx_call_sessions_state_active`) is broader:
+
+- all `entry_source` values;
+- state set `('pending','ringing','connecting','active')`.
+
+### The real conflict is not precedence, it is semantics
+
+A pure precedence rule like
+`effective = min(plan_limit, platform_admin_limit)` (with `-1` =
+unlimited, `null` = absent → skipped) is **easy to write** and
+would behave intuitively for super-admins. That is not the blocker.
+
+The blocker is that the two limits, if both live, do not count the
+same thing:
+
+| Aspect | Existing platform-admin enforcement | Canonical plan-style enforcement |
+|---|---|---|
+| Scope | `entry_source = 'call_widget'` only | All entry sources (operator, invitation, widget) |
+| States counted | `active`, `ringing`, `connecting` | `pending`, `ringing`, `connecting`, `active` |
+| Boundary covered | `POST /api/widget/calls/request` | `POST /api/calls/create` (operator) + visitor widget |
+| Source of truth | `platform_call_center_settings` | `billing_plans` + `workspace_limit_overrides` |
+
+Resolving this requires choosing one of:
+
+1. **Widen the existing widget check** to the canonical scope/state
+   set so plan and admin share one counting model.
+   → Silently changes shipped runtime behavior of the existing
+   super-admin knob: workspaces that today sit under the limit with
+   pending or operator-initiated calls would suddenly count those
+   rows and could hit the cap mid-day. This is a backward-incompatible
+   semantic change to a live admin-facing knob and out of scope for a
+   single-key activation pass.
+2. **Activate plan-level `max_concurrent_calls` with the canonical
+   counting model** at `POST /api/calls/create` and leave the widget
+   check as-is.
+   → Leaves two competing effective concurrency rules behind that can
+   disagree silently (one workspace can be denied by the plan ceiling
+   on operator create while still being well under the admin widget
+   ceiling, or vice versa). Explicitly forbidden by Part D of the
+   phase spec ("there is not more than one competing effective
+   concurrency rule left behind").
+3. **Activate plan-level `max_concurrent_calls` and rewrite the widget
+   check to consume the same composed value with the canonical
+   counting model.**
+   → Equivalent to (1) for runtime behavior; same backward-
+   compatibility risk, plus a broader code change than this strict
+   single-key pass allows.
+
+There is no fourth option that satisfies both "single counting model"
+(Part C) and "single enforcement path" (Part D) without changing
+already-shipped admin behavior.
+
+### Precedence policy (locked, pending unblock)
+
+When the activation eventually happens, the locked rule is:
+
+- **Effective concurrency ceiling** =
+  `min(plan.max_concurrent_calls, platform.max_concurrent_calls_per_workspace)`,
+  treating `-1` and `null` as "no contribution to the min".
+- **If both are unlimited:** no enforcement.
+- **Platform-admin knob retains hard-ceiling semantics:** plan
+  entitlements can never raise concurrency above the super-admin's
+  global cap.
+- **Counting model:** canonical active-state set
+  `('pending','ringing','connecting','active')` over all
+  `entry_source` values, via a live `count: 'exact'` query backed by
+  `idx_call_sessions_state_active`.
+- **Single enforcement path:** `POST /api/calls/create` (operator)
+  AND `POST /api/widget/calls/request` (visitor) MUST both consume
+  the same composed value through the canonical resolver / middleware
+  chain — no inline ad-hoc checks left behind.
+
+This rule is recorded here so a future pass does not have to re-derive
+it. It does NOT take effect in this pass.
+
+### Decision: no rollout
+
+Activating now requires either (a) silently widening the existing
+widget enforcement to the canonical counting model, or (b) leaving
+two competing concurrency rules behind. Both violate the phase's
+strict rules. The honest result is to defer until a dedicated phase
+can perform the backward-compatibility-safe widget rewrite as its
+primary, isolated change.
+
+### Files changed by this pass
+
+- this section appended to `docs/CALL_NUMERIC_LIMITS.md`;
+- short append-only notes in
+  `docs/CALL_ENTITLEMENT_COMPOSITION.md`,
+  `docs/ENFORCEMENT_COVERAGE_AUDIT.md`,
+  `docs/PLANS_SYSTEM_HANDOFF.md`.
+
+No file under `server/`, `src/`, or `supabase/` was touched. The
+capability registry, usage resolvers, plan defaults, all call routes,
+middleware contracts, env vars, and schema remain unchanged. The
+already-live platform-admin widget concurrency check continues to
+behave exactly as before.
+
+### Sharpened blocker (replaces the prior "NEEDS PRODUCT POLICY"
+blocker for this limit)
+
+The remaining blocker for `max_concurrent_calls` is now precisely:
+
+> The existing platform-admin enforcement at
+> `server/routes/callWidget.ts` counts a strictly narrower set of
+> rows (widget-only entry source, no `pending` state) than the
+> canonical `idx_call_sessions_state_active` definition. Activating a
+> plan-level limit requires first migrating that widget check to the
+> canonical counting model in a dedicated backward-compatibility-safe
+> phase; the precedence rule (`min(plan, admin)` with `-1`/`null`
+> ignored) is already locked above and is not itself the blocker.
+
+`max_call_minutes_per_month` and `recording_retention_days` remain
+deferred for the unchanged reasons documented earlier in this file
+(no settle-time counter; no retention janitor).

@@ -422,11 +422,11 @@ function retentionStatus(row: any): 'on_hold' | 'expired' | 'expires_at' | 'lega
 adminCallsRouter.get('/recordings', async (req, res) => {
   const config: ServerConfig = (req as any).serverConfig;
   const sb = getServiceClient(config);
-  const Q = zRec.object({
-    workspace_id: zRec.string().uuid().optional(),
-    status: zRec.enum(['on_hold', 'expired', 'expires_at', 'legacy_unmanaged']).optional(),
-    limit: zRec.coerce.number().int().min(1).max(200).default(50),
-    offset: zRec.coerce.number().int().min(0).default(0),
+  const Q = z.object({
+    workspace_id: z.string().uuid().optional(),
+    status: z.enum(['on_hold', 'expired', 'expires_at', 'legacy_unmanaged']).optional(),
+    limit: z.coerce.number().int().min(1).max(200).default(50),
+    offset: z.coerce.number().int().min(0).default(0),
   });
   const parsed = Q.safeParse(req.query);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_query', detail: parsed.error.flatten().fieldErrors });
@@ -472,9 +472,9 @@ adminCallsRouter.get('/recordings', async (req, res) => {
   res.json({ items, total: count ?? items.length, limit, offset });
 });
 
-const LegalHoldBody = zRec.object({
-  enabled: zRec.boolean(),
-  reason: zRec.string().trim().max(500).optional(),
+const LegalHoldBody = z.object({
+  enabled: z.boolean(),
+  reason: z.string().trim().max(500).optional(),
 });
 
 adminCallsRouter.post('/recordings/:id/legal-hold', async (req, res) => {

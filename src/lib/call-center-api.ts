@@ -422,6 +422,37 @@ export const callCenterApi = {
     jsonFetch<CallCenterRecordingStatus>(
       `/api/call-center/calls/${callId}/recording/status?workspaceId=${encodeURIComponent(workspaceId)}`,
     ),
+  /**
+   * Operator-side recording visibility (read-only, workspace-scoped).
+   * Returns playable artifact metadata only — no storage paths, provider
+   * URLs, retention, or legal-hold fields. Super-admin-only retention
+   * controls remain on the /api/admin/calls/* surface.
+   */
+  listCallRecordings: (workspaceId: string, callId: string) =>
+    jsonFetch<{
+      recordings: Array<{
+        id: string;
+        recording_type: string | null;
+        duration_seconds: number | null;
+        size_bytes: number | null;
+        created_at: string;
+        has_storage: boolean;
+      }>;
+    }>(
+      `/api/call-center/calls/${encodeURIComponent(callId)}/recordings?workspaceId=${encodeURIComponent(workspaceId)}`,
+    ),
+  mintCallRecordingPlaybackToken: (workspaceId: string, callId: string, recordingId: string) =>
+    jsonFetch<{
+      recording_id: string;
+      url: string;
+      token: string;
+      disposition: 'inline';
+      expires_at: string;
+      ttl_seconds: number;
+    }>(
+      `/api/call-center/calls/${encodeURIComponent(callId)}/recordings/${encodeURIComponent(recordingId)}/playback-token?workspaceId=${encodeURIComponent(workspaceId)}`,
+      { method: 'POST', body: JSON.stringify({ workspaceId }) },
+    ),
   uploadAvatar: async (workspaceId: string, file: File) => {
     const buf = await file.arrayBuffer();
     let bin = ''; const bytes = new Uint8Array(buf);

@@ -483,5 +483,64 @@ Body: `{ reason?: string }`
 
 ### Still deferred after the legacy adoption pass
 - Bulk retention edits / bulk legacy adoption / bulk delete.
-- Operator-side visibility.
+- Operator-side visibility. *(implemented — see below)*
 - Waveform/timeline UI, annotations, comments.
+
+## Operator-side recording visibility — implemented (read-only)
+
+Workspace-scoped, read-only access to call recordings for non-super-admin
+operators. This is the smallest correct surface: list + inline playback
+only. Retention, legal-hold, override, restore, adopt, and delete remain
+exclusive to the super-admin Recordings tab.
+
+### Permission model
+- Gated by the same workspace-membership check (`is_workspace_member` RPC)
+  that already protects `/api/call-center/calls/:id`. No new role was
+  introduced — recording metadata was already visible on the call detail
+  view; this pass upgrades that metadata to a playable artifact for the
+  same audience.
+- Cross-workspace access (recording id from another workspace, or a
+  recording id paired with a call id from another session) returns a
+  uniform `404 not_found` — never a `403`, to avoid leaking the
+  existence of out-of-scope recordings.
+
+### Operator backend surface
+- `GET  /api/call-center/calls/:id/recordings?workspaceId=...` — lists
+  artifact metadata (`id`, `recording_type`, `duration_seconds`,
+  `size_bytes`, `created_at`, `has_storage`). `storage_path`, provider
+  identifiers, retention fields, and legal-hold flags are never returned.
+- `POST /api/call-center/calls/:id/recordings/:recordingId/playback-token`
+  — mints a short-lived HMAC token (default 5 min, 15 min cap) bound to
+  the recording id and hard-coded to `disposition='inline'`. Operators
+  cannot mint attachment-disposition tokens; that remains super-admin
+  only on `/api/admin/calls/recordings/:id/playback-token`.
+- Streaming reuses the existing public route
+  `GET /api/calls/recording-playback/:id?token=...`, which validates the
+  HMAC and proxies bytes through the same canonical
+  `downloadFileRange` storage helper as the super-admin path. Range
+  requests are honored. No second playback engine, no provider URL
+  exposure.
+
+### Operator frontend surface
+- Rendered inline in the Call detail sheet of `Call Center → Calls`,
+  inside the existing Recording panel (the previous "Playback/download
+  will be added later" placeholder is replaced).
+- Per artifact: load-on-demand "Load playback" button → native
+  `<audio>` or `<video>` element using the tokenized URL. No download
+  button, no admin controls, no retention badges.
+- Empty/loading/error states are explicit and bounded.
+
+### Safeguards
+- Janitor remains the sole deletion path; this surface never writes to
+  `call_recordings` or storage.
+- Retention semantics, capability keys, env vars, routes, and schema
+  are unchanged.
+- Tokens minted on the operator path always carry `disposition='inline'`
+  in their signed claim; the streaming route refuses to escalate to
+  `attachment` even if the query string is tampered with.
+
+### Still deferred after the operator-visibility pass
+- Bulk retention edits / bulk legacy adoption / bulk delete.
+- Waveform/timeline UI, annotations, comments.
+- Operator-side download (intentionally withheld — attachment minting
+  remains super-admin only).

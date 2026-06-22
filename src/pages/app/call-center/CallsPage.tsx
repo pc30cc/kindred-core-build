@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { useCallCenterCalls, useCallCenterCall } from '@/hooks/useCallCenter';
 import { Card } from '@/components/ui/card';
@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { callCenterApi } from '@/lib/call-center-api';
 import { useQueryClient } from '@tanstack/react-query';
-import { Phone, Video, Search, Copy, Star } from 'lucide-react';
+import { Phone, Video, Search, Copy, Star, Play } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 
@@ -19,6 +19,121 @@ function fmtDuration(s?: number | null) {
   const m = Math.floor(s / 60); const sec = s % 60;
   return `${m}:${String(sec).padStart(2, '0')}`;
 }
+function fmtBytes(n?: number | null) {
+  if (!n && n !== 0) return '—';
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+function isVideoRecording(t: string | null): boolean {
+  return t === 'composite' || t === 'individual';
+}
+
+/**
+ * Operator-side read-only playback row.
+ * No retention, legal-hold, override, restore, adopt, or delete controls.
+ * Tokenized URL is minted on demand and reused for the entire native
+ * <audio>/<video> session (Range requests inherit the token).
+ */
+function RecordingPlaybackRow({
+  workspaceId,
+  callId,
+  rec,
+}: {
+  workspaceId: string;
+  callId: string;
+  rec: {
+    id: string;
+    recording_type: string | null;
+    duration_seconds: number | null;
+    size_bytes: number | null;
+    created_at: string;
+    has_storage: boolean;
+  };
+}) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const isVideo = isVideoRecording(rec.recording_type);
+
+  async function load() {
+    if (loading || url) return;
+    setLoading(true);
+    try {
+      const r = await callCenterApi.mintCallRecordingPlaybackToken(workspaceId, callId, rec.id);
+      setUrl(r.url);
+    } catch (e: any) {
+      toast({ title: 'Playback unavailable', description: e?.message || 'token_mint_failed', variant: 'destructive' });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="rounded border bg-background/50 p-2 space-y-2">
+      <div className="flex items-center gap-2 text-xs">
+        <span className="font-mono text-muted-foreground">{rec.id.slice(0, 8)}…</span>
+        <span className="text-muted-foreground">{rec.recording_type || '—'}</span>
+        <span className="text-muted-foreground">·</span>
+        <span className="text-muted-foreground">{fmtDuration(rec.duration_seconds)}</span>
+        <span className="text-muted-foreground">·</span>
+        <span className="text-muted-foreground">{fmtBytes(rec.size_bytes)}</span>
+      </div>
+      {!rec.has_storage ? (
+        <p className="text-[11px] text-muted-foreground">Artifact is not yet available for playback.</p>
+      ) : !url ? (
+        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={load} disabled={loading}>
+          <Play className="h-3 w-3 me-1" /> {loading ? 'Preparing…' : 'Load playback'}
+        </Button>
+      ) : isVideo ? (
+        <video src={url} controls preload="metadata" className="w-full max-h-64 rounded bg-black" />
+      ) : (
+        <audio src={url} controls preload="metadata" className="w-full" />
+      )}
+    </div>
+  );
+}
+
+function RecordingsPanel({ workspaceId, callId }: { workspaceId: string; callId: string }) {
+  const [state, setState] = useState<{
+    loading: boolean;
+    error: string | null;
+    recordings:
+      | Awaited<ReturnType<typeof callCenterApi.listCallRecordings>>['recordings']
+      | null;
+  }>({ loading: true, error: null, recordings: null });
+
+  useEffect(() => {
+    let cancelled = false;
+    setState({ loading: true, error: null, recordings: null });
+    callCenterApi
+      .listCallRecordings(workspaceId, callId)
+      .then((r) => { if (!cancelled) setState({ loading: false, error: null, recordings: r.recordings }); })
+      .catch((e) => { if (!cancelled) setState({ loading: false, error: String(e?.message || e), recordings: null }); });
+    return () => { cancelled = true; };
+  }, [workspaceId, callId]);
+
+  if (state.loading) {
+    return <p className="text-[11px] text-muted-foreground">Loading recordings…</p>;
+  }
+  if (state.error) {
+    return <p className="text-[11px] text-destructive">Failed to load recordings: {state.error}</p>;
+  }
+  if (!state.recordings || state.recordings.length === 0) {
+    return <p className="text-[11px] text-muted-foreground">No recording artifacts available.</p>;
+  }
+  return (
+    <div className="space-y-2">
+      {state.recordings.map((rec) => (
+        <RecordingPlaybackRow key={rec.id} workspaceId={workspaceId} callId={callId} rec={rec} />
+      ))}
+      <p className="text-[10px] text-muted-foreground">
+        Read-only playback. Retention and legal-hold management is restricted to platform administrators.
+      </p>
+    </div>
+  );
+}
+
 function stateTone(s: string) {
   if (['active', 'ringing', 'connecting'].includes(s)) return 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300';
   if (['ended'].includes(s)) return 'bg-muted text-muted-foreground';
@@ -184,9 +299,11 @@ export default function CallsPage() {
                       <span className="text-muted-foreground">Consent at</span><span>{consentAt}</span>
                       {artifactMasked && (<><span className="text-muted-foreground">Artifact</span><span className="font-mono">{artifactMasked}</span></>)}
                     </div>
-                    {artifactMasked
-                      ? <p className="text-[11px] text-muted-foreground">Recording artifact captured. Playback/download will be added later.</p>
-                      : <p className="text-[11px] text-muted-foreground">No recording artifact stored for this call.</p>}
+                    {workspace?.id ? (
+                      <RecordingsPanel workspaceId={workspace.id} callId={detail.call.id} />
+                    ) : (
+                      <p className="text-[11px] text-muted-foreground">Workspace context unavailable.</p>
+                    )}
                   </div>
                 );
               })()}

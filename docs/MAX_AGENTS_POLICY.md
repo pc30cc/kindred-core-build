@@ -342,25 +342,13 @@ creation, deletion, sub-grouping).
 
 ---
 
-## 5. Rollout actually applied this phase
+## 5. Rollout history (per-phase log, append-only)
 
-- **Documentation only.**
-  - This doc (`docs/MAX_AGENTS_POLICY.md`) added.
-  - Cross-references added in `docs/PLAN_DATA_RECONCILIATION.md`,
-    `docs/PLANS_SYSTEM_HANDOFF.md`, and
-    `docs/ENTITLEMENT_ARCHITECTURE.md`.
-- **No resolver added.** `resolveMaxAgents` is intentionally not
-  registered in `usageResolvers.ts`. Adding an unconsumed resolver
-  would create the false impression that `max_agents` is enforced.
-  The existing `KNOWN_UNSUPPORTED.max_agents` rationale is updated
-  in tandem to point at this doc.
-- **No middleware change.** No route was gated.
-- **No plan-row mutation.** `team_members` and `agents` legacy
-  aliases stay exactly as catalogued in
-  `docs/PLAN_DATA_RECONCILIATION.md` §2.2.
-- **No tests added.** Per the phase rules ("Add focused
-  deterministic tests only if resolver/consumer/enforcement is
-  added") no behavior changed, so no new test is owed.
+The active state is described in §§4.3, 6, and 7. The list below
+is preserved as the historical phase log so future maintainers can
+trace how the activation happened. **The intermediate "deferred /
+blocked / documentation-only" notes here describe earlier phases,
+not current state — see §4.3 and §6 for the live truth.**
 
 ### Update — Workspace Member Write Boundary phase, 2026-06-22
 

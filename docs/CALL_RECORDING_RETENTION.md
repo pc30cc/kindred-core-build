@@ -77,3 +77,50 @@ the partial index and the janitor query both treat NULL as
   is the only ledger.
 - Attachment retention — separate artifact, handled by
   `attachmentJanitor`.
+---
+
+## Operability Surface (Phase Update — Legal Hold + Admin Visibility)
+
+Narrow super-admin-only surface added under the existing
+`/api/admin/calls` mount. Architecture, semantics, and the
+"janitor is the sole deletion path" rule are **unchanged**.
+
+### `GET /api/admin/calls/recordings`
+
+Paginated list of `call_recordings` joined to `call_sessions` for
+workspace ownership. Returns the row fields (id, call_session_id,
+workspace_id, provider, recording_type, storage_provider,
+storage_path, duration_seconds, size_bytes, retention_policy,
+retention_expires_at, legal_hold, created_at) plus a computed
+`status` badge:
+
+| status              | meaning                                                          | janitor behavior        |
+| ------------------- | ---------------------------------------------------------------- | ----------------------- |
+| `on_hold`           | `legal_hold = true`                                              | never selects           |
+| `expired`           | `retention_expires_at <= now()` AND `legal_hold = false`         | selects on next sweep   |
+| `expires_at`        | `retention_expires_at > now()` AND `legal_hold = false`          | selects when due        |
+| `legacy_unmanaged`  | `retention_expires_at IS NULL` AND `legal_hold = false`          | **never selects** (NULL is permanent retention) |
+
+Query params: `workspace_id`, `status`, `limit` (≤200), `offset`.
+
+### `POST /api/admin/calls/recordings/:id/legal-hold`
+
+Body: `{ enabled: boolean, reason?: string }`. Toggles **only**
+`call_recordings.legal_hold`. Never writes `retention_expires_at`,
+never deletes the row, never touches storage. Writes an
+`audit_logs` row keyed by `entity_type = 'call_recording'` with
+action `call_recording.legal_hold.enable|disable`.
+
+### Legacy recordings
+
+Pre-existing rows with `retention_expires_at = NULL` are labelled
+`legacy_unmanaged` and remain untouched. **There is no backfill
+action in this phase**, by design. Operators who want a legacy
+row protected long-term can still toggle legal hold on it.
+
+### What is *not* in this phase (intentionally deferred)
+
+- Bulk legal-hold or bulk delete actions.
+- Per-recording retention overrides.
+- An opt-in admin "backfill expiry for legacy rows" action.
+- Operator-side (non-admin) visibility into recordings.

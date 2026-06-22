@@ -38,6 +38,7 @@ import {
   type AdminRecordingRow,
   type RecordingRetentionStatus,
 } from '@/lib/admin-calls-api';
+import { RecordingTimeline } from '@/components/recordings/RecordingTimeline';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ShieldCheck, ShieldOff } from 'lucide-react';
 import {

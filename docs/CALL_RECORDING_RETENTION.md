@@ -167,6 +167,38 @@ Added: super-admin route `GET /api/admin/calls/recordings/:id/file?disposition=i
 - Legacy (`legacy_unmanaged`) rows: accessible if the underlying object still exists; no implicit backfill of `retention_expires_at`.
 
 ### Still deferred after this pass
-- Inline `<audio>`/`<video>` player embedded in the row (current pass opens in a new tab).
 - Range-request / partial-content streaming for very large recordings.
 - Bulk operations, per-recording retention overrides, operator-side visibility, optional legacy backfill UI.
+
+---
+
+## Super-admin inline playback (read-only preview)
+
+Layered on top of the existing artifact proxy — no new backend route,
+no change to retention semantics, no change to deletion paths.
+
+- UI: a per-row **Preview** toggle in the Recording Retention panel
+  expands an inline preview row beneath the recording.
+- Bytes are fetched via `fetchAdminRecordingBlob(id, 'inline')` (the
+  same authed proxy that powers Open/Save) and rendered through a
+  transient `URL.createObjectURL`. The `<audio>` / `<video>` element
+  is bound to the object URL, never to the proxy route or any
+  provider URL.
+- Player selection is driven by the `Content-Type` returned by the
+  proxy:
+  - `audio/*` → native `<audio controls>`.
+  - `video/*` → native `<video controls>`.
+  - anything else → explicit "Inline preview is not supported"
+    state; Open/Save remain available as fallbacks.
+- Resource safety: the object URL is revoked on collapse and on
+  unmount; fetches are guarded against late resolution after the
+  row is collapsed. No prefetch — bytes are only fetched when the
+  operator explicitly opens preview.
+- Scope: super-admin only (inherited from the parent `adminRouter`
+  middleware). Read-only — no delete, no retention edit, no legal-hold
+  side effects.
+
+### Still deferred after the inline playback pass
+- Waveform/timeline UI, annotations, comments.
+- Range-request / partial-content streaming for very large recordings.
+- Bulk operations, per-recording retention overrides, operator-side visibility.

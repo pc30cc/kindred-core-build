@@ -654,29 +654,19 @@ function InlinePreview({ row }: { row: AdminRecordingRow }) {
     if (streamUrl && (kind === 'audio' || kind === 'video')) {
       // Native streaming path — short-lived tokenized URL, browser issues
       // Range requests directly against the backend playback route.
-      return kind === 'audio' ? (
+      return (
         <div className="space-y-1">
-          <audio
-            controls
-            preload="metadata"
+          <RecordingTimeline
             src={streamUrl}
+            kind={kind}
+            recordingId={row.id}
+            durationHint={row.duration_seconds ?? null}
             className="w-full max-w-md"
-            data-testid={`recording-preview-audio-${row.id}`}
-          />
-          {streamExpiresAt && (
-            <div className="text-[10px] text-muted-foreground">
-              Playback link expires {new Date(streamExpiresAt).toLocaleTimeString()}
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="space-y-1">
-          <video
-            controls
-            preload="metadata"
-            src={streamUrl}
-            className="w-full max-w-md rounded-md bg-black"
-            data-testid={`recording-preview-video-${row.id}`}
+            mediaClassName={
+              kind === 'video'
+                ? 'w-full max-w-md rounded-md bg-black'
+                : 'w-full max-w-md'
+            }
           />
           {streamExpiresAt && (
             <div className="text-[10px] text-muted-foreground">

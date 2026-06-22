@@ -852,3 +852,13 @@ Architectural guardrails enforced by the UI:
   delete, cross-call / cross-workspace archive export, streaming/
   chunked archive responses (current path is bounded in-memory),
   waveform/timeline UI, annotations, comments.
+
+## Recording Timeline / Waveform UX
+Shared read-only `RecordingTimeline` component now enhances both the
+super-admin and operator recording playback surfaces with a
+click-to-seek bar, hover-time preview, ±10s skip, and time readout. It
+wraps (does not replace) the existing native media element and does NOT
+decode audio. Retention, legal-hold, download, and storage semantics are
+unchanged. Real decoded waveforms, annotations, bulk retention/delete,
+cross-workspace export, chunked ZIP, and legacy storage_provider
+backfill remain deferred.

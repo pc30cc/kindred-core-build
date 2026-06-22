@@ -92,7 +92,8 @@ async function readCounterColumn(
     | 'storage_bytes'
     | 'messages_count'
     | 'ai_credits_used'
-    | 'email_sent_count',
+    | 'email_sent_count'
+    | 'call_minutes_used',
 ): Promise<number> {
   const sb = makeClient(config);
   const period = currentMonthPeriod();

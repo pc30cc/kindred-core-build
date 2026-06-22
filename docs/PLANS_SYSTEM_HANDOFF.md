@@ -758,11 +758,39 @@ Architectural guardrails enforced by the UI:
   leaking the existence of out-of-scope recordings.
 - Frontend: replaces the previous "Playback/download will be added
   later" placeholder in `Call Center → Calls → detail` with a per-
-  artifact load-on-demand `<audio>`/`<video>` player. No download
-  button, no admin controls.
+  artifact load-on-demand `<audio>`/`<video>` player, plus an explicit
+  "Download" button (see operator download pass below). No admin
+  controls.
 - Janitor remains the sole deletion path; this surface never writes to
   `call_recordings` or storage. Retention semantics, capability keys,
   env vars, routes, and schema are unchanged.
 - Still deferred after this pass: bulk retention edits / bulk legacy
-  adoption / bulk delete, waveform/timeline UI, annotations/comments,
-  operator-side download (intentionally withheld).
+  adoption / bulk delete, waveform/timeline UI, annotations/comments.
+
+## Operator recording download (read-only, workspace-scoped)
+
+- One additional operator surface added on top of the
+  inline-playback pass:
+  - `POST /api/call-center/calls/:id/recordings/:recordingId/download-token`
+    — mints a short-lived HMAC token with
+    `disposition='attachment'`. Same signer, same TTL, same canonical
+    streaming route as the inline mint; only the disposition claim
+    differs. Streaming route enforces the disposition claim — inline
+    tokens cannot be escalated to attachment via query tampering.
+- Permission model: gated by `requireCallOperator` (same gate that
+  protects start/stop recording and other operator write actions).
+  Stronger than the read-only `requireMember` gate used for inline
+  visibility, by intent — download is an explicit export action.
+- Cross-workspace / cross-call mismatches return the same uniform
+  `404 not_found` as the inline mint — no existence leak.
+- Frontend: one additional "Download" button next to "Load playback"
+  in the per-recording row of the Call detail sheet, visible only
+  when `has_storage === true`. Triggers a transient anchor click on
+  the tokenized URL; the streaming route emits the
+  `Content-Disposition: attachment` header.
+- No new retention/legal-hold/override/restore/adopt/delete surface
+  for operators. Janitor remains the sole deletion path. No
+  route/env/schema/capability-key rename.
+- Still deferred: bulk retention edits / bulk legacy adoption / bulk
+  delete, bulk download / multi-select export, waveform/timeline UI,
+  annotations/comments.

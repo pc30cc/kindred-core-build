@@ -393,3 +393,27 @@ Full audit, behavioral delta, and unblock checklist in
 Counting-Model Migration Pass".
 
 Next phase: "`max_concurrent_calls` Dual-Knob Activation".
+
+---
+
+### June 2026 — `max_concurrent_calls` Dual-Knob Activation (LIVE)
+
+`max_concurrent_calls` is now a live, workspace-wide plan-level
+ceiling, enforced additively alongside the existing widget-scoped
+platform-admin knob.
+
+- Registry: `max_concurrent_calls` (limit, unit `count`, default
+  `-1` = unlimited, plan-configurable, workspace-overridable).
+- Resolver: canonical derived count over `call_sessions`
+  (state ∈ {pending, ringing, connecting, active}, all
+  `entry_source` values).
+- Helper: `checkPlanConcurrencyCeiling` →
+  `server/services/calls/concurrencyLimit.ts`.
+- Enforcement: `POST /api/calls/create` (operator) +
+  `POST /api/widget/calls/request` (visitor). Both routes also
+  preserve the widget knob behavior unchanged at its existing
+  boundary.
+- Activation migration backfills `-1` on every existing plan.
+
+Deferred (unchanged): `max_call_minutes_per_month`,
+`recording_retention_days`.

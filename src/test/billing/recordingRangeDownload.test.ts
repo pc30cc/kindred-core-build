@@ -16,36 +16,38 @@
  * Range/Content-Range contract via fetch.
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync, unlinkSync, mkdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
-let tmpDir = '';
-
-vi.mock('../../../server/supabase.js', () => ({
-  getServiceClient: () => ({}),
-}));
-
-// Stub the workspace config resolver to point at a tmp local directory so we
-// exercise the same ranged-read code path used in production without touching
-// any real provider.
-vi.mock('../../../server/services/storage/index', async (importOriginal) => {
-  const mod = await importOriginal<typeof import('../../../server/services/storage/index')>();
-  return {
-    ...mod,
-    resolveStorageConfig: async () => ({ provider: 'local', localPath: tmpDir }),
+// Force resolveStorageConfig to hit its final fallback: { provider: 'local',
+// localPath: '/tmp/storage' }. We do this by stubbing the supabase client so
+// every query returns no rows — no workspace override, no global default.
+vi.mock('../../../server/supabase.js', () => {
+  const builder: any = {
+    from: () => builder,
+    select: () => builder,
+    eq: () => builder,
+    order: () => builder,
+    limit: () => builder,
+    single: async () => ({ data: null }),
+    maybeSingle: async () => ({ data: null }),
   };
+  return { getServiceClient: () => builder };
 });
 
 import * as storage from '../../../server/services/storage/index';
 
+const STORAGE_DIR = '/tmp/storage';
+const KEY = `range-test-${Date.now()}.bin`;
+const FILE = join(STORAGE_DIR, KEY);
+
 beforeAll(() => {
-  tmpDir = mkdtempSync(join(tmpdir(), 'rec-range-'));
-  writeFileSync(join(tmpDir, 'sample.bin'), Buffer.from('0123456789ABCDEF'));
+  if (!existsSync(STORAGE_DIR)) mkdirSync(STORAGE_DIR, { recursive: true });
+  writeFileSync(FILE, Buffer.from('0123456789ABCDEF'));
 });
 
 afterAll(() => {
-  try { rmSync(tmpDir, { recursive: true, force: true }); } catch { /* noop */ }
+  try { unlinkSync(FILE); } catch { /* noop */ }
 });
 
 describe('downloadFileRange (local provider)', () => {

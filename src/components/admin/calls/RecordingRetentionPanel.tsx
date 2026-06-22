@@ -181,6 +181,12 @@ function InlinePreview({ row }: { row: AdminRecordingRow }) {
   const [error, setError] = useState<string | null>(null);
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
   const [kind, setKind] = useState<'audio' | 'video' | 'unsupported' | null>(null);
+  // When set, the browser streams directly from this short-lived tokenized
+  // URL (native Range support, no full-file Blob buffering). When null we
+  // fall back to the Blob+object-URL path which still works but buffers
+  // the entire artifact first.
+  const [streamUrl, setStreamUrl] = useState<string | null>(null);
+  const [streamExpiresAt, setStreamExpiresAt] = useState<string | null>(null);
   const urlRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -202,7 +208,40 @@ function InlinePreview({ row }: { row: AdminRecordingRow }) {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    fetchAdminRecordingBlob(row.id, 'inline')
+    const hint = rowMediaKindHint(row);
+    // Preferred path: mint a short-lived tokenized URL and let the native
+    // media element issue Range requests directly. Only viable when we can
+    // commit to audio vs video without first reading bytes.
+    const preferTokenized = hint !== null;
+    const start = preferTokenized
+      ? mintAdminRecordingPlaybackToken(row.id, 'inline')
+          .then((tok) => {
+            if (cancelled) return;
+            setStreamUrl(tok.url);
+            setStreamExpiresAt(tok.expires_at);
+            setKind(hint);
+          })
+          .catch((tokErr: any) => {
+            // Tokenized mint failed (network, expired session, etc.) —
+            // fall back to the bearer-protected Blob path so playback
+            // still works.
+            if (cancelled) return;
+            return fetchAdminRecordingBlob(row.id, 'inline').then(({ blob, contentType }) => {
+              if (cancelled) return;
+              const k = classifyMediaKind(contentType);
+              setKind(k);
+              if (k === 'unsupported') {
+                setObjectUrl(null);
+                return;
+              }
+              const url = URL.createObjectURL(blob);
+              setObjectUrl(url);
+            }).catch((e: any) => {
+              if (cancelled) return;
+              setError(e?.message || tokErr?.message || 'Failed to load recording');
+            });
+          })
+      : fetchAdminRecordingBlob(row.id, 'inline')
       .then(({ blob, contentType }) => {
         if (cancelled) return;
         const k = classifyMediaKind(contentType);
@@ -213,7 +252,8 @@ function InlinePreview({ row }: { row: AdminRecordingRow }) {
         }
         const url = URL.createObjectURL(blob);
         setObjectUrl(url);
-      })
+      });
+    Promise.resolve(start)
       .catch((e: any) => {
         if (cancelled) return;
         setError(e?.message || 'Failed to load recording');
@@ -247,6 +287,41 @@ function InlinePreview({ row }: { row: AdminRecordingRow }) {
     );
   }
   if (kind === 'unsupported' || !objectUrl) {
+    if (streamUrl && (kind === 'audio' || kind === 'video')) {
+      // Native streaming path — short-lived tokenized URL, browser issues
+      // Range requests directly against the backend playback route.
+      return kind === 'audio' ? (
+        <div className="space-y-1">
+          <audio
+            controls
+            preload="metadata"
+            src={streamUrl}
+            className="w-full max-w-md"
+            data-testid={`recording-preview-audio-${row.id}`}
+          />
+          {streamExpiresAt && (
+            <div className="text-[10px] text-muted-foreground">
+              Playback link expires {new Date(streamExpiresAt).toLocaleTimeString()}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-1">
+          <video
+            controls
+            preload="metadata"
+            src={streamUrl}
+            className="w-full max-w-md rounded-md bg-black"
+            data-testid={`recording-preview-video-${row.id}`}
+          />
+          {streamExpiresAt && (
+            <div className="text-[10px] text-muted-foreground">
+              Playback link expires {new Date(streamExpiresAt).toLocaleTimeString()}
+            </div>
+          )}
+        </div>
+      );
+    }
     return (
       <div
         className="text-[11px] text-muted-foreground"

@@ -1236,6 +1236,141 @@ callCenterRouter.post('/calls/:id/recordings/archive', async (req, res) => {
   return res.status(200).send(zip);
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+// Operator-side workspace-scoped multi-call archive export (read-only).
+//
+//   POST /api/call-center/workspaces/recordings/archive
+//   body: { workspaceId, items: Array<{ call_id, recording_id }> }
+//
+// Sibling of the single-call archive route above. Identical safety model:
+//
+//   • requireCallOperator gate on the supplied workspaceId
+//   • each item validated independently against
+//     call_recordings.id + call_session_id + call_sessions.workspace_id
+//   • cross-workspace / cross-call items are silently excluded via the
+//     manifest with a uniform `not_found` reason (no existence leak)
+//   • bytes flow through the canonical storage abstraction (downloadFile),
+//     never via raw provider URLs or credentials
+//   • same ARCHIVE_LIMIT / ARCHIVE_MAX_TOTAL_BYTES caps apply to the
+//     combined multi-call selection
+//   • partial-failure model is identical: included entries are packaged,
+//     excluded entries are listed in manifest.txt, zero successes returns
+//     a structured 404 instead of an empty archive
+//   • retention, legal-hold, override and deletion semantics are
+//     unchanged — the janitor remains the sole deletion path
+//
+// Archive layout groups files by call to avoid filename collisions across
+// calls:  `call-<call_id[:8]>/<safe-recording-name>.<ext>`
+// ─────────────────────────────────────────────────────────────────────────
+callCenterRouter.post('/workspaces/recordings/archive', async (req, res) => {
+  const wid = String(req.query.workspaceId || req.body?.workspaceId || '');
+  const ctx = await requireCallOperator(req, res, wid);
+  if (!ctx) return;
+
+  const rawItems = Array.isArray(req.body?.items) ? req.body.items : null;
+  if (!rawItems || rawItems.length === 0) {
+    return res.status(400).json({ error: 'items_required' });
+  }
+  if (rawItems.length > ARCHIVE_LIMIT) {
+    return res.status(400).json({ error: 'too_many_recordings', limit: ARCHIVE_LIMIT });
+  }
+
+  type Item = { call_id: string; recording_id: string };
+  const items: Item[] = [];
+  const seen = new Set<string>();
+  for (const raw of rawItems) {
+    const callId = String(raw?.call_id || '');
+    const recordingId = String(raw?.recording_id || '');
+    if (!/^[0-9a-f-]{36}$/i.test(callId)) {
+      return res.status(400).json({ error: 'invalid_call_id', call_id: callId });
+    }
+    if (!/^[0-9a-f-]{36}$/i.test(recordingId)) {
+      return res.status(400).json({ error: 'invalid_recording_id', recording_id: recordingId });
+    }
+    const key = `${callId}:${recordingId}`;
+    if (!seen.has(key)) { seen.add(key); items.push({ call_id: callId, recording_id: recordingId }); }
+  }
+
+  const sb = getServiceClient(ctx.config);
+  const entries: Array<{ name: string; data: Buffer }> = [];
+  const manifest: string[] = [
+    `# Workspace recording archive`,
+    `workspace_id: ${wid}`,
+    `generated_at: ${new Date().toISOString()}`,
+    ``,
+  ];
+  let totalBytes = 0;
+  let included = 0;
+  let excluded = 0;
+  const callsTouched = new Set<string>();
+
+  for (const { call_id: callId, recording_id: recordingId } of items) {
+    const { data: row, error } = await sb
+      .from('call_recordings')
+      .select('id, storage_path, recording_type, created_at, call_session_id, call_sessions!inner(workspace_id)')
+      .eq('id', recordingId)
+      .maybeSingle();
+    if (error) { manifest.push(`EXCLUDED call=${callId} rec=${recordingId}  reason=lookup_failed`); excluded++; continue; }
+    if (!row) { manifest.push(`EXCLUDED call=${callId} rec=${recordingId}  reason=not_found`); excluded++; continue; }
+    if ((row as any).call_session_id !== callId) {
+      manifest.push(`EXCLUDED call=${callId} rec=${recordingId}  reason=not_found`); excluded++; continue;
+    }
+    if ((row as any)?.call_sessions?.workspace_id !== wid) {
+      manifest.push(`EXCLUDED call=${callId} rec=${recordingId}  reason=not_found`); excluded++; continue;
+    }
+    const storagePath = (row as any).storage_path as string | null;
+    if (!storagePath) {
+      manifest.push(`EXCLUDED call=${callId} rec=${recordingId}  reason=missing_storage_path`); excluded++; continue;
+    }
+
+    const dl = await downloadFile(ctx.config, wid, storagePath);
+    if (!dl.success || !dl.data) {
+      manifest.push(`EXCLUDED call=${callId} rec=${recordingId}  reason=download_failed`);
+      excluded++;
+      continue;
+    }
+    if (totalBytes + dl.data.length > ARCHIVE_MAX_TOTAL_BYTES) {
+      manifest.push(`EXCLUDED call=${callId} rec=${recordingId}  reason=archive_size_cap_exceeded`);
+      excluded++;
+      continue;
+    }
+
+    const ext = archiveExtForContentType(row);
+    const ts = (row as any).created_at
+      ? new Date((row as any).created_at).toISOString().replace(/[:.]/g, '-')
+      : 'recording';
+    const base = safeArchiveName(
+      `recording-${String((row as any).id || 'unknown').slice(0, 12)}-${ts}.${ext}`,
+      `recording-${recordingId.slice(0, 8)}.${ext}`,
+    );
+    const dir = `call-${callId.slice(0, 8)}`;
+    entries.push({ name: `${dir}/${base}`, data: dl.data });
+    manifest.push(`INCLUDED call=${callId} rec=${recordingId}  file=${dir}/${base}  bytes=${dl.data.length}`);
+    totalBytes += dl.data.length;
+    included++;
+    callsTouched.add(callId);
+  }
+
+  if (included === 0) {
+    return res.status(404).json({ error: 'no_recordings_available', excluded });
+  }
+
+  manifest.push(``, `summary: calls=${callsTouched.size} included=${included} excluded=${excluded} bytes=${totalBytes}`);
+  entries.push({ name: 'manifest.txt', data: Buffer.from(manifest.join('\n') + '\n', 'utf8') });
+
+  const zip = buildStoreZip(entries);
+  const fname = `workspace-${wid.slice(0, 8)}-recordings-${new Date().toISOString().replace(/[:.]/g, '-')}.zip`;
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);
+  res.setHeader('Content-Length', String(zip.length));
+  res.setHeader('X-Archive-Included', String(included));
+  res.setHeader('X-Archive-Excluded', String(excluded));
+  res.setHeader('X-Archive-Calls', String(callsTouched.size));
+  return res.status(200).send(zip);
+});
+
 // ── Agent status ──────────────────────────────────────────────────────────
 callCenterRouter.get('/agent-status', async (req, res) => {
   const wid = String(req.query.workspaceId || '');

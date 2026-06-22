@@ -197,6 +197,19 @@ is_active = true`.
 > the seed migration before that route ships would lift the visible
 > Pro/Enterprise seat limit (1 → 10 / unlimited) without enforcement.
 
+> **Update 2026-06-22 (Workspace Member Write Boundary phase).** The
+> canonical Express seat-creation boundary now exists:
+> `POST /api/workspace-members/accept-invitation` (see
+> `docs/MAX_AGENTS_POLICY.md` §4 and `server/routes/workspaceMembers.ts`).
+> The `team_members / agents → max_agents` seed migration is still
+> deferred — but the remaining blocker is now narrower: revoking
+> `EXECUTE` on `public.accept_workspace_invitation(text)` from the
+> `authenticated` role so the Express route is the only reachable
+> path. After that revoke ships, the seed migration and
+> `requireLimit('max_agents', …)` rollout are a mechanical three-step
+> sequence (resolver register → middleware mount → SQL UPDATE on
+> `billing_plans`).
+
 ---
 
 ## 7. How to extend this audit safely

@@ -612,4 +612,72 @@ describe('RecordingRetentionPanel', () => {
     expect(text).not.toMatch(/backfill/);
     expect(within(dialog).queryByTestId('legal-hold-toggle-rec-ov')).toBeNull();
   });
+
+  it('shows Adopt retention only on legacy rows and posts to the adopt endpoint', async () => {
+    const mixed = [
+      { ...FIXTURE_ROWS[3], id: 'rec-legacy', retention_policy: null, retention_expires_at: null, status: 'legacy_unmanaged' },
+      { ...FIXTURE_ROWS[0], id: 'rec-plain', retention_policy: '30d' },
+      { ...FIXTURE_ROWS[0], id: 'rec-ov', retention_policy: 'override:90d' },
+    ];
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    vi.spyOn(global, 'fetch' as any).mockImplementation(async (url: any, init?: any) => {
+      calls.push({ url: String(url), init });
+      if (String(url).includes('/retention-adopt')) {
+        return {
+          ok: true,
+          json: async () => ({
+            id: 'rec-legacy',
+            retention_policy: '30d',
+            retention_expires_at: new Date(Date.now() + 30 * 86400_000).toISOString(),
+            legal_hold: false,
+            inherited_source: 'workspace_or_plan',
+            inherited_days: 30,
+            already_expired: false,
+          }),
+        } as any;
+      }
+      return {
+        ok: true,
+        json: async () => ({ items: mixed, total: mixed.length, limit: 25, offset: 0 }),
+      } as any;
+    });
+
+    renderPanel();
+    expect(await screen.findByTestId('retention-adopt-open-rec-legacy')).toBeInTheDocument();
+    // Managed rows (plain Nd or override:*) MUST NOT expose the adopt control.
+    expect(screen.queryByTestId('retention-adopt-open-rec-plain')).toBeNull();
+    expect(screen.queryByTestId('retention-adopt-open-rec-ov')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('retention-adopt-open-rec-legacy'));
+    fireEvent.click(await screen.findByTestId('retention-adopt-submit-rec-legacy'));
+
+    await waitFor(() => {
+      expect(
+        calls.some((c) => c.url.includes('/api/admin/calls/recordings/rec-legacy/retention-adopt')),
+      ).toBe(true);
+    });
+    const adopt = calls.find((c) => c.url.includes('/retention-adopt'))!;
+    expect(adopt.init?.method).toBe('POST');
+    const body = JSON.parse(String(adopt.init?.body || '{}'));
+    // Body never carries legal_hold, an explicit expiry, or delete intent.
+    expect(body).not.toHaveProperty('legal_hold');
+    expect(body).not.toHaveProperty('retention_expires_at');
+    expect(body).not.toHaveProperty('mode');
+  });
+
+  it('adopt dialog exposes no delete/purge/backfill controls or legal-hold mutation', async () => {
+    const legacy = [{ ...FIXTURE_ROWS[3], id: 'rec-legacy', retention_policy: null, retention_expires_at: null, status: 'legacy_unmanaged' }];
+    vi.spyOn(global, 'fetch' as any).mockResolvedValue({
+      ok: true,
+      json: async () => ({ items: legacy, total: 1, limit: 25, offset: 0 }),
+    } as any);
+    renderPanel();
+    fireEvent.click(await screen.findByTestId('retention-adopt-open-rec-legacy'));
+    const dialog = await screen.findByTestId('retention-adopt-dialog-rec-legacy');
+    const text = (dialog.textContent || '').toLowerCase();
+    expect(text).not.toMatch(/\bdelete\b/);
+    expect(text).not.toMatch(/\bpurge\b/);
+    expect(text).not.toMatch(/backfill/);
+    expect(within(dialog).queryByTestId('legal-hold-toggle-rec-legacy')).toBeNull();
+  });
 });

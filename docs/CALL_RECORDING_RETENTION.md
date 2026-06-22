@@ -756,3 +756,34 @@ are reused.
   into either navigation surface.
 - `src/components/layout/CallCenterLayout.tsx` page title now reads from
   `t('nav.callCenter')` with the previous literal as a safety fallback.
+
+## Recording Timeline / Waveform UX (read-only)
+
+A shared read-only playback enhancement was introduced at
+`src/components/recordings/RecordingTimeline.tsx` and adopted on the two
+existing recording playback surfaces:
+
+- Super-admin Voice & Video Center recordings preview
+  (`src/components/admin/calls/RecordingRetentionPanel.tsx`,
+  tokenized streaming branch only).
+- Operator call-detail recordings panel
+  (`src/pages/app/call-center/CallsPage.tsx`).
+
+### Scope (strict)
+- Wraps — does not replace — the existing native `<audio>`/`<video>`
+  element. Tokenized streaming and Range requests are unchanged.
+- Adds a click-to-seek progress bar, hover-time preview, ±10s skip
+  controls, and a current/duration readout.
+- Renders a deterministic decorative bar field derived from the
+  recording id; it is explicitly NOT a decoded waveform (no full-file
+  download, no `AudioContext.decodeAudioData`, no provider URLs).
+- Falls back silently when duration metadata is unavailable.
+- Removes its event listeners on unmount; creates no object URLs.
+
+### Out of scope (still deferred)
+- Real decoded waveform / amplitude rendering.
+- Annotations, comments, markers, chapters.
+- Bulk retention edits, bulk legacy adoption, bulk delete.
+- Cross-call / cross-workspace export.
+- Streaming/chunked ZIP responses above the in-memory archive cap.
+- Legacy `call_recordings.storage_provider` backfill.

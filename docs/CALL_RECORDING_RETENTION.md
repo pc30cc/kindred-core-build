@@ -200,5 +200,56 @@ no change to retention semantics, no change to deletion paths.
 
 ### Still deferred after the inline playback pass
 - Waveform/timeline UI, annotations, comments.
-- Range-request / partial-content streaming for very large recordings.
 - Bulk operations, per-recording retention overrides, operator-side visibility.
+
+---
+
+## Super-admin ranged artifact access (read-only streaming)
+
+Narrow optimization on the existing artifact proxy. No new route, no
+change to retention semantics, no change to deletion paths, no change
+to admin auth.
+
+- Backend: `GET /api/admin/calls/recordings/:id/file` now honors an
+  HTTP `Range: bytes=START-END` header.
+  - Always returns `Accept-Ranges: bytes`.
+  - When the provider acknowledges the range, the response is `206
+    Partial Content` with `Content-Range: bytes START-END/TOTAL` and a
+    `Content-Length` matching the slice.
+  - When no `Range` header is sent, the response is a full `200 OK`
+    body (identical to prior behavior — fully backward compatible with
+    the existing Open/Save and inline-preview blob flow).
+  - Unsatisfiable ranges surface `416 Range Not Satisfiable` with a
+    `Content-Range: bytes */TOTAL` hint when total size is known.
+  - If a provider ignores `Range` and returns the full body anyway, the
+    proxy serves a normal `200 OK` (read-only fallback — playback
+    still works, large-file efficiency is not gained for that provider).
+- Storage abstraction: added `downloadFileRange(serverConfig,
+  workspaceId, fileKey, rangeHeader?)` alongside the existing
+  `downloadFile`. Provider coverage:
+  - `local` — true ranged read via `fs.openSync`/`readSync`.
+  - `bunny_storage`, `s3`, `cloudflare_r2`, `minio`, `do_spaces`,
+    `gcs`, `azure_blob` — `Range` header forwarded to the upstream
+    `GET`; the provider's `206`/`Content-Range`/`Accept-Ranges` are
+    surfaced back unchanged. The S3 signer signs `Range` like any
+    other header.
+- Frontend: unchanged in this pass. The Recordings panel still uses
+  the authed Blob + `URL.createObjectURL` path for Open/Save/inline
+  preview because authenticated `<video src>` / `<audio src>` would
+  require a short-lived URL-bound token surface, which is out of
+  scope for this read-only optimization pass. Range support is
+  therefore exercised by tools (`curl -H "Range: bytes=…"`) and
+  by any future short-lived-token surface — it does not regress
+  current playback.
+- Read-only guarantees preserved: no writes to `call_recordings`, no
+  edits to `retention_expires_at`, no deletes from storage. The
+  retention janitor remains the sole deletion path.
+- Scope: super-admin only (inherited from `adminRouter`).
+
+### Still deferred after the ranged-access pass
+- Authenticated-URL surface so browser media elements can issue
+  Range requests directly against the proxy (short-lived signed
+  token in URL).
+- Waveform/timeline UI, annotations, comments.
+- Bulk operations, per-recording retention overrides,
+  operator-side visibility, optional legacy backfill UI.

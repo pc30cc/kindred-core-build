@@ -135,14 +135,33 @@ async function applyEvent(
 
   switch (ev.event) {
     case 'room_started': {
+      // Coverage fix for max_call_minutes_per_month activation:
+      // every path that transitions a call to 'active' MUST ensure
+      // connected_at is set, otherwise the billable-minute trigger
+      // (tg_call_sessions_bill_minutes) silently drops the call.
+      // The operator accept route already backfills connected_at; this
+      // handles the webhook-driven path (and any other producer that
+      // skips the operator accept route). Idempotent: never overwrites
+      // an existing connected_at — accept-time is the preferred
+      // earlier writer.
+      const { data: prev } = await sb
+        .from('call_sessions')
+        .select('connected_at')
+        .eq('id', session.id)
+        .maybeSingle();
+      const startedIso = new Date(
+        (ev.room?.creationTime ?? Math.floor(Date.now() / 1000)) * 1000,
+      ).toISOString();
+      const patch: Record<string, unknown> = {
+        state: 'active',
+        started_at: startedIso,
+      };
+      if (!(prev as any)?.connected_at) {
+        patch.connected_at = startedIso;
+      }
       await sb
         .from('call_sessions')
-        .update({
-          state: 'active',
-          started_at: new Date(
-            (ev.room?.creationTime ?? Math.floor(Date.now() / 1000)) * 1000,
-          ).toISOString(),
-        })
+        .update(patch)
         .eq('id', session.id);
       await recordEvent('room_started', { sid: ev.room?.sid });
       return { applied: true };

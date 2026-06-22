@@ -920,7 +920,20 @@ export function RecordingRetentionPanel() {
                     <td className="p-2 whitespace-nowrap">{fmtDate(r.created_at)}</td>
                     <td className="p-2 whitespace-nowrap">{fmtDuration(r.duration_seconds)}</td>
                     <td className="p-2 whitespace-nowrap">{fmtBytes(r.size_bytes)}</td>
-                    <td className="p-2 whitespace-nowrap">{fmtDate(r.retention_expires_at)}</td>
+                    <td className="p-2 whitespace-nowrap">
+                      <div className="flex flex-col items-start gap-1">
+                        <span>{fmtDate(r.retention_expires_at)}</span>
+                        {r.retention_policy?.startsWith('override:') && (
+                          <span
+                            className="text-[10px] text-muted-foreground"
+                            data-testid={`retention-overridden-${r.id}`}
+                          >
+                            Overridden ({r.retention_policy.replace(/^override:/, '')})
+                          </span>
+                        )}
+                        <RetentionOverrideEditor row={r} />
+                      </div>
+                    </td>
                     <td className="p-2"><RetentionStatusBadge status={r.status} /></td>
                     <td className="p-2">
                       <ArtifactActions

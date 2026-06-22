@@ -7751,6 +7751,10 @@ export type Database = {
     }
     Functions: {
       accept_workspace_invitation: { Args: { _token: string }; Returns: Json }
+      accept_workspace_invitation_as: {
+        Args: { _token: string; _user_id: string }
+        Returns: Json
+      }
       activate_auto_actions: { Args: never; Returns: Json }
       admin_count_profiles: { Args: never; Returns: number }
       admin_count_workspaces: { Args: never; Returns: number }

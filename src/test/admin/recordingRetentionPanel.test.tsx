@@ -182,16 +182,22 @@ describe('RecordingRetentionPanel', () => {
     expect(calls.find((u) => u.includes('/file'))?.includes('disposition=attachment')).toBe(false);
   });
 
-  it('Preview toggle fetches the artifact and renders a <video> for video content-type', async () => {
+  it('Preview mints a tokenized playback URL and renders a native <video> for video rows', async () => {
     const calls: string[] = [];
-    vi.spyOn(global, 'fetch' as any).mockImplementation(async (url: any) => {
+    vi.spyOn(global, 'fetch' as any).mockImplementation(async (url: any, init?: any) => {
       const u = String(url);
       calls.push(u);
-      if (u.includes('/file')) {
+      if (u.includes('/playback-token')) {
         return {
           ok: true,
-          blob: async () => new Blob(['data'], { type: 'video/mp4' }),
-          headers: { get: (k: string) => (k.toLowerCase() === 'content-type' ? 'video/mp4' : null) },
+          json: async () => ({
+            recording_id: 'rec-1',
+            url: 'http://api/api/calls/recording-playback/rec-1?token=tok&disposition=inline',
+            token: 'tok',
+            disposition: 'inline',
+            expires_at: new Date(Date.now() + 300_000).toISOString(),
+            ttl_seconds: 300,
+          }),
         } as any;
       }
       return {
@@ -199,26 +205,38 @@ describe('RecordingRetentionPanel', () => {
         json: async () => ({ items: FIXTURE_ROWS, total: FIXTURE_ROWS.length, limit: 25, offset: 0 }),
       } as any;
     });
-    (global as any).URL.createObjectURL = vi.fn(() => 'blob:fake-video');
+    (global as any).URL.createObjectURL = vi.fn(() => 'blob:should-not-be-used');
     (global as any).URL.revokeObjectURL = vi.fn();
 
     renderPanel();
-    const toggle = await screen.findByTestId('recording-preview-toggle-rec-1');
-    fireEvent.click(toggle);
+    fireEvent.click(await screen.findByTestId('recording-preview-toggle-rec-1'));
 
     await waitFor(() =>
-      expect(calls.some((u) => u.includes('/api/admin/calls/recordings/rec-1/file'))).toBe(true),
+      expect(
+        calls.some((u) => u.includes('/api/admin/calls/recordings/rec-1/playback-token')),
+      ).toBe(true),
     );
-    expect(await screen.findByTestId('recording-preview-video-rec-1')).toBeInTheDocument();
+    const video = await screen.findByTestId('recording-preview-video-rec-1');
+    expect(video.getAttribute('src') || '').toContain('/api/calls/recording-playback/rec-1');
+    expect(video.getAttribute('src') || '').toContain('token=tok');
+    // Tokenized path must NOT pre-buffer the artifact via /file.
+    expect(calls.some((u) => u.includes('/file'))).toBe(false);
   });
 
-  it('Preview renders <audio> for audio content-type', async () => {
+  it('Preview renders a native <audio> for audio rows via the tokenized URL', async () => {
     vi.spyOn(global, 'fetch' as any).mockImplementation(async (url: any) => {
-      if (String(url).includes('/file')) {
+      const u = String(url);
+      if (u.includes('/playback-token')) {
         return {
           ok: true,
-          blob: async () => new Blob(['x'], { type: 'audio/mpeg' }),
-          headers: { get: (k: string) => (k.toLowerCase() === 'content-type' ? 'audio/mpeg' : null) },
+          json: async () => ({
+            recording_id: 'rec-2',
+            url: 'http://api/api/calls/recording-playback/rec-2?token=tok2&disposition=inline',
+            token: 'tok2',
+            disposition: 'inline',
+            expires_at: new Date(Date.now() + 300_000).toISOString(),
+            ttl_seconds: 300,
+          }),
         } as any;
       }
       return {
@@ -226,12 +244,13 @@ describe('RecordingRetentionPanel', () => {
         json: async () => ({ items: FIXTURE_ROWS, total: FIXTURE_ROWS.length, limit: 25, offset: 0 }),
       } as any;
     });
-    (global as any).URL.createObjectURL = vi.fn(() => 'blob:fake-audio');
+    (global as any).URL.createObjectURL = vi.fn(() => 'blob:nope');
     (global as any).URL.revokeObjectURL = vi.fn();
 
     renderPanel();
     fireEvent.click(await screen.findByTestId('recording-preview-toggle-rec-2'));
-    expect(await screen.findByTestId('recording-preview-audio-rec-2')).toBeInTheDocument();
+    const audio = await screen.findByTestId('recording-preview-audio-rec-2');
+    expect(audio.getAttribute('src') || '').toContain('/api/calls/recording-playback/rec-2');
   });
 
   it('Preview shows unsupported state for non audio/video content-type and revokes object URL on close', async () => {
@@ -269,7 +288,21 @@ describe('RecordingRetentionPanel', () => {
 
   it('Preview surface exposes no destructive controls', async () => {
     vi.spyOn(global, 'fetch' as any).mockImplementation(async (url: any) => {
-      if (String(url).includes('/file')) {
+      const u = String(url);
+      if (u.includes('/playback-token')) {
+        return {
+          ok: true,
+          json: async () => ({
+            recording_id: 'rec-1',
+            url: '/api/calls/recording-playback/rec-1?token=tok&disposition=inline',
+            token: 'tok',
+            disposition: 'inline',
+            expires_at: new Date(Date.now() + 300_000).toISOString(),
+            ttl_seconds: 300,
+          }),
+        } as any;
+      }
+      if (u.includes('/file')) {
         return {
           ok: true,
           blob: async () => new Blob(['x'], { type: 'video/mp4' }),

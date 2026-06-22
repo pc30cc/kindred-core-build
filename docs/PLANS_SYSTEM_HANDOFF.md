@@ -574,3 +574,23 @@ Architectural guardrails enforced by the UI:
 - Object URLs are revoked on collapse and unmount; no prefetch.
 - Read-only — janitor remains the sole deletion path; no retention
   semantics, route, env, schema, or capability key changed.
+
+### Recording ranged artifact access (super-admin, read-only streaming)
+- Backend-only optimization on the existing artifact proxy.
+- `GET /api/admin/calls/recordings/:id/file` now honors `Range:
+  bytes=START-END`, returning `206 Partial Content` with
+  `Content-Range` when the provider supports it, and always
+  advertises `Accept-Ranges: bytes`. Requests without `Range` still
+  return the full `200 OK` body (fully backward compatible).
+- New storage helper `downloadFileRange` forwards `Range` to
+  S3-family and Bunny providers and performs a true sliced read for
+  the `local` provider. Provider abstraction remains canonical; no
+  provider URLs or credentials are exposed.
+- Unsatisfiable ranges return `416` with `Content-Range: */TOTAL`.
+  Providers that ignore `Range` fall back to a normal `200 OK`.
+- Frontend unchanged: the Recordings panel still uses the authed
+  Blob + `URL.createObjectURL` path because authenticated
+  `<video src>` would require a separate short-lived-token surface
+  (deferred).
+- Read-only — no route/env/schema/capability rename; janitor remains
+  the sole deletion path.

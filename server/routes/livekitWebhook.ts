@@ -30,6 +30,10 @@ import { getServiceClient } from '../supabase.js';
 import { loadLiveKitConfig } from '../services/calls/livekitConfig.js';
 import { emitCallMetric } from '../services/calls/metrics.js';
 import { markInCall, clearInCall } from '../services/calls/availability.js';
+import {
+  resolveEffectiveRecordingRetentionDays,
+  computeRetentionExpiresAt,
+} from '../services/recordings/recordingRetention.js';
 
 export const livekitWebhookRouter = Router();
 
@@ -263,6 +267,16 @@ async function applyEvent(
           .eq('provider_recording_id', egId)
           .maybeSingle();
         if (!existing) {
+          // Stamp retention_expires_at at insert time using the workspace's
+          // currently-effective recording_retention_days. This locks
+          // retention at recording creation — subsequent plan changes do
+          // NOT re-stamp existing rows (documented in
+          // docs/CALL_RECORDING_RETENTION.md). -1 / unlimited → NULL,
+          // which the partial index + janitor query both treat as
+          // "never expires".
+          const eff = await resolveEffectiveRecordingRetentionDays(config, session.workspace_id);
+          const createdAtIso = new Date().toISOString();
+          const retentionExpiresAt = computeRetentionExpiresAt(createdAtIso, eff.days);
           await sb.from('call_recordings').insert({
             call_session_id: session.id,
             provider: session.provider,
@@ -270,7 +284,9 @@ async function applyEvent(
             recording_type: 'composite',
             storage_provider: 's3',
             storage_path: '', // populated on egress_ended with file path
-            metadata: { status: 'recording' },
+            retention_policy: eff.days < 0 ? 'unlimited' : `${eff.days}d`,
+            retention_expires_at: retentionExpiresAt,
+            metadata: { status: 'recording', retention_source: eff.source },
           });
         }
       }

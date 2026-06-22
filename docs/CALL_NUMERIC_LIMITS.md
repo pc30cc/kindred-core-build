@@ -839,3 +839,23 @@ HTTP 403 { error: 'usage_unavailable',  capability: 'max_call_minutes_per_month'
 - `connected_at` backfill in `room_started` is additive and idempotent; pre-existing rows with `connected_at` already set are untouched.
 
 **Still deferred:** `recording_retention_days` (requires janitor/retention architecture; not in scope).
+
+---
+
+## Phase Update — recording_retention_days: LIVE
+
+**Status:** LIVE. Sole enforcement path:
+`server/services/recordings/retentionJanitor.ts`.
+
+**Architecture (see docs/CALL_RECORDING_RETENTION.md for full detail):**
+- Registry: `recording_retention_days` (limit, days, defaultValue `-1`, workspaceOverridable).
+- Resolver: `resolveEffectiveRecordingRetentionDays` — workspace/plan override → `check_workspace_entitlement` → control-plane `retention_default_days` (30) → fallback 30.
+- Stamper: `retention_expires_at = created_at + effective_days` written once on insert in `livekitWebhook.ts:egress_started`. `-1` → NULL (never expires).
+- Janitor: 30-minute in-process sweep, batch 100, uses `idx_call_recordings_retention`. Storage object deleted first via `deleteFile(workspace_id, storage_path)`; row deleted only on success (or "not found"). `legal_hold = true` rows are never selected.
+
+**Backward-compat safeguards:**
+- Existing rows have `retention_expires_at = NULL` → janitor never touches them.
+- Registry default `-1` means plans without the key keep retaining recordings indefinitely.
+- Per-row retention is locked at creation; later plan changes do NOT re-stamp.
+
+**Remaining backlog after this pass:** none for the numeric call-limit track. `recording_retention_days` was the last item.

@@ -46,6 +46,7 @@ import { startInProcessSourceWorker } from './services/ai-agent/sourceWorker.js'
 import { startCallQueueTicker } from './services/calls/queueTicker.js';
 import { startInvitationExpirySweeper } from './services/calls/invitations.js';
 import { startAttachmentJanitor } from './services/attachmentJanitor.js';
+import { startRecordingRetentionJanitor } from './services/recordings/retentionJanitor.js';
 import { startPrivacyWorker } from './services/privacy/worker.js';
 import { startPrivacyExpirySweep } from './services/privacy/expirySweep.js';
 import { startMetricsRollup } from './services/observability/rollupTicker.js';
@@ -371,6 +372,10 @@ app.listen(config.port, () => {
   console.log(`Growth Suite server running on port ${config.port}`);
   // Phase 3 — start best-effort orphan-attachment sweeper.
   startAttachmentJanitor(config);
+  // recording_retention_days — sole enforcement path for call-recording
+  // retention. See server/services/recordings/retentionJanitor.ts and
+  // docs/CALL_RECORDING_RETENTION.md.
+  startRecordingRetentionJanitor(config);
   // GDPR — start privacy job worker (in-process loop).
   startPrivacyWorker(config);
   // GDPR — start hourly TTL purge for expired export artifacts (provider-based).

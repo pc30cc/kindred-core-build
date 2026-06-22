@@ -375,11 +375,8 @@ Effects:
 - One `audit_logs` row per call with action
   `call_recording.retention.override`.
 
-Clearing an override is intentionally **not** supported in this pass:
-the original plan-stamp is not preserved separately, so a silent
-"restore to inherited" would recompute from the workspace's current
-plan and could surprise operators. Operators set a new explicit value
-instead.
+Clearing an override is now supported as an explicit, operator-
+triggered action — see "Restore to inherited retention" below.
 
 ### Frontend
 - Per-row "Override" button in the Expires cell of the Recordings tab.
@@ -391,7 +388,60 @@ instead.
 
 ### Still deferred after the per-recording override pass
 - Bulk retention edits / bulk delete.
-- Clear-override / restore-to-inherited.
+- Clear-override / restore-to-inherited → implemented (see next section).
+- Optional legacy backfill UI.
+- Operator-side visibility.
+- Waveform/timeline UI, annotations, comments.
+
+## Restore to inherited retention (super-admin)
+
+Single-row, explicit, operator-triggered restore that clears a prior
+`override:*` stamp and returns the row to the canonical inherited
+retention model. Strict, narrow, super-admin only. No bulk surface,
+no implicit recomputation, no legacy backfill.
+
+### Restore policy (locked)
+- Eligible **only** for rows whose current `retention_policy` starts
+  with `override:`. Already-inherited rows (`Nd`, `unlimited`) and
+  legacy/unmanaged rows (NULL policy) return **409** — restoring those
+  would either be a no-op pretending to act or an implicit legacy
+  backfill.
+- "Inherited" is defined as the same computation `stampRetention`
+  performs at recording insert today, applied to **this** row's
+  workspace and anchored at the row's own `created_at`. That is the
+  only inherited value the model can express — the original
+  creation-time stamp is not preserved separately. The recomputation
+  is explicit and operator-triggered, never silent.
+- Effects:
+  - `retention_policy` ← `<N>d` or `unlimited` (same format the
+    LiveKit webhook writes at insert time).
+  - `retention_expires_at` ← `created_at + N days` (or `NULL` for
+    unlimited), matching the live janitor contract exactly.
+  - `legal_hold` is **never** touched and still wins over expiry.
+  - One `audit_logs` row per call with action
+    `call_recording.retention.restore`, including the resolved
+    `inherited_source` and `inherited_days`.
+- The retention janitor remains the sole deletion path. Restoring a
+  row whose recomputed expiry is already in the past does NOT delete
+  it immediately — the janitor will pick it up on its next sweep, and
+  only if `legal_hold = false`.
+- No retention engine fork: the recomputation reuses
+  `resolveEffectiveRecordingRetentionDays()` and
+  `computeRetentionExpiresAt()`, the exact functions used at insert.
+
+### Backend
+`POST /api/admin/calls/recordings/:id/retention-restore`
+Body: `{ reason?: string }`
+
+### Frontend
+- Per-row "Restore inherited" button rendered in the Expires cell of
+  the Recordings tab, **only** for rows whose `retention_policy`
+  starts with `override:`.
+- Small confirmation dialog with an optional reason.
+- No bulk surface, no delete shortcut.
+
+### Still deferred after the restore-to-inherited pass
+- Bulk retention edits / bulk delete.
 - Optional legacy backfill UI.
 - Operator-side visibility.
 - Waveform/timeline UI, annotations, comments.

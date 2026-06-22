@@ -284,3 +284,15 @@ for one release. The classification stays **LEGACY PRESERVED** in
 `src/test/billing/legacyPlanKeys.test.ts`, and slated for removal
 in a separate post-release cleanup pass (see
 `docs/MAX_AGENTS_POLICY.md` §8.1).
+
+---
+
+## 10. Final triage matrix (2026-06-22)
+
+Every legacy plan-JSON key catalogued in §2 is now also bucketed in
+`docs/DEFERRED_BACKLOG_MATRIX.md` §2.1 (one of: B one-release
+compatibility, C product decision, D architecture/resolver work, F
+too risky/ambiguous). That matrix is the entry point future
+maintainers should consult before any seed mutation. This doc
+remains the authoritative per-key audit; the matrix is an index
+over it.

@@ -360,3 +360,83 @@ export async function testLiveKitConnection(): Promise<LiveKitTestResult> {
     return { ok: false, error: `HTTP ${res.status}` };
   }
 }
+
+// ─── Recording retention (super-admin operability) ─────────────────
+// Consumes the LIVE contract in server/routes/adminCalls.ts:
+//   GET  /api/admin/calls/recordings
+//   POST /api/admin/calls/recordings/:id/legal-hold
+// This client never deletes. The janitor remains the sole deletion path.
+
+export type RecordingRetentionStatus =
+  | 'on_hold'
+  | 'expired'
+  | 'expires_at'
+  | 'legacy_unmanaged';
+
+export interface AdminRecordingRow {
+  id: string;
+  call_session_id: string;
+  workspace_id: string | null;
+  provider: string | null;
+  recording_type: string | null;
+  storage_provider: string | null;
+  storage_path: string | null;
+  duration_seconds: number | null;
+  size_bytes: number | null;
+  retention_policy: string | null;
+  retention_expires_at: string | null;
+  legal_hold: boolean;
+  created_at: string;
+  status: RecordingRetentionStatus;
+}
+
+export interface AdminRecordingsListResponse {
+  items: AdminRecordingRow[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface AdminRecordingsListParams {
+  workspace_id?: string;
+  status?: RecordingRetentionStatus;
+  limit?: number;
+  offset?: number;
+}
+
+export async function fetchAdminRecordings(
+  params: AdminRecordingsListParams = {},
+): Promise<AdminRecordingsListResponse> {
+  const qs = new URLSearchParams();
+  if (params.workspace_id) qs.set('workspace_id', params.workspace_id);
+  if (params.status) qs.set('status', params.status);
+  if (params.limit != null) qs.set('limit', String(params.limit));
+  if (params.offset != null) qs.set('offset', String(params.offset));
+  const url = `${API_BASE}/api/admin/calls/recordings${qs.toString() ? `?${qs.toString()}` : ''}`;
+  const res = await fetch(url, { headers: await authHeader() });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`Failed to load recordings (${res.status}): ${detail || res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function setAdminRecordingLegalHold(
+  id: string,
+  enabled: boolean,
+  reason?: string,
+): Promise<{ id: string; legal_hold: boolean }> {
+  const res = await fetch(
+    `${API_BASE}/api/admin/calls/recordings/${encodeURIComponent(id)}/legal-hold`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+      body: JSON.stringify({ enabled, ...(reason ? { reason } : {}) }),
+    },
+  );
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`Legal-hold toggle failed (${res.status}): ${detail || res.statusText}`);
+  }
+  return res.json();
+}

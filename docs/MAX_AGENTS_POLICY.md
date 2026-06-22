@@ -456,16 +456,36 @@ silently.
 
 ---
 
-## 8. Hard acceptance checks (re-verified 2026-06-22)
+## 8. Hard acceptance checks (re-verified 2026-06-22, post-activation cleanup)
 
 - [x] No canonical capability key renamed.
-- [x] `max_agents` is **not** "implemented" — rollout was honestly
-      deferred with explicit unblock criteria.
-- [x] Only one counting model is locked (live exact count); no
-      second seat-count system was introduced.
-- [x] No customer-facing behavior changed.
-- [x] Legacy alias migration is **not** done. The defer is explicit.
+- [x] `max_agents` is LIVE and enforced at the canonical chokepoint.
+- [x] Only one counting model exists (live exact count on
+      `workspace_members`); no second seat-count system was
+      introduced.
+- [x] No customer-facing behavior changed by the cleanup pass.
+- [x] Legacy `team_members` / `agents` keys are intentionally
+      preserved for one release — explicitly classified in §6.
+- [x] Original `accept_workspace_invitation(text)` RPC retained for
+      service-role-only internal use; not dropped (deferred).
 - [x] No route / env / schema / key rename occurred.
-- [x] The repo is more ready for `team_members / agents → max_agents`
-      reconciliation than before: semantics, counting model, and
-      unblock criteria are now locked in writing.
+- [x] Documentation now distinguishes live canonical path,
+      temporary compatibility surfaces, and future removal items
+      without contradicting the runtime state.
+
+### 8.1 Future removal pass — explicit checklist
+
+The next cleanup pass (separate, explicit approval required) may:
+
+1. `DROP FUNCTION public.accept_workspace_invitation(text)` — only
+   after a final audit of internal/service callers and Supabase
+   `types.ts` regeneration.
+2. Run a one-shot SQL `UPDATE billing_plans SET limits =
+   limits - 'team_members' - 'agents'` to retire the legacy aliases
+   from active seeds — only after at least one full release cycle on
+   `max_agents`.
+3. Tighten `validatePlanPayload` to drop the soft-warn entries for
+   `team_members` / `agents` once step 2 is applied.
+
+None of those steps are applied in this cleanup pass. They remain
+deferred by design.

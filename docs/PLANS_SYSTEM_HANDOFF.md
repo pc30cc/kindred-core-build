@@ -127,11 +127,22 @@ canonical resolver — same payload that the admin and customer UIs read.
     half-created sessions are stranded. Cleanup / lifecycle branches in
     the same router (`/:id/{accept,reject,hangup,end,token}`,
     `GET /:id/state`) remain ungated.
-  - **Operator `POST /api/calls/:id/invite`** — still deferred: acts on
-    an already-existing `call_sessions` row and may be re-issued
-    mid-call to add additional participants; gating would strand
-    in-flight calls. Held until a participant-class drain decision is
-    made.
+  - **Operator `POST /api/calls/:id/invite`** — still deferred, now
+    formally audited (Phase: Participant / Continuity Pass). The route
+    is a single undifferentiated handler that inserts a
+    `call_participants` row, flips `call_sessions.state` to `ringing`,
+    and emits the visitor `call:incoming` envelope. The same path
+    serves both **new optional participant adds** and **re-ring /
+    recovery / rejoin** of an in-flight participant; no schema, body
+    field, or code branch distinguishes the two. Per the
+    deny-on-create / allow-on-continuity policy, gating the whole
+    route would strand active-call continuity, so no rollout is
+    applied. Unblocking requires either an explicit
+    `reason: 'new' | 'reissue'` body signal or an idempotency contract
+    on `call_participants` so a "brand-new optional participant"
+    branch can be isolated. Mapping that would apply when separated:
+    audio session → `eff.voice_enabled`, video session →
+    `eff.video_enabled`.
   - **Queue offer/accept and `call-queue/enqueue`** — still deferred:
     offer/accept act on already-existing entries, and the visitor
     `enqueue` denial UX (queue full vs plan-denied) is still undefined.

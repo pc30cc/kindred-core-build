@@ -29,6 +29,7 @@ import {
   fetchAdminRecordings,
   setAdminRecordingLegalHold,
   fetchAdminRecordingBlob,
+  mintAdminRecordingPlaybackToken,
   type AdminRecordingRow,
   type RecordingRetentionStatus,
 } from '@/lib/admin-calls-api';
@@ -100,6 +101,25 @@ function classifyMediaKind(contentType: string): 'audio' | 'video' | 'unsupporte
   if (ct.startsWith('audio/')) return 'audio';
   if (ct.startsWith('video/')) return 'video';
   return 'unsupported';
+}
+
+/**
+ * Best-effort media-kind hint derived from row metadata. Used to pick the
+ * right native element when we hand the browser a tokenized streaming URL
+ * (no bytes fetched yet, so we can't read Content-Type). Mirrors the
+ * server-side `guessContentType` mapping. Returns `null` when the row is
+ * too ambiguous to commit, in which case the UI falls back to the Blob
+ * path which DOES know the real Content-Type.
+ */
+function rowMediaKindHint(row: AdminRecordingRow): 'audio' | 'video' | null {
+  const ext = String(row.storage_path || '').toLowerCase().split('.').pop() || '';
+  const videoExt = new Set(['mp4', 'webm', 'mkv', 'mov']);
+  const audioExt = new Set(['mp3', 'm4a', 'wav', 'ogg', 'opus', 'aac']);
+  if (videoExt.has(ext)) return 'video';
+  if (audioExt.has(ext)) return 'audio';
+  if (row.recording_type === 'audio_only') return 'audio';
+  if (row.recording_type === 'composite' || row.recording_type === 'individual') return 'video';
+  return null;
 }
 
 function LegalHoldToggle({ row }: { row: AdminRecordingRow }) {

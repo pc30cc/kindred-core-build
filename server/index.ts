@@ -31,6 +31,7 @@ import { widgetKbRouter, publicKbRouter } from './routes/kb.js';
 import { privacyRouter } from './routes/privacy.js';
 import { callsRouter } from './routes/calls.js';
 import { livekitWebhookRouter } from './routes/livekitWebhook.js';
+import { recordingPlaybackRouter } from './routes/recordingPlayback.js';
 import { callQueueRouter } from './routes/callQueue.js';
 import { workspaceCallsRouter } from './routes/workspaceCalls.js';
 import { callAvailabilityRouter } from './routes/callAvailability.js';

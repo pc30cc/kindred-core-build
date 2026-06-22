@@ -145,3 +145,65 @@ without a counter would be speculative.
 - `loadEffectiveCallChannels` is unchanged and remains the runtime
   authority.
 - The composer is additive; nothing imports it from a route handler.
+
+## Phase: Call-Side Policy Backlog Resolution — Strict Single-Decision Pass
+
+**Outcome: NO RUNTIME ROLLOUT (honest defer).** The remaining
+call-side backlog was audited end-to-end against repository truth.
+Every item that is still open requires either a product-policy
+decision, a drain/continuity contract, or counter/resolver
+architecture that does not yet exist. Forcing a rollout in this pass
+would have violated the deny-on-create / allow-on-cleanup invariant
+or faked numeric-limit activation. No code, schema, registry key,
+route, env var, or middleware contract was changed.
+
+### Remaining backlog — strict classification
+
+| Item | Class | Why it stays deferred |
+| --- | --- | --- |
+| `POST /api/calls/:id/invite` | NEEDS PRODUCT POLICY DECISION | Confirmed in `server/routes/calls.ts` (lines 402–448): a single undifferentiated handler that serves both **new participant adds** and **re-ring / reissue / recovery** of an in-flight participant. The `inviteSchema` has only `participant_type` + `participant_id`; no `reason: 'new' \| 'reissue'`, no idempotency contract on `call_participants`. Gating the whole route would strand active-call continuity (re-ring after transport hiccup, mid-call invitee). No safe sub-branch is currently expressible. Unblock requires a route-level participant-class signal or a `(call_session_id, participant_id)` idempotency contract. |
+| `POST /api/call-queue/:workspaceId/:entryId/offer` | NEEDS DRAIN / CONTINUITY POLICY | Acts on an already-existing `call_queue_entries` row created at `enqueue` time (which is itself already gated). Denying `offer` after a downgrade would strand visitors mid-queue with no operator routing. Unblock requires an explicit drain decision: either auto-cancel orphaned entries on plan loss (cleanup path) or grandfather already-enqueued rows. |
+| `POST /api/call-queue/:workspaceId/:entryId/accept` | NEEDS DRAIN / CONTINUITY POLICY | Same shape as `offer`: operates on existing rows; denial strands work. Drain semantics must be decided at the queue level, not per-route. |
+| `POST /api/call-center/calls/:id/{assign,transfer}` | NEEDS DRAIN / CONTINUITY POLICY | Operates on already-active calls. This is a routing decision over an in-flight session, not a new entitlement boundary. |
+| `max_concurrent_calls` | NEEDS COUNTER / RESOLVER ARCHITECTURE | `rg` against `server/services/billing/usageResolvers.ts` and `capabilityRegistry.ts` confirms no resolver, no key, no counter. Activation without a counter would be speculative. |
+| `max_call_minutes_per_month` | NEEDS COUNTER / RESOLVER ARCHITECTURE | No monthly minutes aggregator exists. `call_sessions` has `started_at`/`ended_at` but no monthly rollup table or resolver. |
+| `recording_retention_days` | NEEDS COUNTER / RESOLVER ARCHITECTURE | Retention is a janitor/job concern, not a request-time limit; no retention worker exists yet. Modeling it as a `requireLimit` would be a category error. |
+
+### Single decision target
+
+Outcome **B — NO SAFE ROLLOUT**. None of the items above can be
+resolved within the strict deny-on-create / allow-on-cleanup contract
+without product-policy or counter-architecture work.
+
+Of all candidates, the **best ratio of value to risk** for the next
+call-side phase (after a policy decision lands) is splitting
+`POST /api/calls/:id/invite` into a `reason: 'new' | 'reissue'`
+contract and gating only the `'new'` branch on
+`eff.voice_enabled` / `eff.video_enabled`. That is the smallest
+bounded change that would actually move the backlog. It is **not**
+done in this pass because the route schema does not yet carry that
+signal and inventing it inline would be guessing.
+
+### Backward compatibility
+
+- No capability key was renamed.
+- No route, env var, schema, or middleware contract was touched.
+- `loadEffectiveCallChannels` and the canonical composer are
+  unchanged.
+- All previously gated surfaces (`/api/call-invitations`,
+  `recording/start` ×2, `/api/calls/create`,
+  `/api/widget/call-queue/enqueue`, `/api/call-widget/calls/request`,
+  `/api/call-widget/callbacks/request`,
+  `/api/widget-callbacks/request`) remain gated exactly as before.
+- All cleanup / status / finalize / cancel surfaces remain reachable.
+
+### Validation
+
+- Re-read `server/routes/calls.ts` (`/invite` handler) to confirm
+  there is still no participant-class signal in the route body.
+- Re-read `server/routes/callQueue.ts` to confirm `offer` / `accept`
+  still operate on already-existing rows.
+- `rg` against `usageResolvers.ts` / `capabilityRegistry.ts` to
+  confirm no `max_concurrent_calls` / `max_call_minutes_per_month` /
+  `recording_retention_days` resolver exists.
+- No tests added — runtime behavior is unchanged in this pass.

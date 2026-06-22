@@ -285,3 +285,12 @@ next bounded step (when policy lands) is splitting
 and gating only the `'new'` branch. See
 `docs/CALL_ENTITLEMENT_COMPOSITION.md` §"Phase: Call-Side Policy
 Backlog Resolution" for the full classification.
+_Status update 2026-06-22 (`/api/calls/:id/invite` route-shape split):_
+Selective gating now LIVE for the `'new'` branch on
+`POST /api/calls/:id/invite` via the canonical call entitlement
+composer. `'reissue'` and legacy callers default to continuity-safe
+and remain reachable. Files changed: `server/routes/calls.ts`,
+`src/lib/calls-api.ts`, `src/test/billing/callsInviteRouteSplit.test.ts`.
+No capability key, route, env var, schema, or middleware contract was
+renamed. See `docs/CALL_ENTITLEMENT_COMPOSITION.md` §"June 2026" for
+the full audit and compatibility rationale.

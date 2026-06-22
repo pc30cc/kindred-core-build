@@ -712,3 +712,47 @@ are reused.
 - Streaming/chunked archive responses (current implementation builds
   the ZIP in memory under the 500 MB cap).
 - Waveform/timeline UI, annotations, comments.
+
+## Storage-provider correctness pass
+
+### Policy (locked)
+- New `call_recordings` rows MUST stamp `storage_provider` with the
+  workspace's effective storage provider, resolved through the canonical
+  `resolveStorageConfig(serverConfig, workspaceId)` helper in
+  `server/services/storage/index.ts`. No second provider-resolution path
+  is introduced; no vendor is hardcoded at the write site.
+- Read paths (admin proxy, operator playback/download, archive, janitor)
+  continue to resolve the workspace's *current* effective provider via
+  `downloadFile` / `deleteFile`. The `storage_provider` column is
+  metadata for auditing — it does NOT route reads.
+- Legacy rows that pre-date this fix retain whatever historical tag they
+  were stamped with. They are never silently re-stamped or migrated.
+- LiveKit egress still physically writes to its configured S3-compatible
+  bucket (`livekit_config.recording_storage`). That backend remains the
+  storage substrate; this pass only fixes the metadata stamp so audits
+  no longer falsely report every recording as `s3` regardless of the
+  workspace's effective provider (e.g. `bunny_storage`, `cloudflare_r2`,
+  `minio`, `do_spaces`, `local`).
+
+### Change applied
+- `server/routes/livekitWebhook.ts` (egress_started handler): replaced the
+  hardcoded `storage_provider: 's3'` with the resolved provider name from
+  `resolveStorageConfig(config, session.workspace_id)`. Resolution
+  failure falls back to `'local'` and never blocks recording ingest.
+  Insert metadata gains `storage_provider_source: 'workspace_effective'`
+  so newly-stamped rows are distinguishable in audits.
+
+### Still deferred
+- Backfill / re-stamp of legacy rows.
+- Routing reads by the stamped `storage_provider` column instead of the
+  workspace-current resolver (would require per-row credential snapshots
+  and is out of scope for this correctness pass).
+
+## Call Center i18n label fix
+
+- Added `nav.callCenter` (operator nav) and `admin.nav.callCenter`
+  (super-admin nav) to all three shipped locales (`en`, `fa`, `tr`) in
+  `src/i18n/locales/`. The raw `nav.callCenter` token no longer leaks
+  into either navigation surface.
+- `src/components/layout/CallCenterLayout.tsx` page title now reads from
+  `t('nav.callCenter')` with the previous literal as a safety fallback.

@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { callCenterApi } from '@/lib/call-center-api';
 import { useAuth } from '@/features/auth/AuthContext';
+import { useTranslation } from '@/i18n';
 
 const ALL_TABS = [
   { to: '', icon: LayoutDashboard, label: 'Overview', end: true },
@@ -40,6 +41,7 @@ export function CallCenterLayout() {
   const { slug } = useParams();
   const { workspace } = useActiveWorkspace();
   const { user } = useAuth();
+  const { t } = useTranslation();
   const base = `/app/w/${slug}/call-center`;
   const { data: caps } = useCallCenterCapabilities(workspace?.id);
   const { data: overview } = useCallCenterOverview(workspace?.id);
@@ -86,7 +88,7 @@ export function CallCenterLayout() {
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <h1 className="text-xl font-semibold leading-tight">Call Center</h1>
+                <h1 className="text-xl font-semibold leading-tight">{t('nav.callCenter') || 'Call Center'}</h1>
                 {pill}
               </div>
               <p className="text-xs text-muted-foreground mt-0.5">

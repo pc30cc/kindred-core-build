@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { callCenterApi } from '@/lib/call-center-api';
 import { useQueryClient } from '@tanstack/react-query';
-import { Phone, Video, Search, Copy, Star, Play } from 'lucide-react';
+import { Phone, Video, Search, Copy, Star, Play, Download } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 
@@ -54,6 +54,7 @@ function RecordingPlaybackRow({
 }) {
   const [url, setUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const isVideo = isVideoRecording(rec.recording_type);
 
   async function load() {
@@ -69,6 +70,27 @@ function RecordingPlaybackRow({
     }
   }
 
+  async function download() {
+    if (downloading || !rec.has_storage) return;
+    setDownloading(true);
+    try {
+      const r = await callCenterApi.mintCallRecordingDownloadToken(workspaceId, callId, rec.id);
+      // Navigate via a transient anchor — the streaming route honors the
+      // attachment disposition embedded in the token and sets the
+      // Content-Disposition header, so the browser saves the file.
+      const a = document.createElement('a');
+      a.href = r.url;
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (e: any) {
+      toast({ title: 'Download unavailable', description: e?.message || 'token_mint_failed', variant: 'destructive' });
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   return (
     <div className="rounded border bg-background/50 p-2 space-y-2">
       <div className="flex items-center gap-2 text-xs">
@@ -81,14 +103,32 @@ function RecordingPlaybackRow({
       </div>
       {!rec.has_storage ? (
         <p className="text-[11px] text-muted-foreground">Artifact is not yet available for playback.</p>
-      ) : !url ? (
-        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={load} disabled={loading}>
-          <Play className="h-3 w-3 me-1" /> {loading ? 'Preparing…' : 'Load playback'}
-        </Button>
-      ) : isVideo ? (
-        <video src={url} controls preload="metadata" className="w-full max-h-64 rounded bg-black" />
       ) : (
-        <audio src={url} controls preload="metadata" className="w-full" />
+        <>
+          {!url ? (
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={load} disabled={loading}>
+                <Play className="h-3 w-3 me-1" /> {loading ? 'Preparing…' : 'Load playback'}
+              </Button>
+              <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={download} disabled={downloading}>
+                <Download className="h-3 w-3 me-1" /> {downloading ? 'Preparing…' : 'Download'}
+              </Button>
+            </div>
+          ) : (
+            <>
+              {isVideo ? (
+                <video src={url} controls preload="metadata" className="w-full max-h-64 rounded bg-black" />
+              ) : (
+                <audio src={url} controls preload="metadata" className="w-full" />
+              )}
+              <div>
+                <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={download} disabled={downloading}>
+                  <Download className="h-3 w-3 me-1" /> {downloading ? 'Preparing…' : 'Download'}
+                </Button>
+              </div>
+            </>
+          )}
+        </>
       )}
     </div>
   );

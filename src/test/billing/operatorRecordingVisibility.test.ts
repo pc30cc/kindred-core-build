@@ -199,3 +199,68 @@ describe('POST /calls/:id/recordings/:recordingId/playback-token', () => {
     expect(get().jsonBody.disposition).toBe('inline');
   });
 });
+
+describe('POST /calls/:id/recordings/:recordingId/download-token', () => {
+  const handler = findHandler('post', '/calls/:id/recordings/:recordingId/download-token');
+
+  it('mints an attachment-scoped download URL when workspace matches', async () => {
+    tableState['call_recordings'] = () => ({
+      data: {
+        id: REC_ID,
+        storage_path: 'p.mp4',
+        call_session_id: CALL_ID,
+        call_sessions: { workspace_id: WS_OK },
+      },
+      error: null,
+    });
+    const { req, res, get } = makeReqRes({
+      params: { id: CALL_ID, recordingId: REC_ID },
+      query: { workspaceId: WS_OK },
+    });
+    await handler(req, res);
+    const { statusCode, jsonBody } = get();
+    expect(statusCode).toBe(200);
+    expect(jsonBody.disposition).toBe('attachment');
+    expect(jsonBody.url).toMatch(/^\/api\/calls\/recording-playback\//);
+    expect(jsonBody.url).toContain('disposition=attachment');
+    // No provider URL / storage_path leak.
+    expect(jsonBody.url).not.toContain('p.mp4');
+    expect(JSON.stringify(jsonBody)).not.toContain('storage_path');
+  });
+
+  it('returns 404 when the recording belongs to a different workspace (no existence leak)', async () => {
+    tableState['call_recordings'] = () => ({
+      data: {
+        id: REC_ID,
+        storage_path: 'p.mp4',
+        call_session_id: CALL_ID,
+        call_sessions: { workspace_id: WS_OTHER },
+      },
+      error: null,
+    });
+    const { req, res, get } = makeReqRes({
+      params: { id: CALL_ID, recordingId: REC_ID },
+      query: { workspaceId: WS_OK },
+    });
+    await handler(req, res);
+    expect(get().statusCode).toBe(404);
+  });
+
+  it('returns 404 when the recording is in workspace but on a different call', async () => {
+    tableState['call_recordings'] = () => ({
+      data: {
+        id: REC_ID,
+        storage_path: 'p.mp4',
+        call_session_id: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
+        call_sessions: { workspace_id: WS_OK },
+      },
+      error: null,
+    });
+    const { req, res, get } = makeReqRes({
+      params: { id: CALL_ID, recordingId: REC_ID },
+      query: { workspaceId: WS_OK },
+    });
+    await handler(req, res);
+    expect(get().statusCode).toBe(404);
+  });
+});

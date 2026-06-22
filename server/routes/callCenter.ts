@@ -949,6 +949,59 @@ callCenterRouter.post('/calls/:id/recordings/:recordingId/playback-token', async
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+// Operator-side download (read-only, workspace-scoped).
+//
+//   POST /api/call-center/calls/:id/recordings/:recordingId/download-token
+//
+// Mints a short-lived attachment-scoped playback token for a recording the
+// operator can already view. Reuses the same canonical token model as the
+// inline mint above — the only difference is `disposition: 'attachment'`.
+//
+// Gated by requireCallOperator (the same gate that protects every other
+// operator write/action on this router). The streaming route enforces the
+// disposition claim embedded in the token, so an attachment-scoped token
+// cannot be widened or downgraded client-side. No retention/legal-hold
+// surface is exposed here; the janitor remains the sole deletion path.
+// ─────────────────────────────────────────────────────────────────────────
+callCenterRouter.post('/calls/:id/recordings/:recordingId/download-token', async (req, res) => {
+  const wid = String(req.query.workspaceId || '');
+  const ctx = await requireCallOperator(req, res, wid);
+  if (!ctx) return;
+  const callId = String(req.params.id || '');
+  const recordingId = String(req.params.recordingId || '');
+  if (!/^[0-9a-f-]{36}$/i.test(callId)) return res.status(400).json({ error: 'invalid_call_id' });
+  if (!/^[0-9a-f-]{36}$/i.test(recordingId)) return res.status(400).json({ error: 'invalid_recording_id' });
+
+  const sb = getServiceClient(ctx.config);
+  const { data: row, error } = await sb
+    .from('call_recordings')
+    .select('id, storage_path, call_session_id, call_sessions!inner(workspace_id)')
+    .eq('id', recordingId)
+    .maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  // Same uniform 404 behavior as the inline mint — never leak existence of
+  // a recording outside the caller's workspace or on a different call.
+  if (!row) return res.status(404).json({ error: 'not_found' });
+  if ((row as any).call_session_id !== callId) return res.status(404).json({ error: 'not_found' });
+  if ((row as any)?.call_sessions?.workspace_id !== wid) return res.status(404).json({ error: 'not_found' });
+  if (!(row as any).storage_path) return res.status(410).json({ error: 'missing_storage_path' });
+
+  const minted = mintPlaybackToken(ctx.config, { recordingId, disposition: 'attachment' });
+  const url =
+    `/api/calls/recording-playback/${encodeURIComponent(recordingId)}` +
+    `?token=${encodeURIComponent(minted.token)}` +
+    `&disposition=${minted.disposition}`;
+  res.json({
+    recording_id: recordingId,
+    url,
+    token: minted.token,
+    disposition: minted.disposition,
+    expires_at: minted.expires_at,
+    ttl_seconds: minted.ttl_seconds,
+  });
+});
+
 // ── Agent status ──────────────────────────────────────────────────────────
 callCenterRouter.get('/agent-status', async (req, res) => {
   const wid = String(req.query.workspaceId || '');

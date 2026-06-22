@@ -542,5 +542,53 @@ exclusive to the super-admin Recordings tab.
 ### Still deferred after the operator-visibility pass
 - Bulk retention edits / bulk legacy adoption / bulk delete.
 - Waveform/timeline UI, annotations, comments.
-- Operator-side download (intentionally withheld — attachment minting
-  remains super-admin only).
+- Operator-side download. *(implemented — see below)*
+
+## Operator-side recording download — implemented (read-only)
+
+Workspace-scoped, explicit, read-only export of a single recording the
+operator can already view. The smallest correct surface: one additional
+token mint route that reuses the canonical streaming/storage path.
+
+### Permission model
+- Gated by `requireCallOperator` — the same gate that protects every
+  other operator write/action on the Call Center router (start/stop
+  recording, agent status, callback handling). Strictly stronger than
+  the read-only `requireMember` gate used for the inline mint, by
+  intent: download is an explicit export action, not passive viewing.
+- Cross-workspace / cross-call mismatches return a uniform `404
+  not_found`, matching the inline-mint behavior — no existence leak.
+- The janitor remains the sole deletion path; this surface never
+  writes to `call_recordings` or storage.
+
+### Operator backend surface
+- `POST /api/call-center/calls/:id/recordings/:recordingId/download-token`
+  — mints a short-lived HMAC token bound to the recording id with
+  `disposition='attachment'`. Same TTL, same signer, same canonical
+  token model as the inline mint; only the disposition claim differs.
+- Streaming reuses the existing public route
+  `GET /api/calls/recording-playback/:id?token=...`. The disposition
+  claim is enforced server-side — an inline-only token cannot be
+  escalated to attachment by tampering with the query string, and an
+  attachment token never exposes provider URLs or storage paths.
+
+### Operator frontend surface
+- One additional "Download" button next to the existing "Load playback"
+  button in the per-recording row of the Call detail sheet. Visible
+  only when `has_storage === true`.
+- Clicking mints a fresh attachment-scoped token and triggers a save
+  via a transient anchor element — no new player, no bulk selection,
+  no admin controls.
+
+### Safeguards
+- No retention, legal-hold, override, restore, adopt, or delete
+  surface is added on the operator side.
+- Inline playback behavior is unchanged.
+- No route/env/schema/capability-key rename.
+- Token TTL, signer, and disposition enforcement are reused verbatim
+  from the existing super-admin tokenized playback model.
+
+### Still deferred after the operator-download pass
+- Bulk retention edits / bulk legacy adoption / bulk delete.
+- Bulk download / multi-select export.
+- Waveform/timeline UI, annotations, comments.

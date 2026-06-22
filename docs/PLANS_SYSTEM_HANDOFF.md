@@ -344,3 +344,22 @@ platform-admin `platform_call_center_settings.
 max_concurrent_calls_per_workspace` knob already enforced at the
 visitor widget. Until that reconciliation is decided, all three stay
 deferred.
+
+### June 2026 — `max_concurrent_calls` Precedence Resolution Pass
+
+Single-key follow-up targeting only `max_concurrent_calls`.
+**Outcome: honest defer, no rollout.** Precedence policy is now
+locked for the eventual activation: `effective =
+min(plan.max_concurrent_calls, platform.max_concurrent_calls_per_workspace)`
+with `-1` and `null` ignored, canonical active-state counting
+(`('pending','ringing','connecting','active')` over all
+`entry_source` values, backed by `idx_call_sessions_state_active`),
+and a single enforcement path covering operator `POST /api/calls/create`
+and visitor `POST /api/widget/calls/request` through the canonical
+resolver chain. Activation cannot ship in this pass because the
+existing widget enforcement uses a strictly narrower counting model;
+unifying it is a backward-compatibility-sensitive change that needs
+its own isolated phase. No capability key was added, no resolver was
+added, no plan default changed, no route, middleware, env var, or
+schema changed. Full audit and locked rule live in
+`docs/CALL_NUMERIC_LIMITS.md`.

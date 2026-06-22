@@ -247,9 +247,69 @@ to admin auth.
 - Scope: super-admin only (inherited from `adminRouter`).
 
 ### Still deferred after the ranged-access pass
-- Authenticated-URL surface so browser media elements can issue
-  Range requests directly against the proxy (short-lived signed
-  token in URL).
 - Waveform/timeline UI, annotations, comments.
 - Bulk operations, per-recording retention overrides,
   operator-side visibility, optional legacy backfill UI.
+
+---
+
+## Tokenized native playback (short-lived HMAC URL)
+
+Narrow read-only access pass enabling native `<audio>` / `<video>`
+streaming for super-admin playback without exposing provider URLs or
+credentials.
+
+### Why a new path
+The existing artifact proxy is gated by an `Authorization: Bearer`
+header, which native media elements cannot attach to their internal
+Range requests. Without a URL-bound grant, the admin UI had to fetch
+the entire artifact as a Blob first before playback — wasteful for
+large recordings.
+
+### Surfaces
+- **Mint (super-admin, bearer-protected):**
+  `POST /api/admin/calls/recordings/:id/playback-token` →
+  `{ recording_id, url, token, disposition, expires_at, ttl_seconds }`.
+  Body/query may include `disposition` (`inline` default, `attachment`
+  allowed). Returns 404/410 if the recording/storage is missing so the
+  operator sees the failure at mint time, not on first Range request.
+- **Stream (token-validated, NOT under `/api/admin`):**
+  `GET /api/calls/recording-playback/:id?token=…&disposition=…`.
+  Mounted at `recordingPlaybackRouter` in `server/index.ts`. Validates
+  the HMAC token (id, disposition, exp) and reuses the canonical
+  `downloadFileRange` helper — Range support is preserved end-to-end.
+
+### Token model
+- Stateless HMAC-SHA256 over `v1.<rid>.<disposition>.<exp>`.
+- Signing key derives from the server-only service-role secret via
+  domain-separated HMAC. Never exposed to the browser; rotates if the
+  service-role secret rotates.
+- TTL default 300s, hard cap 900s, minimum 30s.
+- Bound to one recording id and one disposition. Reusable inside the
+  TTL (so media elements can issue many Range requests), invalid
+  after expiry without client cleanup.
+- An `inline`-only token cannot be escalated to a forced download —
+  the streaming route ignores `?disposition=attachment` for inline
+  tokens.
+
+### Frontend
+- `RecordingRetentionPanel` → `InlinePreview` now prefers the
+  tokenized URL when the row metadata (recording_type / extension)
+  unambiguously identifies audio vs video.
+- Falls back to the existing authenticated Blob + object-URL path if
+  mint fails or the row is too ambiguous to pre-commit to an element.
+- Open/Save buttons continue to use the bearer-protected Blob path —
+  unchanged.
+
+### Read-only guarantees preserved
+- No writes to `call_recordings`, no edits to `retention_expires_at`,
+  no deletes from storage.
+- Retention janitor remains the sole deletion path.
+- Provider URLs and credentials never leave the backend.
+
+### Still deferred after the tokenized playback pass
+- Waveform/timeline UI, annotations, comments.
+- Bulk legal-hold / bulk actions.
+- Per-recording retention overrides.
+- Operator-side visibility.
+- Optional legacy backfill UI.

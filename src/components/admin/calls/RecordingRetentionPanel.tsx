@@ -1026,7 +1026,10 @@ export function RecordingRetentionPanel() {
                             Overridden ({r.retention_policy.replace(/^override:/, '')})
                           </span>
                         )}
-                        <RetentionOverrideEditor row={r} />
+                        <div className="flex items-center gap-1">
+                          <RetentionOverrideEditor row={r} />
+                          <RetentionRestoreButton row={r} />
+                        </div>
                       </div>
                     </td>
                     <td className="p-2"><RetentionStatusBadge status={r.status} /></td>

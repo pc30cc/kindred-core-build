@@ -859,3 +859,16 @@ HTTP 403 { error: 'usage_unavailable',  capability: 'max_call_minutes_per_month'
 - Per-row retention is locked at creation; later plan changes do NOT re-stamp.
 
 **Remaining backlog after this pass:** none for the numeric call-limit track. `recording_retention_days` was the last item.
+
+---
+
+## Phase Update — Recording Retention Operability (Legal Hold + Admin Visibility)
+
+Narrow read + legal-hold-toggle surface added under super-admin
+auth at `/api/admin/calls/recordings` (list) and
+`/api/admin/calls/recordings/:id/legal-hold` (toggle). Janitor is
+unchanged; `recording_retention_days` semantics are unchanged;
+legacy rows (`retention_expires_at IS NULL`) remain untouched and
+are labelled `legacy_unmanaged`. No backfill, no bulk actions, no
+second deletion path. See `docs/CALL_RECORDING_RETENTION.md` for
+the full status taxonomy.

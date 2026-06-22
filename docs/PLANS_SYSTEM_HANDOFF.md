@@ -533,3 +533,28 @@ legacy rows (`retention_expires_at IS NULL`) remain untouched and
 are labelled `legacy_unmanaged`. No backfill, no bulk actions, no
 second deletion path. See `docs/CALL_RECORDING_RETENTION.md` for
 the full status taxonomy.
+
+## Phase Update — Recording Retention Admin UI
+
+Frontend operability pass over the existing super-admin contract.
+No new backend endpoints, no schema changes, no janitor changes.
+
+- Home: **Admin → Voice & Video Center → Recordings tab**
+  (`src/pages/admin/VoiceVideoPage.tsx`).
+- Panel: `src/components/admin/calls/RecordingRetentionPanel.tsx`
+  (paginated list, workspace + status filters, per-row legal-hold
+  toggle with optional reason).
+- API client: `fetchAdminRecordings` /
+  `setAdminRecordingLegalHold` in `src/lib/admin-calls-api.ts`.
+- Tests: `src/test/admin/recordingRetentionPanel.test.tsx`
+  (status rendering for all four statuses, legal-hold endpoint
+  contract, error/loading states, guardrail against any
+  delete/backfill control).
+
+Architectural guardrails enforced by the UI:
+- No delete / purge controls (janitor is the sole deletion path).
+- No editing of `retention_expires_at`.
+- No bulk actions.
+- No legacy backfill — `legacy_unmanaged` rows are shown as such.
+- Super-admin scoped via the existing `adminRouter` middleware;
+  no operator-side surface in this phase.

@@ -35,6 +35,10 @@ import {
   planConcurrencyDenialBody,
 } from '../services/calls/concurrencyLimit.js';
 import {
+  checkPlanMonthlyMinutesCeiling,
+  planMinutesDenialBody,
+} from '../services/calls/monthlyMinutesLimit.js';
+import {
   getCallNetworkBundle,
   normalizeClientWsUrl,
 } from '../services/calls/rtcResolver.js';
@@ -338,6 +342,18 @@ callsRouter.post('/create', async (req, res) => {
     const conc = await checkPlanConcurrencyCeiling(config, body.workspace_id);
     if (!conc.allowed) {
       return res.status(conc.reason === 'plan_limit_reached' ? 429 : 403).json(planConcurrencyDenialBody(conc));
+    }
+
+    // Phase: max_call_minutes_per_month — Final Activation.
+    // Workspace-wide monthly billable-minutes ceiling. Same boundary
+    // as the concurrency check above and the same denial discipline:
+    // runs BEFORE any provider resolution / DB insert so denial
+    // leaves no half-created call_sessions row behind. Single source
+    // of truth is workspace_usage_counters.call_minutes_used, written
+    // exclusively by the DB trigger tg_call_sessions_bill_minutes.
+    const mins = await checkPlanMonthlyMinutesCeiling(config, body.workspace_id);
+    if (!mins.allowed) {
+      return res.status(mins.reason === 'plan_limit_reached' ? 429 : 403).json(planMinutesDenialBody(mins));
     }
 
     const { id: providerId, provider } = await resolveEffectiveCallProvider(

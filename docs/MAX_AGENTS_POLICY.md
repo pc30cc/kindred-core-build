@@ -1,24 +1,31 @@
 # Max Agents — Seat Limit Policy & Rollout Audit
 
-_Last updated: 2026-06-22 (Service-Role Companion RPC + Max Agents
-Activation phase). Status: **`max_agents` is now LIVE.** The
-browser-callable bypass on `accept_workspace_invitation(text)` is
-closed; the canonical Express route uses a service-role-only
-companion RPC; `resolveMaxAgents` is registered; `requireLimit`
-is mounted on the seat-creation path; and the `team_members →
-max_agents` seed migration has been applied._
+_Last updated: 2026-06-22 (Post-Activation Cleanup phase). Status:
+**`max_agents` is LIVE.**_
 
-This is the deliverable of the _Max Agents Resolver + Consumer + Legacy
-Alias Migration Readiness_ phase. The phase's strict objective is to
-turn `max_agents` from an inert canonical limit into a real
-enforced usage-backed limit, **only if** a real semantics + chokepoint
-pair can be locked safely. After audit, that bar is not met yet, and
-per the phase rules ("Prefer one honest defer over one fake
-max_agents rollout") rollout is deferred with an explicit unblock
-matrix.
+Canonical state, after activation:
 
-No middleware, no resolver, no route, and no plan row was changed in
-this phase.
+- Canonical chokepoint: `POST /api/workspace-members/accept-invitation`
+  (`server/routes/workspaceMembers.ts`), gated by
+  `requireLimit('max_agents', usageFnForLimit('max_agents'))`.
+- Canonical RPC: `public.accept_workspace_invitation_as(_token,
+  _user_id)` — `SECURITY DEFINER`, `EXECUTE` granted only to
+  `service_role`. Called from the Express route with a service-role
+  client and the user id taken from the verified JWT.
+- Canonical resolver: `resolveMaxAgents` in
+  `server/services/billing/usageResolvers.ts` (`count(*)` on
+  `public.workspace_members` filtered by `workspace_id`).
+- Browser-side bypass on `accept_workspace_invitation(text)` is
+  closed: `EXECUTE` is revoked from `anon`/`authenticated`/`public`;
+  only `service_role` retains it.
+- Seed mirror applied: `billing_plans.limits.max_agents` is set on
+  every active plan (`free=2`, `pro=10`, `enterprise=-1`). Legacy
+  `team_members` / `agents` keys are intentionally **preserved for
+  one release** as soft-warn aliases.
+
+Sections 1–4 below preserve the original audit trail that led to the
+activation choice. Section 5 onwards reflects post-activation state
+and the cleanup/deprecation policy.
 
 ---
 

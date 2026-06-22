@@ -311,3 +311,19 @@ composer untouched, no new capability key. Full rationale:
 `docs/CALL_ENTITLEMENT_COMPOSITION.md` §"Queue Offer / Accept Drain
 Policy". Next call-side backlog item: call-center `assign` /
 `transfer`.
+
+### June 2026 — Call-Center Assign / Transfer pass
+
+Single-surface audit of the two remaining non-numeric call-center
+transition routes (`/api/call-center/calls/:id/assign` and
+`/transfer`). Both route through service helpers that load an existing
+`call_sessions` row and mutate ownership/target only; `transfer`
+additionally enforces an active-state precondition. Neither contains a
+new-action branch. **Outcome: honest defer, no rollout.** No files
+under `server/`, `src/`, or `supabase/` changed. Canonical composer
+untouched, no capability key renamed, no schema change. Full rationale:
+`docs/CALL_ENTITLEMENT_COMPOSITION.md` §"Call-Center Assign / Transfer
+Drain Policy". With this, all non-numeric call surfaces have been
+route-audited under the deny-on-create / allow-on-continuity policy.
+Remaining call-side backlog: numeric call limits only, still blocked
+on missing usage resolvers.

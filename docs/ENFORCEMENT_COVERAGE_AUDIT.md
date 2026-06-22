@@ -286,3 +286,22 @@ code, schema, capability key, or middleware contract was changed. See
 Policy". Next remaining call-side backlog item: call-center `assign` /
 `transfer`. Numeric call limits remain blocked on missing usage
 resolvers.
+
+### June 2026 — Call-Center Assign / Transfer single-surface audit
+
+Audit-only pass of `POST /api/call-center/calls/:id/assign` and
+`POST /api/call-center/calls/:id/transfer`. Route-truth inspection of
+`server/routes/callCenter.ts` and `server/services/callCenter/routing.ts`
+confirms both handlers operate exclusively on already-existing
+`call_sessions` rows (resolved via `getStandaloneCallCenterSession`);
+`transfer` additionally hard-requires `active|ringing|connecting|
+pending` state. Neither admits net-new chargeable work, neither starts
+a new media leg, neither enqueues. Both are continuity/routing.
+
+**Outcome: no rollout.** Gating either route would strand live calls
+on plan downgrade and violate deny-on-create / allow-on-continuity.
+No code, schema, capability key, or middleware contract changed. See
+`docs/CALL_ENTITLEMENT_COMPOSITION.md` §"Call-Center Assign / Transfer
+Drain Policy". After this pass, the only remaining non-numeric call
+backlog item is closed; remaining work is numeric call limits, still
+blocked on missing usage resolvers.

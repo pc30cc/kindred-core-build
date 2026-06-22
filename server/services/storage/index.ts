@@ -299,7 +299,7 @@ function parseSingleRange(range: string, totalSize?: number): { start: number; e
   const m = /^bytes=(\d+)-(\d*)$/i.exec(range.trim());
   if (!m) return null;
   const start = Number(m[1]);
-  const end = m[2] ? Number(m[2]) : (totalSize != null ? totalSize - 1 : undefined);
+  const end = m[2] ? Number(m[2]) : undefined;
   if (!Number.isFinite(start) || start < 0) return null;
   if (end != null && (!Number.isFinite(end) || end < start)) return null;
   return { start, end };

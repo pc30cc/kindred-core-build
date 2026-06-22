@@ -230,6 +230,49 @@ async function resolveMaxContacts(
   };
 }
 
+/**
+ * `max_agents` — current seat occupancy of a workspace, defined as
+ * `count(*)` on `public.workspace_members` filtered by `workspace_id`.
+ *
+ * Semantics (locked in `docs/MAX_AGENTS_POLICY.md`):
+ *   - One row in `workspace_members` per `(workspace_id, user_id)` =
+ *     one seat. Departments do not multiply seats.
+ *   - All members count regardless of `role`. The owner counts.
+ *   - Pending `workspace_invitations` do NOT consume capacity;
+ *     capacity is consumed only when a `workspace_members` row is
+ *     inserted (i.e. invite is redeemed via the canonical Express
+ *     route).
+ *   - Removing a member frees capacity immediately (occupancy, not
+ *     monthly throughput).
+ *   - `-1` means unlimited (registry-wide convention).
+ *
+ * Activated by the "Service-Role Companion RPC + Max Agents
+ * Activation" phase, gated by the canonical seat-creation route at
+ * `POST /api/workspace-members/accept-invitation`. The browser-side
+ * RPC bypass was closed in the same migration that introduced this
+ * resolver, so this counter is the only seat-counting model.
+ */
+async function resolveMaxAgents(
+  config: ServerConfig,
+  workspaceId: string,
+): Promise<UsageResolution> {
+  const sb = makeClient(config);
+  const { count, error } = await sb
+    .from('workspace_members')
+    .select('user_id', { count: 'exact', head: true })
+    .eq('workspace_id', workspaceId);
+  if (error) throw new Error(`max_agents_count_failed:${error.message}`);
+  return {
+    value: typeof count === 'number' ? count : 0,
+    period: 'lifetime',
+    periodKind: 'lifetime',
+    source: 'derived_count',
+    isExact: true,
+    supported: true,
+    note: 'count(*) on public.workspace_members where workspace_id = $1 (seat occupancy)',
+  };
+}
+
 function unsupported(reason: string, period = currentMonthPeriod()): UsageResolution {
   return {
     value: 0,
@@ -263,6 +306,7 @@ const RESOLVERS: Record<string, Resolver> = {
   ai_kb_jobs_per_month: resolveAiKbJobsPerMonth,
   ai_credits_per_month: resolveAiCreditsPerMonth,
   max_contacts: resolveMaxContacts,
+  max_agents: resolveMaxAgents,
 };
 
 /**
@@ -271,8 +315,6 @@ const RESOLVERS: Record<string, Resolver> = {
  * the gap rather than silently treating them as 0.
  */
 const KNOWN_UNSUPPORTED: Record<string, string> = {
-  max_agents:
-    'Seat occupancy from workspace_members. Resolver intentionally NOT registered: no Express seat-creation route exists today (workspace_members INSERT happens outside featureGating.ts middleware). Adding an unconsumed resolver would imply enforcement that does not exist. Semantics + counting model + unblock criteria locked in docs/MAX_AGENTS_POLICY.md.',
   max_workspaces:
     'Per-account workspace count is enforced at workspace creation; not modelled per-workspace.',
   ai_kb_max_pages:

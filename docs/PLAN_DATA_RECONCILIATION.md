@@ -225,6 +225,22 @@ is_active = true`.
 > See `docs/MAX_AGENTS_POLICY.md` §4.2 for the corrected unblock
 > matrix.
 
+> **Update 2026-06-22 (Service-Role Companion RPC + Max Agents
+> Activation phase) — APPLIED.** The companion-RPC option from
+> §4.2 was implemented. `accept_workspace_invitation_as(_token,
+> _user_id)` now exists (service_role-only), the original RPC's
+> `EXECUTE` is revoked from `anon`/`authenticated`/`public`,
+> `resolveMaxAgents` is registered, `requireLimit('max_agents',
+> …)` is mounted on
+> `POST /api/workspace-members/accept-invitation`, and the
+> `team_members → max_agents` seed migration has been applied
+> (`free=2`, `pro=10`, `enterprise=-1`; the only conflicting
+> legacy row, `free.agents=1`, was resolved in favour of the more
+> permissive `team_members=2` to avoid silently shrinking
+> existing customer capacity). Legacy `team_members` and `agents`
+> keys remain in place for one release per the deferral matrix.
+> See `docs/MAX_AGENTS_POLICY.md` §4.3.
+
 ---
 
 ## 7. How to extend this audit safely

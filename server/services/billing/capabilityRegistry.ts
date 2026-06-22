@@ -152,6 +152,7 @@ export const USAGE_BACKED_LIMIT_KEYS: readonly string[] = [
   'ai_kb_jobs_per_month',
   'ai_credits_per_month',
   'max_contacts',
+  'max_agents',
 ];
 
 /**

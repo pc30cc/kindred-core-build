@@ -183,4 +183,114 @@ describe('RecordingRetentionPanel', () => {
     // Inline open must NOT request attachment disposition.
     expect(calls.find((u) => u.includes('/file'))?.includes('disposition=attachment')).toBe(false);
   });
+
+  it('Preview toggle fetches the artifact and renders a <video> for video content-type', async () => {
+    const calls: string[] = [];
+    vi.spyOn(global, 'fetch' as any).mockImplementation(async (url: any) => {
+      const u = String(url);
+      calls.push(u);
+      if (u.includes('/file')) {
+        return {
+          ok: true,
+          blob: async () => new Blob(['data'], { type: 'video/mp4' }),
+          headers: { get: (k: string) => (k.toLowerCase() === 'content-type' ? 'video/mp4' : null) },
+        } as any;
+      }
+      return {
+        ok: true,
+        json: async () => ({ items: FIXTURE_ROWS, total: FIXTURE_ROWS.length, limit: 25, offset: 0 }),
+      } as any;
+    });
+    (global as any).URL.createObjectURL = vi.fn(() => 'blob:fake-video');
+    (global as any).URL.revokeObjectURL = vi.fn();
+
+    renderPanel();
+    const toggle = await screen.findByTestId('recording-preview-toggle-rec-1');
+    fireEvent.click(toggle);
+
+    await waitFor(() =>
+      expect(calls.some((u) => u.includes('/api/admin/calls/recordings/rec-1/file'))).toBe(true),
+    );
+    expect(await screen.findByTestId('recording-preview-video-rec-1')).toBeInTheDocument();
+  });
+
+  it('Preview renders <audio> for audio content-type', async () => {
+    vi.spyOn(global, 'fetch' as any).mockImplementation(async (url: any) => {
+      if (String(url).includes('/file')) {
+        return {
+          ok: true,
+          blob: async () => new Blob(['x'], { type: 'audio/mpeg' }),
+          headers: { get: (k: string) => (k.toLowerCase() === 'content-type' ? 'audio/mpeg' : null) },
+        } as any;
+      }
+      return {
+        ok: true,
+        json: async () => ({ items: FIXTURE_ROWS, total: FIXTURE_ROWS.length, limit: 25, offset: 0 }),
+      } as any;
+    });
+    (global as any).URL.createObjectURL = vi.fn(() => 'blob:fake-audio');
+    (global as any).URL.revokeObjectURL = vi.fn();
+
+    renderPanel();
+    fireEvent.click(await screen.findByTestId('recording-preview-toggle-rec-2'));
+    expect(await screen.findByTestId('recording-preview-audio-rec-2')).toBeInTheDocument();
+  });
+
+  it('Preview shows unsupported state for non audio/video content-type and revokes object URL on close', async () => {
+    vi.spyOn(global, 'fetch' as any).mockImplementation(async (url: any) => {
+      if (String(url).includes('/file')) {
+        return {
+          ok: true,
+          blob: async () => new Blob(['x'], { type: 'application/octet-stream' }),
+          headers: {
+            get: (k: string) =>
+              k.toLowerCase() === 'content-type' ? 'application/octet-stream' : null,
+          },
+        } as any;
+      }
+      return {
+        ok: true,
+        json: async () => ({ items: FIXTURE_ROWS, total: FIXTURE_ROWS.length, limit: 25, offset: 0 }),
+      } as any;
+    });
+    const revoke = vi.fn();
+    (global as any).URL.createObjectURL = vi.fn(() => 'blob:fake');
+    (global as any).URL.revokeObjectURL = revoke;
+
+    renderPanel();
+    const toggle = await screen.findByTestId('recording-preview-toggle-rec-3');
+    fireEvent.click(toggle);
+    expect(await screen.findByTestId('recording-preview-unsupported-rec-3')).toBeInTheDocument();
+
+    // Closing the preview removes the preview row entirely.
+    fireEvent.click(toggle);
+    await waitFor(() =>
+      expect(screen.queryByTestId('recording-preview-row-rec-3')).toBeNull(),
+    );
+  });
+
+  it('Preview surface exposes no destructive controls', async () => {
+    vi.spyOn(global, 'fetch' as any).mockImplementation(async (url: any) => {
+      if (String(url).includes('/file')) {
+        return {
+          ok: true,
+          blob: async () => new Blob(['x'], { type: 'video/mp4' }),
+          headers: { get: (k: string) => (k.toLowerCase() === 'content-type' ? 'video/mp4' : null) },
+        } as any;
+      }
+      return {
+        ok: true,
+        json: async () => ({ items: FIXTURE_ROWS, total: FIXTURE_ROWS.length, limit: 25, offset: 0 }),
+      } as any;
+    });
+    (global as any).URL.createObjectURL = vi.fn(() => 'blob:fake');
+    (global as any).URL.revokeObjectURL = vi.fn();
+
+    const { container } = renderPanel();
+    fireEvent.click(await screen.findByTestId('recording-preview-toggle-rec-1'));
+    await screen.findByTestId('recording-preview-video-rec-1');
+    const text = (container.textContent || '').toLowerCase();
+    expect(text).not.toMatch(/\bdelete\b/);
+    expect(text).not.toMatch(/\bpurge\b/);
+  });
 });

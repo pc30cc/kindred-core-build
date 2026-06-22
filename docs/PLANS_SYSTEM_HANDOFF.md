@@ -563,3 +563,14 @@ Architectural guardrails enforced by the UI:
 - New route: `GET /api/admin/calls/recordings/:id/file` (super-admin scoped, proxied via canonical `downloadFile`).
 - UI: per-row Open / Save buttons in the existing Recordings tab of Voice & Video Center.
 - Read-only — janitor remains the sole deletion path. No new retention semantics.
+
+### Recording inline playback (super-admin, read-only preview)
+- UI-only pass on top of the existing artifact proxy — no new backend route.
+- Per-row **Preview** toggle in the Recordings tab renders an inline
+  `<audio>` or `<video>` element bound to a transient
+  `URL.createObjectURL` from the proxied blob.
+- Player kind is chosen from the proxy `Content-Type`; unknown types
+  degrade to an explicit unsupported-preview state with Open/Save intact.
+- Object URLs are revoked on collapse and unmount; no prefetch.
+- Read-only — janitor remains the sole deletion path; no retention
+  semantics, route, env, schema, or capability key changed.

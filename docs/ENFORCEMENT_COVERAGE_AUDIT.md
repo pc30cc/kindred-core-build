@@ -231,3 +231,25 @@ or F too risky/ambiguous) and an unblock criterion where applicable.
 The matrix is the single index over all preserved/deferred items
 across the plans system; this doc remains the authoritative
 per-route source of truth.
+
+## Call-Side Policy Backlog Resolution (2026-06-22, single-decision pass)
+
+Audit-only pass. No route was newly gated. The remaining call-side
+backlog (`/api/calls/:id/invite`, `call-queue offer/accept`,
+`call-center assign/transfer`, and the three numeric call limits) was
+re-classified against repository truth:
+
+- **`/api/calls/:id/invite`** — still a single undifferentiated
+  handler covering both new participant adds and re-ring / reissue.
+  Cannot be gated safely without a route-level participant-class
+  signal. Strict defer.
+- **`call-queue offer/accept`** and **`call-center assign/transfer`**
+  — operate on already-existing rows / sessions. Need a queue/session
+  drain decision before any gating. Strict defer.
+- **`max_concurrent_calls` / `max_call_minutes_per_month` /
+  `recording_retention_days`** — no resolver, no counter, no
+  retention worker. Activation would be fake. Strict defer.
+
+See `docs/CALL_ENTITLEMENT_COMPOSITION.md` §"Phase: Call-Side Policy
+Backlog Resolution" for the full classification and the rationale for
+choosing outcome **B — NO SAFE ROLLOUT** in this pass.

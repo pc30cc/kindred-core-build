@@ -269,3 +269,19 @@ log lives in `docs/MAX_AGENTS_POLICY.md` §§4.1–4.3.
 
 If this doc disagrees with code, the code wins and this doc must be
 updated — but the system itself is finished.
+
+_Status update 2026-06-22 (Call-Side Policy Backlog Resolution —
+single-decision pass):_ Audit-only. Outcome **B — no safe rollout**.
+The remaining call-side backlog (`/api/calls/:id/invite`,
+`call-queue offer/accept`, `call-center assign/transfer`,
+`max_concurrent_calls`, `max_call_minutes_per_month`,
+`recording_retention_days`) was re-classified against repository
+truth and every item still requires either a product-policy
+decision, a drain/continuity contract, or counter/resolver
+architecture that does not yet exist. No code, schema, registry key,
+route, env var, or middleware contract was changed. The smallest
+next bounded step (when policy lands) is splitting
+`/api/calls/:id/invite` into a `reason: 'new' | 'reissue'` contract
+and gating only the `'new'` branch. See
+`docs/CALL_ENTITLEMENT_COMPOSITION.md` §"Phase: Call-Side Policy
+Backlog Resolution" for the full classification.

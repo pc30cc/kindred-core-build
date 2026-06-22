@@ -156,6 +156,7 @@ function RecordingsPanel({ workspaceId, callId }: { workspaceId: string; callId:
   }>({ loading: true, error: null, recordings: null });
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [zipBusy, setZipBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -233,6 +234,41 @@ function RecordingsPanel({ workspaceId, callId }: { workspaceId: string; callId:
     }
   }
 
+  async function exportArchive() {
+    if (zipBusy || selectedIds.length === 0) return;
+    setZipBusy(true);
+    try {
+      const r = await callCenterApi.exportCallRecordingsArchive(
+        workspaceId, callId, selectedIds,
+      );
+      const href = URL.createObjectURL(r.blob);
+      const a = document.createElement('a');
+      a.href = href;
+      a.download = r.filename;
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(href), 1000);
+      if (r.excluded > 0) {
+        toast({
+          title: 'Archive downloaded with exclusions',
+          description: `${r.included} included, ${r.excluded} excluded (see manifest.txt)`,
+        });
+      } else {
+        toast({ title: 'Archive downloaded', description: `${r.included} recording(s)` });
+      }
+    } catch (e: any) {
+      toast({
+        title: 'Archive export failed',
+        description: e?.message || 'archive_export_failed',
+        variant: 'destructive',
+      });
+    } finally {
+      setZipBusy(false);
+    }
+  }
+
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-2">
@@ -241,16 +277,29 @@ function RecordingsPanel({ workspaceId, callId }: { workspaceId: string; callId:
             ? `${selectedIds.length} selected`
             : 'Select recordings to bulk download'}
         </span>
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-7 text-xs"
-          onClick={bulkDownload}
-          disabled={bulkBusy || selectedIds.length === 0}
-        >
-          <Download className="h-3 w-3 me-1" />
-          {bulkBusy ? 'Preparing…' : `Download selected${selectedIds.length ? ` (${selectedIds.length})` : ''}`}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs"
+            onClick={bulkDownload}
+            disabled={bulkBusy || zipBusy || selectedIds.length === 0}
+          >
+            <Download className="h-3 w-3 me-1" />
+            {bulkBusy ? 'Preparing…' : `Download selected${selectedIds.length ? ` (${selectedIds.length})` : ''}`}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs"
+            onClick={exportArchive}
+            disabled={zipBusy || bulkBusy || selectedIds.length === 0}
+            title="Package selected recordings into a single ZIP archive"
+          >
+            <Download className="h-3 w-3 me-1" />
+            {zipBusy ? 'Packaging…' : 'Download ZIP'}
+          </Button>
+        </div>
       </div>
       {recs.map((rec) => (
         <RecordingPlaybackRow

@@ -457,3 +457,120 @@ describe('POST /calls/:id/recordings/archive', () => {
     }
   });
 });
+
+describe('POST /workspaces/recordings/archive (multi-call)', () => {
+  const handler = findHandler('post', '/workspaces/recordings/archive');
+  const CALL_A = 'aaaaaaaa-1111-aaaa-aaaa-aaaaaaaaaaaa';
+  const CALL_B = 'aaaaaaaa-2222-aaaa-aaaa-aaaaaaaaaaaa';
+  const REC_A1 = 'dddddddd-1111-dddd-dddd-dddddddddddd';
+  const REC_B1 = 'dddddddd-2222-dddd-dddd-dddddddddddd';
+  const REC_OTHER_WS = 'ffffffff-ffff-ffff-ffff-ffffffffffff';
+
+  function makeRes() {
+    let statusCode = 200;
+    let jsonBody: any;
+    let sent: any = null;
+    const headers: Record<string, string> = {};
+    const res: any = {
+      status(c: number) { statusCode = c; return res; },
+      json(b: any) { jsonBody = b; return res; },
+      setHeader(k: string, v: any) { headers[k.toLowerCase()] = String(v); },
+      send(b: any) { sent = b; return res; },
+    };
+    return { res, get: () => ({ statusCode, jsonBody, sent, headers }) };
+  }
+
+  it('packages recordings across multiple calls and isolates cross-workspace items', async () => {
+    const fixtures: Record<string, any> = {
+      [REC_A1]: { id: REC_A1, storage_path: 'a1.mp4', recording_type: 'composite', created_at: '2025-01-01T00:00:00Z', call_session_id: CALL_A, call_sessions: { workspace_id: WS_OK } },
+      [REC_B1]: { id: REC_B1, storage_path: 'b1.mp4', recording_type: 'composite', created_at: '2025-01-01T00:00:00Z', call_session_id: CALL_B, call_sessions: { workspace_id: WS_OK } },
+      [REC_OTHER_WS]: { id: REC_OTHER_WS, storage_path: 'x.mp4', recording_type: 'composite', created_at: '2025-01-01T00:00:00Z', call_session_id: CALL_A, call_sessions: { workspace_id: WS_OTHER } },
+    };
+    tableState['call_recordings'] = (_op: string, eqs: Array<[string, any]>) => {
+      const idEq = eqs.find(([c]) => c === 'id');
+      const row = idEq ? fixtures[idEq[1]] : null;
+      return { data: row ?? null, error: null };
+    };
+    const req: any = {
+      query: { workspaceId: WS_OK },
+      body: { items: [
+        { call_id: CALL_A, recording_id: REC_A1 },
+        { call_id: CALL_B, recording_id: REC_B1 },
+        { call_id: CALL_A, recording_id: REC_OTHER_WS },
+      ] },
+      headers: { authorization: 'Bearer t' },
+      serverConfig: { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k-operator-test-secret' },
+    };
+    const { res, get } = makeRes();
+    await handler(req, res);
+    const { statusCode, sent, headers } = get();
+    expect(statusCode).toBe(200);
+    expect(headers['content-type']).toBe('application/zip');
+    expect(headers['x-archive-included']).toBe('2');
+    expect(headers['x-archive-excluded']).toBe('1');
+    expect(headers['x-archive-calls']).toBe('2');
+    expect(Buffer.isBuffer(sent)).toBe(true);
+    expect(sent.slice(0, 4).toString('hex')).toBe('504b0304');
+    // Cross-workspace storage path must never appear in the ZIP bytes.
+    expect(sent.toString('binary')).not.toContain('x.mp4');
+  });
+
+  it('rejects when a recording_id is bound to a different call than supplied (no cross-call leak)', async () => {
+    // recording lives on CALL_B but caller claims it belongs to CALL_A
+    tableState['call_recordings'] = () => ({
+      data: { id: REC_B1, storage_path: 'b1.mp4', recording_type: 'composite', created_at: '2025-01-01T00:00:00Z', call_session_id: CALL_B, call_sessions: { workspace_id: WS_OK } },
+      error: null,
+    });
+    const req: any = {
+      query: { workspaceId: WS_OK },
+      body: { items: [{ call_id: CALL_A, recording_id: REC_B1 }] },
+      headers: { authorization: 'Bearer t' },
+      serverConfig: { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k-operator-test-secret' },
+    };
+    const { res, get } = makeRes();
+    await handler(req, res);
+    expect(get().statusCode).toBe(404);
+    expect(get().jsonBody.error).toBe('no_recordings_available');
+  });
+
+  it('rejects empty, oversized, and malformed item lists', async () => {
+    {
+      const req: any = {
+        query: { workspaceId: WS_OK }, body: { items: [] },
+        headers: { authorization: 'Bearer t' },
+        serverConfig: { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k-operator-test-secret' },
+      };
+      const { res, get } = makeRes();
+      await handler(req, res);
+      expect(get().statusCode).toBe(400);
+      expect(get().jsonBody.error).toBe('items_required');
+    }
+    {
+      const items = Array.from({ length: 26 }, (_, i) => ({
+        call_id: CALL_A,
+        recording_id: `dddddddd-dddd-dddd-dddd-${String(i).padStart(12, '0')}`,
+      }));
+      const req: any = {
+        query: { workspaceId: WS_OK }, body: { items },
+        headers: { authorization: 'Bearer t' },
+        serverConfig: { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k-operator-test-secret' },
+      };
+      const { res, get } = makeRes();
+      await handler(req, res);
+      expect(get().statusCode).toBe(400);
+      expect(get().jsonBody.error).toBe('too_many_recordings');
+    }
+    {
+      const req: any = {
+        query: { workspaceId: WS_OK },
+        body: { items: [{ call_id: 'nope', recording_id: REC_A1 }] },
+        headers: { authorization: 'Bearer t' },
+        serverConfig: { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k-operator-test-secret' },
+      };
+      const { res, get } = makeRes();
+      await handler(req, res);
+      expect(get().statusCode).toBe(400);
+      expect(get().jsonBody.error).toBe('invalid_call_id');
+    }
+  });
+});

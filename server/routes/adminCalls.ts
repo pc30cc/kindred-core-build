@@ -1035,3 +1035,118 @@ adminCallsRouter.post('/recordings/:id/retention-restore', async (req, res) => {
     inherited_days: eff.days,
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// Per-recording LEGACY ADOPTION (super-admin, single row).
+//
+//   POST /api/admin/calls/recordings/:id/retention-adopt
+//   Body: { reason?: string }
+//
+// Adoption policy (locked, intentionally narrow):
+//   • Eligible ONLY for rows that are currently legacy/unmanaged, defined
+//     as `retention_expires_at IS NULL` AND `retention_policy IS NULL`.
+//     Already-managed rows (any non-null policy, including `unlimited`
+//     and `override:*`) return 409. There is no implicit backfill, no
+//     bulk adoption, and no scheduled adoption — every adopted row is
+//     the result of one explicit super-admin click.
+//   • "Adopted" means the SAME computation `stampRetention` / the
+//     restore-to-inherited route would perform today for this row's
+//     workspace, anchored at the row's own `created_at`. Reuses the
+//     single canonical helper (`resolveEffectiveRecordingRetentionDays`
+//     + `computeRetentionExpiresAt`) — no second retention engine.
+//   • Writes `retention_policy = '<N>d' | 'unlimited'` and
+//     `retention_expires_at = created_at + Nd` (NULL for unlimited),
+//     matching the live janitor contract exactly.
+//   • `legal_hold` is never touched and still wins over expiry.
+//   • If the recomputed expiry already lies in the past, the row simply
+//     becomes janitor-eligible on the next sweep — adoption itself
+//     never deletes. The janitor remains the sole deletion path.
+const RetentionAdoptBody = z.object({
+  reason: z.string().trim().max(500).optional(),
+});
+
+adminCallsRouter.post('/recordings/:id/retention-adopt', async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
+  const sb = getServiceClient(config);
+  const id = String(req.params.id || '');
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'invalid_id' });
+  const parsed = RetentionAdoptBody.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res
+      .status(400)
+      .json({ error: 'invalid_body', detail: parsed.error.flatten().fieldErrors });
+  }
+
+  const { data: prior, error: priorErr } = await sb
+    .from('call_recordings')
+    .select(
+      'id, retention_policy, retention_expires_at, legal_hold, created_at, call_sessions!inner(workspace_id)',
+    )
+    .eq('id', id)
+    .maybeSingle();
+  if (priorErr) return res.status(500).json({ error: priorErr.message });
+  if (!prior) return res.status(404).json({ error: 'not_found' });
+
+  const currentPolicy: string | null = (prior as any).retention_policy ?? null;
+  const currentExpiry: string | null = (prior as any).retention_expires_at ?? null;
+  if (currentPolicy !== null || currentExpiry !== null) {
+    return res.status(409).json({
+      error: 'not_legacy',
+      detail:
+        'Only legacy/unmanaged rows (retention_expires_at IS NULL and ' +
+        'retention_policy IS NULL) can be adopted. Use retention-override ' +
+        'or retention-restore for already-managed rows.',
+    });
+  }
+
+  const wsId = (prior as any)?.call_sessions?.workspace_id as string | undefined;
+  const createdAt = (prior as any)?.created_at as string | undefined;
+  if (!wsId || !createdAt) {
+    return res.status(500).json({ error: 'row_missing_anchor_fields' });
+  }
+
+  const eff = await resolveEffectiveRecordingRetentionDays(config, wsId);
+  const nextPolicy = eff.days < 0 ? 'unlimited' : `${eff.days}d`;
+  const nextExpiresAt = computeRetentionExpiresAt(createdAt, eff.days);
+
+  const { error: updErr } = await sb
+    .from('call_recordings')
+    .update({
+      retention_expires_at: nextExpiresAt,
+      retention_policy: nextPolicy,
+    })
+    .eq('id', id);
+  if (updErr) return res.status(500).json({ error: updErr.message });
+
+  await sb
+    .from('audit_logs')
+    .insert({
+      action: 'call_recording.retention.adopt',
+      entity_type: 'call_recording',
+      entity_id: id,
+      user_id: (req as any).adminUser?.id ?? null,
+      workspace_id: wsId,
+      old_value: {
+        retention_policy: null,
+        retention_expires_at: null,
+      } as any,
+      new_value: {
+        retention_policy: nextPolicy,
+        retention_expires_at: nextExpiresAt,
+        inherited_source: eff.source,
+        inherited_days: eff.days,
+        reason: parsed.data.reason ?? null,
+      } as any,
+    } as any)
+    .then(() => {}, () => {});
+
+  res.json({
+    id,
+    retention_policy: nextPolicy,
+    retention_expires_at: nextExpiresAt,
+    legal_hold: !!(prior as any).legal_hold,
+    inherited_source: eff.source,
+    inherited_days: eff.days,
+    already_expired: nextExpiresAt !== null && new Date(nextExpiresAt).getTime() <= Date.now(),
+  });
+});

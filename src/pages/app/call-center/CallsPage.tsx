@@ -11,6 +11,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Phone, Video, Search, Copy, Star, Play, Download } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import { RecordingTimeline } from '@/components/recordings/RecordingTimeline';
 
 const STATUS = ['all', 'pending', 'ringing', 'active', 'ended', 'cancelled', 'missed', 'failed'];
 const TYPES = ['all', 'audio', 'video'];
@@ -128,11 +129,13 @@ function RecordingPlaybackRow({
             </div>
           ) : (
             <>
-              {isVideo ? (
-                <video src={url} controls preload="metadata" className="w-full max-h-64 rounded bg-black" />
-              ) : (
-                <audio src={url} controls preload="metadata" className="w-full" />
-              )}
+              <RecordingTimeline
+                src={url}
+                kind={isVideo ? 'video' : 'audio'}
+                recordingId={rec.id}
+                durationHint={rec.duration_seconds}
+                mediaClassName={isVideo ? 'w-full max-h-64 rounded bg-black' : 'w-full'}
+              />
               <div>
                 <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={download} disabled={downloading}>
                   <Download className="h-3 w-3 me-1" /> {downloading ? 'Preparing…' : 'Download'}

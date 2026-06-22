@@ -488,3 +488,23 @@ Dual-Knob Activation".
 
 `max_call_minutes_per_month` and `recording_retention_days` remain
 deferred (unchanged blockers).
+
+---
+
+### June 2026 — `max_call_minutes_per_month` Audit (no rollout)
+
+Strict single-limit audit; **honest defer**. No composer change,
+no resolver change, no route change. Composition policy for the
+future activation:
+
+- Plan-level only. No platform-admin / workspace-admin knob
+  exists for monthly call minutes. No dual-knob composition.
+- Effective value follows the standard plan + workspace-override
+  resolution via the existing entitlement composer; the
+  composer needs no change because the key already flows through
+  `billing_plans.limits` like every other numeric limit.
+- Billable policy, aggregation model, and enforcement boundary
+  are locked in `docs/CALL_NUMERIC_LIMITS.md`.
+
+`recording_retention_days` remains deferred (unchanged
+blockers).

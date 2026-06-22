@@ -417,3 +417,33 @@ platform-admin knob.
 
 Deferred (unchanged): `max_call_minutes_per_month`,
 `recording_retention_days`.
+
+---
+
+### June 2026 — `max_call_minutes_per_month` Audit (no rollout)
+
+Strict single-limit audit. Outcome: **honest defer, no runtime
+change**. Five concurrent real blockers (see
+`docs/CALL_NUMERIC_LIMITS.md` — "June 2026 —
+`max_call_minutes_per_month` Billable-Minute Policy + Monthly
+Aggregation Audit"):
+
+1. No `call_minutes_used` column on `workspace_usage_counters`.
+2. No settle-time monthly counter writer in `endSession.ts`.
+3. `call_sessions.duration_seconds` conflates non-connected time
+   (anchor fallback to `started_at`/`created_at`).
+4. `connected_at` writer coverage across every accept path is
+   not yet proven uniform.
+5. Create-time deny vs settle-time finality is a stated product
+   trade-off not yet locked at the product layer.
+
+Locked for the future activation pass: billable-minute policy
+(connected-only, `ceil((ended_at − connected_at)/60)`, UTC
+calendar month), canonical aggregation model (single
+`workspace_usage_counters.call_minutes_used` column with one
+SOLE producer), enforcement boundary (`POST /api/calls/create`
++ `POST /api/widget/calls/request`, plan-level only, first
+denial wins).
+
+`recording_retention_days` remains deferred, blocked on missing
+recording-janitor architecture (unchanged, out of scope).

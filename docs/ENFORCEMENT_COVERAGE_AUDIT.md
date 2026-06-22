@@ -399,3 +399,33 @@ Backlog after this pass:
 - `max_call_minutes_per_month` — still deferred (no
   monthly-aggregation counter).
 - `recording_retention_days` — still deferred (no janitor).
+
+---
+
+### June 2026 — `max_call_minutes_per_month` Audit (no rollout)
+
+Strict single-limit audit; outcome = **honest defer**. No runtime
+change. Blockers (all concurrent — any one alone is enough to
+defer):
+
+1. `workspace_usage_counters` has no `call_minutes_used` column.
+2. `endSession.ts` does not increment any monthly call counter.
+3. `call_sessions.duration_seconds` is anchored on the earliest
+   of `connected_at → started_at → created_at`, so it includes
+   non-connected time and cannot be reused as a billable signal.
+4. `connected_at` is only proven to be written on one accept
+   path (`server/routes/callCenter.ts` L597–605); a billable
+   policy gated on `connected_at IS NOT NULL` requires uniform
+   writer coverage across every entry path first.
+5. Create-time enforcement against a monthly cap is intrinsically
+   approximate (in-flight calls may exceed cap); this product
+   policy must be stated explicitly before shipping.
+
+Billable policy + canonical aggregation model + enforcement
+boundary are LOCKED in `docs/CALL_NUMERIC_LIMITS.md` so that the
+future activation pass has no remaining policy debate. This audit
+pass is documentation-only; no registry, resolver, route, schema,
+or test change.
+
+Backlog after this pass: same as before — `max_call_minutes_per_month`
+and `recording_retention_days` both remain deferred.

@@ -784,6 +784,51 @@ existing recording playback surfaces:
 - Real decoded waveform / amplitude rendering.
 - Annotations, comments, markers, chapters.
 - Bulk retention edits, bulk legacy adoption, bulk delete.
-- Cross-call / cross-workspace export.
+- Cross-workspace export (workspace-scoped multi-call export now exists; see below).
 - Streaming/chunked ZIP responses above the in-memory archive cap.
 - Legacy `call_recordings.storage_provider` backfill.
+
+## Workspace-scoped multi-call archive export (read-only)
+
+Extends the single-call archive surface to a bounded multi-call export
+inside one authorized workspace.
+
+- Route: `POST /api/call-center/workspaces/recordings/archive`
+  Body: `{ workspaceId, items: Array<{ call_id, recording_id }> }`
+- Authorization: `requireCallOperator(req, res, workspaceId)` — same gate
+  the per-row playback/download and single-call archive routes use.
+- Per-item validation: every `{ call_id, recording_id }` pair is re-checked
+  against `call_recordings.id`, `call_session_id`, and
+  `call_sessions.workspace_id`. Cross-workspace and cross-call items
+  return a uniform `not_found` exclusion in the manifest — no existence
+  leak, no token leak, no provider URL leak.
+- Caps (identical to single-call archive): `ARCHIVE_LIMIT=25` items per
+  request, `ARCHIVE_MAX_TOTAL_BYTES=500 MB` total uncompressed payload.
+- Partial-failure model: included items are packaged; excluded items are
+  listed in `manifest.txt` with their reason
+  (`not_found` / `missing_storage_path` / `download_failed` /
+  `archive_size_cap_exceeded`). Zero successes returns a structured
+  `404 no_recordings_available` instead of an empty archive.
+- Archive layout: files are grouped under `call-<call_id[:8]>/...` to
+  avoid filename collisions across calls. Only sanitized basenames
+  (`safeArchiveName`) appear inside the ZIP; no storage paths.
+- Bytes flow through the canonical `downloadFile` storage abstraction —
+  raw provider URLs and credentials are never exposed.
+- Retention, legal-hold, override, and deletion semantics are unchanged.
+  The janitor remains the sole deletion path.
+
+### UI surface
+- Operator Calls page (`src/pages/app/call-center/CallsPage.tsx`): adds a
+  per-row checkbox to the calls table and one explicit
+  "Export selected (ZIP)" header action. The client resolves recordings
+  per selected call via the existing `listCallRecordings` endpoint,
+  flattens to `items[]`, caps at 25, and posts to the workspace route.
+- The single-call "Download ZIP" action inside the call-detail panel and
+  all per-row playback/download flows remain unchanged.
+
+### Still deferred after this pass
+- Cross-workspace export.
+- Streaming/chunked ZIP responses above the in-memory archive cap.
+- Bulk retention edits, bulk legacy adoption, bulk delete.
+- Annotations / comments / decoded waveforms.
+- Legacy `call_recordings.storage_provider` backfill / re-stamp.

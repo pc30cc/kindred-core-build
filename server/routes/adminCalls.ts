@@ -588,10 +588,15 @@ adminCallsRouter.get('/recordings/:id/file', async (req, res) => {
   if (!storagePath) return res.status(410).json({ error: 'missing_storage_path' });
   if (!workspaceId) return res.status(409).json({ error: 'orphan_session' });
 
-  const dl = await downloadFile(config, workspaceId, storagePath);
+  const rangeHeader = typeof req.headers.range === 'string' ? req.headers.range : undefined;
+  const dl = await downloadFileRange(config, workspaceId, storagePath, rangeHeader);
   if (!dl.success || !dl.data) {
+    if (dl.status === 416) {
+      if (dl.totalSize != null) res.setHeader('Content-Range', `bytes */${dl.totalSize}`);
+      return res.status(416).json({ error: 'range_not_satisfiable' });
+    }
     const msg = String(dl.error || '').toLowerCase();
-    if (msg.includes('404') || msg.includes('not found') || msg.includes('no such')) {
+    if (dl.status === 404 || msg.includes('404') || msg.includes('not found') || msg.includes('no such')) {
       return res.status(404).json({ error: 'storage_object_missing' });
     }
     return res.status(502).json({ error: 'provider_download_failed', detail: dl.error || null });
@@ -604,9 +609,18 @@ adminCallsRouter.get('/recordings/:id/file', async (req, res) => {
   res.setHeader('Content-Type', ct);
   res.setHeader('Cache-Control', 'private, no-store');
   res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Accept-Ranges', 'bytes');
   res.setHeader(
     'Content-Disposition',
     `${wantAttachment ? 'attachment' : 'inline'}; filename="${fname.replace(/"/g, '')}"`,
   );
+  if (dl.contentLength != null) res.setHeader('Content-Length', String(dl.contentLength));
+  // Honor partial-content semantics when the provider acknowledged the range.
+  // If the client sent Range but the provider returned full 200, fall through
+  // to a normal 200 response so playback still works (read-only fallback).
+  if (rangeHeader && dl.status === 206) {
+    if (dl.contentRange) res.setHeader('Content-Range', dl.contentRange);
+    res.status(206);
+  }
   return res.send(dl.data);
 });

@@ -327,3 +327,20 @@ Drain Policy". With this, all non-numeric call surfaces have been
 route-audited under the deny-on-create / allow-on-continuity policy.
 Remaining call-side backlog: numeric call limits only, still blocked
 on missing usage resolvers.
+
+### June 2026 — Numeric Call Limits Feasibility Pass
+
+Strict feasibility audit of the three remaining numeric call-side
+limits: `max_concurrent_calls`, `max_call_minutes_per_month`,
+`recording_retention_days`. **Outcome: honest defer, no rollout.**
+No capability registry key was added, no usage resolver was added,
+no plan default changed, no call route or middleware changed.
+Per-limit blockers, semantics, counting models, and proposed unblock
+paths are documented in the new file `docs/CALL_NUMERIC_LIMITS.md`.
+Closest-to-ready limit is `max_concurrent_calls` (counting model is
+exact via the `idx_call_sessions_state_active` partial index), but
+it is blocked on a product-policy reconciliation with the existing
+platform-admin `platform_call_center_settings.
+max_concurrent_calls_per_workspace` knob already enforced at the
+visitor widget. Until that reconciliation is decided, all three stay
+deferred.

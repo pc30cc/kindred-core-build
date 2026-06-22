@@ -385,3 +385,22 @@ After this pass, the remaining call-side backlog reduces to **numeric
 call limits** (`max_concurrent_calls`, `max_call_minutes_per_month`,
 `recording_retention_days`), still blocked on missing usage resolvers
 and counters in `usageResolvers.ts` / `capabilityRegistry.ts`.
+
+### June 2026 — Numeric Call Limits Feasibility Pass
+
+Strict audit-only pass on the three remaining numeric call-side
+limits. Outcome: **no rollout** for any of the three. Full
+per-limit classification, semantics, counting models, enforcement
+boundaries, and exact blockers live in `docs/CALL_NUMERIC_LIMITS.md`.
+
+Summary:
+
+| Limit | Class | Blocker |
+|---|---|---|
+| `max_concurrent_calls` | NEEDS PRODUCT POLICY | Must reconcile plan key with existing platform-admin `platform_call_center_settings.max_concurrent_calls_per_workspace`; counting model itself is ready (`derived_count` over `idx_call_sessions_state_active`). |
+| `max_call_minutes_per_month` | NEEDS COUNTER / RESOLVER WORK | No settle-time write into `workspace_usage_counters`; `duration_seconds` exists on `call_sessions` but no monthly aggregate and no "billable duration" rule. |
+| `recording_retention_days` | NEEDS RETENTION / JANITOR ARCHITECTURE | No call-recordings janitor exists; only `attachmentJanitor.ts`. Retention has no create-time meaning, so `requireLimit` is the wrong mechanism. |
+
+No capability key was added or renamed, no resolver was added, no
+route or middleware changed. The canonical composer, registry, and
+plan defaults are untouched.

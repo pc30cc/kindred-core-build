@@ -32,6 +32,7 @@ import {
   mintAdminRecordingPlaybackToken,
   bulkSetAdminRecordingLegalHold,
   setAdminRecordingRetentionOverride,
+  restoreAdminRecordingRetention,
   type RetentionOverrideInput,
   type AdminRecordingRow,
   type RecordingRetentionStatus,
@@ -329,6 +330,100 @@ function RetentionOverrideEditor({ row }: { row: AdminRecordingRow }) {
           >
             {mut.isPending && <Loader2 className="h-3 w-3 animate-spin" />}
             Apply override
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * Single-row "Restore inherited retention" action.
+ *
+ * Visible ONLY for rows whose `retention_policy` starts with `override:`.
+ * Calls the super-admin `/retention-restore` route which recomputes the
+ * row's expiry from the workspace's CURRENT effective retention, anchored
+ * at the row's own `created_at`. `legal_hold` is never touched and still
+ * wins. The retention janitor remains the sole deletion path. Legacy/
+ * unmanaged rows do not see this control and the server refuses them.
+ */
+function RetentionRestoreButton({ row }: { row: AdminRecordingRow }) {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState('');
+  const mut = useMutation({
+    mutationFn: async () => restoreAdminRecordingRetention(row.id, reason.trim() || undefined),
+    onSuccess: () => {
+      setOpen(false);
+      setReason('');
+      qc.invalidateQueries({ queryKey: ['admin', 'call-recordings'] });
+    },
+  });
+  if (!row.retention_policy?.startsWith('override:')) return null;
+  return (
+    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) mut.reset(); }}>
+      <DialogTrigger asChild>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-6 px-2 text-[10px]"
+          data-testid={`retention-restore-open-${row.id}`}
+          aria-label={`Restore inherited retention for ${row.id}`}
+        >
+          Restore inherited
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-md" data-testid={`retention-restore-dialog-${row.id}`}>
+        <DialogHeader>
+          <DialogTitle className="text-sm">Restore inherited retention</DialogTitle>
+          <DialogDescription className="text-xs">
+            Recomputes this row's retention from the workspace's current effective
+            plan, anchored at the recording's creation time. Legal hold is unchanged
+            and still overrides expiry. The retention janitor remains the sole
+            deletion path. This action is audit-logged.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="text-[10px] text-muted-foreground">
+            Current: {row.retention_expires_at ? fmtDate(row.retention_expires_at) : 'no expiry stamped'}
+            {row.retention_policy ? ` · policy ${row.retention_policy}` : ''}
+            {row.legal_hold ? ' · legal hold active' : ''}
+          </div>
+          <div className="space-y-1">
+            <Label className="text-[11px]">Reason (optional)</Label>
+            <Input
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="e.g. Override no longer required"
+              maxLength={500}
+              className="h-8 text-xs"
+            />
+          </div>
+          {mut.isError && (
+            <div className="text-[11px] text-destructive" data-testid={`retention-restore-error-${row.id}`}>
+              {(mut.error as Error)?.message || 'Restore failed'}
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-8 text-xs"
+            disabled={mut.isPending}
+            onClick={() => setOpen(false)}
+          >
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            className="h-8 text-xs gap-1"
+            disabled={mut.isPending}
+            onClick={() => mut.mutate()}
+            data-testid={`retention-restore-submit-${row.id}`}
+          >
+            {mut.isPending && <Loader2 className="h-3 w-3 animate-spin" />}
+            Restore inherited
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -931,7 +1026,10 @@ export function RecordingRetentionPanel() {
                             Overridden ({r.retention_policy.replace(/^override:/, '')})
                           </span>
                         )}
-                        <RetentionOverrideEditor row={r} />
+                        <div className="flex items-center gap-1">
+                          <RetentionOverrideEditor row={r} />
+                          <RetentionRestoreButton row={r} />
+                        </div>
                       </div>
                     </td>
                     <td className="p-2"><RetentionStatusBadge status={r.status} /></td>

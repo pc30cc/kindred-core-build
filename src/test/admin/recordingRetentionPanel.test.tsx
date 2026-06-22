@@ -545,4 +545,71 @@ describe('RecordingRetentionPanel', () => {
     renderPanel();
     expect(await screen.findByTestId('retention-overridden-rec-5')).toBeInTheDocument();
   });
+
+  it('shows Restore inherited only on override:* rows and posts to the restore endpoint', async () => {
+    const mixed = [
+      { ...FIXTURE_ROWS[0], id: 'rec-ov', retention_policy: 'override:90d' },
+      { ...FIXTURE_ROWS[0], id: 'rec-plain', retention_policy: '30d' },
+      { ...FIXTURE_ROWS[3], id: 'rec-legacy', retention_policy: null },
+    ];
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    vi.spyOn(global, 'fetch' as any).mockImplementation(async (url: any, init?: any) => {
+      calls.push({ url: String(url), init });
+      if (String(url).includes('/retention-restore')) {
+        return {
+          ok: true,
+          json: async () => ({
+            id: 'rec-ov',
+            retention_policy: '30d',
+            retention_expires_at: new Date(Date.now() + 30 * 86400_000).toISOString(),
+            legal_hold: false,
+            inherited_source: 'workspace_or_plan',
+            inherited_days: 30,
+          }),
+        } as any;
+      }
+      return {
+        ok: true,
+        json: async () => ({ items: mixed, total: mixed.length, limit: 25, offset: 0 }),
+      } as any;
+    });
+
+    renderPanel();
+    expect(await screen.findByTestId('retention-restore-open-rec-ov')).toBeInTheDocument();
+    // Non-overridden + legacy rows must NOT expose the restore control.
+    expect(screen.queryByTestId('retention-restore-open-rec-plain')).toBeNull();
+    expect(screen.queryByTestId('retention-restore-open-rec-legacy')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('retention-restore-open-rec-ov'));
+    fireEvent.click(await screen.findByTestId('retention-restore-submit-rec-ov'));
+
+    await waitFor(() => {
+      expect(
+        calls.some((c) => c.url.includes('/api/admin/calls/recordings/rec-ov/retention-restore')),
+      ).toBe(true);
+    });
+    const restore = calls.find((c) => c.url.includes('/retention-restore'))!;
+    expect(restore.init?.method).toBe('POST');
+    const body = JSON.parse(String(restore.init?.body || '{}'));
+    // Never touches legal_hold; never carries a retention_expires_at override.
+    expect(body).not.toHaveProperty('legal_hold');
+    expect(body).not.toHaveProperty('retention_expires_at');
+    expect(body).not.toHaveProperty('mode');
+  });
+
+  it('restore dialog exposes no delete/purge/backfill controls', async () => {
+    const overridden = [{ ...FIXTURE_ROWS[0], id: 'rec-ov', retention_policy: 'override:90d' }];
+    vi.spyOn(global, 'fetch' as any).mockResolvedValue({
+      ok: true,
+      json: async () => ({ items: overridden, total: 1, limit: 25, offset: 0 }),
+    } as any);
+    renderPanel();
+    fireEvent.click(await screen.findByTestId('retention-restore-open-rec-ov'));
+    const dialog = await screen.findByTestId('retention-restore-dialog-rec-ov');
+    const text = (dialog.textContent || '').toLowerCase();
+    expect(text).not.toMatch(/\bdelete\b/);
+    expect(text).not.toMatch(/\bpurge\b/);
+    expect(text).not.toMatch(/backfill/);
+    expect(within(dialog).queryByTestId('legal-hold-toggle-rec-ov')).toBeNull();
+  });
 });

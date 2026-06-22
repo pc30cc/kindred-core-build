@@ -210,6 +210,21 @@ is_active = true`.
 > sequence (resolver register → middleware mount → SQL UPDATE on
 > `billing_plans`).
 
+> **Update 2026-06-22 (Max Agents Final Activation phase) —
+> CORRECTION.** The "narrow REVOKE" framing above is **wrong** and is
+> retracted. Live `pg_proc` audit confirms `EXECUTE` is held by
+> `anon`, `authenticated`, `service_role`, and `public`, but the
+> canonical Express route also runs as the `authenticated` role
+> (anon-key + user JWT), so a `REVOKE … FROM authenticated` would
+> break the canonical path along with the bypass. The real unblock
+> requires either a new SECURITY DEFINER companion RPC
+> `accept_workspace_invitation_as(_token, _user_id)` granted only to
+> `service_role`, or replacing the RPC call with JS logic in the
+> Express route. Both are larger than this phase's scope and are
+> deferred to an explicit follow-up. No seed migration was applied.
+> See `docs/MAX_AGENTS_POLICY.md` §4.2 for the corrected unblock
+> matrix.
+
 ---
 
 ## 7. How to extend this audit safely

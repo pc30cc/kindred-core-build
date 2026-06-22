@@ -594,3 +594,26 @@ Architectural guardrails enforced by the UI:
   (deferred).
 - Read-only — no route/env/schema/capability rename; janitor remains
   the sole deletion path.
+
+### Recording tokenized native playback (super-admin, short-lived URL)
+- Two narrow surfaces added; no rename/relocation of existing routes,
+  env, schema, or capability keys.
+  - `POST /api/admin/calls/recordings/:id/playback-token` (bearer-
+    protected, super-admin) → mints a stateless HMAC-SHA256 grant
+    bound to one recording id + disposition with default 5-minute TTL
+    (hard cap 15 min). Returns `{ url, token, expires_at, ttl_seconds }`.
+  - `GET /api/calls/recording-playback/:id?token=…&disposition=…`
+    (token-validated, not under `/api/admin`) → validates the token
+    and proxies bytes through `downloadFileRange`. Range / 206 /
+    Accept-Ranges preserved end-to-end so native `<audio>` /
+    `<video>` can issue Range requests directly.
+- Signing key derives from the server-only service-role secret via
+  domain-separated HMAC; never reaches the browser.
+- Frontend `InlinePreview` now prefers the tokenized URL when the row
+  metadata identifies audio vs video unambiguously; otherwise it falls
+  back to the existing authenticated Blob + object-URL path.
+- Open / Save remain on the bearer-protected Blob path — unchanged.
+- Read-only: no writes to `call_recordings`, no edits to
+  `retention_expires_at`, no deletes. Janitor remains the sole
+  deletion path. Inline-only tokens cannot be escalated to forced
+  downloads.

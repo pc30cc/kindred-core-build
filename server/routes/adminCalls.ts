@@ -20,6 +20,10 @@ import {
 import { resolveCallProviderOrder, getCallProvider } from '../services/calls/providerResolver.js';
 import { downloadFile, downloadFileRange } from '../services/storage/index.js';
 import {
+  mintPlaybackToken,
+  type PlaybackDisposition,
+} from '../services/calls/recordingPlaybackToken.js';
+import {
   loadAgoraConfig,
   saveAgoraConfig,
   toPublicView,
@@ -623,4 +627,61 @@ adminCallsRouter.get('/recordings/:id/file', async (req, res) => {
     res.status(206);
   }
   return res.send(dl.data);
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Tokenized native playback (read-only).
+//
+//   POST /api/admin/calls/recordings/:id/playback-token
+//
+// Mints a short-lived HMAC token (default 5 min, hard cap 15 min) the admin
+// UI can hand to a native <audio>/<video> element as part of a tokenized
+// URL on the public streaming route. Bearer-protected super-admin auth is
+// still required to MINT — the token itself is just a stateless time-boxed
+// grant for the recording id + disposition it was minted with. The token
+// never carries provider URLs or credentials; the streaming route still
+// fetches bytes through the same canonical storage abstraction.
+//
+// Retention/legal-hold semantics are unaffected: this surface never writes
+// to call_recordings or storage, and the janitor remains the sole deletion
+// path.
+// ─────────────────────────────────────────────────────────────────────────
+adminCallsRouter.post('/recordings/:id/playback-token', async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
+  const id = String(req.params.id || '');
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'invalid_id' });
+
+  const dispositionRaw = String(
+    (req.body && req.body.disposition) || req.query.disposition || 'inline',
+  ).toLowerCase();
+  const disposition: PlaybackDisposition =
+    dispositionRaw === 'attachment' ? 'attachment' : 'inline';
+
+  // Confirm the recording exists before minting so the operator gets a
+  // clean 404 here instead of on first Range request.
+  const sb = getServiceClient(config);
+  const { data: row, error } = await sb
+    .from('call_recordings')
+    .select('id, storage_path')
+    .eq('id', id)
+    .maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  if (!row) return res.status(404).json({ error: 'not_found' });
+  if (!(row as any).storage_path) return res.status(410).json({ error: 'missing_storage_path' });
+
+  const minted = mintPlaybackToken(config, { recordingId: id, disposition });
+  // Build a path the browser can use directly as <audio src>/<video src>.
+  // The route is mounted at /api/calls/recording-playback/:id in server/index.ts.
+  const url =
+    `/api/calls/recording-playback/${encodeURIComponent(id)}` +
+    `?token=${encodeURIComponent(minted.token)}` +
+    `&disposition=${minted.disposition}`;
+  res.json({
+    recording_id: id,
+    url,
+    token: minted.token,
+    disposition: minted.disposition,
+    expires_at: minted.expires_at,
+    ttl_seconds: minted.ttl_seconds,
+  });
 });

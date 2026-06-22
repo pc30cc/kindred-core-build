@@ -31,6 +31,7 @@ import { widgetKbRouter, publicKbRouter } from './routes/kb.js';
 import { privacyRouter } from './routes/privacy.js';
 import { callsRouter } from './routes/calls.js';
 import { livekitWebhookRouter } from './routes/livekitWebhook.js';
+import { recordingPlaybackRouter } from './routes/recordingPlayback.js';
 import { callQueueRouter } from './routes/callQueue.js';
 import { workspaceCallsRouter } from './routes/workspaceCalls.js';
 import { callAvailabilityRouter } from './routes/callAvailability.js';
@@ -278,6 +279,12 @@ app.use('/api/plans', plansRouter);
 
 // Admin — moderate rate limit
 app.use('/api/admin', adminRateLimiter, adminRouter);
+
+// Tokenized super-admin recording playback (read-only). Not under
+// /api/admin because native <audio>/<video> elements cannot attach a
+// bearer header — access is governed by short-lived HMAC tokens minted
+// by POST /api/admin/calls/recordings/:id/playback-token.
+app.use('/api/calls/recording-playback', recordingPlaybackRouter);
 
 // Platform admin: Map & Geo (mounted under /api/admin/map-geo, admin role enforced inside)
 app.use('/api/admin/map-geo', adminRateLimiter, mapGeoRouter);

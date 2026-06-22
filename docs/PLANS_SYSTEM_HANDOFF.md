@@ -265,5 +265,23 @@ remains **not enforced**; no resolver, no middleware, no seed
 migration was applied this phase. See `docs/MAX_AGENTS_POLICY.md`
 §4.2 for the corrected unblock matrix.
 
+_Status update 2026-06-22 (Service-Role Companion RPC + Max Agents
+Activation phase):_ **`max_agents` is now LIVE.** The companion-RPC
+option was applied:
+`public.accept_workspace_invitation_as(_token, _user_id)` is now
+the SECURITY DEFINER service-role-only path the Express route
+calls. `EXECUTE` on the original `accept_workspace_invitation(text)`
+is revoked from `anon`/`authenticated`/`public` (browser bypass
+closed; `service_role` retains EXECUTE for legacy/internal use).
+`resolveMaxAgents` is registered in `usageResolvers.ts` (added to
+`USAGE_BACKED_LIMIT_KEYS`), and
+`requireLimit('max_agents', usageFnForLimit('max_agents'))` is
+mounted on `POST /api/workspace-members/accept-invitation` with an
+already-member skip so re-accepts do not consume a new seat. The
+`team_members → max_agents` seed mirror has been applied
+(free=2 / pro=10 / enterprise=-1); legacy `team_members` and
+`agents` keys are preserved for one release. See
+`docs/MAX_AGENTS_POLICY.md` §4.3.
+
 If this doc disagrees with code, the code wins and this doc must be
 updated — but the system itself is finished.

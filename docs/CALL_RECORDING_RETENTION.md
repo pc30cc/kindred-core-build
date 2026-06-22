@@ -442,6 +442,46 @@ Body: `{ reason?: string }`
 
 ### Still deferred after the restore-to-inherited pass
 - Bulk retention edits / bulk delete.
-- Optional legacy backfill UI.
+- Operator-side visibility.
+- Waveform/timeline UI, annotations, comments.
+
+## Legacy adoption (single-row backfill) — implemented
+
+Narrow, one-row-at-a-time path for adopting legacy/unmanaged recordings
+(those with `retention_expires_at IS NULL` AND `retention_policy IS NULL`)
+into the managed retention model. There is **no bulk adoption, no
+implicit backfill, and no scheduled adoption** — every adopted row is
+the result of one explicit super-admin click.
+
+### Adoption policy
+- Eligible **only** for rows that are legacy/unmanaged. Already-managed
+  rows (any non-null `retention_policy`, including `unlimited` and
+  `override:*`) return `409 not_legacy`.
+- "Adopted" means the SAME computation `stampRetention` performs at
+  insert time: `resolveEffectiveRecordingRetentionDays(workspaceId)` +
+  `computeRetentionExpiresAt(row.created_at, days)`. Reuses the single
+  canonical helper — no second retention engine.
+- Writes `retention_policy = '<N>d' | 'unlimited'` and
+  `retention_expires_at = created_at + Nd` (NULL for unlimited).
+- `legal_hold` is never touched and still wins over expiry.
+- If the recomputed expiry is already in the past, the row simply
+  becomes janitor-eligible on the next sweep. The janitor remains the
+  sole deletion path; adoption itself never deletes.
+- Audit-logged as `call_recording.retention.adopt` with
+  `{ inherited_source, inherited_days, reason }`.
+
+### Backend
+`POST /api/admin/calls/recordings/:id/retention-adopt`
+Body: `{ reason?: string }`
+
+### Frontend
+- Per-row "Adopt retention" button rendered in the Expires cell of the
+  Recordings tab, **only** for legacy/unmanaged rows.
+- Compact confirmation dialog explaining the inherited-retention model
+  and the past-expiry → janitor-eligible consequence.
+- No bulk surface, no delete shortcut, no legal-hold mutation.
+
+### Still deferred after the legacy adoption pass
+- Bulk retention edits / bulk legacy adoption / bulk delete.
 - Operator-side visibility.
 - Waveform/timeline UI, annotations, comments.

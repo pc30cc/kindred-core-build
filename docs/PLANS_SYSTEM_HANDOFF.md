@@ -701,3 +701,32 @@ Architectural guardrails enforced by the UI:
 - Still deferred after this pass: bulk retention edits / bulk delete,
   optional legacy backfill UI, operator-side visibility,
   waveform/timeline UI, annotations/comments.
+
+## Recording legacy adoption (super-admin, single row)
+
+- Narrow one-row backfill path for legacy/unmanaged recordings
+  (`retention_expires_at IS NULL` AND `retention_policy IS NULL`).
+- `POST /api/admin/calls/recordings/:id/retention-adopt`
+  body `{ reason?: string }`.
+- Eligible only for legacy rows. Already-managed rows (any non-null
+  policy, including `unlimited` and `override:*`) return `409
+  not_legacy`. No bulk adoption, no implicit/scheduled backfill.
+- Reuses the same canonical helpers as insert-time stamping
+  (`resolveEffectiveRecordingRetentionDays` +
+  `computeRetentionExpiresAt`) anchored at the row's `created_at` —
+  no second retention engine.
+- Writes `retention_policy = '<N>d' | 'unlimited'` and matching
+  `retention_expires_at`. `legal_hold` is never touched and still
+  wins over expiry.
+- Adoption never deletes; a recomputed past expiry simply makes the
+  row janitor-eligible on the next sweep. Janitor remains the sole
+  deletion path.
+- Audit-logged as `call_recording.retention.adopt` with
+  `{ inherited_source, inherited_days, reason }`.
+- Frontend: per-row "Adopt retention" button in the Expires cell,
+  visible only on legacy rows. Compact confirmation dialog spells out
+  the past-expiry → janitor-eligible consequence. No bulk surface,
+  no delete control, no legal-hold mutation.
+- Still deferred after this pass: bulk retention edits / bulk legacy
+  adoption / bulk delete, operator-side visibility, waveform/timeline
+  UI, annotations/comments.

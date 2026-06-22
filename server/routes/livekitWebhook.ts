@@ -34,6 +34,7 @@ import {
   resolveEffectiveRecordingRetentionDays,
   computeRetentionExpiresAt,
 } from '../services/recordings/recordingRetention.js';
+import { resolveStorageConfig } from '../services/storage/index.js';
 
 export const livekitWebhookRouter = Router();
 
@@ -277,16 +278,36 @@ async function applyEvent(
           const eff = await resolveEffectiveRecordingRetentionDays(config, session.workspace_id);
           const createdAtIso = new Date().toISOString();
           const retentionExpiresAt = computeRetentionExpiresAt(createdAtIso, eff.days);
+          // Stamp storage_provider with the workspace's currently-effective
+          // selected storage provider (canonical resolveStorageConfig path —
+          // same resolver the read/playback/download/archive/janitor flows
+          // use). Never hardcode a vendor here: doing so misreports the
+          // backing store on multi-provider deployments and prevents
+          // accurate provider audits. Legacy rows that pre-date this fix
+          // keep their historical tag; read paths route by workspace
+          // resolution, not by this column.
+          let resolvedProvider = 'local';
+          try {
+            const sc = await resolveStorageConfig(config, session.workspace_id);
+            if (sc?.provider) resolvedProvider = sc.provider;
+          } catch {
+            // Fall through with 'local' default — never block recording
+            // ingest on provider resolution failure.
+          }
           await sb.from('call_recordings').insert({
             call_session_id: session.id,
             provider: session.provider,
             provider_recording_id: egId,
             recording_type: 'composite',
-            storage_provider: 's3',
+            storage_provider: resolvedProvider,
             storage_path: '', // populated on egress_ended with file path
             retention_policy: eff.days < 0 ? 'unlimited' : `${eff.days}d`,
             retention_expires_at: retentionExpiresAt,
-            metadata: { status: 'recording', retention_source: eff.source },
+            metadata: {
+              status: 'recording',
+              retention_source: eff.source,
+              storage_provider_source: 'workspace_effective',
+            },
           });
         }
       }

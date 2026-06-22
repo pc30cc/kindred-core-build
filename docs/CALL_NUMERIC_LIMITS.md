@@ -325,3 +325,107 @@ The remaining blocker for `max_concurrent_calls` is now precisely:
 `max_call_minutes_per_month` and `recording_retention_days` remain
 deferred for the unchanged reasons documented earlier in this file
 (no settle-time counter; no retention janitor).
+---
+
+## June 2026 — Widget Concurrency Counting-Model Migration Pass
+
+**Scope:** evaluate whether `POST /api/widget/calls/create` can be
+migrated from its current widget-scoped concurrency count to the
+canonical active-session counting model used by the future
+`max_concurrent_calls` plan enforcement.
+
+### A. Widget concurrency audit
+
+- **Route:** `POST /api/widget/calls/create` in
+  `server/routes/callWidget.ts` (concurrency check at line 869).
+- **Limit source:** `effective.max_concurrent_calls` from
+  `computeEffectiveCallCenterCaps(platform, ws)` — i.e. the
+  workspace/platform **call-center settings** knob, *not* the plan
+  capability key `max_concurrent_calls`.
+- **Counting query (today):**
+  ```ts
+  sb.from('call_sessions')
+    .select('id', { count: 'exact', head: true })
+    .eq('workspace_id', ws.workspace_id)
+    .eq('entry_source', 'call_widget')
+    .in('state', ['active', 'ringing', 'connecting']);
+  ```
+- **States counted today:** `active`, `ringing`, `connecting`.
+  Excludes `pending`.
+- **Entry sources counted today:** only `call_widget`.
+  Excludes operator-initiated, invitation-initiated, callback-initiated,
+  and call-center-initiated sessions.
+- **Canonical active-call model** (target):
+  `state IN ('pending','ringing','connecting','active')` across
+  **all** `entry_source` values, backed by
+  `idx_call_sessions_state_active`.
+
+### Behavioral delta if widened immediately
+
+1. **`pending` inclusion** — silently tightens the live limit by ~1
+   for every in-flight create (race window between insert and
+   transition to `ringing`). Tenants at the current cap would start
+   hitting `429 limit_reached` on otherwise-valid first calls.
+2. **Cross-entry-source inclusion** — operator-dialed, invitation,
+   and callback calls would begin consuming the **widget** budget.
+   The widget knob's documented semantics are "max simultaneous
+   *widget* calls", so this is a semantic change, not just a count
+   change. Workspaces with active operator-side traffic would see
+   widget rejection rates rise with no migration notice.
+
+### B. Backward-compatibility policy locked
+
+- The widget knob (`platform_call_center_settings.max_concurrent_calls_per_workspace`
+  / workspace override) and the future plan key
+  `max_concurrent_calls` are **two different products**:
+  - widget knob = "how many simultaneous **widget-originated** calls"
+  - plan key = "how many simultaneous **workspace-wide** active calls"
+- Silently merging them by widening the widget count violates the
+  locked deny-on-create / allow-on-continuity policy and would
+  retroactively tighten live tenants without a policy decision.
+- Acceptable migration paths (none applied this pass):
+  1. **Dual-knob model.** Keep widget-scoped count for the widget
+     knob; introduce a **separate** workspace-wide count for the
+     plan key. Both checks run; first denial wins. This is the
+     least risky path but requires a second count query and a
+     dedicated capability activation phase.
+  2. **Rename + re-scope.** Reinterpret the widget knob as the
+     workspace-wide cap, document the breaking change, ship a
+     migration note, and only then widen the count. Requires
+     product sign-off and a release-note plan.
+
+### C. Outcome — HONEST DEFER (Path B from spec)
+
+**No runtime change applied.** The mismatch is real and the
+correct migration path is Option 1 (dual-knob), not in-place
+widening of the existing query. Activating that requires:
+
+- a new counting helper `countActiveCallSessions(workspace_id)`
+  that queries `call_sessions` with the canonical state set across
+  all entry sources (uses `idx_call_sessions_state_active`);
+- a new check at `POST /api/calls/create` and
+  `POST /api/widget/calls/create` that runs **in addition to** the
+  existing widget-scoped check, gated on plan
+  `max_concurrent_calls` (with `-1`/`null` = unlimited);
+- preserving the existing widget-scoped query unchanged so the
+  widget knob keeps its documented meaning.
+
+### Remaining blockers before final `max_concurrent_calls` activation
+
+1. Implement `countActiveCallSessions` helper (canonical counting).
+2. Wire it as a **second, additive** check at the two create
+   boundaries — never replacing the widget-scoped query.
+3. Apply the locked precedence rule
+   `effective = min(plan, platform)` only over the **canonical**
+   count, not the widget-scoped count.
+4. Tests proving: (a) widget-scoped denial still fires at the
+   existing boundary; (b) canonical denial fires independently
+   when plan cap is lower; (c) `-1`/`null` on either side does
+   not contribute to the `min`.
+
+### Next phase after this one
+
+"`max_concurrent_calls` Dual-Knob Activation" — implement the
+canonical counting helper and add the second additive check at
+both create boundaries, leaving the widget knob's semantics
+intact.

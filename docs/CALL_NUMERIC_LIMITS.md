@@ -429,3 +429,123 @@ widening of the existing query. Activating that requires:
 canonical counting helper and add the second additive check at
 both create boundaries, leaving the widget knob's semantics
 intact.
+
+---
+
+## June 2026 — `max_concurrent_calls` Dual-Knob Activation (LIVE)
+
+**Status:** `max_concurrent_calls` is now a live plan-level limit
+enforced at both call-creation boundaries via a separate, additive
+ceiling. The widget-scoped platform-admin knob keeps its prior
+meaning unchanged.
+
+### Dual-knob policy (LOCKED, NOW LIVE)
+
+| Knob | Source of truth | Scope | Counting model | Enforced at | Denial shape |
+|---|---|---|---|---|---|
+| Widget platform knob | `platform_call_center_settings.max_concurrent_calls_per_workspace` (admin) | **Widget-only** (`entry_source = 'call_widget'`) | `state IN ('active','ringing','connecting')` (excludes `pending`) | `POST /api/widget/calls/request` only | `429 { error: 'limit_reached', kind: 'concurrent' }` (unchanged) |
+| Plan key | `billing_plans.limits.max_concurrent_calls` + `workspace_limit_overrides` | **Workspace-wide** (all `entry_source` values) | `state IN ('pending','ringing','connecting','active')` via `idx_call_sessions_state_active` | `POST /api/calls/create` (operator) AND `POST /api/widget/calls/request` (visitor) | `429 { error: 'plan_limit_reached', capability: 'max_concurrent_calls', limit, used, plan, upgrade_required: true }` (at-or-over) / `403 { error: 'plan_forbidden', … }` (key missing on plan) |
+
+**Independence:** the two knobs are intentionally NOT composed via
+`min(plan, admin)`. They count different row sets and exist for
+different reasons. Both checks run independently at the create
+boundary; **first denial wins**. Order of checks at the visitor
+widget boundary: existing widget knob first (preserves shipped
+behavior), then plan ceiling.
+
+### Enforcement boundaries (live)
+
+- **`POST /api/calls/create`** (operator) — `server/routes/calls.ts`:
+  plan ceiling check via `checkPlanConcurrencyCeiling(config, ws)`
+  runs AFTER the call-type composer gate and BEFORE any provider
+  resolution / row insert. No widget-knob check here (this route
+  is not widget-scoped).
+- **`POST /api/widget/calls/request`** (visitor) — `server/routes/callWidget.ts`:
+  existing widget-knob check at L869 retained as-is; new plan
+  ceiling check added immediately after, also pre-insert. Both
+  ceilings can deny; first denial wins.
+
+### Canonical counting model (plan key only)
+
+Defined in `server/services/billing/usageResolvers.ts`:
+`resolveMaxConcurrentCalls`. Single live `count: 'exact'` query
+against `public.call_sessions` filtered by `workspace_id` and the
+four canonical active states, no `entry_source` filter. Backed by
+`idx_call_sessions_state_active`. Period kind = `lifetime` (this is
+occupancy, not a monthly throughput).
+
+The widget-scoped count in `callWidget.ts` is UNCHANGED.
+There are now exactly TWO concurrency count queries in the system,
+each scoped to its own knob, each documented above.
+
+### Capability registry & seed
+
+- `max_concurrent_calls` added to `CAPABILITY_REGISTRY` in
+  `server/services/billing/capabilityRegistry.ts`
+  (`type: 'limit'`, `group: 'calls'`, `defaultValue: -1`,
+  `planConfigurable: true`, `workspaceOverridable: true`,
+  `unit: 'count'`). Also added to `USAGE_BACKED_LIMIT_KEYS` so the
+  plan-create normalizer fills the key on new plans.
+- Activation migration `20260622-* — max_concurrent_calls dual-knob`
+  backfills every existing `billing_plans.limits` row with
+  `max_concurrent_calls = -1` (unlimited) where absent. This
+  preserves current behavior; without this seed
+  `check_workspace_entitlement('max_concurrent_calls')` would
+  return `feature_not_in_plan` and silently deny every call.
+
+### Denial contract (live)
+
+- Widget knob denial: `429 { error: 'limit_reached', kind: 'concurrent' }`
+  — **unchanged**, distinguishable by `kind`.
+- Plan ceiling denial (over limit): `429 { error: 'plan_limit_reached',
+  capability: 'max_concurrent_calls', limit, used, plan,
+  upgrade_required: true }`.
+- Plan ceiling denial (plan missing key — should not happen post-seed):
+  `403 { error: 'plan_forbidden', capability: 'max_concurrent_calls', … }`.
+- Plan ceiling denial (count failed): `403 { error: 'usage_unavailable',
+  capability: 'max_concurrent_calls', … }` — fail-closed.
+- Both fired in the same request: the first ceiling to deny wins
+  (widget knob is checked first at the visitor widget boundary, so
+  its `limit_reached` shape takes precedence there).
+
+### Backward-compatibility safeguards
+
+- Widget knob query, source-of-truth, and denial shape UNCHANGED.
+- Existing tenants get `max_concurrent_calls = -1` (unlimited) by
+  the activation migration → no observable behavior change on
+  upgrade.
+- No call capability key renamed; no route, env var, schema, or
+  middleware contract renamed; no call lifecycle branch (accept /
+  reject / hangup / end / token / state / recording-stop) gated
+  (deny-on-create / allow-on-continuity preserved).
+- `-1` and any negative limit are treated as unlimited (registry
+  convention).
+
+### Validation performed
+
+- New focused test
+  `src/test/billing/maxConcurrentCallsDualKnob.test.ts`:
+  - resolver returns canonical count; under-limit allows;
+    at-limit denies with `plan_limit_reached`; unlimited (-1)
+    short-circuits; missing key → `plan_forbidden`; count
+    failure → fail-closed `usage_unavailable`;
+  - denial body shape distinct from widget-knob shape.
+- Existing `operatorCallCreateGating.test.ts` mocks
+  `loadEffectiveCallEntitlements` only; the new helper is not on
+  its mock graph, so its assertions about `plan_forbidden` from
+  the composer remain valid.
+- Existing test suites that asserted the widget-knob denial shape
+  continue to pass — the widget-knob query is byte-identical.
+
+### What remains deferred after this pass
+
+- `max_call_minutes_per_month` — still blocked on missing monthly
+  aggregation column / billable-minute policy (no settle-time
+  hook). Not in scope.
+- `recording_retention_days` — still blocked on missing
+  recording-janitor architecture. Not in scope.
+- Composing the widget-knob and plan key into a single `min`
+  effective value is INTENTIONALLY not done; their counting models
+  count different things and combining them would silently
+  reinterpret the widget knob (the failure mode the prior audit
+  was created to avoid).

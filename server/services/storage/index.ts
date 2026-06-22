@@ -270,6 +270,177 @@ export interface DownloadResult {
   error?: string;
 }
 
+// ─── Ranged Download (read-only, optional Range header) ──────────
+//
+// Used by the super-admin recording proxy to honor HTTP Range requests
+// without pulling the entire artifact into memory when the client only
+// needs a slice. The provider abstraction stays canonical: callers never
+// see provider URLs or credentials. Behavior:
+//
+//   • rangeHeader undefined → full download (status 200)
+//   • rangeHeader present + provider supports range → 206 with sliced bytes
+//   • rangeHeader present + provider returns 200 → caller MUST treat as full
+//
+// This helper is intentionally read-only; it never mutates storage.
+
+export interface RangedDownloadResult {
+  success: boolean;
+  status?: number;            // 200 (full) or 206 (partial)
+  data?: Buffer;
+  error?: string;
+  contentLength?: number;     // length of returned body
+  contentRange?: string;      // e.g. "bytes 0-1023/10485760"
+  totalSize?: number;         // total object size when known
+  acceptRanges?: boolean;     // provider confirmed range support
+}
+
+function parseSingleRange(range: string, totalSize?: number): { start: number; end?: number } | null {
+  // Accept only the simple "bytes=START-END" / "bytes=START-" form.
+  const m = /^bytes=(\d+)-(\d*)$/i.exec(range.trim());
+  if (!m) return null;
+  const start = Number(m[1]);
+  const end = m[2] ? Number(m[2]) : (totalSize != null ? totalSize - 1 : undefined);
+  if (!Number.isFinite(start) || start < 0) return null;
+  if (end != null && (!Number.isFinite(end) || end < start)) return null;
+  return { start, end };
+}
+
+async function bunnyDownloadRange(
+  config: StorageConfig,
+  fileKey: string,
+  rangeHeader?: string,
+): Promise<RangedDownloadResult> {
+  const regionPrefix = config.region && config.region !== 'de' ? `${config.region}.` : '';
+  const baseUrl = `https://${regionPrefix}storage.bunnycdn.com/${config.storageZone}`;
+  const headers: Record<string, string> = { 'AccessKey': config.apiKey! };
+  if (rangeHeader) headers['Range'] = rangeHeader;
+  const res = await fetch(`${baseUrl}/${fileKey}`, { method: 'GET', headers });
+  if (!res.ok && res.status !== 206) {
+    return { success: false, status: res.status, error: `BunnyCDN download failed: ${res.statusText}` };
+  }
+  const buf = Buffer.from(await res.arrayBuffer());
+  const cr = res.headers.get('content-range') || undefined;
+  const cl = res.headers.get('content-length');
+  return {
+    success: true,
+    status: res.status,
+    data: buf,
+    contentLength: cl ? Number(cl) : buf.length,
+    contentRange: cr,
+    acceptRanges: res.status === 206 || /bytes/i.test(res.headers.get('accept-ranges') || ''),
+  };
+}
+
+async function s3DownloadRange(
+  config: StorageConfig,
+  fileKey: string,
+  rangeHeader?: string,
+): Promise<RangedDownloadResult> {
+  const endpoint = getS3Endpoint(config);
+  const url = `${endpoint}/${config.bucket}/${fileKey}`;
+  const baseHeaders = signS3Request('GET', url, config);
+  const headers: Record<string, string> = { ...baseHeaders };
+  if (rangeHeader) headers['Range'] = rangeHeader;
+  const res = await fetch(url, { method: 'GET', headers });
+  if (!res.ok && res.status !== 206) {
+    return { success: false, status: res.status, error: `S3 download failed: ${res.status}` };
+  }
+  const buf = Buffer.from(await res.arrayBuffer());
+  const cr = res.headers.get('content-range') || undefined;
+  const cl = res.headers.get('content-length');
+  return {
+    success: true,
+    status: res.status,
+    data: buf,
+    contentLength: cl ? Number(cl) : buf.length,
+    contentRange: cr,
+    acceptRanges: res.status === 206 || /bytes/i.test(res.headers.get('accept-ranges') || ''),
+  };
+}
+
+async function localDownloadRange(
+  config: StorageConfig,
+  fileKey: string,
+  rangeHeader?: string,
+): Promise<RangedDownloadResult> {
+  try {
+    const filePath = path.join(config.localPath || '/tmp/storage', fileKey);
+    const stat = fs.statSync(filePath);
+    const total = stat.size;
+    if (!rangeHeader) {
+      const data = fs.readFileSync(filePath);
+      return {
+        success: true,
+        status: 200,
+        data,
+        contentLength: data.length,
+        totalSize: total,
+        acceptRanges: true,
+      };
+    }
+    const parsed = parseSingleRange(rangeHeader, total);
+    if (!parsed) {
+      // Unsatisfiable: return full body and let caller treat as 200.
+      const data = fs.readFileSync(filePath);
+      return { success: true, status: 200, data, contentLength: data.length, totalSize: total, acceptRanges: true };
+    }
+    const start = parsed.start;
+    const end = Math.min(parsed.end ?? total - 1, total - 1);
+    if (start >= total) {
+      return { success: false, status: 416, error: 'range_not_satisfiable', totalSize: total };
+    }
+    const length = end - start + 1;
+    const fd = fs.openSync(filePath, 'r');
+    try {
+      const buf = Buffer.alloc(length);
+      fs.readSync(fd, buf, 0, length, start);
+      return {
+        success: true,
+        status: 206,
+        data: buf,
+        contentLength: length,
+        contentRange: `bytes ${start}-${end}/${total}`,
+        totalSize: total,
+        acceptRanges: true,
+      };
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
+const rangedDownloadHandlers: Record<string, (c: StorageConfig, k: string, r?: string) => Promise<RangedDownloadResult>> = {
+  bunny_storage: bunnyDownloadRange,
+  s3: s3DownloadRange,
+  cloudflare_r2: s3DownloadRange,
+  minio: s3DownloadRange,
+  do_spaces: s3DownloadRange,
+  gcs: s3DownloadRange,
+  azure_blob: s3DownloadRange,
+  local: localDownloadRange,
+};
+
+/**
+ * Download a file's bytes through the active provider, optionally honoring
+ * an HTTP Range header. Read-only. Used by the super-admin recording proxy
+ * so large recordings stream as partial content instead of being fully
+ * buffered. Callers MUST handle both 200 (full) and 206 (partial) results.
+ */
+export async function downloadFileRange(
+  serverConfig: ServerConfig,
+  workspaceId: string,
+  fileKey: string,
+  rangeHeader?: string,
+): Promise<RangedDownloadResult> {
+  const storageConfig = await resolveStorageConfig(serverConfig, workspaceId);
+  if (!storageConfig) return { success: false, error: 'No storage provider configured' };
+  const handler = rangedDownloadHandlers[storageConfig.provider];
+  if (!handler) return { success: false, error: `Unsupported provider: ${storageConfig.provider}` };
+  return handler(storageConfig, fileKey, rangeHeader);
+}
+
 async function bunnyDownload(config: StorageConfig, fileKey: string): Promise<DownloadResult> {
   const regionPrefix = config.region && config.region !== 'de' ? `${config.region}.` : '';
   const baseUrl = `https://${regionPrefix}storage.bunnycdn.com/${config.storageZone}`;

@@ -489,3 +489,12 @@ The next cleanup pass (separate, explicit approval required) may:
 
 None of those steps are applied in this cleanup pass. They remain
 deferred by design.
+
+### 8.2 Triage matrix cross-reference
+
+The deprecation classification in §6 and the future-removal items in
+§8.1 are mirrored in `docs/DEFERRED_BACKLOG_MATRIX.md` §2.2 (RPC /
+SQL surfaces) and §2.1 (legacy plan-JSON keys). The matrix is the
+single index over all preserved/deferred items across the plans
+system; this doc remains the authoritative `max_agents`-specific
+audit.

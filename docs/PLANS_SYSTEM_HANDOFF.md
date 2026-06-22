@@ -244,6 +244,10 @@ Each can be picked up without reopening the core plans system.
   counting model (live `count(*)` on `workspace_members`), and the
   exact Express-route unblock criterion that gates rollout and the
   `team_members / agents → max_agents` seed migration.
+- `docs/DEFERRED_BACKLOG_MATRIX.md` — final triage matrix bucketing
+  every remaining preserved/deferred item (compatibility / product /
+  architecture / permanent / too-ambiguous) with explicit unblock
+  criteria. Consult before touching any preserved surface.
 
 _Status update 2026-06-22 (Post-Activation Cleanup phase):_
 `max_agents` is **LIVE**. Canonical chokepoint:

@@ -222,3 +222,13 @@ retained for internal use). Legacy `billing_plans.limits` aliases
 release as soft-warn entries; the seed mirror to `max_agents` has
 been applied. Audit, semantics, deprecation policy, and the
 future-removal checklist live in `docs/MAX_AGENTS_POLICY.md`.
+
+## 15. Deferred / preserved backlog
+
+Every intentionally preserved or deferred item in the plans system
+is bucketed in `docs/DEFERRED_BACKLOG_MATRIX.md` (one-release
+compatibility, product decision, architecture/resolver work,
+permanent, or too risky/ambiguous) with an explicit unblock
+criterion. That matrix is the single index over all such items;
+the per-key, per-route, and per-RPC authoritative audits remain in
+the companion docs it cites.

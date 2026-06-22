@@ -57,7 +57,7 @@ vi.mock("../../../server/services/calls/controlPlane.js", () => ({
   }),
 }));
 
-const resolveProviderMock = vi.fn(async () => ({
+const resolveProviderMock = vi.fn(async (..._args: any[]) => ({
   id: "livekit",
   provider: {
     createRoom: async () => ({ providerRoomId: "room-x" }),

@@ -241,5 +241,15 @@ Each can be picked up without reopening the core plans system.
   exact Express-route unblock criterion that gates rollout and the
   `team_members / agents → max_agents` seed migration.
 
+_Status update 2026-06-22 (Workspace Member Write Boundary phase):_
+the canonical Express seat-creation boundary
+(`POST /api/workspace-members/accept-invitation`,
+`server/routes/workspaceMembers.ts`) has shipped. `InvitePage.tsx`
+now calls it instead of the SQL RPC directly. `max_agents` is still
+intentionally **not** enforced; the only remaining blocker is
+revoking `EXECUTE` on `public.accept_workspace_invitation(text)`
+from the `authenticated` role so the Express route is the sole
+reachable path. See `docs/MAX_AGENTS_POLICY.md` §4.1.
+
 If this doc disagrees with code, the code wins and this doc must be
 updated — but the system itself is finished.

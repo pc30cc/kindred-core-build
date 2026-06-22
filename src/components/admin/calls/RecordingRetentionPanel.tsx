@@ -32,6 +32,7 @@ import {
   mintAdminRecordingPlaybackToken,
   bulkSetAdminRecordingLegalHold,
   setAdminRecordingRetentionOverride,
+  restoreAdminRecordingRetention,
   type RetentionOverrideInput,
   type AdminRecordingRow,
   type RecordingRetentionStatus,

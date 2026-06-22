@@ -549,3 +549,186 @@ each scoped to its own knob, each documented above.
   count different things and combining them would silently
   reinterpret the widget knob (the failure mode the prior audit
   was created to avoid).
+
+---
+
+## June 2026 — `max_call_minutes_per_month` Billable-Minute Policy + Monthly Aggregation Audit
+
+### Outcome: NO RUNTIME ROLLOUT (honest defer)
+
+This phase was a strict single-limit audit for
+`max_call_minutes_per_month`. After auditing the call lifecycle,
+the settle path, the canonical usage-counter table, and the
+create-time boundary semantics, **no activation is safe in this
+pass**. Multiple independent real blockers remain. Each is listed
+with the exact unblock work required.
+
+### Part A — Billable-minute audit findings (repo truth)
+
+1. **No monthly call-minute column exists.**
+   `public.workspace_usage_counters` (migration
+   `20260415220905_dd2492ef…sql`) declares: `messages_count`,
+   `ai_requests_count`, `ai_credits_used`, `ai_credits_balance`,
+   `visitors_count`, `storage_bytes`, `conversations_count`,
+   `email_sent_count`. There is **no `call_minutes_used`** (or
+   equivalent) column. The canonical counter table physically
+   cannot store this metric today.
+
+2. **No settle-time writer for monthly call usage.**
+   The single canonical end-of-call path —
+   `server/services/calls/endSession.ts` — writes
+   `call_sessions.duration_seconds`, an `ended` system message, a
+   `call_events` row, and emits realtime events. It does **NOT**
+   increment any column on `workspace_usage_counters`. No trigger
+   on `call_sessions` aggregates duration into a monthly counter.
+   Adding a writer is a real change (new producer function,
+   matching the existing canonical `storage_bytes` /
+   `visitors_count` producer pattern in
+   `20260619122331…sql` / `20260619132128…sql`).
+
+3. **`duration_seconds` is NOT a clean billable-minute signal.**
+   `endSession.computeDuration` picks the earliest of
+   `connected_at → started_at → created_at` as the anchor (see
+   `server/services/calls/endSession.ts` L72–86). When
+   `connected_at` is missing (ringing-only, abandoned, rejected
+   before answer), the recorded `duration_seconds` includes
+   pre-connect time. Treating this column as billable minutes
+   would inflate usage with non-connected attempts and silently
+   change the semantics of the existing field. A billable signal
+   must require `connected_at IS NOT NULL` and measure
+   `ended_at − connected_at`.
+
+4. **`connected_at` writer coverage is not yet uniform.**
+   `connected_at` is set on operator accept in
+   `server/routes/callCenter.ts` L597–605, and read (not written)
+   by `server/routes/callWidget.ts` L1034–1044 and by
+   `endSession`. There is no shared, canonical "mark as connected"
+   helper proven to fire on every entry path (operator-originated
+   create, invitation accept, widget visitor-initiated accept,
+   callback fulfillment, queue-offered accept, LiveKit
+   `participant_joined` webhook). A `connected_at`-gated billable
+   policy can only be trusted once every accept path is proven to
+   write it.
+
+5. **Create-time enforcement against a monthly cap is fundamentally
+   approximate.** Usage is only final at settle time. A workspace
+   one minute below the cap can start a new call whose total
+   minutes push usage well past the cap. This is acceptable
+   product policy (industry-standard for time-based plans), but
+   it must be stated explicitly before shipping enforcement
+   semantics; otherwise the deny model misrepresents itself.
+
+### Part B — Billable-minute policy (locked here, not yet enforced)
+
+When activation eventually happens, the policy is:
+
+- **What counts:** call_sessions where `connected_at IS NOT NULL`
+  AND `state = 'ended'`. All entry_sources (operator, invitation,
+  callback, call_widget, call_center) count equally.
+- **What does NOT count:** ringing-only / cancelled / rejected /
+  abandoned / failed calls (i.e. anything without a
+  `connected_at`).
+- **Billable duration formula:** `ended_at − connected_at`,
+  measured in seconds, then aggregated. The monthly counter is
+  expressed in whole **minutes**, using `CEIL(seconds / 60)` at
+  aggregation time so that a 30-second connected call still
+  consumes 1 billable minute. Limit comparisons are in minutes.
+- **Period:** UTC calendar month, matching
+  `workspace_usage_counters.period = to_char(now(), 'YYYY-MM')`.
+- **Recordings, queue wait, hold time:** do NOT count. Only the
+  connected window counts.
+- **Threshold semantics:** create-time deny when
+  `usage >= effective_limit`. In-flight calls are allowed to
+  complete and may push usage slightly over the cap; this is the
+  stated policy.
+- **`-1` = unlimited** (registry-wide convention).
+
+This policy is locked here so that when the blockers below are
+removed in a future pass, no fresh debate is needed.
+
+### Part C — Canonical aggregation model (locked, not yet built)
+
+One source of truth: a new `call_minutes_used integer NOT NULL
+DEFAULT 0` column on `public.workspace_usage_counters`, written
+by a SOLE canonical producer (Postgres function invoked from a
+trigger on `call_sessions` AFTER UPDATE OF state, OR a direct
+increment inside `endSession.ts` — to be chosen in the activation
+pass, but exactly one of the two; not both). The producer fires
+exactly once per settled call and only when `connected_at IS NOT
+NULL`. The resolver reads this column via the existing
+`readCounterColumn` factory in
+`server/services/billing/usageResolvers.ts`.
+
+No ad-hoc live `sum(duration_seconds)` query is acceptable as the
+enforcement source — `duration_seconds` includes non-connected
+time (see blocker #3) and a workspace-scoped sum scales poorly.
+
+### Part D — Enforcement boundary (locked, not yet wired)
+
+When live, plan-level enforcement attaches to BOTH new-call
+create boundaries already used by `max_concurrent_calls`:
+`POST /api/calls/create` (operator) and
+`POST /api/widget/calls/request` (visitor), via a
+`checkPlanCallMinutesBudget(workspaceId)` helper that mirrors the
+shape of `checkPlanConcurrencyCeiling`. First denial wins, no
+composition with other knobs.
+
+### Part E — Why no activation in this pass
+
+Activating now would require, in a single pass, ALL of:
+(a) schema migration adding `call_minutes_used`;
+(b) canonical producer that ONLY fires on connected settle;
+(c) audit + uniform writes of `connected_at` across every accept
+    path;
+(d) resolver registration;
+(e) enforcement helper + wiring at two create boundaries;
+(f) tests covering connected vs non-connected, below/at/above
+    cap, and idempotent settle.
+
+That is a real multi-surface change. The phase brief explicitly
+prefers one honest defer over one fake monthly-usage rollout.
+Shipping a resolver that reads a column that doesn't exist, or a
+writer over today's `duration_seconds`, would be exactly the
+failure mode the brief forbids.
+
+### Backward compatibility safeguards
+
+- No registry key added or removed.
+- No schema change.
+- No resolver, route, middleware, env var, or contract changed.
+- `max_call_minutes_per_month` continues to read as
+  `supported: false` via `KNOWN_UNSUPPORTED` (it is not in
+  `RESOLVERS`), so any caller using `requireLimit` against it
+  still fails-closed at usage resolution time — matching the
+  pre-existing contract.
+
+### Validation performed
+
+- Inspected `workspace_usage_counters` schema — confirmed no
+  call-minutes column.
+- Inspected `endSession.ts` end-to-end — confirmed no counter
+  increment, confirmed anchor fallback widens duration to
+  non-connected time.
+- Inspected every server reference to `connected_at` — confirmed
+  only one writer in `callCenter.ts`; not proven uniform across
+  all accept paths.
+- Inspected `usageResolvers.ts` — confirmed
+  `max_call_minutes_per_month` is absent from both `RESOLVERS`
+  and `KNOWN_UNSUPPORTED`; the default "no resolver registered"
+  branch correctly returns `supported: false`. (Optional doc-only
+  follow-up: explicitly list it in `KNOWN_UNSUPPORTED` with the
+  blockers above. Not done here because adding the entry is a
+  runtime-observable change in the diagnostics surface and this
+  pass is strictly docs-only.)
+- Inspected `capabilityRegistry.ts` — confirmed
+  `max_call_minutes_per_month` is not (yet) registered as a
+  capability. Activation will add it under the `calls` group,
+  `unit: 'per_month'`, `defaultValue: -1`.
+
+### What remains deferred after this pass
+
+- `max_call_minutes_per_month` — blocked on the five items in
+  Part E above. Policy is now locked; implementation is not.
+- `recording_retention_days` — unchanged. Still blocked on
+  missing recording-janitor architecture. Out of scope for this
+  phase by directive.

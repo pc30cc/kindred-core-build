@@ -453,6 +453,25 @@ export const callCenterApi = {
       `/api/call-center/calls/${encodeURIComponent(callId)}/recordings/${encodeURIComponent(recordingId)}/playback-token?workspaceId=${encodeURIComponent(workspaceId)}`,
       { method: 'POST', body: JSON.stringify({ workspaceId }) },
     ),
+  /**
+   * Operator-side download (read-only, workspace-scoped).
+   * Mints a short-lived attachment-scoped playback token for a recording the
+   * operator can already view. Reuses the same canonical streaming route as
+   * inline playback; the token's embedded disposition claim is enforced
+   * server-side, so this cannot be widened or downgraded client-side.
+   */
+  mintCallRecordingDownloadToken: (workspaceId: string, callId: string, recordingId: string) =>
+    jsonFetch<{
+      recording_id: string;
+      url: string;
+      token: string;
+      disposition: 'attachment';
+      expires_at: string;
+      ttl_seconds: number;
+    }>(
+      `/api/call-center/calls/${encodeURIComponent(callId)}/recordings/${encodeURIComponent(recordingId)}/download-token?workspaceId=${encodeURIComponent(workspaceId)}`,
+      { method: 'POST', body: JSON.stringify({ workspaceId }) },
+    ),
   uploadAvatar: async (workspaceId: string, file: File) => {
     const buf = await file.arrayBuffer();
     let bin = ''; const bytes = new Uint8Array(buf);

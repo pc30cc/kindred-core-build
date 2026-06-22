@@ -97,10 +97,27 @@ export const callsApi = {
       { method: 'POST', body: JSON.stringify(input) },
     );
   },
-  invite(callId: string, participant: { participant_type: 'visitor' | 'operator'; participant_id?: string | null }) {
+  /**
+   * Invite / ring a participant.
+   *
+   * Route-shape split: callers MUST pass `reason` explicitly. The known
+   * operator UI add-participant flow is `'new'` and is plan-gated server
+   * side. Recovery / re-ring / continuity callers pass `'reissue'` and
+   * remain reachable even after a plan downgrade so in-flight sessions
+   * are never stranded. When omitted, the server defaults to `'reissue'`
+   * for legacy compatibility.
+   */
+  invite(
+    callId: string,
+    participant: {
+      participant_type: 'visitor' | 'operator';
+      participant_id?: string | null;
+      reason?: 'new' | 'reissue';
+    },
+  ) {
     return jsonFetch<{ ok: true }>('/api/calls/' + callId + '/invite', {
       method: 'POST',
-      body: JSON.stringify(participant),
+      body: JSON.stringify({ reason: 'new', ...participant }),
     });
   },
   hangup(callId: string) {

@@ -400,15 +400,59 @@ callsRouter.post('/create', async (req, res) => {
 });
 
 // ─── POST /api/calls/:id/invite ───────────────────────────────────────────
+// Phase: /:id/invite Route-Shape Split + Selective Gating.
+// The route was previously single-purpose in shape but mixed in semantics:
+// the same handler served (a) genuinely new optional-participant adds and
+// (b) reissue / recovery / re-ring against an already-allowed in-flight
+// session. Per the deny-on-create / allow-on-continuity policy we split
+// the handler by an explicit `reason` discriminator.
+//
+// Backward compatibility: callers that omit `reason` are treated as
+// `'reissue'`. Rationale:
+//   * `/api/calls/create` is the canonical deny-on-create boundary; an
+//     existing call_session already passed plan gating at creation time.
+//   * Re-inviting an existing participant on an in-flight session is
+//     continuity behavior and MUST remain reachable after a downgrade.
+//   * The only known internal caller (`callsApi.invite`) is migrated to
+//     send `reason: 'new'` explicitly, so the legacy default does not
+//     weaken gating for the known new-participant path.
 const inviteSchema = z.object({
   participant_type: z.enum(['visitor', 'operator', 'admin', 'internal']),
   participant_id: z.string().uuid().nullable().optional(),
+  reason: z.enum(['new', 'reissue']).optional(),
 });
 callsRouter.post('/:id/invite', async (req, res) => {
   const ctx = await loadSessionWithMembership(req, res, (req as any).serverConfig, req.params.id);
   if (!ctx) return;
   try {
     const body = inviteSchema.parse(req.body);
+    // Compatibility default: missing `reason` → continuity-safe 'reissue'.
+    const reason: 'new' | 'reissue' = body.reason ?? 'reissue';
+
+    // Selective gating: ONLY the explicit new-participant branch consults
+    // the canonical call entitlement composer. Reissue / recovery /
+    // re-ring stays reachable so in-flight sessions are never stranded by
+    // a plan downgrade. Mapping: session.call_type === 'video' →
+    // eff.video_enabled, otherwise eff.voice_enabled. No new keys.
+    if (reason === 'new') {
+      const eff = await loadEffectiveCallEntitlements(
+        (req as any).serverConfig,
+        ctx.session.workspace_id,
+      );
+      const allowed =
+        ctx.session.call_type === 'video' ? eff.video_enabled : eff.voice_enabled;
+      if (!allowed) {
+        return res.status(403).json({
+          error: 'plan_forbidden',
+          capability:
+            ctx.session.call_type === 'video'
+              ? 'voice_video.video'
+              : 'voice_video.voice',
+          upgrade_required: true,
+        });
+      }
+    }
+
     const { error } = await ctx.sb.from('call_participants').insert({
       call_session_id: ctx.session.id,
       participant_type: body.participant_type,
@@ -419,6 +463,7 @@ callsRouter.post('/:id/invite', async (req, res) => {
     await recordEvent(ctx.sb, ctx.session.id, 'invited', 'operator', ctx.userId, {
       participant_type: body.participant_type,
       participant_id: body.participant_id ?? null,
+      reason,
     });
 
     // ── Visitor invite → push call:incoming envelope to the widget ──────

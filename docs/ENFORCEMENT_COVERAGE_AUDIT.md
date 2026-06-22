@@ -253,3 +253,18 @@ re-classified against repository truth:
 See `docs/CALL_ENTITLEMENT_COMPOSITION.md` §"Phase: Call-Side Policy
 Backlog Resolution" for the full classification and the rationale for
 choosing outcome **B — NO SAFE ROLLOUT** in this pass.
+
+### June 2026 update — `/api/calls/:id/invite` is now selectively gated
+
+- **`/api/calls/:id/invite`** — route-shape split landed. The handler
+  now accepts an optional `reason: 'new' | 'reissue'` discriminator.
+  Only `reason: 'new'` is plan-gated (audio → `eff.voice_enabled`,
+  video → `eff.video_enabled`). `reason: 'reissue'` and legacy callers
+  (no `reason`) default to continuity-safe and remain reachable so
+  in-flight sessions are never stranded. See
+  `docs/CALL_ENTITLEMENT_COMPOSITION.md` §"June 2026 — `POST /api/calls/:id/invite`
+  Route-Shape Split + Selective Gating".
+
+The other items in the previous deferral list (`call-queue offer/accept`,
+`call-center assign/transfer`, numeric call limits) remain deferred for
+the same reasons.

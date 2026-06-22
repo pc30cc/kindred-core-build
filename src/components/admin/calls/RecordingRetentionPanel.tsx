@@ -11,7 +11,7 @@
  *   • No implicit backfill for legacy_unmanaged rows.
  *   • No bulk actions.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Card, CardContent, CardDescription, CardHeader, CardTitle,
@@ -485,8 +485,8 @@ export function RecordingRetentionPanel() {
               </thead>
               <tbody>
                 {items.map((r) => (
-                  <>
-                  <tr key={r.id} className="border-t border-border align-top" data-testid={`recording-row-${r.id}`}>
+                  <Fragment key={r.id}>
+                  <tr className="border-t border-border align-top" data-testid={`recording-row-${r.id}`}>
                     <td className="p-2 font-mono text-[10px] break-all max-w-[180px]">
                       <div>{r.id}</div>
                       <div className="text-muted-foreground">
@@ -514,7 +514,6 @@ export function RecordingRetentionPanel() {
                   </tr>
                   {previewId === r.id && (
                     <tr
-                      key={`${r.id}-preview`}
                       className="border-t border-border bg-secondary/20"
                       data-testid={`recording-preview-row-${r.id}`}
                     >
@@ -523,7 +522,7 @@ export function RecordingRetentionPanel() {
                       </td>
                     </tr>
                   )}
-                  </>
+                  </Fragment>
                 ))}
               </tbody>
             </table>

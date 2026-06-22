@@ -305,3 +305,15 @@ No code, schema, capability key, or middleware contract changed. See
 Drain Policy". After this pass, the only remaining non-numeric call
 backlog item is closed; remaining work is numeric call limits, still
 blocked on missing usage resolvers.
+
+### June 2026 — Numeric Call Limits Feasibility Pass
+
+Strict audit-only pass on `max_concurrent_calls`,
+`max_call_minutes_per_month`, and `recording_retention_days`.
+**Outcome: no rollout for any of the three.** Each is blocked on a
+distinct prerequisite (product policy, settle-time counter, or
+retention janitor). Full per-limit feasibility, semantics, counting
+models, enforcement boundaries, and unblock paths are documented in
+`docs/CALL_NUMERIC_LIMITS.md`. No registry key was added, no resolver
+was added, no route or middleware changed. `capabilityRegistry.ts`
+and `usageResolvers.ts` remain unchanged.

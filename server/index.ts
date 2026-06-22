@@ -259,6 +259,10 @@ app.use('/api/cdn', cdnRouter);
 // Account — self-service for the authenticated user (profile, avatar, password)
 app.use('/api/account', accountRouter);
 
+// Canonical server-owned workspace seat-creation boundary.
+// See docs/MAX_AGENTS_POLICY.md and server/routes/workspaceMembers.ts.
+app.use('/api/workspace-members', workspaceMembersRouter);
+
 // Self-service notification preferences
 app.use('/api/notifications', notificationsRouter);
 

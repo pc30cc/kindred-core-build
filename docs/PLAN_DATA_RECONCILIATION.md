@@ -271,3 +271,16 @@ is_active = true`.
       warn-only).
 - [x] No route, env var, schema, or middleware contract renamed.
 - [x] Repo is cleaner without being riskier (documentation-only delta).
+
+---
+
+## 9. Post-activation cleanup note (2026-06-22)
+
+After `max_agents` activation, this audit's `team_members /
+agents → max_agents` row in §6 is resolved. The legacy keys
+themselves remain intentionally preserved on every active seed row
+for one release. The classification stays **LEGACY PRESERVED** in
+§2.2 — soft-warned by `validatePlanPayload`, pinned by
+`src/test/billing/legacyPlanKeys.test.ts`, and slated for removal
+in a separate post-release cleanup pass (see
+`docs/MAX_AGENTS_POLICY.md` §8.1).

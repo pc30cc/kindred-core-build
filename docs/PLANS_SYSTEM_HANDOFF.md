@@ -363,3 +363,33 @@ its own isolated phase. No capability key was added, no resolver was
 added, no plan default changed, no route, middleware, env var, or
 schema changed. Full audit and locked rule live in
 `docs/CALL_NUMERIC_LIMITS.md`.
+
+---
+
+## June 2026 — Widget Concurrency Counting-Model Migration (Defer)
+
+Scope: migrate widget `POST /api/widget/calls/create` concurrency
+check to the canonical active-session counting model.
+
+**Outcome: no runtime change.** The live widget check counts only
+`entry_source = 'call_widget'` sessions in states
+`active|ringing|connecting` and compares against the **widget
+knob** (`platform_call_center_settings.max_concurrent_calls_per_workspace`),
+not the plan key `max_concurrent_calls`. Widening that query to the
+canonical model (all entry sources, plus `pending`) would silently
+tighten live tenants and re-scope the widget knob's documented
+semantics.
+
+Locked migration policy: **dual-knob, additive**. Keep the
+widget-scoped query unchanged; add a second canonical
+`countActiveCallSessions(workspace_id)` check gated by the plan
+key, applied at both `POST /api/calls/create` and
+`POST /api/widget/calls/create`. Precedence
+`effective = min(plan, platform)` operates only on the canonical
+count.
+
+Full audit, behavioral delta, and unblock checklist in
+`docs/CALL_NUMERIC_LIMITS.md` — "June 2026 — Widget Concurrency
+Counting-Model Migration Pass".
+
+Next phase: "`max_concurrent_calls` Dual-Knob Activation".

@@ -2528,6 +2528,7 @@ widgetRouter.post('/admin/test-offline-email', async (req: Request, res: Respons
 import { loadEffectiveCallChannels } from '../services/calls/controlPlane.js';
 import { enqueueCall, cancelEntry, getEntry as getQueueEntry } from '../services/calls/queue.js';
 import { loadEffectiveCallEntitlements } from '../services/calls/entitlementComposer.js';
+import { evaluateVisitorQueueEnqueueGate } from '../services/calls/queueEntitlementGate.js';
 
 /**
  * GET /api/widget/call-channels
@@ -2585,16 +2586,11 @@ widgetRouter.post('/call-queue/enqueue', widgetRateLimit('message'), async (req:
   // validation failures (invalid_body → 400 above).
   try {
     const eff = await loadEffectiveCallEntitlements(config, workspaceId);
-    const planAllowsChannel = parsed.data.channel === 'audio'
-      ? eff.visitor_voice_enabled
-      : eff.visitor_video_enabled;
-    const planAllowsQueue = eff.queue_enabled;
-    if (!planAllowsChannel || !planAllowsQueue) {
+    const gate = evaluateVisitorQueueEnqueueGate(eff, parsed.data.channel);
+    if (!gate.allowed) {
       return res.status(403).json({
         error: 'plan_forbidden',
-        capability: !planAllowsQueue
-          ? 'call_queue'
-          : (parsed.data.channel === 'audio' ? 'voice' : 'video'),
+        capability: gate.capability,
         upgrade_required: true,
       });
     }

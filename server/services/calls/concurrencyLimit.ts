@@ -49,16 +49,19 @@ import type { ServerConfig } from '../../config.js';
 import { checkEntitlementFromDB } from '../../middleware/featureGating.js';
 import { resolveUsage } from '../billing/usageResolvers.js';
 
-export type PlanConcurrencyDecision =
-  | { allowed: true; limit: number; used?: number; plan?: string }
-  | {
-      allowed: false;
-      reason: 'plan_forbidden' | 'plan_limit_reached' | 'usage_unavailable';
-      limit?: number;
-      used?: number;
-      plan?: string;
-      detail?: string;
-    };
+export type PlanConcurrencyDenialReason =
+  | 'plan_forbidden'
+  | 'plan_limit_reached'
+  | 'usage_unavailable';
+
+export interface PlanConcurrencyDecision {
+  allowed: boolean;
+  reason?: PlanConcurrencyDenialReason;
+  limit?: number;
+  used?: number;
+  plan?: string;
+  detail?: string;
+}
 
 /**
  * Check whether starting one more concurrent call would breach the
@@ -106,7 +109,7 @@ export async function checkPlanConcurrencyCeiling(
  * HTTP 429) so callers can distinguish "platform-admin widget knob"
  * from "plan ceiling" without parsing free-form messages.
  */
-export function planConcurrencyDenialBody(decision: Extract<PlanConcurrencyDecision, { allowed: false }>) {
+export function planConcurrencyDenialBody(decision: PlanConcurrencyDecision) {
   return {
     error: decision.reason,
     capability: 'max_concurrent_calls',

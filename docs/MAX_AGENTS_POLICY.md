@@ -412,38 +412,32 @@ not current state — see §4.3 and §6 for the live truth.**
 
 ---
 
-## 6. Legacy alias migration readiness
+## 6. Post-activation deprecation policy
 
-`team_members` and `agents` (in `billing_plans.limits`) remain legacy
-aliases of the same conceptual limit. As of the Service-Role
-Companion RPC + Max Agents Activation phase the `team_members →
-max_agents` mirror has been applied; `agents` is preserved as-is
-for backward compatibility (the only conflicting row, `free`,
-resolved in favour of the more permissive `team_members=2` — see
-`docs/PLAN_DATA_RECONCILIATION.md`). The historic two-blocker
-sequence below is preserved for context:
+After activation, the following classification governs every
+remaining legacy surface around `max_agents`. Items move between
+buckets only via an explicit follow-up cleanup pass — never
+silently.
 
-1. **(this phase, done)** Lock `max_agents` semantics + counting
-   model (§§2–3 above). ✅
-2. **(future phase, blocked)** Land an Express seat-creation route
-   that owns `workspace_members` INSERT, then gate it with
-   `requireLimit('max_agents', usageFnForLimit('max_agents'))` and
-   register `resolveMaxAgents` in `usageResolvers.ts`. ❌
-3. **(after #2)** Run a one-shot SQL `UPDATE billing_plans` that
-   copies `limits->'team_members'` (or `limits->'agents'` for free)
-   into `limits->'max_agents'`. Leave the legacy keys in place for
-   one release. Diagnostics will then show the canonical key
-   present and the legacy key as a soft warning, identical to the
-   `contacts` pattern documented in
-   `docs/PLAN_DATA_RECONCILIATION.md`.
+| Surface | Classification | Rationale |
+|---|---|---|
+| `public.accept_workspace_invitation(text)` RPC body | **KEEP FOR INTERNAL / SERVICE USE.** `EXECUTE` is granted only to `service_role`; `anon`/`authenticated`/`public` are revoked. | No live caller in `server/` or `src/` (verified via `rg`). The RPC is retained because (a) the Supabase generated `types.ts` still references it, (b) it is callable from internal admin / SQL contexts under `service_role`, and (c) dropping it is a destructive DB change that requires its own approval. |
+| Companion RPC `accept_workspace_invitation_as(_token, _user_id)` | **CANONICAL.** | Service-role-only; sole reachable path from the Express route. |
+| `billing_plans.limits.team_members` | **KEEP FOR ONE-RELEASE COMPATIBILITY.** | Mirrors `max_agents` exactly after the seed migration. Preserved so a rollback to the previous release does not lose the seat ceiling. Soft-warned by `validatePlanPayload` and pinned by `src/test/billing/legacyPlanKeys.test.ts`. |
+| `billing_plans.limits.agents` (`free` only) | **KEEP FOR ONE-RELEASE COMPATIBILITY.** | Same family as `team_members`; only present on `free`. Removing now would shrink the rollback surface for no behavior gain. |
+| Diagnostics warning text for `team_members` / `agents` | **KEEP, UNCHANGED.** | The drift is real (legacy aliases exist on every active row) and operators should still see it. Silencing the warning would hide the only reminder that these keys are slated for removal in a follow-up pass. |
+| `KNOWN_UNSUPPORTED.max_agents` entry in `usageResolvers.ts` | **REMOVED.** | Resolver is registered; the entry is gone from the source as part of the activation phase. Verified post-activation. |
+| `requireLimit('max_agents', …)` middleware on the seat-creation route | **CANONICAL.** | Only valid chokepoint for the limit; do not duplicate elsewhere. |
+| Frontend direct `supabase.rpc('accept_workspace_invitation', …)` calls | **REMOVED.** | `InvitePage.tsx` has been migrated to the Express route; `rg` shows no remaining browser-side caller. |
 
-Step 3 is mechanical now (mapping is high-confidence: same
-occupancy semantic, same `-1`-means-unlimited semantic, identical
-per-plan values where present). It is gated on step 2 only because
-running step 3 first would lift Pro/Enterprise from the registry
-default of 1 seat to 10 / unlimited without an enforcement path —
-i.e. customers would see a higher limit in the UI but the limit
-would still be unenforced.
+**Removal not in scope of this cleanup pass:**
+
+- Dropping `public.accept_workspace_invitation(text)` from the
+  database. Deferred until a separate DB-cleanup pass with explicit
+  approval; see §8.
+- Deleting `team_members` / `agents` from active seed rows. Deferred
+  to the next-release cleanup; the one-release compatibility window
+  is intentional.
 
 ---
 

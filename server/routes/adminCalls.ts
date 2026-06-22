@@ -18,6 +18,7 @@ import {
   invalidateRtcCache,
 } from '../services/calls/rtcResolver.js';
 import { resolveCallProviderOrder, getCallProvider } from '../services/calls/providerResolver.js';
+import { downloadFile } from '../services/storage/index.js';
 import {
   loadAgoraConfig,
   saveAgoraConfig,
@@ -515,4 +516,97 @@ adminCallsRouter.post('/recordings/:id/legal-hold', async (req, res) => {
   } as any).then(() => {}, () => {});
 
   res.json({ id, legal_hold: parsed.data.enabled });
+});
+
+// ─── Recording artifact access (super-admin, READ-ONLY) ────────────
+//
+// Narrow operability surface so super admins can play back or download
+// the underlying recording file from the existing Recordings tab without
+// exposing provider URLs/credentials or adding any deletion/mutation
+// path. Bytes are streamed through the canonical storage abstraction
+// (downloadFile → resolveStorageConfig), the same helper the widget
+// attachment proxy uses. The retention janitor remains the sole
+// deletion path; this route never writes to call_recordings or storage.
+//
+//   GET /api/admin/calls/recordings/:id/file?disposition=inline|attachment
+//
+//   • 404 not_found            — no such recording row
+//   • 410 missing_storage_path — row exists but has no stored artifact
+//   • 404 storage_object_missing — provider could not locate the object
+//   • 502 provider_download_failed — generic provider read failure
+//   • 200 stream                — raw bytes with derived Content-Type
+function guessContentType(row: any): string {
+  const path = String(row?.storage_path || '').toLowerCase();
+  const ext = path.includes('.') ? path.split('.').pop() || '' : '';
+  const byExt: Record<string, string> = {
+    mp4: 'video/mp4',
+    webm: 'video/webm',
+    mkv: 'video/x-matroska',
+    ogg: 'audio/ogg',
+    m4a: 'audio/mp4',
+    mp3: 'audio/mpeg',
+    wav: 'audio/wav',
+    opus: 'audio/ogg',
+  };
+  if (ext && byExt[ext]) return byExt[ext];
+  if (row?.recording_type === 'audio_only') return 'audio/mp4';
+  if (row?.recording_type === 'composite' || row?.recording_type === 'individual') return 'video/mp4';
+  return 'application/octet-stream';
+}
+
+function downloadFileName(row: any, ct: string): string {
+  const ts = row?.created_at ? new Date(row.created_at).toISOString().replace(/[:.]/g, '-') : 'recording';
+  const extFromCt: Record<string, string> = {
+    'video/mp4': 'mp4',
+    'video/webm': 'webm',
+    'video/x-matroska': 'mkv',
+    'audio/ogg': 'ogg',
+    'audio/mp4': 'm4a',
+    'audio/mpeg': 'mp3',
+    'audio/wav': 'wav',
+  };
+  const ext = extFromCt[ct] || 'bin';
+  return `call-recording-${String(row?.id || 'unknown').slice(0, 12)}-${ts}.${ext}`;
+}
+
+adminCallsRouter.get('/recordings/:id/file', async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
+  const sb = getServiceClient(config);
+  const id = String(req.params.id || '');
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'invalid_id' });
+
+  const { data: row, error } = await sb
+    .from('call_recordings')
+    .select('id, storage_path, recording_type, created_at, call_sessions!inner(workspace_id)')
+    .eq('id', id)
+    .maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  if (!row) return res.status(404).json({ error: 'not_found' });
+
+  const storagePath = (row as any).storage_path as string | null;
+  const workspaceId = (row as any)?.call_sessions?.workspace_id as string | undefined;
+  if (!storagePath) return res.status(410).json({ error: 'missing_storage_path' });
+  if (!workspaceId) return res.status(409).json({ error: 'orphan_session' });
+
+  const dl = await downloadFile(config, workspaceId, storagePath);
+  if (!dl.success || !dl.data) {
+    const msg = String(dl.error || '').toLowerCase();
+    if (msg.includes('404') || msg.includes('not found') || msg.includes('no such')) {
+      return res.status(404).json({ error: 'storage_object_missing' });
+    }
+    return res.status(502).json({ error: 'provider_download_failed', detail: dl.error || null });
+  }
+
+  const ct = guessContentType(row);
+  const wantAttachment = String(req.query.disposition || '').toLowerCase() === 'attachment';
+  const fname = downloadFileName(row, ct);
+
+  res.setHeader('Content-Type', ct);
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader(
+    'Content-Disposition',
+    `${wantAttachment ? 'attachment' : 'inline'}; filename="${fname.replace(/"/g, '')}"`,
+  );
+  return res.send(dl.data);
 });

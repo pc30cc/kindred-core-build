@@ -24,10 +24,11 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { Loader2, ShieldAlert, AlertTriangle, Archive, Clock } from 'lucide-react';
+import { Loader2, ShieldAlert, AlertTriangle, Archive, Clock, Play, Download } from 'lucide-react';
 import {
   fetchAdminRecordings,
   setAdminRecordingLegalHold,
+  fetchAdminRecordingBlob,
   type AdminRecordingRow,
   type RecordingRetentionStatus,
 } from '@/lib/admin-calls-api';
@@ -125,6 +126,81 @@ function LegalHoldToggle({ row }: { row: AdminRecordingRow }) {
       {mut.isError && (
         <span className="text-[10px] text-destructive max-w-[180px] text-right">
           {(mut.error as Error)?.message || 'Failed'}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Read-only artifact access (open inline / download). Bytes are fetched
+ * through the authed super-admin proxy and surfaced via an in-memory
+ * object URL; no provider URL or signed link is exposed to the browser.
+ */
+function ArtifactActions({ row }: { row: AdminRecordingRow }) {
+  const [busy, setBusy] = useState<null | 'inline' | 'attachment'>(null);
+  const [error, setError] = useState<string | null>(null);
+  const disabled = !row.storage_path;
+
+  async function run(mode: 'inline' | 'attachment') {
+    setBusy(mode);
+    setError(null);
+    try {
+      const { blob, filename } = await fetchAdminRecordingBlob(row.id, mode);
+      const url = URL.createObjectURL(blob);
+      if (mode === 'attachment') {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename || `recording-${row.id}`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      } else {
+        window.open(url, '_blank', 'noopener,noreferrer');
+      }
+      // Revoke after a short delay so the new tab / download has time to read it.
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (e: any) {
+      setError(e?.message || 'Failed to load recording');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="flex flex-col items-start gap-1">
+      <div className="flex gap-1">
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 px-2 text-[11px]"
+          disabled={disabled || busy !== null}
+          onClick={() => run('inline')}
+          data-testid={`recording-open-${row.id}`}
+          aria-label={`Open recording ${row.id}`}
+        >
+          {busy === 'inline' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+          <span className="ml-1">Open</span>
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-7 px-2 text-[11px]"
+          disabled={disabled || busy !== null}
+          onClick={() => run('attachment')}
+          data-testid={`recording-download-${row.id}`}
+          aria-label={`Download recording ${row.id}`}
+        >
+          {busy === 'attachment' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
+          <span className="ml-1">Save</span>
+        </Button>
+      </div>
+      {disabled && (
+        <span className="text-[10px] text-muted-foreground">No stored artifact</span>
+      )}
+      {error && (
+        <span className="text-[10px] text-destructive max-w-[180px]" data-testid={`recording-error-${row.id}`}>
+          {error}
         </span>
       )}
     </div>
@@ -255,6 +331,7 @@ export function RecordingRetentionPanel() {
                   <th className="text-left p-2 font-medium">Size</th>
                   <th className="text-left p-2 font-medium">Expires</th>
                   <th className="text-left p-2 font-medium">Status</th>
+                  <th className="text-left p-2 font-medium">Artifact</th>
                   <th className="text-right p-2 font-medium">Legal hold</th>
                 </tr>
               </thead>
@@ -275,6 +352,7 @@ export function RecordingRetentionPanel() {
                     <td className="p-2 whitespace-nowrap">{fmtBytes(r.size_bytes)}</td>
                     <td className="p-2 whitespace-nowrap">{fmtDate(r.retention_expires_at)}</td>
                     <td className="p-2"><RetentionStatusBadge status={r.status} /></td>
+                    <td className="p-2"><ArtifactActions row={r} /></td>
                     <td className="p-2"><LegalHoldToggle row={r} /></td>
                   </tr>
                 ))}

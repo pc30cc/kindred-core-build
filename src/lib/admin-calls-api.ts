@@ -655,3 +655,50 @@ export async function restoreAdminRecordingRetention(
   }
   return res.json();
 }
+
+// ────────────────────────────────────────────────────────────────────────
+// Per-recording LEGACY ADOPTION (super-admin only).
+//
+// Backed by:
+//   POST /api/admin/calls/recordings/:id/retention-adopt
+//
+// Eligible ONLY for rows that are currently legacy/unmanaged
+// (`retention_expires_at IS NULL` AND `retention_policy IS NULL`).
+// Server returns 409 for already-managed rows so the UI never silently
+// mutates them. Never touches `legal_hold`. Never deletes. Janitor
+// remains the sole deletion path. No bulk / implicit backfill.
+// ────────────────────────────────────────────────────────────────────────
+export interface RetentionAdoptResult {
+  id: string;
+  retention_policy: string;
+  retention_expires_at: string | null;
+  legal_hold: boolean;
+  inherited_source: string;
+  inherited_days: number;
+  already_expired: boolean;
+}
+
+export async function adoptAdminRecordingRetention(
+  id: string,
+  reason?: string,
+): Promise<RetentionAdoptResult> {
+  const res = await fetch(
+    `${API_BASE}/api/admin/calls/recordings/${encodeURIComponent(id)}/retention-adopt`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+      body: JSON.stringify(reason ? { reason } : {}),
+    },
+  );
+  if (!res.ok) {
+    let detail = '';
+    try {
+      const j = await res.json();
+      detail = typeof j?.error === 'string' ? j.error : '';
+    } catch {
+      /* ignore */
+    }
+    throw new Error(detail || `HTTP ${res.status}`);
+  }
+  return res.json();
+}

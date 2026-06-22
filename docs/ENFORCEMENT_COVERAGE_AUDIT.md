@@ -221,3 +221,13 @@ rather than fabricated `0 / N` math. Super Admin override mutation
 controls remain exclusive to `PlansPage.tsx`. No enforcement boundary,
 capability key, route, env, or schema changed. See
 `docs/CUSTOMER_USAGE_VISIBILITY.md`.
+
+## Final triage matrix cross-reference (2026-06-22)
+
+Every "ambiguous — deferred" route in §3 and every "do not gate"
+entry in §4 is mirrored in `docs/DEFERRED_BACKLOG_MATRIX.md` §2.3
+with an explicit bucket (D architecture/resolver work, E permanent,
+or F too risky/ambiguous) and an unblock criterion where applicable.
+The matrix is the single index over all preserved/deferred items
+across the plans system; this doc remains the authoritative
+per-route source of truth.

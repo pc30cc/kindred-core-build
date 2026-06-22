@@ -136,4 +136,51 @@ describe('RecordingRetentionPanel', () => {
     expect(text).not.toMatch(/backfill/);
     expect(text).not.toMatch(/purge/);
   });
+
+  it('renders Open + Save artifact actions (read-only access surface)', async () => {
+    vi.spyOn(global, 'fetch' as any).mockResolvedValue({
+      ok: true,
+      json: async () => ({ items: FIXTURE_ROWS, total: FIXTURE_ROWS.length, limit: 25, offset: 0 }),
+    } as any);
+
+    renderPanel();
+    expect(await screen.findByTestId('recording-open-rec-1')).toBeInTheDocument();
+    expect(await screen.findByTestId('recording-download-rec-1')).toBeInTheDocument();
+  });
+
+  it('Open action fetches the artifact proxy and creates an object URL', async () => {
+    const calls: string[] = [];
+    vi.spyOn(global, 'fetch' as any).mockImplementation(async (url: any) => {
+      const u = String(url);
+      calls.push(u);
+      if (u.includes('/file')) {
+        return {
+          ok: true,
+          blob: async () => new Blob(['data'], { type: 'video/mp4' }),
+          headers: { get: (k: string) => (k.toLowerCase() === 'content-type' ? 'video/mp4' : null) },
+        } as any;
+      }
+      return {
+        ok: true,
+        json: async () => ({ items: FIXTURE_ROWS, total: FIXTURE_ROWS.length, limit: 25, offset: 0 }),
+      } as any;
+    });
+    const createUrl = vi.fn(() => 'blob:fake');
+    const revokeUrl = vi.fn();
+    (global as any).URL.createObjectURL = createUrl;
+    (global as any).URL.revokeObjectURL = revokeUrl;
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+
+    renderPanel();
+    const openBtn = await screen.findByTestId('recording-open-rec-1');
+    fireEvent.click(openBtn);
+
+    await waitFor(() => {
+      expect(calls.some((u) => u.includes('/api/admin/calls/recordings/rec-1/file'))).toBe(true);
+    });
+    expect(createUrl).toHaveBeenCalled();
+    expect(openSpy).toHaveBeenCalledWith('blob:fake', '_blank', 'noopener,noreferrer');
+    // Inline open must NOT request attachment disposition.
+    expect(calls.find((u) => u.includes('/file'))?.includes('disposition=attachment')).toBe(false);
+  });
 });

@@ -16,7 +16,7 @@ import { useQuery } from '@tanstack/react-query';
 import {
   Activity, Phone, Video, Network, Disc, Users, Shield, Building2,
   Radio, FileText, AlertTriangle, CheckCircle2, Loader2,
-  GitBranch, Timer, Voicemail, CalendarClock,
+  GitBranch, Timer, Voicemail, CalendarClock, Archive,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -28,6 +28,7 @@ import { CallControlPlanePanel } from '@/components/admin/calls/CallControlPlane
 import { RolePermissionsPanel } from '@/components/admin/calls/RolePermissionsPanel';
 import { AgoraExternalProviderPanel } from '@/components/admin/calls/AgoraExternalProviderPanel';
 import { LiveKitSelfHostedProviderPanel } from '@/components/admin/calls/LiveKitSelfHostedProviderPanel';
+import { RecordingRetentionPanel } from '@/components/admin/calls/RecordingRetentionPanel';
 import { useAdminWorkspaces } from '@/hooks/useAdmin';
 import { Link } from 'react-router-dom';
 import { callbacksApi, type CallbackRow } from '@/lib/callbacks-api';
@@ -613,6 +614,7 @@ export default function VoiceVideoPage() {
           <TabsTrigger value="callbacks" className="gap-1.5 text-xs"><Voicemail className="h-3.5 w-3.5" />Callbacks</TabsTrigger>
           <TabsTrigger value="permissions" className="gap-1.5 text-xs"><Shield className="h-3.5 w-3.5" />Permissions</TabsTrigger>
           <TabsTrigger value="overrides" className="gap-1.5 text-xs"><Building2 className="h-3.5 w-3.5" />Workspace overrides</TabsTrigger>
+          <TabsTrigger value="recordings" className="gap-1.5 text-xs"><Archive className="h-3.5 w-3.5" />Recordings</TabsTrigger>
           <TabsTrigger value="live" className="gap-1.5 text-xs"><Radio className="h-3.5 w-3.5" />Live operations</TabsTrigger>
           <TabsTrigger value="audit" className="gap-1.5 text-xs"><FileText className="h-3.5 w-3.5" />Audit</TabsTrigger>
         </TabsList>
@@ -651,6 +653,7 @@ export default function VoiceVideoPage() {
 
         <TabsContent value="permissions"><RolePermissionsPanel /></TabsContent>
         <TabsContent value="overrides"><WorkspaceOverridesTab /></TabsContent>
+        <TabsContent value="recordings"><RecordingRetentionPanel /></TabsContent>
         <TabsContent value="live"><LiveOperationsTab /></TabsContent>
         <TabsContent value="audit"><AuditTab /></TabsContent>
         <TabsContent value="routing"><RoutingTab /></TabsContent>

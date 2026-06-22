@@ -335,6 +335,8 @@ export default function CallsPage() {
   const [type, setType] = useState('all');
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<string | null>(null);
+  const [pickedCalls, setPickedCalls] = useState<Set<string>>(new Set());
+  const [wsZipBusy, setWsZipBusy] = useState(false);
   const qc = useQueryClient();
   const { data } = useCallCenterCalls(workspace?.id, { status: status === 'all' ? undefined : status });
   const { data: detail } = useCallCenterCall(workspace?.id, selected);
@@ -368,6 +370,71 @@ export default function CallsPage() {
     return { answered, missed, rejected, avg: durCount ? Math.round(totalDur / durCount) : null };
   }, [filtered]);
 
+  function toggleCallPick(id: string, next: boolean) {
+    setPickedCalls((prev) => {
+      const n = new Set(prev);
+      if (next) n.add(id); else n.delete(id);
+      return n;
+    });
+  }
+
+  async function exportSelectedCallsArchive() {
+    if (!workspace || wsZipBusy) return;
+    const callIds = filtered.map((c) => c.id).filter((id) => pickedCalls.has(id));
+    if (callIds.length === 0) return;
+    setWsZipBusy(true);
+    try {
+      // Resolve recordings per selected call, cap items at the same server
+      // ARCHIVE_LIMIT (25) so the request is rejected predictably.
+      const items: Array<{ call_id: string; recording_id: string }> = [];
+      const MAX_ITEMS = 25;
+      let truncated = false;
+      for (const cid of callIds) {
+        try {
+          const r = await callCenterApi.listCallRecordings(workspace.id, cid);
+          for (const rec of r.recordings) {
+            if (!rec.has_storage) continue;
+            if (items.length >= MAX_ITEMS) { truncated = true; break; }
+            items.push({ call_id: cid, recording_id: rec.id });
+          }
+        } catch {
+          // ignore — server is the authoritative gate
+        }
+        if (truncated) break;
+      }
+      if (items.length === 0) {
+        toast({
+          title: 'No exportable recordings',
+          description: 'Selected calls have no available recording artifacts.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      const r = await callCenterApi.exportWorkspaceRecordingsArchive(workspace.id, items);
+      const href = URL.createObjectURL(r.blob);
+      const a = document.createElement('a');
+      a.href = href;
+      a.download = r.filename;
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(href), 1000);
+      const desc = `${r.included} included across ${r.calls} call(s)` +
+        (r.excluded > 0 ? `, ${r.excluded} excluded (see manifest.txt)` : '') +
+        (truncated ? ` — selection truncated to ${MAX_ITEMS} recordings` : '');
+      toast({ title: 'Workspace archive downloaded', description: desc });
+    } catch (e: any) {
+      toast({
+        title: 'Archive export failed',
+        description: e?.message || 'archive_export_failed',
+        variant: 'destructive',
+      });
+    } finally {
+      setWsZipBusy(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <Card className="p-4 space-y-3">
@@ -396,10 +463,30 @@ export default function CallsPage() {
         <Card className="p-3"><div className="text-xs text-muted-foreground">Avg duration</div><div className="text-xl font-semibold">{summary.avg != null ? fmtDuration(summary.avg) : '—'}</div></Card>
       </div>
 
+      <div className="flex items-center justify-between gap-2 px-1">
+        <span className="text-xs text-muted-foreground">
+          {pickedCalls.size > 0
+            ? `${pickedCalls.size} call(s) selected for export`
+            : 'Select calls to export recordings as a single workspace ZIP'}
+        </span>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 text-xs"
+          onClick={exportSelectedCallsArchive}
+          disabled={wsZipBusy || pickedCalls.size === 0}
+          title="Package all available recordings from selected calls into one ZIP"
+        >
+          <Download className="h-3 w-3 me-1" />
+          {wsZipBusy ? 'Packaging…' : `Export selected (ZIP)${pickedCalls.size ? ` (${pickedCalls.size})` : ''}`}
+        </Button>
+      </div>
+
       <Card className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="text-xs text-muted-foreground border-b">
+              <th className="text-start py-2 px-3 w-8"></th>
               <th className="text-start py-2 px-3">Visitor</th>
               <th className="text-start py-2 px-3">Type</th>
               <th className="text-start py-2 px-3">State</th>
@@ -415,6 +502,14 @@ export default function CallsPage() {
               const initials = display.slice(0, 1).toUpperCase();
               return (
               <tr key={c.id} onClick={() => setSelected(c.id)} className="border-b cursor-pointer hover:bg-muted/40">
+                <td className="py-2 px-3" onClick={(e) => e.stopPropagation()}>
+                  <Checkbox
+                    checked={pickedCalls.has(c.id)}
+                    onCheckedChange={(v) => toggleCallPick(c.id, v === true)}
+                    aria-label="Select call for workspace archive export"
+                    className="h-3.5 w-3.5"
+                  />
+                </td>
                 <td className="py-2 px-3">
                   <div className="flex items-center gap-2">
                     <div className="h-7 w-7 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-semibold">{initials}</div>
@@ -444,7 +539,7 @@ export default function CallsPage() {
               </tr>
               );
             })}
-            {filtered.length === 0 && (<tr><td colSpan={7} className="py-8 text-center text-sm text-muted-foreground">No calls match your filters.</td></tr>)}
+            {filtered.length === 0 && (<tr><td colSpan={8} className="py-8 text-center text-sm text-muted-foreground">No calls match your filters.</td></tr>)}
           </tbody>
         </table>
       </Card>

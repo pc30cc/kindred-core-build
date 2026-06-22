@@ -268,3 +268,21 @@ choosing outcome **B — NO SAFE ROLLOUT** in this pass.
 The other items in the previous deferral list (`call-queue offer/accept`,
 `call-center assign/transfer`, numeric call limits) remain deferred for
 the same reasons.
+
+## June 2026 — Queue Offer / Accept (No-Rollout Pass)
+
+Audited `POST /api/call-queue/:workspaceId/:entryId/offer` and
+`POST /api/call-queue/:workspaceId/:entryId/accept`
+(`server/routes/callQueue.ts`). Both operate exclusively on
+already-existing queue rows: `offer` advances `waiting → offered`,
+`accept` advances `offered → accepted`. Neither contains a new-action
+branch; row creation is owned by the already-gated visitor enqueue
+boundary.
+
+Per deny-on-create / allow-on-continuity, both routes stay ungated.
+Gating either would strand in-flight queue work on plan downgrade. No
+code, schema, capability key, or middleware contract was changed. See
+`docs/CALL_ENTITLEMENT_COMPOSITION.md` §"Queue Offer / Accept Drain
+Policy". Next remaining call-side backlog item: call-center `assign` /
+`transfer`. Numeric call limits remain blocked on missing usage
+resolvers.

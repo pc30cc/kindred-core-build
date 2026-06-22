@@ -1050,7 +1050,7 @@ callCenterRouter.post('/calls/:id/recordings/bulk-download-tokens', async (req, 
         recording_id: string;
         url: string;
         token: string;
-        disposition: 'attachment';
+        disposition: string;
         expires_at: string;
         ttl_seconds: number;
       }

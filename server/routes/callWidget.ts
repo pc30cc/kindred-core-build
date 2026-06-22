@@ -23,6 +23,10 @@ import {
   checkPlanConcurrencyCeiling,
   planConcurrencyDenialBody,
 } from '../services/calls/concurrencyLimit.js';
+import {
+  checkPlanMonthlyMinutesCeiling,
+  planMinutesDenialBody,
+} from '../services/calls/monthlyMinutesLimit.js';
 import { publishQueueEvent, publishCallEvent } from '../services/callCenter/realtime.js';
 import { buildClientConnectInfo } from '../services/callCenter/connectInfo.js';
 import { computeRecordingCapability } from '../services/callCenter/recording.js';
@@ -884,6 +888,18 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
   const planConc = await checkPlanConcurrencyCeiling(config, ws.workspace_id);
   if (!planConc.allowed) {
     return res.status(planConc.reason === 'plan_limit_reached' ? 429 : 403).json(planConcurrencyDenialBody(planConc));
+  }
+
+  // Phase: max_call_minutes_per_month — Final Activation.
+  // Workspace-wide monthly billable-minutes ceiling, applied at the
+  // same create boundary as the concurrency check. Sole counting
+  // source: workspace_usage_counters.call_minutes_used. Distinct
+  // denial shape (error = 'plan_limit_reached' | 'plan_forbidden',
+  // capability = 'max_call_minutes_per_month') so widget callers can
+  // tell which ceiling fired.
+  const planMins = await checkPlanMonthlyMinutesCeiling(config, ws.workspace_id);
+  if (!planMins.allowed) {
+    return res.status(planMins.reason === 'plan_limit_reached' ? 429 : 403).json(planMinutesDenialBody(planMins));
   }
 
   // Create call session + queue entry. Retry once on transient undici

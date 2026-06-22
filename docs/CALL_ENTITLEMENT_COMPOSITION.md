@@ -519,3 +519,42 @@ blockers).
 - **Registered in:** `capabilityRegistry.CAPABILITY_REGISTRY`, `USAGE_BACKED_LIMIT_KEYS`, and `usageResolvers.RESOLVERS`.
 - **NOT activated:** no create-time gate added. Blocker: `connected_at` is only written by the operator accept route; `livekitWebhook room_started` does not backfill it. Activation deferred until `connected_at` coverage is uniform.
 - **`recording_retention_days`:** still deferred (janitor/retention not implemented).
+
+---
+
+## Phase Update — max_call_minutes_per_month: FINAL ACTIVATION (live)
+
+**Status:** LIVE. Enforced at create-time.
+
+**connected_at coverage audit (complete):**
+- Producers that transition `call_sessions` into a billable lifecycle state:
+  1. `server/routes/callCenter.ts` operator accept — writes `connected_at` idempotently (already correct).
+  2. `server/routes/livekitWebhook.ts` `room_started` — NOW backfills `connected_at` when missing (this phase).
+  3. No other writer sets `state='active'` on `call_sessions`.
+- Result: every path that can produce a billable call now guarantees `connected_at`.
+
+**connected_at write policy (locked):**
+- Preferred early writer: operator accept route.
+- Backfill writer: `livekitWebhook` `room_started`, only when `connected_at IS NULL` (never overwrites).
+- Never written by `endSession` / `room_finished` / hangup paths — a call that never connected stays non-billable, by design.
+- Trigger `tg_call_sessions_bill_minutes` remains the sole monthly-usage writer.
+
+**Enforcement boundaries (only these two):**
+- `POST /api/calls/create` (operator) — `checkPlanMonthlyMinutesCeiling` after concurrency check, before provider/DB insert.
+- `POST /api/widget/calls/request` (visitor) — same helper, same ordering relative to the widget knob + plan concurrency.
+- No other route gained a minutes gate. Queue/invite/accept paths are intentionally out of scope (continuity over deny-mid-flight).
+
+**Denial contract:**
+```
+HTTP 429 { error: 'plan_limit_reached', capability: 'max_call_minutes_per_month', limit, used, plan, upgrade_required: true }
+HTTP 403 { error: 'plan_forbidden',     capability: 'max_call_minutes_per_month', plan, upgrade_required: true }
+HTTP 403 { error: 'usage_unavailable',  capability: 'max_call_minutes_per_month', ... }   // fail-closed
+```
+
+**Near-threshold behavior:** gate is `used >= limit` at create time. In-flight calls that settle after their own create-gate may push the total slightly past the cap; the next create attempt is then denied. No mid-call termination.
+
+**Backward compatibility:**
+- Plans backfilled to `max_call_minutes_per_month = -1` (unlimited) in the foundation migration — no existing tenant is silently denied.
+- `connected_at` backfill in `room_started` is additive and idempotent; pre-existing rows with `connected_at` already set are untouched.
+
+**Still deferred:** `recording_retention_days` (requires janitor/retention architecture; not in scope).

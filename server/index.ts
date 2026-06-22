@@ -15,6 +15,7 @@ import { aiRouter } from './routes/ai.js';
 import { storageRouter } from './routes/storage.js';
 import { cdnRouter } from './routes/cdn.js';
 import { accountRouter } from './routes/account.js';
+import { workspaceMembersRouter } from './routes/workspaceMembers.js';
 import { notificationsRouter } from './routes/notifications.js';
 import { availabilityRouter } from './routes/availability.js';
 import { billingRouter } from './routes/billing.js';

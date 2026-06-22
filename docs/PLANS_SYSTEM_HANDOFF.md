@@ -236,6 +236,10 @@ Each can be picked up without reopening the core plans system.
 - `docs/PLAN_DATA_RECONCILIATION.md` — legacy plan-JSON key audit,
   per-key classification (LEGACY PRESERVED / DEFERRED / TOO AMBIGUOUS),
   and the explicit deferral list with unblock criteria.
+- `docs/MAX_AGENTS_POLICY.md` — `max_agents` seat-limit semantics,
+  counting model (live `count(*)` on `workspace_members`), and the
+  exact Express-route unblock criterion that gates rollout and the
+  `team_members / agents → max_agents` seed migration.
 
 If this doc disagrees with code, the code wins and this doc must be
 updated — but the system itself is finished.

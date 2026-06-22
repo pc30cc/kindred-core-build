@@ -272,7 +272,7 @@ const RESOLVERS: Record<string, Resolver> = {
  */
 const KNOWN_UNSUPPORTED: Record<string, string> = {
   max_agents:
-    'Plan-vs-actual member count is computed elsewhere (workspace_members). No shared resolver yet because role/seat semantics need product confirmation.',
+    'Seat occupancy from workspace_members. Resolver intentionally NOT registered: no Express seat-creation route exists today (workspace_members INSERT happens outside featureGating.ts middleware). Adding an unconsumed resolver would imply enforcement that does not exist. Semantics + counting model + unblock criteria locked in docs/MAX_AGENTS_POLICY.md.',
   max_workspaces:
     'Per-account workspace count is enforced at workspace creation; not modelled per-workspace.',
   ai_kb_max_pages:

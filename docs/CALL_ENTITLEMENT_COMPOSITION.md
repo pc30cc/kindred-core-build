@@ -276,3 +276,68 @@ This is the continuity-safe choice because:
 - Numeric call limits (`max_concurrent_calls`,
   `max_call_minutes_per_month`, `recording_retention_days`) — no
   counters/resolvers exist; activation would be speculative.
+
+## June 2026 — Queue Offer / Accept Drain Policy (No-Rollout)
+
+Scope of this pass: exactly two routes —
+`POST /api/call-queue/:workspaceId/:entryId/offer` and
+`POST /api/call-queue/:workspaceId/:entryId/accept`
+(`server/routes/callQueue.ts`).
+
+### Route-truth audit
+
+- `offer` calls `offerEntry(config, entryId, auth.userId)` on a row
+  fetched via `getEntry(workspaceId, entryId)`. It only transitions an
+  already-existing queue row from `waiting` → `offered` and assigns the
+  current operator. It cannot create a queue row; the row was created
+  earlier at the visitor enqueue boundary, which is already gated
+  (`POST /api/widget/call-queue/enqueue` — `queue_enabled` /
+  channel composer).
+- `accept` calls `acceptEntry(entryId, call_session_id?)` and
+  transitions `offered` → `accepted`, optionally binding to an existing
+  `call_sessions` row (also created at an already-gated boundary,
+  `/api/calls/create`).
+- Neither handler contains a branch that admits new chargeable work.
+  Both are pure in-flight continuation of a queue row that the plan
+  composer already authorised at creation time.
+- Operator authorisation is enforced via
+  `resolveUserCallPermissions(...).can_join_queue_calls` (offer) and
+  workspace membership (accept). Those are RBAC, not entitlement, and
+  remain unchanged.
+
+### Drain policy locked
+
+For queue rows the governing rule is now explicit:
+
+| Lifecycle step                | Boundary type                | Entitlement gate |
+|-------------------------------|------------------------------|------------------|
+| Visitor enqueue (new row)     | admit-new-work               | GATED (existing) |
+| Operator `offer` (waiting→offered) | in-flight continuation  | NOT gated        |
+| Operator `accept` (offered→accepted) | in-flight continuation | NOT gated        |
+| `cancel` / timeout / cleanup  | cleanup                      | NOT gated        |
+
+This is a direct application of the already-locked
+deny-on-create / allow-on-continuity policy: once a queue row exists,
+downgrades must not strand it, and operators must remain able to drain
+the queue to completion or cancellation.
+
+### Outcome
+
+**No runtime rollout.** Adding an entitlement check at `offer` or
+`accept` would either (a) be a no-op because the only governing
+capabilities (`queue_enabled`, channel flags) were already evaluated at
+enqueue, or (b) strand already-queued visitors on plan downgrade —
+which the locked policy forbids. No safe new-action branch exists in
+either handler.
+
+No files under `server/`, `src/`, or `supabase/` were modified by this
+pass. The canonical composer (`loadEffectiveCallEntitlements`) is
+untouched and no new capability key, helper, or wrapper was introduced.
+
+### Next remaining call-side backlog item
+
+After this pass, the most promising remaining item is **call-center
+`assign` / `transfer`**, which has the same structural shape (operates
+on existing call_sessions) and therefore likely resolves to the same
+no-rollout result, but has not yet been route-audited under this
+policy. Numeric call limits remain blocked on missing usage resolvers.

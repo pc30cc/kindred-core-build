@@ -11,7 +11,7 @@
  *   • No implicit backfill for legacy_unmanaged rows.
  *   • No bulk actions.
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Card, CardContent, CardDescription, CardHeader, CardTitle,
@@ -24,7 +24,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { Loader2, ShieldAlert, AlertTriangle, Archive, Clock, Play, Download } from 'lucide-react';
+import { Loader2, ShieldAlert, AlertTriangle, Archive, Clock, Play, Download, Eye, EyeOff } from 'lucide-react';
 import {
   fetchAdminRecordings,
   setAdminRecordingLegalHold,
@@ -89,6 +89,19 @@ function fmtDuration(sec: number | null): string {
   return `${m}m ${s}s`;
 }
 
+/**
+ * Classify a content-type into the minimal native player we can use
+ * inline. Anything not reliably previewable by a browser <audio>/<video>
+ * element falls through to `unsupported`, where the UI keeps Open/Save
+ * available but refuses to fake playback.
+ */
+function classifyMediaKind(contentType: string): 'audio' | 'video' | 'unsupported' {
+  const ct = (contentType || '').toLowerCase();
+  if (ct.startsWith('audio/')) return 'audio';
+  if (ct.startsWith('video/')) return 'video';
+  return 'unsupported';
+}
+
 function LegalHoldToggle({ row }: { row: AdminRecordingRow }) {
   const qc = useQueryClient();
   const [reason, setReason] = useState('');
@@ -133,11 +146,132 @@ function LegalHoldToggle({ row }: { row: AdminRecordingRow }) {
 }
 
 /**
+ * Inline read-only preview surface for a single recording row.
+ *
+ * • Bytes flow through the existing super-admin file proxy via
+ *   `fetchAdminRecordingBlob` — no provider URL or signed link is
+ *   ever attached to the <audio>/<video> element.
+ * • Fetch only happens when the operator explicitly toggles preview
+ *   open; collapsing or unmounting revokes the object URL.
+ * • Unknown / non-audio-video formats degrade to an explicit
+ *   "preview unsupported" hint that preserves Open/Save fallbacks.
+ */
+function InlinePreview({ row }: { row: AdminRecordingRow }) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  const [kind, setKind] = useState<'audio' | 'video' | 'unsupported' | null>(null);
+  const urlRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    urlRef.current = objectUrl;
+  }, [objectUrl]);
+
+  // Always revoke on unmount to avoid leaking object URLs across
+  // open/close cycles or page navigations.
+  useEffect(() => {
+    return () => {
+      if (urlRef.current) {
+        try { URL.revokeObjectURL(urlRef.current); } catch { /* ignore */ }
+        urlRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    fetchAdminRecordingBlob(row.id, 'inline')
+      .then(({ blob, contentType }) => {
+        if (cancelled) return;
+        const k = classifyMediaKind(contentType);
+        setKind(k);
+        if (k === 'unsupported') {
+          setObjectUrl(null);
+          return;
+        }
+        const url = URL.createObjectURL(blob);
+        setObjectUrl(url);
+      })
+      .catch((e: any) => {
+        if (cancelled) return;
+        setError(e?.message || 'Failed to load recording');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [row.id]);
+
+  if (loading) {
+    return (
+      <div
+        className="flex items-center gap-2 text-[11px] text-muted-foreground"
+        data-testid={`recording-preview-loading-${row.id}`}
+      >
+        <Loader2 className="h-3 w-3 animate-spin" /> Loading preview…
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div
+        className="text-[11px] text-destructive"
+        data-testid={`recording-preview-error-${row.id}`}
+      >
+        {error}
+      </div>
+    );
+  }
+  if (kind === 'unsupported' || !objectUrl) {
+    return (
+      <div
+        className="text-[11px] text-muted-foreground"
+        data-testid={`recording-preview-unsupported-${row.id}`}
+      >
+        Inline preview is not supported for this file type. Use Save to download it.
+      </div>
+    );
+  }
+  if (kind === 'audio') {
+    return (
+      <audio
+        controls
+        preload="metadata"
+        src={objectUrl}
+        className="w-full max-w-md"
+        data-testid={`recording-preview-audio-${row.id}`}
+      />
+    );
+  }
+  return (
+    <video
+      controls
+      preload="metadata"
+      src={objectUrl}
+      className="w-full max-w-md rounded-md bg-black"
+      data-testid={`recording-preview-video-${row.id}`}
+    />
+  );
+}
+
+/**
  * Read-only artifact access (open inline / download). Bytes are fetched
  * through the authed super-admin proxy and surfaced via an in-memory
  * object URL; no provider URL or signed link is exposed to the browser.
  */
-function ArtifactActions({ row }: { row: AdminRecordingRow }) {
+function ArtifactActions({
+  row,
+  previewOpen,
+  onTogglePreview,
+}: {
+  row: AdminRecordingRow;
+  previewOpen: boolean;
+  onTogglePreview: () => void;
+}) {
   const [busy, setBusy] = useState<null | 'inline' | 'attachment'>(null);
   const [error, setError] = useState<string | null>(null);
   const disabled = !row.storage_path;
@@ -170,6 +304,19 @@ function ArtifactActions({ row }: { row: AdminRecordingRow }) {
   return (
     <div className="flex flex-col items-start gap-1">
       <div className="flex gap-1">
+        <Button
+          size="sm"
+          variant={previewOpen ? 'default' : 'outline'}
+          className="h-7 px-2 text-[11px]"
+          disabled={disabled}
+          onClick={onTogglePreview}
+          data-testid={`recording-preview-toggle-${row.id}`}
+          aria-pressed={previewOpen}
+          aria-label={previewOpen ? `Hide preview for ${row.id}` : `Preview recording ${row.id}`}
+        >
+          {previewOpen ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+          <span className="ml-1">{previewOpen ? 'Hide' : 'Preview'}</span>
+        </Button>
         <Button
           size="sm"
           variant="outline"
@@ -212,6 +359,7 @@ export function RecordingRetentionPanel() {
   const [workspaceFilter, setWorkspaceFilter] = useState('');
   const [status, setStatus] = useState<RecordingRetentionStatus | 'all'>('all');
   const [page, setPage] = useState(0);
+  const [previewId, setPreviewId] = useState<string | null>(null);
 
   const params = useMemo(
     () => ({
@@ -337,6 +485,7 @@ export function RecordingRetentionPanel() {
               </thead>
               <tbody>
                 {items.map((r) => (
+                  <>
                   <tr key={r.id} className="border-t border-border align-top" data-testid={`recording-row-${r.id}`}>
                     <td className="p-2 font-mono text-[10px] break-all max-w-[180px]">
                       <div>{r.id}</div>
@@ -352,9 +501,29 @@ export function RecordingRetentionPanel() {
                     <td className="p-2 whitespace-nowrap">{fmtBytes(r.size_bytes)}</td>
                     <td className="p-2 whitespace-nowrap">{fmtDate(r.retention_expires_at)}</td>
                     <td className="p-2"><RetentionStatusBadge status={r.status} /></td>
-                    <td className="p-2"><ArtifactActions row={r} /></td>
+                    <td className="p-2">
+                      <ArtifactActions
+                        row={r}
+                        previewOpen={previewId === r.id}
+                        onTogglePreview={() =>
+                          setPreviewId((cur) => (cur === r.id ? null : r.id))
+                        }
+                      />
+                    </td>
                     <td className="p-2"><LegalHoldToggle row={r} /></td>
                   </tr>
+                  {previewId === r.id && (
+                    <tr
+                      key={`${r.id}-preview`}
+                      className="border-t border-border bg-secondary/20"
+                      data-testid={`recording-preview-row-${r.id}`}
+                    >
+                      <td colSpan={9} className="p-3">
+                        <InlinePreview row={r} />
+                      </td>
+                    </tr>
+                  )}
+                  </>
                 ))}
               </tbody>
             </table>

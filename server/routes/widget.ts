@@ -2527,6 +2527,7 @@ widgetRouter.post('/admin/test-offline-email', async (req: Request, res: Respons
 // ═══════════════════════════════════════════════════════════════════
 import { loadEffectiveCallChannels } from '../services/calls/controlPlane.js';
 import { enqueueCall, cancelEntry, getEntry as getQueueEntry } from '../services/calls/queue.js';
+import { loadEffectiveCallEntitlements } from '../services/calls/entitlementComposer.js';
 
 /**
  * GET /api/widget/call-channels
@@ -2575,6 +2576,31 @@ widgetRouter.post('/call-queue/enqueue', widgetRateLimit('message'), async (req:
     department_id: z.string().uuid().optional(),
   }).safeParse(req.body || {});
   if (!parsed.success) return res.status(400).json({ error: 'invalid_body' });
+  // Plan composer gate (deny-on-create / visitor-initiated queue enqueue).
+  // Reuses the canonical loadEffectiveCallEntitlements — no second composer,
+  // no new capability key. Runs BEFORE enqueueCall so we never strand a
+  // half-created queue row on plan denial. plan_forbidden (403) stays
+  // strictly distinct from runtime queue/business-state denials
+  // (queue_disabled / voice_disabled / video_disabled → 409 below) and from
+  // validation failures (invalid_body → 400 above).
+  try {
+    const eff = await loadEffectiveCallEntitlements(config, workspaceId);
+    const planAllowsChannel = parsed.data.channel === 'audio'
+      ? eff.visitor_voice_enabled
+      : eff.visitor_video_enabled;
+    const planAllowsQueue = eff.queue_enabled;
+    if (!planAllowsChannel || !planAllowsQueue) {
+      return res.status(403).json({
+        error: 'plan_forbidden',
+        capability: !planAllowsQueue
+          ? 'call_queue'
+          : (parsed.data.channel === 'audio' ? 'voice' : 'video'),
+        upgrade_required: true,
+      });
+    }
+  } catch {
+    return res.status(403).json({ error: 'plan_forbidden', capability: 'call_queue', upgrade_required: true });
+  }
   try {
     const entry = await enqueueCall(config, {
       workspaceId,

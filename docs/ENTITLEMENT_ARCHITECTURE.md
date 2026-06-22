@@ -186,3 +186,21 @@ capabilities. `-1` renders as `Unlimited`. Limits without a canonical
 counter on the customer payload render a "not tracked in this view"
 notice instead of fabricated math. No mutation surface exists in the
 customer UI. See `docs/CUSTOMER_USAGE_VISIBILITY.md`.
+
+## 13. Legacy plan-JSON keys
+
+Active `billing_plans` rows still carry legacy keys (e.g. `contacts`,
+`team_members`, `conversations_monthly`, `ai_enabled`,
+`advanced_analytics`, `storage_mb`, `kb_articles`,
+`ai_kb_max_articles`, `ai_kb_max_chars`, `ai_requests_monthly`,
+`ai_kb_monthly_credits`, `ai_credits`, `file_storage_mb`,
+`conversations`, `agents`). They predate the registry, are
+middleware-invisible (no `requireLimit` / `requireFeature` consumer
+reads them), and continue to surface as warnings in
+`validatePlanPayload` and the `/api/plans/admin/diagnostics` drift
+report. They are **not** removed automatically: doing so risks breaking
+downstream consumers, and silently mapping them onto canonical keys
+(e.g. `contacts → max_contacts`) would change effective customer
+access. The full per-key classification, deferral list, and unblock
+criteria live in `docs/PLAN_DATA_RECONCILIATION.md` — that doc is the
+authoritative audit trail; this section is the pointer.

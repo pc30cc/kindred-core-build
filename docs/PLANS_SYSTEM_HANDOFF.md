@@ -233,6 +233,9 @@ Each can be picked up without reopening the core plans system.
 - `docs/ENTITLEMENT_TESTING.md` — what the test suite already protects
   (registry shape, override invariants, per-limit middleware, single-
   writer rule, customer panel rendering).
+- `docs/PLAN_DATA_RECONCILIATION.md` — legacy plan-JSON key audit,
+  per-key classification (LEGACY PRESERVED / DEFERRED / TOO AMBIGUOUS),
+  and the explicit deferral list with unblock criteria.
 
 If this doc disagrees with code, the code wins and this doc must be
 updated — but the system itself is finished.

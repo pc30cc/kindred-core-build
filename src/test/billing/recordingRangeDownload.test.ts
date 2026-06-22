@@ -52,7 +52,7 @@ afterAll(() => {
 
 describe('downloadFileRange (local provider)', () => {
   it('returns full body with status 200 when no Range header is provided', async () => {
-    const r = await storage.downloadFileRange({} as any, 'ws', 'sample.bin');
+    const r = await storage.downloadFileRange({} as any, 'ws', KEY);
     expect(r.success).toBe(true);
     expect(r.status).toBe(200);
     expect(r.data?.toString()).toBe('0123456789ABCDEF');
@@ -60,7 +60,7 @@ describe('downloadFileRange (local provider)', () => {
   });
 
   it('returns the exact slice with 206 + Content-Range when Range is provided', async () => {
-    const r = await storage.downloadFileRange({} as any, 'ws', 'sample.bin', 'bytes=4-9');
+    const r = await storage.downloadFileRange({} as any, 'ws', KEY, 'bytes=4-9');
     expect(r.success).toBe(true);
     expect(r.status).toBe(206);
     expect(r.data?.toString()).toBe('456789');
@@ -69,14 +69,14 @@ describe('downloadFileRange (local provider)', () => {
   });
 
   it('clamps open-ended ranges to total size', async () => {
-    const r = await storage.downloadFileRange({} as any, 'ws', 'sample.bin', 'bytes=10-');
+    const r = await storage.downloadFileRange({} as any, 'ws', KEY, 'bytes=10-');
     expect(r.status).toBe(206);
     expect(r.data?.toString()).toBe('ABCDEF');
     expect(r.contentRange).toBe('bytes 10-15/16');
   });
 
   it('surfaces 416 for ranges past end of file', async () => {
-    const r = await storage.downloadFileRange({} as any, 'ws', 'sample.bin', 'bytes=999-');
+    const r = await storage.downloadFileRange({} as any, 'ws', KEY, 'bytes=999-');
     expect(r.success).toBe(false);
     expect(r.status).toBe(416);
     expect(r.totalSize).toBe(16);

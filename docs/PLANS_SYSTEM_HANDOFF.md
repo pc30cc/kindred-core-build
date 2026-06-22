@@ -294,3 +294,20 @@ and remain reachable. Files changed: `server/routes/calls.ts`,
 No capability key, route, env var, schema, or middleware contract was
 renamed. See `docs/CALL_ENTITLEMENT_COMPOSITION.md` §"June 2026" for
 the full audit and compatibility rationale.
+
+## June 2026 — Queue Offer / Accept Drain Policy (No-Rollout)
+
+Single-decision pass scoped strictly to
+`POST /api/call-queue/:workspaceId/:entryId/offer` and
+`POST /api/call-queue/:workspaceId/:entryId/accept`. Route-truth audit
+confirmed both are pure in-flight continuation of an already-existing
+queue row whose creation is gated at the visitor enqueue boundary.
+
+Outcome: **honest defer / no rollout.** Drain policy now explicit —
+queue rows, once created, must remain drainable to completion or
+cancellation; gating offer/accept would strand visitors on downgrade.
+No files under `server/`, `src/`, or `supabase/` changed. Canonical
+composer untouched, no new capability key. Full rationale:
+`docs/CALL_ENTITLEMENT_COMPOSITION.md` §"Queue Offer / Accept Drain
+Policy". Next call-side backlog item: call-center `assign` /
+`transfer`.

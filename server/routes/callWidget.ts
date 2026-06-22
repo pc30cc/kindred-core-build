@@ -19,6 +19,10 @@ import {
 import { signWidgetSession, verifyWidgetSession } from '../services/callCenter/widgetSession.js';
 import { resolveEffectiveCallProvider } from '../services/calls/providerResolver.js';
 import { loadEffectiveCallEntitlements } from '../services/calls/entitlementComposer.js';
+import {
+  checkPlanConcurrencyCeiling,
+  planConcurrencyDenialBody,
+} from '../services/calls/concurrencyLimit.js';
 import { publishQueueEvent, publishCallEvent } from '../services/callCenter/realtime.js';
 import { buildClientConnectInfo } from '../services/callCenter/connectInfo.js';
 import { computeRecordingCapability } from '../services/callCenter/recording.js';

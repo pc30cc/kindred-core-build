@@ -788,3 +788,135 @@ adminCallsRouter.post('/recordings/:id/playback-token', async (req, res) => {
     ttl_seconds: minted.ttl_seconds,
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// Per-recording retention OVERRIDE (super-admin, narrow single-row pass).
+//
+//   POST /api/admin/calls/recordings/:id/retention-override
+//
+// Body (one of):
+//   { mode: 'exact',         expires_at: <ISO timestamp>,  reason?: string }
+//   { mode: 'days_from_now', days:       <integer >= 0>,   reason?: string }
+//   { mode: 'unlimited',                                    reason?: string }
+//
+// Semantics — strict and intentionally minimal:
+//   • Mutates ONLY `retention_expires_at` and `retention_policy` on the
+//     supplied row. Never touches `legal_hold`. Never deletes.
+//   • `mode: 'unlimited'` sets `retention_expires_at = NULL`, matching the
+//     existing "never expires" semantics the janitor already understands.
+//     `retention_policy` is stamped as `override:unlimited` so the prior
+//     plan-derived value (e.g. `30d`) is no longer misleading.
+//   • `mode: 'exact' | 'days_from_now'` writes an explicit future or past
+//     ISO and stamps `retention_policy = override:exact` / `override:Nd`.
+//     The override may shorten OR extend retention; super-admin scope is
+//     the only gate.
+//   • Legal hold still wins. The janitor query already skips
+//     `legal_hold = true` rows, so an expired override on a held row will
+//     not delete anything until the hold is released — exactly as today.
+//   • Legacy/unmanaged rows (NULL expiry) gain an expiry ONLY through this
+//     explicit per-row action. There is no implicit backfill.
+//   • Clearing an override is intentionally NOT supported in this pass:
+//     the original plan-stamp is not preserved separately, so a silent
+//     "restore to inherited" would have to recompute from the workspace's
+//     CURRENT plan and could surprise operators. Operators set a new
+//     explicit value instead.
+//
+// The janitor is still the sole deletion path; this route reuses the same
+// fields it already reads and introduces no second retention engine.
+const RetentionOverrideBody = z.discriminatedUnion('mode', [
+  z.object({
+    mode: z.literal('exact'),
+    expires_at: z.string().datetime({ offset: true }),
+    reason: z.string().trim().max(500).optional(),
+  }),
+  z.object({
+    mode: z.literal('days_from_now'),
+    days: z.number().int().min(0).max(3650),
+    reason: z.string().trim().max(500).optional(),
+  }),
+  z.object({
+    mode: z.literal('unlimited'),
+    reason: z.string().trim().max(500).optional(),
+  }),
+]);
+
+adminCallsRouter.post('/recordings/:id/retention-override', async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
+  const sb = getServiceClient(config);
+  const id = String(req.params.id || '');
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'invalid_id' });
+  const parsed = RetentionOverrideBody.safeParse(req.body);
+  if (!parsed.success) {
+    return res
+      .status(400)
+      .json({ error: 'invalid_body', detail: parsed.error.flatten().fieldErrors });
+  }
+
+  const { data: prior, error: priorErr } = await sb
+    .from('call_recordings')
+    .select(
+      'id, retention_policy, retention_expires_at, legal_hold, call_sessions!inner(workspace_id)',
+    )
+    .eq('id', id)
+    .maybeSingle();
+  if (priorErr) return res.status(500).json({ error: priorErr.message });
+  if (!prior) return res.status(404).json({ error: 'not_found' });
+
+  let nextExpiresAt: string | null;
+  let nextPolicy: string;
+  if (parsed.data.mode === 'unlimited') {
+    nextExpiresAt = null;
+    nextPolicy = 'override:unlimited';
+  } else if (parsed.data.mode === 'exact') {
+    nextExpiresAt = new Date(parsed.data.expires_at).toISOString();
+    nextPolicy = 'override:exact';
+  } else {
+    // days_from_now — compute relative to NOW so operators can extend a
+    // hold from "this moment" without doing arithmetic in their head.
+    const ms = parsed.data.days * 24 * 60 * 60 * 1000;
+    nextExpiresAt = new Date(Date.now() + ms).toISOString();
+    nextPolicy = `override:${parsed.data.days}d`;
+  }
+
+  const { error: updErr } = await sb
+    .from('call_recordings')
+    .update({
+      retention_expires_at: nextExpiresAt,
+      retention_policy: nextPolicy,
+    })
+    .eq('id', id);
+  if (updErr) return res.status(500).json({ error: updErr.message });
+
+  const wsId =
+    (prior as any)?.call_sessions?.workspace_id ?? '00000000-0000-0000-0000-000000000000';
+  await sb
+    .from('audit_logs')
+    .insert({
+      action: 'call_recording.retention.override',
+      entity_type: 'call_recording',
+      entity_id: id,
+      user_id: (req as any).adminUser?.id ?? null,
+      workspace_id: wsId,
+      old_value: {
+        retention_policy: (prior as any).retention_policy ?? null,
+        retention_expires_at: (prior as any).retention_expires_at ?? null,
+      } as any,
+      new_value: {
+        mode: parsed.data.mode,
+        retention_policy: nextPolicy,
+        retention_expires_at: nextExpiresAt,
+        reason: parsed.data.reason ?? null,
+      } as any,
+    } as any)
+    .then(
+      () => {},
+      () => {},
+    );
+
+  res.json({
+    id,
+    retention_policy: nextPolicy,
+    retention_expires_at: nextExpiresAt,
+    legal_hold: !!(prior as any).legal_hold,
+  });
+});

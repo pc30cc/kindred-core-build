@@ -562,3 +562,51 @@ export async function mintAdminRecordingPlaybackToken(
   const json = (await res.json()) as AdminRecordingPlaybackToken;
   return { ...json, url: `${API_BASE}${json.url}` };
 }
+
+// ────────────────────────────────────────────────────────────────────────
+// Per-recording retention override (super-admin only).
+//
+// Backed by:
+//   POST /api/admin/calls/recordings/:id/retention-override
+//
+// Mutates ONLY `retention_expires_at` and `retention_policy` on the row.
+// Never touches `legal_hold`. Never deletes. The retention janitor remains
+// the sole deletion path. There is no bulk surface and no clear-override
+// surface in this pass — operators set a new explicit value instead.
+// ────────────────────────────────────────────────────────────────────────
+export type RetentionOverrideInput =
+  | { mode: 'exact'; expires_at: string; reason?: string }
+  | { mode: 'days_from_now'; days: number; reason?: string }
+  | { mode: 'unlimited'; reason?: string };
+
+export interface RetentionOverrideResult {
+  id: string;
+  retention_policy: string;
+  retention_expires_at: string | null;
+  legal_hold: boolean;
+}
+
+export async function setAdminRecordingRetentionOverride(
+  id: string,
+  input: RetentionOverrideInput,
+): Promise<RetentionOverrideResult> {
+  const res = await fetch(
+    `${API_BASE}/api/admin/calls/recordings/${encodeURIComponent(id)}/retention-override`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+      body: JSON.stringify(input),
+    },
+  );
+  if (!res.ok) {
+    let detail = '';
+    try {
+      const j = await res.json();
+      detail = typeof j?.error === 'string' ? j.error : '';
+    } catch {
+      /* ignore */
+    }
+    throw new Error(detail || `HTTP ${res.status}`);
+  }
+  return res.json();
+}

@@ -342,7 +342,56 @@ Body: `{ ids: string[] (1..200, uuid), enabled: boolean, reason?: string }`
 
 ### Still deferred after the bulk legal-hold pass
 - Bulk delete / bulk retention edits (intentionally absent).
-- Per-recording retention overrides.
+- Per-recording retention overrides → implemented (see next section).
 - Operator-side visibility.
 - Waveform/timeline UI, annotations, comments.
 - Optional legacy backfill UI.
+
+## Per-recording retention override (super-admin)
+
+Single-row override for `retention_expires_at` / `retention_policy` on
+an already-existing recording. Strict, narrow, super-admin only. No
+bulk surface and no implicit backfill — legacy/unmanaged rows are
+only modified through an explicit per-row override.
+
+### Backend
+`POST /api/admin/calls/recordings/:id/retention-override`
+
+Body (discriminated union on `mode`):
+- `{ mode: 'exact',         expires_at: <ISO>,  reason?: string }`
+- `{ mode: 'days_from_now', days: <0..3650>,    reason?: string }`
+- `{ mode: 'unlimited',                          reason?: string }`
+
+Effects:
+- `unlimited` → `retention_expires_at = NULL`, `retention_policy =
+  'override:unlimited'`. The janitor's existing partial index already
+  treats NULL as "never expires".
+- `exact` → writes the supplied ISO and stamps `retention_policy =
+  'override:exact'`.
+- `days_from_now` → `now() + days`, stamped as `override:Nd`.
+- `legal_hold` is **never** touched. Legal hold still wins — an
+  expired override on a held row will not be deleted until the hold
+  is released, exactly as before.
+- One `audit_logs` row per call with action
+  `call_recording.retention.override`.
+
+Clearing an override is intentionally **not** supported in this pass:
+the original plan-stamp is not preserved separately, so a silent
+"restore to inherited" would recompute from the workspace's current
+plan and could surprise operators. Operators set a new explicit value
+instead.
+
+### Frontend
+- Per-row "Override" button in the Expires cell of the Recordings tab.
+- Dialog with three modes (Days from now / Exact date-time /
+  Unlimited) and an optional reason.
+- Rows whose `retention_policy` starts with `override:` get an
+  inline "Overridden (…)" tag below the expiry date.
+- No bulk surface, no clear-override, no delete shortcut.
+
+### Still deferred after the per-recording override pass
+- Bulk retention edits / bulk delete.
+- Clear-override / restore-to-inherited.
+- Optional legacy backfill UI.
+- Operator-side visibility.
+- Waveform/timeline UI, annotations, comments.

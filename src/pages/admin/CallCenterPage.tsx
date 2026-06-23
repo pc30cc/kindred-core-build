@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label';
 import { toast } from '@/hooks/use-toast';
 import { AlertCircle, ShieldCheck, Server, Building2, Search, Activity, Loader2, CheckCircle2, XCircle, AlertTriangle, ShieldAlert, PhoneCall, Music, Languages, Upload } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { RecordingRetentionPanel } from '@/components/admin/calls/RecordingRetentionPanel';
 
 const WIDGET_LOCALES: Array<{ code: 'en' | 'fa' | 'tr'; label: string; native: string }> = [
   { code: 'en', label: 'English', native: 'English' },

@@ -1,24 +1,21 @@
 /**
- * RecordingTimeline — shared, read-only playback UX enhancement.
+ * RecordingTimeline — shared playback UX with real-waveform scrubbing.
  *
- * This component is the smallest safe waveform/timeline pass: it does NOT
- * decode the underlying audio buffer (which would force a full download and
- * defeat tokenized Range streaming). Instead it wraps the existing native
- * <audio>/<video> element that already streams via the canonical short-lived
- * tokenized URL and overlays an enhanced scrubber with:
+ * Wraps the existing native <audio>/<video> streaming element (tokenized URL,
+ * Range-friendly) and overlays a waveform-based scrubber:
  *
- *   - a click-to-seek progress bar
- *   - hover-preview time
+ *   - real amplitude peaks decoded via WebAudio (audio kind, opt-out)
+ *   - deterministic decorative fallback when decode is unavailable / fails
+ *     or for the video kind
+ *   - click + drag to scrub, hover-preview time, keyboard arrows
+ *     (Shift+Arrow = ±1s, Arrow = ±5s), ±10s skip controls
  *   - current time / duration readouts
- *   - ±10s skip controls
- *   - a deterministic, decorative bar field so the timeline reads as a
- *     "waveform-style" track without lying about real amplitude data
  *
  * Strict scope:
  *   - read-only; no annotations, comments, retention, delete, or download
  *   - bound to the same media element used today (single playback engine)
  *   - degrades silently if duration is unknown / metadata fails
- *   - cleans up listeners on unmount; no object URLs are created here
+ *   - cleans up listeners and aborts in-flight decode on unmount
  */
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 
@@ -33,6 +30,11 @@ export interface RecordingTimelineProps {
   durationHint?: number | null;
   className?: string;
   mediaClassName?: string;
+  /**
+   * Attempt real waveform decode (fetch + decodeAudioData). Defaults to true
+   * for the audio kind. Set to false to force the decorative fallback.
+   */
+  enableWaveform?: boolean;
 }
 
 function fmt(t: number): string {
@@ -60,6 +62,29 @@ function decorativeBars(id: string, count = 64): number[] {
   return out;
 }
 
+/** Reduce a decoded AudioBuffer to N normalized 0..1 peaks. */
+function bufferToPeaks(buffer: AudioBuffer, count = 96): number[] {
+  const ch = buffer.getChannelData(0);
+  const block = Math.max(1, Math.floor(ch.length / count));
+  const peaks: number[] = new Array(count).fill(0);
+  let max = 0;
+  for (let i = 0; i < count; i++) {
+    let peak = 0;
+    const start = i * block;
+    const end = Math.min(ch.length, start + block);
+    for (let j = start; j < end; j++) {
+      const v = Math.abs(ch[j]);
+      if (v > peak) peak = v;
+    }
+    peaks[i] = peak;
+    if (peak > max) max = peak;
+  }
+  if (max > 0) {
+    for (let i = 0; i < count; i++) peaks[i] = 0.15 + (peaks[i] / max) * 0.85;
+  }
+  return peaks;
+}
+
 export function RecordingTimeline({
   src,
   kind,
@@ -67,6 +92,7 @@ export function RecordingTimeline({
   durationHint,
   className,
   mediaClassName,
+  enableWaveform,
 }: RecordingTimelineProps) {
   const mediaRef = useRef<HTMLMediaElement | null>(null);
   const barRef = useRef<HTMLDivElement | null>(null);
@@ -75,6 +101,9 @@ export function RecordingTimeline({
     typeof durationHint === 'number' && isFinite(durationHint) && durationHint > 0 ? durationHint : 0,
   );
   const [hoverPct, setHoverPct] = useState<number | null>(null);
+  const [peaks, setPeaks] = useState<number[] | null>(null);
+  const [decoding, setDecoding] = useState(false);
+  const draggingRef = useRef(false);
 
   useEffect(() => {
     const el = mediaRef.current;
@@ -93,7 +122,57 @@ export function RecordingTimeline({
     };
   }, [src]);
 
-  const bars = useMemo(() => decorativeBars(recordingId), [recordingId]);
+  // Real waveform decode (audio only, opt-out). Runs once per src.
+  useEffect(() => {
+    const wantWave = (enableWaveform ?? kind === 'audio') && typeof window !== 'undefined';
+    if (!wantWave) { setPeaks(null); return; }
+    const AC: typeof AudioContext | undefined =
+      (window as any).AudioContext || (window as any).webkitAudioContext;
+    if (!AC) return;
+    const ctrl = new AbortController();
+    let cancelled = false;
+    let ac: AudioContext | null = null;
+    setDecoding(true);
+    (async () => {
+      try {
+        const res = await fetch(src, { signal: ctrl.signal, credentials: 'omit' });
+        if (!res.ok) throw new Error(`waveform fetch failed: ${res.status}`);
+        const buf = await res.arrayBuffer();
+        if (cancelled) return;
+        ac = new AC();
+        const decoded: AudioBuffer = await new Promise((resolve, reject) => {
+          try {
+            const p = (ac as AudioContext).decodeAudioData(
+              buf,
+              (b) => resolve(b),
+              (err) => reject(err),
+            );
+            if (p && typeof (p as any).then === 'function') {
+              (p as unknown as Promise<AudioBuffer>).then(resolve, reject);
+            }
+          } catch (e) { reject(e); }
+        });
+        if (cancelled) return;
+        setPeaks(bufferToPeaks(decoded));
+        if (decoded.duration && decoded.duration > 0) {
+          setDuration((d) => (d > 0 ? d : decoded.duration));
+        }
+      } catch {
+        if (!cancelled) setPeaks(null);
+      } finally {
+        if (!cancelled) setDecoding(false);
+        try { ac?.close?.(); } catch { /* ignore */ }
+      }
+    })();
+    return () => {
+      cancelled = true;
+      try { ctrl.abort(); } catch { /* ignore */ }
+      try { ac?.close?.(); } catch { /* ignore */ }
+    };
+  }, [src, kind, enableWaveform]);
+
+  const fallbackBars = useMemo(() => decorativeBars(recordingId), [recordingId]);
+  const bars = peaks && peaks.length > 0 ? peaks : fallbackBars;
   const pct = duration > 0 ? Math.min(1, Math.max(0, current / duration)) : 0;
 
   function seekToPct(p: number) {
@@ -104,19 +183,36 @@ export function RecordingTimeline({
     setCurrent(t);
   }
 
-  function onBarClick(e: React.MouseEvent<HTMLDivElement>) {
+  function pctFromEvent(clientX: number): number | null {
     const node = barRef.current;
-    if (!node) return;
+    if (!node) return null;
     const rect = node.getBoundingClientRect();
-    if (rect.width <= 0) return;
-    seekToPct((e.clientX - rect.left) / rect.width);
+    if (rect.width <= 0) return null;
+    return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  }
+
+  function onBarDown(e: React.MouseEvent<HTMLDivElement>) {
+    const p = pctFromEvent(e.clientX);
+    if (p == null) return;
+    draggingRef.current = true;
+    seekToPct(p);
+    const onMove = (ev: MouseEvent) => {
+      const pp = pctFromEvent(ev.clientX);
+      if (pp == null) return;
+      setHoverPct(pp);
+      seekToPct(pp);
+    };
+    const onUp = () => {
+      draggingRef.current = false;
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
   }
   function onBarMove(e: React.MouseEvent<HTMLDivElement>) {
-    const node = barRef.current;
-    if (!node) return;
-    const rect = node.getBoundingClientRect();
-    if (rect.width <= 0) return;
-    setHoverPct(Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)));
+    const p = pctFromEvent(e.clientX);
+    if (p != null) setHoverPct(p);
   }
 
   function skip(delta: number) {
@@ -159,24 +255,28 @@ export function RecordingTimeline({
           aria-valuemax={Math.max(0, Math.floor(duration))}
           aria-valuenow={Math.floor(current)}
           tabIndex={0}
-          onClick={onBarClick}
+          onMouseDown={onBarDown}
           onMouseMove={onBarMove}
           onMouseLeave={() => setHoverPct(null)}
           onKeyDown={(e) => {
-            if (e.key === 'ArrowRight') { skip(5); e.preventDefault(); }
-            else if (e.key === 'ArrowLeft') { skip(-5); e.preventDefault(); }
+            const fine = e.shiftKey ? 1 : 5;
+            if (e.key === 'ArrowRight') { skip(fine); e.preventDefault(); }
+            else if (e.key === 'ArrowLeft') { skip(-fine); e.preventDefault(); }
+            else if (e.key === 'Home') { seekToPct(0); e.preventDefault(); }
+            else if (e.key === 'End') { seekToPct(1); e.preventDefault(); }
           }}
-          className="relative h-8 w-full cursor-pointer rounded bg-muted/40 overflow-hidden"
+          className="relative h-10 w-full cursor-pointer rounded bg-muted/40 overflow-hidden"
           data-testid={`recording-timeline-bar-${recordingId}`}
         >
-          <div className="absolute inset-0 flex items-end gap-[1px] px-[2px] pointer-events-none">
+          <div className="absolute inset-0 flex items-center gap-[1px] px-[2px] pointer-events-none">
             {bars.map((h, i) => {
               const played = (i + 0.5) / bars.length <= pct;
+              const barH = Math.max(6, Math.round(h * 100));
               return (
                 <div
                   key={i}
                   className={played ? 'bg-primary/80' : 'bg-muted-foreground/30'}
-                  style={{ height: `${Math.round(h * 100)}%`, flex: 1, borderRadius: 1 }}
+                  style={{ height: `${barH}%`, flex: 1, borderRadius: 1 }}
                 />
               );
             })}
@@ -192,6 +292,14 @@ export function RecordingTimeline({
               style={hoverStyle}
             >
               {fmt((hoverPct || 0) * (duration || 0))}
+            </div>
+          )}
+          {decoding && !peaks && (
+            <div
+              className="absolute inset-y-0 right-1 flex items-center text-[9px] text-muted-foreground pointer-events-none"
+              data-testid={`recording-timeline-decoding-${recordingId}`}
+            >
+              …
             </div>
           )}
         </div>
@@ -215,6 +323,12 @@ export function RecordingTimeline({
             >
               +10s
             </button>
+            <span
+              className="ml-1 text-[9px] uppercase tracking-wide opacity-70"
+              data-testid={`recording-timeline-mode-${recordingId}`}
+            >
+              {peaks ? 'waveform' : decoding ? 'decoding' : 'preview'}
+            </span>
           </div>
           <div className="font-mono">
             {fmt(current)} / {duration > 0 ? fmt(duration) : '—'}

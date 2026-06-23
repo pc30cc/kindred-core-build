@@ -375,23 +375,12 @@ export default function CallCenterSettingsPage() {
         </Button>
       </Section>
 
-      <Section title="Recording" description="Configuration only — recording availability depends on the platform.">
-        <div className="flex gap-2 items-start text-xs p-3 rounded bg-amber-500/10 border border-amber-500/30">
-          <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5" />
-          <span>
-            Recording depends on platform configuration. Do not rely on recording until the status below shows Enabled.
-          </span>
-        </div>
-        <Row label="Recording enabled" locked={!platformRecording ? 'Disabled by platform' : undefined}>
-          <Switch checked={!!s.recording_enabled} onCheckedChange={(v) => setS({ ...s, recording_enabled: v })} disabled={!platformRecording} />
-        </Row>
-        <Row label="Consent required">
-          <Switch checked={!!s.recording_consent_required} onCheckedChange={(v) => setS({ ...s, recording_consent_required: v })} />
-        </Row>
-        <div className="text-xs text-muted-foreground">
-          Effective: {(data as any)?.recording?.effective_enabled ? 'enabled' : 'disabled'}
-        </div>
-      </Section>
+      <RecordingSection
+        s={s}
+        setS={setS}
+        platformRecording={platformRecording}
+        recording={(data as any)?.recording || null}
+      />
 
       {/* Sticky save bar */}
       {dirty && (

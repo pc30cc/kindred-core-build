@@ -96,7 +96,9 @@ export default function CallCenterSettingsPage() {
   const platformVoice = platform?.voice_calls_enabled !== false;
   const platformVideo = platform?.video_calls_enabled !== false;
   const platformCallback = platform?.callback_requests_enabled !== false;
-  const platformRecording = platform?.call_recording_enabled !== false;
+  // Use strict boolean coercion to match the backend's !!platform.call_recording_enabled.
+  // A null/undefined platform flag means recording is disabled, not enabled.
+  const platformRecording = !!platform?.call_recording_enabled;
 
   async function save() {
     if (!workspace) return;

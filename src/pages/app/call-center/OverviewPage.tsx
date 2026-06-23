@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useMemo } from 'react';
+import { useTranslation } from '@/i18n';
 
 function StatCard({ icon: Icon, label, value, tone = 'default' }: { icon: any; label: string; value: React.ReactNode; tone?: 'default' | 'warn' | 'danger' | 'ok' }) {
   const map: Record<string, string> = {
@@ -48,6 +49,7 @@ function waitTime(createdAt: string) {
 }
 
 export default function CallCenterOverviewPage() {
+  const { t } = useTranslation();
   const { workspace } = useActiveWorkspace();
   const { data: overview } = useCallCenterOverview(workspace?.id);
   const { data: settings } = useCallCenterSettings(workspace?.id);
@@ -63,10 +65,10 @@ export default function CallCenterOverviewPage() {
   const providerReady = !!overview?.provider?.ready;
 
   let statusTone: 'ok' | 'warn' | 'danger' = 'ok';
-  let statusText = 'Operations live';
-  if (!platformOk) { statusTone = 'danger'; statusText = 'Service disabled'; }
-  else if (!wsEnabled) { statusTone = 'warn'; statusText = 'Workspace offline'; }
-  else if (!providerReady) { statusTone = 'warn'; statusText = 'Calls service degraded'; }
+  let statusText = t('callCenter.overview.operationsLive');
+  if (!platformOk) { statusTone = 'danger'; statusText = t('callCenter.overview.serviceDisabled'); }
+  else if (!wsEnabled) { statusTone = 'warn'; statusText = t('callCenter.overview.workspaceOffline'); }
+  else if (!providerReady) { statusTone = 'warn'; statusText = t('callCenter.overview.callsServiceDegraded'); }
 
   const queue = queueData?.queue || [];
   const recentQueue = queue.slice(0, 6);
@@ -119,28 +121,28 @@ export default function CallCenterOverviewPage() {
               : <AlertCircle className="h-5 w-5" />}
           </div>
           <div>
-            <div className="text-xs uppercase tracking-wide text-muted-foreground">Live wallboard</div>
+            <div className="text-xs uppercase tracking-wide text-muted-foreground">{t('callCenter.overview.liveWallboard')}</div>
             <div className="text-xl font-semibold leading-tight">{statusText}</div>
           </div>
         </div>
         <div className="flex items-center gap-2">
           {callbackOn && (
-            <Button asChild variant="outline" size="sm"><Link to="callbacks">Callbacks <ArrowRight className="h-3 w-3 ms-1" /></Link></Button>
+            <Button asChild variant="outline" size="sm"><Link to="callbacks">{t('callCenter.overview.callbacksLink')} <ArrowRight className="h-3 w-3 ms-1" /></Link></Button>
           )}
-          <Button asChild size="sm"><Link to="queue"><Headphones className="h-4 w-4 me-1" /> Open Live Desk</Link></Button>
+          <Button asChild size="sm"><Link to="queue"><Headphones className="h-4 w-4 me-1" /> {t('callCenter.overview.openLiveDesk')}</Link></Button>
         </div>
       </div>
 
       {/* Primary KPI strip */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        <StatCard icon={Clock} label="Waiting" value={overview?.waiting_calls ?? queue.length} tone={(overview?.waiting_calls ?? 0) > 0 ? 'warn' : 'default'} />
-        <StatCard icon={PhoneIncoming} label="Active" value={overview?.active_calls ?? 0} tone={(overview?.active_calls ?? 0) > 0 ? 'ok' : 'default'} />
-        <StatCard icon={PhoneMissed} label="Missed today" value={overview?.missed_today ?? 0} tone={(overview?.missed_today ?? 0) > 0 ? 'danger' : 'default'} />
-        <StatCard icon={Phone} label="Total today" value={overview?.today_calls ?? 0} />
+        <StatCard icon={Clock} label={t('callCenter.overview.kpi.waiting')} value={overview?.waiting_calls ?? queue.length} tone={(overview?.waiting_calls ?? 0) > 0 ? 'warn' : 'default'} />
+        <StatCard icon={PhoneIncoming} label={t('callCenter.overview.kpi.active')} value={overview?.active_calls ?? 0} tone={(overview?.active_calls ?? 0) > 0 ? 'ok' : 'default'} />
+        <StatCard icon={PhoneMissed} label={t('callCenter.overview.kpi.missedToday')} value={overview?.missed_today ?? 0} tone={(overview?.missed_today ?? 0) > 0 ? 'danger' : 'default'} />
+        <StatCard icon={Phone} label={t('callCenter.overview.kpi.totalToday')} value={overview?.today_calls ?? 0} />
         {callbackOn && (
-          <StatCard icon={PhoneCall} label="Pending callbacks" value={overview?.callbacks_pending ?? 0} tone={(overview?.callbacks_pending ?? 0) > 0 ? 'warn' : 'default'} />
+          <StatCard icon={PhoneCall} label={t('callCenter.overview.kpi.pendingCallbacks')} value={overview?.callbacks_pending ?? 0} tone={(overview?.callbacks_pending ?? 0) > 0 ? 'warn' : 'default'} />
         )}
-        <StatCard icon={UserCheck} label="Agents available" value={`${agentStats.available}/${agentStats.total}`} tone={agentStats.available > 0 ? 'ok' : 'warn'} />
+        <StatCard icon={UserCheck} label={t('callCenter.overview.kpi.agentsAvailable')} value={`${agentStats.available}/${agentStats.total}`} tone={agentStats.available > 0 ? 'ok' : 'warn'} />
       </div>
 
       {/* SLA + agent utilization */}
@@ -149,45 +151,45 @@ export default function CallCenterOverviewPage() {
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <Timer className="h-4 w-4 text-primary" />
-              <h3 className="font-semibold">Service level</h3>
+              <h3 className="font-semibold">{t('callCenter.overview.serviceLevel')}</h3>
             </div>
-            <span className="text-xs text-muted-foreground">Live</span>
+            <span className="text-xs text-muted-foreground">{t('callCenter.overview.live')}</span>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div>
-              <div className="text-xs text-muted-foreground">Longest wait</div>
+              <div className="text-xs text-muted-foreground">{t('callCenter.overview.metrics.longestWait')}</div>
               <div className={cn('text-2xl font-semibold mt-1', slaStats.longest > 60 && 'text-destructive')}>
                 {fmtDuration(slaStats.longest)}
               </div>
             </div>
             <div>
-              <div className="text-xs text-muted-foreground">Avg wait</div>
+              <div className="text-xs text-muted-foreground">{t('callCenter.overview.metrics.avgWait')}</div>
               <div className="text-2xl font-semibold mt-1">{fmtDuration(slaStats.avg)}</div>
             </div>
             <div>
-              <div className="text-xs text-muted-foreground">SLA breached</div>
+              <div className="text-xs text-muted-foreground">{t('callCenter.overview.metrics.slaBreached')}</div>
               <div className={cn('text-2xl font-semibold mt-1', slaStats.breached > 0 && 'text-destructive')}>
                 {slaStats.breached}
               </div>
             </div>
             <div>
-              <div className="text-xs text-muted-foreground">Answer rate</div>
+              <div className="text-xs text-muted-foreground">{t('callCenter.overview.metrics.answerRate')}</div>
               <div className="text-2xl font-semibold mt-1">{slaStats.answerRate}%</div>
             </div>
             <div>
-              <div className="text-xs text-muted-foreground">Avg handle time</div>
+              <div className="text-xs text-muted-foreground">{t('callCenter.overview.metrics.avgHandleTime')}</div>
               <div className="text-2xl font-semibold mt-1">{fmtDuration(slaStats.avgHandle)}</div>
             </div>
             <div>
-              <div className="text-xs text-muted-foreground">Utilization</div>
+              <div className="text-xs text-muted-foreground">{t('callCenter.overview.metrics.utilization')}</div>
               <div className="text-2xl font-semibold mt-1">{agentStats.utilization}%</div>
             </div>
             <div>
-              <div className="text-xs text-muted-foreground">In conversation</div>
+              <div className="text-xs text-muted-foreground">{t('callCenter.overview.metrics.inConversation')}</div>
               <div className="text-2xl font-semibold mt-1">{agentStats.busy}</div>
             </div>
             <div>
-              <div className="text-xs text-muted-foreground">Away / offline</div>
+              <div className="text-xs text-muted-foreground">{t('callCenter.overview.metrics.awayOffline')}</div>
               <div className="text-2xl font-semibold mt-1">{agentStats.away + agentStats.offline}</div>
             </div>
           </div>
@@ -197,18 +199,18 @@ export default function CallCenterOverviewPage() {
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <Users className="h-4 w-4 text-primary" />
-              <h3 className="font-semibold">Agent presence</h3>
+              <h3 className="font-semibold">{t('callCenter.overview.agentPresence')}</h3>
             </div>
             <Button asChild size="sm" variant="ghost" className="h-7 text-xs">
-              <Link to="settings">Manage</Link>
+              <Link to="settings">{t('callCenter.overview.manage')}</Link>
             </Button>
           </div>
           <div className="space-y-2">
             {[
-              { label: 'Available', value: agentStats.available, dot: 'bg-emerald-500' },
-              { label: 'On call / busy', value: agentStats.busy, dot: 'bg-primary' },
-              { label: 'Away', value: agentStats.away, dot: 'bg-amber-500' },
-              { label: 'Offline', value: agentStats.offline, dot: 'bg-muted-foreground/40' },
+              { label: t('callCenter.overview.presence.available'), value: agentStats.available, dot: 'bg-emerald-500' },
+              { label: t('callCenter.overview.presence.onCallBusy'), value: agentStats.busy, dot: 'bg-primary' },
+              { label: t('callCenter.overview.presence.away'), value: agentStats.away, dot: 'bg-amber-500' },
+              { label: t('callCenter.overview.presence.offline'), value: agentStats.offline, dot: 'bg-muted-foreground/40' },
             ].map((row) => {
               const pct = agentStats.total > 0 ? (row.value / agentStats.total) * 100 : 0;
               return (
@@ -236,15 +238,15 @@ export default function CallCenterOverviewPage() {
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <Activity className="h-4 w-4 text-primary" />
-              <h3 className="font-semibold">Live queue</h3>
+              <h3 className="font-semibold">{t('callCenter.overview.liveQueue')}</h3>
               {queue.length > 0 && <span className="text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary">{queue.length}</span>}
             </div>
-            <Button asChild size="sm" variant="ghost" className="h-7 text-xs"><Link to="queue">Open <ArrowRight className="h-3 w-3 ms-1" /></Link></Button>
+            <Button asChild size="sm" variant="ghost" className="h-7 text-xs"><Link to="queue">{t('callCenter.overview.open')} <ArrowRight className="h-3 w-3 ms-1" /></Link></Button>
           </div>
           {recentQueue.length === 0 ? (
             <div className="text-center py-8 text-sm text-muted-foreground">
               <CheckCircle2 className="h-6 w-6 mx-auto mb-2 text-emerald-500/70" />
-              Queue is clear
+              {t('callCenter.overview.queueClear')}
             </div>
           ) : (
             <ul className="divide-y">
@@ -258,7 +260,7 @@ export default function CallCenterOverviewPage() {
                       : <Phone className="h-4 w-4 text-primary shrink-0" />}
                     <div className="min-w-0 flex-1">
                       <div className="truncate font-medium">
-                        {q.call_session?.visitor_name || q.call_session?.visitor_email || 'Anonymous'}
+                        {q.call_session?.visitor_name || q.call_session?.visitor_email || t('callCenter.common.anonymous')}
                       </div>
                       {q.call_session?.subject && (
                         <div className="text-xs text-muted-foreground truncate">{q.call_session.subject}</div>
@@ -282,24 +284,24 @@ export default function CallCenterOverviewPage() {
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <TrendingUp className="h-4 w-4 text-primary" />
-              <h3 className="font-semibold">Needs attention</h3>
+              <h3 className="font-semibold">{t('callCenter.overview.needsAttention')}</h3>
             </div>
           </div>
           {recentMissed.length === 0 && pendingCallbacks.length === 0 ? (
             <div className="text-center py-8 text-sm text-muted-foreground">
               <CheckCircle2 className="h-6 w-6 mx-auto mb-2 text-emerald-500/70" />
-              Nothing pending — great work
+              {t('callCenter.overview.nothingPending')}
             </div>
           ) : (
             <div className="space-y-4">
               {recentMissed.length > 0 && (
                 <div>
-                  <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Missed calls</div>
+                  <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">{t('callCenter.overview.missedCallsTitle')}</div>
                   <ul className="divide-y">
                     {recentMissed.map((c) => (
                       <li key={c.id} className="py-2 flex items-center gap-2 text-sm">
                         <PhoneMissed className="h-3.5 w-3.5 text-destructive shrink-0" />
-                        <span className="flex-1 truncate">{c.visitor_name || c.visitor_email || 'Anonymous'}</span>
+                        <span className="flex-1 truncate">{c.visitor_name || c.visitor_email || t('callCenter.common.anonymous')}</span>
                         <span className="text-xs text-muted-foreground">{new Date(c.created_at).toLocaleTimeString()}</span>
                       </li>
                     ))}
@@ -308,7 +310,7 @@ export default function CallCenterOverviewPage() {
               )}
               {callbackOn && pendingCallbacks.length > 0 && (
                 <div>
-                  <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Pending callbacks</div>
+                  <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">{t('callCenter.overview.pendingCallbacksTitle')}</div>
                   <ul className="divide-y">
                     {pendingCallbacks.map((c) => (
                       <li key={c.id}>
@@ -317,7 +319,7 @@ export default function CallCenterOverviewPage() {
                           className="py-2 flex items-center gap-2 text-sm hover:bg-muted/40 rounded px-2 -mx-2 transition"
                         >
                           <PhoneCall className="h-3.5 w-3.5 text-primary shrink-0" />
-                          <span className="flex-1 truncate">{(c.metadata as any)?.name || c.contact_phone || c.contact_email || 'Anonymous'}</span>
+                          <span className="flex-1 truncate">{(c.metadata as any)?.name || c.contact_phone || c.contact_email || t('callCenter.common.anonymous')}</span>
                           <span className="text-xs px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400">{c.status}</span>
                           <ArrowRight className="h-3 w-3 text-muted-foreground" />
                         </Link>

@@ -560,6 +560,7 @@ function WidgetTextsEditor({
   platform: any;
   onChange: (next: Record<string, Record<string, string>>) => void;
 }) {
+  const { t } = useTranslation();
   const platformAvail: string[] = platform?.widget_available_locales || ['en'];
   const enabled: string[] = (settings.widget_enabled_locales && settings.widget_enabled_locales.length > 0)
     ? settings.widget_enabled_locales.filter((l: string) => platformAvail.includes(l))
@@ -588,10 +589,8 @@ function WidgetTextsEditor({
     <div className="pt-3 border-t space-y-3">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <Label>Widget label overrides</Label>
-          <p className="text-xs text-muted-foreground">
-            Customize the launcher, header and button labels visitors see. Leave a field empty to use the default.
-          </p>
+          <Label>{t('callCenter.settingsPage.widgetLabelOverrides')}</Label>
+          <p className="text-xs text-muted-foreground">{t('callCenter.settingsPage.widgetLabelOverridesHint')}</p>
         </div>
         <Select value={locale} onValueChange={setLocale}>
           <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>

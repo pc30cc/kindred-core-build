@@ -632,6 +632,21 @@ export default function AdminCallCenterPage() {
           </table>
         </div>
       </Card>
+
+      <Card className="p-5 space-y-3">
+        <div className="flex items-start gap-2">
+          <ShieldAlert className="h-5 w-5 text-primary mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <h2 className="font-semibold">Recording retention & legal hold</h2>
+            <p className="text-xs text-muted-foreground">
+              Cross-workspace operability over every retained recording. Read,
+              play, download, toggle legal hold, override retention, restore,
+              and adopt legacy rows. The janitor remains the sole deletion path.
+            </p>
+          </div>
+        </div>
+        <RecordingRetentionPanel />
+      </Card>
     </div>
   );
 }

@@ -12,6 +12,7 @@ import { Phone, Video, Search, Copy, Star, Play, Download, Link as LinkIcon } fr
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { RecordingTimeline } from '@/components/recordings/RecordingTimeline';
+import { useTranslation } from '@/i18n';
 
 const STATUS = ['all', 'pending', 'ringing', 'active', 'ended', 'cancelled', 'missed', 'failed'];
 const TYPES = ['all', 'audio', 'video'];
@@ -58,6 +59,7 @@ function RecordingPlaybackRow({
   selected: boolean;
   onToggleSelected: (next: boolean) => void;
 }) {
+  const { t } = useTranslation();
   const [url, setUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -70,7 +72,7 @@ function RecordingPlaybackRow({
       const r = await callCenterApi.mintCallRecordingPlaybackToken(workspaceId, callId, rec.id);
       setUrl(r.url);
     } catch (e: any) {
-      toast({ title: 'Playback unavailable', description: e?.message || 'token_mint_failed', variant: 'destructive' });
+      toast({ title: t('callCenter.calls.loadPlayback'), description: e?.message || 'token_mint_failed', variant: 'destructive' });
     } finally {
       setLoading(false);
     }
@@ -91,7 +93,7 @@ function RecordingPlaybackRow({
       a.click();
       a.remove();
     } catch (e: any) {
-      toast({ title: 'Download unavailable', description: e?.message || 'token_mint_failed', variant: 'destructive' });
+      toast({ title: t('callCenter.calls.download'), description: e?.message || 'token_mint_failed', variant: 'destructive' });
     } finally {
       setDownloading(false);
     }
@@ -106,12 +108,12 @@ function RecordingPlaybackRow({
         : `${window.location.origin}${r.url}`;
       await navigator.clipboard.writeText(abs);
       toast({
-        title: 'Temporary download link copied',
-        description: 'Link is short-lived and scoped to this recording.',
+        title: t('callCenter.calls.shareLinkCopied'),
+        description: t('callCenter.calls.shareLinkDesc'),
       });
     } catch (e: any) {
       toast({
-        title: 'Could not generate share link',
+        title: t('callCenter.calls.shareLinkFailed'),
         description: e?.message || 'token_mint_failed',
         variant: 'destructive',
       });
@@ -136,19 +138,19 @@ function RecordingPlaybackRow({
         <span className="text-muted-foreground">{fmtBytes(rec.size_bytes)}</span>
       </div>
       {!rec.has_storage ? (
-        <p className="text-[11px] text-muted-foreground">Artifact is not yet available for playback.</p>
+        <p className="text-[11px] text-muted-foreground">{t('callCenter.calls.artifactUnavailable')}</p>
       ) : (
         <>
           {!url ? (
             <div className="flex items-center gap-2">
               <Button size="sm" variant="outline" className="h-7 text-xs" onClick={load} disabled={loading}>
-                <Play className="h-3 w-3 me-1" /> {loading ? 'Preparing…' : 'Load playback'}
+                <Play className="h-3 w-3 me-1" /> {loading ? t('callCenter.calls.preparing') : t('callCenter.calls.loadPlayback')}
               </Button>
               <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={download} disabled={downloading}>
-                <Download className="h-3 w-3 me-1" /> {downloading ? 'Preparing…' : 'Download'}
+                <Download className="h-3 w-3 me-1" /> {downloading ? t('callCenter.calls.preparing') : t('callCenter.calls.download')}
               </Button>
               <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={copyShareLink}>
-                <LinkIcon className="h-3 w-3 me-1" /> Copy share link
+                <LinkIcon className="h-3 w-3 me-1" /> {t('callCenter.calls.copyShareLink')}
               </Button>
             </div>
           ) : (
@@ -162,10 +164,10 @@ function RecordingPlaybackRow({
               />
               <div className="flex items-center gap-2">
                 <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={download} disabled={downloading}>
-                  <Download className="h-3 w-3 me-1" /> {downloading ? 'Preparing…' : 'Download'}
+                  <Download className="h-3 w-3 me-1" /> {downloading ? t('callCenter.calls.preparing') : t('callCenter.calls.download')}
                 </Button>
                 <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={copyShareLink}>
-                  <LinkIcon className="h-3 w-3 me-1" /> Copy share link
+                  <LinkIcon className="h-3 w-3 me-1" /> {t('callCenter.calls.copyShareLink')}
                 </Button>
               </div>
             </>
@@ -177,6 +179,7 @@ function RecordingPlaybackRow({
 }
 
 function RecordingsPanel({ workspaceId, callId }: { workspaceId: string; callId: string }) {
+  const { t } = useTranslation();
   const [state, setState] = useState<{
     loading: boolean;
     error: string | null;
@@ -200,13 +203,13 @@ function RecordingsPanel({ workspaceId, callId }: { workspaceId: string; callId:
   }, [workspaceId, callId]);
 
   if (state.loading) {
-    return <p className="text-[11px] text-muted-foreground">Loading recordings…</p>;
+    return <p className="text-[11px] text-muted-foreground">{t('callCenter.calls.loadingRecordings')}</p>;
   }
   if (state.error) {
-    return <p className="text-[11px] text-destructive">Failed to load recordings: {state.error}</p>;
+    return <p className="text-[11px] text-destructive">{t('callCenter.calls.loadRecordingsFailed')} {state.error}</p>;
   }
   if (!state.recordings || state.recordings.length === 0) {
-    return <p className="text-[11px] text-muted-foreground">No recording artifacts available.</p>;
+    return <p className="text-[11px] text-muted-foreground">{t('callCenter.calls.noRecordings')}</p>;
   }
 
   const recs = state.recordings;
@@ -304,8 +307,8 @@ function RecordingsPanel({ workspaceId, callId }: { workspaceId: string; callId:
       <div className="flex items-center justify-between gap-2">
         <span className="text-[11px] text-muted-foreground">
           {selectedIds.length > 0
-            ? `${selectedIds.length} selected`
-            : 'Select recordings to bulk download'}
+            ? t('callCenter.calls.selectedShort', { count: String(selectedIds.length) })
+            : t('callCenter.calls.selectToBulk')}
         </span>
         <div className="flex items-center gap-2">
           <Button
@@ -316,7 +319,7 @@ function RecordingsPanel({ workspaceId, callId }: { workspaceId: string; callId:
             disabled={bulkBusy || zipBusy || selectedIds.length === 0}
           >
             <Download className="h-3 w-3 me-1" />
-            {bulkBusy ? 'Preparing…' : `Download selected${selectedIds.length ? ` (${selectedIds.length})` : ''}`}
+            {bulkBusy ? t('callCenter.calls.preparing') : `${t('callCenter.calls.downloadSelected')}${selectedIds.length ? ` (${selectedIds.length})` : ''}`}
           </Button>
           <Button
             size="sm"
@@ -324,10 +327,10 @@ function RecordingsPanel({ workspaceId, callId }: { workspaceId: string; callId:
             className="h-7 text-xs"
             onClick={exportArchive}
             disabled={zipBusy || bulkBusy || selectedIds.length === 0}
-            title="Package selected recordings into a single ZIP archive"
+            title={t('callCenter.calls.downloadZip')}
           >
             <Download className="h-3 w-3 me-1" />
-            {zipBusy ? 'Packaging…' : 'Download ZIP'}
+            {zipBusy ? t('callCenter.calls.packaging') : t('callCenter.calls.downloadZip')}
           </Button>
         </div>
       </div>
@@ -342,7 +345,7 @@ function RecordingsPanel({ workspaceId, callId }: { workspaceId: string; callId:
         />
       ))}
       <p className="text-[10px] text-muted-foreground">
-        Read-only playback. Retention and legal-hold management is restricted to platform administrators.
+        {t('callCenter.calls.readOnlyFooter')}
       </p>
     </div>
   );
@@ -357,6 +360,7 @@ function stateTone(s: string) {
 }
 
 export default function CallsPage() {
+  const { t } = useTranslation();
   const { workspace } = useActiveWorkspace();
   const [status, setStatus] = useState('all');
   const [type, setType] = useState('all');
@@ -466,35 +470,35 @@ export default function CallsPage() {
     <div className="space-y-4">
       <Card className="p-4 space-y-3">
         <div className="flex flex-wrap items-center gap-2">
-          <div className="text-xs text-muted-foreground me-1">Status:</div>
+          <div className="text-xs text-muted-foreground me-1">{t('callCenter.calls.statusLabel')}</div>
           {STATUS.map((s) => (
             <Button key={s} size="sm" variant={status === s ? 'default' : 'outline'} className="h-7 text-xs capitalize" onClick={() => setStatus(s)}>{s}</Button>
           ))}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="text-xs text-muted-foreground me-1">Type:</div>
+          <div className="text-xs text-muted-foreground me-1">{t('callCenter.calls.typeLabel')}</div>
           {TYPES.map((s) => (
             <Button key={s} size="sm" variant={type === s ? 'default' : 'outline'} className="h-7 text-xs capitalize" onClick={() => setType(s)}>{s}</Button>
           ))}
           <div className="relative flex-1 min-w-[200px] ms-auto max-w-sm">
             <Search className="h-3.5 w-3.5 absolute start-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input className="ps-8 h-8 text-sm" placeholder="Visitor, email, phone…" value={search} onChange={(e) => setSearch(e.target.value)} />
+            <Input className="ps-8 h-8 text-sm" placeholder={t('callCenter.calls.searchPlaceholder')} value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
         </div>
       </Card>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Card className="p-3"><div className="text-xs text-muted-foreground">Answered</div><div className="text-xl font-semibold">{summary.answered}</div></Card>
-        <Card className="p-3"><div className="text-xs text-muted-foreground">Missed</div><div className="text-xl font-semibold text-destructive">{summary.missed}</div></Card>
-        <Card className="p-3"><div className="text-xs text-muted-foreground">Rejected/Cancelled</div><div className="text-xl font-semibold">{summary.rejected}</div></Card>
-        <Card className="p-3"><div className="text-xs text-muted-foreground">Avg duration</div><div className="text-xl font-semibold">{summary.avg != null ? fmtDuration(summary.avg) : '—'}</div></Card>
+        <Card className="p-3"><div className="text-xs text-muted-foreground">{t('callCenter.calls.summary.answered')}</div><div className="text-xl font-semibold">{summary.answered}</div></Card>
+        <Card className="p-3"><div className="text-xs text-muted-foreground">{t('callCenter.calls.summary.missed')}</div><div className="text-xl font-semibold text-destructive">{summary.missed}</div></Card>
+        <Card className="p-3"><div className="text-xs text-muted-foreground">{t('callCenter.calls.summary.rejectedCancelled')}</div><div className="text-xl font-semibold">{summary.rejected}</div></Card>
+        <Card className="p-3"><div className="text-xs text-muted-foreground">{t('callCenter.calls.summary.avgDuration')}</div><div className="text-xl font-semibold">{summary.avg != null ? fmtDuration(summary.avg) : '—'}</div></Card>
       </div>
 
       <div className="flex items-center justify-between gap-2 px-1">
         <span className="text-xs text-muted-foreground">
           {pickedCalls.size > 0
-            ? `${pickedCalls.size} call(s) selected for export`
-            : 'Select calls to export recordings as a single workspace ZIP'}
+            ? t('callCenter.calls.selectedCount', { count: String(pickedCalls.size) })
+            : t('callCenter.calls.selectHint')}
         </span>
         <Button
           size="sm"
@@ -502,10 +506,10 @@ export default function CallsPage() {
           className="h-7 text-xs"
           onClick={exportSelectedCallsArchive}
           disabled={wsZipBusy || pickedCalls.size === 0}
-          title="Package all available recordings from selected calls into one ZIP"
+          title={t('callCenter.calls.exportSelectedZip')}
         >
           <Download className="h-3 w-3 me-1" />
-          {wsZipBusy ? 'Packaging…' : `Export selected (ZIP)${pickedCalls.size ? ` (${pickedCalls.size})` : ''}`}
+          {wsZipBusy ? t('callCenter.calls.packaging') : `${t('callCenter.calls.exportSelectedZip')}${pickedCalls.size ? ` (${pickedCalls.size})` : ''}`}
         </Button>
       </div>
 
@@ -514,18 +518,18 @@ export default function CallsPage() {
           <thead>
             <tr className="text-xs text-muted-foreground border-b">
               <th className="text-start py-2 px-3 w-8"></th>
-              <th className="text-start py-2 px-3">Visitor</th>
-              <th className="text-start py-2 px-3">Type</th>
-              <th className="text-start py-2 px-3">State</th>
-              <th className="text-start py-2 px-3">Duration</th>
-              <th className="text-start py-2 px-3">Rating</th>
-              <th className="text-start py-2 px-3">Page</th>
-              <th className="text-start py-2 px-3">Created</th>
+              <th className="text-start py-2 px-3">{t('callCenter.calls.headers.visitor')}</th>
+              <th className="text-start py-2 px-3">{t('callCenter.calls.headers.type')}</th>
+              <th className="text-start py-2 px-3">{t('callCenter.calls.headers.state')}</th>
+              <th className="text-start py-2 px-3">{t('callCenter.calls.headers.duration')}</th>
+              <th className="text-start py-2 px-3">{t('callCenter.calls.headers.rating')}</th>
+              <th className="text-start py-2 px-3">{t('callCenter.calls.headers.page')}</th>
+              <th className="text-start py-2 px-3">{t('callCenter.calls.headers.created')}</th>
             </tr>
           </thead>
           <tbody>
             {filtered.map((c) => {
-              const display = c.visitor_name || c.visitor_email || c.visitor_phone || 'Anonymous';
+              const display = c.visitor_name || c.visitor_email || c.visitor_phone || t('callCenter.common.anonymous');
               const initials = display.slice(0, 1).toUpperCase();
               return (
               <tr key={c.id} onClick={() => setSelected(c.id)} className="border-b cursor-pointer hover:bg-muted/40">
@@ -566,30 +570,30 @@ export default function CallsPage() {
               </tr>
               );
             })}
-            {filtered.length === 0 && (<tr><td colSpan={8} className="py-8 text-center text-sm text-muted-foreground">No calls match your filters.</td></tr>)}
+            {filtered.length === 0 && (<tr><td colSpan={8} className="py-8 text-center text-sm text-muted-foreground">{t('callCenter.calls.noMatches')}</td></tr>)}
           </tbody>
         </table>
       </Card>
 
       <Sheet open={!!selected} onOpenChange={(o) => !o && setSelected(null)}>
         <SheetContent className="w-[480px] sm:max-w-[480px] overflow-y-auto">
-          <SheetHeader><SheetTitle>Call detail</SheetTitle></SheetHeader>
+          <SheetHeader><SheetTitle>{t('callCenter.calls.callDetail')}</SheetTitle></SheetHeader>
           {detail && (
             <div className="space-y-4 mt-4">
               <div className="space-y-2">
-                <div className="text-sm font-semibold">{detail.call.visitor_name || detail.call.visitor_email || 'Anonymous'}</div>
+                <div className="text-sm font-semibold">{detail.call.visitor_name || detail.call.visitor_email || t('callCenter.common.anonymous')}</div>
                 <div className="flex flex-wrap gap-2">
                   <span className={cn('text-xs px-2 py-0.5 rounded-full', stateTone(detail.call.state))}>{detail.call.state}</span>
                   <span className="text-xs px-2 py-0.5 rounded-full bg-muted">{detail.call.call_type}</span>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-2 text-sm">
-                <div><div className="text-xs text-muted-foreground">Subject</div>{detail.call.subject || '—'}</div>
-                <div><div className="text-xs text-muted-foreground">Duration</div>{fmtDuration(detail.call.duration_seconds)}</div>
-                <div><div className="text-xs text-muted-foreground">End reason</div>{detail.call.end_reason || '—'}</div>
+                <div><div className="text-xs text-muted-foreground">{t('callCenter.calls.subject')}</div>{detail.call.subject || '—'}</div>
+                <div><div className="text-xs text-muted-foreground">{t('callCenter.calls.headers.duration')}</div>{fmtDuration(detail.call.duration_seconds)}</div>
+                <div><div className="text-xs text-muted-foreground">{t('callCenter.calls.endReason')}</div>{detail.call.end_reason || '—'}</div>
               </div>
               {detail.call.page_url && (
-                <div className="text-sm"><div className="text-xs text-muted-foreground">Page</div><a href={detail.call.page_url} target="_blank" rel="noreferrer" className="underline truncate block">{detail.call.page_title || detail.call.page_url}</a></div>
+                <div className="text-sm"><div className="text-xs text-muted-foreground">{t('callCenter.calls.headers.page')}</div><a href={detail.call.page_url} target="_blank" rel="noreferrer" className="underline truncate block">{detail.call.page_title || detail.call.page_url}</a></div>
               )}
               {(() => {
                 const rec = (detail.call as any)?.metadata?.recording || null;
@@ -600,24 +604,21 @@ export default function CallsPage() {
                 const artifactMasked = artifact ? (artifact.length > 12 ? artifact.slice(0, 6) + '…' + artifact.slice(-4) : artifact) : null;
                 return (
                   <div className="space-y-1.5 rounded-md border p-3 bg-muted/20">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Recording</div>
+                    <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('callCenter.calls.recordingTitle')}</div>
                     {rec ? (
                       <div className="text-xs grid grid-cols-2 gap-x-3 gap-y-1">
-                        <span className="text-muted-foreground">State</span><span>{state}</span>
-                        <span className="text-muted-foreground">Consent</span><span>{consent ? 'Yes' : 'No'}</span>
-                        <span className="text-muted-foreground">Consent at</span><span>{consentAt}</span>
-                        {artifactMasked && (<><span className="text-muted-foreground">Artifact</span><span className="font-mono">{artifactMasked}</span></>)}
+                        <span className="text-muted-foreground">{t('callCenter.calls.state')}</span><span>{state}</span>
+                        <span className="text-muted-foreground">{t('callCenter.calls.consent')}</span><span>{consent ? t('callCenter.calls.yes') : t('callCenter.calls.no')}</span>
+                        <span className="text-muted-foreground">{t('callCenter.calls.consentAt')}</span><span>{consentAt}</span>
+                        {artifactMasked && (<><span className="text-muted-foreground">{t('callCenter.calls.artifact')}</span><span className="font-mono">{artifactMasked}</span></>)}
                       </div>
                     ) : (
-                      <p className="text-[11px] text-muted-foreground">
-                        No recording session metadata for this call. Any
-                        retained recording artifacts are still listed below.
-                      </p>
+                      <p className="text-[11px] text-muted-foreground">{t('callCenter.calls.noRecordingMeta')}</p>
                     )}
                     {workspace?.id ? (
                       <RecordingsPanel workspaceId={workspace.id} callId={detail.call.id} />
                     ) : (
-                      <p className="text-[11px] text-muted-foreground">Workspace context unavailable.</p>
+                      <p className="text-[11px] text-muted-foreground">{t('callCenter.calls.workspaceUnavailable')}</p>
                     )}
                   </div>
                 );
@@ -625,7 +626,7 @@ export default function CallsPage() {
               {(detail as any).rating && (
                 <div className="space-y-2 rounded-md border p-3 bg-amber-500/5 border-amber-500/30">
                   <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Visitor rating
+                    {t('callCenter.calls.visitorRating')}
                   </div>
                   <div className="flex items-center gap-1">
                     {[1, 2, 3, 4, 5].map((n) => (
@@ -652,15 +653,15 @@ export default function CallsPage() {
                 </div>
               )}
               <div className="flex gap-2">
-                <Button size="sm" variant="outline" onClick={() => { navigator.clipboard.writeText(detail.call.id); toast({ title: 'Call ID copied' }); }}>
-                  <Copy className="h-3.5 w-3.5 me-1" /> Copy ID
+                <Button size="sm" variant="outline" onClick={() => { navigator.clipboard.writeText(detail.call.id); toast({ title: t('callCenter.calls.callIdCopied') }); }}>
+                  <Copy className="h-3.5 w-3.5 me-1" /> {t('callCenter.calls.copyId')}
                 </Button>
                 {['active', 'ringing', 'connecting'].includes(detail.call.state) && (
-                  <Button variant="destructive" size="sm" onClick={() => endCall(detail.call.id)}>End call</Button>
+                  <Button variant="destructive" size="sm" onClick={() => endCall(detail.call.id)}>{t('callCenter.calls.endCall')}</Button>
                 )}
               </div>
               <div>
-                <h3 className="text-sm font-medium mb-2">Timeline</h3>
+                <h3 className="text-sm font-medium mb-2">{t('callCenter.calls.timeline')}</h3>
                 <ol className="space-y-2 text-xs">
                   {detail.events.map((e) => (
                     <li key={e.id} className="flex gap-2">
@@ -671,7 +672,7 @@ export default function CallsPage() {
                 </ol>
               </div>
               <details className="text-xs">
-                <summary className="cursor-pointer text-muted-foreground">Debug metadata</summary>
+                <summary className="cursor-pointer text-muted-foreground">{t('callCenter.calls.debugMetadata')}</summary>
                 <pre className="mt-2 bg-muted p-2 rounded overflow-x-auto">{JSON.stringify(detail.call, null, 2)}</pre>
               </details>
             </div>

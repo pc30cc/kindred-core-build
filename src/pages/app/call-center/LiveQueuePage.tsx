@@ -21,6 +21,7 @@ import {
 import { cn } from '@/lib/utils';
 import { Link, useParams } from 'react-router-dom';
 import OperatorMediaConsole, { type OperatorConnectInfo } from '@/components/call-center/OperatorMediaConsole';
+import { useTranslation } from '@/i18n';
 
 function RecordingBadge({ rec, meta }: { rec?: any; meta?: any }) {
   const state = meta?.state as string | undefined;
@@ -216,6 +217,7 @@ function CopyButton({ text }: { text: string }) {
 }
 
 export default function LiveQueuePage() {
+  const { t } = useTranslation();
   const { workspace } = useActiveWorkspace();
   const { slug } = useParams();
   const base = `/app/w/${slug}/call-center`;
@@ -435,38 +437,38 @@ export default function LiveQueuePage() {
             <Headphones className="h-4 w-4" />
           </div>
           <div>
-            <div className="text-sm font-semibold leading-tight">Live Desk</div>
+            <div className="text-sm font-semibold leading-tight">{t('callCenter.queue.liveDesk')}</div>
             <div className="text-[11px] text-muted-foreground flex items-center gap-1.5">
               <span className="relative inline-flex h-2 w-2">
                 <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
               </span>
-              <RadioTower className="h-3 w-3" /> Live · polling 5s
+              <RadioTower className="h-3 w-3" /> {t('callCenter.queue.livePolling')}
             </div>
           </div>
         </div>
         <div className="flex flex-wrap gap-2 ms-auto">
-          <StatChip label="Waiting" icon={Inbox}
+          <StatChip label={t('callCenter.queue.chips.waiting')} icon={Inbox}
             value={overview?.waiting_calls ?? rawQueue.length}
             tone={(overview?.waiting_calls ?? 0) > 0 ? 'warn' : 'muted'} />
-          <StatChip label="Active" icon={Activity}
+          <StatChip label={t('callCenter.queue.chips.active')} icon={Activity}
             value={overview?.active_calls ?? 0}
             tone={(overview?.active_calls ?? 0) > 0 ? 'ok' : 'muted'} />
-          <StatChip label="Longest wait" icon={Clock}
+          <StatChip label={t('callCenter.queue.chips.longestWait')} icon={Clock}
             value={queueStats.count > 0
               ? `${Math.floor(queueStats.longest / 60)}:${(queueStats.longest % 60).toString().padStart(2, '0')}`
               : '—'}
             tone={queueStats.longest > 180 ? 'danger' : queueStats.longest > 60 ? 'warn' : 'muted'} />
-          <StatChip label="SLA breached" icon={AlertTriangle}
+          <StatChip label={t('callCenter.queue.chips.slaBreached')} icon={AlertTriangle}
             value={queueStats.breached}
             tone={queueStats.breached > 0 ? 'danger' : 'muted'} />
-          <StatChip label="Missed today" icon={PhoneOff}
+          <StatChip label={t('callCenter.queue.chips.missedToday')} icon={PhoneOff}
             value={overview?.missed_today ?? 0}
             tone={(overview?.missed_today ?? 0) > 0 ? 'danger' : 'muted'} />
-          <StatChip label="Today" icon={PhoneCall}
+          <StatChip label={t('callCenter.queue.chips.today')} icon={PhoneCall}
             value={overview?.today_calls ?? 0} tone="primary" />
-          <StatChip label="Calls service" icon={RadioTower}
-            value={overview?.provider?.ready ? 'Ready' : 'Down'}
+          <StatChip label={t('callCenter.queue.chips.callsService')} icon={RadioTower}
+            value={overview?.provider?.ready ? t('callCenter.queue.chips.ready') : t('callCenter.queue.chips.down')}
             tone={overview?.provider?.ready ? 'ok' : 'danger'} />
         </div>
       </Card>
@@ -478,7 +480,7 @@ export default function LiveQueuePage() {
             <div className="flex items-center justify-between mb-2">
               <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-2">
                 <Inbox className="h-3.5 w-3.5" />
-                Queue
+                {t('callCenter.queue.queueTitle')}
                 <Badge variant="secondary" className="ms-1 h-5 px-1.5 text-[10px]">
                   {queue.length}
                   {queue.length !== rawQueue.length && <span className="opacity-60">/{rawQueue.length}</span>}
@@ -494,7 +496,7 @@ export default function LiveQueuePage() {
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="left">
-                  Sort: {sortMode === 'wait_desc' ? 'Longest waiting first' : 'Newest first'}
+                  {sortMode === 'wait_desc' ? t('callCenter.queue.sortLongestFirst') : t('callCenter.queue.sortNewestFirst')}
                 </TooltipContent>
               </Tooltip>
             </div>
@@ -503,15 +505,15 @@ export default function LiveQueuePage() {
               <Input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search visitor, email, page…"
+                placeholder={t('callCenter.queue.searchPlaceholder')}
                 className="h-8 ps-8 text-xs"
               />
             </div>
             <div className="flex gap-1">
               {([
-                { k: 'all', label: 'All', count: rawQueue.length },
-                { k: 'voice', label: 'Voice', count: queueStats.voice, icon: Phone },
-                { k: 'video', label: 'Video', count: queueStats.video, icon: Video },
+                { k: 'all', label: t('callCenter.queue.filterAll'), count: rawQueue.length },
+                { k: 'voice', label: t('callCenter.queue.filterVoice'), count: queueStats.voice, icon: Phone },
+                { k: 'video', label: t('callCenter.queue.filterVideo'), count: queueStats.video, icon: Video },
               ] as const).map((opt) => {
                 const OptIcon = (opt as any).icon as React.ComponentType<{ className?: string }> | undefined;
                 return (
@@ -545,18 +547,18 @@ export default function LiveQueuePage() {
             <Card className="p-6 text-center space-y-3">
               <Headphones className="h-8 w-8 mx-auto text-muted-foreground" />
               <div>
-                <p className="text-sm font-medium">No calls waiting</p>
-                <p className="text-xs text-muted-foreground">When a visitor calls, they'll appear here.</p>
+                <p className="text-sm font-medium">{t('callCenter.queue.noCallsWaiting')}</p>
+                <p className="text-xs text-muted-foreground">{t('callCenter.queue.noCallsHint')}</p>
               </div>
               <div className="flex flex-col gap-2">
-                <Button asChild size="sm" variant="outline"><Link to={`${base}/install`}>Install widget</Link></Button>
-                <Button asChild size="sm" variant="ghost"><Link to={`${base}/settings`}>Open settings</Link></Button>
+                <Button asChild size="sm" variant="outline"><Link to={`${base}/install`}>{t('callCenter.queue.installWidget')}</Link></Button>
+                <Button asChild size="sm" variant="ghost"><Link to={`${base}/settings`}>{t('callCenter.queue.openSettings')}</Link></Button>
               </div>
             </Card>
           )}
           {!isLoading && queue.length === 0 && rawQueue.length > 0 && (
             <div className="text-xs text-muted-foreground text-center p-6">
-              No matches for current filters.
+              {t('callCenter.queue.noMatches')}
             </div>
           )}
           {queue.map((q: any, idx: number) => {
@@ -567,7 +569,7 @@ export default function LiveQueuePage() {
             const waitSec = Math.floor((Date.now() - new Date(q.created_at).getTime()) / 1000);
             const slaPct = Math.min(100, (waitSec / 180) * 100);
             const isVideo = q.channel === 'video' || c?.call_type === 'video';
-            const name = c?.visitor_name || c?.visitor_email || c?.visitor_phone || 'Anonymous';
+            const name = c?.visitor_name || c?.visitor_email || c?.visitor_phone || t('callCenter.common.anonymous');
             const initial = name.slice(0, 1).toUpperCase();
             return (
               <div
@@ -617,7 +619,7 @@ export default function LiveQueuePage() {
                         )}
                         {isAccepted && (
                           <Badge className="h-4 px-1 text-[9px] bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30">
-                            on call
+                            {t('callCenter.queue.onCallBadge')}
                           </Badge>
                         )}
                       </div>
@@ -648,7 +650,7 @@ export default function LiveQueuePage() {
                       onClick={(e) => { e.stopPropagation(); reject(q.call_session_id); }}
                       disabled={busy === q.call_session_id || isAccepted}
                     >
-                      Reject
+                      {t('callCenter.queue.reject')}
                     </Button>
                     <Button
                       size="sm" className="flex-1 h-7 text-xs"
@@ -657,7 +659,7 @@ export default function LiveQueuePage() {
                     >
                       {busy === q.call_session_id
                         ? <Loader2 className="h-3 w-3 animate-spin" />
-                        : isAccepted ? 'On call' : (<><PhoneCall className="h-3 w-3 me-1" />Accept</>)}
+                        : isAccepted ? t('callCenter.queue.onCall') : (<><PhoneCall className="h-3 w-3 me-1" />{t('callCenter.queue.accept')}</>)}
                     </Button>
                   </div>
                 </div>
@@ -674,9 +676,9 @@ export default function LiveQueuePage() {
               <div className="h-16 w-16 rounded-full bg-primary/5 mx-auto flex items-center justify-center mb-4 ring-1 ring-primary/10">
                 <PhoneCall className="h-7 w-7 text-primary/60" />
               </div>
-              <p className="text-base font-semibold">No call selected</p>
+              <p className="text-base font-semibold">{t('callCenter.queue.noCallSelected')}</p>
               <p className="text-sm text-muted-foreground mt-1 max-w-sm mx-auto">
-                Pick a call from the queue on the left to view visitor context and start handling it.
+                {t('callCenter.queue.noCallSelectedHint')}
               </p>
             </Card>
           ) : (
@@ -699,7 +701,7 @@ export default function LiveQueuePage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-xl font-semibold leading-tight truncate">
-                      {detail.call.visitor_name || detail.call.visitor_email || detail.call.visitor_phone || 'Anonymous visitor'}
+                      {detail.call.visitor_name || detail.call.visitor_email || detail.call.visitor_phone || t('callCenter.common.anonymousVisitor')}
                     </div>
                     <div className="flex flex-wrap items-center gap-3 mt-1.5 text-xs text-muted-foreground">
                       {detail.call.visitor_email && (
@@ -713,7 +715,7 @@ export default function LiveQueuePage() {
                       </span>
                     </div>
                     <div className="flex flex-wrap gap-1.5 mt-2.5">
-                      <Badge variant="secondary" className="capitalize">{detail.call.call_type === 'video' ? 'Video' : 'Voice'}</Badge>
+                      <Badge variant="secondary" className="capitalize">{detail.call.call_type === 'video' ? t('callCenter.queue.videoLabel') : t('callCenter.queue.voiceLabel')}</Badge>
                       <Badge
                         variant="outline"
                         className={cn(
@@ -731,15 +733,15 @@ export default function LiveQueuePage() {
                   <div className="flex gap-2">
                     {detail.call.state === 'pending' && (
                       <>
-                        <Button variant="outline" onClick={() => reject(detail.call.id)}>Reject</Button>
+                        <Button variant="outline" onClick={() => reject(detail.call.id)}>{t('callCenter.queue.reject')}</Button>
                         <Button onClick={() => accept(detail.call.id)}>
-                          <PhoneCall className="h-4 w-4 me-1.5" />Accept
+                          <PhoneCall className="h-4 w-4 me-1.5" />{t('callCenter.queue.accept')}
                         </Button>
                       </>
                     )}
                     {isActive && !(accepted && accepted.callId === detail.call.id) && (
                       <Button variant="destructive" onClick={() => endActive(detail.call.id)}>
-                        <PhoneOff className="h-4 w-4 me-1.5" /> End
+                        <PhoneOff className="h-4 w-4 me-1.5" /> {t('callCenter.queue.end')}
                       </Button>
                     )}
                   </div>
@@ -775,24 +777,24 @@ export default function LiveQueuePage() {
                       <AlertTriangle className="h-4 w-4" />
                     </div>
                     <div className="text-sm flex-1">
-                      <div className="font-semibold">Media console is idle</div>
+                      <div className="font-semibold">{t('callCenter.queue.mediaIdle')}</div>
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        Accept the call to open audio/video, recording, and call controls.
+                        {t('callCenter.queue.mediaIdleHint')}
                       </p>
                     </div>
                     {detail.call.state === 'pending' && (
                       <Button size="sm" onClick={() => accept(detail.call.id)}>
-                        <PhoneCall className="h-3.5 w-3.5 me-1.5" /> Accept now
+                        <PhoneCall className="h-3.5 w-3.5 me-1.5" /> {t('callCenter.queue.acceptNow')}
                       </Button>
                     )}
                   </div>
                   <Separator className="my-4" />
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                     {[
-                      { icon: MicOff, label: 'Mute' },
-                      { icon: CameraOff, label: 'Camera' },
-                      { icon: ArrowRightLeft, label: 'Transfer' },
-                      { icon: PhoneOff, label: 'End' },
+                      { icon: MicOff, label: t('callCenter.queue.mute') },
+                      { icon: CameraOff, label: t('callCenter.queue.camera') },
+                      { icon: ArrowRightLeft, label: t('callCenter.queue.transfer') },
+                      { icon: PhoneOff, label: t('callCenter.queue.end') },
                     ].map((b) => (
                       <div key={b.label} className="flex items-center justify-center gap-1.5 h-9 text-xs rounded-md border border-dashed text-muted-foreground">
                         <b.icon className="h-3.5 w-3.5" />{b.label}
@@ -805,8 +807,8 @@ export default function LiveQueuePage() {
               {/* Page context */}
               {(detail.call.page_url || detail.call.subject) && (
                 <Card className="p-4 space-y-2">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Page context</div>
-                  {detail.call.subject && <div className="text-sm"><span className="text-muted-foreground">Subject: </span>{detail.call.subject}</div>}
+                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('callCenter.queue.pageContext')}</div>
+                  {detail.call.subject && <div className="text-sm"><span className="text-muted-foreground">{t('callCenter.queue.subjectLabel')}: </span>{detail.call.subject}</div>}
                   {detail.call.page_url && (
                     <div className="text-sm flex items-center gap-1.5">
                       <Globe className="h-3.5 w-3.5 text-muted-foreground" />
@@ -821,7 +823,7 @@ export default function LiveQueuePage() {
               {/* Pre-call form */}
               {preCall && typeof preCall === 'object' && (
                 <Card className="p-4 space-y-2">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pre-call form</div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('callCenter.queue.preCallForm')}</div>
                   <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
                     {Object.entries(preCall).map(([k, v]) => (
                       <div key={k} className="contents">
@@ -841,20 +843,20 @@ export default function LiveQueuePage() {
           {detail ? (
             <Tabs value={contextTab} onValueChange={(v) => setContextTab(v as any)} className="flex flex-col h-full">
               <TabsList className="grid grid-cols-3 m-2 mb-0">
-                <TabsTrigger value="contact" className="text-xs gap-1.5"><User className="h-3.5 w-3.5" />Contact</TabsTrigger>
-                <TabsTrigger value="timeline" className="text-xs gap-1.5"><History className="h-3.5 w-3.5" />Timeline</TabsTrigger>
-                <TabsTrigger value="notes" className="text-xs gap-1.5"><FileText className="h-3.5 w-3.5" />Notes</TabsTrigger>
+                <TabsTrigger value="contact" className="text-xs gap-1.5"><User className="h-3.5 w-3.5" />{t('callCenter.queue.contact')}</TabsTrigger>
+                <TabsTrigger value="timeline" className="text-xs gap-1.5"><History className="h-3.5 w-3.5" />{t('callCenter.queue.timeline')}</TabsTrigger>
+                <TabsTrigger value="notes" className="text-xs gap-1.5"><FileText className="h-3.5 w-3.5" />{t('callCenter.queue.notes')}</TabsTrigger>
               </TabsList>
               <div className="flex-1 overflow-y-auto p-3 space-y-3">
                 <TabsContent value="contact" className="m-0 space-y-3">
                   <div className="space-y-2.5">
                     <div>
-                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Name</div>
-                      <div className="text-sm font-medium">{detail.call.visitor_name || 'Anonymous'}</div>
+                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">{t('callCenter.queue.name')}</div>
+                      <div className="text-sm font-medium">{detail.call.visitor_name || t('callCenter.common.anonymous')}</div>
                     </div>
                     {detail.call.visitor_email && (
                       <div>
-                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Email</div>
+                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">{t('callCenter.queue.email')}</div>
                         <div className="text-sm flex items-center gap-1.5 group">
                           <Mail className="h-3.5 w-3.5 text-muted-foreground" />
                           <a href={`mailto:${detail.call.visitor_email}`} className="hover:underline truncate">{detail.call.visitor_email}</a>
@@ -864,7 +866,7 @@ export default function LiveQueuePage() {
                     )}
                     {detail.call.visitor_phone && (
                       <div>
-                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Phone</div>
+                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">{t('callCenter.queue.phone')}</div>
                         <div className="text-sm flex items-center gap-1.5 group">
                           <Smartphone className="h-3.5 w-3.5 text-muted-foreground" />
                           <a href={`tel:${detail.call.visitor_phone}`} className="hover:underline">{detail.call.visitor_phone}</a>
@@ -877,9 +879,9 @@ export default function LiveQueuePage() {
                     <>
                       <Separator />
                       <div className="space-y-2">
-                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Page context</div>
+                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{t('callCenter.queue.pageContext')}</div>
                         {detail.call.subject && (
-                          <div className="text-sm"><span className="text-muted-foreground">Subject: </span>{detail.call.subject}</div>
+                          <div className="text-sm"><span className="text-muted-foreground">{t('callCenter.queue.subjectLabel')}: </span>{detail.call.subject}</div>
                         )}
                         {detail.call.page_url && (
                           <div className="text-sm flex items-center gap-1.5">
@@ -896,7 +898,7 @@ export default function LiveQueuePage() {
                     <>
                       <Separator />
                       <div className="space-y-1.5">
-                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Pre-call form</div>
+                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{t('callCenter.queue.preCallForm')}</div>
                         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs">
                           {Object.entries(preCall).map(([k, v]) => (
                             <div key={k} className="contents">
@@ -910,14 +912,14 @@ export default function LiveQueuePage() {
                   )}
                   <Separator />
                   <div>
-                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">Previous calls</div>
-                    <p className="text-xs text-muted-foreground">Call history will appear here.</p>
+                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">{t('callCenter.queue.previousCalls')}</div>
+                    <p className="text-xs text-muted-foreground">{t('callCenter.queue.previousCallsHint')}</p>
                   </div>
                 </TabsContent>
 
                 <TabsContent value="timeline" className="m-0">
                   {detail.events.length === 0 ? (
-                    <p className="text-xs text-muted-foreground text-center py-6">No events yet.</p>
+                    <p className="text-xs text-muted-foreground text-center py-6">{t('callCenter.queue.noEvents')}</p>
                   ) : (
                     <ol className="relative space-y-3 ps-4 before:absolute before:start-1 before:top-1.5 before:bottom-1.5 before:w-px before:bg-border">
                       {detail.events.map((e) => (
@@ -933,7 +935,7 @@ export default function LiveQueuePage() {
 
                 <TabsContent value="notes" className="m-0">
                   <Textarea
-                    placeholder="Private call notes — coming soon"
+                    placeholder={t('callCenter.queue.notesPlaceholder')}
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
                     rows={10}
@@ -941,7 +943,7 @@ export default function LiveQueuePage() {
                     className="text-sm resize-none"
                   />
                   <p className="text-[11px] text-muted-foreground mt-2">
-                    Notes will be saved to the call timeline once enabled.
+                    {t('callCenter.queue.notesFooter')}
                   </p>
                 </TabsContent>
               </div>
@@ -949,7 +951,7 @@ export default function LiveQueuePage() {
           ) : (
             <div className="p-8 text-center text-xs text-muted-foreground">
               <ChevronRight className="h-5 w-5 mx-auto mb-2 opacity-40" />
-              Select a call to view context.
+              {t('callCenter.queue.selectCallToView')}
             </div>
           )}
         </Card>

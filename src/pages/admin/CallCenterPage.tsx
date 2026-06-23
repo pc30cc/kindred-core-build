@@ -22,22 +22,6 @@ const WIDGET_LOCALES: Array<{ code: 'en' | 'fa' | 'tr'; label: string; native: s
   { code: 'tr', label: 'Turkish', native: 'Türkçe' },
 ];
 
-const TOGGLE_GROUPS: Array<{ title: string; items: Array<[keyof CallCenterPlatformSettings, string, boolean?]> }> = [
-  { title: 'Core', items: [
-    ['voice_calls_enabled', 'Voice calls'],
-    ['video_calls_enabled', 'Video calls'],
-    ['callback_requests_enabled', 'Callback requests'],
-  ] },
-  { title: 'Recording', items: [
-    ['call_recording_enabled', 'Call recording'],
-  ] },
-  { title: 'Future', items: [
-    ['screen_share_enabled', 'Screen share', true],
-    ['call_transfer_enabled', 'Call transfer', true],
-    ['departments_enabled', 'Departments'],
-    ['advanced_routing_enabled', 'Advanced routing', true],
-  ] },
-];
 
 const LOCALES: Array<{ key: string; label: string; placeholder: string }> = [
   { key: 'default', label: 'Default', placeholder: 'Call center is currently unavailable.' },

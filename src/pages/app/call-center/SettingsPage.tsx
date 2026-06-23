@@ -12,6 +12,7 @@ import { toast } from '@/hooks/use-toast';
 import { callCenterApi } from '@/lib/call-center-api';
 import { useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, ChevronDown, RotateCcw, Save, Languages } from 'lucide-react';
+import { CheckCircle2, XCircle, ShieldCheck, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Link, useParams } from 'react-router-dom';
 // CC-2G-UI-Architecture-Fix — read canonical departments from
@@ -375,23 +376,12 @@ export default function CallCenterSettingsPage() {
         </Button>
       </Section>
 
-      <Section title="Recording" description="Configuration only — recording availability depends on the platform.">
-        <div className="flex gap-2 items-start text-xs p-3 rounded bg-amber-500/10 border border-amber-500/30">
-          <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5" />
-          <span>
-            Recording depends on platform configuration. Do not rely on recording until the status below shows Enabled.
-          </span>
-        </div>
-        <Row label="Recording enabled" locked={!platformRecording ? 'Disabled by platform' : undefined}>
-          <Switch checked={!!s.recording_enabled} onCheckedChange={(v) => setS({ ...s, recording_enabled: v })} disabled={!platformRecording} />
-        </Row>
-        <Row label="Consent required">
-          <Switch checked={!!s.recording_consent_required} onCheckedChange={(v) => setS({ ...s, recording_consent_required: v })} />
-        </Row>
-        <div className="text-xs text-muted-foreground">
-          Effective: {(data as any)?.recording?.effective_enabled ? 'enabled' : 'disabled'}
-        </div>
-      </Section>
+      <RecordingSection
+        s={s}
+        setS={setS}
+        platformRecording={platformRecording}
+        recording={(data as any)?.recording || null}
+      />
 
       {/* Sticky save bar */}
       {dirty && (
@@ -434,6 +424,123 @@ const WIDGET_TEXT_KEYS: { key: string; label: string; placeholder: Record<string
 const LOC_LABELS_FULL: Record<string, string> = {
   en: 'English', fa: 'فارسی', tr: 'Türkçe',
 };
+
+// ── Recording section ─────────────────────────────────────────
+// Replaces the old single-line "Effective: enabled/disabled" with a
+// transparent breakdown of platform/workspace/provider/configuration so the
+// operator can immediately see WHY recording is or isn't effective.
+function RecordingSection({
+  s,
+  setS,
+  platformRecording,
+  recording,
+}: {
+  s: any;
+  setS: (next: any) => void;
+  platformRecording: boolean;
+  recording: {
+    enabled_by_platform: boolean;
+    enabled_by_workspace: boolean;
+    consent_required: boolean;
+    provider_supported: boolean;
+    provider_configured: boolean;
+    effective_enabled: boolean;
+    reason?: string;
+  } | null;
+}) {
+  const eff = recording?.effective_enabled === true;
+  const reasonLabel: Record<string, string> = {
+    platform_disabled: 'Recording is turned off at the platform level. Ask the platform admin to enable Call recording in super-admin → Call Center.',
+    workspace_disabled: 'Recording is off for this workspace. Toggle "Recording enabled" below to start capturing future calls.',
+    provider_not_supported: 'The active call provider for this workspace does not support recording. Switch provider in super-admin → Voice & Video.',
+    provider_not_configured: 'Recording provider is missing required configuration (e.g. LiveKit egress storage credentials). Configure it in super-admin → Voice & Video.',
+  };
+  const reason = recording?.reason;
+  return (
+    <Section
+      title="Recording"
+      description="Configure call recording for this workspace. The effective status reflects platform, workspace, and provider checks combined."
+    >
+      <div
+        className={cn(
+          'rounded-md border p-3 flex items-start gap-2',
+          eff
+            ? 'border-emerald-500/30 bg-emerald-500/5'
+            : 'border-amber-500/30 bg-amber-500/5',
+        )}
+      >
+        {eff ? (
+          <ShieldCheck className="h-4 w-4 text-emerald-600 mt-0.5" />
+        ) : (
+          <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5" />
+        )}
+        <div className="text-xs space-y-1">
+          <div className="font-semibold">
+            {eff
+              ? 'Recording is effectively ENABLED for new calls.'
+              : 'Recording is currently NOT effective — new calls will not be recorded.'}
+          </div>
+          {!eff && reason && reasonLabel[reason] && (
+            <div className="text-muted-foreground">{reasonLabel[reason]}</div>
+          )}
+        </div>
+      </div>
+
+      {recording && (
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          <CheckRow ok={recording.enabled_by_platform} label="Platform allows recording" />
+          <CheckRow ok={recording.enabled_by_workspace} label="Workspace enabled" />
+          <CheckRow ok={recording.provider_supported} label="Provider supports recording" />
+          <CheckRow ok={recording.provider_configured} label="Provider configured (storage / egress)" />
+        </div>
+      )}
+
+      <Row
+        label="Recording enabled"
+        hint="When on, eligible calls are recorded once consent has been satisfied."
+        locked={!platformRecording ? 'Disabled by platform' : undefined}
+      >
+        <Switch
+          checked={!!s.recording_enabled}
+          onCheckedChange={(v) => setS({ ...s, recording_enabled: v })}
+          disabled={!platformRecording}
+        />
+      </Row>
+      <Row
+        label="Consent required"
+        hint="Recording will not start until the visitor accepts the consent prompt in the widget."
+      >
+        <Switch
+          checked={!!s.recording_consent_required}
+          onCheckedChange={(v) => setS({ ...s, recording_consent_required: v })}
+        />
+      </Row>
+
+      <div className="text-[11px] text-muted-foreground flex items-start gap-1.5 pt-1 border-t">
+        <Info className="h-3 w-3 mt-0.5" />
+        <span>
+          Retention, legal hold, deletion and bulk export of recorded files are
+          managed by the platform administrator in super-admin → Voice &amp; Video
+          → Recordings. Operators can play back and download recordings from the
+          Calls page.
+        </span>
+      </div>
+    </Section>
+  );
+}
+
+function CheckRow({ ok, label }: { ok: boolean; label: string }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      {ok ? (
+        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+      ) : (
+        <XCircle className="h-3.5 w-3.5 text-muted-foreground" />
+      )}
+      <span className={ok ? '' : 'text-muted-foreground'}>{label}</span>
+    </div>
+  );
+}
 
 function WidgetTextsEditor({
   settings,

@@ -8,7 +8,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { callCenterApi } from '@/lib/call-center-api';
 import { useQueryClient } from '@tanstack/react-query';
-import { Phone, Video, Search, Copy, Star, Play, Download } from 'lucide-react';
+import { Phone, Video, Search, Copy, Star, Play, Download, Link as LinkIcon } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { RecordingTimeline } from '@/components/recordings/RecordingTimeline';
@@ -97,6 +97,27 @@ function RecordingPlaybackRow({
     }
   }
 
+  async function copyShareLink() {
+    if (!rec.has_storage) return;
+    try {
+      const r = await callCenterApi.mintCallRecordingDownloadToken(workspaceId, callId, rec.id);
+      const abs = r.url.startsWith('http')
+        ? r.url
+        : `${window.location.origin}${r.url}`;
+      await navigator.clipboard.writeText(abs);
+      toast({
+        title: 'Temporary download link copied',
+        description: 'Link is short-lived and scoped to this recording.',
+      });
+    } catch (e: any) {
+      toast({
+        title: 'Could not generate share link',
+        description: e?.message || 'token_mint_failed',
+        variant: 'destructive',
+      });
+    }
+  }
+
   return (
     <div className="rounded border bg-background/50 p-2 space-y-2">
       <div className="flex items-center gap-2 text-xs">
@@ -126,6 +147,9 @@ function RecordingPlaybackRow({
               <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={download} disabled={downloading}>
                 <Download className="h-3 w-3 me-1" /> {downloading ? 'Preparing…' : 'Download'}
               </Button>
+              <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={copyShareLink}>
+                <LinkIcon className="h-3 w-3 me-1" /> Copy share link
+              </Button>
             </div>
           ) : (
             <>
@@ -136,9 +160,12 @@ function RecordingPlaybackRow({
                 durationHint={rec.duration_seconds}
                 mediaClassName={isVideo ? 'w-full max-h-64 rounded bg-black' : 'w-full'}
               />
-              <div>
+              <div className="flex items-center gap-2">
                 <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={download} disabled={downloading}>
                   <Download className="h-3 w-3 me-1" /> {downloading ? 'Preparing…' : 'Download'}
+                </Button>
+                <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={copyShareLink}>
+                  <LinkIcon className="h-3 w-3 me-1" /> Copy share link
                 </Button>
               </div>
             </>
@@ -566,21 +593,27 @@ export default function CallsPage() {
               )}
               {(() => {
                 const rec = (detail.call as any)?.metadata?.recording || null;
-                if (!rec) return null;
-                const consent = rec.consent_given;
-                const consentAt = rec.consent_at ? new Date(rec.consent_at).toLocaleString() : '—';
-                const state = rec.state || 'disabled';
-                const artifact = rec.artifact_id ? String(rec.artifact_id) : null;
+                const consent = rec?.consent_given;
+                const consentAt = rec?.consent_at ? new Date(rec.consent_at).toLocaleString() : '—';
+                const state = rec?.state || (rec ? 'disabled' : 'not_started');
+                const artifact = rec?.artifact_id ? String(rec.artifact_id) : null;
                 const artifactMasked = artifact ? (artifact.length > 12 ? artifact.slice(0, 6) + '…' + artifact.slice(-4) : artifact) : null;
                 return (
                   <div className="space-y-1.5 rounded-md border p-3 bg-muted/20">
                     <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Recording</div>
-                    <div className="text-xs grid grid-cols-2 gap-x-3 gap-y-1">
-                      <span className="text-muted-foreground">State</span><span>{state}</span>
-                      <span className="text-muted-foreground">Consent</span><span>{consent ? 'Yes' : 'No'}</span>
-                      <span className="text-muted-foreground">Consent at</span><span>{consentAt}</span>
-                      {artifactMasked && (<><span className="text-muted-foreground">Artifact</span><span className="font-mono">{artifactMasked}</span></>)}
-                    </div>
+                    {rec ? (
+                      <div className="text-xs grid grid-cols-2 gap-x-3 gap-y-1">
+                        <span className="text-muted-foreground">State</span><span>{state}</span>
+                        <span className="text-muted-foreground">Consent</span><span>{consent ? 'Yes' : 'No'}</span>
+                        <span className="text-muted-foreground">Consent at</span><span>{consentAt}</span>
+                        {artifactMasked && (<><span className="text-muted-foreground">Artifact</span><span className="font-mono">{artifactMasked}</span></>)}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-muted-foreground">
+                        No recording session metadata for this call. Any
+                        retained recording artifacts are still listed below.
+                      </p>
+                    )}
                     {workspace?.id ? (
                       <RecordingsPanel workspaceId={workspace.id} callId={detail.call.id} />
                     ) : (

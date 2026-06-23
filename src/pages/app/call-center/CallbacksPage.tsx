@@ -372,12 +372,12 @@ export default function CallbacksPage() {
 
       <Tabs value={tab} onValueChange={setTab} className="space-y-4">
         <TabsList className="bg-muted/50 flex-wrap h-auto">
-          {TAB_DEFS.map((t) => (
-            <TabsTrigger key={t.key} value={t.key}>
-              {t.label}
-              {counts[t.key] ? (
+          {TAB_DEFS.map((tab2) => (
+            <TabsTrigger key={tab2.key} value={tab2.key}>
+              {tab2.label}
+              {counts[tab2.key] ? (
                 <span className="ms-1.5 text-[10px] bg-background rounded px-1.5 py-0.5 font-semibold">
-                  {counts[t.key]}
+                  {counts[tab2.key]}
                 </span>
               ) : null}
             </TabsTrigger>

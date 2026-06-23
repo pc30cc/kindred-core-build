@@ -12,6 +12,7 @@ import { toast } from '@/hooks/use-toast';
 import { callCenterApi } from '@/lib/call-center-api';
 import { useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, ChevronDown, RotateCcw, Save, Languages } from 'lucide-react';
+import { CheckCircle2, XCircle, ShieldCheck, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Link, useParams } from 'react-router-dom';
 // CC-2G-UI-Architecture-Fix — read canonical departments from

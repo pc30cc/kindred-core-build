@@ -110,6 +110,7 @@ function DiagRow({ label, value, mono, ok }: { label: string; value: string; mon
 }
 
 export default function AdminCallCenterPage() {
+  const { t } = useTranslation();
   const { data, isLoading } = useCallCenterAdminPlatform();
   const update = useUpdateCallCenterAdminPlatform();
   const { data: ws } = useCallCenterAdminWorkspaces();

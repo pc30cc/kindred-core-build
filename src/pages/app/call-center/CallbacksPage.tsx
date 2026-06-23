@@ -19,17 +19,9 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
+import { useTranslation } from '@/i18n';
 
 type StatusKey = 'requested' | 'in_progress' | 'scheduled' | 'completed' | 'cancelled';
-
-const TAB_DEFS: Array<{ key: StatusKey | 'all'; label: string }> = [
-  { key: 'all', label: 'All' },
-  { key: 'requested', label: 'Pending' },
-  { key: 'in_progress', label: 'In progress' },
-  { key: 'scheduled', label: 'Scheduled' },
-  { key: 'completed', label: 'Completed' },
-  { key: 'cancelled', label: 'Cancelled' },
-];
 
 function relativeTime(iso?: string | null): string {
   if (!iso) return '—';
@@ -86,8 +78,9 @@ function CallbackRow({
   highlight?: boolean;
   rowRef?: (el: HTMLDivElement | null) => void;
 }) {
+  const { t } = useTranslation();
   const meta = (c.metadata || {}) as Record<string, any>;
-  const name: string = meta.name || c.contact_email || c.contact_phone || 'Anonymous visitor';
+  const name: string = meta.name || c.contact_email || c.contact_phone || t('callCenter.common.anonymousVisitor');
   const subject: string = meta.subject || '—';
   const message: string = meta.message || c.notes || '';
   const pageUrl: string | undefined = meta.page_url;
@@ -101,11 +94,14 @@ function CallbackRow({
 
   function copyRef() {
     navigator.clipboard.writeText(ref);
-    toast({ title: 'Reference copied', description: ref });
+    toast({ title: t('callCenter.callbacks.referenceCopied'), description: ref });
   }
-  function copyText(value: string, label: string) {
+  function copyText(value: string, label: 'phone' | 'email') {
     navigator.clipboard.writeText(value);
-    toast({ title: `${label} copied`, description: value });
+    toast({
+      title: label === 'phone' ? t('callCenter.callbacks.phoneCopied') : t('callCenter.callbacks.emailCopied'),
+      description: value,
+    });
   }
 
   return (
@@ -117,7 +113,7 @@ function CallbackRow({
     )}>
       {isUrgent && isOpen && (
         <div className="bg-red-500/10 text-red-700 dark:text-red-300 px-4 py-1.5 text-xs font-semibold flex items-center gap-1.5 border-b border-red-500/20">
-          <Flame className="h-3.5 w-3.5" /> Urgent — handle ASAP
+          <Flame className="h-3.5 w-3.5" /> {t('callCenter.callbacks.urgentHandle')}
         </div>
       )}
       <div className="p-4">
@@ -155,9 +151,9 @@ function CallbackRow({
                   </a>
                   <button
                     type="button"
-                    onClick={() => copyText(c.contact_phone!, 'Phone')}
+                    onClick={() => copyText(c.contact_phone!, 'phone')}
                     className="text-muted-foreground hover:text-foreground transition"
-                    title="Copy phone"
+                    title={t('callCenter.callbacks.copyPhone')}
                   >
                     <Copy className="h-3.5 w-3.5" />
                   </button>
@@ -171,9 +167,9 @@ function CallbackRow({
                   </a>
                   <button
                     type="button"
-                    onClick={() => copyText(c.contact_email!, 'Email')}
+                    onClick={() => copyText(c.contact_email!, 'email')}
                     className="text-muted-foreground hover:text-foreground transition"
-                    title="Copy email"
+                    title={t('callCenter.callbacks.copyEmail')}
                   >
                     <Copy className="h-3.5 w-3.5" />
                   </button>
@@ -198,7 +194,7 @@ function CallbackRow({
             {c.status === 'completed' && resolutionNote && (
               <div className="mt-3 rounded-md border bg-emerald-500/5 border-emerald-500/20 p-2.5 text-xs">
                 <div className="text-[10px] uppercase tracking-wide font-semibold text-emerald-700 dark:text-emerald-400 mb-1 flex items-center gap-1">
-                  <CheckCircle2 className="h-3 w-3" /> Resolution note
+                  <CheckCircle2 className="h-3 w-3" /> {t('callCenter.callbacks.resolutionNote')}
                 </div>
                 <div className="text-foreground/90 whitespace-pre-wrap">{resolutionNote}</div>
               </div>
@@ -209,27 +205,27 @@ function CallbackRow({
         <div className="flex flex-wrap gap-2 mt-3 justify-end">
           {c.contact_phone && isOpen && (
             <Button size="sm" variant="outline" asChild>
-              <a href={`tel:${c.contact_phone}`}><PhoneCall className="h-3.5 w-3.5 me-1" />Dial</a>
+              <a href={`tel:${c.contact_phone}`}><PhoneCall className="h-3.5 w-3.5 me-1" />{t('callCenter.callbacks.dial')}</a>
             </Button>
           )}
           {c.contact_email && isOpen && (
             <Button size="sm" variant="outline" asChild>
-              <a href={`mailto:${c.contact_email}`}><Mail className="h-3.5 w-3.5 me-1" />Email</a>
+              <a href={`mailto:${c.contact_email}`}><Mail className="h-3.5 w-3.5 me-1" />{t('callCenter.callbacks.emailBtn')}</a>
             </Button>
           )}
           {c.status === 'requested' && (
             <Button size="sm" variant="secondary" onClick={() => onAction(c.id, 'assignCallback')}>
-              <UserPlus className="h-3.5 w-3.5 me-1" />Assign me
+              <UserPlus className="h-3.5 w-3.5 me-1" />{t('callCenter.callbacks.assignMe')}
             </Button>
           )}
           {isOpen && (
             <Button size="sm" onClick={() => onComplete(c)}>
-              <CheckCircle2 className="h-3.5 w-3.5 me-1" />Complete
+              <CheckCircle2 className="h-3.5 w-3.5 me-1" />{t('callCenter.callbacks.complete')}
             </Button>
           )}
           {isOpen && (
             <Button size="sm" variant="ghost" onClick={() => onAction(c.id, 'cancelCallback')}>
-              <XCircle className="h-3.5 w-3.5 me-1" />Cancel
+              <XCircle className="h-3.5 w-3.5 me-1" />{t('callCenter.callbacks.cancel')}
             </Button>
           )}
         </div>
@@ -240,6 +236,15 @@ function CallbackRow({
 }
 
 export default function CallbacksPage() {
+  const { t } = useTranslation();
+  const TAB_DEFS: Array<{ key: StatusKey | 'all'; label: string }> = [
+    { key: 'all', label: t('callCenter.callbacks.tabs.all') },
+    { key: 'requested', label: t('callCenter.callbacks.tabs.pending') },
+    { key: 'in_progress', label: t('callCenter.callbacks.tabs.inProgress') },
+    { key: 'scheduled', label: t('callCenter.callbacks.tabs.scheduled') },
+    { key: 'completed', label: t('callCenter.callbacks.tabs.completed') },
+    { key: 'cancelled', label: t('callCenter.callbacks.tabs.cancelled') },
+  ];
   const { workspace } = useActiveWorkspace();
   const { data, isFetching, refetch, dataUpdatedAt } = useCallCenterCallbacks(workspace?.id);
   const qc = useQueryClient();
@@ -257,10 +262,9 @@ export default function CallbacksPage() {
     try {
       await callCenterApi[fn](workspace.id, id);
       qc.invalidateQueries({ queryKey: ['call-center', 'callbacks'] });
-      const label = fn === 'assignCallback' ? 'assigned to you' : 'cancelled';
-      toast({ title: `Callback ${label}` });
+      toast({ title: fn === 'assignCallback' ? t('callCenter.callbacks.callbackAssigned') : t('callCenter.callbacks.callbackCancelled') });
     } catch (e: any) {
-      toast({ title: 'Action failed', description: e?.message || 'Try again.', variant: 'destructive' });
+      toast({ title: t('callCenter.callbacks.actionFailed'), description: e?.message || t('callCenter.callbacks.tryAgain'), variant: 'destructive' });
     }
   }
 
@@ -270,11 +274,11 @@ export default function CallbacksPage() {
     try {
       await callCenterApi.completeCallback(workspace.id, completeTarget.id, completeNote.trim() || undefined);
       qc.invalidateQueries({ queryKey: ['call-center', 'callbacks'] });
-      toast({ title: 'Callback completed' });
+      toast({ title: t('callCenter.callbacks.callbackCompleted') });
       setCompleteTarget(null);
       setCompleteNote('');
     } catch (e: any) {
-      toast({ title: 'Action failed', description: e?.message || 'Try again.', variant: 'destructive' });
+      toast({ title: t('callCenter.callbacks.actionFailed'), description: e?.message || t('callCenter.callbacks.tryAgain'), variant: 'destructive' });
     } finally {
       setSubmitting(false);
     }
@@ -329,28 +333,28 @@ export default function CallbacksPage() {
       {/* Header */}
       <div className="flex items-end justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Callbacks</h1>
-          <p className="text-sm text-muted-foreground">Manage every visitor who asked to be called back.</p>
+          <h1 className="text-2xl font-bold tracking-tight">{t('callCenter.callbacks.title')}</h1>
+          <p className="text-sm text-muted-foreground">{t('callCenter.callbacks.subtitle')}</p>
         </div>
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">
-            Updated {relativeTime(new Date(dataUpdatedAt).toISOString())}
+            {t('callCenter.callbacks.updatedPrefix')} {relativeTime(new Date(dataUpdatedAt).toISOString())}
           </span>
           <Button size="sm" variant="outline" onClick={() => refetch()} disabled={isFetching}>
             <RefreshCw className={cn('h-3.5 w-3.5 me-1', isFetching && 'animate-spin')} />
-            Refresh
+            {t('callCenter.common.refresh')}
           </Button>
         </div>
       </div>
 
       {/* KPI strip */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-        <KpiCard label="Pending" value={counts.requested || 0} icon={PhoneCall} accent="bg-amber-500/15 text-amber-600" />
-        <KpiCard label="In progress" value={counts.in_progress || 0} icon={User2} accent="bg-blue-500/15 text-blue-600" />
-        <KpiCard label="Scheduled" value={counts.scheduled || 0} icon={CalendarClock} accent="bg-violet-500/15 text-violet-600" />
-        <KpiCard label="Urgent open" value={urgent} icon={Flame} accent="bg-red-500/15 text-red-600" />
-        <KpiCard label="Today" value={today} icon={Clock} accent="bg-primary/15 text-primary" />
-        <KpiCard label="Completed" value={counts.completed || 0} icon={CheckCircle2} accent="bg-emerald-500/15 text-emerald-600" />
+        <KpiCard label={t('callCenter.callbacks.kpi.pending')} value={counts.requested || 0} icon={PhoneCall} accent="bg-amber-500/15 text-amber-600" />
+        <KpiCard label={t('callCenter.callbacks.kpi.inProgress')} value={counts.in_progress || 0} icon={User2} accent="bg-blue-500/15 text-blue-600" />
+        <KpiCard label={t('callCenter.callbacks.kpi.scheduled')} value={counts.scheduled || 0} icon={CalendarClock} accent="bg-violet-500/15 text-violet-600" />
+        <KpiCard label={t('callCenter.callbacks.kpi.urgentOpen')} value={urgent} icon={Flame} accent="bg-red-500/15 text-red-600" />
+        <KpiCard label={t('callCenter.callbacks.kpi.today')} value={today} icon={Clock} accent="bg-primary/15 text-primary" />
+        <KpiCard label={t('callCenter.callbacks.kpi.completed')} value={counts.completed || 0} icon={CheckCircle2} accent="bg-emerald-500/15 text-emerald-600" />
       </div>
 
       {/* Filters */}
@@ -358,7 +362,7 @@ export default function CallbacksPage() {
         <div className="relative flex-1 min-w-[220px] max-w-md">
           <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="Search by name, email, phone, subject…"
+            placeholder={t('callCenter.callbacks.searchPlaceholder')}
             value={q}
             onChange={(e) => setQ(e.target.value)}
             className="pl-9"
@@ -385,7 +389,7 @@ export default function CallbacksPage() {
             {filtered.length === 0 ? (
               <Card className="p-12 text-center space-y-2 border-dashed">
                 <PhoneCall className="h-8 w-8 mx-auto text-muted-foreground/60" />
-                <p className="text-sm text-muted-foreground">No {t.label.toLowerCase()} callbacks.</p>
+                <p className="text-sm text-muted-foreground">{t('callCenter.callbacks.noTabResults', { tab: (TAB_DEFS.find(x => x.key === tab)?.label || '').toLowerCase() })}</p>
               </Card>
             ) : (
               filtered.map((c) => (
@@ -413,24 +417,24 @@ export default function CallbacksPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-              Complete callback
+              {t('callCenter.callbacks.completeTitle')}
             </DialogTitle>
             <DialogDescription>
               {completeTarget ? (
-                <>Mark the callback for <span className="font-medium text-foreground">
-                  {(completeTarget.metadata as any)?.name || completeTarget.contact_phone || completeTarget.contact_email || 'this visitor'}
-                </span> as completed. You can optionally add a resolution note.</>
+                <>{t('callCenter.callbacks.completeDescPrefix')} <span className="font-medium text-foreground">
+                  {(completeTarget.metadata as any)?.name || completeTarget.contact_phone || completeTarget.contact_email || t('callCenter.callbacks.thisVisitor')}
+                </span> {t('callCenter.callbacks.completeDescSuffix')}</>
               ) : null}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
             <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Resolution note (optional)
+              {t('callCenter.callbacks.resolutionOptional')}
             </label>
             <Textarea
               value={completeNote}
               onChange={(e) => setCompleteNote(e.target.value)}
-              placeholder="e.g. Spoke with customer, issue resolved, ticket #1234 closed."
+              placeholder={t('callCenter.callbacks.resolutionPlaceholder')}
               rows={5}
               maxLength={2000}
             />
@@ -442,11 +446,11 @@ export default function CallbacksPage() {
               onClick={() => { setCompleteTarget(null); setCompleteNote(''); }}
               disabled={submitting}
             >
-              Cancel
+              {t('callCenter.common.cancel')}
             </Button>
             <Button onClick={submitComplete} disabled={submitting}>
               <CheckCircle2 className="h-4 w-4 me-1" />
-              {submitting ? 'Saving…' : 'Mark completed'}
+              {submitting ? t('callCenter.common.saving') : t('callCenter.callbacks.markCompleted')}
             </Button>
           </DialogFooter>
         </DialogContent>

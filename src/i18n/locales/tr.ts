@@ -1005,6 +1005,10 @@ const tr: TranslationKeys = {
       },
       comingSoon: 'Yakında',
     },
+    settings: {
+      preCallFormPlaceholder: 'Ön arama formunun varsayılan alanlarını Ayarlar → Ekip ve Departmanlar altından yapılandırın.',
+      businessHoursPlaceholder: 'Haftalık çalışma saatlerini ve tatil istisnalarını çalışma alanı zamanlama ayarlarından belirleyin.',
+    },
   },
   admin: {
     nav: {

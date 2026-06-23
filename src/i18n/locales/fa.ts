@@ -1005,6 +1005,10 @@ const fa: TranslationKeys = {
       },
       comingSoon: 'به زودی',
     },
+    settings: {
+      preCallFormPlaceholder: 'فیلدهای پیش‌فرض فرم پیش‌تماس را در تنظیمات → تیم و دپارتمان‌ها پیکربندی کنید.',
+      businessHoursPlaceholder: 'ساعت کاری هفتگی و استثنائات تعطیلات را در تنظیمات زمان‌بندی فضای کاری تعیین کنید.',
+    },
   },
   admin: {
     nav: {

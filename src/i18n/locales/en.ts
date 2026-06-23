@@ -1017,6 +1017,10 @@ const en = {
       },
       comingSoon: 'Coming soon',
     },
+    settings: {
+      preCallFormPlaceholder: 'Configure the default pre-call form fields in Settings → Team & Departments.',
+      businessHoursPlaceholder: 'Set weekly business hours and holiday overrides in the workspace schedule settings.',
+    },
   },
   admin: {
     nav: {

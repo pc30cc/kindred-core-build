@@ -8,7 +8,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { callCenterApi } from '@/lib/call-center-api';
 import { useQueryClient } from '@tanstack/react-query';
-import { Phone, Video, Search, Copy, Star, Play, Download } from 'lucide-react';
+import { Phone, Video, Search, Copy, Star, Play, Download, Link as LinkIcon } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { RecordingTimeline } from '@/components/recordings/RecordingTimeline';
@@ -97,6 +97,27 @@ function RecordingPlaybackRow({
     }
   }
 
+  async function copyShareLink() {
+    if (!rec.has_storage) return;
+    try {
+      const r = await callCenterApi.mintCallRecordingDownloadToken(workspaceId, callId, rec.id);
+      const abs = r.url.startsWith('http')
+        ? r.url
+        : `${window.location.origin}${r.url}`;
+      await navigator.clipboard.writeText(abs);
+      toast({
+        title: 'Temporary download link copied',
+        description: 'Link is short-lived and scoped to this recording.',
+      });
+    } catch (e: any) {
+      toast({
+        title: 'Could not generate share link',
+        description: e?.message || 'token_mint_failed',
+        variant: 'destructive',
+      });
+    }
+  }
+
   return (
     <div className="rounded border bg-background/50 p-2 space-y-2">
       <div className="flex items-center gap-2 text-xs">
@@ -126,6 +147,9 @@ function RecordingPlaybackRow({
               <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={download} disabled={downloading}>
                 <Download className="h-3 w-3 me-1" /> {downloading ? 'Preparing…' : 'Download'}
               </Button>
+              <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={copyShareLink}>
+                <LinkIcon className="h-3 w-3 me-1" /> Copy share link
+              </Button>
             </div>
           ) : (
             <>
@@ -136,9 +160,12 @@ function RecordingPlaybackRow({
                 durationHint={rec.duration_seconds}
                 mediaClassName={isVideo ? 'w-full max-h-64 rounded bg-black' : 'w-full'}
               />
-              <div>
+              <div className="flex items-center gap-2">
                 <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={download} disabled={downloading}>
                   <Download className="h-3 w-3 me-1" /> {downloading ? 'Preparing…' : 'Download'}
+                </Button>
+                <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={copyShareLink}>
+                  <LinkIcon className="h-3 w-3 me-1" /> Copy share link
                 </Button>
               </div>
             </>

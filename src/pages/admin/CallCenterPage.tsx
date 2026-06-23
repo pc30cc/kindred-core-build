@@ -651,6 +651,7 @@ export default function AdminCallCenterPage() {
                 <th className="text-start py-2 px-2">Voice</th>
                 <th className="text-start py-2 px-2">Video</th>
                 <th className="text-start py-2 px-2">Callback</th>
+                <th className="text-start py-2 px-2">{t('callCenter.admin.workspaces.recording')}</th>
                 <th className="text-start py-2 px-2">Public key</th>
                 <th className="text-start py-2 px-2">Updated</th>
               </tr>
@@ -668,12 +669,13 @@ export default function AdminCallCenterPage() {
                   <td className="py-2 px-2">{w.voice_enabled ? '✓' : '—'}</td>
                   <td className="py-2 px-2">{w.video_enabled ? '✓' : '—'}</td>
                   <td className="py-2 px-2">{w.callback_enabled ? '✓' : '—'}</td>
+                  <td className="py-2 px-2">{w.recording_enabled ? '✓' : '—'}</td>
                   <td className="py-2 px-2 text-xs font-mono truncate max-w-[180px]">{w.public_key || '—'}</td>
                   <td className="py-2 px-2 text-muted-foreground">{w.updated_at ? new Date(w.updated_at).toLocaleDateString() : '—'}</td>
                 </tr>
               ))}
               {(!ws || ws.workspaces.length === 0) && (
-                <tr><td colSpan={8} className="py-4 text-center text-muted-foreground">No workspaces.</td></tr>
+                <tr><td colSpan={9} className="py-4 text-center text-muted-foreground">No workspaces.</td></tr>
               )}
             </tbody>
           </table>

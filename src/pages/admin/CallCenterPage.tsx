@@ -247,22 +247,66 @@ export default function AdminCallCenterPage() {
         </div>
       </Card>
 
+      <Card className="p-5 space-y-4">
+        <div className="flex items-start gap-2">
+          <Disc3 className="h-5 w-5 text-primary mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <h2 className="font-semibold">{t('callCenter.admin.recording.title')}</h2>
+            <p className="text-xs text-muted-foreground">{t('callCenter.admin.recording.description')}</p>
+          </div>
+        </div>
+        <div className="flex items-center justify-between gap-3 py-1">
+          <div className="min-w-0">
+            <Label>{t('callCenter.admin.recording.toggleLabel')}</Label>
+            <p className="text-xs text-muted-foreground">{t('callCenter.admin.recording.toggleHint')}</p>
+          </div>
+          <Switch
+            checked={!!draft.call_recording_enabled}
+            onCheckedChange={(v) => setDraft({ ...draft, call_recording_enabled: v })}
+          />
+        </div>
+        <div className="rounded-md border border-input p-3 bg-muted/20 space-y-2">
+          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('callCenter.admin.recording.providerStatus')}</div>
+          <p className="text-xs text-muted-foreground">{t('callCenter.admin.recording.providerUnknown')}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button asChild variant="outline" size="sm">
+            <Link to="/admin/voice-video?tab=recordings">{t('callCenter.admin.recording.retentionLink')}</Link>
+          </Button>
+        </div>
+      </Card>
+
       <Card className="p-5 space-y-5">
         <h2 className="font-semibold">Feature toggles</h2>
-        {TOGGLE_GROUPS.map((group) => (
-          <div key={group.title} className="space-y-2">
-            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{group.title}</div>
-            {group.items.map(([k, label, isPlaceholder]) => (
-              <div key={k as string} className="flex items-center justify-between py-1">
-                <div className="flex items-center gap-2">
-                  <Label>{label}</Label>
-                  {isPlaceholder && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 border border-amber-500/30">Placeholder</span>}
-                </div>
-                <Switch checked={!!(draft as any)[k]} disabled={!!isPlaceholder} onCheckedChange={(v) => setDraft({ ...draft, [k]: v } as any)} />
+        <div className="space-y-2">
+          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Core</div>
+          {[
+            ['voice_calls_enabled', 'Voice calls'],
+            ['video_calls_enabled', 'Video calls'],
+            ['callback_requests_enabled', 'Callback requests'],
+          ].map(([k, label]) => (
+            <div key={k as string} className="flex items-center justify-between py-1">
+              <Label>{label}</Label>
+              <Switch checked={!!(draft as any)[k]} onCheckedChange={(v) => setDraft({ ...draft, [k]: v } as any)} />
+            </div>
+          ))}
+        </div>
+        <div className="space-y-2 pt-3 border-t">
+          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('callCenter.admin.comingSoon')}</div>
+          {[
+            ['screen_share_enabled', 'Screen share'],
+            ['call_transfer_enabled', 'Call transfer'],
+            ['advanced_routing_enabled', 'Advanced routing'],
+          ].map(([k, label]) => (
+            <div key={k as string} className="flex items-center justify-between py-1 opacity-60">
+              <div className="flex items-center gap-2">
+                <Label>{label}</Label>
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground border">{t('callCenter.admin.comingSoon')}</span>
               </div>
-            ))}
-          </div>
-        ))}
+              <Switch checked={!!(draft as any)[k]} disabled onCheckedChange={() => {}} />
+            </div>
+          ))}
+        </div>
       </Card>
 
       <Card className="p-5 space-y-3">

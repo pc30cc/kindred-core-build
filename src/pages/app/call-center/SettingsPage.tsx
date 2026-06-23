@@ -49,6 +49,7 @@ function Row({ label, hint, locked, children }: { label: string; hint?: string; 
 }
 
 export default function CallCenterSettingsPage() {
+  const { t } = useTranslation();
   const { workspace } = useActiveWorkspace();
   const { slug } = useParams();
   const { data, isLoading } = useCallCenterSettings(workspace?.id);

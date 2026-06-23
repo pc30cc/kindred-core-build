@@ -107,7 +107,7 @@ export default function InstallPage() {
         <HealthRow ok={wsOk} label={t('callCenter.install.workspaceEnabled')} />
         <HealthRow ok={providerOk} label={t('callCenter.install.callsServiceReady')} />
         <HealthRow ok={hasKey} label={t('callCenter.install.publicKeyGenerated')} />
-        <HealthRow ok={domainsOk} label={t('callCenter.install.allowedDomainConfigured')} hint={t('callCenter.install.domainCount', { count: data?.settings?.allowed_domains?.length || 0 })} />
+        <HealthRow ok={domainsOk} label={t('callCenter.install.allowedDomainConfigured')} hint={t('callCenter.install.domainCount', { count: String(data?.settings?.allowed_domains?.length || 0) })} />
       </Card>
 
       {/* Embed code */}

@@ -303,7 +303,7 @@ export default function CallCenterSettingsPage() {
       </Section>
 
       <Section title="Pre-call form" description="Default fields shown before a call (name, email, phone, subject).">
-        <p className="text-xs text-muted-foreground">Advanced form builder — coming later.</p>
+        <p className="text-xs text-muted-foreground">{t('callCenter.settings.preCallFormPlaceholder')}</p>
       </Section>
 
       <Section title="Availability & offline" description="What happens when no agent is available.">
@@ -323,7 +323,7 @@ export default function CallCenterSettingsPage() {
           </CollapsibleTrigger>
           <CollapsibleContent>
             <pre className="bg-muted p-2 rounded text-xs mt-2 overflow-x-auto">{JSON.stringify(s.business_hours || {}, null, 2)}</pre>
-            <p className="text-xs text-muted-foreground mt-1">Editor coming soon.</p>
+            <p className="text-xs text-muted-foreground mt-1">{t('callCenter.settings.businessHoursPlaceholder')}</p>
           </CollapsibleContent>
         </Collapsible>
       </Section>

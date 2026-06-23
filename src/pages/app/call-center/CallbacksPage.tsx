@@ -384,8 +384,8 @@ export default function CallbacksPage() {
           ))}
         </TabsList>
 
-        {TAB_DEFS.map((t) => (
-          <TabsContent key={t.key} value={t.key} className="space-y-2.5 mt-0">
+        {TAB_DEFS.map((tab2) => (
+          <TabsContent key={tab2.key} value={tab2.key} className="space-y-2.5 mt-0">
             {filtered.length === 0 ? (
               <Card className="p-12 text-center space-y-2 border-dashed">
                 <PhoneCall className="h-8 w-8 mx-auto text-muted-foreground/60" />

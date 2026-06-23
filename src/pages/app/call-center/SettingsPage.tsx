@@ -89,7 +89,7 @@ export default function CallCenterSettingsPage() {
     return keys.some((k) => JSON.stringify(s[k]) !== JSON.stringify(original[k]));
   }, [s, original]);
 
-  if (isLoading || !s) return <p className="text-sm text-muted-foreground">Loading…</p>;
+  if (isLoading || !s) return <p className="text-sm text-muted-foreground">{t('callCenter.common.loading')}</p>;
 
   const platform = data?.platform;
   const platformOff = !platform?.call_center_enabled;
@@ -116,22 +116,22 @@ export default function CallCenterSettingsPage() {
       operator_video_visible_to_visitor: s.operator_video_visible_to_visitor !== false,
     });
     setOriginal({ ...s });
-    toast({ title: 'Saved' });
+    toast({ title: t('callCenter.settingsPage.saved') });
   }
   function reset() { setS({ ...original }); }
 
   async function onAvatar(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
     if (!f || !workspace) return;
-    if (f.size > 2 * 1024 * 1024) { toast({ title: 'Max 2MB', variant: 'destructive' }); return; }
+    if (f.size > 2 * 1024 * 1024) { toast({ title: t('callCenter.settingsPage.max2mb'), variant: 'destructive' }); return; }
     try {
       const r = await callCenterApi.uploadAvatar(workspace.id, f);
-      toast({ title: 'Avatar uploaded' });
+      toast({ title: t('callCenter.settingsPage.avatarUploaded') });
       setS((p: any) => ({ ...p, avatar_url: r.avatar_url }));
       setOriginal((p: any) => ({ ...p, avatar_url: r.avatar_url }));
       qc.invalidateQueries({ queryKey: ['call-center', 'settings'] });
     } catch (err: any) {
-      toast({ title: 'Upload failed', description: err.message, variant: 'destructive' });
+      toast({ title: t('callCenter.settingsPage.uploadFailed'), description: err.message, variant: 'destructive' });
     }
   }
 
@@ -140,34 +140,34 @@ export default function CallCenterSettingsPage() {
       {platformOff && (
         <Card className="p-4 border-destructive/40 bg-destructive/5 flex gap-2 items-start">
           <AlertCircle className="h-4 w-4 text-destructive mt-0.5" />
-          <div className="text-sm">Call Center is currently disabled by the platform. Workspace settings are read-only-effective until re-enabled.</div>
+          <div className="text-sm">{t('callCenter.settingsPage.platformDisabledBanner')}</div>
         </Card>
       )}
 
-      <Section title="Status & availability" description="Toggle the entire Call Center module for your workspace.">
-        <Row label="Workspace enabled" hint="Turn the standalone Call Center on/off for this workspace.">
+      <Section title={t('callCenter.settingsPage.statusAvailability')} description={t('callCenter.settingsPage.statusAvailabilityHint')}>
+        <Row label={t('callCenter.settingsPage.workspaceEnabled')} hint={t('callCenter.settingsPage.workspaceEnabledHint')}>
           <Switch checked={!!s.enabled} onCheckedChange={(v) => setS({ ...s, enabled: v })} />
         </Row>
       </Section>
 
-      <Section title="Identity & branding" description="How your call widget appears to visitors.">
-        <Row label="Display name">
+      <Section title={t('callCenter.settingsPage.identityBranding')} description={t('callCenter.settingsPage.identityBrandingHint')}>
+        <Row label={t('callCenter.settingsPage.displayName')}>
           <Input value={s.display_name || ''} onChange={(e) => setS({ ...s, display_name: e.target.value })} placeholder="Support" className="w-60" />
         </Row>
         <div className="flex items-center gap-3">
           {s.avatar_url
             ? <img src={s.avatar_url} alt="" className="h-12 w-12 rounded-full object-cover border" />
-            : <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center text-muted-foreground text-xs">No avatar</div>}
+            : <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center text-muted-foreground text-xs">{t('callCenter.settingsPage.noAvatar')}</div>}
           <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={onAvatar} />
-          <Button variant="outline" onClick={() => fileRef.current?.click()}>Upload</Button>
-          <span className="text-xs text-muted-foreground">PNG/JPEG/WebP, max 2MB</span>
+          <Button variant="outline" onClick={() => fileRef.current?.click()}>{t('callCenter.settingsPage.upload')}</Button>
+          <span className="text-xs text-muted-foreground">{t('callCenter.settingsPage.avatarHint')}</span>
         </div>
-        <Row label="Widget position">
+        <Row label={t('callCenter.settingsPage.widgetPosition')}>
           <Select value={s.widget_position || 'right'} onValueChange={(v) => setS({ ...s, widget_position: v })}>
             <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="right">Right</SelectItem>
-              <SelectItem value="left">Left</SelectItem>
+              <SelectItem value="right">{t('callCenter.settingsPage.right')}</SelectItem>
+              <SelectItem value="left">{t('callCenter.settingsPage.left')}</SelectItem>
             </SelectContent>
           </Select>
         </Row>
@@ -194,10 +194,10 @@ export default function CallCenterSettingsPage() {
         const effective = wsEnabled.filter((c) => platformAvail.includes(c));
         return (
           <Section
-            title="Widget languages"
-            description="Choose which languages your widget exposes to visitors and which one is the default. Only languages allowed by the platform are shown."
+            title={t('callCenter.settingsPage.widgetLanguages')}
+            description={t('callCenter.settingsPage.widgetLanguagesHint')}
           >
-            <Row label="Default widget language" hint="Visitors who don't pick a language see the widget in this language.">
+            <Row label={t('callCenter.settingsPage.defaultLanguage')} hint={t('callCenter.settingsPage.defaultLanguageHint')}>
               <Select
                 value={wsDefault}
                 onValueChange={(v) => {
@@ -218,11 +218,8 @@ export default function CallCenterSettingsPage() {
             </Row>
 
             <div className="space-y-2">
-              <Label className="flex items-center gap-2"><Languages className="h-3.5 w-3.5" /> Enabled languages</Label>
-              <p className="text-xs text-muted-foreground">
-                Toggle which languages are offered in the widget's language switcher. The default
-                language is always enabled.
-              </p>
+              <Label className="flex items-center gap-2"><Languages className="h-3.5 w-3.5" /> {t('callCenter.settingsPage.enabledLanguages')}</Label>
+              <p className="text-xs text-muted-foreground">{t('callCenter.settingsPage.enabledLanguagesHint')}</p>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 {platformAvail.map((c) => {
                   const isOn = effective.includes(c);
@@ -241,7 +238,7 @@ export default function CallCenterSettingsPage() {
                         <span className="text-muted-foreground ms-1">{LOC_LABELS[c]?.native || c}</span>
                         {isDefault && (
                           <span className="ms-2 text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/30">
-                            Default
+                            {t('callCenter.settingsPage.default')}
                           </span>
                         )}
                       </span>
@@ -264,35 +261,32 @@ export default function CallCenterSettingsPage() {
                 })}
               </div>
               {platformAvail.length <= 1 && (
-                <p className="text-xs text-amber-600">
-                  The platform currently allows only one language. Ask the platform admin to enable
-                  more languages in the super-admin Call Center settings.
-                </p>
+                <p className="text-xs text-amber-600">{t('callCenter.settingsPage.onlyOneLanguage')}</p>
               )}
             </div>
           </Section>
         );
       })()}
 
-      <Section title="Call modes" description="Choose which channels visitors can use.">
-        <Row label="Voice calls" locked={!platformVoice ? 'Disabled by platform' : undefined}>
+      <Section title={t('callCenter.settingsPage.callModes')} description={t('callCenter.settingsPage.callModesHint')}>
+        <Row label={t('callCenter.settingsPage.voiceCalls')} locked={!platformVoice ? t('callCenter.settingsPage.disabledByPlatform') : undefined}>
           <Switch checked={!!s.voice_enabled} onCheckedChange={(v) => setS({ ...s, voice_enabled: v })} disabled={!platformVoice} />
         </Row>
-        <Row label="Video calls" locked={!platformVideo ? 'Disabled by platform' : undefined}>
+        <Row label={t('callCenter.settingsPage.videoCalls')} locked={!platformVideo ? t('callCenter.settingsPage.disabledByPlatform') : undefined}>
           <Switch checked={!!s.video_enabled} onCheckedChange={(v) => setS({ ...s, video_enabled: v })} disabled={!platformVideo} />
         </Row>
         {platformCallback && (
-          <Row label="Callback requests">
+          <Row label={t('callCenter.settingsPage.callbackRequests')}>
             <Switch checked={!!s.callback_enabled} onCheckedChange={(v) => setS({ ...s, callback_enabled: v })} />
           </Row>
         )}
-        <Row label="Pre-call form" hint="Ask visitors for name/email/subject before connecting.">
+        <Row label={t('callCenter.settingsPage.preCallFormShort')} hint={t('callCenter.settingsPage.preCallFormHint')}>
           <Switch checked={!!s.pre_call_form_enabled} onCheckedChange={(v) => setS({ ...s, pre_call_form_enabled: v })} />
         </Row>
         <Row
-          label="Visitor sees operator video"
-          hint="When off, the operator's camera is hidden from the visitor during video calls (audio still works). On by default."
-          locked={!platformVideo ? 'Video disabled by platform' : undefined}
+          label={t('callCenter.settingsPage.visitorSeesOperatorVideo')}
+          hint={t('callCenter.settingsPage.visitorSeesOperatorVideoHint')}
+          locked={!platformVideo ? t('callCenter.settingsPage.videoDisabledByPlatform') : undefined}
         >
           <Switch
             checked={s.operator_video_visible_to_visitor !== false}
@@ -302,24 +296,24 @@ export default function CallCenterSettingsPage() {
         </Row>
       </Section>
 
-      <Section title="Pre-call form" description="Default fields shown before a call (name, email, phone, subject).">
+      <Section title={t('callCenter.settingsPage.preCallFormSection')} description={t('callCenter.settingsPage.preCallFormSectionHint')}>
         <p className="text-xs text-muted-foreground">{t('callCenter.settings.preCallFormPlaceholder')}</p>
       </Section>
 
-      <Section title="Availability & offline" description="What happens when no agent is available.">
-        <Row label="Offline behavior">
+      <Section title={t('callCenter.settingsPage.availabilityOffline')} description={t('callCenter.settingsPage.availabilityOfflineHint')}>
+        <Row label={t('callCenter.settingsPage.offlineBehavior')}>
           <Select value={s.offline_behavior || 'show_callback'} onValueChange={(v) => setS({ ...s, offline_behavior: v })}>
             <SelectTrigger className="w-60"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="hide">Hide widget</SelectItem>
-              {platformCallback && <SelectItem value="show_callback">Show callback request</SelectItem>}
-              <SelectItem value="show_message">Show offline message</SelectItem>
+              <SelectItem value="hide">{t('callCenter.settingsPage.hideWidget')}</SelectItem>
+              {platformCallback && <SelectItem value="show_callback">{t('callCenter.settingsPage.showCallbackRequest')}</SelectItem>}
+              <SelectItem value="show_message">{t('callCenter.settingsPage.showOfflineMessage')}</SelectItem>
             </SelectContent>
           </Select>
         </Row>
         <Collapsible>
           <CollapsibleTrigger className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-            <ChevronDown className="h-3 w-3" /> Advanced (business hours JSON)
+            <ChevronDown className="h-3 w-3" /> {t('callCenter.settingsPage.advancedBusinessHours')}
           </CollapsibleTrigger>
           <CollapsibleContent>
             <pre className="bg-muted p-2 rounded text-xs mt-2 overflow-x-auto">{JSON.stringify(s.business_hours || {}, null, 2)}</pre>
@@ -328,42 +322,41 @@ export default function CallCenterSettingsPage() {
         </Collapsible>
       </Section>
 
-      <Section title="Routing" description="How incoming calls are distributed across available agents.">
-        <Row label="Routing mode">
+      <Section title={t('callCenter.settingsPage.routing')} description={t('callCenter.settingsPage.routingHint')}>
+        <Row label={t('callCenter.settingsPage.routingMode')}>
           <Select value={s.routing_mode || 'broadcast'} onValueChange={(v) => setS({ ...s, routing_mode: v })}>
             <SelectTrigger className="w-60"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="broadcast">Broadcast — ring all available</SelectItem>
-              <SelectItem value="round_robin">Round robin — next available agent</SelectItem>
-              <SelectItem value="least_busy">Least busy — fewest active calls</SelectItem>
+              <SelectItem value="broadcast">{t('callCenter.settingsPage.broadcastOption')}</SelectItem>
+              <SelectItem value="round_robin">{t('callCenter.settingsPage.roundRobinOption')}</SelectItem>
+              <SelectItem value="least_busy">{t('callCenter.settingsPage.leastBusyOption')}</SelectItem>
             </SelectContent>
           </Select>
         </Row>
       </Section>
 
       <Section
-        title="Departments & Routing"
-        description="Departments and agents are managed in Team & Departments. Only departments with a Call Center channel enabled can receive Call Center calls.">
+        title={t('callCenter.settingsPage.departmentsRouting')}
+        description={t('callCenter.settingsPage.departmentsRoutingHint')}>
         {ccDepartments.length === 0 && (
           <div className="flex gap-2 items-start text-xs p-3 rounded bg-amber-500/10 border border-amber-500/30">
             <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5" />
             <span>
-              No departments are enabled for Call Center. Open{' '}
+              {t('callCenter.settingsPage.noDeptEnabled')}{' '}
               <Link to={`/app/w/${slug}/settings/team-departments`} className="text-primary underline">
-                Team &amp; Departments
-              </Link>{' '}
-              and turn on Call Center Voice, Video, or Callback on at least one department.
+                {t('callCenter.settingsPage.teamDepartmentsLink')}
+              </Link>
             </span>
           </div>
         )}
-        <Row label="Default department" hint="New Call Center calls without a department choice are routed here.">
+        <Row label={t('callCenter.settingsPage.defaultDepartment')} hint={t('callCenter.settingsPage.defaultDepartmentHint')}>
           <Select
             value={s.default_department_id || '__none__'}
             onValueChange={(v) => setS({ ...s, default_department_id: v === '__none__' ? null : v })}
           >
-            <SelectTrigger className="w-60"><SelectValue placeholder="None" /></SelectTrigger>
+            <SelectTrigger className="w-60"><SelectValue placeholder={t('callCenter.common.none')} /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="__none__">None</SelectItem>
+              <SelectItem value="__none__">{t('callCenter.common.none')}</SelectItem>
               {ccDepartments.map((d) => (
                 <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
               ))}
@@ -371,12 +364,12 @@ export default function CallCenterSettingsPage() {
           </Select>
         </Row>
         <div className="text-xs text-muted-foreground space-y-1">
-          <div><b>Broadcast</b> — every eligible agent in the department sees the call.</div>
-          <div><b>Round robin</b> — the next available agent is picked.</div>
-          <div><b>Least busy</b> — agent with the lowest active call count is picked.</div>
+          <div><b>{t('callCenter.settingsPage.broadcastOption').split('—')[0].trim()}</b> — {t('callCenter.settingsPage.broadcastDesc')}</div>
+          <div><b>{t('callCenter.settingsPage.roundRobinOption').split('—')[0].trim()}</b> — {t('callCenter.settingsPage.roundRobinDesc')}</div>
+          <div><b>{t('callCenter.settingsPage.leastBusyOption').split('—')[0].trim()}</b> — {t('callCenter.settingsPage.leastBusyDesc')}</div>
         </div>
         <Button asChild variant="outline" size="sm">
-          <Link to={`/app/w/${slug}/settings/team-departments`}>Manage Departments in Team & Departments →</Link>
+          <Link to={`/app/w/${slug}/settings/team-departments`}>{t('callCenter.settingsPage.manageDepartments')}</Link>
         </Button>
       </Section>
 
@@ -391,9 +384,9 @@ export default function CallCenterSettingsPage() {
       {dirty && (
         <div className="fixed bottom-4 inset-x-0 mx-auto max-w-3xl px-6 z-30">
           <Card className="p-3 flex items-center gap-3 shadow-lg border-primary/30 bg-card">
-            <span className="text-sm flex-1">You have unsaved changes.</span>
-            <Button variant="ghost" size="sm" onClick={reset}><RotateCcw className="h-3.5 w-3.5 me-1" />Reset</Button>
-            <Button size="sm" onClick={save} disabled={update.isPending}><Save className="h-3.5 w-3.5 me-1" />Save changes</Button>
+            <span className="text-sm flex-1">{t('callCenter.common.unsavedChanges')}</span>
+            <Button variant="ghost" size="sm" onClick={reset}><RotateCcw className="h-3.5 w-3.5 me-1" />{t('callCenter.common.reset')}</Button>
+            <Button size="sm" onClick={save} disabled={update.isPending}><Save className="h-3.5 w-3.5 me-1" />{t('callCenter.common.saveChanges')}</Button>
           </Card>
         </div>
       )}

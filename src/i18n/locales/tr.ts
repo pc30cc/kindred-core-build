@@ -955,6 +955,61 @@ const tr: TranslationKeys = {
     promptSettings: 'Prompt Ayarları',
     usageControls: 'Kullanım Kontrolleri',
   },
+  callCenter: {
+    recording: {
+      title: 'Çağrı Kaydı',
+      description: 'Bu çalışma alanı için çağrı kaydını yapılandırın. Etkin durum; platform, çalışma alanı ve sağlayıcı kontrollerinin birleşimidir.',
+      readiness: 'Kayıt hazır durumu',
+      effectiveOn: 'Çağrı kaydı etkin — yeni çağrılar kaydedilecek.',
+      effectiveOff: 'Çağrı kaydı şu anda etkin DEĞİL — yeni çağrılar kaydedilmeyecek.',
+      reason: {
+        platform_disabled: 'Çağrı kaydı platform seviyesinde kapalı. Platform yöneticisinden Süper Yönetici → Çağrı Merkezi bölümünde kaydı açmasını isteyin.',
+        workspace_disabled: 'Bu çalışma alanında kayıt kapalı. Gelecekteki çağrıları kaydetmek için aşağıdaki "Kayıt etkin" anahtarını açın.',
+        provider_not_supported: 'Bu çalışma alanının aktif çağrı sağlayıcısı kaydı desteklemiyor. Sağlayıcıyı Süper Yönetici → Ses ve Video altından değiştirin.',
+        provider_not_configured: 'Kayıt sağlayıcısı gerekli yapılandırmaya sahip değil (örn. LiveKit egress depolama bilgileri eksik). Süper Yönetici → Ses ve Video altından yapılandırın.',
+        unknown: 'Bir veya daha fazla kayıt önkoşulu sağlanmamış. Aşağıdaki kontrol listesini gözden geçirin.',
+      },
+      gate: {
+        platform: 'Platform kayda izin veriyor',
+        workspace: 'Çalışma alanı etkin',
+        provider_support: 'Sağlayıcı kaydı destekliyor',
+        provider_config: 'Sağlayıcı yapılandırıldı (depolama / egress)',
+      },
+      switch: {
+        label: 'Kayıt etkin',
+        hint: 'Açıkken, uygun çağrılar ziyaretçinin onayını aldıktan sonra kaydedilir.',
+        locked: 'Platform tarafından devre dışı',
+      },
+      consent: {
+        label: 'Onay gerekli',
+        hint: 'Ziyaretçi widget içindeki onay istemini kabul edene kadar kayıt başlamaz.',
+      },
+      footer: 'Kaydedilmiş dosyaların saklanması, yasal tutma (legal hold), silinmesi ve toplu dışa aktarımı platform yöneticisi tarafından Süper Yönetici → Ses ve Video → Kayıtlar altından yönetilir. Operatörler Çağrılar sayfasından kayıtları oynatabilir ve indirebilir.',
+    },
+    admin: {
+      recording: {
+        title: 'Platform kayıt ayarları',
+        description: 'Ana anahtar ve platform genelinde kayıt sağlığı. Çalışma alanı kaydı; yalnızca aşağıdaki tüm koşullar sağlandığında etkin olur.',
+        toggleLabel: 'Çağrı kaydı',
+        toggleHint: 'Kapalıyken, hiçbir çalışma alanı kendi anahtarı açık olsa bile kaydı etkinleştiremez.',
+        providerStatus: 'Sağlayıcı hazır durumu',
+        providerUnknown: 'Sağlayıcı hazır durumu, bir çalışma alanı ayarlarını yüklediğinde kontrol edilecek.',
+        retentionLink: 'Kayıt saklama ve yasal tutmayı aç →',
+      },
+      workspaces: {
+        recording: 'Kayıt',
+      },
+      placeholders: {
+        preCallForm: 'Sürükle-bırak alanlarıyla önceki form oluşturucu.',
+        businessHours: 'Haftalık çalışma saatleri ve tatil istisnalarını yapılandırın.',
+      },
+      comingSoon: 'Yakında',
+    },
+    settings: {
+      preCallFormPlaceholder: 'Ön arama formunun varsayılan alanlarını Ayarlar → Ekip ve Departmanlar altından yapılandırın.',
+      businessHoursPlaceholder: 'Haftalık çalışma saatlerini ve tatil istisnalarını çalışma alanı zamanlama ayarlarından belirleyin.',
+    },
+  },
   admin: {
     nav: {
       title: 'Süper Yönetici',

@@ -967,6 +967,61 @@ const en = {
     promptSettings: 'Prompt Settings',
     usageControls: 'Usage Controls',
   },
+  callCenter: {
+    recording: {
+      title: 'Recording',
+      description: 'Configure call recording for this workspace. The effective status reflects platform, workspace, and provider checks combined.',
+      readiness: 'Recording readiness',
+      effectiveOn: 'Recording is effectively ENABLED for new calls.',
+      effectiveOff: 'Recording is currently NOT effective — new calls will not be recorded.',
+      reason: {
+        platform_disabled: 'Recording is turned off at the platform level. Ask the platform admin to enable Call recording in super-admin → Call Center.',
+        workspace_disabled: 'Recording is off for this workspace. Toggle "Recording enabled" below to start capturing future calls.',
+        provider_not_supported: 'The active call provider for this workspace does not support recording. Switch provider in super-admin → Voice & Video.',
+        provider_not_configured: 'Recording provider is missing required configuration (e.g. LiveKit egress storage credentials). Configure it in super-admin → Voice & Video.',
+        unknown: 'One or more recording prerequisites are not satisfied. Review the checklist below.',
+      },
+      gate: {
+        platform: 'Platform allows recording',
+        workspace: 'Workspace enabled',
+        provider_support: 'Provider supports recording',
+        provider_config: 'Provider configured (storage / egress)',
+      },
+      switch: {
+        label: 'Recording enabled',
+        hint: 'When on, eligible calls are recorded once consent has been satisfied.',
+        locked: 'Disabled by platform',
+      },
+      consent: {
+        label: 'Consent required',
+        hint: 'Recording will not start until the visitor accepts the consent prompt in the widget.',
+      },
+      footer: 'Retention, legal hold, deletion and bulk export of recorded files are managed by the platform administrator in super-admin → Voice & Video → Recordings. Operators can play back and download recordings from the Calls page.',
+    },
+    admin: {
+      recording: {
+        title: 'Recording platform settings',
+        description: 'Master switch and platform-wide recording health. Workspace recording is only effective when every gate below is satisfied.',
+        toggleLabel: 'Call recording',
+        toggleHint: 'When off, no workspace can enable recording regardless of its own toggle.',
+        providerStatus: 'Provider readiness',
+        providerUnknown: 'Provider readiness will be checked when a workspace loads its settings.',
+        retentionLink: 'Open recording retention & legal hold →',
+      },
+      workspaces: {
+        recording: 'Recording',
+      },
+      placeholders: {
+        preCallForm: 'Pre-call form builder with drag-and-drop fields.',
+        businessHours: 'Configure weekly business hours and holiday overrides.',
+      },
+      comingSoon: 'Coming soon',
+    },
+    settings: {
+      preCallFormPlaceholder: 'Configure the default pre-call form fields in Settings → Team & Departments.',
+      businessHoursPlaceholder: 'Set weekly business hours and holiday overrides in the workspace schedule settings.',
+    },
+  },
   admin: {
     nav: {
       title: 'Super Admin',

@@ -1607,7 +1607,7 @@ callCenterRouter.get('/admin/workspaces', async (req, res) => {
   if (!ctx) return;
   const sb = getServiceClient(ctx.config);
   const { data } = await sb.from('call_center_settings')
-    .select('workspace_id, enabled, voice_enabled, video_enabled, callback_enabled, public_key, updated_at, workspaces:workspace_id(name, slug)')
+    .select('workspace_id, enabled, voice_enabled, video_enabled, callback_enabled, recording_enabled, public_key, updated_at, workspaces:workspace_id(name, slug)')
     .order('updated_at', { ascending: false });
   res.json({ workspaces: data || [] });
 });

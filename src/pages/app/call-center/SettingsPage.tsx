@@ -21,6 +21,7 @@ import { Link, useParams } from 'react-router-dom';
 // surfaced as options here.
 import { useQuery } from '@tanstack/react-query';
 import { listDepartments } from '@/lib/workspace-departments-api';
+import { useTranslation } from '@/i18n';
 
 function Section({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
   return (
@@ -48,6 +49,7 @@ function Row({ label, hint, locked, children }: { label: string; hint?: string; 
 }
 
 export default function CallCenterSettingsPage() {
+  const { t } = useTranslation();
   const { workspace } = useActiveWorkspace();
   const { slug } = useParams();
   const { data, isLoading } = useCallCenterSettings(workspace?.id);
@@ -94,7 +96,9 @@ export default function CallCenterSettingsPage() {
   const platformVoice = platform?.voice_calls_enabled !== false;
   const platformVideo = platform?.video_calls_enabled !== false;
   const platformCallback = platform?.callback_requests_enabled !== false;
-  const platformRecording = platform?.call_recording_enabled !== false;
+  // Use strict boolean coercion to match the backend's !!platform.call_recording_enabled.
+  // A null/undefined platform flag means recording is disabled, not enabled.
+  const platformRecording = !!platform?.call_recording_enabled;
 
   async function save() {
     if (!workspace) return;
@@ -299,7 +303,7 @@ export default function CallCenterSettingsPage() {
       </Section>
 
       <Section title="Pre-call form" description="Default fields shown before a call (name, email, phone, subject).">
-        <p className="text-xs text-muted-foreground">Advanced form builder — coming later.</p>
+        <p className="text-xs text-muted-foreground">{t('callCenter.settings.preCallFormPlaceholder')}</p>
       </Section>
 
       <Section title="Availability & offline" description="What happens when no agent is available.">
@@ -319,7 +323,7 @@ export default function CallCenterSettingsPage() {
           </CollapsibleTrigger>
           <CollapsibleContent>
             <pre className="bg-muted p-2 rounded text-xs mt-2 overflow-x-auto">{JSON.stringify(s.business_hours || {}, null, 2)}</pre>
-            <p className="text-xs text-muted-foreground mt-1">Editor coming soon.</p>
+            <p className="text-xs text-muted-foreground mt-1">{t('callCenter.settings.businessHoursPlaceholder')}</p>
           </CollapsibleContent>
         </Collapsible>
       </Section>
@@ -426,9 +430,9 @@ const LOC_LABELS_FULL: Record<string, string> = {
 };
 
 // ── Recording section ─────────────────────────────────────────
-// Replaces the old single-line "Effective: enabled/disabled" with a
-// transparent breakdown of platform/workspace/provider/configuration so the
-// operator can immediately see WHY recording is or isn't effective.
+// Derives the effective state and the first failing gate directly from the
+// capability flags so the UI can never show a reason that contradicts the
+// checklist. Falls back gracefully when the backend capability is missing.
 function RecordingSection({
   s,
   setS,
@@ -448,18 +452,33 @@ function RecordingSection({
     reason?: string;
   } | null;
 }) {
-  const eff = recording?.effective_enabled === true;
-  const reasonLabel: Record<string, string> = {
-    platform_disabled: 'Recording is turned off at the platform level. Ask the platform admin to enable Call recording in super-admin → Call Center.',
-    workspace_disabled: 'Recording is off for this workspace. Toggle "Recording enabled" below to start capturing future calls.',
-    provider_not_supported: 'The active call provider for this workspace does not support recording. Switch provider in super-admin → Voice & Video.',
-    provider_not_configured: 'Recording provider is missing required configuration (e.g. LiveKit egress storage credentials). Configure it in super-admin → Voice & Video.',
-  };
-  const reason = recording?.reason;
+  const { t } = useTranslation();
+
+  const enabledByPlatform = recording?.enabled_by_platform ?? platformRecording;
+  const enabledByWorkspace = recording?.enabled_by_workspace ?? !!s.recording_enabled;
+  const providerSupported = recording?.provider_supported ?? false;
+  const providerConfigured = recording?.provider_configured ?? false;
+
+  const eff = enabledByPlatform && enabledByWorkspace && providerSupported && providerConfigured;
+
+  let reason: 'platform_disabled' | 'workspace_disabled' | 'provider_not_supported' | 'provider_not_configured' | 'unknown';
+  if (!enabledByPlatform) reason = 'platform_disabled';
+  else if (!enabledByWorkspace) reason = 'workspace_disabled';
+  else if (!providerSupported) reason = 'provider_not_supported';
+  else if (!providerConfigured) reason = 'provider_not_configured';
+  else reason = 'unknown';
+
+  const gates = [
+    { ok: enabledByPlatform, label: t('callCenter.recording.gate.platform') },
+    { ok: enabledByWorkspace, label: t('callCenter.recording.gate.workspace') },
+    { ok: providerSupported, label: t('callCenter.recording.gate.provider_support') },
+    { ok: providerConfigured, label: t('callCenter.recording.gate.provider_config') },
+  ];
+
   return (
     <Section
-      title="Recording"
-      description="Configure call recording for this workspace. The effective status reflects platform, workspace, and provider checks combined."
+      title={t('callCenter.recording.title')}
+      description={t('callCenter.recording.description')}
     >
       <div
         className={cn(
@@ -470,45 +489,47 @@ function RecordingSection({
         )}
       >
         {eff ? (
-          <ShieldCheck className="h-4 w-4 text-emerald-600 mt-0.5" />
+          <CheckCircle2 className="h-4 w-4 text-emerald-600 mt-0.5" />
         ) : (
           <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5" />
         )}
         <div className="text-xs space-y-1">
           <div className="font-semibold">
-            {eff
-              ? 'Recording is effectively ENABLED for new calls.'
-              : 'Recording is currently NOT effective — new calls will not be recorded.'}
+            {eff ? t('callCenter.recording.effectiveOn') : t('callCenter.recording.effectiveOff')}
           </div>
-          {!eff && reason && reasonLabel[reason] && (
-            <div className="text-muted-foreground">{reasonLabel[reason]}</div>
+          {!eff && (
+            <div className="text-muted-foreground">
+              {t(`callCenter.recording.reason.${reason}` as const)}
+            </div>
           )}
         </div>
       </div>
 
-      {recording && (
-        <div className="grid grid-cols-2 gap-2 text-xs">
-          <CheckRow ok={recording.enabled_by_platform} label="Platform allows recording" />
-          <CheckRow ok={recording.enabled_by_workspace} label="Workspace enabled" />
-          <CheckRow ok={recording.provider_supported} label="Provider supports recording" />
-          <CheckRow ok={recording.provider_configured} label="Provider configured (storage / egress)" />
+      <div className="space-y-2">
+        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          {t('callCenter.recording.readiness')}
         </div>
-      )}
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          {gates.map((g) => (
+            <CheckRow key={g.label} ok={g.ok} label={g.label} />
+          ))}
+        </div>
+      </div>
 
       <Row
-        label="Recording enabled"
-        hint="When on, eligible calls are recorded once consent has been satisfied."
-        locked={!platformRecording ? 'Disabled by platform' : undefined}
+        label={t('callCenter.recording.switch.label')}
+        hint={t('callCenter.recording.switch.hint')}
+        locked={!enabledByPlatform ? t('callCenter.recording.switch.locked') : undefined}
       >
         <Switch
           checked={!!s.recording_enabled}
           onCheckedChange={(v) => setS({ ...s, recording_enabled: v })}
-          disabled={!platformRecording}
+          disabled={!enabledByPlatform}
         />
       </Row>
       <Row
-        label="Consent required"
-        hint="Recording will not start until the visitor accepts the consent prompt in the widget."
+        label={t('callCenter.recording.consent.label')}
+        hint={t('callCenter.recording.consent.hint')}
       >
         <Switch
           checked={!!s.recording_consent_required}
@@ -518,12 +539,7 @@ function RecordingSection({
 
       <div className="text-[11px] text-muted-foreground flex items-start gap-1.5 pt-1 border-t">
         <Info className="h-3 w-3 mt-0.5" />
-        <span>
-          Retention, legal hold, deletion and bulk export of recorded files are
-          managed by the platform administrator in super-admin → Voice &amp; Video
-          → Recordings. Operators can play back and download recordings from the
-          Calls page.
-        </span>
+        <span>{t('callCenter.recording.footer')}</span>
       </div>
     </Section>
   );

@@ -730,7 +730,7 @@ export const callCenterAdminApi = {
     );
   },
   listWorkspaces: () =>
-    jsonFetch<{ workspaces: Array<{ workspace_id: string; enabled: boolean; voice_enabled: boolean; video_enabled: boolean; callback_enabled: boolean; public_key: string | null; updated_at: string; workspaces: { name: string; slug: string } | null }> }>(
+    jsonFetch<{ workspaces: Array<{ workspace_id: string; enabled: boolean; voice_enabled: boolean; video_enabled: boolean; callback_enabled: boolean; recording_enabled: boolean; public_key: string | null; updated_at: string; workspaces: { name: string; slug: string } | null }> }>(
       `/api/call-center/admin/workspaces`,
     ),
   invalidateCache: () =>

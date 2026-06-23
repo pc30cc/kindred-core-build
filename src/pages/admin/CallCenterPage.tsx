@@ -31,7 +31,7 @@ const TOGGLE_GROUPS: Array<{ title: string; items: Array<[keyof CallCenterPlatfo
   { title: 'Future', items: [
     ['screen_share_enabled', 'Screen share', true],
     ['call_transfer_enabled', 'Call transfer', true],
-    ['departments_enabled', 'Departments', true],
+    ['departments_enabled', 'Departments'],
     ['advanced_routing_enabled', 'Advanced routing', true],
   ] },
 ];

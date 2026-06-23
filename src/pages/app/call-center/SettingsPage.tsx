@@ -21,6 +21,7 @@ import { Link, useParams } from 'react-router-dom';
 // surfaced as options here.
 import { useQuery } from '@tanstack/react-query';
 import { listDepartments } from '@/lib/workspace-departments-api';
+import { useTranslation } from '@/i18n';
 
 function Section({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
   return (

@@ -2014,6 +2014,11 @@ const fa: TranslationKeys = {
         uploadSuccess: 'فایل بارگذاری شد. نمایه‌سازی به‌زودی آغاز می‌شود.',
         uploadError: 'بارگذاری ناموفق بود',
         uploadHint: 'PDF، DOCX، TXT، MD، CSV، HTML — توسط دستیار هوشمند شما استفاده می‌شود.',
+        delete: 'حذف',
+        deleteConfirm: 'این فایل حذف شود؟ از منابع دانش AI پاک می‌شود.',
+        deleting: 'در حال حذف فایل...',
+        deleteSuccess: 'فایل حذف شد.',
+        deleteError: 'حذف ناموفق بود',
         error: {
           owner_or_admin_required: 'فقط مالک یا مدیر فضای کاری می‌تواند فایل بارگذاری کند.',
           storage_not_configured: 'هیچ ارائه‌دهنده ذخیره‌سازی برای این فضای کاری پیکربندی نشده است.',

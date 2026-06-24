@@ -1369,6 +1369,15 @@ const tr: TranslationKeys = {
       widgetLabelOverrides: 'Widget etiket geçersiz kılma',
       widgetLabelOverridesHint: 'Ziyaretçilerin gördüğü başlatıcı, başlık ve buton etiketlerini özelleştirin. Varsayılanı kullanmak için boş bırakın.',
       saved: 'Kaydedildi',
+      tabs: {
+        general: 'Genel',
+        branding: 'Marka',
+        languages: 'Diller',
+        channels: 'Kanallar',
+        availability: 'Erişilebilirlik',
+        routing: 'Yönlendirme',
+        recording: 'Kayıt',
+      },
     },
     adminPage: {
       title: 'Çağrı Merkezi',

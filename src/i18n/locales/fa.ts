@@ -1369,6 +1369,15 @@ const fa: TranslationKeys = {
       widgetLabelOverrides: 'بازنویسی برچسب‌های ویجت',
       widgetLabelOverridesHint: 'برچسب‌های لانچر، هدر و دکمه‌هایی را که بازدیدکنندگان می‌بینند سفارشی کنید. خالی بگذارید تا از پیش‌فرض استفاده شود.',
       saved: 'ذخیره شد',
+      tabs: {
+        general: 'عمومی',
+        branding: 'برندینگ',
+        languages: 'زبان‌ها',
+        channels: 'کانال‌ها',
+        availability: 'دسترس‌پذیری',
+        routing: 'مسیریابی',
+        recording: 'ضبط تماس',
+      },
     },
     adminPage: {
       title: 'مرکز تماس',

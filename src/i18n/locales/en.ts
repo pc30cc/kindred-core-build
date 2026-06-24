@@ -1381,6 +1381,15 @@ const en = {
       widgetLabelOverrides: 'Widget label overrides',
       widgetLabelOverridesHint: 'Customize the launcher, header and button labels visitors see. Leave a field empty to use the default.',
       saved: 'Saved',
+      tabs: {
+        general: 'General',
+        branding: 'Branding',
+        languages: 'Languages',
+        channels: 'Channels',
+        availability: 'Availability',
+        routing: 'Routing',
+        recording: 'Recording',
+      },
     },
     adminPage: {
       title: 'Call Center',

@@ -6,7 +6,7 @@ import { aiAgentApi } from '@/lib/ai-agent-api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Loader2, BookOpen, MessageCircleQuestion, Globe, FileText, GraduationCap, BookMarked, BookText, Upload } from 'lucide-react';
+import { Loader2, BookOpen, MessageCircleQuestion, Globe, FileText, GraduationCap, BookMarked, BookText, Upload, Trash2 } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { toast } from 'sonner';
 
@@ -43,6 +43,7 @@ export default function KnowledgePage() {
   const qc = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const tr = (k: string, fb: string, vars?: Record<string, string>) => {
     const v = t(`aiAgent.knowledge.${k}` as any, vars);
     return !v || v === `aiAgent.knowledge.${k}` ? fb : v;

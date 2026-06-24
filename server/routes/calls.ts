@@ -756,6 +756,32 @@ callsRouter.post('/:id/recording/start', async (req, res) => {
         upgrade_required: true,
       });
     }
+    // Numeric ceilings — count + storage. Lifetime occupancy semantics;
+    // -1 = unlimited. Enforced before any provider call.
+    {
+      const { checkEntitlementFromDB } = await import('../middleware/featureGating.js');
+      const { resolveUsage } = await import('../services/billing/usageResolvers.js');
+      const cfg = (req as any).serverConfig;
+      const wsId = ctx.session.workspace_id;
+      try {
+        const countEnt = await checkEntitlementFromDB(cfg.supabaseUrl, cfg.supabaseServiceRoleKey, wsId, 'max_call_recordings');
+        if (countEnt.limit !== undefined && countEnt.limit !== -1) {
+          const u = await resolveUsage(cfg, wsId, 'max_call_recordings');
+          if (u.supported && u.value >= countEnt.limit) {
+            return res.status(403).json({ error: 'recording_count_limit_reached', limit: countEnt.limit, used: u.value, upgrade_required: true });
+          }
+        }
+        const sizeEnt = await checkEntitlementFromDB(cfg.supabaseUrl, cfg.supabaseServiceRoleKey, wsId, 'max_call_recording_storage_mb');
+        if (sizeEnt.limit !== undefined && sizeEnt.limit !== -1) {
+          const u = await resolveUsage(cfg, wsId, 'max_call_recording_storage_mb');
+          if (u.supported && u.value >= sizeEnt.limit) {
+            return res.status(403).json({ error: 'recording_storage_limit_reached', limit_mb: sizeEnt.limit, used_mb: u.value, upgrade_required: true });
+          }
+        }
+      } catch (e: any) {
+        return res.status(403).json({ error: 'recording_disabled', message: `entitlement_check_failed:${String(e?.message || e)}` });
+      }
+    }
     const overrides = await loadWorkspaceCallOverrides((req as any).serverConfig, ctx.session.workspace_id);
     if (!overrides.allow_recording) {
       return res.status(409).json({ error: 'recording_disabled_for_workspace' });

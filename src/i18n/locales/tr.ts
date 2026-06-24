@@ -2014,6 +2014,11 @@ const tr: TranslationKeys = {
         uploadSuccess: 'Dosya yüklendi. İndeksleme yakında başlayacak.',
         uploadError: 'Yükleme başarısız',
         uploadHint: 'PDF, DOCX, TXT, MD, CSV, HTML — AI asistanınız tarafından kullanılır.',
+        delete: 'Sil',
+        deleteConfirm: 'Bu dosya silinsin mi? AI bilgilerinden kaldırılacak.',
+        deleting: 'Dosya siliniyor...',
+        deleteSuccess: 'Dosya silindi.',
+        deleteError: 'Silme başarısız',
         error: {
           owner_or_admin_required: 'Yalnızca çalışma alanı sahipleri veya yöneticileri dosya yükleyebilir.',
           storage_not_configured: 'Bu çalışma alanı için bir depolama sağlayıcısı yapılandırılmamış.',

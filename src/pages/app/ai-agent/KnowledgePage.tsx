@@ -1,10 +1,14 @@
-import { useQuery } from '@tanstack/react-query';
+import { useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { aiAgentApi } from '@/lib/ai-agent-api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, BookOpen, MessageCircleQuestion, Globe, FileText, GraduationCap, BookMarked, Info } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Loader2, BookOpen, MessageCircleQuestion, Globe, FileText, GraduationCap, BookMarked, BookText, Upload } from 'lucide-react';
 import { useTranslation } from '@/i18n';
+import { toast } from 'sonner';
 
 function statusKey(item: any): { key: 'ready' | 'indexing' | 'disabled' | 'needsAttention' | 'failed'; tone: 'green' | 'amber' | 'red' | 'muted' | 'blue' } {
   if (item.eligible === true) return { key: 'ready', tone: 'green' };
@@ -36,6 +40,9 @@ export default function KnowledgePage() {
   const { workspace } = useActiveWorkspace();
   const wsId = workspace?.id;
   const { t, dir } = useTranslation();
+  const qc = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [uploading, setUploading] = useState(false);
   const tr = (k: string, fb: string, vars?: Record<string, string>) => {
     const v = t(`aiAgent.knowledge.${k}` as any, vars);
     return !v || v === `aiAgent.knowledge.${k}` ? fb : v;
@@ -49,6 +56,25 @@ export default function KnowledgePage() {
   });
 
   const items: any[] = (health.data?.items || []) as any[];
+
+  const onPickFile = () => fileInputRef.current?.click();
+  const onFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !wsId) return;
+    setUploading(true);
+    const toastId = toast.loading(tr('actions.uploading', 'Uploading file...'));
+    try {
+      await aiAgentApi.uploadAiFile(wsId, file);
+      toast.success(tr('actions.uploadSuccess', 'File uploaded. Indexing will start shortly.'), { id: toastId });
+      qc.invalidateQueries({ queryKey: ['ai-knowledge', wsId] });
+    } catch (err: any) {
+      const code = err?.body?.error || err?.message || 'upload_failed';
+      toast.error(tr(`actions.error.${code}`, tr('actions.uploadError', 'Upload failed')) , { id: toastId });
+    } finally {
+      setUploading(false);
+    }
+  };
 
   return (
     <div className="space-y-8" dir={dir}>
@@ -66,12 +92,28 @@ export default function KnowledgePage() {
         </div>
       </div>
 
-      <Card className="border-sky-500/30 bg-sky-500/5">
-        <CardContent className="py-4 text-sm text-foreground/80 flex items-start gap-3">
-          <Info className="h-4 w-4 text-sky-500 shrink-0 mt-0.5" />
-          <span>{tr('contactAdmin', 'To add or change knowledge sources, contact your platform admin.')}</span>
-        </CardContent>
-      </Card>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button asChild variant="default" className="shadow-sm">
+          <Link to="../articles">
+            <BookText className="h-4 w-4 me-2" />
+            {tr('actions.manageArticles', 'Manage articles')}
+          </Link>
+        </Button>
+        <Button variant="outline" onClick={onPickFile} disabled={uploading}>
+          {uploading ? <Loader2 className="h-4 w-4 me-2 animate-spin" /> : <Upload className="h-4 w-4 me-2" />}
+          {tr('actions.uploadFile', 'Upload file')}
+        </Button>
+        <p className="text-xs text-muted-foreground basis-full sm:basis-auto sm:ms-2">
+          {tr('actions.uploadHint', 'PDF, DOCX, TXT, MD — used by your AI assistant.')}
+        </p>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".pdf,.doc,.docx,.txt,.md,.csv,.html,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown,text/csv,text/html"
+          className="hidden"
+          onChange={onFileChange}
+        />
+      </div>
 
       {health.isLoading ? (
         <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>

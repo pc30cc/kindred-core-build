@@ -2007,6 +2007,22 @@ const tr: TranslationKeys = {
       title: 'Bilgi Kaynakları',
       subtitle: 'AI Asistanınızın yanıt vermek için kullandığı kaynakların durumu. Yardım makalelerini düzenlemek için "Yardım Makaleleri" sekmesini açın.',
       contactAdmin: 'Bilgi kaynaklarını eklemek veya değiştirmek için platform yöneticinizle iletişime geçin. Gelişmiş bilgi yönetimi yönetici araçlarında mevcuttur.',
+      actions: {
+        manageArticles: 'Makaleleri yönet',
+        uploadFile: 'Dosya yükle',
+        uploading: 'Dosya yükleniyor...',
+        uploadSuccess: 'Dosya yüklendi. İndeksleme yakında başlayacak.',
+        uploadError: 'Yükleme başarısız',
+        uploadHint: 'PDF, DOCX, TXT, MD, CSV, HTML — AI asistanınız tarafından kullanılır.',
+        error: {
+          owner_or_admin_required: 'Yalnızca çalışma alanı sahipleri veya yöneticileri dosya yükleyebilir.',
+          storage_not_configured: 'Bu çalışma alanı için bir depolama sağlayıcısı yapılandırılmamış.',
+          storage_not_ready: 'Yapılandırılmış depolama sağlayıcısı hazır değil.',
+          unsupported_file_type: 'Bu dosya türü desteklenmiyor.',
+          file_size_limit_reached: 'Dosya, izin verilen boyut sınırını aşıyor.',
+          empty_file: 'Seçilen dosya boş.',
+        },
+      },
       empty: 'Henüz {{type}} yok.',
       status: {
         ready: 'Hazır',

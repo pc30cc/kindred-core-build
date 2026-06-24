@@ -5233,6 +5233,7 @@ aiAgentRouter.get('/knowledge/customer-summary', async (req: Request, res: Respo
     const limit = Math.min(parseInt(String(req.query.limit || '200'), 10) || 200, 500);
     const result = await getSourceHealth(config, workspaceId, { limit });
     const items = (result.items || []).map((it: any) => ({
+      source_id: it.source_id,
       source_type: it.source_type,
       title: it.title,
       eligible: !!it.eligible,

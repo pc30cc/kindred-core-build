@@ -6,7 +6,7 @@ import { aiAgentApi } from '@/lib/ai-agent-api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Loader2, BookOpen, MessageCircleQuestion, Globe, FileText, GraduationCap, BookMarked, BookText, Upload } from 'lucide-react';
+import { Loader2, BookOpen, MessageCircleQuestion, Globe, FileText, GraduationCap, BookMarked, BookText, Upload, Trash2 } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { toast } from 'sonner';
 
@@ -43,6 +43,7 @@ export default function KnowledgePage() {
   const qc = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const tr = (k: string, fb: string, vars?: Record<string, string>) => {
     const v = t(`aiAgent.knowledge.${k}` as any, vars);
     return !v || v === `aiAgent.knowledge.${k}` ? fb : v;
@@ -73,6 +74,21 @@ export default function KnowledgePage() {
       toast.error(tr(`actions.error.${code}`, tr('actions.uploadError', 'Upload failed')) , { id: toastId });
     } finally {
       setUploading(false);
+    }
+  };
+  const onDeleteFile = async (id: string) => {
+    if (!confirm(tr('actions.deleteConfirm', 'Delete this file? It will be removed from AI knowledge.'))) return;
+    setDeletingId(id);
+    const toastId = toast.loading(tr('actions.deleting', 'Deleting file...'));
+    try {
+      await aiAgentApi.deleteAiFile(id);
+      toast.success(tr('actions.deleteSuccess', 'File deleted.'), { id: toastId });
+      qc.invalidateQueries({ queryKey: ['ai-knowledge', wsId] });
+    } catch (err: any) {
+      const code = err?.body?.error || err?.message || 'delete_failed';
+      toast.error(tr(`actions.error.${code}`, tr('actions.deleteError', 'Delete failed')), { id: toastId });
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -155,6 +171,18 @@ export default function KnowledgePage() {
                               </span>
                             )}
                             <Badge variant="outline" className={`text-[10px] ${TONE[s.tone]}`}>{tr(`status.${s.key}`, s.key)}</Badge>
+                            {g.key === 'file' && it.source_id && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 w-7 p-0"
+                                onClick={() => onDeleteFile(it.source_id)}
+                                disabled={deletingId === it.source_id}
+                                title={tr('actions.delete', 'Delete')}
+                              >
+                                {deletingId === it.source_id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                              </Button>
+                            )}
                           </div>
                         );
                       })}

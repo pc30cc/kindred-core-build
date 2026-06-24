@@ -172,7 +172,7 @@ export default function BillingPage() {
   const statusText = STATUS_LABEL[statusKey]?.[L as 'fa' | 'en' | 'tr'] || subscription?.status || '';
 
   return (
-    <div className="space-y-6 animate-fade-in" dir={dir}>
+    <div className="space-y-6 animate-fade-in p-4 md:p-6 lg:p-8" dir={dir}>
       {/* Colorful gradient hero */}
       <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-primary/15 via-fuchsia-500/10 to-sky-500/10 p-6">
         <div className="absolute -top-20 -right-16 w-64 h-64 rounded-full bg-primary/20 blur-3xl pointer-events-none" />
@@ -293,10 +293,10 @@ export default function BillingPage() {
                       </Badge>
                     </div>
                   )}
-                  <CardHeader>
-                    <CardTitle>{planName}</CardTitle>
-                    {planDescription ? <CardDescription>{planDescription}</CardDescription> : null}
-                    <div className="pt-2">
+                  <CardHeader className="text-start">
+                    <CardTitle className="text-start">{planName}</CardTitle>
+                    {planDescription ? <CardDescription className="text-start">{planDescription}</CardDescription> : null}
+                    <div className="pt-2 text-start">
                       <span className="text-3xl font-bold text-foreground">
                         {price === 0 ? bt(L, 'free') : formatPrice(price, currency)}
                       </span>
@@ -508,11 +508,11 @@ function PlanCapabilityList({
   }
 
   return (
-    <ul className="space-y-2">
+    <ul className="space-y-2 text-start">
       {rows.map((r) => (
-        <li key={r.key} className="flex items-start gap-2 text-sm">
+        <li key={r.key} className="flex items-start gap-2 text-sm text-start">
           <Check className="w-4 h-4 mt-0.5 shrink-0 text-green-500" />
-          <span className="text-foreground">
+          <span className="text-foreground text-start">
             {r.isLimit ? (
               <><span className="font-medium">{r.valueText}</span>{' '}<span className="text-muted-foreground">{r.label}</span></>
             ) : (

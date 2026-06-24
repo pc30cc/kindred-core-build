@@ -1037,6 +1037,7 @@ export default function AdminPlansPage() {
                               <Badge variant="outline" className="text-[10px] font-mono">{plan.slug}</Badge>
                               {plan.is_free && <Badge variant="secondary" className="text-[10px]">Free</Badge>}
                               {plan.trial_days > 0 && <Badge variant="outline" className="text-[10px]">{plan.trial_days}d trial</Badge>}
+                              {plan.is_hidden && <Badge variant="outline" className="text-[10px] border-purple-500/40 text-purple-600">Hidden</Badge>}
                               {legacyCount > 0 && <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-600">{legacyCount} legacy</Badge>}
                             </div>
                             <CardDescription className="text-xs mt-0.5">{plan.description || 'No description'}</CardDescription>

@@ -12,6 +12,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { callCenterApi } from '@/lib/call-center-api';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useTranslation } from '@/i18n';
+import { PlanLockedOverlay } from '@/components/plan/PlanLockedOverlay';
 
 type TabDef = {
   to: string;
@@ -154,7 +155,9 @@ export function CallCenterLayout() {
         </nav>
       </header>
       <main className="flex-1 overflow-y-auto p-6">
-        <Outlet />
+        <PlanLockedOverlay moduleKey="call_center">
+          <Outlet />
+        </PlanLockedOverlay>
       </main>
     </div>
   );

@@ -6,6 +6,7 @@ import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { Bot, LayoutDashboard, BookOpen, Sliders, Sparkles, Activity, Settings as SettingsIcon } from 'lucide-react';
 import { Loader2 } from 'lucide-react';
+import { PlanLockedOverlay } from '@/components/plan/PlanLockedOverlay';
 
 interface NavItem { key: string; label: string; subPath: string; icon: React.ElementType; }
 interface NavGroup { key: string; label: string; items: NavItem[]; }
@@ -49,7 +50,9 @@ export function AiAgentLayout() {
   }
 
   // Platform kill switch — bounce out of the section entirely.
-  if (capabilities && (!capabilities.ai_agent_enabled || !capabilities.customer_ai_agent_visible)) {
+  const platformDisabled =
+    !!capabilities && (!capabilities.ai_agent_enabled || !capabilities.customer_ai_agent_visible);
+  if (platformDisabled) {
     return <Navigate to={wsPath('/inbox')} replace />;
   }
 
@@ -108,9 +111,11 @@ export function AiAgentLayout() {
         </nav>
       </div>
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-5xl mx-auto p-8">
-          <Outlet />
-        </div>
+        <PlanLockedOverlay moduleKey="ai_assistant">
+          <div className="max-w-5xl mx-auto p-8">
+            <Outlet />
+          </div>
+        </PlanLockedOverlay>
       </div>
     </div>
   );

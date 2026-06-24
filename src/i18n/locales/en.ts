@@ -1946,6 +1946,32 @@ const en = {
     sources: 'Sources',
     notVisibleToVisitor: 'Not visible to visitor until you send',
     suggestionInserted: 'Inserted into composer',
+    title: 'AI Agent',
+    section: { main: 'AI Agent' },
+    nav: {
+      overview: 'Overview',
+      knowledge: 'Knowledge',
+      behavior: 'Behavior',
+      operatorAssist: 'Operator Assist',
+      activity: 'Activity',
+      settings: 'Settings',
+    },
+  },
+  plan: {
+    locked: {
+      title: 'This section is not available on your current plan',
+      message: 'Your current plan does not include {module}. Upgrade to unlock this feature and grow your support workflow.',
+      currentPlanLabel: 'Current plan',
+      currentPlan: 'Free plan',
+      action: 'Upgrade plan',
+      module: {
+        ai_assistant: 'AI Agent',
+        call_center: 'Call Center',
+        knowledge_base: 'Knowledge Base',
+        visitor_tracking: 'Live Visitors',
+        contacts: 'Contacts',
+      },
+    },
   },
 };
 

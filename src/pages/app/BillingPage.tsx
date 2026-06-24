@@ -7,11 +7,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useWorkspaces } from '@/hooks/useWorkspace';
 import { billingGetPlans, billingGetStatus, billingCheckout, billingCancel, billingResume, billingGetPortal, API_BASE } from '@/lib/api';
-import { CreditCard, Check, AlertCircle, ArrowRight, Loader2, ExternalLink, Clock, Shield } from 'lucide-react';
+import { CreditCard, Check, AlertCircle, ArrowRight, Loader2, ExternalLink, Clock, Shield, Sparkles, Calendar } from 'lucide-react';
 import { toast } from 'sonner';
 import { PlanUsagePanel } from '@/components/billing/PlanUsagePanel';
 import { useCapabilityCatalog } from '@/hooks/useEntitlements';
 import type { CapabilityDefinition } from '@/lib/entitlements-api';
+import { bt, capLabel as sharedCapLabel, formatLimitValue as sharedFormatLimit, type BillingLocale } from '@/lib/billing-i18n';
 
 const CURRENCY_MAP: Record<string, { symbol: string; locale: string; divider: number }> = {
   USD: { symbol: '$', locale: 'en-US', divider: 100 },
@@ -31,11 +32,19 @@ function formatPrice(amount: number, currency: string): string {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  active: 'bg-green-500/20 text-green-400 border-green-500/30',
-  trialing: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
-  past_due: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
-  canceled: 'bg-red-500/20 text-red-400 border-red-500/30',
-  expired: 'bg-muted text-muted-foreground',
+  active: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30',
+  trialing: 'bg-sky-500/15 text-sky-600 dark:text-sky-400 border-sky-500/30',
+  past_due: 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30',
+  canceled: 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30',
+  expired: 'bg-muted text-muted-foreground border-border',
+};
+
+const STATUS_LABEL: Record<string, { fa: string; en: string; tr: string }> = {
+  active: { fa: 'فعال', en: 'Active', tr: 'Aktif' },
+  trialing: { fa: 'دوره آزمایشی', en: 'Trial', tr: 'Deneme' },
+  past_due: { fa: 'سررسید گذشته', en: 'Past due', tr: 'Vadesi geçmiş' },
+  canceled: { fa: 'لغو شده', en: 'Canceled', tr: 'İptal edildi' },
+  expired: { fa: 'منقضی', en: 'Expired', tr: 'Süresi dolmuş' },
 };
 
 export default function BillingPage() {
@@ -51,6 +60,7 @@ export default function BillingPage() {
   const [interval, setInterval] = useState<'monthly' | 'yearly'>('monthly');
 
   const locale = workspace?.panel_locale || workspace?.default_locale || 'en';
+  const L = locale as BillingLocale;
   const currency = locale === 'fa' ? 'IRR' : locale === 'tr' ? 'TRY' : 'USD';
 
   useEffect(() => {
@@ -135,7 +145,7 @@ export default function BillingPage() {
   if (!API_BASE) {
     return (
       <div className="space-y-4 animate-fade-in">
-        <h1 className="text-2xl font-bold text-foreground">{t('nav.billing')}</h1>
+        <h1 className="text-2xl font-bold text-foreground">{bt(L, 'title')}</h1>
         <Card><CardContent className="py-8 text-center text-muted-foreground">
           <AlertCircle className="w-8 h-8 mx-auto mb-2" />
           <p>Billing requires the self-hosted backend to be configured.</p>
@@ -154,95 +164,94 @@ export default function BillingPage() {
 
   const currentPlan = subscription?.billing_plans || plans.find(p => p.is_free);
   const isActive = subscription?.status === 'active' || subscription?.status === 'trialing';
+  const currentPlanLocalized = currentPlan
+    ? ((currentPlan.localized || {})[locale]?.name?.trim() || currentPlan.name || bt(L, 'free'))
+    : bt(L, 'free');
+  const statusKey = (subscription?.status || 'expired') as keyof typeof STATUS_LABEL;
+  const statusText = STATUS_LABEL[statusKey]?.[L as 'fa' | 'en' | 'tr'] || subscription?.status || '';
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">{t('nav.billing')}</h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            {locale === 'fa' ? 'مدیریت اشتراک و پرداخت' : locale === 'tr' ? 'Abonelik ve ödeme yönetimi' : 'Manage your subscription and billing'}
-          </p>
+      {/* Colorful gradient hero */}
+      <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-primary/15 via-fuchsia-500/10 to-sky-500/10 p-6">
+        <div className="absolute -top-20 -right-16 w-64 h-64 rounded-full bg-primary/20 blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-24 -left-10 w-72 h-72 rounded-full bg-fuchsia-500/15 blur-3xl pointer-events-none" />
+        <div className="relative flex flex-col md:flex-row md:items-center md:justify-between gap-5">
+          <div className="space-y-2">
+            <div className="inline-flex items-center gap-2 text-xs font-medium px-2.5 py-1 rounded-full bg-background/60 backdrop-blur text-foreground border border-border/60">
+              <Sparkles className="w-3.5 h-3.5 text-primary" />
+              {bt(L, 'title')}
+            </div>
+            <h1 className="text-3xl font-bold text-foreground">{currentPlanLocalized}</h1>
+            <p className="text-sm text-muted-foreground max-w-xl">{bt(L, 'subtitle')}</p>
+            {subscription && (
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <Badge className={STATUS_COLORS[subscription.status] || 'bg-muted'}>
+                  {statusText}
+                </Badge>
+                {subscription.current_period_end && (
+                  <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Calendar className="w-3.5 h-3.5" />
+                    {bt(L, 'renews')}{' '}
+                    {new Date(subscription.current_period_end).toLocaleDateString(locale === 'fa' ? 'fa-IR' : locale === 'tr' ? 'tr-TR' : 'en-US')}
+                  </span>
+                )}
+                {subscription.provider_name && (
+                  <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Shield className="w-3.5 h-3.5" />
+                    {subscription.provider_name}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {subscription?.provider_customer_id && (
+              <Button variant="outline" size="sm" onClick={handlePortal}>
+                <ExternalLink className="w-4 h-4 mr-2" />
+                {bt(L, 'customerPortal')}
+              </Button>
+            )}
+            {subscription?.cancel_at_period_end ? (
+              <Button size="sm" onClick={handleResume}>{bt(L, 'resume')}</Button>
+            ) : isActive && !currentPlan?.is_free ? (
+              <Button size="sm" variant="outline" onClick={handleCancel}>{bt(L, 'cancel')}</Button>
+            ) : null}
+          </div>
         </div>
-        {subscription?.provider_customer_id && (
-          <Button variant="outline" size="sm" onClick={handlePortal}>
-            <ExternalLink className="w-4 h-4 mr-2" />
-            {locale === 'fa' ? 'پنل پرداخت' : locale === 'tr' ? 'Ödeme Paneli' : 'Customer Portal'}
-          </Button>
-        )}
       </div>
 
-      {/* Current Plan Status */}
-      {subscription && (
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Shield className="w-5 h-5 text-primary" />
-                {locale === 'fa' ? 'پلن فعلی' : locale === 'tr' ? 'Mevcut Plan' : 'Current Plan'}
-              </CardTitle>
-              <Badge className={STATUS_COLORS[subscription.status] || 'bg-muted'}>
-                {subscription.status}
-              </Badge>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div>
-                <p className="text-xs text-muted-foreground">{locale === 'fa' ? 'پلن' : 'Plan'}</p>
-                <p className="font-semibold text-foreground">{currentPlan?.name || 'Free'}</p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">{locale === 'fa' ? 'ارائه‌دهنده' : 'Provider'}</p>
-                <p className="font-semibold text-foreground">{subscription.provider_name}</p>
-              </div>
-              {subscription.current_period_end && (
-                <div>
-                  <p className="text-xs text-muted-foreground">{locale === 'fa' ? 'تمدید' : 'Renews'}</p>
-                  <p className="font-semibold text-foreground">
-                    {new Date(subscription.current_period_end).toLocaleDateString(locale === 'fa' ? 'fa-IR' : locale === 'tr' ? 'tr-TR' : 'en-US')}
-                  </p>
-                </div>
-              )}
-              <div className="flex items-end gap-2">
-                {subscription.cancel_at_period_end ? (
-                  <Button size="sm" onClick={handleResume}>
-                    {locale === 'fa' ? 'ادامه اشتراک' : 'Resume'}
-                  </Button>
-                ) : isActive && !currentPlan?.is_free ? (
-                  <Button size="sm" variant="destructive" onClick={handleCancel}>
-                    {locale === 'fa' ? 'لغو اشتراک' : 'Cancel'}
-                  </Button>
-                ) : null}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
       <Tabs defaultValue="usage">
-        <TabsList>
-          <TabsTrigger value="usage">{locale === 'fa' ? 'پلن و مصرف' : locale === 'tr' ? 'Plan ve Kullanım' : 'Plan & Usage'}</TabsTrigger>
-          <TabsTrigger value="plans">{locale === 'fa' ? 'پلن‌ها' : locale === 'tr' ? 'Planlar' : 'Plans'}</TabsTrigger>
-          <TabsTrigger value="payments">{locale === 'fa' ? 'پرداخت‌ها' : locale === 'tr' ? 'Ödemeler' : 'Payments'}</TabsTrigger>
+        <TabsList className="bg-muted/50 p-1 h-auto">
+          <TabsTrigger value="usage" className="data-[state=active]:bg-background data-[state=active]:shadow-sm">{bt(L, 'tabUsage')}</TabsTrigger>
+          <TabsTrigger value="plans" className="data-[state=active]:bg-background data-[state=active]:shadow-sm">{bt(L, 'tabPlans')}</TabsTrigger>
+          <TabsTrigger value="payments" className="data-[state=active]:bg-background data-[state=active]:shadow-sm">{bt(L, 'tabPayments')}</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="usage">
+        <TabsContent value="usage" className="mt-5">
           {workspace ? <PlanUsagePanel workspaceId={workspace.id} /> : null}
         </TabsContent>
 
-        <TabsContent value="plans" className="space-y-4">
+        <TabsContent value="plans" className="space-y-4 mt-5">
           {/* Interval Toggle */}
-          <div className="flex justify-center gap-2">
-            <Button variant={interval === 'monthly' ? 'default' : 'outline'} size="sm" onClick={() => setInterval('monthly')}>
-              {locale === 'fa' ? 'ماهانه' : locale === 'tr' ? 'Aylık' : 'Monthly'}
-            </Button>
-            <Button variant={interval === 'yearly' ? 'default' : 'outline'} size="sm" onClick={() => setInterval('yearly')}>
-              {locale === 'fa' ? 'سالانه' : locale === 'tr' ? 'Yıllık' : 'Yearly'}
-              <Badge variant="secondary" className="ml-2 text-xs">
-                {locale === 'fa' ? '۲ ماه رایگان' : locale === 'tr' ? '2 ay ücretsiz' : '2 months free'}
-              </Badge>
-            </Button>
+          <div className="flex justify-center">
+            <div className="inline-flex items-center rounded-full bg-muted p-1">
+              <button
+                onClick={() => setInterval('monthly')}
+                className={`px-4 py-1.5 text-sm rounded-full transition ${interval === 'monthly' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                {bt(L, 'monthly')}
+              </button>
+              <button
+                onClick={() => setInterval('yearly')}
+                className={`px-4 py-1.5 text-sm rounded-full transition inline-flex items-center gap-2 ${interval === 'yearly' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                {bt(L, 'yearly')}
+                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+                  {bt(L, 'yearlyBadge')}
+                </span>
+              </button>
+            </div>
           </div>
 
           <div className="grid md:grid-cols-3 gap-4">
@@ -254,11 +263,14 @@ export default function BillingPage() {
               const planName: string = (localizedPlan.name || '').trim() || plan.name;
               const planDescription: string = (localizedPlan.description || '').trim() || plan.description || '';
               return (
-                <Card key={plan.id} className={`relative ${isCurrent ? 'ring-2 ring-primary' : ''}`}>
+                <Card key={plan.id} className={`relative overflow-hidden transition hover:shadow-lg ${isCurrent ? 'ring-2 ring-primary border-primary/40' : ''}`}>
+                  {isCurrent && (
+                    <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-primary via-fuchsia-500 to-sky-500" />
+                  )}
                   {isCurrent && (
                     <div className="absolute -top-3 left-1/2 -translate-x-1/2">
                       <Badge className="bg-primary text-primary-foreground">
-                        {locale === 'fa' ? 'فعلی' : locale === 'tr' ? 'Mevcut' : 'Current'}
+                        {bt(L, 'current')}
                       </Badge>
                     </div>
                   )}
@@ -267,11 +279,11 @@ export default function BillingPage() {
                     {planDescription ? <CardDescription>{planDescription}</CardDescription> : null}
                     <div className="pt-2">
                       <span className="text-3xl font-bold text-foreground">
-                        {price === 0 ? (locale === 'fa' ? 'رایگان' : locale === 'tr' ? 'Ücretsiz' : 'Free') : formatPrice(price, currency)}
+                        {price === 0 ? bt(L, 'free') : formatPrice(price, currency)}
                       </span>
                       {price > 0 && (
                         <span className="text-muted-foreground text-sm">
-                          /{interval === 'monthly' ? (locale === 'fa' ? 'ماه' : locale === 'tr' ? 'ay' : 'mo') : (locale === 'fa' ? 'سال' : locale === 'tr' ? 'yıl' : 'yr')}
+                          {interval === 'monthly' ? bt(L, 'perMo') : bt(L, 'perYr')}
                         </span>
                       )}
                     </div>
@@ -290,7 +302,7 @@ export default function BillingPage() {
                         ) : (
                           <ArrowRight className="w-4 h-4 mr-2" />
                         )}
-                        {locale === 'fa' ? 'خرید' : locale === 'tr' ? 'Satın Al' : 'Upgrade'}
+                        {bt(L, 'upgrade')}
                       </Button>
                     )}
                   </CardContent>
@@ -300,21 +312,21 @@ export default function BillingPage() {
           </div>
         </TabsContent>
 
-        <TabsContent value="payments">
+        <TabsContent value="payments" className="mt-5">
           {payments.length === 0 ? (
             <Card><CardContent className="py-8 text-center text-muted-foreground">
               <CreditCard className="w-8 h-8 mx-auto mb-2 opacity-40" />
-              <p>{locale === 'fa' ? 'هنوز پرداختی ثبت نشده' : 'No payments yet'}</p>
+              <p>{bt(L, 'noPayments')}</p>
             </CardContent></Card>
           ) : (
             <Card>
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>{locale === 'fa' ? 'تاریخ' : 'Date'}</TableHead>
-                    <TableHead>{locale === 'fa' ? 'مبلغ' : 'Amount'}</TableHead>
-                    <TableHead>{locale === 'fa' ? 'وضعیت' : 'Status'}</TableHead>
-                    <TableHead>{locale === 'fa' ? 'ارائه‌دهنده' : 'Provider'}</TableHead>
+                    <TableHead>{bt(L, 'date')}</TableHead>
+                    <TableHead>{bt(L, 'amount')}</TableHead>
+                    <TableHead>{bt(L, 'status')}</TableHead>
+                    <TableHead>{bt(L, 'provider')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>

@@ -69,7 +69,7 @@ interface Props {
 }
 
 export function PlanUsagePanel({ workspaceId }: Props) {
-  const { locale } = useTranslation();
+  const { locale, dir } = useTranslation();
   const L = locale as BillingLocale;
   const [eff, setEff] = useState<WorkspaceEffectiveEntitlements | null>(null);
   const [catalog, setCatalog] = useState<CapabilityDefinition[] | null>(null);
@@ -138,7 +138,7 @@ export function PlanUsagePanel({ workspaceId }: Props) {
   const visibleLimits = limits.filter((c) => !!eff.limits[c.key]);
 
   return (
-    <div className="space-y-6" data-testid="plan-usage-panel">
+    <div className="space-y-6" data-testid="plan-usage-panel" dir={dir}>
       {/* Usage overview — clean colorful cards */}
       {visibleLimits.length > 0 && (
         <section>

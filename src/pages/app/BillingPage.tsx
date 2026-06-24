@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useWorkspaces } from '@/hooks/useWorkspace';
 import { billingGetPlans, billingGetStatus, billingCheckout, billingCancel, billingResume, billingGetPortal, API_BASE } from '@/lib/api';
-import { CreditCard, Check, AlertCircle, ArrowRight, Loader2, ExternalLink, Clock, Shield, Sparkles, Calendar } from 'lucide-react';
+import { CreditCard, Check, AlertCircle, ArrowRight, Loader2, ExternalLink, Clock, Shield, Sparkles, Calendar, Gauge, LayoutGrid, Receipt } from 'lucide-react';
 import { toast } from 'sonner';
 import { PlanUsagePanel } from '@/components/billing/PlanUsagePanel';
 import { useCapabilityCatalog } from '@/hooks/useEntitlements';
@@ -48,7 +48,7 @@ const STATUS_LABEL: Record<string, { fa: string; en: string; tr: string }> = {
 };
 
 export default function BillingPage() {
-  const { t } = useTranslation();
+  const { locale: uiLocale, dir } = useTranslation();
   const { data: workspaces } = useWorkspaces();
   const workspace = workspaces?.[0];
   const { capabilities } = useCapabilityCatalog();
@@ -59,7 +59,8 @@ export default function BillingPage() {
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
   const [interval, setInterval] = useState<'monthly' | 'yearly'>('monthly');
 
-  const locale = workspace?.panel_locale || workspace?.default_locale || 'en';
+  // Always follow the active UI language so the page matches the sidebar / app shell.
+  const locale = (uiLocale as string) || workspace?.panel_locale || workspace?.default_locale || 'en';
   const L = locale as BillingLocale;
   const currency = locale === 'fa' ? 'IRR' : locale === 'tr' ? 'TRY' : 'USD';
 
@@ -171,7 +172,7 @@ export default function BillingPage() {
   const statusText = STATUS_LABEL[statusKey]?.[L as 'fa' | 'en' | 'tr'] || subscription?.status || '';
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-6 animate-fade-in" dir={dir}>
       {/* Colorful gradient hero */}
       <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-primary/15 via-fuchsia-500/10 to-sky-500/10 p-6">
         <div className="absolute -top-20 -right-16 w-64 h-64 rounded-full bg-primary/20 blur-3xl pointer-events-none" />
@@ -208,7 +209,7 @@ export default function BillingPage() {
           <div className="flex flex-wrap items-center gap-2">
             {subscription?.provider_customer_id && (
               <Button variant="outline" size="sm" onClick={handlePortal}>
-                <ExternalLink className="w-4 h-4 mr-2" />
+                <ExternalLink className="w-4 h-4 me-2" />
                 {bt(L, 'customerPortal')}
               </Button>
             )}
@@ -222,10 +223,28 @@ export default function BillingPage() {
       </div>
 
       <Tabs defaultValue="usage">
-        <TabsList className="bg-muted/50 p-1 h-auto">
-          <TabsTrigger value="usage" className="data-[state=active]:bg-background data-[state=active]:shadow-sm">{bt(L, 'tabUsage')}</TabsTrigger>
-          <TabsTrigger value="plans" className="data-[state=active]:bg-background data-[state=active]:shadow-sm">{bt(L, 'tabPlans')}</TabsTrigger>
-          <TabsTrigger value="payments" className="data-[state=active]:bg-background data-[state=active]:shadow-sm">{bt(L, 'tabPayments')}</TabsTrigger>
+        <TabsList className="w-full md:w-auto inline-flex h-auto gap-1 p-1.5 rounded-2xl bg-gradient-to-r from-muted/80 to-muted/40 border border-border/60 shadow-sm">
+          <TabsTrigger
+            value="usage"
+            className="gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-primary/20 data-[state=inactive]:text-muted-foreground hover:text-foreground"
+          >
+            <Gauge className="w-4 h-4" />
+            {bt(L, 'tabUsage')}
+          </TabsTrigger>
+          <TabsTrigger
+            value="plans"
+            className="gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-primary/20 data-[state=inactive]:text-muted-foreground hover:text-foreground"
+          >
+            <LayoutGrid className="w-4 h-4" />
+            {bt(L, 'tabPlans')}
+          </TabsTrigger>
+          <TabsTrigger
+            value="payments"
+            className="gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-primary/20 data-[state=inactive]:text-muted-foreground hover:text-foreground"
+          >
+            <Receipt className="w-4 h-4" />
+            {bt(L, 'tabPayments')}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="usage" className="mt-5">
@@ -298,9 +317,9 @@ export default function BillingPage() {
                         disabled={!!checkoutLoading}
                       >
                         {checkoutLoading === plan.id ? (
-                          <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                          <Loader2 className="w-4 h-4 animate-spin me-2" />
                         ) : (
-                          <ArrowRight className="w-4 h-4 mr-2" />
+                          <ArrowRight className="w-4 h-4 me-2" />
                         )}
                         {bt(L, 'upgrade')}
                       </Button>

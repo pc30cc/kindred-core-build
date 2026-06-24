@@ -1933,6 +1933,32 @@ const fa: TranslationKeys = {
     sources: 'منابع',
     notVisibleToVisitor: 'تا زمانی که ارسال نکنید برای بازدیدکننده نمایش داده نمی‌شود',
     suggestionInserted: 'در کادر پاسخ درج شد',
+    title: 'دستیار هوشمند',
+    section: { main: 'دستیار هوشمند' },
+    nav: {
+      overview: 'نمای کلی',
+      knowledge: 'پایگاه دانش',
+      behavior: 'رفتار',
+      operatorAssist: 'دستیار اپراتور',
+      activity: 'فعالیت',
+      settings: 'تنظیمات',
+    },
+  },
+  plan: {
+    locked: {
+      title: 'این بخش در پلن فعلی شما در دسترس نیست',
+      message: 'برای استفاده از {module} نیاز به ارتقای پلن خود دارید. تیم پشتیبانی ما در کنار شماست تا بهترین پلن را انتخاب کنید.',
+      currentPlanLabel: 'پلن فعلی',
+      currentPlan: 'پلن رایگان',
+      action: 'ارتقای پلن',
+      module: {
+        ai_assistant: 'دستیار هوشمند',
+        call_center: 'مرکز تماس',
+        knowledge_base: 'پایگاه دانش',
+        visitor_tracking: 'بازدیدکنندگان زنده',
+        contacts: 'مخاطبین',
+      },
+    },
   },
 };
 

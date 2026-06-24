@@ -30,6 +30,8 @@ billingRouter.get('/plans', async (req, res) => {
   const { data, error } = await supabase
     .from('billing_plans')
     .select('*')
+    .eq('is_active', true)
+    .eq('is_hidden', false)
     .order('sort_order', { ascending: true });
   if (error) return res.status(500).json({ error: error.message });
 

@@ -373,12 +373,18 @@ export default function CallCenterSettingsPage() {
         </Button>
       </Section>
 
-      <RecordingSection
-        s={s}
-        setS={setS}
-        platformRecording={platformRecording}
-        recording={(data as any)?.recording || null}
-      />
+      {/* Recording is a platform-gated capability. When the super-admin has
+          turned recording off entirely we hide both the section and the
+          related operator surfaces — operators should not see any recording
+          controls or status in that mode. */}
+      {platformRecording && (
+        <RecordingSection
+          s={s}
+          setS={setS}
+          platformRecording={platformRecording}
+          recording={(data as any)?.recording || null}
+        />
+      )}
 
       {/* Sticky save bar */}
       {dirty && (

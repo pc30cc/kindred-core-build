@@ -250,7 +250,9 @@ export default function BillingPage() {
               const prices = plan.prices?.[currency] || plan.prices?.USD || {};
               const price = prices[interval] || 0;
               const isCurrent = currentPlan?.slug === plan.slug;
-
+              const localizedPlan = (plan.localized || {})[locale] || {};
+              const planName: string = (localizedPlan.name || '').trim() || plan.name;
+              const planDescription: string = (localizedPlan.description || '').trim() || plan.description || '';
               return (
                 <Card key={plan.id} className={`relative ${isCurrent ? 'ring-2 ring-primary' : ''}`}>
                   {isCurrent && (
@@ -261,8 +263,8 @@ export default function BillingPage() {
                     </div>
                   )}
                   <CardHeader>
-                    <CardTitle>{plan.name}</CardTitle>
-                    <CardDescription>{plan.description}</CardDescription>
+                    <CardTitle>{planName}</CardTitle>
+                    {planDescription ? <CardDescription>{planDescription}</CardDescription> : null}
                     <div className="pt-2">
                       <span className="text-3xl font-bold text-foreground">
                         {price === 0 ? (locale === 'fa' ? 'رایگان' : locale === 'tr' ? 'Ücretsiz' : 'Free') : formatPrice(price, currency)}
@@ -275,24 +277,7 @@ export default function BillingPage() {
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-3">
-                    {/* Entitlements */}
-                    {Object.entries(plan.entitlements || {}).map(([key, val]) => (
-                      <div key={key} className="flex items-center gap-2 text-sm">
-                        <Check className={`w-4 h-4 ${val ? 'text-green-500' : 'text-muted-foreground'}`} />
-                        <span className={val ? 'text-foreground' : 'text-muted-foreground line-through'}>
-                          {key.replace(/_/g, ' ')}
-                        </span>
-                      </div>
-                    ))}
-                    {/* Limits */}
-                    {Object.entries(plan.limits || {}).map(([key, val]) => (
-                      <div key={key} className="flex items-center gap-2 text-sm">
-                        <Check className="w-4 h-4 text-primary" />
-                        <span className="text-foreground">
-                          {(val as number) === -1 ? (locale === 'fa' ? 'نامحدود' : 'Unlimited') : String(val)} {key.replace(/_/g, ' ')}
-                        </span>
-                      </div>
-                    ))}
+                    <PlanCapabilityList plan={plan} capabilities={capabilities || []} locale={locale} />
 
                     {!isCurrent && !plan.is_free && (
                       <Button

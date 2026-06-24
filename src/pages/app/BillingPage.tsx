@@ -62,6 +62,8 @@ export default function BillingPage() {
   // Always follow the active UI language so the page matches the sidebar / app shell.
   const locale = (uiLocale as string) || workspace?.panel_locale || workspace?.default_locale || 'en';
   const L = locale as BillingLocale;
+  const pageDir = L === 'fa' || dir === 'rtl' ? 'rtl' : 'ltr';
+  const isRtl = pageDir === 'rtl';
   const currency = locale === 'fa' ? 'IRR' : locale === 'tr' ? 'TRY' : 'USD';
 
   useEffect(() => {
@@ -145,7 +147,7 @@ export default function BillingPage() {
 
   if (!API_BASE) {
     return (
-      <div className="space-y-4 animate-fade-in">
+      <div className="space-y-4 animate-fade-in" dir={pageDir}>
         <h1 className="text-2xl font-bold text-foreground">{bt(L, 'title')}</h1>
         <Card><CardContent className="py-8 text-center text-muted-foreground">
           <AlertCircle className="w-8 h-8 mx-auto mb-2" />
@@ -157,7 +159,7 @@ export default function BillingPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
+      <div className="flex items-center justify-center py-20" dir={pageDir}>
         <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
       </div>
     );
@@ -172,7 +174,7 @@ export default function BillingPage() {
   const statusText = STATUS_LABEL[statusKey]?.[L as 'fa' | 'en' | 'tr'] || subscription?.status || '';
 
   return (
-    <div className="space-y-6 animate-fade-in p-4 md:p-6 lg:p-8" dir={dir}>
+    <div className="space-y-6 animate-fade-in p-4 md:p-6 lg:p-8 text-start" dir={pageDir}>
       {/* Colorful gradient hero */}
       <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-primary/15 via-fuchsia-500/10 to-sky-500/10 p-6">
         <div className="absolute -top-20 -right-16 w-64 h-64 rounded-full bg-primary/20 blur-3xl pointer-events-none" />
@@ -222,8 +224,8 @@ export default function BillingPage() {
         </div>
       </div>
 
-      <Tabs defaultValue="usage">
-        <TabsList className="w-full md:w-auto inline-flex h-auto gap-1 p-1.5 rounded-2xl bg-gradient-to-r from-muted/80 to-muted/40 border border-border/60 shadow-sm">
+      <Tabs defaultValue="usage" dir={pageDir} className="text-start">
+        <TabsList className="w-full md:w-auto inline-flex h-auto gap-1 p-1.5 rounded-2xl bg-gradient-to-r from-muted/80 to-muted/40 border border-border/60 shadow-sm" dir={pageDir}>
           <TabsTrigger
             value="usage"
             className="gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-primary/20 data-[state=inactive]:text-muted-foreground hover:text-foreground"
@@ -251,10 +253,10 @@ export default function BillingPage() {
           {workspace ? <PlanUsagePanel workspaceId={workspace.id} /> : null}
         </TabsContent>
 
-        <TabsContent value="plans" className="space-y-4 mt-5">
+        <TabsContent value="plans" className="space-y-4 mt-5 text-start" dir={pageDir}>
           {/* Interval Toggle */}
-          <div className="flex justify-center">
-            <div className="inline-flex items-center rounded-full bg-muted p-1">
+          <div className="flex justify-center" dir={pageDir}>
+            <div className="inline-flex items-center rounded-full bg-muted p-1" dir={pageDir}>
               <button
                 onClick={() => setInterval('monthly')}
                 className={`px-4 py-1.5 text-sm rounded-full transition ${interval === 'monthly' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
@@ -273,7 +275,7 @@ export default function BillingPage() {
             </div>
           </div>
 
-          <div className="grid md:grid-cols-3 gap-4">
+          <div className="grid md:grid-cols-3 gap-4 text-start" dir={pageDir}>
             {plans.map((plan) => {
               const prices = plan.prices?.[currency] || plan.prices?.USD || {};
               const price = prices[interval] || 0;
@@ -282,7 +284,7 @@ export default function BillingPage() {
               const planName: string = (localizedPlan.name || '').trim() || plan.name;
               const planDescription: string = (localizedPlan.description || '').trim() || plan.description || '';
               return (
-                <Card key={plan.id} className={`relative overflow-hidden transition hover:shadow-lg ${isCurrent ? 'ring-2 ring-primary border-primary/40' : ''}`}>
+                <Card key={plan.id} dir={pageDir} className={`relative overflow-hidden text-start transition hover:shadow-lg ${isCurrent ? 'ring-2 ring-primary border-primary/40' : ''}`}>
                   {isCurrent && (
                     <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-primary via-fuchsia-500 to-sky-500" />
                   )}
@@ -308,7 +310,7 @@ export default function BillingPage() {
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-3">
-                    <PlanCapabilityList plan={plan} capabilities={capabilities || []} locale={locale} />
+                    <PlanCapabilityList plan={plan} capabilities={capabilities || []} locale={locale} dir={pageDir} />
 
                     {!isCurrent && !plan.is_free && (
                       <Button
@@ -319,7 +321,7 @@ export default function BillingPage() {
                         {checkoutLoading === plan.id ? (
                           <Loader2 className="w-4 h-4 animate-spin me-2" />
                         ) : (
-                          <ArrowRight className="w-4 h-4 me-2" />
+                          <ArrowRight className={`w-4 h-4 me-2 ${isRtl ? 'rotate-180' : ''}`} />
                         )}
                         {bt(L, 'upgrade')}
                       </Button>

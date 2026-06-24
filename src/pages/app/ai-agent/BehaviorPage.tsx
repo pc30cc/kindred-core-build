@@ -67,7 +67,7 @@ export default function BehaviorPage() {
   }, [data]);
 
   if (isLoading || !data?.settings) {
-    return <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
+    return <div className="flex justify-center py-20" dir={dir}><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
   }
 
   const onSave = async () => {
@@ -115,7 +115,7 @@ export default function BehaviorPage() {
       </div>
 
       <SectionCard icon={MessageSquare} tone="bg-violet-500/10 text-violet-600 ring-violet-500/20" title={tr('aiMode.title', 'AI mode')} desc={tr('aiMode.desc', 'How the AI participates in conversations.')}>
-        <RadioGroup value={aiMode} onValueChange={(v) => setAiMode(v as AiMode)} className="space-y-2">
+        <RadioGroup dir={dir} value={aiMode} onValueChange={(v) => setAiMode(v as AiMode)} className="space-y-2">
           <Opt value="auto" label={tr('aiMode.auto', 'Answer visitors automatically')} />
           <Opt value="suggest" label={tr('aiMode.suggest', 'Suggest replies to operators only')} />
           <Opt value="off" label={tr('aiMode.off', 'Off')} />
@@ -123,7 +123,7 @@ export default function BehaviorPage() {
       </SectionCard>
 
       <SectionCard icon={HelpCircle} tone="bg-amber-500/10 text-amber-600 ring-amber-500/20" title={tr('unsure.title', 'When AI is unsure')}>
-        <RadioGroup value={unsure} onValueChange={(v) => setUnsure(v as Unsure)} className="space-y-2">
+        <RadioGroup dir={dir} value={unsure} onValueChange={(v) => setUnsure(v as Unsure)} className="space-y-2">
           <Opt value="clarify" label={tr('unsure.clarify', 'Ask a clarification question')} />
           <Opt value="transfer" label={tr('unsure.transfer', 'Transfer to operator')} />
           <Opt value="silent" label={tr('unsure.silent', 'Do not answer')} />
@@ -132,21 +132,21 @@ export default function BehaviorPage() {
 
       <div className="grid md:grid-cols-3 gap-4">
         <SectionCard icon={FileText} tone="bg-sky-500/10 text-sky-600 ring-sky-500/20" title={tr('style.title', 'Answer style')}>
-          <RadioGroup value={style} onValueChange={(v) => setStyle(v as Style)} className="space-y-2">
+          <RadioGroup dir={dir} value={style} onValueChange={(v) => setStyle(v as Style)} className="space-y-2">
             <Opt value="short" label={tr('style.short', 'Short')} />
             <Opt value="medium" label={tr('style.medium', 'Balanced')} />
             <Opt value="long" label={tr('style.long', 'Detailed')} />
           </RadioGroup>
         </SectionCard>
         <SectionCard icon={Heart} tone="bg-rose-500/10 text-rose-600 ring-rose-500/20" title={tr('tone.title', 'Tone')}>
-          <RadioGroup value={tone} onValueChange={(v) => setTone(v as Tone)} className="space-y-2">
+          <RadioGroup dir={dir} value={tone} onValueChange={(v) => setTone(v as Tone)} className="space-y-2">
             <Opt value="friendly" label={tr('tone.friendly', 'Friendly')} />
             <Opt value="formal" label={tr('tone.formal', 'Formal')} />
             <Opt value="professional" label={tr('tone.professional', 'Professional')} />
           </RadioGroup>
         </SectionCard>
         <SectionCard icon={Languages} tone="bg-emerald-500/10 text-emerald-600 ring-emerald-500/20" title={tr('lang.title', 'Language')}>
-          <RadioGroup value={lang} onValueChange={(v) => setLang(v as Lang)} className="space-y-2">
+          <RadioGroup dir={dir} value={lang} onValueChange={(v) => setLang(v as Lang)} className="space-y-2">
             <Opt value="visitor" label={tr('lang.visitor', 'Reply in visitor language')} />
             <Opt value="workspace" label={tr('lang.workspace', 'Always use workspace default language')} />
           </RadioGroup>

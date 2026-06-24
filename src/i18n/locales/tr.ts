@@ -2013,6 +2013,7 @@ const tr: TranslationKeys = {
       reason: {
         disabled_qna: 'Devre dışı Soru-Cevap',
         draft_kb: 'Taslak makale',
+        kb_disabled_for_ai: 'AI için devre dışı',
         file_not_active: 'Dosya aktif değil',
         website_not_active: 'Web sitesi aktif değil',
         candidate_not_approved: 'Öğrenilmiş yanıt onaylanmadı',

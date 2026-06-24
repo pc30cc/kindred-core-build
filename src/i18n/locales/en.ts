@@ -2026,6 +2026,7 @@ const en = {
       reason: {
         disabled_qna: 'Disabled Q&A',
         draft_kb: 'Draft article',
+        kb_disabled_for_ai: 'Disabled for AI',
         file_not_active: 'File not active',
         website_not_active: 'Website not active',
         candidate_not_approved: 'Learned answer not approved',

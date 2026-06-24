@@ -308,6 +308,10 @@ function PlanFormDialog({
                 <Switch checked={form.is_active} onCheckedChange={(v) => setForm((f) => ({ ...f, is_active: v }))} />
                 <Label>Active</Label>
               </div>
+              <div className="flex items-center gap-2">
+                <Switch checked={form.is_hidden} onCheckedChange={(v) => setForm((f) => ({ ...f, is_hidden: v }))} />
+                <Label>Hidden from users</Label>
+              </div>
             </div>
           </div>
         )}

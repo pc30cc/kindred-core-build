@@ -10,7 +10,7 @@ import { Switch } from '@/components/ui/switch';
 import {
   Plus, Trash2, BookOpen, Search, Eye, ThumbsUp, Globe,
   FileText, Edit, X, Bold, Italic, Heading2, List, Link2, Code2, Quote, BarChart3,
-  CheckCircle2, AlertCircle, Sparkles, Bot, MonitorSmartphone
+  CheckCircle2, AlertCircle, Sparkles, Bot, MonitorSmartphone, BookMarked
 } from 'lucide-react';
 import AiKbBuilderTab from '@/components/app/knowledge/AiKbBuilderTab';
 import { useAiAgentCapabilities } from '@/hooks/useAiAgentCapabilities';
@@ -121,33 +121,44 @@ export default function KnowledgeBasePage() {
   };
 
   return (
-    <div className="space-y-5 animate-fade-in" dir={dir}>
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="page-header">{t('knowledgeBase.title')}</h1>
-          <p className="page-subtitle">Create and manage help articles for your customers</p>
+    <div className="space-y-6 animate-fade-in" dir={dir}>
+      {/* Hero header */}
+      <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-6 sm:p-8">
+        <div className="pointer-events-none absolute -top-16 -end-16 h-56 w-56 rounded-full bg-primary/20 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-20 -start-10 h-48 w-48 rounded-full bg-primary/10 blur-3xl" />
+        <div className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex items-start gap-4">
+            <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-primary to-primary/60 shadow-lg shadow-primary/30 flex items-center justify-center shrink-0">
+              <BookMarked className="h-6 w-6 text-primary-foreground" />
+            </div>
+            <div>
+              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{t('knowledgeBase.title')}</h1>
+              <p className="text-sm text-muted-foreground mt-1.5 max-w-xl">
+                {(t as any)('knowledgeBase.subtitle') || 'Create and manage help articles for your customers and your AI assistant.'}
+              </p>
+            </div>
+          </div>
+          {pageTab === 'articles' && (
+            <Button onClick={() => { setShowEditor(true); setEditId(null); setForm(emptyForm); setEditorTab('editor'); }} className="gap-2 shadow-md shadow-primary/20">
+              <Plus className="w-4 h-4" />
+              <span>{t('knowledgeBase.newArticle')}</span>
+            </Button>
+          )}
         </div>
-        {pageTab === 'articles' && (
-          <Button onClick={() => { setShowEditor(true); setEditId(null); setForm(emptyForm); setEditorTab('editor'); }} className="gap-2">
-            <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">{t('knowledgeBase.newArticle')}</span>
-          </Button>
-        )}
-      </div>
 
-      {/* Page-level tabs */}
-      <div className="inline-flex items-center gap-1 bg-secondary rounded-lg p-0.5">
-        <button onClick={() => setPageTab('articles')}
-          className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${effectivePageTab === 'articles' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground'}`}>
-          Articles
-        </button>
-        {aiAgentEnabled && (
-          <button onClick={() => setPageTab('ai_builder')}
-            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all flex items-center gap-1.5 ${effectivePageTab === 'ai_builder' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground'}`}>
-            <Sparkles className="w-3.5 h-3.5" /> AI Builder
+        {/* Page-level tabs */}
+        <div className="relative mt-5 inline-flex items-center gap-1 bg-card/60 backdrop-blur border border-border/60 rounded-xl p-1 shadow-sm">
+          <button onClick={() => setPageTab('articles')}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 ${effectivePageTab === 'articles' ? 'bg-primary text-primary-foreground shadow' : 'text-muted-foreground hover:text-foreground'}`}>
+            <BookOpen className="w-3.5 h-3.5" /> {(t as any)('knowledgeBase.tabs.articles') || 'Articles'}
           </button>
-        )}
+          {aiAgentEnabled && (
+            <button onClick={() => setPageTab('ai_builder')}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 ${effectivePageTab === 'ai_builder' ? 'bg-primary text-primary-foreground shadow' : 'text-muted-foreground hover:text-foreground'}`}>
+              <Sparkles className="w-3.5 h-3.5" /> {(t as any)('knowledgeBase.tabs.aiBuilder') || 'AI Builder'}
+            </button>
+          )}
+        </div>
       </div>
 
       {effectivePageTab === 'ai_builder' ? <AiKbBuilderTab /> : (

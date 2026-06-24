@@ -134,7 +134,7 @@ export default function KnowledgeBasePage() {
             <div>
               <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{t('knowledgeBase.title')}</h1>
               <p className="text-sm text-muted-foreground mt-1.5 max-w-xl">
-                {(t as any)('knowledgeBase.subtitle') || 'Create and manage help articles for your customers and your AI assistant.'}
+                {t('knowledgeBase.subtitle')}
               </p>
             </div>
           </div>
@@ -150,12 +150,12 @@ export default function KnowledgeBasePage() {
         <div className="relative mt-5 inline-flex items-center gap-1 bg-card/60 backdrop-blur border border-border/60 rounded-xl p-1 shadow-sm">
           <button onClick={() => setPageTab('articles')}
             className={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 ${effectivePageTab === 'articles' ? 'bg-primary text-primary-foreground shadow' : 'text-muted-foreground hover:text-foreground'}`}>
-            <BookOpen className="w-3.5 h-3.5" /> {(t as any)('knowledgeBase.tabs.articles') || 'Articles'}
+            <BookOpen className="w-3.5 h-3.5" /> {t('knowledgeBase.tabs.articles')}
           </button>
           {aiAgentEnabled && (
             <button onClick={() => setPageTab('ai_builder')}
               className={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 ${effectivePageTab === 'ai_builder' ? 'bg-primary text-primary-foreground shadow' : 'text-muted-foreground hover:text-foreground'}`}>
-              <Sparkles className="w-3.5 h-3.5" /> {(t as any)('knowledgeBase.tabs.aiBuilder') || 'AI Builder'}
+              <Sparkles className="w-3.5 h-3.5" /> {t('knowledgeBase.tabs.aiBuilder')}
             </button>
           )}
         </div>

@@ -553,6 +553,7 @@ const tr: TranslationKeys = {
   },
   knowledgeBase: {
     title: 'Bilgi Bankası',
+    subtitle: 'Müşterileriniz ve AI asistanınız için yardım makaleleri oluşturun ve yönetin.',
     articles: 'Makaleler',
     categories: 'Kategoriler',
     newArticle: 'Yeni makale',
@@ -568,6 +569,10 @@ const tr: TranslationKeys = {
     usedByAiHint: 'AI asistanın bu makaleyi getirip yanıtlarında kullanmasına izin ver.',
     hiddenFromWidget: 'Widget\u2019tan gizli',
     aiDisabled: 'AI kapalı',
+    tabs: {
+      articles: 'Yardım Makaleleri',
+      aiBuilder: 'AI Oluşturucu',
+    },
   },
   widget: {
     title: 'Widget',

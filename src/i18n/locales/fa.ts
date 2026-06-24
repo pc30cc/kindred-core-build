@@ -553,6 +553,7 @@ const fa: TranslationKeys = {
   },
   knowledgeBase: {
     title: 'پایگاه دانش',
+    subtitle: 'مقالات راهنما را برای مشتریان و دستیار هوشمند خود ایجاد و مدیریت کنید.',
     articles: 'مقالات',
     categories: 'دسته‌بندی‌ها',
     newArticle: 'مقاله جدید',
@@ -568,6 +569,10 @@ const fa: TranslationKeys = {
     usedByAiHint: 'به دستیار هوشمند اجازه دهید این مقاله را بازیابی و در پاسخ‌ها استفاده کند.',
     hiddenFromWidget: 'پنهان از ویجت',
     aiDisabled: 'بدون استفاده در AI',
+    tabs: {
+      articles: 'مقالات راهنما',
+      aiBuilder: 'سازنده AI',
+    },
   },
   widget: {
     title: 'ویجت',

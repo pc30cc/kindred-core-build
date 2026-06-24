@@ -192,7 +192,9 @@ export default function CallCenterSettingsPage() {
           onChange={(next) => setS({ ...s, widget_custom_texts: next })}
         />
       </Section>
+      </TabsContent>
 
+      <TabsContent value="languages" className="space-y-6 mt-0">
       {(() => {
         const LOC_LABELS: Record<string, { label: string; native: string }> = {
           en: { label: 'English', native: 'English' },
@@ -282,7 +284,9 @@ export default function CallCenterSettingsPage() {
           </Section>
         );
       })()}
+      </TabsContent>
 
+      <TabsContent value="channels" className="space-y-6 mt-0">
       <Section title={t('callCenter.settingsPage.callModes')} description={t('callCenter.settingsPage.callModesHint')}>
         <Row label={t('callCenter.settingsPage.voiceCalls')} locked={!platformVoice ? t('callCenter.settingsPage.disabledByPlatform') : undefined}>
           <Switch checked={!!s.voice_enabled} onCheckedChange={(v) => setS({ ...s, voice_enabled: v })} disabled={!platformVoice} />
@@ -314,7 +318,9 @@ export default function CallCenterSettingsPage() {
       <Section title={t('callCenter.settingsPage.preCallFormSection')} description={t('callCenter.settingsPage.preCallFormSectionHint')}>
         <p className="text-xs text-muted-foreground">{t('callCenter.settings.preCallFormPlaceholder')}</p>
       </Section>
+      </TabsContent>
 
+      <TabsContent value="availability" className="space-y-6 mt-0">
       <Section title={t('callCenter.settingsPage.availabilityOffline')} description={t('callCenter.settingsPage.availabilityOfflineHint')}>
         <Row label={t('callCenter.settingsPage.offlineBehavior')}>
           <Select value={s.offline_behavior || 'show_callback'} onValueChange={(v) => setS({ ...s, offline_behavior: v })}>
@@ -336,7 +342,9 @@ export default function CallCenterSettingsPage() {
           </CollapsibleContent>
         </Collapsible>
       </Section>
+      </TabsContent>
 
+      <TabsContent value="routing" className="space-y-6 mt-0">
       <Section title={t('callCenter.settingsPage.routing')} description={t('callCenter.settingsPage.routingHint')}>
         <Row label={t('callCenter.settingsPage.routingMode')}>
           <Select value={s.routing_mode || 'broadcast'} onValueChange={(v) => setS({ ...s, routing_mode: v })}>
@@ -387,19 +395,19 @@ export default function CallCenterSettingsPage() {
           <Link to={`/app/w/${slug}/settings/team-departments`}>{t('callCenter.settingsPage.manageDepartments')}</Link>
         </Button>
       </Section>
+      </TabsContent>
 
-      {/* Recording is a platform-gated capability. When the super-admin has
-          turned recording off entirely we hide both the section and the
-          related operator surfaces — operators should not see any recording
-          controls or status in that mode. */}
-      {platformRecording && (
+      <TabsContent value="recording" className="space-y-6 mt-0">
+        {/* Always visible in its own tab — RecordingSection itself surfaces
+            clear platform/workspace/provider status when not effective. */}
         <RecordingSection
           s={s}
           setS={setS}
           platformRecording={platformRecording}
           recording={(data as any)?.recording || null}
         />
-      )}
+      </TabsContent>
+      </Tabs>
 
       {/* Sticky save bar */}
       {dirty && (

@@ -427,6 +427,16 @@ export default function KnowledgeBasePage() {
                     <span className="text-sm font-medium text-foreground truncate">{article.title}</span>
                     <Badge className={`text-[10px] px-1.5 py-0 ${statusBadge[article.status]}`}>{article.status}</Badge>
                     <Badge variant="outline" className="text-[10px] px-1.5 py-0">{article.locale}</Badge>
+                    {(article as any).visible_in_widget === false && (
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-amber-500/40 text-amber-600">
+                        {t('knowledgeBase.hiddenFromWidget')}
+                      </Badge>
+                    )}
+                    {(article as any).used_by_ai === false && (
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-muted-foreground/40 text-muted-foreground">
+                        <Bot className="h-3 w-3 me-1" />{t('knowledgeBase.aiDisabled')}
+                      </Badge>
+                    )}
                   </div>
                   <span className="text-xs text-muted-foreground">
                     {(article as any).knowledge_base_categories?.name || 'Uncategorized'}

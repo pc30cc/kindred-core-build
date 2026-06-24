@@ -1,0 +1,72 @@
+import type { ReactNode } from 'react';
+import { Link } from 'react-router-dom';
+import { Lock, Sparkles } from 'lucide-react';
+import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
+import { useWorkspaceEffectiveEntitlements } from '@/hooks/useEntitlements';
+import { useTranslation } from '@/i18n';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
+
+type ModuleKey =
+  | 'ai_assistant'
+  | 'call_center'
+  | 'knowledge_base'
+  | 'visitor_tracking'
+  | 'contacts';
+
+interface Props {
+  moduleKey: ModuleKey;
+  children: ReactNode;
+  /** Render mode: 'block' for full-page wrap, 'inline' for inline section */
+  className?: string;
+}
+
+/**
+ * Wrap a page or section. When the workspace's plan does not enable the
+ * given module, the content is rendered behind a blurred / disabled
+ * layer and an upgrade card overlay is shown on top.
+ */
+export function PlanLockedOverlay({ moduleKey, children, className }: Props) {
+  const { workspace } = useActiveWorkspace();
+  const { data, loading } = useWorkspaceEffectiveEntitlements(workspace?.id || null);
+  const { t, dir } = useTranslation();
+  const wsPath = useWorkspacePath();
+
+  const moduleState = data?.modules?.[moduleKey];
+  const enabled = !data || loading ? true : moduleState?.value !== false;
+
+  if (enabled) return <>{children}</>;
+
+  const moduleLabel = t(`plan.locked.module.${moduleKey}` as any) || moduleKey;
+  const planName = data?.plan?.name || data?.plan?.slug || t('plan.locked.currentPlan' as any);
+
+  return (
+    <div className={cn('relative h-full w-full', className)} dir={dir}>
+      <div aria-hidden className="pointer-events-none select-none opacity-30 blur-[2px] h-full w-full overflow-hidden">
+        {children}
+      </div>
+      <div className="absolute inset-0 flex items-start justify-center overflow-y-auto p-6 pt-20 bg-background/40 backdrop-blur-[1px]">
+        <div className="max-w-md w-full rounded-2xl border border-border bg-card shadow-xl p-8 text-center pointer-events-auto">
+          <div className="mx-auto w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mb-4">
+            <Lock className="h-7 w-7 text-primary" />
+          </div>
+          <h2 className="text-xl font-semibold text-foreground mb-2">
+            {t('plan.locked.title' as any)}
+          </h2>
+          <p className="text-sm text-muted-foreground mb-1">
+            {t('plan.locked.message' as any).toString().replace('{module}', moduleLabel)}
+          </p>
+          <p className="text-xs text-muted-foreground/80 mb-6">
+            {t('plan.locked.currentPlanLabel' as any)}: <span className="font-medium text-foreground">{String(planName)}</span>
+          </p>
+          <Button asChild className="w-full">
+            <Link to={wsPath('/billing')}>
+              <Sparkles className="h-4 w-4 me-2" />
+              {t('plan.locked.action' as any)}
+            </Link>
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}

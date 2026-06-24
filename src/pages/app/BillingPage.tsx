@@ -48,7 +48,7 @@ const STATUS_LABEL: Record<string, { fa: string; en: string; tr: string }> = {
 };
 
 export default function BillingPage() {
-  const { t } = useTranslation();
+  const { locale: uiLocale, dir } = useTranslation();
   const { data: workspaces } = useWorkspaces();
   const workspace = workspaces?.[0];
   const { capabilities } = useCapabilityCatalog();
@@ -59,7 +59,8 @@ export default function BillingPage() {
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
   const [interval, setInterval] = useState<'monthly' | 'yearly'>('monthly');
 
-  const locale = workspace?.panel_locale || workspace?.default_locale || 'en';
+  // Always follow the active UI language so the page matches the sidebar / app shell.
+  const locale = (uiLocale as string) || workspace?.panel_locale || workspace?.default_locale || 'en';
   const L = locale as BillingLocale;
   const currency = locale === 'fa' ? 'IRR' : locale === 'tr' ? 'TRY' : 'USD';
 
@@ -171,7 +172,7 @@ export default function BillingPage() {
   const statusText = STATUS_LABEL[statusKey]?.[L as 'fa' | 'en' | 'tr'] || subscription?.status || '';
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-6 animate-fade-in" dir={dir}>
       {/* Colorful gradient hero */}
       <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-primary/15 via-fuchsia-500/10 to-sky-500/10 p-6">
         <div className="absolute -top-20 -right-16 w-64 h-64 rounded-full bg-primary/20 blur-3xl pointer-events-none" />

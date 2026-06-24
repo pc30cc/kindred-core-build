@@ -385,6 +385,7 @@ export async function retrieveHybridSources(
       .select('id, slug, locale, title, excerpt, content')
       .eq('workspace_id', input.workspaceId)
       .eq('status', 'published')
+      .eq('used_by_ai', true)
       .limit(150);
     for (const a of arts || []) {
       const score = Math.max(
@@ -564,11 +565,11 @@ export async function retrieveHybridSources(
     if (idsByKind['kb_article']?.size) {
       const { data } = await sb
         .from('knowledge_base_articles')
-        .select('id, workspace_id, status')
+        .select('id, workspace_id, status, used_by_ai')
         .in('id', Array.from(idsByKind['kb_article']));
       for (const r of data || []) {
         if (r.workspace_id !== input.workspaceId) continue;
-        if (r.status === 'published') eligibleKb.add(r.id as string);
+        if (r.status === 'published' && (r as any).used_by_ai !== false) eligibleKb.add(r.id as string);
       }
     }
     if (idsByKind['learned_qna']?.size) {

@@ -977,6 +977,7 @@ widgetRouter.get('/help-articles', widgetRateLimit('default'), async (req: Reque
       .select('id, title, slug, content, excerpt, locale')
       .eq('workspace_id', workspaceId)
       .eq('status', 'published')
+      .eq('visible_in_widget', true)
       .order('sort_order', { ascending: true })
       .limit(limit);
 
@@ -2204,6 +2205,7 @@ widgetRouter.get('/kb', async (req: Request, res: Response) => {
       .select('id, title, excerpt, slug, locale')
       .eq('workspace_id', workspace_id)
       .eq('status', 'published')
+      .eq('visible_in_widget', true)
       .order('sort_order', { ascending: true })
       .limit(limit);
 

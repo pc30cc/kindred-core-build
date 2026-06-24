@@ -10,7 +10,7 @@ function statusKey(item: any): { key: 'ready' | 'indexing' | 'disabled' | 'needs
   if (item.eligible === true) return { key: 'ready', tone: 'green' };
   const r = item.reason || item.last_reason;
   if (r === 'no_active_chunks' || r === 'embedding_missing') return { key: 'indexing', tone: 'blue' };
-  if (r === 'disabled_qna' || r === 'file_not_active' || r === 'website_not_active') return { key: 'disabled', tone: 'muted' };
+  if (r === 'disabled_qna' || r === 'file_not_active' || r === 'website_not_active' || r === 'kb_disabled_for_ai') return { key: 'disabled', tone: 'muted' };
   if (r === 'draft_kb' || r === 'candidate_not_approved') return { key: 'needsAttention', tone: 'amber' };
   if (r === 'source_missing') return { key: 'failed', tone: 'red' };
   return { key: 'needsAttention', tone: 'amber' };

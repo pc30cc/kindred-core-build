@@ -6,10 +6,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import {
   Plus, Trash2, BookOpen, Search, Eye, ThumbsUp, Globe,
   FileText, Edit, X, Bold, Italic, Heading2, List, Link2, Code2, Quote, BarChart3,
-  CheckCircle2, AlertCircle, Sparkles
+  CheckCircle2, AlertCircle, Sparkles, Bot, MonitorSmartphone
 } from 'lucide-react';
 import AiKbBuilderTab from '@/components/app/knowledge/AiKbBuilderTab';
 import { useAiAgentCapabilities } from '@/hooks/useAiAgentCapabilities';
@@ -17,9 +18,11 @@ import { useAiAgentCapabilities } from '@/hooks/useAiAgentCapabilities';
 type FormData = {
   title: string; slug: string; content: string; excerpt: string;
   locale: string; status: string; category_id: string;
+  visible_in_widget: boolean; used_by_ai: boolean;
 };
 const emptyForm: FormData = {
   title: '', slug: '', content: '', excerpt: '', locale: 'en', status: 'draft', category_id: '',
+  visible_in_widget: true, used_by_ai: true,
 };
 
 function calcSeoScore(form: FormData) {
@@ -84,6 +87,8 @@ export default function KnowledgeBasePage() {
       locale: article.locale || locale,
       status: article.status || 'draft',
       category_id: article.category_id || '',
+      visible_in_widget: article.visible_in_widget !== false,
+      used_by_ai: article.used_by_ai !== false,
     });
     setEditorTab('editor');
     setShowEditor(true);

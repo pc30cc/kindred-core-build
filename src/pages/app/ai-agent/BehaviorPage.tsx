@@ -67,7 +67,7 @@ export default function BehaviorPage() {
   }, [data]);
 
   if (isLoading || !data?.settings) {
-    return <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
+    return <div className="flex justify-center py-20" dir={dir}><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
   }
 
   const onSave = async () => {

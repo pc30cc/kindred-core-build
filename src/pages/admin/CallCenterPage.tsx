@@ -304,7 +304,9 @@ export default function AdminCallCenterPage() {
           ))}
         </div>
       </Card>
+      </TabsContent>
 
+      <TabsContent value="limits" className="space-y-4 mt-0">
       <Card className="p-5 space-y-3">
         <h2 className="font-semibold">{t('callCenter.adminPage.limits.title')}</h2>
         <p className="text-xs text-muted-foreground">{t('callCenter.adminPage.limits.hint')}</p>
@@ -317,7 +319,9 @@ export default function AdminCallCenterPage() {
           ))}
         </div>
       </Card>
+      </TabsContent>
 
+      <TabsContent value="callbacks" className="space-y-4 mt-0">
       <Card className="p-5 space-y-5">
         <div className="flex items-start gap-2">
           <ShieldAlert className="h-5 w-5 text-amber-600 mt-0.5" />
@@ -355,12 +359,9 @@ export default function AdminCallCenterPage() {
           ))}
         </div>
       </Card>
+      </TabsContent>
 
-      <div className="flex gap-2">
-        <Button onClick={save} disabled={update.isPending}>{t('callCenter.adminPage.buttons.savePlatform')}</Button>
-        <Button variant="outline" onClick={invalidate}>{t('callCenter.adminPage.buttons.invalidateCache')}</Button>
-      </div>
-
+      <TabsContent value="ringback" className="space-y-4 mt-0">
       <Card className="p-5 space-y-5">
         <div className="flex items-start gap-2">
           <PhoneCall className="h-5 w-5 text-primary mt-0.5" />

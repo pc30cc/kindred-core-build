@@ -74,7 +74,8 @@ export async function retrieveSources(
       .from('knowledge_base_articles')
       .select('id,slug,locale,title,excerpt,content')
       .eq('workspace_id', workspaceId)
-      .eq('status', 'published');
+      .eq('status', 'published')
+      .eq('used_by_ai', true);
     if (loc) q = q.eq('locale', loc);
     const { data } = await q.limit(100);
     return data || [];

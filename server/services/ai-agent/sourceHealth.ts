@@ -25,6 +25,7 @@ export type HealthReason =
   | 'disabled_qna'
   | 'candidate_not_approved'
   | 'draft_kb'
+  | 'kb_disabled_for_ai'
   | 'file_not_active'
   | 'website_not_active'
   | 'source_missing'
@@ -294,15 +295,17 @@ export async function getSourceHealth(
   if (!filters.sourceType || filters.sourceType === 'kb_article') {
     const { data } = await sb
       .from('knowledge_base_articles')
-      .select('id, title, status, locale, slug, updated_at')
+      .select('id, title, status, locale, slug, updated_at, used_by_ai, visible_in_widget')
       .eq('workspace_id', workspaceId)
       .limit(limit);
     for (const r of (data || []) as any[]) {
       if (!matchesQuery(r.title, q)) continue;
       const agg = chunkMap.get(key('kb_article', r.id)) || { active: 0, stale: 0, deleted: 0, embedded: 0, lastIndexedAt: null };
       const published = String(r.status || '') === 'published';
+      const aiEnabled = r.used_by_ai !== false;
       let reason: HealthReason = 'eligible';
       if (!published) reason = 'draft_kb';
+      else if (!aiEnabled) reason = 'kb_disabled_for_ai';
       else if (agg.active === 0) reason = 'no_active_chunks';
       else if (agg.embedded === 0) reason = 'embedding_missing';
       items.push({
@@ -313,7 +316,7 @@ export async function getSourceHealth(
         active_chunks_count: agg.active, embedded_chunks_count: agg.embedded,
         stale_chunks_count: agg.stale, deleted_chunks_count: agg.deleted,
         last_indexed_at: agg.lastIndexedAt, last_error: null, last_warning: null,
-        metadata_summary: { locale: r.locale || null, slug: r.slug || null, updated_at: r.updated_at || null },
+        metadata_summary: { locale: r.locale || null, slug: r.slug || null, updated_at: r.updated_at || null, used_by_ai: aiEnabled, visible_in_widget: r.visible_in_widget !== false },
       });
     }
   }

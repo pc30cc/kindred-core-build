@@ -195,6 +195,14 @@ export interface KnowledgeBaseArticle {
   excerpt: string | null;
   status: 'draft' | 'published' | 'archived';
   order: number;
+  /**
+   * KB unification — Phase 2 visibility flags.
+   * - visible_in_widget: include this article in the public help-center / widget.
+   * - used_by_ai: allow the AI Agent to use this article as a retrieval source.
+   * Both default to true server-side so existing articles keep their behavior.
+   */
+  visible_in_widget: boolean;
+  used_by_ai: boolean;
   created_at: string;
   updated_at: string;
 }

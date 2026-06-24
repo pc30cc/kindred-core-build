@@ -562,6 +562,12 @@ const fa: TranslationKeys = {
     published: 'منتشر شده',
     archived: 'بایگانی شده',
     noArticles: 'هنوز مقاله‌ای نیست',
+    visibleInWidget: 'نمایش در مرکز راهنما / ویجت',
+    visibleInWidgetHint: 'این مقاله برای بازدیدکنندگان در مرکز راهنمای عمومی قابل مشاهده باشد.',
+    usedByAi: 'استفاده به عنوان منبع دانش هوش مصنوعی',
+    usedByAiHint: 'به دستیار هوشمند اجازه دهید این مقاله را بازیابی و در پاسخ‌ها استفاده کند.',
+    hiddenFromWidget: 'پنهان از ویجت',
+    aiDisabled: 'بدون استفاده در AI',
   },
   widget: {
     title: 'ویجت',
@@ -2007,6 +2013,7 @@ const fa: TranslationKeys = {
       reason: {
         disabled_qna: 'سوال و پاسخ غیرفعال',
         draft_kb: 'پیش‌نویس مقاله',
+        kb_disabled_for_ai: 'برای AI غیرفعال شده',
         file_not_active: 'فایل غیرفعال است',
         website_not_active: 'وب‌سایت غیرفعال است',
         candidate_not_approved: 'پاسخ یاد‌گرفته‌شده تأیید نشده',

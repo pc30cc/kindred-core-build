@@ -4643,6 +4643,8 @@ export type Database = {
           status: Database["public"]["Enums"]["article_status"] | null
           title: string
           updated_at: string | null
+          used_by_ai: boolean
+          visible_in_widget: boolean
           workspace_id: string
         }
         Insert: {
@@ -4657,6 +4659,8 @@ export type Database = {
           status?: Database["public"]["Enums"]["article_status"] | null
           title: string
           updated_at?: string | null
+          used_by_ai?: boolean
+          visible_in_widget?: boolean
           workspace_id: string
         }
         Update: {
@@ -4671,6 +4675,8 @@ export type Database = {
           status?: Database["public"]["Enums"]["article_status"] | null
           title?: string
           updated_at?: string | null
+          used_by_ai?: boolean
+          visible_in_widget?: boolean
           workspace_id?: string
         }
         Relationships: [

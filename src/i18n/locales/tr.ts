@@ -562,6 +562,12 @@ const tr: TranslationKeys = {
     published: 'Yayınlandı',
     archived: 'Arşivlendi',
     noArticles: 'Henüz makale yok',
+    visibleInWidget: 'Yardım merkezi / widget\u2019ta göster',
+    visibleInWidgetHint: 'Bu makaleyi herkese açık yardım merkezinde ziyaretçilere sun.',
+    usedByAi: 'AI bilgi kaynağı olarak kullan',
+    usedByAiHint: 'AI asistanın bu makaleyi getirip yanıtlarında kullanmasına izin ver.',
+    hiddenFromWidget: 'Widget\u2019tan gizli',
+    aiDisabled: 'AI kapalı',
   },
   widget: {
     title: 'Widget',
@@ -2007,6 +2013,7 @@ const tr: TranslationKeys = {
       reason: {
         disabled_qna: 'Devre dışı Soru-Cevap',
         draft_kb: 'Taslak makale',
+        kb_disabled_for_ai: 'AI için devre dışı',
         file_not_active: 'Dosya aktif değil',
         website_not_active: 'Web sitesi aktif değil',
         candidate_not_approved: 'Öğrenilmiş yanıt onaylanmadı',

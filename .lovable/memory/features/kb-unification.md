@@ -16,8 +16,12 @@ Phase 3 (DONE): Redirect old "Knowledge Base" entry points to new tab.
   - src/components/layout/AppSidebar.tsx: knowledgeBase main nav path -> /ai-agent/articles
   - src/components/layout/SettingsLayout.tsx: remove "Articles" sub-item from Knowledge Base group (keep Translations)
 
-Phase 2 (TODO): Add `visible_in_widget` and `used_by_ai` boolean flags to public.knowledge_base_articles via migration; expose toggles in editor UI; backend filters widget queries by visible_in_widget and AI sync by used_by_ai.
+Phase 2 (DONE): Added `visible_in_widget` and `used_by_ai` boolean columns (default true) + partial indexes on knowledge_base_articles. Editor exposes two switches; list shows "Hidden from widget" / "AI off" badges. Types + i18n (fa/en/tr) updated.
 
-Phase 4 (TODO): Backend API integration so AI Agent Knowledge Sources view shows the unified articles (single source of truth across editor + AI sources panel).
+Phase 4 (DONE): Backend respects both flags as single source of truth:
+  - server/routes/widget.ts (help-center + /kb endpoints): filter visible_in_widget = true
+  - server/services/ai-agent/retrieval.ts + retrievalHybrid.ts: filter used_by_ai = true (both keyword and post-rerank eligibility checks)
+  - server/services/ai-agent/knowledgeIndex/sync.ts: when used_by_ai=false, drop chunks; bulk sync skips disabled
+  - server/services/ai-agent/sourceHealth.ts: new HealthReason 'kb_disabled_for_ai' (translated, rendered as "disabled" tone in Knowledge Sources page)
 
 Constraint: Do NOT delete the existing KnowledgeBasePage component or its routes/data — only re-point navigation. Both AI Agent Knowledge (Sources) and Articles tabs coexist; Sources stays read-only summary.

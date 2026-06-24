@@ -64,11 +64,11 @@ export async function syncKnowledgeSource(
     if (input.sourceType === 'kb_article') {
       const { data: art } = await sb
         .from('knowledge_base_articles')
-        .select('id, workspace_id, slug, locale, title, content, status')
+        .select('id, workspace_id, slug, locale, title, content, status, used_by_ai')
         .eq('id', input.sourceId)
         .maybeSingle();
       if (!art || art.workspace_id !== input.workspaceId) return;
-      if (art.status !== 'published') {
+      if (art.status !== 'published' || (art as any).used_by_ai === false) {
         // Unpublished → mark all chunks deleted.
         await indexSource(config, {
           workspaceId: input.workspaceId,
@@ -182,6 +182,7 @@ export async function rebuildWorkspaceIndex(
     .select('id, slug, locale, title, content, status')
     .eq('workspace_id', workspaceId)
     .eq('status', 'published')
+    .eq('used_by_ai', true)
     .limit(2000);
   for (const a of articles || []) {
     const chunks = chunkText([a.title, a.content].filter(Boolean).join('\n\n'));

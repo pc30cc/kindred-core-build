@@ -508,11 +508,11 @@ function PlanCapabilityList({
   }
 
   return (
-    <ul className="space-y-2">
+    <ul className="space-y-2 text-start">
       {rows.map((r) => (
-        <li key={r.key} className="flex items-start gap-2 text-sm">
+        <li key={r.key} className="flex items-start gap-2 text-sm text-start">
           <Check className="w-4 h-4 mt-0.5 shrink-0 text-green-500" />
-          <span className="text-foreground">
+          <span className="text-foreground text-start">
             {r.isLimit ? (
               <><span className="font-medium">{r.valueText}</span>{' '}<span className="text-muted-foreground">{r.label}</span></>
             ) : (

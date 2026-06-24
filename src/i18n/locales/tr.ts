@@ -986,6 +986,53 @@ const tr: TranslationKeys = {
       },
       footer: 'Kaydedilmiş dosyaların saklanması, yasal tutma (legal hold), silinmesi ve toplu dışa aktarımı platform yöneticisi tarafından Süper Yönetici → Ses ve Video → Kayıtlar altından yönetilir. Operatörler Çağrılar sayfasından kayıtları oynatabilir ve indirebilir.',
     },
+    layout: {
+      headerTitle: 'Çağrı Merkezi',
+      headerSubtitle: 'Bağımsız ses ve görüntü modülü — sohbetten ayrıdır.',
+      pill: {
+        loading: 'Yükleniyor…',
+        platformDisabled: 'Platform devre dışı',
+        workspaceDisabled: 'Çalışma alanı devre dışı',
+        providerMissing: 'Sağlayıcı eksik',
+        ready: 'Hazır',
+      },
+      presence: {
+        available: 'Müsait',
+        away: 'Uzakta',
+        setAvailable: 'Müsait Ol',
+      },
+      install: 'Kur',
+      tabs: {
+        overview: 'Genel bakış',
+        queue: 'Canlı Masa',
+        calls: 'Çağrılar',
+        callbacks: 'Geri arama',
+        recordings: 'Kayıtlar',
+        install: 'Widget kur',
+        settings: 'Ayarlar',
+      },
+    },
+    recordingsPage: {
+      title: 'Kayıtlar',
+      subtitle: 'Bu çalışma alanı için mevcut tüm çağrı kayıtları. Oynatma, indirme ve paylaşım bağlantıları yalnızca okunabilir.',
+      empty: 'Henüz kayıt yok. Çağrılar tamamlanıp dosyalar saklandığında kayıtlar burada görünecek.',
+      disabledByPlatform: 'Çağrı kaydı platform düzeyinde devre dışı. Bu çalışma alanı için kayıtlar kullanılamaz.',
+      loadFailed: 'Kayıtlar yüklenemedi',
+      filters: {
+        all: 'Tümü',
+        audio: 'Yalnızca ses',
+        video: 'Görüntü',
+      },
+      columns: {
+        when: 'Zaman',
+        visitor: 'Ziyaretçi',
+        type: 'Tür',
+        duration: 'Süre',
+        size: 'Boyut',
+        actions: 'Eylemler',
+      },
+      anonymous: 'Anonim',
+    },
     admin: {
       recording: {
         title: 'Platform kayıt ayarları',

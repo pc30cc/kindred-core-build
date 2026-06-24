@@ -13,6 +13,7 @@ export function usePlans() {
         .from('billing_plans')
         .select('*')
         .eq('is_active', true)
+        .eq('is_hidden', false)
         .order('sort_order');
       if (error) throw error;
       return data ?? [];
@@ -125,7 +126,8 @@ export function useCreatePlan() {
         name: plan.name, slug: plan.slug, description: plan.description || null,
         prices: plan.prices || {}, entitlements: plan.entitlements || {}, limits: plan.limits || {},
         localized: plan.localized || {}, is_free: plan.is_free || false,
-        is_active: plan.is_active !== false, sort_order: plan.sort_order || 0,
+        is_active: plan.is_active !== false, is_hidden: plan.is_hidden === true,
+        sort_order: plan.sort_order || 0,
         trial_days: plan.trial_days || 0, default_currency: plan.default_currency || 'USD',
         provider_price_ids: plan.provider_price_ids || {},
       }).select().single();

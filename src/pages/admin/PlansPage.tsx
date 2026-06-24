@@ -54,7 +54,7 @@ interface LocalizedPlan { name: string; description: string; }
 
 interface PlanFormData {
   name: string; slug: string; description: string;
-  is_free: boolean; is_active: boolean; sort_order: number; trial_days: number;
+  is_free: boolean; is_active: boolean; is_hidden: boolean; sort_order: number; trial_days: number;
   default_currency: string;
   prices: Record<string, { monthly: number; yearly: number }>;
   entitlements: Record<string, boolean>;
@@ -115,6 +115,7 @@ function buildFormFromRegistry(
   return {
     name: plan?.name || '', slug: plan?.slug || '', description: plan?.description || '',
     is_free: plan?.is_free || false, is_active: plan ? plan.is_active !== false : true,
+    is_hidden: plan?.is_hidden || false,
     sort_order: plan?.sort_order || 0, trial_days: plan?.trial_days || 0,
     default_currency: plan?.default_currency || 'USD',
     prices: {
@@ -132,7 +133,7 @@ function buildFormFromRegistry(
 function formToPayload(form: PlanFormData) {
   return {
     name: form.name, slug: form.slug, description: form.description,
-    is_free: form.is_free, is_active: form.is_active,
+    is_free: form.is_free, is_active: form.is_active, is_hidden: form.is_hidden,
     sort_order: form.sort_order, trial_days: form.trial_days,
     default_currency: form.default_currency,
     prices: form.prices,
@@ -306,6 +307,10 @@ function PlanFormDialog({
               <div className="flex items-center gap-2">
                 <Switch checked={form.is_active} onCheckedChange={(v) => setForm((f) => ({ ...f, is_active: v }))} />
                 <Label>Active</Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Switch checked={form.is_hidden} onCheckedChange={(v) => setForm((f) => ({ ...f, is_hidden: v }))} />
+                <Label>Hidden from users</Label>
               </div>
             </div>
           </div>
@@ -1032,6 +1037,7 @@ export default function AdminPlansPage() {
                               <Badge variant="outline" className="text-[10px] font-mono">{plan.slug}</Badge>
                               {plan.is_free && <Badge variant="secondary" className="text-[10px]">Free</Badge>}
                               {plan.trial_days > 0 && <Badge variant="outline" className="text-[10px]">{plan.trial_days}d trial</Badge>}
+                              {plan.is_hidden && <Badge variant="outline" className="text-[10px] border-purple-500/40 text-purple-600">Hidden</Badge>}
                               {legacyCount > 0 && <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-600">{legacyCount} legacy</Badge>}
                             </div>
                             <CardDescription className="text-xs mt-0.5">{plan.description || 'No description'}</CardDescription>

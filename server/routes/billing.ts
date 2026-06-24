@@ -30,6 +30,8 @@ billingRouter.get('/plans', async (req, res) => {
   const { data, error } = await supabase
     .from('billing_plans')
     .select('*')
+    .eq('is_active', true)
+    .eq('is_hidden', false)
     .order('sort_order', { ascending: true });
   if (error) return res.status(500).json({ error: error.message });
 
@@ -47,6 +49,9 @@ billingRouter.get('/status/:workspaceId', async (req, res) => {
   const { url, key } = getConfig(req);
   const { workspaceId } = req.params;
   const supabase = createClient(url, key);
+
+  // Lazy-flip stale trials to "expired" so downstream UI/queries see correct status.
+  try { await supabase.rpc('expire_stale_trials' as any); } catch { /* non-fatal */ }
 
   const { data: sub } = await supabase
     .from('workspace_subscriptions')

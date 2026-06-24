@@ -964,6 +964,7 @@ const tr: TranslationKeys = {
       effectiveOff: 'Çağrı kaydı şu anda etkin DEĞİL — yeni çağrılar kaydedilmeyecek.',
       reason: {
         platform_disabled: 'Çağrı kaydı platform seviyesinde kapalı. Platform yöneticisinden Süper Yönetici → Çağrı Merkezi bölümünde kaydı açmasını isteyin.',
+        plan_forbidden: 'Çağrı kaydı bu çalışma alanının mevcut planına dahil değil. Etkinleştirmek için planı yükseltin veya platform yöneticisiyle iletişime geçin.',
         workspace_disabled: 'Bu çalışma alanında kayıt kapalı. Gelecekteki çağrıları kaydetmek için aşağıdaki "Kayıt etkin" anahtarını açın.',
         provider_not_supported: 'Bu çalışma alanının aktif çağrı sağlayıcısı kaydı desteklemiyor. Sağlayıcıyı Süper Yönetici → Ses ve Video altından değiştirin.',
         provider_not_configured: 'Kayıt sağlayıcısı gerekli yapılandırmaya sahip değil (örn. LiveKit egress depolama bilgileri eksik). Süper Yönetici → Ses ve Video altından yapılandırın.',
@@ -971,6 +972,7 @@ const tr: TranslationKeys = {
       },
       gate: {
         platform: 'Platform kayda izin veriyor',
+        plan: 'Plan çağrı kaydını içeriyor',
         workspace: 'Çalışma alanı etkin',
         provider_support: 'Sağlayıcı kaydı destekliyor',
         provider_config: 'Sağlayıcı yapılandırıldı (depolama / egress)',

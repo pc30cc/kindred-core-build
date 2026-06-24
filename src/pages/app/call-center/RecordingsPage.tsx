@@ -164,7 +164,8 @@ export default function RecordingsPage() {
     recordings: WorkspaceRec[] | null;
   }>({ loading: true, error: null, recordings: null });
 
-  const recordingOn = !!caps?.recording?.enabled_by_platform;
+  const recordingOn =
+    !!caps?.recording?.enabled_by_platform && !!caps?.recording?.enabled_by_plan;
 
   useEffect(() => {
     if (!workspace?.id || !recordingOn) return;

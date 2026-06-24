@@ -976,6 +976,7 @@ const en = {
       effectiveOff: 'Recording is currently NOT effective — new calls will not be recorded.',
       reason: {
         platform_disabled: 'Recording is turned off at the platform level. Ask the platform admin to enable Call recording in super-admin → Call Center.',
+        plan_forbidden: 'Call recording is not included in this workspace\'s current plan. Upgrade the plan or contact the platform admin to enable it.',
         workspace_disabled: 'Recording is off for this workspace. Toggle "Recording enabled" below to start capturing future calls.',
         provider_not_supported: 'The active call provider for this workspace does not support recording. Switch provider in super-admin → Voice & Video.',
         provider_not_configured: 'Recording provider is missing required configuration (e.g. LiveKit egress storage credentials). Configure it in super-admin → Voice & Video.',
@@ -983,6 +984,7 @@ const en = {
       },
       gate: {
         platform: 'Platform allows recording',
+        plan: 'Plan includes recording',
         workspace: 'Workspace enabled',
         provider_support: 'Provider supports recording',
         provider_config: 'Provider configured (storage / egress)',

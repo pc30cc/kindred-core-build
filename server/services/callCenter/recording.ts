@@ -14,6 +14,7 @@
 import type { ServerConfig } from '../../config.js';
 import { loadLiveKitConfig } from '../calls/livekitConfig.js';
 import { resolveEffectiveCallProvider } from '../calls/providerResolver.js';
+import { checkEntitlementFromDB } from '../../middleware/featureGating.js';
 import type {
   PlatformCallCenterSettings,
   WorkspaceCallCenterSettings,
@@ -21,6 +22,7 @@ import type {
 
 export interface RecordingCapability {
   enabled_by_platform: boolean;
+  enabled_by_plan: boolean;
   enabled_by_workspace: boolean;
   consent_required: boolean;
   provider_supported: boolean;
@@ -31,6 +33,7 @@ export interface RecordingCapability {
 
 const EMPTY_DISABLED: RecordingCapability = {
   enabled_by_platform: false,
+  enabled_by_plan: false,
   enabled_by_workspace: false,
   consent_required: false,
   provider_supported: false,
@@ -48,6 +51,20 @@ export async function computeRecordingCapability(
   const enabled_by_platform = !!platform.call_recording_enabled;
   const enabled_by_workspace = !!workspace.recording_enabled;
   const consent_required = !!workspace.recording_consent_required;
+
+  // Plan-level entitlement. Fail closed on RPC error.
+  let enabled_by_plan = false;
+  try {
+    const r = await checkEntitlementFromDB(
+      config.supabaseUrl,
+      config.supabaseServiceRoleKey,
+      workspaceId,
+      'call_recording',
+    );
+    enabled_by_plan = !!r.allowed;
+  } catch {
+    enabled_by_plan = false;
+  }
 
   let provider_supported = false;
   let providerId: string | null = null;
@@ -82,16 +99,18 @@ export async function computeRecordingCapability(
 
   let reason: string | undefined;
   if (!enabled_by_platform) reason = 'platform_disabled';
+  else if (!enabled_by_plan) reason = 'plan_forbidden';
   else if (!enabled_by_workspace) reason = 'workspace_disabled';
   else if (!provider_supported) reason = 'provider_not_supported';
   else if (!provider_configured) reason = 'provider_not_configured';
 
   const effective_enabled =
-    enabled_by_platform && enabled_by_workspace
+    enabled_by_platform && enabled_by_plan && enabled_by_workspace
     && provider_supported && provider_configured;
 
   return {
     enabled_by_platform,
+    enabled_by_plan,
     enabled_by_workspace,
     consent_required,
     provider_supported,

@@ -122,6 +122,7 @@ export interface CallCenterEffectiveCaps {
 
 export interface RecordingCapability {
   enabled_by_platform: boolean;
+  enabled_by_plan: boolean;
   enabled_by_workspace: boolean;
   consent_required: boolean;
   provider_supported: boolean;

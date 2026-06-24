@@ -30,6 +30,7 @@ import { InviteWaitDialog } from './InviteWaitDialog';
 import { useLocalMediaPreview, type LocalPreviewState } from '@/hooks/useLocalMediaPreview';
 import { useOperatorCall } from '@/features/calls/OperatorCallContext';
 import { VideoCallStage, AudioCallStage } from '@/features/calls/CallStage';
+import { useWorkspaceEffectiveEntitlements } from '@/hooks/useEntitlements';
 import {
   CALL_VIDEO_ORIENTATION_CORRECTION_MODE,
   CALL_VIDEO_STYLE,
@@ -78,6 +79,25 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
   const [, forceTick] = useState(0);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [dialogChannel, setDialogChannel] = useState<InvitationChannel | null>(null);
+
+  // ── Plan-level entitlement gating ────────────────────────────────────
+  // Drives visibility/disabled-state of the Audio/Video invite buttons
+  // and the surrounding card. Server still enforces (returns 403
+  // plan_forbidden / limit_reached), but the UI honors the effective
+  // state up-front so operators don't see an Apply button they can't use.
+  const { data: entitlements } = useWorkspaceEffectiveEntitlements(workspaceId);
+  const planVoiceVideoEnabled = entitlements?.modules?.voice_video?.value !== false;
+  const planVoiceEnabled = entitlements?.channels?.voice?.value !== false;
+  const planVideoEnabled = entitlements?.channels?.video?.value !== false;
+  // Numeric limits — only block when entitlements are loaded AND a finite cap is set AND usage >= cap.
+  const concurrentCallsLimit = entitlements?.limits?.max_concurrent_calls?.value ?? null;
+  const concurrentCallsUsed = (entitlements?.usage as Record<string, { value?: number }> | null | undefined)?.max_concurrent_calls?.value ?? 0;
+  const concurrentReached =
+    typeof concurrentCallsLimit === 'number' && concurrentCallsLimit !== -1 && concurrentCallsUsed >= concurrentCallsLimit;
+  const callMinutesLimit = entitlements?.limits?.max_call_minutes_per_month?.value ?? null;
+  const callMinutesUsed = (entitlements?.usage as Record<string, { value?: number }> | null | undefined)?.max_call_minutes_per_month?.value ?? 0;
+  const minutesReached =
+    typeof callMinutesLimit === 'number' && callMinutesLimit !== -1 && callMinutesUsed >= callMinutesLimit;
 
   // Notify parent when an active call belongs to this conversation.
   useEffect(() => {
@@ -163,7 +183,15 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
   const isPending = latest?.status === 'pending';
   const isTerminal = !!latest && !isPending;
   const lastChannel: InvitationChannel = latest?.channel === 'video' ? 'video' : 'audio';
-  const disableInvites = loading || creating !== null || isPending || surface.phase !== 'idle';
+  const planBlocked = !planVoiceVideoEnabled;
+  const limitBlocked = concurrentReached || minutesReached;
+  const disableAudio =
+    loading || creating !== null || isPending || surface.phase !== 'idle'
+    || planBlocked || !planVoiceEnabled || limitBlocked;
+  const disableVideo =
+    loading || creating !== null || isPending || surface.phase !== 'idle'
+    || planBlocked || !planVideoEnabled || limitBlocked;
+  const disableInvites = disableAudio && disableVideo;
 
   // Surface belongs to THIS conversation?
   const surfaceMatches = surface.phase !== 'idle' && surface.conversationId === conversationId;
@@ -536,9 +564,15 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
               variant="outline"
               className="h-8 px-2 text-[11px] font-semibold gap-1.5 hover:bg-warning/5 hover:border-warning/40 hover:text-warning transition-colors"
               onClick={() => openInviteDialog('audio')}
-              disabled={disableInvites}
+              disabled={disableAudio}
               aria-label={t('inbox.callInvite.audioAria') || 'Invite visitor to an audio call'}
-              title={t('inbox.callInvite.inviteAudio') || 'Invite to audio'}
+              title={
+                planBlocked ? safeT('inbox.sidebarCall.planBlocked', 'Voice & Video is not included in your plan')
+                : !planVoiceEnabled ? safeT('inbox.sidebarCall.voiceLocked', 'Voice calls are not included in your plan')
+                : concurrentReached ? safeT('inbox.sidebarCall.limitConcurrent', 'Concurrent call limit reached on your plan')
+                : minutesReached ? safeT('inbox.sidebarCall.limitMinutes', 'Monthly call minutes exhausted')
+                : (t('inbox.callInvite.inviteAudio') || 'Invite to audio')
+              }
             >
               {creating === 'audio'
                 ? <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
@@ -550,9 +584,15 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
               variant="outline"
               className="h-8 px-2 text-[11px] font-semibold gap-1.5 hover:bg-violet-500/5 hover:border-violet-500/40 hover:text-violet-600 dark:hover:text-violet-400 transition-colors"
               onClick={() => openInviteDialog('video')}
-              disabled={disableInvites}
+              disabled={disableVideo}
               aria-label={t('inbox.callInvite.videoAria') || 'Invite visitor to a video call'}
-              title={t('inbox.callInvite.inviteVideo') || 'Invite to video'}
+              title={
+                planBlocked ? safeT('inbox.sidebarCall.planBlocked', 'Voice & Video is not included in your plan')
+                : !planVideoEnabled ? safeT('inbox.sidebarCall.videoLocked', 'Video calls are not included in your plan')
+                : concurrentReached ? safeT('inbox.sidebarCall.limitConcurrent', 'Concurrent call limit reached on your plan')
+                : minutesReached ? safeT('inbox.sidebarCall.limitMinutes', 'Monthly call minutes exhausted')
+                : (t('inbox.callInvite.inviteVideo') || 'Invite to video')
+              }
             >
               {creating === 'video'
                 ? <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
@@ -561,7 +601,23 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
             </Button>
           </div>
 
-          {!isPending && !isTerminal && (
+          {(planBlocked || !planVoiceEnabled || !planVideoEnabled || limitBlocked) && (
+            <p className="text-[10px] text-warning leading-snug">
+              {planBlocked
+                ? safeT('inbox.sidebarCall.planBlocked', 'Voice & Video is not included in your plan')
+                : concurrentReached
+                  ? safeT('inbox.sidebarCall.limitConcurrent', 'Concurrent call limit reached on your plan')
+                  : minutesReached
+                    ? safeT('inbox.sidebarCall.limitMinutes', 'Monthly call minutes exhausted')
+                    : !planVoiceEnabled && !planVideoEnabled
+                      ? safeT('inbox.sidebarCall.channelsLocked', 'Voice/Video channels are not enabled on your plan')
+                      : !planVoiceEnabled
+                        ? safeT('inbox.sidebarCall.voiceLocked', 'Voice calls are not included in your plan')
+                        : safeT('inbox.sidebarCall.videoLocked', 'Video calls are not included in your plan')}
+            </p>
+          )}
+
+          {!isPending && !isTerminal && !planBlocked && !limitBlocked && planVoiceEnabled && planVideoEnabled && (
             <p className="text-[10px] text-muted-foreground leading-snug">
               {t('inbox.sidebarCall.hint') || 'Send an invitation — the visitor joins from their chat when ready.'}
             </p>

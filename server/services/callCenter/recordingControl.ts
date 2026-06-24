@@ -20,6 +20,8 @@ import {
   getOrCreateWorkspaceSettings,
   getPlatformCallCenterSettings,
 } from './settings.js';
+import { checkEntitlementFromDB } from '../../middleware/featureGating.js';
+import { resolveUsage } from '../billing/usageResolvers.js';
 
 export type RecordingType = 'composite' | 'individual' | 'audio_only';
 
@@ -34,7 +36,9 @@ export type RecordingControlError =
   | 'recording_not_active'
   | 'recording_finalizing'
   | 'recording_start_failed'
-  | 'recording_stop_failed';
+  | 'recording_stop_failed'
+  | 'recording_count_limit_reached'
+  | 'recording_storage_limit_reached';
 
 export class RecordingControlException extends Error {
   constructor(
@@ -205,6 +209,51 @@ export async function startCallCenterRecording(
   const meta = recMeta(call);
   if (cap.consent_required && !meta.consent_given) {
     throw new RecordingControlException('recording_consent_missing', 409);
+  }
+
+  // Plan-level numeric ceilings — count + storage. Lifetime occupancy
+  // semantics (deletes free capacity). -1 = unlimited.
+  try {
+    const countEnt = await checkEntitlementFromDB(
+      config.supabaseUrl,
+      config.supabaseServiceRoleKey,
+      args.workspaceId,
+      'max_call_recordings',
+    );
+    if (countEnt.limit !== undefined && countEnt.limit !== -1) {
+      const usage = await resolveUsage(config, args.workspaceId, 'max_call_recordings');
+      if (usage.supported && usage.value >= countEnt.limit) {
+        throw new RecordingControlException(
+          'recording_count_limit_reached',
+          403,
+          `limit=${countEnt.limit} used=${usage.value}`,
+        );
+      }
+    }
+    const sizeEnt = await checkEntitlementFromDB(
+      config.supabaseUrl,
+      config.supabaseServiceRoleKey,
+      args.workspaceId,
+      'max_call_recording_storage_mb',
+    );
+    if (sizeEnt.limit !== undefined && sizeEnt.limit !== -1) {
+      const usage = await resolveUsage(config, args.workspaceId, 'max_call_recording_storage_mb');
+      if (usage.supported && usage.value >= sizeEnt.limit) {
+        throw new RecordingControlException(
+          'recording_storage_limit_reached',
+          403,
+          `limit_mb=${sizeEnt.limit} used_mb=${usage.value}`,
+        );
+      }
+    }
+  } catch (e: any) {
+    if (e instanceof RecordingControlException) throw e;
+    // Fail-closed on entitlement RPC errors.
+    throw new RecordingControlException(
+      'recording_disabled',
+      403,
+      `entitlement_check_failed:${String(e?.message || e)}`,
+    );
   }
 
   // Room must exist + call must be in a recordable state.

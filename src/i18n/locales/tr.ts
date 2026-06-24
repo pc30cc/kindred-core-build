@@ -421,6 +421,12 @@ const tr: TranslationKeys = {
     // Kenar çubuğu arama kartı (eski kuyruk panelinin yerini alır)
     'sidebarCall.title': 'Ziyaretçiyi ara',
     'sidebarCall.hint': 'Bir davet gönderin — ziyaretçi hazır olduğunda kendi sohbetinden katılır.',
+    'sidebarCall.planBlocked': 'Sesli ve görüntülü arama planınıza dahil değil',
+    'sidebarCall.voiceLocked': 'Sesli aramalar planınıza dahil değil',
+    'sidebarCall.videoLocked': 'Görüntülü aramalar planınıza dahil değil',
+    'sidebarCall.channelsLocked': 'Ses/görüntü kanalları planınızda etkin değil',
+    'sidebarCall.limitConcurrent': 'Planınızın eşzamanlı arama sınırına ulaşıldı',
+    'sidebarCall.limitMinutes': 'Aylık arama dakika limitiniz tükendi',
   },
   contacts: {
     title: 'Kişiler',

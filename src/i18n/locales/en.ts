@@ -421,6 +421,12 @@ const en = {
     // Sidebar call card (replaces legacy queue dock)
     'sidebarCall.title': 'Call visitor',
     'sidebarCall.hint': 'Send an invitation — the visitor joins from their chat when ready.',
+    'sidebarCall.planBlocked': 'Voice & Video is not included in your plan',
+    'sidebarCall.voiceLocked': 'Voice calls are not included in your plan',
+    'sidebarCall.videoLocked': 'Video calls are not included in your plan',
+    'sidebarCall.channelsLocked': 'Voice/Video channels are not enabled on your plan',
+    'sidebarCall.limitConcurrent': 'Concurrent call limit reached on your plan',
+    'sidebarCall.limitMinutes': 'Monthly call minutes exhausted on your plan',
   },
   contacts: {
     title: 'Contacts',

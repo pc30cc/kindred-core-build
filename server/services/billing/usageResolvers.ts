@@ -372,6 +372,80 @@ async function resolveMaxCallMinutesPerMonth(
   };
 }
 
+/**
+ * `max_call_recordings` — lifetime occupancy of stored call recordings
+ * for the workspace. Live derived count(*) on `public.call_recordings`
+ * joined via the canonical FK `call_recordings.call_session_id ->
+ * call_sessions.id`. Cheap at expected cardinality (typically O(100s)
+ * per workspace) and naturally indexed by the FK.
+ *
+ * Deletes free capacity (occupancy, not throughput). -1 on the plan
+ * = unlimited.
+ */
+async function resolveMaxCallRecordings(
+  config: ServerConfig,
+  workspaceId: string,
+): Promise<UsageResolution> {
+  const sb = makeClient(config);
+  const { count, error } = await sb
+    .from('call_recordings')
+    .select('id, call_sessions!inner(workspace_id)', { count: 'exact', head: true })
+    .eq('call_sessions.workspace_id', workspaceId);
+  if (error) throw new Error(`max_call_recordings_count_failed:${error.message}`);
+  return {
+    value: typeof count === 'number' ? count : 0,
+    period: 'lifetime',
+    periodKind: 'lifetime',
+    source: 'derived_count',
+    isExact: true,
+    supported: true,
+    note: 'count(*) on call_recordings INNER JOIN call_sessions where workspace_id = $1',
+  };
+}
+
+/**
+ * `max_call_recording_storage_mb` — lifetime aggregate stored size of
+ * call recordings (MiB) for the workspace. Source:
+ * SUM(call_recordings.size_bytes) for rows whose owning call_session
+ * belongs to the workspace. Deletes free capacity.
+ */
+async function resolveMaxCallRecordingStorageMb(
+  config: ServerConfig,
+  workspaceId: string,
+): Promise<UsageResolution> {
+  const sb = makeClient(config);
+  // Page through rows to compute SUM(size_bytes). Recording counts per
+  // workspace are small (typically O(100s)); paging keeps memory bounded.
+  let totalBytes = 0;
+  const pageSize = 1000;
+  let from = 0;
+  for (;;) {
+    const { data, error } = await sb
+      .from('call_recordings')
+      .select('size_bytes, call_sessions!inner(workspace_id)')
+      .eq('call_sessions.workspace_id', workspaceId)
+      .range(from, from + pageSize - 1);
+    if (error) throw new Error(`max_call_recording_storage_mb_sum_failed:${error.message}`);
+    if (!data || data.length === 0) break;
+    for (const row of data) {
+      const b = (row as { size_bytes: number | null }).size_bytes;
+      if (typeof b === 'number' && Number.isFinite(b) && b > 0) totalBytes += b;
+    }
+    if (data.length < pageSize) break;
+    from += pageSize;
+  }
+  const mib = totalBytes / (1024 * 1024);
+  return {
+    value: Math.round(mib * 100) / 100,
+    period: 'lifetime',
+    periodKind: 'lifetime',
+    source: 'derived_sum',
+    isExact: true,
+    supported: true,
+    note: `SUM(size_bytes)=${totalBytes} bytes; converted to MiB`,
+  };
+}
+
 // ─── Limit key → resolver registry ──────────────────────────
 
 type Resolver = (config: ServerConfig, workspaceId: string) => Promise<UsageResolution>;
@@ -396,6 +470,8 @@ const RESOLVERS: Record<string, Resolver> = {
   max_agents: resolveMaxAgents,
   max_concurrent_calls: resolveMaxConcurrentCalls,
   max_call_minutes_per_month: resolveMaxCallMinutesPerMonth,
+  max_call_recordings: resolveMaxCallRecordings,
+  max_call_recording_storage_mb: resolveMaxCallRecordingStorageMb,
 };
 
 /**

@@ -421,6 +421,12 @@ const fa: TranslationKeys = {
     // کارت تماس در نوار کناری (جایگزین داک صف قدیمی)
     'sidebarCall.title': 'تماس با بازدیدکننده',
     'sidebarCall.hint': 'یک دعوت‌نامه ارسال کنید — بازدیدکننده هنگام آماده بودن از داخل چت خود می‌پیوندد.',
+    'sidebarCall.planBlocked': 'تماس صوتی و تصویری در پلن شما فعال نیست',
+    'sidebarCall.voiceLocked': 'تماس صوتی در پلن شما گنجانده نشده است',
+    'sidebarCall.videoLocked': 'تماس تصویری در پلن شما گنجانده نشده است',
+    'sidebarCall.channelsLocked': 'کانال‌های صوتی/تصویری در پلن شما فعال نیستند',
+    'sidebarCall.limitConcurrent': 'سقف تماس‌های همزمان پلن شما پر شده است',
+    'sidebarCall.limitMinutes': 'سقف دقایق تماس ماهانهٔ پلن شما تمام شده است',
   },
   contacts: {
     title: 'مخاطبین',

@@ -1993,8 +1993,8 @@ const tr: TranslationKeys = {
       },
     },
     knowledge: {
-      title: 'Bilgi Tabanı',
-      subtitle: 'AI Asistanınızın ziyaretçilere yanıt vermek için kullandığı kaynaklar. Daha iyi yanıtlar için içerik ekleyin veya güncelleyin.',
+      title: 'Bilgi Kaynakları',
+      subtitle: 'AI Asistanınızın yanıt vermek için kullandığı kaynakların durumu. Yardım makalelerini düzenlemek için "Yardım Makaleleri" sekmesini açın.',
       contactAdmin: 'Bilgi kaynaklarını eklemek veya değiştirmek için platform yöneticinizle iletişime geçin. Gelişmiş bilgi yönetimi yönetici araçlarında mevcuttur.',
       empty: 'Henüz {{type}} yok.',
       status: {

@@ -1933,6 +1933,32 @@ const tr: TranslationKeys = {
     sources: 'Kaynaklar',
     notVisibleToVisitor: 'Siz göndermeden ziyaretçi göremez',
     suggestionInserted: 'Yanıt kutusuna eklendi',
+    title: 'AI Asistanı',
+    section: { main: 'AI Asistanı' },
+    nav: {
+      overview: 'Genel Bakış',
+      knowledge: 'Bilgi Tabanı',
+      behavior: 'Davranış',
+      operatorAssist: 'Operatör Yardımı',
+      activity: 'Etkinlik',
+      settings: 'Ayarlar',
+    },
+  },
+  plan: {
+    locked: {
+      title: 'Bu bölüm mevcut planınızda kullanılamıyor',
+      message: 'Mevcut planınız {module} özelliğini içermiyor. Bu özelliği açmak için planınızı yükseltin.',
+      currentPlanLabel: 'Mevcut plan',
+      currentPlan: 'Ücretsiz plan',
+      action: 'Planı yükselt',
+      module: {
+        ai_assistant: 'AI Asistanı',
+        call_center: 'Çağrı Merkezi',
+        knowledge_base: 'Bilgi Tabanı',
+        visitor_tracking: 'Canlı Ziyaretçiler',
+        contacts: 'Kişiler',
+      },
+    },
   },
 };
 

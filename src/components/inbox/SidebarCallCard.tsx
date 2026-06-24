@@ -564,9 +564,15 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
               variant="outline"
               className="h-8 px-2 text-[11px] font-semibold gap-1.5 hover:bg-warning/5 hover:border-warning/40 hover:text-warning transition-colors"
               onClick={() => openInviteDialog('audio')}
-              disabled={disableInvites}
+              disabled={disableAudio}
               aria-label={t('inbox.callInvite.audioAria') || 'Invite visitor to an audio call'}
-              title={t('inbox.callInvite.inviteAudio') || 'Invite to audio'}
+              title={
+                planBlocked ? safeT('inbox.sidebarCall.planBlocked', 'Voice & Video is not included in your plan')
+                : !planVoiceEnabled ? safeT('inbox.sidebarCall.voiceLocked', 'Voice calls are not included in your plan')
+                : concurrentReached ? safeT('inbox.sidebarCall.limitConcurrent', 'Concurrent call limit reached on your plan')
+                : minutesReached ? safeT('inbox.sidebarCall.limitMinutes', 'Monthly call minutes exhausted')
+                : (t('inbox.callInvite.inviteAudio') || 'Invite to audio')
+              }
             >
               {creating === 'audio'
                 ? <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
@@ -578,9 +584,15 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
               variant="outline"
               className="h-8 px-2 text-[11px] font-semibold gap-1.5 hover:bg-violet-500/5 hover:border-violet-500/40 hover:text-violet-600 dark:hover:text-violet-400 transition-colors"
               onClick={() => openInviteDialog('video')}
-              disabled={disableInvites}
+              disabled={disableVideo}
               aria-label={t('inbox.callInvite.videoAria') || 'Invite visitor to a video call'}
-              title={t('inbox.callInvite.inviteVideo') || 'Invite to video'}
+              title={
+                planBlocked ? safeT('inbox.sidebarCall.planBlocked', 'Voice & Video is not included in your plan')
+                : !planVideoEnabled ? safeT('inbox.sidebarCall.videoLocked', 'Video calls are not included in your plan')
+                : concurrentReached ? safeT('inbox.sidebarCall.limitConcurrent', 'Concurrent call limit reached on your plan')
+                : minutesReached ? safeT('inbox.sidebarCall.limitMinutes', 'Monthly call minutes exhausted')
+                : (t('inbox.callInvite.inviteVideo') || 'Invite to video')
+              }
             >
               {creating === 'video'
                 ? <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
@@ -589,7 +601,23 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
             </Button>
           </div>
 
-          {!isPending && !isTerminal && (
+          {(planBlocked || !planVoiceEnabled || !planVideoEnabled || limitBlocked) && (
+            <p className="text-[10px] text-warning leading-snug">
+              {planBlocked
+                ? safeT('inbox.sidebarCall.planBlocked', 'Voice & Video is not included in your plan')
+                : concurrentReached
+                  ? safeT('inbox.sidebarCall.limitConcurrent', 'Concurrent call limit reached on your plan')
+                  : minutesReached
+                    ? safeT('inbox.sidebarCall.limitMinutes', 'Monthly call minutes exhausted')
+                    : !planVoiceEnabled && !planVideoEnabled
+                      ? safeT('inbox.sidebarCall.channelsLocked', 'Voice/Video channels are not enabled on your plan')
+                      : !planVoiceEnabled
+                        ? safeT('inbox.sidebarCall.voiceLocked', 'Voice calls are not included in your plan')
+                        : safeT('inbox.sidebarCall.videoLocked', 'Video calls are not included in your plan')}
+            </p>
+          )}
+
+          {!isPending && !isTerminal && !planBlocked && !limitBlocked && planVoiceEnabled && planVideoEnabled && (
             <p className="text-[10px] text-muted-foreground leading-snug">
               {t('inbox.sidebarCall.hint') || 'Send an invitation — the visitor joins from their chat when ready.'}
             </p>

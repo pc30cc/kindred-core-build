@@ -1,34 +1,19 @@
 import { useQuery } from '@tanstack/react-query';
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { aiAgentApi } from '@/lib/ai-agent-api';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, BookOpen, MessageCircleQuestion, Globe, FileText, GraduationCap, BookMarked } from 'lucide-react';
+import { Loader2, BookOpen, MessageCircleQuestion, Globe, FileText, GraduationCap, BookMarked, Info } from 'lucide-react';
+import { useTranslation } from '@/i18n';
 
-const FRIENDLY_REASONS: Record<string, string> = {
-  disabled_qna: 'Disabled Q&A',
-  draft_kb: 'Draft article',
-  file_not_active: 'File not active',
-  website_not_active: 'Website not active',
-  candidate_not_approved: 'Learned answer not approved',
-  no_active_chunks: 'Not indexed yet',
-  embedding_missing: 'Processing not complete',
-  source_missing: 'Source missing',
-};
-
-function friendlyReason(code?: string | null) {
-  if (!code) return null;
-  return FRIENDLY_REASONS[code] || 'Needs attention';
-}
-
-function statusLabel(item: any): { label: string; tone: 'green' | 'amber' | 'red' | 'muted' | 'blue' } {
-  if (item.eligible === true) return { label: 'Ready', tone: 'green' };
+function statusKey(item: any): { key: 'ready' | 'indexing' | 'disabled' | 'needsAttention' | 'failed'; tone: 'green' | 'amber' | 'red' | 'muted' | 'blue' } {
+  if (item.eligible === true) return { key: 'ready', tone: 'green' };
   const r = item.reason || item.last_reason;
-  if (r === 'no_active_chunks' || r === 'embedding_missing') return { label: 'Indexing', tone: 'blue' };
-  if (r === 'disabled_qna' || r === 'file_not_active' || r === 'website_not_active') return { label: 'Disabled', tone: 'muted' };
-  if (r === 'draft_kb' || r === 'candidate_not_approved') return { label: 'Needs attention', tone: 'amber' };
-  if (r === 'source_missing') return { label: 'Failed', tone: 'red' };
-  return { label: 'Needs attention', tone: 'amber' };
+  if (r === 'no_active_chunks' || r === 'embedding_missing') return { key: 'indexing', tone: 'blue' };
+  if (r === 'disabled_qna' || r === 'file_not_active' || r === 'website_not_active') return { key: 'disabled', tone: 'muted' };
+  if (r === 'draft_kb' || r === 'candidate_not_approved') return { key: 'needsAttention', tone: 'amber' };
+  if (r === 'source_missing') return { key: 'failed', tone: 'red' };
+  return { key: 'needsAttention', tone: 'amber' };
 }
 
 const TONE: Record<string, string> = {
@@ -39,17 +24,22 @@ const TONE: Record<string, string> = {
   blue: 'bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-500/30',
 };
 
-const SOURCE_GROUPS: Array<{ key: string; title: string; icon: any }> = [
-  { key: 'qna', title: 'Q&A', icon: MessageCircleQuestion },
-  { key: 'website', title: 'Website Pages', icon: Globe },
-  { key: 'file', title: 'Files', icon: FileText },
-  { key: 'kb_article', title: 'KB Articles', icon: BookMarked },
-  { key: 'learning_candidate', title: 'Learned Answers', icon: GraduationCap },
+const SOURCE_GROUPS: Array<{ key: 'qna' | 'website' | 'file' | 'kb_article' | 'learning_candidate'; icon: any; tone: string }> = [
+  { key: 'qna', icon: MessageCircleQuestion, tone: 'bg-amber-500/10 text-amber-600 ring-amber-500/20' },
+  { key: 'website', icon: Globe, tone: 'bg-sky-500/10 text-sky-600 ring-sky-500/20' },
+  { key: 'file', icon: FileText, tone: 'bg-violet-500/10 text-violet-600 ring-violet-500/20' },
+  { key: 'kb_article', icon: BookMarked, tone: 'bg-emerald-500/10 text-emerald-600 ring-emerald-500/20' },
+  { key: 'learning_candidate', icon: GraduationCap, tone: 'bg-rose-500/10 text-rose-600 ring-rose-500/20' },
 ];
 
 export default function KnowledgePage() {
   const { workspace } = useActiveWorkspace();
   const wsId = workspace?.id;
+  const { t, dir } = useTranslation();
+  const tr = (k: string, fb: string, vars?: Record<string, string>) => {
+    const v = t(`aiAgent.knowledge.${k}` as any, vars);
+    return !v || v === `aiAgent.knowledge.${k}` ? fb : v;
+  };
 
   const health = useQuery({
     queryKey: ['ai-knowledge', wsId],
@@ -61,49 +51,59 @@ export default function KnowledgePage() {
   const items: any[] = (health.data?.items || []) as any[];
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2.5">
-          <BookOpen className="h-5 w-5 text-primary" /> Knowledge
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1.5">
-          Sources your AI Agent uses to answer visitors. Add or update content to improve answers.
-        </p>
+    <div className="space-y-8" dir={dir}>
+      <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-6 sm:p-8">
+        <div className="pointer-events-none absolute -top-16 -end-16 h-56 w-56 rounded-full bg-primary/20 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-20 -start-10 h-48 w-48 rounded-full bg-primary/10 blur-3xl" />
+        <div className="relative flex items-start gap-4">
+          <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-primary to-primary/60 shadow-lg shadow-primary/30 flex items-center justify-center shrink-0">
+            <BookOpen className="h-6 w-6 text-primary-foreground" />
+          </div>
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{tr('title', 'Knowledge')}</h1>
+            <p className="text-sm text-muted-foreground mt-1.5 max-w-xl">{tr('subtitle', 'Sources your AI Agent uses to answer visitors.')}</p>
+          </div>
+        </div>
       </div>
 
-      <Card>
-        <CardContent className="py-4 text-sm text-muted-foreground">
-          To add or change knowledge sources, contact your platform admin. Advanced
-          knowledge management is available from the admin tools.
+      <Card className="border-sky-500/30 bg-sky-500/5">
+        <CardContent className="py-4 text-sm text-foreground/80 flex items-start gap-3">
+          <Info className="h-4 w-4 text-sky-500 shrink-0 mt-0.5" />
+          <span>{tr('contactAdmin', 'To add or change knowledge sources, contact your platform admin.')}</span>
         </CardContent>
       </Card>
 
       {health.isLoading ? (
         <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
       ) : (
-        <div className="space-y-4">
+        <div className="grid gap-4">
           {SOURCE_GROUPS.map((g) => {
             const groupItems = items.filter((it) => (it.source_type || it.kind) === g.key);
+            const title = tr(`source.${g.key}`, g.key);
             return (
-              <Card key={g.key}>
-                <CardHeader>
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <g.icon className="h-4 w-4 text-muted-foreground" /> {g.title}
-                    <Badge variant="outline" className="ml-2 text-[10px]">{groupItems.length}</Badge>
+              <Card key={g.key} className="overflow-hidden border-border/60 hover:shadow-md transition-shadow">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2.5">
+                    <span className={`h-8 w-8 rounded-lg flex items-center justify-center ring-1 ${g.tone}`}>
+                      <g.icon className="h-4 w-4" />
+                    </span>
+                    <span className="flex-1">{title}</span>
+                    <Badge variant="outline" className="text-[10px] tabular-nums">{groupItems.length}</Badge>
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
                   {groupItems.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">No {g.title.toLowerCase()} yet.</p>
+                    <p className="text-xs text-muted-foreground italic">{tr('empty', `No ${title} yet.`, { type: title })}</p>
                   ) : (
-                    <div className="space-y-1.5">
+                    <div className="space-y-1">
                       {groupItems.slice(0, 25).map((it: any, idx: number) => {
-                        const s = statusLabel(it);
+                        const s = statusKey(it);
                         const updated = it.updated_at || it.last_indexed_at;
-                        const friendly = friendlyReason(it.reason || it.last_reason);
+                        const code = it.reason || it.last_reason;
+                        const friendly = code ? tr(`reason.${code}`, tr('reason.default', 'Needs attention')) : null;
                         return (
-                          <div key={(it.source_id || it.id || idx) + ''} className="flex items-center gap-2 py-1.5 border-b last:border-b-0 text-sm">
-                            <span className="flex-1 truncate font-medium">{it.title || it.name || '(untitled)'}</span>
+                          <div key={(it.source_id || it.id || idx) + ''} className="flex items-center gap-2 py-2 px-2 -mx-2 rounded-md text-sm hover:bg-accent/40 transition-colors border-b border-border/40 last:border-b-0">
+                            <span className="flex-1 truncate font-medium">{it.title || it.name || tr('untitled', '(untitled)')}</span>
                             {friendly && s.tone !== 'green' && (
                               <span className="text-[11px] text-muted-foreground hidden md:inline">{friendly}</span>
                             )}
@@ -112,7 +112,7 @@ export default function KnowledgePage() {
                                 {new Date(updated).toLocaleDateString()}
                               </span>
                             )}
-                            <Badge variant="outline" className={`text-[10px] ${TONE[s.tone]}`}>{s.label}</Badge>
+                            <Badge variant="outline" className={`text-[10px] ${TONE[s.tone]}`}>{tr(`status.${s.key}`, s.key)}</Badge>
                           </div>
                         );
                       })}

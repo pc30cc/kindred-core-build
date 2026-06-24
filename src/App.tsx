@@ -66,6 +66,7 @@ import AiAgentOperatorAssistAnalyticsPage from "@/pages/app/ai-agent/OperatorAss
 import AiAgentSuggestedTestsPage from "@/pages/app/ai-agent/SuggestedTestsPage";
 import AiAgentRegressionRunsPage from "@/pages/app/ai-agent/RegressionRunsPage";
 import AiAgentKnowledgePage from "@/pages/app/ai-agent/KnowledgePage";
+import AiAgentArticlesPage from "@/pages/app/ai-agent/ArticlesPage";
 import AiAgentBehaviorPage from "@/pages/app/ai-agent/BehaviorPage";
 import AiAgentOperatorAssistPage from "@/pages/app/ai-agent/OperatorAssistPage";
 import AiAgentActivityPage from "@/pages/app/ai-agent/ActivityPage";
@@ -262,13 +263,16 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                   <Route path="team-departments" element={<TeamDepartmentsPage />} />
                   <Route path="staff-access" element={<StaffAccessPage />} />
                   <Route path="privacy-requests" element={<PrivacyRequestsPage />} />
-                  <Route path="knowledge-base" element={<PlanLockedOverlay moduleKey="knowledge_base"><KnowledgeBasePage /></PlanLockedOverlay>} />
+                  {/* KB unification (Phase 3): the old settings entry now redirects
+                      into the AI Agent Articles tab — the single source of truth. */}
+                  <Route path="knowledge-base" element={<Navigate to="../ai-agent/articles" replace />} />
                 </Route>
                 {/* AI Agent — Phase 1 foundation. Separate layout with its own sidebar. */}
                 <Route path="ai-agent" element={<AiAgentLayout />}>
                   <Route index element={<Navigate to="overview" replace />} />
                   <Route path="overview" element={<AiAgentOverviewPage />} />
                   <Route path="knowledge" element={<AiAgentKnowledgePage />} />
+                  <Route path="articles" element={<PlanLockedOverlay moduleKey="knowledge_base"><AiAgentArticlesPage /></PlanLockedOverlay>} />
                   <Route path="behavior" element={<AiAgentBehaviorPage />} />
                   <Route path="operator-assist" element={<AiAgentOperatorAssistPage />} />
                   <Route path="activity" element={<AiAgentActivityPage />} />
@@ -305,7 +309,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 {/* Backwards-compat redirects: legacy URLs → settings */}
                 <Route path="team" element={<Navigate to="../settings/team-departments" replace />} />
                 <Route path="privacy-requests" element={<Navigate to="../settings/privacy-requests" replace />} />
-                <Route path="knowledge-base" element={<Navigate to="../settings/knowledge-base" replace />} />
+                <Route path="knowledge-base" element={<Navigate to="../ai-agent/articles" replace />} />
                 <Route path="ai" element={<Navigate to="../settings/ai" replace />} />
               </Route>
 

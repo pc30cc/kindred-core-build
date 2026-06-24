@@ -483,7 +483,9 @@ export default function AdminCallCenterPage() {
           <Button onClick={save} disabled={update.isPending}>{t('callCenter.adminPage.ringback.saveBtn')}</Button>
         </div>
       </Card>
+      </TabsContent>
 
+      <TabsContent value="languages" className="space-y-4 mt-0">
       <Card className="p-5 space-y-4">
         <div className="flex items-start gap-2">
           <Languages className="h-5 w-5 text-primary mt-0.5" />
@@ -565,7 +567,9 @@ export default function AdminCallCenterPage() {
           <Button onClick={save} disabled={update.isPending}>{t('callCenter.adminPage.languages.saveBtn')}</Button>
         </div>
       </Card>
+      </TabsContent>
 
+      <TabsContent value="livekit" className="space-y-4 mt-0">
       <Card className="p-5 space-y-3">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div>
@@ -609,7 +613,9 @@ export default function AdminCallCenterPage() {
           </div>
         )}
       </Card>
+      </TabsContent>
 
+      <TabsContent value="workspaces" className="space-y-4 mt-0">
       <Card className="p-5">
         <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
           <h2 className="font-semibold">{t('callCenter.adminPage.workspacesPanel.title')}</h2>
@@ -658,7 +664,9 @@ export default function AdminCallCenterPage() {
           </table>
         </div>
       </Card>
+      </TabsContent>
 
+      <TabsContent value="retention" className="space-y-4 mt-0">
       <Card className="p-5 space-y-3">
         <div className="flex items-start gap-2">
           <ShieldAlert className="h-5 w-5 text-primary mt-0.5" />
@@ -669,6 +677,13 @@ export default function AdminCallCenterPage() {
         </div>
         <RecordingRetentionPanel />
       </Card>
+      </TabsContent>
+      </Tabs>
+
+      <div className="flex gap-2 sticky bottom-4 z-10 bg-background/95 backdrop-blur p-2 rounded-md border shadow-sm">
+        <Button onClick={save} disabled={update.isPending}>{t('callCenter.adminPage.buttons.savePlatform')}</Button>
+        <Button variant="outline" onClick={invalidate}>{t('callCenter.adminPage.buttons.invalidateCache')}</Button>
+      </div>
     </div>
   );
 }

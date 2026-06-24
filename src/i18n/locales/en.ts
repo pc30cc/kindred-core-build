@@ -2032,7 +2032,7 @@ const en = {
         deleting: 'Deleting file...',
         deleteSuccess: 'File deleted.',
         deleteError: 'Delete failed',
-          owner_or_admin_required: 'Only workspace owners or admins can upload files.',
+          error: {
           storage_not_configured: 'No storage provider is configured for this workspace.',
           storage_not_ready: 'The configured storage provider is not ready.',
           unsupported_file_type: 'This file type is not supported.',

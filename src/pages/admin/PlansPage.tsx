@@ -247,16 +247,30 @@ function PlanFormDialog({
   );
 
   return (
-    <div className="flex flex-col max-h-[75vh]">
-      <div className="flex gap-1 border-b border-border pb-2 mb-4 overflow-x-auto">
-        {sections.map((s) => (
-          <Button key={s.id} variant={activeSection === s.id ? 'default' : 'ghost'} size="sm" className="text-xs shrink-0" onClick={() => setActiveSection(s.id)}>
-            {s.label}
-          </Button>
-        ))}
-      </div>
+    <div className="flex flex-col md:flex-row flex-1 min-h-0 overflow-hidden">
+      {/* Sidebar nav */}
+      <aside className="md:w-56 shrink-0 border-b md:border-b-0 md:border-e border-border bg-muted/30 p-2 md:p-3 overflow-x-auto md:overflow-y-auto">
+        <nav className="flex md:flex-col gap-1">
+          {sections.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => setActiveSection(s.id)}
+              className={`text-start text-xs px-3 py-2 rounded-md whitespace-nowrap transition-colors ${
+                activeSection === s.id
+                  ? 'bg-primary text-primary-foreground font-medium shadow-sm'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+              }`}
+            >
+              {s.label}
+            </button>
+          ))}
+        </nav>
+      </aside>
 
-      <div className="overflow-y-auto flex-1 pr-1 space-y-4">
+      {/* Body + footer */}
+      <div className="flex-1 min-w-0 flex flex-col">
+        <div className="flex-1 overflow-y-auto p-5 space-y-4 min-h-0">
         {activeSection === 'general' && (
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
@@ -446,13 +460,15 @@ function PlanFormDialog({
             ))}
           </div>
         )}
-      </div>
+        </div>
 
-      <div className="pt-4 border-t border-border mt-4">
-        <Button onClick={handleSubmit} disabled={isPending} className="w-full">
-          {isPending && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-          {isEdit ? 'Update Plan' : 'Create Plan'}
-        </Button>
+        <div className="border-t border-border px-5 py-3 bg-background flex items-center justify-end gap-2">
+          <Button variant="outline" onClick={onClose} disabled={isPending}>Cancel</Button>
+          <Button onClick={handleSubmit} disabled={isPending}>
+            {isPending && <Loader2 className="w-4 h-4 animate-spin me-2" />}
+            {isEdit ? 'Update Plan' : 'Create Plan'}
+          </Button>
+        </div>
       </div>
     </div>
   );
@@ -959,8 +975,10 @@ export default function AdminPlansPage() {
           <DialogTrigger asChild>
             <Button><Plus className="w-4 h-4 mr-2" /> Create Plan</Button>
           </DialogTrigger>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader><DialogTitle>Create New Plan</DialogTitle></DialogHeader>
+          <DialogContent className="max-w-5xl w-[95vw] p-0 gap-0 max-h-[90vh] flex flex-col overflow-hidden">
+            <DialogHeader className="px-5 py-4 border-b border-border shrink-0">
+              <DialogTitle>Create New Plan</DialogTitle>
+            </DialogHeader>
             <PlanFormDialog onClose={() => setShowCreate(false)} locales={locales} capabilities={caps} />
           </DialogContent>
         </Dialog>
@@ -1029,8 +1047,10 @@ export default function AdminPlansPage() {
                                 <Edit2 className="w-3.5 h-3.5" />
                               </Button>
                             </DialogTrigger>
-                            <DialogContent className="max-w-2xl">
-                              <DialogHeader><DialogTitle>Edit: {plan.name}</DialogTitle></DialogHeader>
+                            <DialogContent className="max-w-5xl w-[95vw] p-0 gap-0 max-h-[90vh] flex flex-col overflow-hidden">
+                              <DialogHeader className="px-5 py-4 border-b border-border shrink-0">
+                                <DialogTitle>Edit: {plan.name}</DialogTitle>
+                              </DialogHeader>
                               <PlanFormDialog plan={plan} onClose={() => setEditPlan(null)} locales={locales} capabilities={caps} />
                             </DialogContent>
                           </Dialog>

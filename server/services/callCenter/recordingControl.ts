@@ -20,6 +20,8 @@ import {
   getOrCreateWorkspaceSettings,
   getPlatformCallCenterSettings,
 } from './settings.js';
+import { checkEntitlementFromDB } from '../../middleware/featureGating.js';
+import { resolveUsage } from '../billing/usageResolvers.js';
 
 export type RecordingType = 'composite' | 'individual' | 'audio_only';
 
@@ -34,7 +36,9 @@ export type RecordingControlError =
   | 'recording_not_active'
   | 'recording_finalizing'
   | 'recording_start_failed'
-  | 'recording_stop_failed';
+  | 'recording_stop_failed'
+  | 'recording_count_limit_reached'
+  | 'recording_storage_limit_reached';
 
 export class RecordingControlException extends Error {
   constructor(

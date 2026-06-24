@@ -293,10 +293,10 @@ export default function BillingPage() {
                       </Badge>
                     </div>
                   )}
-                  <CardHeader>
-                    <CardTitle>{planName}</CardTitle>
-                    {planDescription ? <CardDescription>{planDescription}</CardDescription> : null}
-                    <div className="pt-2">
+                  <CardHeader className="text-start">
+                    <CardTitle className="text-start">{planName}</CardTitle>
+                    {planDescription ? <CardDescription className="text-start">{planDescription}</CardDescription> : null}
+                    <div className="pt-2 text-start">
                       <span className="text-3xl font-bold text-foreground">
                         {price === 0 ? bt(L, 'free') : formatPrice(price, currency)}
                       </span>

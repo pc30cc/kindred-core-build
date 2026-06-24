@@ -2027,7 +2027,11 @@ const en = {
         uploadSuccess: 'File uploaded. Indexing will start shortly.',
         uploadError: 'Upload failed',
         uploadHint: 'PDF, DOCX, TXT, MD, CSV, HTML — used by your AI assistant.',
-        error: {
+        delete: 'Delete',
+        deleteConfirm: 'Delete this file? It will be removed from AI knowledge.',
+        deleting: 'Deleting file...',
+        deleteSuccess: 'File deleted.',
+        deleteError: 'Delete failed',
           owner_or_admin_required: 'Only workspace owners or admins can upload files.',
           storage_not_configured: 'No storage provider is configured for this workspace.',
           storage_not_ready: 'The configured storage provider is not ready.',

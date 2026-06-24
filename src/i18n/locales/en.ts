@@ -1394,6 +1394,18 @@ const en = {
     adminPage: {
       title: 'Call Center',
       subtitle: 'Platform-wide controls for the standalone Call Center module.',
+      tabs: {
+        kill: 'Kill Switch',
+        recording: 'Recording',
+        features: 'Features',
+        limits: 'Limits',
+        callbacks: 'Callbacks',
+        ringback: 'Ringback & Queue',
+        languages: 'Languages',
+        livekit: 'LiveKit',
+        workspaces: 'Workspaces',
+        retention: 'Retention',
+      },
       stats: {
         killSwitch: 'Kill switch',
         on: 'On',

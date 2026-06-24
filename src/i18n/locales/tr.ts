@@ -1382,6 +1382,18 @@ const tr: TranslationKeys = {
     adminPage: {
       title: 'Çağrı Merkezi',
       subtitle: 'Bağımsız Çağrı Merkezi modülü için platform geneli kontroller.',
+      tabs: {
+        kill: 'Kapatma',
+        recording: 'Kayıt',
+        features: 'Özellikler',
+        limits: 'Limitler',
+        callbacks: 'Geri arama',
+        ringback: 'Bekleme & Kuyruk',
+        languages: 'Diller',
+        livekit: 'LiveKit',
+        workspaces: 'Çalışma alanları',
+        retention: 'Saklama',
+      },
       stats: {
         killSwitch: 'Genel kapatma',
         on: 'Açık',

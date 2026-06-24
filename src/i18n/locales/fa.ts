@@ -1382,6 +1382,18 @@ const fa: TranslationKeys = {
     adminPage: {
       title: 'مرکز تماس',
       subtitle: 'کنترل‌های سراسری پلتفرم برای ماژول مستقل مرکز تماس.',
+      tabs: {
+        kill: 'کلید قطع',
+        recording: 'ضبط تماس',
+        features: 'قابلیت‌ها',
+        limits: 'محدودیت‌ها',
+        callbacks: 'درخواست تماس',
+        ringback: 'صدای انتظار و صف',
+        languages: 'زبان‌ها',
+        livekit: 'LiveKit',
+        workspaces: 'فضاهای کاری',
+        retention: 'نگه‌داری',
+      },
       stats: {
         killSwitch: 'کلید قطع کلی',
         on: 'روشن',

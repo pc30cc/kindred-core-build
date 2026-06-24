@@ -50,7 +50,7 @@ function Row({ label, hint, locked, children }: { label: string; hint?: string; 
 }
 
 export default function CallCenterSettingsPage() {
-  const { t } = useTranslation();
+  const { t, dir } = useTranslation();
   const { workspace } = useActiveWorkspace();
   const { slug } = useParams();
   const { data, isLoading } = useCallCenterSettings(workspace?.id);
@@ -100,6 +100,7 @@ export default function CallCenterSettingsPage() {
   // Use strict boolean coercion to match the backend's !!platform.call_recording_enabled.
   // A null/undefined platform flag means recording is disabled, not enabled.
   const platformRecording = !!platform?.call_recording_enabled;
+  const showRecordingTab = platformRecording;
 
   async function save() {
     if (!workspace) return;
@@ -137,7 +138,7 @@ export default function CallCenterSettingsPage() {
   }
 
   return (
-    <div className="space-y-6 max-w-3xl pb-24">
+    <div className="space-y-6 max-w-3xl pb-24" dir={dir}>
       {platformOff && (
         <Card className="p-4 border-destructive/40 bg-destructive/5 flex gap-2 items-start">
           <AlertCircle className="h-4 w-4 text-destructive mt-0.5" />
@@ -145,15 +146,17 @@ export default function CallCenterSettingsPage() {
         </Card>
       )}
 
-      <Tabs defaultValue="general" className="space-y-4">
-      <TabsList className="flex flex-wrap h-auto gap-1">
+      <Tabs defaultValue="general" className="space-y-4" dir={dir}>
+      <TabsList className="flex flex-wrap h-auto gap-1 w-full justify-start">
         <TabsTrigger value="general">{t('callCenter.settingsPage.tabs.general')}</TabsTrigger>
         <TabsTrigger value="branding">{t('callCenter.settingsPage.tabs.branding')}</TabsTrigger>
         <TabsTrigger value="languages">{t('callCenter.settingsPage.tabs.languages')}</TabsTrigger>
         <TabsTrigger value="channels">{t('callCenter.settingsPage.tabs.channels')}</TabsTrigger>
         <TabsTrigger value="availability">{t('callCenter.settingsPage.tabs.availability')}</TabsTrigger>
         <TabsTrigger value="routing">{t('callCenter.settingsPage.tabs.routing')}</TabsTrigger>
-        <TabsTrigger value="recording">{t('callCenter.settingsPage.tabs.recording')}</TabsTrigger>
+        {showRecordingTab && (
+          <TabsTrigger value="recording">{t('callCenter.settingsPage.tabs.recording')}</TabsTrigger>
+        )}
       </TabsList>
 
       <TabsContent value="general" className="space-y-6 mt-0">
@@ -397,16 +400,16 @@ export default function CallCenterSettingsPage() {
       </Section>
       </TabsContent>
 
-      <TabsContent value="recording" className="space-y-6 mt-0">
-        {/* Always visible in its own tab — RecordingSection itself surfaces
-            clear platform/workspace/provider status when not effective. */}
-        <RecordingSection
-          s={s}
-          setS={setS}
-          platformRecording={platformRecording}
-          recording={(data as any)?.recording || null}
-        />
-      </TabsContent>
+      {showRecordingTab && (
+        <TabsContent value="recording" className="space-y-6 mt-0">
+          <RecordingSection
+            s={s}
+            setS={setS}
+            platformRecording={platformRecording}
+            recording={(data as any)?.recording || null}
+          />
+        </TabsContent>
+      )}
       </Tabs>
 
       {/* Sticky save bar */}

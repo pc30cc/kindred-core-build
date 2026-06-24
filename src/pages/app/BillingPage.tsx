@@ -172,7 +172,7 @@ export default function BillingPage() {
   const statusText = STATUS_LABEL[statusKey]?.[L as 'fa' | 'en' | 'tr'] || subscription?.status || '';
 
   return (
-    <div className="space-y-6 animate-fade-in" dir={dir}>
+    <div className="space-y-6 animate-fade-in p-4 md:p-6 lg:p-8" dir={dir}>
       {/* Colorful gradient hero */}
       <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-primary/15 via-fuchsia-500/10 to-sky-500/10 p-6">
         <div className="absolute -top-20 -right-16 w-64 h-64 rounded-full bg-primary/20 blur-3xl pointer-events-none" />

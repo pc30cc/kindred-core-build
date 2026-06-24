@@ -2013,6 +2013,7 @@ const fa: TranslationKeys = {
       reason: {
         disabled_qna: 'سوال و پاسخ غیرفعال',
         draft_kb: 'پیش‌نویس مقاله',
+        kb_disabled_for_ai: 'برای AI غیرفعال شده',
         file_not_active: 'فایل غیرفعال است',
         website_not_active: 'وب‌سایت غیرفعال است',
         candidate_not_approved: 'پاسخ یاد‌گرفته‌شده تأیید نشده',

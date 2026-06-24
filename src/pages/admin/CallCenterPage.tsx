@@ -5,6 +5,7 @@ import {
 import { callCenterAdminApi, callCenterDiagnosticsApi, type CallCenterPlatformSettings, type LiveKitDiagnostics } from '@/lib/call-center-api';
 import { Card } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
@@ -185,7 +186,22 @@ export default function AdminCallCenterPage() {
         </div>
       </header>
 
-      <Card className="p-5 space-y-4">
+      <Tabs defaultValue="kill" className="space-y-4">
+        <TabsList className="flex flex-wrap h-auto gap-1">
+          <TabsTrigger value="kill">{t('callCenter.adminPage.tabs.kill')}</TabsTrigger>
+          <TabsTrigger value="recording">{t('callCenter.adminPage.tabs.recording')}</TabsTrigger>
+          <TabsTrigger value="features">{t('callCenter.adminPage.tabs.features')}</TabsTrigger>
+          <TabsTrigger value="limits">{t('callCenter.adminPage.tabs.limits')}</TabsTrigger>
+          <TabsTrigger value="callbacks">{t('callCenter.adminPage.tabs.callbacks')}</TabsTrigger>
+          <TabsTrigger value="ringback">{t('callCenter.adminPage.tabs.ringback')}</TabsTrigger>
+          <TabsTrigger value="languages">{t('callCenter.adminPage.tabs.languages')}</TabsTrigger>
+          <TabsTrigger value="livekit">{t('callCenter.adminPage.tabs.livekit')}</TabsTrigger>
+          <TabsTrigger value="workspaces">{t('callCenter.adminPage.tabs.workspaces')}</TabsTrigger>
+          <TabsTrigger value="retention">{t('callCenter.adminPage.tabs.retention')}</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="kill" className="space-y-4 mt-0">
+        <Card className="p-5 space-y-4">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="font-semibold">{t('callCenter.adminPage.kill.title')}</h2>
@@ -222,7 +238,9 @@ export default function AdminCallCenterPage() {
           </Collapsible>
         </div>
       </Card>
+        </TabsContent>
 
+      <TabsContent value="recording" className="space-y-4 mt-0">
       <Card className="p-5 space-y-4">
         <div className="flex items-start gap-2">
           <Disc3 className="h-5 w-5 text-primary mt-0.5" />
@@ -251,7 +269,9 @@ export default function AdminCallCenterPage() {
           </Button>
         </div>
       </Card>
+      </TabsContent>
 
+      <TabsContent value="features" className="space-y-4 mt-0">
       <Card className="p-5 space-y-5">
         <h2 className="font-semibold">{t('callCenter.adminPage.featureToggles.title')}</h2>
         <div className="space-y-2">

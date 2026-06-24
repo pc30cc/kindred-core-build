@@ -565,6 +565,7 @@ const en = {
   },
   knowledgeBase: {
     title: 'Knowledge Base',
+    subtitle: 'Create and manage help articles for your customers and your AI assistant.',
     articles: 'Articles',
     categories: 'Categories',
     newArticle: 'New article',
@@ -580,6 +581,10 @@ const en = {
     usedByAiHint: 'Allow the AI assistant to retrieve and cite this article.',
     hiddenFromWidget: 'Hidden from widget',
     aiDisabled: 'AI off',
+    tabs: {
+      articles: 'Articles',
+      aiBuilder: 'AI Builder',
+    },
   },
   widget: {
     title: 'Widget',

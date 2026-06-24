@@ -171,6 +171,18 @@ export default function KnowledgePage() {
                               </span>
                             )}
                             <Badge variant="outline" className={`text-[10px] ${TONE[s.tone]}`}>{tr(`status.${s.key}`, s.key)}</Badge>
+                            {g.key === 'file' && it.source_id && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 w-7 p-0"
+                                onClick={() => onDeleteFile(it.source_id)}
+                                disabled={deletingId === it.source_id}
+                                title={tr('actions.delete', 'Delete')}
+                              >
+                                {deletingId === it.source_id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                              </Button>
+                            )}
                           </div>
                         );
                       })}

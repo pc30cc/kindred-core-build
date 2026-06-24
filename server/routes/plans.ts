@@ -40,6 +40,7 @@ plansRouter.get('/', async (req, res) => {
     .from('billing_plans')
     .select('*')
     .eq('is_active', true)
+    .eq('is_hidden', false)
     .order('sort_order');
   if (error) return res.status(500).json({ error: error.message });
   res.json({ plans: data || [] });

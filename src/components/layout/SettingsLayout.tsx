@@ -71,7 +71,6 @@ const settingsGroupsDef: SettingsGroup[] = [
   {
     key: 'knowledgeBase', label: 'Knowledge Base', icon: BookOpen,
     items: [
-      { key: 'kb', label: 'Articles', subPath: '/settings/knowledge-base' },
       { key: 'translations', label: 'Translations', subPath: '/settings/translations' },
     ],
   },

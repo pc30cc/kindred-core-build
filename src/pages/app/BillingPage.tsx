@@ -42,6 +42,7 @@ export default function BillingPage() {
   const { t } = useTranslation();
   const { data: workspaces } = useWorkspaces();
   const workspace = workspaces?.[0];
+  const { capabilities } = useCapabilityCatalog();
   const [plans, setPlans] = useState<any[]>([]);
   const [subscription, setSubscription] = useState<any>(null);
   const [payments, setPayments] = useState<any[]>([]);

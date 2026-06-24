@@ -2020,6 +2020,22 @@ const en = {
       title: 'Knowledge Sources',
       subtitle: 'Health of the sources your AI Agent uses to answer visitors. To edit help articles, open the Articles tab.',
       contactAdmin: 'To add or change knowledge sources, contact your platform admin. Advanced knowledge management is available from the admin tools.',
+      actions: {
+        manageArticles: 'Manage articles',
+        uploadFile: 'Upload file',
+        uploading: 'Uploading file...',
+        uploadSuccess: 'File uploaded. Indexing will start shortly.',
+        uploadError: 'Upload failed',
+        uploadHint: 'PDF, DOCX, TXT, MD, CSV, HTML — used by your AI assistant.',
+        error: {
+          owner_or_admin_required: 'Only workspace owners or admins can upload files.',
+          storage_not_configured: 'No storage provider is configured for this workspace.',
+          storage_not_ready: 'The configured storage provider is not ready.',
+          unsupported_file_type: 'This file type is not supported.',
+          file_size_limit_reached: 'File exceeds the allowed size limit.',
+          empty_file: 'The selected file is empty.',
+        },
+      },
       empty: 'No {{type}} yet.',
       status: {
         ready: 'Ready',

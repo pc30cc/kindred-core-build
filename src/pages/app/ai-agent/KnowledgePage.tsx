@@ -76,6 +76,21 @@ export default function KnowledgePage() {
       setUploading(false);
     }
   };
+  const onDeleteFile = async (id: string) => {
+    if (!confirm(tr('actions.deleteConfirm', 'Delete this file? It will be removed from AI knowledge.'))) return;
+    setDeletingId(id);
+    const toastId = toast.loading(tr('actions.deleting', 'Deleting file...'));
+    try {
+      await aiAgentApi.deleteAiFile(id);
+      toast.success(tr('actions.deleteSuccess', 'File deleted.'), { id: toastId });
+      qc.invalidateQueries({ queryKey: ['ai-knowledge', wsId] });
+    } catch (err: any) {
+      const code = err?.body?.error || err?.message || 'delete_failed';
+      toast.error(tr(`actions.error.${code}`, tr('actions.deleteError', 'Delete failed')), { id: toastId });
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   return (
     <div className="space-y-8" dir={dir}>

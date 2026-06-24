@@ -12,19 +12,22 @@ import {
   useAdminProfiles, useAdminProfileCount, useAdminUserDetail,
   useAdminUserRoles, useAssignRole, useRemoveRole,
 } from '@/hooks/useAdmin';
+import { useAdminPlans, useAssignPlan, useRevokePlan, useWorkspacePlan } from '@/hooks/usePlans';
 import { supabase } from '@/lib/supabase';
 import {
   adminSendResetLink, adminChangePassword, adminBlockUser, adminGetUserStatus, adminImpersonateUser,
 } from '@/lib/api';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
+import { useTranslation } from '@/i18n';
 import {
   Users, Loader2, ArrowLeft, Mail, Calendar, MapPin,
   Globe, Bot, Building2, Copy, Search, Shield, Briefcase, Link2,
-  KeyRound, Send, Ban, ScrollText, CheckCircle2, XCircle, Clock, LogIn,
+  KeyRound, Send, Ban, ScrollText, CheckCircle2, XCircle, Clock, LogIn, CreditCard,
 } from 'lucide-react';
 
 export default function AdminUsersPage() {
+  const { t, dir } = useTranslation();
   const [page, setPage] = useState(0);
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState('newest');
@@ -46,30 +49,30 @@ export default function AdminUsersPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" dir={dir}>
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold text-foreground">Users</h1>
-        <span className="text-sm text-muted-foreground">{count ?? 0} total</span>
+        <h1 className="text-2xl font-bold text-foreground">{t('admin.users.title')}</h1>
+        <span className="text-sm text-muted-foreground">{t('admin.users.total', { count: String(count ?? 0) })}</span>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Search className={`absolute ${dir === 'rtl' ? 'right-3' : 'left-3'} top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground`} />
           <Input
-            placeholder="Search by email, name or company..."
+            placeholder={t('admin.users.searchPlaceholder')}
             value={search}
             onChange={e => { setSearch(e.target.value); setPage(0); }}
-            className="pl-9"
+            className={dir === 'rtl' ? 'pr-9' : 'pl-9'}
           />
         </div>
         <Select value={sort} onValueChange={v => { setSort(v); setPage(0); }}>
           <SelectTrigger className="w-full sm:w-[180px]">
-            <SelectValue placeholder="Sort by" />
+            <SelectValue placeholder={t('admin.users.sortBy')} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="newest">Newest first</SelectItem>
-            <SelectItem value="oldest">Oldest first</SelectItem>
-            <SelectItem value="name_asc">Name A–Z</SelectItem>
+            <SelectItem value="newest">{t('admin.users.sortNewest')}</SelectItem>
+            <SelectItem value="oldest">{t('admin.users.sortOldest')}</SelectItem>
+            <SelectItem value="name_asc">{t('admin.users.sortNameAsc')}</SelectItem>
           </SelectContent>
         </Select>
         <Select value={String(limit)} onValueChange={v => { setLimit(Number(v)); setPage(0); }}>
@@ -77,11 +80,9 @@ export default function AdminUsersPage() {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="10">10 per page</SelectItem>
-            <SelectItem value="20">20 per page</SelectItem>
-            <SelectItem value="30">30 per page</SelectItem>
-            <SelectItem value="50">50 per page</SelectItem>
-            <SelectItem value="100">100 per page</SelectItem>
+            {[10, 20, 30, 50, 100].map(n => (
+              <SelectItem key={n} value={String(n)}>{t('admin.users.perPage', { n: String(n) })}</SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </div>
@@ -91,11 +92,11 @@ export default function AdminUsersPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>User</TableHead>
-                <TableHead>Company</TableHead>
-                <TableHead>Roles</TableHead>
-                <TableHead>Workspaces</TableHead>
-                <TableHead>Joined</TableHead>
+                <TableHead>{t('admin.users.colUser')}</TableHead>
+                <TableHead>{t('admin.users.colCompany')}</TableHead>
+                <TableHead>{t('admin.users.colRoles')}</TableHead>
+                <TableHead>{t('admin.users.colWorkspaces')}</TableHead>
+                <TableHead>{t('admin.users.colJoined')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -108,7 +109,7 @@ export default function AdminUsersPage() {
               )}
               {!isLoading && (!profiles || profiles.length === 0) && (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-muted-foreground py-8">No users found</TableCell>
+                  <TableCell colSpan={5} className="text-center text-muted-foreground py-8">{t('admin.users.noUsers')}</TableCell>
                 </TableRow>
               )}
               {profiles?.map(p => (
@@ -151,9 +152,9 @@ export default function AdminUsersPage() {
       </Card>
 
       <div className="flex justify-between items-center">
-        <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>Previous</Button>
-        <span className="text-sm text-muted-foreground">Page {page + 1}</span>
-        <Button variant="outline" size="sm" disabled={!profiles || profiles.length < limit} onClick={() => setPage(p => p + 1)}>Next</Button>
+        <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>{t('admin.users.previous')}</Button>
+        <span className="text-sm text-muted-foreground">{t('admin.users.page', { n: String(page + 1) })}</span>
+        <Button variant="outline" size="sm" disabled={!profiles || profiles.length < limit} onClick={() => setPage(p => p + 1)}>{t('admin.users.next')}</Button>
       </div>
     </div>
   );
@@ -161,6 +162,7 @@ export default function AdminUsersPage() {
 
 /* ─── User Detail View ─── */
 function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void }) {
+  const { t, dir } = useTranslation();
   const { data: detail, isLoading, refetch } = useAdminUserDetail(userId);
   const { data: roles, refetch: refetchRoles } = useAdminUserRoles(userId);
   const assignRole = useAssignRole();
@@ -188,7 +190,7 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
-    toast.success('Copied to clipboard');
+    toast.success(t('admin.users.copied'));
   };
 
   const handleSendResetLink = async () => {
@@ -196,9 +198,9 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
     setResetLinkLoading(true);
     try {
       await adminSendResetLink(detail.profile.email);
-      toast.success('Password reset link sent');
+      toast.success(t('admin.users.resetLinkSent'));
     } catch (err: any) {
-      toast.error(err.message || 'Failed to send reset link');
+      toast.error(err.message || t('admin.users.resetLinkFailed'));
     } finally {
       setResetLinkLoading(false);
     }
@@ -206,17 +208,17 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
 
   const handleChangePassword = async () => {
     if (!newPassword || newPassword.length < 8) {
-      toast.error('Password must be at least 8 characters');
+      toast.error(t('admin.users.passwordMinError'));
       return;
     }
     setPasswordLoading(true);
     try {
       await adminChangePassword(userId, newPassword);
-      toast.success('Password changed successfully');
+      toast.success(t('admin.users.passwordChanged'));
       setPasswordDialog(false);
       setNewPassword('');
     } catch (err: any) {
-      toast.error(err.message || 'Failed to change password');
+      toast.error(err.message || t('admin.users.passwordChangeFailed'));
     } finally {
       setPasswordLoading(false);
     }
@@ -226,10 +228,10 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
     setBlockLoading(true);
     try {
       const result = await adminBlockUser(userId, !isBanned);
-      toast.success(result.blocked ? 'User blocked' : 'User unblocked');
+      toast.success(result.blocked ? t('admin.users.userBlocked') : t('admin.users.userUnblocked'));
       refetchStatus();
     } catch (err: any) {
-      toast.error(err.message || 'Failed to update user');
+      toast.error(err.message || t('admin.users.blockFailed'));
     } finally {
       setBlockLoading(false);
     }
@@ -245,11 +247,11 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
 
   if (!detail) {
     return (
-      <div className="space-y-4">
+      <div className="space-y-4" dir={dir}>
         <Button variant="ghost" onClick={onBack} className="gap-2">
-          <ArrowLeft className="h-4 w-4" /> Back to list
+          <ArrowLeft className="h-4 w-4" /> {t('admin.users.backToList')}
         </Button>
-        <p className="text-center text-muted-foreground py-12">User not found</p>
+        <p className="text-center text-muted-foreground py-12">{t('admin.users.userNotFound')}</p>
       </div>
     );
   }
@@ -258,7 +260,7 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
   const currentRoles = roles?.map(r => r.role) ?? detail.roles ?? [];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" dir={dir}>
       {/* Header */}
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" onClick={onBack}>
@@ -273,7 +275,7 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <h1 className="text-xl font-bold truncate">{p.full_name || '—'}</h1>
-              {isBanned && <Badge variant="destructive" className="shrink-0">Blocked</Badge>}
+              {isBanned && <Badge variant="destructive" className="shrink-0">{t('admin.users.blocked')}</Badge>}
             </div>
             <p className="text-sm text-muted-foreground truncate">{p.email}</p>
           </div>
@@ -284,11 +286,11 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
       <div className="flex flex-wrap gap-2">
         <Button variant="outline" size="sm" className="gap-2" onClick={handleSendResetLink} disabled={resetLinkLoading}>
           {resetLinkLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-          Send Reset Link
+          {t('admin.users.sendResetLink')}
         </Button>
         <Button variant="outline" size="sm" className="gap-2" onClick={() => setPasswordDialog(true)}>
           <KeyRound className="h-4 w-4" />
-          Change Password
+          {t('admin.users.changePassword')}
         </Button>
         <Button
           variant={isBanned ? 'outline' : 'destructive'}
@@ -298,11 +300,11 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
           disabled={blockLoading}
         >
           {blockLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4" />}
-          {isBanned ? 'Unblock User' : 'Block User'}
+          {isBanned ? t('admin.users.unblockUser') : t('admin.users.blockUser')}
         </Button>
         <Button variant="outline" size="sm" className="gap-2" onClick={() => setLoginLogsDialog(true)}>
           <ScrollText className="h-4 w-4" />
-          Login Logs
+          {t('admin.users.loginLogs')}
         </Button>
         <Button
           variant="outline"
@@ -315,23 +317,23 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
               const { url } = await adminImpersonateUser(userId);
               window.open(url, '_blank');
             } catch (err: any) {
-              toast.error(err.message || 'Failed to impersonate');
+              toast.error(err.message || t('admin.users.impersonateFailed'));
             } finally {
               setImpersonateLoading(false);
             }
           }}
         >
           {impersonateLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}
-          Login as User
+          {t('admin.users.loginAsUser')}
         </Button>
       </div>
 
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <StatCard icon={Briefcase} label="Workspaces" value={detail.workspaces?.length ?? 0} />
-        <StatCard icon={Shield} label="Roles" value={currentRoles.length} />
-        <StatCard icon={Globe} label="Locale" value={p.preferred_locale || 'en'} />
-        <StatCard icon={Bot} label="AI Mode" value={p.ai_mode || '—'} />
+        <StatCard icon={Briefcase} label={t('admin.users.statWorkspaces')} value={detail.workspaces?.length ?? 0} />
+        <StatCard icon={Shield} label={t('admin.users.statRoles')} value={currentRoles.length} />
+        <StatCard icon={Globe} label={t('admin.users.statLocale')} value={p.preferred_locale || 'en'} />
+        <StatCard icon={Bot} label={t('admin.users.statAiMode')} value={p.ai_mode || '—'} />
       </div>
 
       {/* Auth Status */}
@@ -340,31 +342,31 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
           <CardContent className="p-4 space-y-3">
             <h3 className="text-sm font-semibold flex items-center gap-2">
               <Shield className="h-4 w-4 text-muted-foreground" />
-              Auth Status
+              {t('admin.users.authStatus')}
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
               <div className="flex items-center justify-between rounded-md bg-muted/50 px-3 py-2">
-                <span className="text-muted-foreground">Email Verified</span>
+                <span className="text-muted-foreground">{t('admin.users.emailVerified')}</span>
                 <span className="flex items-center gap-1.5">
                   {authStatus.email_confirmed_at
-                    ? <><CheckCircle2 className="h-3.5 w-3.5 text-green-500" /> Yes</>
-                    : <><XCircle className="h-3.5 w-3.5 text-destructive" /> No</>}
+                    ? <><CheckCircle2 className="h-3.5 w-3.5 text-green-500" /> {t('admin.users.yes')}</>
+                    : <><XCircle className="h-3.5 w-3.5 text-destructive" /> {t('admin.users.no')}</>}
                 </span>
               </div>
               <div className="flex items-center justify-between rounded-md bg-muted/50 px-3 py-2">
-                <span className="text-muted-foreground">Status</span>
+                <span className="text-muted-foreground">{t('admin.users.status')}</span>
                 <Badge variant={isBanned ? 'destructive' : 'secondary'}>
-                  {isBanned ? 'Blocked' : 'Active'}
+                  {isBanned ? t('admin.users.blocked') : t('admin.users.active')}
                 </Badge>
               </div>
               <DetailRow
                 icon={Clock}
-                label="Last Sign In"
+                label={t('admin.users.lastSignIn')}
                 value={authStatus.last_sign_in_at ? format(new Date(authStatus.last_sign_in_at), 'yyyy-MM-dd HH:mm') : null}
               />
               <DetailRow
                 icon={Calendar}
-                label="Auth Created"
+                label={t('admin.users.authCreated')}
                 value={authStatus.created_at ? format(new Date(authStatus.created_at), 'yyyy-MM-dd HH:mm') : null}
               />
             </div>
@@ -379,16 +381,16 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
             <div>
               <h3 className="text-sm font-semibold flex items-center gap-2">
                 <Shield className="h-4 w-4 text-muted-foreground" />
-                Platform Roles
+                {t('admin.users.platformRoles')}
               </h3>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Internal platform staff roles — separate from workspace roles
+                {t('admin.users.platformRolesHint')}
               </p>
             </div>
-            <Button size="sm" variant="outline" onClick={() => setRoleDialog(true)}>+ Assign Role</Button>
+            <Button size="sm" variant="outline" onClick={() => setRoleDialog(true)}>{t('admin.users.assignRole')}</Button>
           </div>
           <div className="flex gap-2 flex-wrap">
-            {currentRoles.length === 0 && <span className="text-sm text-muted-foreground">No platform roles assigned (regular user)</span>}
+            {currentRoles.length === 0 && <span className="text-sm text-muted-foreground">{t('admin.users.noPlatformRoles')}</span>}
             {currentRoles.map((role: string) => (
               <Badge
                 key={role}
@@ -408,31 +410,51 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
         <CardContent className="p-4 space-y-3">
           <h3 className="text-sm font-semibold flex items-center gap-2">
             <Users className="h-4 w-4 text-muted-foreground" />
-            Profile Information
+            {t('admin.users.profileInfo')}
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
-            <DetailRow icon={Mail} label="Email" value={p.email} onCopy={() => copyToClipboard(p.email)} />
-            <DetailRow icon={Building2} label="Company" value={p.company_name} />
-            <DetailRow icon={Link2} label="Website" value={p.website_domain} />
-            <DetailRow icon={Globe} label="Preferred Locale" value={p.preferred_locale} />
-            <DetailRow icon={Globe} label="Signup Locale" value={p.signup_locale} />
-            <DetailRow icon={Bot} label="AI Mode" value={p.ai_mode} />
-            <DetailRow icon={MapPin} label="Signup IP" value={p.signup_ip} />
-            <DetailRow icon={Calendar} label="Joined" value={p.created_at ? format(new Date(p.created_at), 'yyyy-MM-dd HH:mm') : null} />
+            <DetailRow icon={Mail} label={t('admin.users.email')} value={p.email} onCopy={() => copyToClipboard(p.email)} />
+            <DetailRow icon={Building2} label={t('admin.users.company')} value={p.company_name} />
+            <DetailRow icon={Link2} label={t('admin.users.website')} value={p.website_domain} />
+            <DetailRow icon={Globe} label={t('admin.users.preferredLocale')} value={p.preferred_locale} />
+            <DetailRow icon={Globe} label={t('admin.users.signupLocale')} value={p.signup_locale} />
+            <DetailRow icon={Bot} label={t('admin.users.aiMode')} value={p.ai_mode} />
+            <DetailRow icon={MapPin} label={t('admin.users.signupIp')} value={p.signup_ip} />
+            <DetailRow icon={Calendar} label={t('admin.users.joined')} value={p.created_at ? format(new Date(p.created_at), 'yyyy-MM-dd HH:mm') : null} />
           </div>
         </CardContent>
       </Card>
+
+      {/* Workspace Plans & Subscriptions */}
+      {detail.workspaces && detail.workspaces.length > 0 && (
+        <Card>
+          <CardContent className="p-4 space-y-3">
+            <div>
+              <h3 className="text-sm font-semibold flex items-center gap-2">
+                <CreditCard className="h-4 w-4 text-muted-foreground" />
+                {t('admin.users.plansHeader')}
+              </h3>
+              <p className="text-xs text-muted-foreground mt-0.5">{t('admin.users.plansHint')}</p>
+            </div>
+            <div className="space-y-2">
+              {detail.workspaces.map((ws: any) => (
+                <WorkspacePlanCard key={ws.id} workspace={ws} />
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Workspaces */}
       <Card>
         <CardContent className="p-4 space-y-3">
           <h3 className="text-sm font-semibold flex items-center gap-2">
             <Building2 className="h-4 w-4 text-muted-foreground" />
-            Workspaces ({detail.workspaces?.length ?? 0})
+            {t('admin.users.workspaces')} ({detail.workspaces?.length ?? 0})
           </h3>
           <div className="space-y-2">
             {(!detail.workspaces || detail.workspaces.length === 0) && (
-              <p className="text-sm text-muted-foreground">No workspaces</p>
+              <p className="text-sm text-muted-foreground">{t('admin.users.noWorkspaces')}</p>
             )}
             {detail.workspaces?.map((ws: any) => (
               <div key={ws.id} className="flex items-center justify-between rounded-lg border px-3 py-2">
@@ -447,7 +469,7 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
                 </div>
                 <div className="flex items-center gap-2">
                   <Badge variant={ws.role === 'owner' ? 'default' : 'secondary'}>{ws.role}</Badge>
-                  <span className="text-[10px] text-muted-foreground">(workspace role)</span>
+                  <span className="text-[10px] text-muted-foreground">{t('admin.users.workspaceRole')}</span>
                 </div>
               </div>
             ))}
@@ -461,13 +483,13 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
           <CardContent className="p-4 space-y-3">
             <h3 className="text-sm font-semibold flex items-center gap-2">
               <Briefcase className="h-4 w-4 text-muted-foreground" />
-              Account
+              {t('admin.users.account')}
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
-              <InfoRow label="Name" value={detail.account.name} />
-              <InfoRow label="Slug" value={detail.account.slug} />
-              <InfoRow label="Role" value={detail.account.role} />
-              <InfoRow label="Account ID" value={detail.account.id} />
+              <InfoRow label={t('admin.users.accountName')} value={detail.account.name} />
+              <InfoRow label={t('admin.users.accountSlug')} value={detail.account.slug} />
+              <InfoRow label={t('admin.users.accountRole')} value={detail.account.role} />
+              <InfoRow label={t('admin.users.accountId')} value={detail.account.id} />
             </div>
           </CardContent>
         </Card>
@@ -478,10 +500,10 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
         <CardContent className="p-4 space-y-3">
           <h3 className="text-sm font-semibold flex items-center gap-2">
             <Shield className="h-4 w-4 text-muted-foreground" />
-            Technical Details
+            {t('admin.users.technicalDetails')}
           </h3>
           <div className="flex items-center justify-between rounded-md bg-muted/50 px-3 py-2">
-            <span className="text-xs text-muted-foreground">User ID</span>
+            <span className="text-xs text-muted-foreground">{t('admin.users.userId')}</span>
             <button
               onClick={() => copyToClipboard(p.id)}
               className="flex items-center gap-1.5 text-xs font-mono text-muted-foreground hover:text-foreground transition-colors"
@@ -499,24 +521,24 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <KeyRound className="h-5 w-5" />
-              Change Password
+              {t('admin.users.changePassword')}
             </DialogTitle>
             <DialogDescription>
-              Set a new password for <strong>{p.email}</strong>
+              {t('admin.users.changePasswordFor')} <strong>{p.email}</strong>
             </DialogDescription>
           </DialogHeader>
           <Input
             type="password"
-            placeholder="New password (min 8 characters)"
+            placeholder={t('admin.users.newPasswordPlaceholder')}
             value={newPassword}
             onChange={e => setNewPassword(e.target.value)}
             autoFocus
           />
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setPasswordDialog(false); setNewPassword(''); }}>Cancel</Button>
+            <Button variant="outline" onClick={() => { setPasswordDialog(false); setNewPassword(''); }}>{t('admin.users.cancel')}</Button>
             <Button onClick={handleChangePassword} disabled={passwordLoading || newPassword.length < 8}>
               {passwordLoading && <Loader2 className="h-4 w-4 animate-spin me-2" />}
-              Change Password
+              {t('admin.users.changePassword')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -526,13 +548,13 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
       <Dialog open={roleDialog} onOpenChange={setRoleDialog}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Assign Platform Role</DialogTitle>
+            <DialogTitle>{t('admin.users.assignPlatformRole')}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             {[
-              { value: 'admin', label: 'Admin', desc: 'Full platform access — manage all users, workspaces, providers, and settings' },
-              { value: 'moderator', label: 'Moderator', desc: 'Moderate content, manage flagged items, view reports across the platform' },
-              { value: 'user', label: 'User', desc: 'Standard registered user — no platform-level privileges' },
+              { value: 'admin', label: t('admin.users.roleAdminLabel'), desc: t('admin.users.roleAdminDesc') },
+              { value: 'moderator', label: t('admin.users.roleModeratorLabel'), desc: t('admin.users.roleModeratorDesc') },
+              { value: 'user', label: t('admin.users.roleUserLabel'), desc: t('admin.users.roleUserDesc') },
             ].map(r => {
               const alreadyAssigned = currentRoles.includes(r.value);
               return (
@@ -550,7 +572,7 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
                 >
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-medium">{r.label}</span>
-                    {alreadyAssigned && <Badge variant="outline" className="text-[10px]">Assigned</Badge>}
+                    {alreadyAssigned && <Badge variant="outline" className="text-[10px]">{t('admin.users.assigned')}</Badge>}
                   </div>
                   <p className="text-xs text-muted-foreground mt-0.5">{r.desc}</p>
                 </button>
@@ -558,7 +580,7 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
             })}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRoleDialog(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setRoleDialog(false)}>{t('admin.users.cancel')}</Button>
             <Button
               disabled={!selectedRole || currentRoles.includes(selectedRole)}
               onClick={() => {
@@ -569,7 +591,7 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
                 }
               }}
             >
-              Assign
+              {t('admin.users.assign')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -587,6 +609,7 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
 
 /* ─── Login Logs Dialog ─── */
 function LoginLogsDialog({ open, onClose, email }: { open: boolean; onClose: () => void; email: string }) {
+  const { t } = useTranslation();
   const { data: logs, isLoading } = useQuery({
     queryKey: ['admin-login-logs', email],
     queryFn: async () => {
@@ -612,10 +635,10 @@ function LoginLogsDialog({ open, onClose, email }: { open: boolean; onClose: () 
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <ScrollText className="h-5 w-5" />
-            Login Logs
+            {t('admin.users.loginLogs')}
           </DialogTitle>
           <DialogDescription>
-            Recent login attempts for <strong>{email}</strong>
+            {t('admin.users.loginLogsFor')} <strong>{email}</strong>
           </DialogDescription>
         </DialogHeader>
 
@@ -624,7 +647,7 @@ function LoginLogsDialog({ open, onClose, email }: { open: boolean; onClose: () 
             <Loader2 className="h-5 w-5 animate-spin text-primary" />
           </div>
         ) : !logs || logs.length === 0 ? (
-          <p className="text-center text-muted-foreground py-8">No login attempts found</p>
+          <p className="text-center text-muted-foreground py-8">{t('admin.users.noLoginAttempts')}</p>
         ) : (
           <div className="max-h-[50vh] overflow-y-auto space-y-2">
             {logs.map((log: any) => (
@@ -637,8 +660,8 @@ function LoginLogsDialog({ open, onClose, email }: { open: boolean; onClose: () 
                     ? <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
                     : <XCircle className="h-4 w-4 text-destructive shrink-0" />}
                   <div>
-                    <p className="font-medium">{log.success ? 'Successful' : 'Failed'}</p>
-                    <p className="text-xs text-muted-foreground">IP: {log.ip_address}</p>
+                    <p className="font-medium">{log.success ? t('admin.users.successful') : t('admin.users.failedAttempt')}</p>
+                    <p className="text-xs text-muted-foreground">{t('admin.users.ip')}: {log.ip_address}</p>
                   </div>
                 </div>
                 <span className="text-xs text-muted-foreground whitespace-nowrap">
@@ -650,6 +673,157 @@ function LoginLogsDialog({ open, onClose, email }: { open: boolean; onClose: () 
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+/* ─── Workspace Plan Card ─── */
+function WorkspacePlanCard({ workspace }: { workspace: { id: string; name: string; slug: string; role: string } }) {
+  const { t } = useTranslation();
+  const { data: planData, isLoading } = useWorkspacePlan(workspace.id);
+  const { data: allPlans } = useAdminPlans();
+  const assignPlan = useAssignPlan();
+  const revokePlan = useRevokePlan();
+
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [selectedPlanId, setSelectedPlanId] = useState('');
+  const [expiresAt, setExpiresAt] = useState('');
+
+  const sub = planData?.subscription;
+  const plan = planData?.plan;
+  const hasActiveSub = !!sub && ['active', 'trialing'].includes(sub.status || '');
+
+  const openDialog = () => {
+    setSelectedPlanId(plan?.id || '');
+    setExpiresAt(sub?.current_period_end ? new Date(sub.current_period_end).toISOString().slice(0, 10) : '');
+    setDialogOpen(true);
+  };
+
+  const handleSave = async () => {
+    if (!selectedPlanId) return;
+    try {
+      await assignPlan.mutateAsync({
+        workspaceId: workspace.id,
+        planId: selectedPlanId,
+        expiresAt: expiresAt ? new Date(expiresAt).toISOString() : undefined,
+      });
+      toast.success(t('admin.users.planAssigned'));
+      setDialogOpen(false);
+    } catch (err: any) {
+      toast.error(err.message || t('admin.users.planAssignFailed'));
+    }
+  };
+
+  const handleRevoke = async () => {
+    if (!confirm(t('admin.users.revokeConfirm'))) return;
+    try {
+      await revokePlan.mutateAsync(workspace.id);
+      toast.success(t('admin.users.planRevoked'));
+    } catch (err: any) {
+      toast.error(err.message || t('admin.users.planRevokeFailed'));
+    }
+  };
+
+  const fmt = (s: string | null | undefined) => s ? format(new Date(s), 'yyyy-MM-dd HH:mm') : '—';
+
+  return (
+    <div className="rounded-lg border p-3 space-y-2">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2 min-w-0">
+          <Building2 className="h-4 w-4 text-primary shrink-0" />
+          <span className="text-sm font-medium truncate">{workspace.name}</span>
+          <code className="text-[10px] text-muted-foreground bg-muted px-1 py-0.5 rounded">{workspace.slug}</code>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={openDialog} disabled={isLoading}>
+            {t('admin.users.changePlan')}
+          </Button>
+          {hasActiveSub && (
+            <Button size="sm" variant="ghost" onClick={handleRevoke} disabled={revokePlan.isPending}>
+              {t('admin.users.revokePlan')}
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {isLoading ? (
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+          <div className="flex items-center justify-between rounded bg-muted/40 px-2 py-1.5">
+            <span className="text-muted-foreground">{t('admin.users.currentPlan')}</span>
+            <Badge variant={hasActiveSub ? 'default' : 'secondary'}>
+              {plan?.name || t('admin.users.noActiveSub')}
+            </Badge>
+          </div>
+          <div className="flex items-center justify-between rounded bg-muted/40 px-2 py-1.5">
+            <span className="text-muted-foreground">{t('admin.users.planStatus')}</span>
+            <span className="font-medium">{sub?.status || '—'}</span>
+          </div>
+          {sub && (
+            <>
+              <div className="flex items-center justify-between rounded bg-muted/40 px-2 py-1.5">
+                <span className="text-muted-foreground">{t('admin.users.provider')}</span>
+                <span className="font-medium">{sub.provider_name || '—'}</span>
+              </div>
+              <div className="flex items-center justify-between rounded bg-muted/40 px-2 py-1.5">
+                <span className="text-muted-foreground">{t('admin.users.periodStart')}</span>
+                <span className="font-medium">{fmt(sub.current_period_start)}</span>
+              </div>
+              <div className="flex items-center justify-between rounded bg-muted/40 px-2 py-1.5">
+                <span className="text-muted-foreground">{t('admin.users.periodEnd')}</span>
+                <span className="font-medium">{fmt(sub.current_period_end)}</span>
+              </div>
+              {sub.trial_end && (
+                <div className="flex items-center justify-between rounded bg-muted/40 px-2 py-1.5">
+                  <span className="text-muted-foreground">{t('admin.users.trialEnd')}</span>
+                  <span className="font-medium">{fmt(sub.trial_end)}</span>
+                </div>
+              )}
+              {sub.cancel_at_period_end && (
+                <div className="sm:col-span-2 text-amber-600 dark:text-amber-400 text-[11px]">
+                  ⚠ {t('admin.users.cancelAtPeriodEnd')}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CreditCard className="h-5 w-5" /> {t('admin.users.assignPlan')}
+            </DialogTitle>
+            <DialogDescription>{workspace.name}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs text-muted-foreground">{t('admin.users.selectPlan')}</label>
+              <Select value={selectedPlanId} onValueChange={setSelectedPlanId}>
+                <SelectTrigger><SelectValue placeholder={t('admin.users.selectPlan')} /></SelectTrigger>
+                <SelectContent>
+                  {allPlans?.map((pl: any) => (
+                    <SelectItem key={pl.id} value={pl.id}>{pl.name} ({pl.slug})</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground">{t('admin.users.expiresAt')}</label>
+              <Input type="date" value={expiresAt} onChange={e => setExpiresAt(e.target.value)} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>{t('admin.users.cancel')}</Button>
+            <Button onClick={handleSave} disabled={!selectedPlanId || assignPlan.isPending}>
+              {assignPlan.isPending && <Loader2 className="h-4 w-4 animate-spin me-2" />}
+              {t('admin.users.save')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 }
 

@@ -183,7 +183,15 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
   const isPending = latest?.status === 'pending';
   const isTerminal = !!latest && !isPending;
   const lastChannel: InvitationChannel = latest?.channel === 'video' ? 'video' : 'audio';
-  const disableInvites = loading || creating !== null || isPending || surface.phase !== 'idle';
+  const planBlocked = !planVoiceVideoEnabled;
+  const limitBlocked = concurrentReached || minutesReached;
+  const disableAudio =
+    loading || creating !== null || isPending || surface.phase !== 'idle'
+    || planBlocked || !planVoiceEnabled || limitBlocked;
+  const disableVideo =
+    loading || creating !== null || isPending || surface.phase !== 'idle'
+    || planBlocked || !planVideoEnabled || limitBlocked;
+  const disableInvites = disableAudio && disableVideo;
 
   // Surface belongs to THIS conversation?
   const surfaceMatches = surface.phase !== 'idle' && surface.conversationId === conversationId;

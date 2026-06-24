@@ -1950,7 +1950,8 @@ const en = {
     section: { main: 'AI Agent' },
     nav: {
       overview: 'Overview',
-      knowledge: 'Knowledge',
+      articles: 'Articles',
+      knowledge: 'Knowledge Sources',
       behavior: 'Behavior',
       operatorAssist: 'Operator Assist',
       activity: 'Activity',

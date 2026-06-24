@@ -1937,7 +1937,8 @@ const fa: TranslationKeys = {
     section: { main: 'دستیار هوشمند' },
     nav: {
       overview: 'نمای کلی',
-      knowledge: 'پایگاه دانش',
+      articles: 'مقالات راهنما',
+      knowledge: 'منابع دانش',
       behavior: 'رفتار',
       operatorAssist: 'دستیار اپراتور',
       activity: 'فعالیت',

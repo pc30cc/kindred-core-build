@@ -1937,7 +1937,8 @@ const tr: TranslationKeys = {
     section: { main: 'AI Asistanı' },
     nav: {
       overview: 'Genel Bakış',
-      knowledge: 'Bilgi Tabanı',
+      articles: 'Yardım Makaleleri',
+      knowledge: 'Bilgi Kaynakları',
       behavior: 'Davranış',
       operatorAssist: 'Operatör Yardımı',
       activity: 'Etkinlik',

@@ -29,7 +29,7 @@ interface Props {
 export function PlanLockedOverlay({ moduleKey, children, className }: Props) {
   const { workspace } = useActiveWorkspace();
   const { data, loading } = useWorkspaceEffectiveEntitlements(workspace?.id || null);
-  const { t, dir } = useTranslation();
+  const { t, dir, locale } = useTranslation();
   const wsPath = useWorkspacePath();
 
   const moduleState = data?.modules?.[moduleKey];
@@ -38,7 +38,13 @@ export function PlanLockedOverlay({ moduleKey, children, className }: Props) {
   if (enabled) return <>{children}</>;
 
   const moduleLabel = t(`plan.locked.module.${moduleKey}` as any) || moduleKey;
-  const planName = data?.plan?.name || data?.plan?.slug || t('plan.locked.currentPlan' as any);
+  const localized = (data?.plan?.localized || {}) as Record<string, { name?: string; description?: string }>;
+  const planName =
+    localized[locale]?.name?.trim() ||
+    localized['en']?.name?.trim() ||
+    data?.plan?.name ||
+    data?.plan?.slug ||
+    t('plan.locked.currentPlan' as any);
 
   return (
     <div className={cn('relative h-full w-full', className)} dir={dir}>

@@ -30,6 +30,7 @@ import { InviteWaitDialog } from './InviteWaitDialog';
 import { useLocalMediaPreview, type LocalPreviewState } from '@/hooks/useLocalMediaPreview';
 import { useOperatorCall } from '@/features/calls/OperatorCallContext';
 import { VideoCallStage, AudioCallStage } from '@/features/calls/CallStage';
+import { useWorkspaceEffectiveEntitlements } from '@/hooks/useEntitlements';
 import {
   CALL_VIDEO_ORIENTATION_CORRECTION_MODE,
   CALL_VIDEO_STYLE,

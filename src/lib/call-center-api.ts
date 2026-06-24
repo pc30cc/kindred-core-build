@@ -441,6 +441,41 @@ export const callCenterApi = {
     }>(
       `/api/call-center/calls/${encodeURIComponent(callId)}/recordings?workspaceId=${encodeURIComponent(workspaceId)}`,
     ),
+  /**
+   * Workspace-wide recordings listing (read-only).
+   * Returns every recording artifact for the workspace with a minimal call
+   * snapshot for display. Storage paths / provider metadata are stripped
+   * server-side. Retention and deletion remain super-admin only.
+   */
+  listWorkspaceRecordings: (
+    workspaceId: string,
+    opts?: { limit?: number; offset?: number },
+  ) =>
+    jsonFetch<{
+      recordings: Array<{
+        id: string;
+        call_id: string;
+        recording_type: string | null;
+        duration_seconds: number | null;
+        size_bytes: number | null;
+        created_at: string;
+        has_storage: boolean;
+        call: {
+          visitor_name: string | null;
+          visitor_email: string | null;
+          call_type: string | null;
+          started_at: string | null;
+          ended_at: string | null;
+          duration_seconds: number | null;
+        } | null;
+      }>;
+      limit: number;
+      offset: number;
+    }>(
+      `/api/call-center/recordings?workspaceId=${encodeURIComponent(workspaceId)}` +
+        (opts?.limit ? `&limit=${opts.limit}` : '') +
+        (opts?.offset ? `&offset=${opts.offset}` : ''),
+    ),
   mintCallRecordingPlaybackToken: (workspaceId: string, callId: string, recordingId: string) =>
     jsonFetch<{
       recording_id: string;

@@ -460,6 +460,7 @@ function RecordingSection({
   platformRecording: boolean;
   recording: {
     enabled_by_platform: boolean;
+    enabled_by_plan: boolean;
     enabled_by_workspace: boolean;
     consent_required: boolean;
     provider_supported: boolean;
@@ -471,14 +472,16 @@ function RecordingSection({
   const { t } = useTranslation();
 
   const enabledByPlatform = recording?.enabled_by_platform ?? platformRecording;
+  const enabledByPlan = recording?.enabled_by_plan ?? false;
   const enabledByWorkspace = recording?.enabled_by_workspace ?? !!s.recording_enabled;
   const providerSupported = recording?.provider_supported ?? false;
   const providerConfigured = recording?.provider_configured ?? false;
 
-  const eff = enabledByPlatform && enabledByWorkspace && providerSupported && providerConfigured;
+  const eff = enabledByPlatform && enabledByPlan && enabledByWorkspace && providerSupported && providerConfigured;
 
-  let reason: 'platform_disabled' | 'workspace_disabled' | 'provider_not_supported' | 'provider_not_configured' | 'unknown';
+  let reason: 'platform_disabled' | 'plan_forbidden' | 'workspace_disabled' | 'provider_not_supported' | 'provider_not_configured' | 'unknown';
   if (!enabledByPlatform) reason = 'platform_disabled';
+  else if (!enabledByPlan) reason = 'plan_forbidden';
   else if (!enabledByWorkspace) reason = 'workspace_disabled';
   else if (!providerSupported) reason = 'provider_not_supported';
   else if (!providerConfigured) reason = 'provider_not_configured';
@@ -486,6 +489,7 @@ function RecordingSection({
 
   const gates = [
     { ok: enabledByPlatform, label: t('callCenter.recording.gate.platform') },
+    { ok: enabledByPlan, label: t('callCenter.recording.gate.plan') },
     { ok: enabledByWorkspace, label: t('callCenter.recording.gate.workspace') },
     { ok: providerSupported, label: t('callCenter.recording.gate.provider_support') },
     { ok: providerConfigured, label: t('callCenter.recording.gate.provider_config') },

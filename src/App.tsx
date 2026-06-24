@@ -36,6 +36,7 @@ import ContactDetailPage from "@/pages/app/ContactDetailPage";
 import VisitorsPage from "@/pages/app/VisitorsPage";
 import KnowledgeBasePage from "@/pages/app/KnowledgeBasePage";
 import WidgetPage from "@/pages/app/WidgetPage";
+import { PlanLockedOverlay } from "@/components/plan/PlanLockedOverlay";
 // AI Agent (Phase 1 foundation)
 import { AiAgentLayout } from "@/components/layout/AiAgentLayout";
 import AiAgentSettingsPage from "@/pages/app/ai-agent/SettingsPage";
@@ -221,9 +222,9 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
               <Route path="/app/w/:slug" element={<RequireAuth><BrandingGate><AppLayout /></BrandingGate></RequireAuth>}>
                 <Route index element={<OverviewPage />} />
                 <Route path="inbox" element={<InboxPage />} />
-                <Route path="contacts" element={<ContactsPage />} />
+                <Route path="contacts" element={<PlanLockedOverlay moduleKey="contacts"><ContactsPage /></PlanLockedOverlay>} />
                 <Route path="contacts/:id" element={<ContactDetailPage />} />
-                <Route path="visitors" element={<VisitorsPage />} />
+                <Route path="visitors" element={<PlanLockedOverlay moduleKey="visitor_tracking"><VisitorsPage /></PlanLockedOverlay>} />
                 <Route path="widget" element={<WidgetPage />} />
                 <Route path="email" element={<EmailPage />} />
                 <Route path="billing" element={<BillingPage />} />
@@ -261,7 +262,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                   <Route path="team-departments" element={<TeamDepartmentsPage />} />
                   <Route path="staff-access" element={<StaffAccessPage />} />
                   <Route path="privacy-requests" element={<PrivacyRequestsPage />} />
-                  <Route path="knowledge-base" element={<KnowledgeBasePage />} />
+                  <Route path="knowledge-base" element={<PlanLockedOverlay moduleKey="knowledge_base"><KnowledgeBasePage /></PlanLockedOverlay>} />
                 </Route>
                 {/* AI Agent — Phase 1 foundation. Separate layout with its own sidebar. */}
                 <Route path="ai-agent" element={<AiAgentLayout />}>

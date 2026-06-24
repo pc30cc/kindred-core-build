@@ -147,7 +147,7 @@ export default function CallCenterSettingsPage() {
       )}
 
       <Tabs defaultValue="general" className="space-y-4" dir={dir}>
-      <TabsList className={cn('flex flex-wrap h-auto gap-1 w-full', dir === 'rtl' ? 'justify-end' : 'justify-start')}>
+      <TabsList className="flex flex-wrap h-auto gap-1 w-full justify-start">
         <TabsTrigger value="general">{t('callCenter.settingsPage.tabs.general')}</TabsTrigger>
         <TabsTrigger value="branding">{t('callCenter.settingsPage.tabs.branding')}</TabsTrigger>
         <TabsTrigger value="languages">{t('callCenter.settingsPage.tabs.languages')}</TabsTrigger>

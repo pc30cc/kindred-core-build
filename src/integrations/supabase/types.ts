@@ -2711,6 +2711,7 @@ export type Database = {
           id: string
           is_active: boolean | null
           is_free: boolean | null
+          is_hidden: boolean
           limits: Json
           localized: Json
           name: string
@@ -2729,6 +2730,7 @@ export type Database = {
           id?: string
           is_active?: boolean | null
           is_free?: boolean | null
+          is_hidden?: boolean
           limits?: Json
           localized?: Json
           name: string
@@ -2747,6 +2749,7 @@ export type Database = {
           id?: string
           is_active?: boolean | null
           is_free?: boolean | null
+          is_hidden?: boolean
           limits?: Json
           localized?: Json
           name?: string
@@ -7882,6 +7885,7 @@ export type Database = {
         Returns: Json
       }
       evaluate_alert_rules: { Args: never; Returns: Json }
+      expire_stale_trials: { Args: never; Returns: number }
       generate_short_id: { Args: { prefix?: string }; Returns: string }
       get_account_role: {
         Args: { _account_id: string; _user_id: string }

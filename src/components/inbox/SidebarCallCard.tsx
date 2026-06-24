@@ -80,6 +80,25 @@ export function SidebarCallCard({ workspaceId, conversationId, contactName, onAc
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [dialogChannel, setDialogChannel] = useState<InvitationChannel | null>(null);
 
+  // ── Plan-level entitlement gating ────────────────────────────────────
+  // Drives visibility/disabled-state of the Audio/Video invite buttons
+  // and the surrounding card. Server still enforces (returns 403
+  // plan_forbidden / limit_reached), but the UI honors the effective
+  // state up-front so operators don't see an Apply button they can't use.
+  const { data: entitlements } = useWorkspaceEffectiveEntitlements(workspaceId);
+  const planVoiceVideoEnabled = entitlements?.modules?.voice_video?.value !== false;
+  const planVoiceEnabled = entitlements?.channels?.voice?.value !== false;
+  const planVideoEnabled = entitlements?.channels?.video?.value !== false;
+  // Numeric limits — only block when entitlements are loaded AND a finite cap is set AND usage >= cap.
+  const concurrentCallsLimit = entitlements?.limits?.max_concurrent_calls?.value ?? null;
+  const concurrentCallsUsed = (entitlements?.usage as Record<string, { value?: number }> | null | undefined)?.max_concurrent_calls?.value ?? 0;
+  const concurrentReached =
+    typeof concurrentCallsLimit === 'number' && concurrentCallsLimit !== -1 && concurrentCallsUsed >= concurrentCallsLimit;
+  const callMinutesLimit = entitlements?.limits?.max_call_minutes_per_month?.value ?? null;
+  const callMinutesUsed = (entitlements?.usage as Record<string, { value?: number }> | null | undefined)?.max_call_minutes_per_month?.value ?? 0;
+  const minutesReached =
+    typeof callMinutesLimit === 'number' && callMinutesLimit !== -1 && callMinutesUsed >= callMinutesLimit;
+
   // Notify parent when an active call belongs to this conversation.
   useEffect(() => {
     if (surface.phase !== 'idle' && surface.conversationId === conversationId) {

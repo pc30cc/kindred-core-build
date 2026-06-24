@@ -562,6 +562,12 @@ const tr: TranslationKeys = {
     published: 'Yayınlandı',
     archived: 'Arşivlendi',
     noArticles: 'Henüz makale yok',
+    visibleInWidget: 'Yardım merkezi / widget\u2019ta göster',
+    visibleInWidgetHint: 'Bu makaleyi herkese açık yardım merkezinde ziyaretçilere sun.',
+    usedByAi: 'AI bilgi kaynağı olarak kullan',
+    usedByAiHint: 'AI asistanın bu makaleyi getirip yanıtlarında kullanmasına izin ver.',
+    hiddenFromWidget: 'Widget\u2019tan gizli',
+    aiDisabled: 'AI kapalı',
   },
   widget: {
     title: 'Widget',

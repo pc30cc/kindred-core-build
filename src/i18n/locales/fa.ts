@@ -562,6 +562,12 @@ const fa: TranslationKeys = {
     published: 'منتشر شده',
     archived: 'بایگانی شده',
     noArticles: 'هنوز مقاله‌ای نیست',
+    visibleInWidget: 'نمایش در مرکز راهنما / ویجت',
+    visibleInWidgetHint: 'این مقاله برای بازدیدکنندگان در مرکز راهنمای عمومی قابل مشاهده باشد.',
+    usedByAi: 'استفاده به عنوان منبع دانش هوش مصنوعی',
+    usedByAiHint: 'به دستیار هوشمند اجازه دهید این مقاله را بازیابی و در پاسخ‌ها استفاده کند.',
+    hiddenFromWidget: 'پنهان از ویجت',
+    aiDisabled: 'بدون استفاده در AI',
   },
   widget: {
     title: 'ویجت',

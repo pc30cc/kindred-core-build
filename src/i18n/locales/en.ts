@@ -574,6 +574,12 @@ const en = {
     published: 'Published',
     archived: 'Archived',
     noArticles: 'No articles yet',
+    visibleInWidget: 'Show in help center / widget',
+    visibleInWidgetHint: 'Make this article available to visitors in the public help center.',
+    usedByAi: 'Use as AI knowledge source',
+    usedByAiHint: 'Allow the AI assistant to retrieve and cite this article.',
+    hiddenFromWidget: 'Hidden from widget',
+    aiDisabled: 'AI off',
   },
   widget: {
     title: 'Widget',

@@ -464,8 +464,8 @@ function formatLimitValue(value: number, cap: CapabilityDefinition, locale: stri
 }
 
 function PlanCapabilityList({
-  plan, capabilities, locale,
-}: { plan: any; capabilities: CapabilityDefinition[]; locale: string }) {
+  plan, capabilities, locale, dir,
+}: { plan: any; capabilities: CapabilityDefinition[]; locale: string; dir: 'rtl' | 'ltr' }) {
   if (!capabilities.length) return null;
 
   const ent = (plan.entitlements || {}) as Record<string, unknown>;
@@ -503,14 +503,14 @@ function PlanCapabilityList({
 
   if (rows.length === 0) {
     return (
-      <p className="text-sm text-muted-foreground">
+      <p className="text-sm text-muted-foreground text-start" dir={dir}>
         {locale === 'fa' ? 'این پلن ویژگی فعالی ندارد.' : locale === 'tr' ? 'Bu planda etkin özellik yok.' : 'No features enabled on this plan.'}
       </p>
     );
   }
 
   return (
-    <ul className="space-y-2 text-start">
+    <ul className="space-y-2 text-start" dir={dir}>
       {rows.map((r) => (
         <li key={r.key} className="flex items-start gap-2 text-sm text-start">
           <Check className="w-4 h-4 mt-0.5 shrink-0 text-green-500" />

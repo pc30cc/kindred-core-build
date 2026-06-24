@@ -471,6 +471,60 @@ function PlanCapabilityList({
   const ent = (plan.entitlements || {}) as Record<string, unknown>;
   const lim = (plan.limits || {}) as Record<string, unknown>;
 
+  // Map a capability key → the module(s) that must be enabled for it to be
+  // shown. If ANY listed module is disabled on the plan, the capability is
+  // hidden — limits don't make sense for a feature the plan doesn't include.
+  const MODULE_GATE: Record<string, string[]> = {
+    // calls group (features + limits) bounded by call_center / voice_video
+    call_recording: ['call_center'],
+    call_queue: ['call_center'],
+    call_callbacks: ['call_center'],
+    max_concurrent_calls: ['call_center'],
+    max_call_minutes_per_month: ['call_center'],
+    recording_retention_days: ['call_center'],
+    max_call_recordings: ['call_center'],
+    max_call_recording_storage_mb: ['call_center'],
+    // contacts group bounded by Contacts module
+    contact_import: ['contacts'],
+    contact_export: ['contacts'],
+    contact_tags: ['contacts'],
+    contact_notes: ['contacts'],
+    bulk_contact_actions: ['contacts'],
+    max_contacts: ['contacts'],
+    // ai group bounded by AI Assistant module
+    advanced_ai_agent: ['ai_assistant'],
+    ai_operator_assist: ['ai_assistant'],
+    ai_kb_builder: ['ai_assistant'],
+    ai_credits_per_month: ['ai_assistant'],
+    ai_kb_max_pages: ['ai_assistant'],
+    ai_kb_max_depth: ['ai_assistant'],
+    ai_kb_jobs_per_month: ['ai_assistant'],
+    ai_kb_file_size_mb: ['ai_assistant'],
+    ai_kb_file_count: ['ai_assistant'],
+    // usage limits bounded by their primary modules
+    max_conversations: ['chat'],
+    max_visitors: ['visitor_tracking'],
+    // channels gated by the omnichannel module (chat_widget + email are core)
+    whatsapp: ['omnichannel'],
+    sms: ['omnichannel'],
+    instagram: ['omnichannel'],
+    telegram: ['omnichannel'],
+    voice: ['voice_video'],
+    video: ['voice_video'],
+  };
+
+  const moduleEnabled = (mod: string): boolean => {
+    const cap = capabilities.find((c) => c.key === mod);
+    const raw = mod in ent ? ent[mod] : cap?.defaultValue;
+    return Boolean(raw);
+  };
+
+  const isGatedOut = (key: string): boolean => {
+    const gates = MODULE_GATE[key];
+    if (!gates || gates.length === 0) return false;
+    return !gates.every(moduleEnabled);
+  };
+
   // Only include user-visible, plan-configurable capabilities.
   const visible = capabilities.filter((c) => c.userVisible && !c.internalOnly && c.planConfigurable);
 
@@ -479,6 +533,9 @@ function PlanCapabilityList({
 
   for (const cap of visible) {
     const label = capLabel(cap, locale);
+    // If this capability depends on a module that isn't part of this plan,
+    // hide it entirely — don't advertise limits for disabled modules.
+    if (isGatedOut(cap.key)) continue;
     if (cap.type === 'limit') {
       const raw = cap.key in lim ? lim[cap.key] : cap.defaultValue;
       const num = typeof raw === 'number' ? raw : Number(raw);

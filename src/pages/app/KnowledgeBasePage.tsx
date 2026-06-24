@@ -299,6 +299,34 @@ export default function KnowledgeBasePage() {
               <Input value={form.excerpt} onChange={e => setForm(p => ({ ...p, excerpt: e.target.value }))} placeholder="Brief description for search results" />
             </div>
 
+            {/* Visibility & AI usage (KB unification — Phase 2) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="border border-border rounded-xl p-3.5 flex items-start gap-3 bg-secondary/20">
+                <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                  <MonitorSmartphone className="h-4 w-4 text-primary" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-medium text-foreground">{t('knowledgeBase.visibleInWidget') || 'Show in help center / widget'}</span>
+                    <Switch checked={form.visible_in_widget} onCheckedChange={(v) => setForm(p => ({ ...p, visible_in_widget: !!v }))} />
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mt-1">{t('knowledgeBase.visibleInWidgetHint') || 'Make this article available to visitors in the public help center.'}</p>
+                </div>
+              </div>
+              <div className="border border-border rounded-xl p-3.5 flex items-start gap-3 bg-secondary/20">
+                <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                  <Bot className="h-4 w-4 text-primary" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-medium text-foreground">{t('knowledgeBase.usedByAi') || 'Use as AI knowledge source'}</span>
+                    <Switch checked={form.used_by_ai} onCheckedChange={(v) => setForm(p => ({ ...p, used_by_ai: !!v }))} />
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mt-1">{t('knowledgeBase.usedByAiHint') || 'Allow the AI assistant to retrieve and cite this article.'}</p>
+                </div>
+              </div>
+            </div>
+
             {/* SEO Score */}
             <div className="border border-border rounded-xl overflow-hidden">
               <div className="px-4 py-3 bg-secondary/30 border-b border-border flex items-center justify-between">

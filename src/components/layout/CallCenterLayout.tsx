@@ -65,7 +65,8 @@ export function CallCenterLayout() {
     caps.effective?.callback_enabled !== false;
   // Recordings tab is hidden entirely when the platform admin has turned off
   // call recording — operators should not see the surface at all in that case.
-  const recordingOn = !!caps?.recording?.enabled_by_platform;
+  const recordingOn =
+    !!caps?.recording?.enabled_by_platform && !!caps?.recording?.enabled_by_plan;
   const tabs = ALL_TABS.filter(
     (tab) =>
       (!tab.requiresCallback || callbackOn) &&

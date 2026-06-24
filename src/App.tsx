@@ -116,6 +116,7 @@ import CallCenterCallsPage from "@/pages/app/call-center/CallsPage";
 import CallCenterCallbacksPage from "@/pages/app/call-center/CallbacksPage";
 import CallCenterInstallPage from "@/pages/app/call-center/InstallPage";
 import CallCenterSettingsPage from "@/pages/app/call-center/SettingsPage";
+import CallCenterRecordingsPage from "@/pages/app/call-center/RecordingsPage";
 // CC-2G-UI-Architecture-Fix — Departments are unified under
 // /settings/team-departments. The old /call-center/departments URL is kept
 // only as a redirect; the standalone CallCenterDepartmentsPage is no
@@ -231,6 +232,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                   <Route path="queue" element={<CallCenterLiveQueuePage />} />
                   <Route path="calls" element={<CallCenterCallsPage />} />
                   <Route path="callbacks" element={<CallCenterCallbacksPage />} />
+                  <Route path="recordings" element={<CallCenterRecordingsPage />} />
                   {/* Legacy URL — redirect to canonical Team & Departments. */}
                   <Route path="departments" element={<Navigate to="../../settings/team-departments" replace />} />
                   <Route path="install" element={<CallCenterInstallPage />} />

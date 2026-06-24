@@ -998,6 +998,53 @@ const en = {
       },
       footer: 'Retention, legal hold, deletion and bulk export of recorded files are managed by the platform administrator in super-admin → Voice & Video → Recordings. Operators can play back and download recordings from the Calls page.',
     },
+    layout: {
+      headerTitle: 'Call Center',
+      headerSubtitle: 'Standalone voice & video module — independent of chat.',
+      pill: {
+        loading: 'Loading…',
+        platformDisabled: 'Platform disabled',
+        workspaceDisabled: 'Workspace disabled',
+        providerMissing: 'Provider missing',
+        ready: 'Ready',
+      },
+      presence: {
+        available: 'Available',
+        away: 'Away',
+        setAvailable: 'Set Available',
+      },
+      install: 'Install',
+      tabs: {
+        overview: 'Overview',
+        queue: 'Live Desk',
+        calls: 'Calls',
+        callbacks: 'Callbacks',
+        recordings: 'Recordings',
+        install: 'Install Widget',
+        settings: 'Settings',
+      },
+    },
+    recordingsPage: {
+      title: 'Recordings',
+      subtitle: 'All call recordings available to this workspace. Playback, download and share links are read-only.',
+      empty: 'No recordings yet. Recordings will appear here once calls finish and the artifacts are stored.',
+      disabledByPlatform: 'Call recording is disabled at the platform level. Recordings are unavailable for this workspace.',
+      loadFailed: 'Failed to load recordings',
+      filters: {
+        all: 'All',
+        audio: 'Audio only',
+        video: 'Video',
+      },
+      columns: {
+        when: 'When',
+        visitor: 'Visitor',
+        type: 'Type',
+        duration: 'Duration',
+        size: 'Size',
+        actions: 'Actions',
+      },
+      anonymous: 'Anonymous',
+    },
     admin: {
       recording: {
         title: 'Recording platform settings',

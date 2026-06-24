@@ -909,6 +909,56 @@ callCenterRouter.get('/calls/:id/recordings', async (req, res) => {
   res.json({ recordings });
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+// Workspace-wide recordings listing (read-only, workspace-scoped).
+//
+//   GET /api/call-center/recordings?workspaceId=...&limit=...&offset=...
+//
+// Returns every recording artifact whose parent call_session belongs to the
+// given workspace, joined with a minimal call snapshot for display. Storage
+// paths and provider metadata are never returned. Mirrors the same gating
+// model as the per-call endpoint — membership is enforced by requireMember
+// and the cross-workspace filter is performed via the call_sessions inner
+// join. Deletion / retention controls remain super-admin only.
+callCenterRouter.get('/recordings', async (req, res) => {
+  const wid = String(req.query.workspaceId || '');
+  if (!wid) return res.status(400).json({ error: 'workspaceId_required' });
+  const ctx = await requireMember(req, res, wid);
+  if (!ctx) return;
+  const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 100));
+  const offset = Math.max(0, Number(req.query.offset) || 0);
+  const sb = getServiceClient(ctx.config);
+  const { data, error } = await sb
+    .from('call_recordings')
+    .select(
+      'id, recording_type, duration_seconds, size_bytes, storage_path, created_at, call_session_id, call_sessions!inner(workspace_id, visitor_name, visitor_email, call_type, created_at, ended_at, duration_seconds)',
+    )
+    .eq('call_sessions.workspace_id', wid)
+    .order('created_at', { ascending: false })
+    .range(offset, offset + limit - 1);
+  if (error) return res.status(500).json({ error: error.message });
+  const recordings = (data || []).map((r: any) => ({
+    id: r.id,
+    call_id: r.call_session_id,
+    recording_type: r.recording_type,
+    duration_seconds: r.duration_seconds ?? null,
+    size_bytes: r.size_bytes ?? null,
+    created_at: r.created_at,
+    has_storage: Boolean(r.storage_path),
+    call: r.call_sessions
+      ? {
+          visitor_name: r.call_sessions.visitor_name ?? null,
+          visitor_email: r.call_sessions.visitor_email ?? null,
+          call_type: r.call_sessions.call_type ?? null,
+          started_at: r.call_sessions.created_at ?? null,
+          ended_at: r.call_sessions.ended_at ?? null,
+          duration_seconds: r.call_sessions.duration_seconds ?? null,
+        }
+      : null,
+  }));
+  res.json({ recordings, limit, offset });
+});
+
 callCenterRouter.post('/calls/:id/recordings/:recordingId/playback-token', async (req, res) => {
   const wid = String(req.query.workspaceId || '');
   const ctx = await requireMember(req, res, wid);

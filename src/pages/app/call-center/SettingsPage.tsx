@@ -145,12 +145,26 @@ export default function CallCenterSettingsPage() {
         </Card>
       )}
 
+      <Tabs defaultValue="general" className="space-y-4">
+      <TabsList className="flex flex-wrap h-auto gap-1">
+        <TabsTrigger value="general">{t('callCenter.settingsPage.tabs.general')}</TabsTrigger>
+        <TabsTrigger value="branding">{t('callCenter.settingsPage.tabs.branding')}</TabsTrigger>
+        <TabsTrigger value="languages">{t('callCenter.settingsPage.tabs.languages')}</TabsTrigger>
+        <TabsTrigger value="channels">{t('callCenter.settingsPage.tabs.channels')}</TabsTrigger>
+        <TabsTrigger value="availability">{t('callCenter.settingsPage.tabs.availability')}</TabsTrigger>
+        <TabsTrigger value="routing">{t('callCenter.settingsPage.tabs.routing')}</TabsTrigger>
+        <TabsTrigger value="recording">{t('callCenter.settingsPage.tabs.recording')}</TabsTrigger>
+      </TabsList>
+
+      <TabsContent value="general" className="space-y-6 mt-0">
       <Section title={t('callCenter.settingsPage.statusAvailability')} description={t('callCenter.settingsPage.statusAvailabilityHint')}>
         <Row label={t('callCenter.settingsPage.workspaceEnabled')} hint={t('callCenter.settingsPage.workspaceEnabledHint')}>
           <Switch checked={!!s.enabled} onCheckedChange={(v) => setS({ ...s, enabled: v })} />
         </Row>
       </Section>
+      </TabsContent>
 
+      <TabsContent value="branding" className="space-y-6 mt-0">
       <Section title={t('callCenter.settingsPage.identityBranding')} description={t('callCenter.settingsPage.identityBrandingHint')}>
         <Row label={t('callCenter.settingsPage.displayName')}>
           <Input value={s.display_name || ''} onChange={(e) => setS({ ...s, display_name: e.target.value })} placeholder="Support" className="w-60" />

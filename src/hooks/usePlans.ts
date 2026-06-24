@@ -13,6 +13,7 @@ export function usePlans() {
         .from('billing_plans')
         .select('*')
         .eq('is_active', true)
+        .eq('is_hidden', false)
         .order('sort_order');
       if (error) throw error;
       return data ?? [];

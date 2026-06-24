@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useWorkspaces } from '@/hooks/useWorkspace';
 import { billingGetPlans, billingGetStatus, billingCheckout, billingCancel, billingResume, billingGetPortal, API_BASE } from '@/lib/api';
-import { CreditCard, Check, X, AlertCircle, ArrowRight, Loader2, ExternalLink, Clock, Shield, Infinity as InfinityIcon } from 'lucide-react';
+import { CreditCard, Check, AlertCircle, ArrowRight, Loader2, ExternalLink, Clock, Shield } from 'lucide-react';
 import { toast } from 'sonner';
 import { PlanUsagePanel } from '@/components/billing/PlanUsagePanel';
 import { useCapabilityCatalog } from '@/hooks/useEntitlements';

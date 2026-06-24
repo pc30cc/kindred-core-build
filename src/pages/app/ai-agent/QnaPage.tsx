@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { toast } from '@/hooks/use-toast';
-import { MessageCircleQuestion, Loader2, Plus, GraduationCap, Trash2 } from 'lucide-react';
+import { MessageCircleQuestion, Loader2, Plus, GraduationCap, Trash2, Pencil, Save, X } from 'lucide-react';
 
 export default function QnaPage() {
   const workspace = useCurrentWorkspace() as any;
@@ -22,6 +22,11 @@ export default function QnaPage() {
   const [a, setA] = useState('');
   const [locale, setLocale] = useState('en');
   const [creating, setCreating] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editQ, setEditQ] = useState('');
+  const [editA, setEditA] = useState('');
+  const [editLocale, setEditLocale] = useState('en');
+  const [saving, setSaving] = useState(false);
 
   async function refresh() {
     if (!wsId) return;
@@ -57,12 +62,39 @@ export default function QnaPage() {
   }
 
   async function remove(id: string) {
+    if (!confirm('Delete this Q&A?')) return;
     try {
       await aiAgentApi.deleteQna(id);
       refresh();
     } catch (e: any) {
       toast({ title: 'Delete failed', description: e?.message, variant: 'destructive' });
     }
+  }
+
+  function startEdit(qi: any) {
+    setEditingId(qi.id);
+    setEditQ(qi.question || '');
+    setEditA(qi.answer || '');
+    setEditLocale(qi.locale || 'en');
+  }
+  function cancelEdit() {
+    setEditingId(null);
+    setEditQ(''); setEditA(''); setEditLocale('en');
+  }
+  async function saveEdit(id: string) {
+    if (!editQ.trim() || !editA.trim()) {
+      toast({ title: 'Question and answer are required', variant: 'destructive' });
+      return;
+    }
+    setSaving(true);
+    try {
+      await aiAgentApi.updateQna(id, { question: editQ.trim(), answer: editA.trim(), locale: editLocale });
+      toast({ title: 'Q&A updated' });
+      cancelEdit();
+      refresh();
+    } catch (e: any) {
+      toast({ title: 'Update failed', description: e?.message, variant: 'destructive' });
+    } finally { setSaving(false); }
   }
 
   if (!wsId) return null;
@@ -101,19 +133,40 @@ export default function QnaPage() {
       )}
       {items.map((qi) => (
         <Card key={qi.id} className="p-4 space-y-1">
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex-1">
-              <div className="text-sm font-medium">{qi.question}</div>
-              <div className="text-sm text-muted-foreground whitespace-pre-wrap mt-1">{qi.answer}</div>
-              <div className="flex gap-2 mt-2">
-                <Badge variant="outline">{qi.locale || 'en'}</Badge>
-                {qi.enabled === false && <Badge variant="destructive">disabled</Badge>}
+          {editingId === qi.id ? (
+            <div className="space-y-2">
+              <Input value={editQ} onChange={(e) => setEditQ(e.target.value)} placeholder="Question" />
+              <Textarea value={editA} onChange={(e) => setEditA(e.target.value)} rows={3} placeholder="Answer" />
+              <div className="flex items-center gap-2">
+                <Input value={editLocale} onChange={(e) => setEditLocale(e.target.value)} className="w-24 h-8" />
+                <Button size="sm" onClick={() => saveEdit(qi.id)} disabled={saving}>
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />} Save
+                </Button>
+                <Button size="sm" variant="ghost" onClick={cancelEdit} disabled={saving}>
+                  <X className="h-4 w-4 mr-1" /> Cancel
+                </Button>
               </div>
             </div>
-            <Button size="sm" variant="ghost" onClick={() => remove(qi.id)}>
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          </div>
+          ) : (
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex-1">
+                <div className="text-sm font-medium">{qi.question}</div>
+                <div className="text-sm text-muted-foreground whitespace-pre-wrap mt-1">{qi.answer}</div>
+                <div className="flex gap-2 mt-2">
+                  <Badge variant="outline">{qi.locale || 'en'}</Badge>
+                  {qi.enabled === false && <Badge variant="destructive">disabled</Badge>}
+                </div>
+              </div>
+              <div className="flex items-center gap-1">
+                <Button size="sm" variant="ghost" onClick={() => startEdit(qi)} title="Edit">
+                  <Pencil className="h-4 w-4" />
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => remove(qi.id)} title="Delete">
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
         </Card>
       ))}
     </div>

@@ -209,7 +209,7 @@ export default function BillingPage() {
           <div className="flex flex-wrap items-center gap-2">
             {subscription?.provider_customer_id && (
               <Button variant="outline" size="sm" onClick={handlePortal}>
-                <ExternalLink className="w-4 h-4 mr-2" />
+                <ExternalLink className="w-4 h-4 me-2" />
                 {bt(L, 'customerPortal')}
               </Button>
             )}
@@ -317,9 +317,9 @@ export default function BillingPage() {
                         disabled={!!checkoutLoading}
                       >
                         {checkoutLoading === plan.id ? (
-                          <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                          <Loader2 className="w-4 h-4 animate-spin me-2" />
                         ) : (
-                          <ArrowRight className="w-4 h-4 mr-2" />
+                          <ArrowRight className="w-4 h-4 me-2" />
                         )}
                         {bt(L, 'upgrade')}
                       </Button>

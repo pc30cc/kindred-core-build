@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useWorkspaces } from '@/hooks/useWorkspace';
 import { billingGetPlans, billingGetStatus, billingCheckout, billingCancel, billingResume, billingGetPortal, API_BASE } from '@/lib/api';
-import { CreditCard, Check, AlertCircle, ArrowRight, Loader2, ExternalLink, Clock, Shield, Sparkles, Calendar } from 'lucide-react';
+import { CreditCard, Check, AlertCircle, ArrowRight, Loader2, ExternalLink, Clock, Shield, Sparkles, Calendar, Gauge, LayoutGrid, Receipt } from 'lucide-react';
 import { toast } from 'sonner';
 import { PlanUsagePanel } from '@/components/billing/PlanUsagePanel';
 import { useCapabilityCatalog } from '@/hooks/useEntitlements';
@@ -223,10 +223,28 @@ export default function BillingPage() {
       </div>
 
       <Tabs defaultValue="usage">
-        <TabsList className="bg-muted/50 p-1 h-auto">
-          <TabsTrigger value="usage" className="data-[state=active]:bg-background data-[state=active]:shadow-sm">{bt(L, 'tabUsage')}</TabsTrigger>
-          <TabsTrigger value="plans" className="data-[state=active]:bg-background data-[state=active]:shadow-sm">{bt(L, 'tabPlans')}</TabsTrigger>
-          <TabsTrigger value="payments" className="data-[state=active]:bg-background data-[state=active]:shadow-sm">{bt(L, 'tabPayments')}</TabsTrigger>
+        <TabsList className="w-full md:w-auto inline-flex h-auto gap-1 p-1.5 rounded-2xl bg-gradient-to-r from-muted/80 to-muted/40 border border-border/60 shadow-sm">
+          <TabsTrigger
+            value="usage"
+            className="gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-primary/20 data-[state=inactive]:text-muted-foreground hover:text-foreground"
+          >
+            <Gauge className="w-4 h-4" />
+            {bt(L, 'tabUsage')}
+          </TabsTrigger>
+          <TabsTrigger
+            value="plans"
+            className="gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-primary/20 data-[state=inactive]:text-muted-foreground hover:text-foreground"
+          >
+            <LayoutGrid className="w-4 h-4" />
+            {bt(L, 'tabPlans')}
+          </TabsTrigger>
+          <TabsTrigger
+            value="payments"
+            className="gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-primary/20 data-[state=inactive]:text-muted-foreground hover:text-foreground"
+          >
+            <Receipt className="w-4 h-4" />
+            {bt(L, 'tabPayments')}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="usage" className="mt-5">

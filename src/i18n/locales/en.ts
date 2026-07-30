@@ -2032,6 +2032,7 @@ const en = {
         deleting: 'Deleting file...',
         deleteSuccess: 'File deleted.',
         deleteError: 'Delete failed',
+        deletePartial: 'The file was removed from the knowledge base, but storage cleanup could not be completed.',
         error: {
           owner_or_admin_required: 'Only workspace owners or admins can upload files.',
           storage_not_configured: 'No storage provider is configured for this workspace.',

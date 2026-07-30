@@ -2019,6 +2019,7 @@ const tr: TranslationKeys = {
         deleting: 'Dosya siliniyor...',
         deleteSuccess: 'Dosya silindi.',
         deleteError: 'Silme başarısız',
+        deletePartial: 'Dosya bilgi tabanından kaldırıldı ancak depolama temizliği tamamlanamadı.',
         error: {
           owner_or_admin_required: 'Yalnızca çalışma alanı sahipleri veya yöneticileri dosya yükleyebilir.',
           storage_not_configured: 'Bu çalışma alanı için bir depolama sağlayıcısı yapılandırılmamış.',

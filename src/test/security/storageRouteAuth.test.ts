@@ -73,11 +73,19 @@ vi.mock("../../../server/services/storage/index.js", () => ({
 
 import { storageRouter } from "../../../server/routes/storage";
 
+type RouteLayer = {
+  route?: {
+    path: string;
+    methods: Record<string, boolean>;
+    stack: Array<{ handle: (req: unknown, res: unknown, next: () => void) => unknown }>;
+  };
+};
+
 function getHandler(method: string, path: string) {
-  const layer = (storageRouter as unknown as { stack: Array<Record<string, unknown> & { route?: any }> }).stack.find(
+  const layer = (storageRouter as unknown as { stack: RouteLayer[] }).stack.find(
     (l) => l.route?.path === path && l.route.methods[method],
   );
-  if (!layer) throw new Error(`route ${method} ${path} not found`);
+  if (!layer?.route) throw new Error(`route ${method} ${path} not found`);
   const stack = layer.route.stack;
   return stack[stack.length - 1].handle;
 }

@@ -2,7 +2,7 @@
  * PlanUsagePanel — customer-facing visibility tests.
  *
  * Pin behaviour around the canonical backend payload:
- *   - effective limit value + source badge come from the canonical
+ *   - effective limit value + usage percentage come from the canonical
  *     `/api/plans/workspace/:id/effective` response, not local logic
  *   - -1 renders as "Unlimited"
  *   - usage progress is computed from the canonical counter column
@@ -72,13 +72,16 @@ async function loadPanel() {
 }
 
 describe('PlanUsagePanel', () => {
-  it('renders effective limit value and source badge from canonical payload', async () => {
+  it('renders effective limit value and usage ratio from canonical payload', async () => {
     mockBoth();
     await loadPanel();
     const row = screen.getByTestId('limit-row-max_conversations');
     expect(row.textContent).toContain('Conversations / month');
-    expect(row.textContent).toContain('250 / 1,000');
-    expect(row.textContent?.toLowerCase()).toContain('from your plan');
+    // Redesigned card format: "<used> of <limit><unit suffix>"
+    expect(row.textContent).toMatch(/250\s*of\s*1,000/);
+    // Percentage is derived from the canonical usage + limit (250/1000).
+    expect(row.textContent).toContain('25%');
+    expect(row.querySelector('[role="progressbar"], .bg-muted')).not.toBeNull();
   });
 
   it('renders -1 as Unlimited and hides progress bar', async () => {

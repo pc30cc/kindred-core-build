@@ -22,6 +22,15 @@ vi.mock("../../../server/services/calls/concurrencyLimit.js", () => ({
   planConcurrencyDenialBody: (d: any) => ({ error: d.reason, capability: "max_concurrent_calls" }),
 }));
 
+// Phase: max_call_minutes_per_month — Final Activation.
+// The operator /create route also enforces the monthly minutes ceiling.
+// That gate has its own dedicated suite (maxCallMinutesPerMonth.test.ts);
+// here we stub it to allow so the composer gate is what is under test.
+vi.mock("../../../server/services/calls/monthlyMinutesLimit.js", () => ({
+  checkPlanMonthlyMinutesCeiling: async () => ({ allowed: true, limit: -1 }),
+  planMinutesDenialBody: (d: any) => ({ error: d.reason, capability: "max_call_minutes_per_month" }),
+}));
+
 const insertedRows: any[] = [];
 const sbMock: any = {
   auth: { getUser: async () => ({ data: { user: { id: "u-1" } }, error: null }) },

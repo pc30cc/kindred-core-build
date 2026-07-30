@@ -31,6 +31,18 @@ function authHeaders(): Record<string, string> {
   return anonKey ? { 'Authorization': `Bearer ${anonKey}` } : {};
 }
 
+/**
+ * Real end-user identity for routes that authorize per user + workspace
+ * (currently the /api/storage/* routes). The publishable anon key is NOT an
+ * identity and is rejected by those routes.
+ */
+async function userAuthHeaders(): Promise<Record<string, string>> {
+  const { supabase } = await import('@/integrations/supabase/client');
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 // ─── Widget ──────────────────────────────────────────────────────
 
 export function fetchWidgetConfig(workspaceId: string, origin?: string) {

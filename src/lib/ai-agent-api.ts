@@ -1,3 +1,4 @@
+  readonly reason?: unknown;
 /**
  * AI Agent — operator-side API client.
  * All work routes through the project's own Express backend.
@@ -41,7 +42,7 @@ export class AiAgentApiError extends Error {
     this.body = params.body;
     this.url = params.url;
     this.method = params.method;
-    if (params.cause !== undefined) (this as Error).cause = params.cause;
+    if (params.cause !== undefined) this.reason = params.cause;
   }
 }
 
@@ -53,7 +54,7 @@ function readErrorCode(body: unknown): string | null {
   return null;
 }
 
-async function jsonFetch(path: string, init: RequestInit = {}) {
+async function jsonFetch(path: string, init: RequestInit = {}): Promise<unknown> {
   const method = (init.method || 'GET').toUpperCase();
   let res: Response;
   try {
@@ -96,7 +97,7 @@ async function jsonFetch(path: string, init: RequestInit = {}) {
       method,
     });
   }
-  return (data ?? {}) as Record<string, unknown>;
+  return data ?? {};
 }
 
 export type AgentMode = 'off' | 'suggest_only' | 'auto_reply_when_offline' | 'auto_reply_until_human_joins' | 'auto_reply_always';

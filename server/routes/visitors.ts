@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { getServiceClient } from '../supabase.js';
 import type { ServerConfig } from '../config.js';
+import { routeParam } from '../lib/routeParams.js';
 import { isWorkspaceOriginAllowed } from '../services/widget/public.js';
 import { listVisitorIntelligence, getVisitorIntelligence } from '../services/visitors/intelligence.js';
 import { resolveMapTilesConfig } from '../services/maptiles/index.js';

@@ -20,6 +20,7 @@
 import { Router, Request, Response } from 'express';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
+import { routeParam } from '../lib/routeParams.js';
 import {
   enforceWidgetToken,
   enforceOrigin,
@@ -65,7 +66,11 @@ async function loadOwnedInvitation(
   req: Request,
   res: Response,
 ): Promise<{ invitationId: string; workspaceId: string } | null> {
-  const invitationId = req.params.id;
+  const invitationId = routeParam(req.params.id);
+  if (!invitationId) {
+    res.status(400).json({ error: 'invalid_invitation_id' });
+    return null;
+  }
   const workspaceId = resolveWorkspaceId(req, res, req.body?.workspace_id);
   if (res.headersSent) return null;
   if (!workspaceId) {

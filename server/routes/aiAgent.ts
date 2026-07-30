@@ -9,6 +9,7 @@ import express, { type Request, type Response, type Router } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
+import { routeParam } from '../lib/routeParams.js';
 import { isGlobalAdmin } from '../middleware/adminBypass.js';
 import { checkModuleAccess, requireModule } from '../middleware/featureGating.js';
 import {
@@ -1066,6 +1067,8 @@ aiAgentRouter.post('/qna', async (req: Request, res: Response) => {
 
 aiAgentRouter.patch('/qna/:id', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
+  const qnaId = routeParam(req.params.id);
+  if (!qnaId) return res.status(400).json({ error: 'invalid_params' });
   const sb = getServiceClient(config);
   const { data: existing } = await sb
     .from('ai_agent_qna')
@@ -1108,7 +1111,7 @@ aiAgentRouter.patch('/qna/:id', async (req: Request, res: Response) => {
   if (error) return res.status(500).json({ error: error.message });
   // syncKnowledgeSource already deactivates chunks when enabled=false (passes
   // empty chunks → indexer marks all as deleted) and re-indexes on enabled=true.
-  syncKnowledgeSource(config, { workspaceId: existing.workspace_id, sourceType: 'qna', sourceId: req.params.id }).catch(() => {});
+  syncKnowledgeSource(config, { workspaceId: existing.workspace_id, sourceType: 'qna', sourceId: qnaId }).catch(() => {});
   return res.json({ item: data });
 });
 
@@ -1191,13 +1194,15 @@ aiAgentRouter.post('/qna/bulk', async (req: Request, res: Response) => {
 // ─── Q&A reindex single (owner/admin) ───
 aiAgentRouter.post('/qna/:id/reindex', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
+  const qnaId = routeParam(req.params.id);
+  if (!qnaId) return res.status(400).json({ error: 'invalid_params' });
   const sb = getServiceClient(config);
   const { data: existing } = await sb.from('ai_agent_qna').select('workspace_id, enabled').eq('id', req.params.id).maybeSingle();
   if (!existing) return res.status(404).json({ error: 'not_found' });
   const auth = await authorizeMember(req, res, config, existing.workspace_id);
   if (!auth) return;
   if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
-  await syncKnowledgeSource(config, { workspaceId: existing.workspace_id, sourceType: 'qna', sourceId: req.params.id });
+  await syncKnowledgeSource(config, { workspaceId: existing.workspace_id, sourceType: 'qna', sourceId: qnaId });
   return res.json({ ok: true, indexed: existing.enabled !== false, skipped_disabled: existing.enabled === false });
 });
 
@@ -1367,7 +1372,9 @@ aiAgentRouter.get('/conversations/:conversationId/suggestions', async (req: Requ
 
 aiAgentRouter.post('/suggestions/:id/use', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
-  const ctx = await authorizeSuggestion(req, res, config, req.params.id);
+  const suggestionId = routeParam(req.params.id);
+  if (!suggestionId) return res.status(400).json({ error: 'invalid_params' });
+  const ctx = await authorizeSuggestion(req, res, config, suggestionId);
   if (!ctx) return;
   if (ctx.row.status !== 'pending') {
     return res.status(409).json({ error: 'suggestion_not_pending', status: ctx.row.status });
@@ -1401,7 +1408,9 @@ aiAgentRouter.post('/suggestions/:id/use', async (req: Request, res: Response) =
 
 aiAgentRouter.post('/suggestions/:id/dismiss', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
-  const ctx = await authorizeSuggestion(req, res, config, req.params.id);
+  const suggestionId = routeParam(req.params.id);
+  if (!suggestionId) return res.status(400).json({ error: 'invalid_params' });
+  const ctx = await authorizeSuggestion(req, res, config, suggestionId);
   if (!ctx) return;
   if (ctx.row.status !== 'pending') {
     return res.status(409).json({ error: 'suggestion_not_pending', status: ctx.row.status });
@@ -1444,7 +1453,8 @@ aiAgentRouter.post(
   '/conversations/:conversationId/take-over',
   async (req: Request, res: Response) => {
     const config = (req as any).serverConfig as ServerConfig;
-    const conversationId = req.params.conversationId;
+    const conversationId = routeParam(req.params.conversationId);
+    if (!conversationId) return res.status(400).json({ error: 'invalid_params' });
     const parsed = takeOverSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
     const { workspaceId, assign_to_me } = parsed.data;
@@ -2325,9 +2335,11 @@ const candidatePatchSchema = z.object({
 });
 aiAgentRouter.patch('/learning-candidates/:id', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
+  const candidateId = routeParam(req.params.id);
+  if (!candidateId) return res.status(400).json({ error: 'invalid_params' });
   const parsed = candidatePatchSchema.safeParse(req.body || {});
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
-  const cand = await loadCandidate(config, req.params.id);
+  const cand = await loadCandidate(config, candidateId);
   if (!cand) return res.status(404).json({ error: 'not_found' });
   const auth = await authorizeMember(req, res, config, cand.workspace_id);
   if (!auth) return;
@@ -2394,12 +2406,14 @@ const approveLearnedSchema = z.object({
 });
 aiAgentRouter.post('/learning-candidates/:id/approve', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
+  const candidateId = routeParam(req.params.id);
+  if (!candidateId) return res.status(400).json({ error: 'invalid_params' });
   const parsed = approveLearnedSchema.safeParse(req.body || {});
   if (!parsed.success) return res.status(400).json({ error: 'answer_required', details: parsed.error.flatten().fieldErrors });
   if (!parsed.data.final_answer || !parsed.data.final_answer.trim()) {
     return res.status(400).json({ error: 'answer_required' });
   }
-  const cand = await loadCandidate(config, req.params.id);
+  const cand = await loadCandidate(config, candidateId);
   if (!cand) return res.status(404).json({ error: 'not_found' });
   const auth = await authorizeMember(req, res, config, cand.workspace_id);
   if (!auth) return;
@@ -2454,9 +2468,11 @@ const convertQnaSchema = z.object({
 });
 aiAgentRouter.post('/learning-candidates/:id/convert-to-qna', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
+  const candidateId = routeParam(req.params.id);
+  if (!candidateId) return res.status(400).json({ error: 'invalid_params' });
   const parsed = convertQnaSchema.safeParse(req.body || {});
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
-  const cand = await loadCandidate(config, req.params.id);
+  const cand = await loadCandidate(config, candidateId);
   if (!cand) return res.status(404).json({ error: 'not_found' });
   const auth = await authorizeMember(req, res, config, cand.workspace_id);
   if (!auth) return;
@@ -2474,9 +2490,11 @@ const convertKbSchema = z.object({
 });
 aiAgentRouter.post('/learning-candidates/:id/convert-to-kb', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
+  const candidateId = routeParam(req.params.id);
+  if (!candidateId) return res.status(400).json({ error: 'invalid_params' });
   const parsed = convertKbSchema.safeParse(req.body || {});
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
-  const cand = await loadCandidate(config, req.params.id);
+  const cand = await loadCandidate(config, candidateId);
   if (!cand) return res.status(404).json({ error: 'not_found' });
   const auth = await authorizeMember(req, res, config, cand.workspace_id);
   if (!auth) return;
@@ -2629,9 +2647,11 @@ async function convertCandidateToKb(
 // Legacy aliases — call shared helpers directly. No req.url mutation.
 aiAgentRouter.post('/learning-candidates/:id/approve-qna', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
+  const candidateId = routeParam(req.params.id);
+  if (!candidateId) return res.status(400).json({ error: 'invalid_params' });
   const parsed = convertQnaSchema.safeParse(req.body || {});
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
-  const cand = await loadCandidate(config, req.params.id);
+  const cand = await loadCandidate(config, candidateId);
   if (!cand) return res.status(404).json({ error: 'not_found' });
   const auth = await authorizeMember(req, res, config, cand.workspace_id);
   if (!auth) return;
@@ -2641,9 +2661,11 @@ aiAgentRouter.post('/learning-candidates/:id/approve-qna', async (req: Request, 
 });
 aiAgentRouter.post('/learning-candidates/:id/convert-kb', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
+  const candidateId = routeParam(req.params.id);
+  if (!candidateId) return res.status(400).json({ error: 'invalid_params' });
   const parsed = convertKbSchema.safeParse({ ...(req.body || {}), publish: false });
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
-  const cand = await loadCandidate(config, req.params.id);
+  const cand = await loadCandidate(config, candidateId);
   if (!cand) return res.status(404).json({ error: 'not_found' });
   const auth = await authorizeMember(req, res, config, cand.workspace_id);
   if (!auth) return;
@@ -2654,7 +2676,9 @@ aiAgentRouter.post('/learning-candidates/:id/convert-kb', async (req: Request, r
 
 aiAgentRouter.post('/learning-candidates/:id/reject', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
-  const cand = await loadCandidate(config, req.params.id);
+  const candidateId = routeParam(req.params.id);
+  if (!candidateId) return res.status(400).json({ error: 'invalid_params' });
+  const cand = await loadCandidate(config, candidateId);
   if (!cand) return res.status(404).json({ error: 'not_found' });
   const auth = await authorizeMember(req, res, config, cand.workspace_id);
   if (!auth) return;
@@ -3244,13 +3268,15 @@ aiAgentRouter.get('/data-sources/:id/jobs', async (req: Request, res: Response) 
 
 aiAgentRouter.post('/data-sources/jobs/:jobId/cancel', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
+  const jobId = routeParam(req.params.jobId);
+  if (!jobId) return res.status(400).json({ error: 'invalid_params' });
   const sb = getServiceClient(config);
-  const { data: job } = await sb.from('ai_source_sync_jobs').select('workspace_id').eq('id', req.params.jobId).maybeSingle();
+  const { data: job } = await sb.from('ai_source_sync_jobs').select('workspace_id').eq('id', jobId).maybeSingle();
   if (!job) return res.status(404).json({ error: 'not_found' });
   const auth = await authorizeMember(req, res, config, job.workspace_id);
   if (!auth) return;
   if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
-  await cancelSourceSyncJob(config, { jobId: req.params.jobId });
+  await cancelSourceSyncJob(config, { jobId });
   return res.json({ ok: true });
 });
 
@@ -3480,54 +3506,62 @@ export function sanitizeAiFileMetadata(obj: any): any {
 
 aiAgentRouter.post('/files/:id/reindex', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
-  const src = await loadFileSource(config, req.params.id);
+  const fileId = routeParam(req.params.id);
+  if (!fileId) return res.status(400).json({ error: 'invalid_params' });
+  const src = await loadFileSource(config, fileId);
   if (!src) return res.status(404).json({ error: 'not_found' });
   if (src.source_type !== 'file') return res.status(400).json({ error: 'not_a_file_source' });
   const auth = await authorizeMember(req, res, config, src.workspace_id);
   if (!auth) return;
   if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
   try {
-    const result = await queueReindexAiFile(config, req.params.id, auth.userId);
+    const result = await queueReindexAiFile(config, fileId, auth.userId);
     return res.json({ ok: true, source: result.source, jobId: result.jobId, status: result.status });
   } catch (e) { return ingestErrorResponse(res, e); }
 });
 
 aiAgentRouter.delete('/files/:id', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
-  const src = await loadFileSource(config, req.params.id);
+  const fileId = routeParam(req.params.id);
+  if (!fileId) return res.status(400).json({ error: 'invalid_params' });
+  const src = await loadFileSource(config, fileId);
   if (!src) return res.status(404).json({ error: 'not_found' });
   if (src.source_type !== 'file') return res.status(400).json({ error: 'not_a_file_source' });
   const auth = await authorizeMember(req, res, config, src.workspace_id);
   if (!auth) return;
   if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
   try {
-    const r = await deleteAiFile(config, req.params.id);
+    const r = await deleteAiFile(config, fileId);
     return res.json({ ok: true, ...r });
   } catch (e) { return ingestErrorResponse(res, e); }
 });
 
 aiAgentRouter.post('/files/:id/pause', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
-  const src = await loadFileSource(config, req.params.id);
+  const fileId = routeParam(req.params.id);
+  if (!fileId) return res.status(400).json({ error: 'invalid_params' });
+  const src = await loadFileSource(config, fileId);
   if (!src) return res.status(404).json({ error: 'not_found' });
   if (src.source_type !== 'file') return res.status(400).json({ error: 'not_a_file_source' });
   const auth = await authorizeMember(req, res, config, src.workspace_id);
   if (!auth) return;
   if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
-  try { await pauseAiFile(config, req.params.id); return res.json({ ok: true }); }
+  try { await pauseAiFile(config, fileId); return res.json({ ok: true }); }
   catch (e) { return ingestErrorResponse(res, e); }
 });
 
 aiAgentRouter.post('/files/:id/resume', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
-  const src = await loadFileSource(config, req.params.id);
+  const fileId = routeParam(req.params.id);
+  if (!fileId) return res.status(400).json({ error: 'invalid_params' });
+  const src = await loadFileSource(config, fileId);
   if (!src) return res.status(404).json({ error: 'not_found' });
   if (src.source_type !== 'file') return res.status(400).json({ error: 'not_a_file_source' });
   const auth = await authorizeMember(req, res, config, src.workspace_id);
   if (!auth) return;
   if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
   try {
-    const result = await resumeAiFile(config, req.params.id, auth.userId);
+    const result = await resumeAiFile(config, fileId, auth.userId);
     return res.json({ ok: true, source: result.source, jobId: result.jobId, status: result.status });
   } catch (e) { return ingestErrorResponse(res, e); }
 });
@@ -3535,7 +3569,9 @@ aiAgentRouter.post('/files/:id/resume', async (req: Request, res: Response) => {
 // ─── Pass E4-C: file preview (workspace-scoped, no storage URLs) ───
 aiAgentRouter.get('/files/:id/preview', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
-  const src = await loadFileSource(config, req.params.id);
+  const fileId = routeParam(req.params.id);
+  if (!fileId) return res.status(400).json({ error: 'invalid_params' });
+  const src = await loadFileSource(config, fileId);
   if (!src) return res.status(404).json({ error: 'not_found' });
   if (src.source_type !== 'file') return res.status(400).json({ error: 'not_a_file_source' });
   const auth = await authorizeMember(req, res, config, src.workspace_id);
@@ -3588,7 +3624,9 @@ aiAgentRouter.get('/files/:id/preview', async (req: Request, res: Response) => {
 // ─── Pass E4-C: file ingestion logs ───
 aiAgentRouter.get('/files/:id/logs', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
-  const src = await loadFileSource(config, req.params.id);
+  const fileId = routeParam(req.params.id);
+  if (!fileId) return res.status(400).json({ error: 'invalid_params' });
+  const src = await loadFileSource(config, fileId);
   if (!src) return res.status(404).json({ error: 'not_found' });
   if (src.source_type !== 'file') return res.status(400).json({ error: 'not_a_file_source' });
   const auth = await authorizeMember(req, res, config, src.workspace_id);

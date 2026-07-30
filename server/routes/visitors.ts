@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { getServiceClient } from '../supabase.js';
 import type { ServerConfig } from '../config.js';
+import { routeParam } from '../lib/routeParams.js';
 import { isWorkspaceOriginAllowed } from '../services/widget/public.js';
 import { listVisitorIntelligence, getVisitorIntelligence } from '../services/visitors/intelligence.js';
 import { resolveMapTilesConfig } from '../services/maptiles/index.js';
@@ -553,6 +554,8 @@ visitorsAdminRouter.get('/:id', async (req: Request, res: Response) => {
     return res.status(404).json({ error: 'Not found' });
   }
   const config = (req as any).serverConfig as ServerConfig;
+  const visitorId = routeParam(req.params.id);
+  if (!visitorId) return res.status(400).json({ error: 'Invalid visitor id' });
   const workspaceId = (req.query.workspace_id as string) || '';
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
 
@@ -560,7 +563,7 @@ visitorsAdminRouter.get('/:id', async (req: Request, res: Response) => {
   if (!auth) return;
 
   try {
-    const item = await getVisitorIntelligence(config, workspaceId, req.params.id, {
+    const item = await getVisitorIntelligence(config, workspaceId, visitorId, {
       viewerRole: auth.role,
     });
     if (!item) return res.status(404).json({ error: 'Not found' });

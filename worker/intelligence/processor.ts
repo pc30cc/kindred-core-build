@@ -174,12 +174,34 @@ type GenerateDraftResult =
       parsedKeys?: string[];
     };
 
+/**
+ * Explicit narrowing helpers.
+ *
+ * `tsconfig.server.json` runs with `strictNullChecks: false`, where TypeScript
+ * cannot discriminate a `ok: true | false` union through `if (!result.ok)`.
+ * These guards assert exactly the same runtime condition the code already
+ * relied on (`ok === false`) — no behavior, ordering or logging changes.
+ */
+type GenerateDraftFailure = Extract<GenerateDraftResult, { ok: false }>;
+
+function isDraftFailure(result: GenerateDraftResult): result is GenerateDraftFailure {
+  return result.ok === false;
+}
+
+type ParsedDraftJson = { ok: true; value: any } | { ok: false; error: string };
+
+function isParsedDraftJsonFailure(
+  parsed: ParsedDraftJson,
+): parsed is Extract<ParsedDraftJson, { ok: false }> {
+  return parsed.ok === false;
+}
+
 function safePreview(s: string, max = 500): string {
   return (s || '').slice(0, max).replace(/\s+/g, ' ').trim();
 }
 
 
-function tryParseDraftJson(raw: string): { ok: true; value: any } | { ok: false; error: string } {
+function tryParseDraftJson(raw: string): ParsedDraftJson {
   let s = (raw || '').trim();
   // Strip ``` or ```json fences.
   s = s.replace(/^```(?:json)?\s*/i, '').replace(/```$/i, '').trim();
@@ -314,7 +336,7 @@ If the source is thin, still produce a useful article from what is there — nev
   }
 
   const parsed = tryParseDraftJson(text);
-  if (!parsed.ok) {
+  if (isParsedDraftJsonFailure(parsed)) {
     return {
       ok: false,
       reason: 'parse_failed',
@@ -558,7 +580,7 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
       page.title,
     );
 
-    if (!result.ok) {
+    if (isDraftFailure(result)) {
       generationFailed += 1;
       lastGenerationReason = result.reason;
       lastGenerationError = result.errorMessage || result.reason;

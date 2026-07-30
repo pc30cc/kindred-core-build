@@ -2531,6 +2531,16 @@ import { loadEffectiveCallChannels } from '../services/calls/controlPlane.js';
 import { enqueueCall, cancelEntry, getEntry as getQueueEntry } from '../services/calls/queue.js';
 import { loadEffectiveCallEntitlements } from '../services/calls/entitlementComposer.js';
 import { evaluateVisitorQueueEnqueueGate } from '../services/calls/queueEntitlementGate.js';
+import type { QueueGateResult, QueueDenial } from '../services/calls/queueEntitlementGate.js';
+
+/**
+ * Explicit narrowing helper: with `strictNullChecks: false` TypeScript cannot
+ * discriminate the `allowed: true | false` union via `if (!gate.allowed)`.
+ * Same runtime condition as before — no behavior change.
+ */
+function isQueueGateDenial(gate: QueueGateResult): gate is QueueDenial {
+  return gate.allowed === false;
+}
 
 /**
  * GET /api/widget/call-channels
@@ -2589,7 +2599,7 @@ widgetRouter.post('/call-queue/enqueue', widgetRateLimit('message'), async (req:
   try {
     const eff = await loadEffectiveCallEntitlements(config, workspaceId);
     const gate = evaluateVisitorQueueEnqueueGate(eff, parsed.data.channel);
-    if (!gate.allowed) {
+    if (isQueueGateDenial(gate)) {
       return res.status(403).json({
         error: 'plan_forbidden',
         capability: gate.capability,

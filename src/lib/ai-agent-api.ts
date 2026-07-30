@@ -1,4 +1,3 @@
-  readonly reason?: unknown;
 /**
  * AI Agent — operator-side API client.
  * All work routes through the project's own Express backend.
@@ -25,6 +24,7 @@ export class AiAgentApiError extends Error {
   readonly body: unknown;
   readonly url: string;
   readonly method: string;
+  readonly reason?: unknown;
 
   constructor(params: {
     message: string;

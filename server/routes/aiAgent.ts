@@ -2335,9 +2335,11 @@ const candidatePatchSchema = z.object({
 });
 aiAgentRouter.patch('/learning-candidates/:id', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
+  const candidateId = routeParam(req.params.id);
+  if (!candidateId) return res.status(400).json({ error: 'invalid_params' });
   const parsed = candidatePatchSchema.safeParse(req.body || {});
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
-  const cand = await loadCandidate(config, req.params.id);
+  const cand = await loadCandidate(config, candidateId);
   if (!cand) return res.status(404).json({ error: 'not_found' });
   const auth = await authorizeMember(req, res, config, cand.workspace_id);
   if (!auth) return;
@@ -2404,12 +2406,14 @@ const approveLearnedSchema = z.object({
 });
 aiAgentRouter.post('/learning-candidates/:id/approve', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
+  const candidateId = routeParam(req.params.id);
+  if (!candidateId) return res.status(400).json({ error: 'invalid_params' });
   const parsed = approveLearnedSchema.safeParse(req.body || {});
   if (!parsed.success) return res.status(400).json({ error: 'answer_required', details: parsed.error.flatten().fieldErrors });
   if (!parsed.data.final_answer || !parsed.data.final_answer.trim()) {
     return res.status(400).json({ error: 'answer_required' });
   }
-  const cand = await loadCandidate(config, req.params.id);
+  const cand = await loadCandidate(config, candidateId);
   if (!cand) return res.status(404).json({ error: 'not_found' });
   const auth = await authorizeMember(req, res, config, cand.workspace_id);
   if (!auth) return;
@@ -2464,9 +2468,11 @@ const convertQnaSchema = z.object({
 });
 aiAgentRouter.post('/learning-candidates/:id/convert-to-qna', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
+  const candidateId = routeParam(req.params.id);
+  if (!candidateId) return res.status(400).json({ error: 'invalid_params' });
   const parsed = convertQnaSchema.safeParse(req.body || {});
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
-  const cand = await loadCandidate(config, req.params.id);
+  const cand = await loadCandidate(config, candidateId);
   if (!cand) return res.status(404).json({ error: 'not_found' });
   const auth = await authorizeMember(req, res, config, cand.workspace_id);
   if (!auth) return;
@@ -2484,9 +2490,11 @@ const convertKbSchema = z.object({
 });
 aiAgentRouter.post('/learning-candidates/:id/convert-to-kb', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
+  const candidateId = routeParam(req.params.id);
+  if (!candidateId) return res.status(400).json({ error: 'invalid_params' });
   const parsed = convertKbSchema.safeParse(req.body || {});
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
-  const cand = await loadCandidate(config, req.params.id);
+  const cand = await loadCandidate(config, candidateId);
   if (!cand) return res.status(404).json({ error: 'not_found' });
   const auth = await authorizeMember(req, res, config, cand.workspace_id);
   if (!auth) return;
@@ -2639,9 +2647,11 @@ async function convertCandidateToKb(
 // Legacy aliases — call shared helpers directly. No req.url mutation.
 aiAgentRouter.post('/learning-candidates/:id/approve-qna', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
+  const candidateId = routeParam(req.params.id);
+  if (!candidateId) return res.status(400).json({ error: 'invalid_params' });
   const parsed = convertQnaSchema.safeParse(req.body || {});
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
-  const cand = await loadCandidate(config, req.params.id);
+  const cand = await loadCandidate(config, candidateId);
   if (!cand) return res.status(404).json({ error: 'not_found' });
   const auth = await authorizeMember(req, res, config, cand.workspace_id);
   if (!auth) return;
@@ -2651,9 +2661,11 @@ aiAgentRouter.post('/learning-candidates/:id/approve-qna', async (req: Request, 
 });
 aiAgentRouter.post('/learning-candidates/:id/convert-kb', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
+  const candidateId = routeParam(req.params.id);
+  if (!candidateId) return res.status(400).json({ error: 'invalid_params' });
   const parsed = convertKbSchema.safeParse({ ...(req.body || {}), publish: false });
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
-  const cand = await loadCandidate(config, req.params.id);
+  const cand = await loadCandidate(config, candidateId);
   if (!cand) return res.status(404).json({ error: 'not_found' });
   const auth = await authorizeMember(req, res, config, cand.workspace_id);
   if (!auth) return;
@@ -2664,7 +2676,9 @@ aiAgentRouter.post('/learning-candidates/:id/convert-kb', async (req: Request, r
 
 aiAgentRouter.post('/learning-candidates/:id/reject', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
-  const cand = await loadCandidate(config, req.params.id);
+  const candidateId = routeParam(req.params.id);
+  if (!candidateId) return res.status(400).json({ error: 'invalid_params' });
+  const cand = await loadCandidate(config, candidateId);
   if (!cand) return res.status(404).json({ error: 'not_found' });
   const auth = await authorizeMember(req, res, config, cand.workspace_id);
   if (!auth) return;

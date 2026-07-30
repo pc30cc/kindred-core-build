@@ -2589,7 +2589,7 @@ widgetRouter.post('/call-queue/enqueue', widgetRateLimit('message'), async (req:
   try {
     const eff = await loadEffectiveCallEntitlements(config, workspaceId);
     const gate = evaluateVisitorQueueEnqueueGate(eff, parsed.data.channel);
-    if (!gate.allowed) {
+    if (isQueueGateDenial(gate)) {
       return res.status(403).json({
         error: 'plan_forbidden',
         capability: gate.capability,

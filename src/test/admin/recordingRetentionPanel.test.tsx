@@ -216,7 +216,10 @@ describe('RecordingRetentionPanel', () => {
         calls.some((u) => u.includes('/api/admin/calls/recordings/rec-1/playback-token')),
       ).toBe(true),
     );
-    const video = await screen.findByTestId('recording-preview-video-rec-1');
+    // Tokenized path renders the RecordingTimeline wrapper, whose media
+    // element carries the stable `recording-timeline-media-<id>` test id.
+    const video = await screen.findByTestId('recording-timeline-media-rec-1');
+    expect(video.tagName).toBe('VIDEO');
     expect(video.getAttribute('src') || '').toContain('/api/calls/recording-playback/rec-1');
     expect(video.getAttribute('src') || '').toContain('token=tok');
     // Tokenized path must NOT pre-buffer the artifact via /file.
@@ -249,8 +252,10 @@ describe('RecordingRetentionPanel', () => {
 
     renderPanel();
     fireEvent.click(await screen.findByTestId('recording-preview-toggle-rec-2'));
-    const audio = await screen.findByTestId('recording-preview-audio-rec-2');
+    const audio = await screen.findByTestId('recording-timeline-media-rec-2');
+    expect(audio.tagName).toBe('AUDIO');
     expect(audio.getAttribute('src') || '').toContain('/api/calls/recording-playback/rec-2');
+    expect(audio.getAttribute('src') || '').toContain('token=tok2');
   });
 
   it('Preview shows unsupported state for non audio/video content-type and revokes object URL on close', async () => {
@@ -319,7 +324,7 @@ describe('RecordingRetentionPanel', () => {
 
     const { container } = renderPanel();
     fireEvent.click(await screen.findByTestId('recording-preview-toggle-rec-1'));
-    await screen.findByTestId('recording-preview-video-rec-1');
+    await screen.findByTestId('recording-timeline-media-rec-1');
     const text = (container.textContent || '').toLowerCase();
     expect(text).not.toMatch(/\bdelete\b/);
     expect(text).not.toMatch(/\bpurge\b/);

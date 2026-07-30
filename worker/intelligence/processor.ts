@@ -580,7 +580,7 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
       page.title,
     );
 
-    if (!result.ok) {
+    if (isDraftFailure(result)) {
       generationFailed += 1;
       lastGenerationReason = result.reason;
       lastGenerationError = result.errorMessage || result.reason;

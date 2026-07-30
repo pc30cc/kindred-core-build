@@ -31,6 +31,18 @@ function authHeaders(): Record<string, string> {
   return anonKey ? { 'Authorization': `Bearer ${anonKey}` } : {};
 }
 
+/**
+ * Real end-user identity for routes that authorize per user + workspace
+ * (currently the /api/storage/* routes). The publishable anon key is NOT an
+ * identity and is rejected by those routes.
+ */
+async function userAuthHeaders(): Promise<Record<string, string>> {
+  const { supabase } = await import('@/integrations/supabase/client');
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 // ─── Widget ──────────────────────────────────────────────────────
 
 export function fetchWidgetConfig(workspaceId: string, origin?: string) {
@@ -138,7 +150,7 @@ export function aiGetConfig(workspaceId: string) {
 
 // ─── Storage ─────────────────────────────────────────────────────
 
-export function storageUpload(data: {
+export async function storageUpload(data: {
   workspaceId: string;
   fileKey: string;
   data: string; // base64
@@ -151,27 +163,27 @@ export function storageUpload(data: {
     error?: string;
   }>('/api/storage/upload', {
     method: 'POST',
-    headers: authHeaders(),
+    headers: await userAuthHeaders(),
     body: JSON.stringify(data),
   });
 }
 
-export function storageDelete(data: { workspaceId: string; fileKey: string }) {
+export async function storageDelete(data: { workspaceId: string; fileKey: string }) {
   return request<{ success: boolean; error?: string }>('/api/storage/delete', {
     method: 'POST',
-    headers: authHeaders(),
+    headers: await userAuthHeaders(),
     body: JSON.stringify(data),
   });
 }
 
-export function storageGetUrl(workspaceId: string, fileKey: string) {
+export async function storageGetUrl(workspaceId: string, fileKey: string) {
   const params = new URLSearchParams({ workspaceId, fileKey });
   return request<{ url: string | null }>(`/api/storage/url?${params}`, {
-    headers: authHeaders(),
+    headers: await userAuthHeaders(),
   });
 }
 
-export function storageTestConnection(data: {
+export async function storageTestConnection(data: {
   provider: string;
   apiKey?: string;
   storageZone?: string;
@@ -189,12 +201,12 @@ export function storageTestConnection(data: {
     error?: string;
   }>('/api/storage/test', {
     method: 'POST',
-    headers: authHeaders(),
+    headers: await userAuthHeaders(),
     body: JSON.stringify(data),
   });
 }
 
-export function storageGetConfig(workspaceId: string) {
+export async function storageGetConfig(workspaceId: string) {
   return request<{
     configured: boolean;
     provider?: string;
@@ -203,7 +215,7 @@ export function storageGetConfig(workspaceId: string) {
     cdnUrl?: string;
     maxFileSizeMB?: number;
   }>(`/api/storage/config/${workspaceId}`, {
-    headers: authHeaders(),
+    headers: await userAuthHeaders(),
   });
 }
 

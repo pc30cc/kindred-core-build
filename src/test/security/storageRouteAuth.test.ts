@@ -266,7 +266,7 @@ describe("storage routes — workspace authorization", () => {
     const allowed = makeReqRes({ token: "valid.jwt", params: { workspaceId: WS_A } });
     await getHandler("get", "/config/:workspaceId")(allowed.req, allowed.res, () => {});
     expect(allowed.get().statusCode).toBe(200);
-    expect(allowed.get().jsonBody.configured).toBe(true);
+    expect((allowed.get().jsonBody as { configured?: boolean }).configured).toBe(true);
   });
 
   it("/test requires a global admin", async () => {

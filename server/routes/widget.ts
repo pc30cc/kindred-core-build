@@ -21,6 +21,7 @@ import { z } from 'zod';
 import crypto from 'crypto';
 import { getServiceClient } from '../supabase.js';
 import type { ServerConfig } from '../config.js';
+import { routeParam } from '../lib/routeParams.js';
 import {
   publishConversationEvent,
   buildMessageEnvelope,
@@ -2640,7 +2641,8 @@ widgetRouter.post('/call-queue/enqueue', widgetRateLimit('message'), async (req:
 widgetRouter.post('/call-queue/:entryId/cancel', widgetRateLimit('message'), async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
   const workspaceId = (req as any)._widgetWorkspaceId as string | undefined;
-  const { entryId } = req.params;
+  const entryId = routeParam(req.params.entryId);
+  if (!entryId) return res.status(400).json({ error: 'invalid_entry_id' });
   if (!workspaceId) return res.status(400).json({ error: 'missing_workspace' });
   const entry = await getQueueEntry(config, workspaceId, entryId);
   if (!entry) return res.status(404).json({ error: 'not_found' });

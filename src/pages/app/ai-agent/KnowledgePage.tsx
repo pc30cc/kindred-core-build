@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Loader2, BookOpen, MessageCircleQuestion, Globe, FileText, GraduationCap, BookMarked, BookText, Upload, Trash2 } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { toast } from 'sonner';
+import { isStorageCleanupIncomplete, readApiErrorCode } from '@/lib/ai-knowledge-delete';
 
 function statusKey(item: any): { key: 'ready' | 'indexing' | 'disabled' | 'needsAttention' | 'failed'; tone: 'green' | 'amber' | 'red' | 'muted' | 'blue' } {
   if (item.eligible === true) return { key: 'ready', tone: 'green' };
@@ -81,11 +82,18 @@ export default function KnowledgePage() {
     setDeletingId(id);
     const toastId = toast.loading(tr('actions.deleting', 'Deleting file...'));
     try {
-      await aiAgentApi.deleteAiFile(id);
-      toast.success(tr('actions.deleteSuccess', 'File deleted.'), { id: toastId });
+      const result = await aiAgentApi.deleteAiFile(id);
+      if (isStorageCleanupIncomplete(result)) {
+        toast.warning(
+          tr('actions.deletePartial', 'The file was removed from the knowledge base, but storage cleanup could not be completed.'),
+          { id: toastId },
+        );
+      } else {
+        toast.success(tr('actions.deleteSuccess', 'File deleted.'), { id: toastId });
+      }
       qc.invalidateQueries({ queryKey: ['ai-knowledge', wsId] });
-    } catch (err: any) {
-      const code = err?.body?.error || err?.message || 'delete_failed';
+    } catch (err: unknown) {
+      const code = readApiErrorCode(err, 'delete_failed');
       toast.error(tr(`actions.error.${code}`, tr('actions.deleteError', 'Delete failed')), { id: toastId });
     } finally {
       setDeletingId(null);

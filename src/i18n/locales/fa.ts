@@ -2019,6 +2019,7 @@ const fa: TranslationKeys = {
         deleting: 'در حال حذف فایل...',
         deleteSuccess: 'فایل حذف شد.',
         deleteError: 'حذف ناموفق بود',
+        deletePartial: 'فایل از پایگاه دانش حذف شد، اما پاک‌سازی فضای ذخیره‌سازی کامل نشد.',
         error: {
           owner_or_admin_required: 'فقط مالک یا مدیر فضای کاری می‌تواند فایل بارگذاری کند.',
           storage_not_configured: 'هیچ ارائه‌دهنده ذخیره‌سازی برای این فضای کاری پیکربندی نشده است.',

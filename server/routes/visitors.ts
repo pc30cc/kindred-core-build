@@ -553,6 +553,8 @@ visitorsAdminRouter.get('/:id', async (req: Request, res: Response) => {
     return res.status(404).json({ error: 'Not found' });
   }
   const config = (req as any).serverConfig as ServerConfig;
+  const visitorId = routeParam(req.params.id);
+  if (!visitorId) return res.status(400).json({ error: 'Invalid visitor id' });
   const workspaceId = (req.query.workspace_id as string) || '';
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
 
@@ -560,7 +562,7 @@ visitorsAdminRouter.get('/:id', async (req: Request, res: Response) => {
   if (!auth) return;
 
   try {
-    const item = await getVisitorIntelligence(config, workspaceId, req.params.id, {
+    const item = await getVisitorIntelligence(config, workspaceId, visitorId, {
       viewerRole: auth.role,
     });
     if (!item) return res.status(404).json({ error: 'Not found' });

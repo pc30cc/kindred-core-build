@@ -30,6 +30,20 @@ import { getServiceClient } from '../supabase.js';
 import { downloadFileRange } from '../services/storage/index.js';
 import { verifyPlaybackToken } from '../services/calls/recordingPlaybackToken.js';
 
+/**
+ * Explicit narrowing helper: the server tsconfig runs with
+ * `strictNullChecks: false`, where `if (!verdict.ok)` does not discriminate
+ * the `ok: true | false` union. This guard checks exactly the same runtime
+ * condition the route already used — no behavior change.
+ */
+type PlaybackVerdict = ReturnType<typeof verifyPlaybackToken>;
+
+function isPlaybackFailure(
+  verdict: PlaybackVerdict,
+): verdict is Extract<PlaybackVerdict, { ok: false }> {
+  return verdict.ok === false;
+}
+
 export const recordingPlaybackRouter = Router();
 
 function guessContentType(row: any): string {
@@ -73,7 +87,7 @@ recordingPlaybackRouter.get('/:id', async (req, res) => {
 
   const token = typeof req.query.token === 'string' ? req.query.token : undefined;
   const verdict = verifyPlaybackToken(config, id, token);
-  if (!verdict.ok) {
+  if (isPlaybackFailure(verdict)) {
     const status =
       verdict.reason === 'expired'
         ? 401

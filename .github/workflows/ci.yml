@@ -43,24 +43,25 @@ jobs:
             ${{ runner.os }}-bun-
 
       - name: Install dependencies (frozen lockfile)
+        id: install
         run: bun install --frozen-lockfile
 
       - name: Typecheck (app)
-        if: always()
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: npm run typecheck
 
       - name: Typecheck (server + worker)
-        if: always()
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: npm run typecheck:server
 
       - name: Lint
-        if: always()
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: npm run lint
 
       - name: Tests
-        if: always()
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: npm test
 
       - name: Build
-        if: always()
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: npm run build

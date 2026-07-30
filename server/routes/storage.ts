@@ -258,9 +258,23 @@ const testSchema = z.object({
 storageRouter.post('/test', async (req, res) => {
   try {
     const config: ServerConfig = (req as any).serverConfig;
-    const token = req.headers.authorization?.replace('Bearer ', '');
-    if (token !== config.supabaseServiceRoleKey && token !== config.supabaseAnonKey) {
-      return res.status(401).json({ error: 'Unauthorized' });
+    // Accepts raw provider credentials and performs outbound requests —
+    // platform-admin only. No workspace context, so membership does not apply.
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Missing authorization' });
+    }
+    const token = authHeader.slice('Bearer '.length).trim();
+    if (!token || token === config.supabaseAnonKey || token === config.supabaseServiceRoleKey) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+    const sb = getServiceClient(config);
+    const { data: userData, error: userErr } = await sb.auth.getUser(token);
+    if (userErr || !userData?.user) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+    if (!(await isGlobalAdmin(config, userData.user.id))) {
+      return res.status(403).json({ error: 'Admin required' });
     }
 
     const parsed = testSchema.safeParse(req.body);
@@ -271,7 +285,8 @@ storageRouter.post('/test', async (req, res) => {
     const result = await testStorageConnection(parsed.data as any);
     return res.json(result);
   } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message });
+    console.error('[storage] Test error:', err?.message);
+    return res.status(500).json({ success: false, error: 'Storage test failed' });
   }
 });
 
@@ -282,10 +297,11 @@ storageRouter.post('/test', async (req, res) => {
 storageRouter.get('/config/:workspaceId', async (req, res) => {
   try {
     const config: ServerConfig = (req as any).serverConfig;
-    const token = req.headers.authorization?.replace('Bearer ', '');
-    if (token !== config.supabaseAnonKey && token !== config.supabaseServiceRoleKey) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
+    // Exposes provider/bucket/CDN infrastructure metadata — owner/admin only.
+    const auth = await authorizeStorageAccess(req, res, config, req.params.workspaceId, {
+      ownerOrAdmin: true,
+    });
+    if (!auth) return;
 
     const storageConfig = await resolveStorageConfig(config, req.params.workspaceId);
     if (!storageConfig) {
@@ -302,6 +318,7 @@ storageRouter.get('/config/:workspaceId', async (req, res) => {
       // Never expose secrets
     });
   } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+    console.error('[storage] Config error:', err?.message);
+    return res.status(500).json({ error: 'Failed to resolve storage config' });
   }
 });

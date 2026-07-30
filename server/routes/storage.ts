@@ -191,20 +191,23 @@ storageRouter.post('/upload', async (req, res) => {
 storageRouter.post('/delete', async (req, res) => {
   try {
     const config: ServerConfig = (req as any).serverConfig;
-    const token = req.headers.authorization?.replace('Bearer ', '');
-    if (token !== config.supabaseAnonKey && token !== config.supabaseServiceRoleKey) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
     const { workspaceId, fileKey } = req.body;
     if (!workspaceId || !fileKey) {
       return res.status(400).json({ error: 'workspaceId and fileKey are required' });
     }
 
+    // Destructive: require owner/admin (or global admin).
+    const auth = await authorizeStorageAccess(req, res, config, workspaceId, { ownerOrAdmin: true });
+    if (!auth) return;
+
+    const keyError = workspaceKeyError(workspaceId, fileKey);
+    if (keyError) return res.status(400).json({ error: keyError });
+
     const result = await deleteFile(config, workspaceId, fileKey);
     return res.json(result);
   } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message });
+    console.error('[storage] Delete error:', err?.message);
+    return res.status(500).json({ success: false, error: 'Delete failed' });
   }
 });
 
@@ -215,21 +218,23 @@ storageRouter.post('/delete', async (req, res) => {
 storageRouter.get('/url', async (req, res) => {
   try {
     const config: ServerConfig = (req as any).serverConfig;
-    const token = req.headers.authorization?.replace('Bearer ', '');
-    if (token !== config.supabaseAnonKey && token !== config.supabaseServiceRoleKey) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
     const workspaceId = req.query.workspaceId as string;
     const fileKey = req.query.fileKey as string;
     if (!workspaceId || !fileKey) {
       return res.status(400).json({ error: 'workspaceId and fileKey query params required' });
     }
 
+    const auth = await authorizeStorageAccess(req, res, config, workspaceId);
+    if (!auth) return;
+
+    const keyError = workspaceKeyError(workspaceId, fileKey);
+    if (keyError) return res.status(400).json({ error: keyError });
+
     const url = await getFileUrl(config, workspaceId, fileKey);
     return res.json({ url });
   } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+    console.error('[storage] URL error:', err?.message);
+    return res.status(500).json({ error: 'Failed to resolve file URL' });
   }
 });
 

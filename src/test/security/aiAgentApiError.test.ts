@@ -5,7 +5,7 @@ vi.mock('@/integrations/supabase/client', () => ({
 }));
 
 import { aiAgentApi, AiAgentApiError } from '@/lib/ai-agent-api';
-import { isStorageCleanupIncomplete, readApiErrorCode } from '@/pages/app/ai-agent/KnowledgePage';
+import { isStorageCleanupIncomplete, readApiErrorCode } from '@/lib/ai-knowledge-delete';
 
 const fetchMock = vi.fn();
 

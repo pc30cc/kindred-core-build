@@ -3268,13 +3268,15 @@ aiAgentRouter.get('/data-sources/:id/jobs', async (req: Request, res: Response) 
 
 aiAgentRouter.post('/data-sources/jobs/:jobId/cancel', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
+  const jobId = routeParam(req.params.jobId);
+  if (!jobId) return res.status(400).json({ error: 'invalid_params' });
   const sb = getServiceClient(config);
-  const { data: job } = await sb.from('ai_source_sync_jobs').select('workspace_id').eq('id', req.params.jobId).maybeSingle();
+  const { data: job } = await sb.from('ai_source_sync_jobs').select('workspace_id').eq('id', jobId).maybeSingle();
   if (!job) return res.status(404).json({ error: 'not_found' });
   const auth = await authorizeMember(req, res, config, job.workspace_id);
   if (!auth) return;
   if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
-  await cancelSourceSyncJob(config, { jobId: req.params.jobId });
+  await cancelSourceSyncJob(config, { jobId });
   return res.json({ ok: true });
 });
 
@@ -3504,54 +3506,62 @@ export function sanitizeAiFileMetadata(obj: any): any {
 
 aiAgentRouter.post('/files/:id/reindex', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
-  const src = await loadFileSource(config, req.params.id);
+  const fileId = routeParam(req.params.id);
+  if (!fileId) return res.status(400).json({ error: 'invalid_params' });
+  const src = await loadFileSource(config, fileId);
   if (!src) return res.status(404).json({ error: 'not_found' });
   if (src.source_type !== 'file') return res.status(400).json({ error: 'not_a_file_source' });
   const auth = await authorizeMember(req, res, config, src.workspace_id);
   if (!auth) return;
   if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
   try {
-    const result = await queueReindexAiFile(config, req.params.id, auth.userId);
+    const result = await queueReindexAiFile(config, fileId, auth.userId);
     return res.json({ ok: true, source: result.source, jobId: result.jobId, status: result.status });
   } catch (e) { return ingestErrorResponse(res, e); }
 });
 
 aiAgentRouter.delete('/files/:id', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
-  const src = await loadFileSource(config, req.params.id);
+  const fileId = routeParam(req.params.id);
+  if (!fileId) return res.status(400).json({ error: 'invalid_params' });
+  const src = await loadFileSource(config, fileId);
   if (!src) return res.status(404).json({ error: 'not_found' });
   if (src.source_type !== 'file') return res.status(400).json({ error: 'not_a_file_source' });
   const auth = await authorizeMember(req, res, config, src.workspace_id);
   if (!auth) return;
   if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
   try {
-    const r = await deleteAiFile(config, req.params.id);
+    const r = await deleteAiFile(config, fileId);
     return res.json({ ok: true, ...r });
   } catch (e) { return ingestErrorResponse(res, e); }
 });
 
 aiAgentRouter.post('/files/:id/pause', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
-  const src = await loadFileSource(config, req.params.id);
+  const fileId = routeParam(req.params.id);
+  if (!fileId) return res.status(400).json({ error: 'invalid_params' });
+  const src = await loadFileSource(config, fileId);
   if (!src) return res.status(404).json({ error: 'not_found' });
   if (src.source_type !== 'file') return res.status(400).json({ error: 'not_a_file_source' });
   const auth = await authorizeMember(req, res, config, src.workspace_id);
   if (!auth) return;
   if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
-  try { await pauseAiFile(config, req.params.id); return res.json({ ok: true }); }
+  try { await pauseAiFile(config, fileId); return res.json({ ok: true }); }
   catch (e) { return ingestErrorResponse(res, e); }
 });
 
 aiAgentRouter.post('/files/:id/resume', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
-  const src = await loadFileSource(config, req.params.id);
+  const fileId = routeParam(req.params.id);
+  if (!fileId) return res.status(400).json({ error: 'invalid_params' });
+  const src = await loadFileSource(config, fileId);
   if (!src) return res.status(404).json({ error: 'not_found' });
   if (src.source_type !== 'file') return res.status(400).json({ error: 'not_a_file_source' });
   const auth = await authorizeMember(req, res, config, src.workspace_id);
   if (!auth) return;
   if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
   try {
-    const result = await resumeAiFile(config, req.params.id, auth.userId);
+    const result = await resumeAiFile(config, fileId, auth.userId);
     return res.json({ ok: true, source: result.source, jobId: result.jobId, status: result.status });
   } catch (e) { return ingestErrorResponse(res, e); }
 });
@@ -3559,7 +3569,9 @@ aiAgentRouter.post('/files/:id/resume', async (req: Request, res: Response) => {
 // ─── Pass E4-C: file preview (workspace-scoped, no storage URLs) ───
 aiAgentRouter.get('/files/:id/preview', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
-  const src = await loadFileSource(config, req.params.id);
+  const fileId = routeParam(req.params.id);
+  if (!fileId) return res.status(400).json({ error: 'invalid_params' });
+  const src = await loadFileSource(config, fileId);
   if (!src) return res.status(404).json({ error: 'not_found' });
   if (src.source_type !== 'file') return res.status(400).json({ error: 'not_a_file_source' });
   const auth = await authorizeMember(req, res, config, src.workspace_id);
@@ -3612,7 +3624,9 @@ aiAgentRouter.get('/files/:id/preview', async (req: Request, res: Response) => {
 // ─── Pass E4-C: file ingestion logs ───
 aiAgentRouter.get('/files/:id/logs', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
-  const src = await loadFileSource(config, req.params.id);
+  const fileId = routeParam(req.params.id);
+  if (!fileId) return res.status(400).json({ error: 'invalid_params' });
+  const src = await loadFileSource(config, fileId);
   if (!src) return res.status(404).json({ error: 'not_found' });
   if (src.source_type !== 'file') return res.status(400).json({ error: 'not_a_file_source' });
   const auth = await authorizeMember(req, res, config, src.workspace_id);

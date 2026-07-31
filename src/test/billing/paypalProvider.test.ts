@@ -210,3 +210,78 @@ describe('paypal create parsers', () => {
   it.each([null, {}, { links: {} }, { links: [{ rel: 'self', href: 'h' }] }, { links: [{ rel: 'approve' }] }])('approval url rejects %#', (b) => expect(readPayPalApprovalUrl(b)).toBeUndefined());
   it('approval url reads href', () => expect(readPayPalApprovalUrl({ links: [{ rel: 'approve', href: 'h' }] })).toBe('h'));
 });
+
+// ── Refund (POST /v2/payments/captures/{captureId}/refund) ──
+import { readPayPalRefundId } from '../../../server/services/billing/providers/paypal.js';
+
+describe('paypal refundPayment', () => {
+  it('sends partial refund with amount and returns refund id', async () => {
+    const fetchMock = mockTokenThen({ id: 'REF-1', status: 'COMPLETED' });
+    const out = await paypalProvider.refundPayment?.(config, 'CAPTURE-9', 14990);
+    expect(out).toEqual({ success: true, refundId: 'REF-1' });
+    const [url, init] = fetchMock.mock.calls[1];
+    expect(url).toBe('https://api-m.sandbox.paypal.com/v2/payments/captures/CAPTURE-9/refund');
+    expect(init.method).toBe('POST');
+    expect(init.headers).toEqual({ 'Authorization': 'Bearer tok', 'Content-Type': 'application/json' });
+    expect(JSON.parse(init.body)).toEqual({ amount: { value: '149.90', currency_code: 'USD' } });
+  });
+
+  it('sends empty body for full refund', async () => {
+    const fetchMock = mockTokenThen({ id: 'REF-2' });
+    const out = await paypalProvider.refundPayment?.(config, 'CAPTURE-9');
+    expect(out).toEqual({ success: true, refundId: 'REF-2' });
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({});
+  });
+
+  it('treats amount 0 as full refund (falsy), unchanged', async () => {
+    const fetchMock = mockTokenThen({ id: 'REF-3' });
+    await paypalProvider.refundPayment?.(config, 'CAPTURE-9', 0);
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({});
+  });
+
+  it('reports failure on HTTP error without inventing a refund id', async () => {
+    mockTokenThen({ name: 'UNPROCESSABLE_ENTITY', message: 'Already refunded', debug_id: 'd1' }, false);
+    expect(await paypalProvider.refundPayment?.(config, 'CAPTURE-9')).toEqual({ success: false, refundId: undefined });
+  });
+
+  it('keeps refund id from a failed HTTP response body as before', async () => {
+    mockTokenThen({ id: 'REF-X' }, false);
+    expect(await paypalProvider.refundPayment?.(config, 'CAPTURE-9')).toEqual({ success: false, refundId: 'REF-X' });
+  });
+
+  it.each([[{}], [[]], ['str'], [{ id: '' }], [{ id: 5 }], [{ id: true }], [{ id: {} }]])(
+    'returns undefined refundId for malformed body %#', async (body) => {
+      mockTokenThen(body);
+      expect(await paypalProvider.refundPayment?.(config, 'CAPTURE-9')).toEqual({ success: true, refundId: undefined });
+    }
+  );
+
+  it('throws TypeError on null body', async () => {
+    mockTokenThen(null);
+    await expect(paypalProvider.refundPayment?.(config, 'CAPTURE-9')).rejects.toBeInstanceOf(TypeError);
+  });
+
+  it('propagates network failure without retrying the refund', async () => {
+    const fn = vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ access_token: 'tok' }) })
+      .mockRejectedValueOnce(new Error('network down'));
+    vi.stubGlobal('fetch', fn);
+    await expect(paypalProvider.refundPayment?.(config, 'CAPTURE-9')).rejects.toThrow('network down');
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not leak secrets in the refund output', async () => {
+    mockTokenThen({ id: 'REF-1' });
+    const serialized = JSON.stringify(await paypalProvider.refundPayment?.(config, 'CAPTURE-9', 14990));
+    for (const secret of ['client-secret-mock', 'client-id-mock', 'Basic ', 'tok', 'buyer@example.com']) {
+      expect(serialized).not.toContain(secret);
+    }
+  });
+});
+
+describe('readPayPalRefundId', () => {
+  it('reads a valid id', () => expect(readPayPalRefundId({ id: 'REF' })).toBe('REF'));
+  it.each([null, undefined, 'x', 4, [], {}, { id: '' }, { id: 5 }, { id: true }, { id: {} }])(
+    'rejects %#', (b) => expect(readPayPalRefundId(b)).toBeUndefined()
+  );
+});

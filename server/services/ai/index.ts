@@ -46,6 +46,10 @@ export interface AIResponse {
 // ─── OpenAI ──────────────────────────────────────────────────────
 
 async function callOpenAI(config: AIConfig, req: AIRequest): Promise<AIResponse> {
+  return callOpenAIImpl(config, req);
+}
+
+async function callOpenAIImpl(config: AIConfig, req: AIRequest): Promise<AIResponse> {
   const start = Date.now();
   const baseUrl = config.baseUrl || 'https://api.openai.com/v1';
   const model = req.model || config.model || 'gpt-4o-mini';

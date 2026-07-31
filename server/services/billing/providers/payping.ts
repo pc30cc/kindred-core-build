@@ -1,5 +1,15 @@
 import type { BillingProviderHandler, BillingProviderConfig, CheckoutRequest, CheckoutResult, WebhookEvent } from '../types.js';
 
+/**
+ * PayPing `POST /v2/pay` success body: only `code` (the payment code) is consumed.
+ * Narrowed with a local runtime guard — the response body is never cast.
+ */
+function readPaymentCode(body: unknown): string | null {
+  if (typeof body !== 'object' || body === null) return null;
+  const code = (body as { code?: unknown }).code;
+  return typeof code === 'string' && code.length > 0 ? code : null;
+}
+
 export const paypingProvider: BillingProviderHandler = {
   name: 'payping',
   capabilities: {
@@ -26,9 +36,13 @@ export const paypingProvider: BillingProviderHandler = {
     });
     if (res.status === 200) {
       const data = await res.json();
+      const code = readPaymentCode(data);
+      if (code === null) {
+        throw new Error('PayPing error: malformed response (missing payment code)');
+      }
       return {
-        paymentUrl: `https://api.payping.ir/v2/pay/gotoipg/${data.code}`,
-        sessionId: data.code,
+        paymentUrl: `https://api.payping.ir/v2/pay/gotoipg/${code}`,
+        sessionId: code,
       };
     }
     const err = await res.text();

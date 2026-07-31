@@ -41,6 +41,37 @@ function describeSepFailure(body: Record<string, unknown>): string {
   return 'unknown status';
 }
 
+// ── Verify-only readers ───────────────────────────────────────────────
+/** Raw `ResultCode`; the `> 0` comparison itself is left untouched. */
+function readSepVerifyResultCode(body: unknown): unknown {
+  return readSepRecord(body).ResultCode;
+}
+
+/**
+ * Reproduces the previous `data.ResultCode > 0` relational comparison exactly,
+ * including its JavaScript coercion, so no verification outcome changes. The
+ * assertion only silences the compiler; it emits no runtime code.
+ */
+function isSepVerifyResultCodePositive(code: unknown): boolean {
+  return (code as number) > 0;
+}
+
+/** `TransactionDetail` only when it is a plain object. */
+function readSepTransactionDetail(body: unknown): Record<string, unknown> | undefined {
+  const detail = readSepRecord(body).TransactionDetail;
+  if (typeof detail !== 'object' || detail === null || Array.isArray(detail)) return undefined;
+  return detail as Record<string, unknown>;
+}
+
+/**
+ * `TransactionDetail.OrginalAmount` (provider's own spelling) as the `amount?: number`
+ * the interface declares. No parsing, rounding or currency conversion is applied.
+ */
+function readSepOriginalAmount(body: unknown): number | undefined {
+  const amount = readSepTransactionDetail(body)?.OrginalAmount;
+  return typeof amount === 'number' && Number.isFinite(amount) ? amount : undefined;
+}
+
 // SEP (Saman Electronic Payment / SamanKish) — Shaparak gateway
 export const sepProvider: BillingProviderHandler = {
   name: 'sep_shaparak',
@@ -84,11 +115,13 @@ export const sepProvider: BillingProviderHandler = {
       }),
     });
     const data = await res.json();
+    const resultCode = readSepVerifyResultCode(data);
+    const verified = isSepVerifyResultCodePositive(resultCode);
     return {
-      verified: data.ResultCode > 0,
+      verified,
       providerRef: params.RefNum || '',
-      amount: data.TransactionDetail?.OrginalAmount,
-      status: data.ResultCode > 0 ? 'success' : 'failed',
+      amount: readSepOriginalAmount(data),
+      status: verified ? 'success' : 'failed',
     };
   },
 

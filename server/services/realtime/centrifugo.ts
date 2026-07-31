@@ -137,8 +137,8 @@ export class CentrifugoDriver {
       if (!res.ok) {
         return { status: 'down', message: `HTTP ${res.status}` };
       }
-      const data = await res.json().catch(() => null);
-      if (data && (data.result || !data.error)) {
+      const data: unknown = await res.json().catch(() => null);
+      if (isCentrifugoApiResponse(data) && (data.result !== undefined || data.error === undefined)) {
         return { status: 'healthy', message: 'Centrifugo info OK' };
       }
       return { status: 'degraded', message: 'Unexpected response shape' };
@@ -166,8 +166,14 @@ export class CentrifugoDriver {
       });
       clearTimeout(timeout);
       if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
-      const json = await res.json().catch(() => null);
-      if (json?.error) return { ok: false, error: String(json.error.message || json.error) };
+      const json: unknown = await res.json().catch(() => null);
+      if (isCentrifugoApiResponse(json) && json.error !== undefined) {
+        const err = json.error;
+        const message = typeof err === 'object' && err !== null && 'message' in err
+          ? (err as { message?: unknown }).message
+          : undefined;
+        return { ok: false, error: String(message ?? err) };
+      }
       return { ok: true };
     } catch (err: any) {
       return { ok: false, error: err?.message || 'Publish failed' };

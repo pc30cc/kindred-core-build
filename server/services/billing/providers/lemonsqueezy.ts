@@ -119,8 +119,14 @@ export const lemonSqueezyProvider: BillingProviderHandler = {
   },
 
   async cancelSubscription(config: BillingProviderConfig, subscriptionId: string) {
-    const data = await lsApi(config, `/subscriptions/${subscriptionId}`, 'DELETE');
-    return { success: !data.errors };
+    const data: unknown = await lsApi(config, `/subscriptions/${subscriptionId}`, 'DELETE');
+    if (data === null || data === undefined) {
+      // Preserves the previous runtime behaviour exactly: reading `.errors` off a
+      // null/undefined JSON body threw a TypeError, surfaced by the caller as 500.
+      throw new TypeError("Cannot read properties of null (reading 'errors')");
+    }
+    // Same truthiness semantics as the previous `!data.errors` check.
+    return { success: readLemonSqueezyError(data) === null };
   },
 
   async testConnection(config: BillingProviderConfig) {

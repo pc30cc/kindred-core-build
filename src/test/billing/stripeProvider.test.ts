@@ -216,3 +216,76 @@ describe('stripe secret leakage', () => {
     for (const needle of forbidden) expect(blob).not.toContain(needle);
   });
 });
+
+describe('stripe refundPayment', () => {
+  it('sends the exact refund contract (partial refund with amount)', async () => {
+    const fetchMock = mockJson({ id: 're_MOCK_1' });
+    const out = await stripeProvider.refundPayment?.(config, 'pi_MOCK_1', 1500);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://api.stripe.com/v1/refunds');
+    expect(init.method).toBe('POST');
+    expect(init.headers['Content-Type']).toBe('application/x-www-form-urlencoded');
+    expect(init.headers['Authorization']).toBe(`Bearer ${SECRET}`);
+    expect(Object.fromEntries(new URLSearchParams(init.body).entries())).toEqual({
+      payment_intent: 'pi_MOCK_1',
+      amount: '1500',
+    });
+    expect(out).toEqual({ success: true, refundId: 're_MOCK_1' });
+  });
+
+  it('omits amount for a full refund', async () => {
+    const fetchMock = mockJson({ id: 're_MOCK_2' });
+    await stripeProvider.refundPayment?.(config, 'pi_MOCK_2');
+    const params = new URLSearchParams(fetchMock.mock.calls[0][1].body);
+    expect(params.has('amount')).toBe(false);
+    expect(params.get('payment_intent')).toBe('pi_MOCK_2');
+  });
+
+  it('omits amount when amount is 0 (falsy semantics preserved)', async () => {
+    const fetchMock = mockJson({ id: 're_MOCK_3' });
+    await stripeProvider.refundPayment?.(config, 'pi_MOCK_3', 0);
+    expect(new URLSearchParams(fetchMock.mock.calls[0][1].body).has('amount')).toBe(false);
+  });
+
+  it('returns undefined refundId for empty, missing or mistyped id', async () => {
+    for (const body of [{ id: '' }, {}, { id: 12 }, { id: { a: 1 } }, { id: true }, { id: null }, [], 'str', 42]) {
+      mockJson(body);
+      expect(await stripeProvider.refundPayment?.(config, 'pi_MOCK_4')).toEqual({ success: true, refundId: undefined });
+    }
+  });
+
+  it('returns undefined refundId when body is null', async () => {
+    mockJson(null);
+    expect(await stripeProvider.refundPayment?.(config, 'pi_MOCK_5')).toEqual({ success: true, refundId: undefined });
+  });
+
+  it('keeps success tied to response.ok only', async () => {
+    mockJson({ error: { message: 'Charge already refunded.' } }, false);
+    expect(await stripeProvider.refundPayment?.(config, 'pi_MOCK_6')).toEqual({ success: false, refundId: undefined });
+
+    mockJson({}, false);
+    expect(await stripeProvider.refundPayment?.(config, 'pi_MOCK_7')).toEqual({ success: false, refundId: undefined });
+
+    mockJson({ error: 'weird' }, false);
+    expect(await stripeProvider.refundPayment?.(config, 'pi_MOCK_8')).toEqual({ success: false, refundId: undefined });
+
+    mockJson({ id: 're_MOCK_9' }, false);
+    expect(await stripeProvider.refundPayment?.(config, 'pi_MOCK_9')).toEqual({ success: false, refundId: 're_MOCK_9' });
+  });
+
+  it('propagates network failures without retrying', async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new Error('network down'));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(stripeProvider.refundPayment?.(config, 'pi_MOCK_10')).rejects.toThrow('network down');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not leak the secret or payment identifier in the result', async () => {
+    mockJson({ id: 're_MOCK_11' });
+    const serialized = JSON.stringify(await stripeProvider.refundPayment?.(config, 'pi_MOCK_11', 1500));
+    expect(serialized).not.toContain(SECRET);
+    expect(serialized).not.toContain(WEBHOOK_SECRET);
+    expect(serialized).not.toContain('pi_MOCK_11');
+  });
+});

@@ -1,6 +1,35 @@
 import type { BillingProviderHandler, BillingProviderConfig, CheckoutRequest, CheckoutResult, WebhookEvent } from '../types.js';
 import crypto from 'crypto';
 
+// ─── Local response parsers (checkout/create path only) ───────────
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+/** Preserves the previous truthiness check on `data.success`. */
+function readSipaySuccess(body: unknown): boolean {
+  const record = asRecord(body);
+  if (record === null) return false;
+  return Boolean(record.success);
+}
+
+/** Error message from `data.message`, only when it is a string. */
+function readSipayError(body: unknown): string | null {
+  const record = asRecord(body);
+  if (record === null) return null;
+  return typeof record.message === 'string' && record.message.length > 0 ? record.message : null;
+}
+
+/** Payment URL, preserving the existing `paymentUrl || url_3d` precedence. */
+function readSipayCheckoutUrl(body: unknown): string | null {
+  const record = asRecord(body);
+  if (record === null) return null;
+  if (typeof record.paymentUrl === 'string' && record.paymentUrl.length > 0) return record.paymentUrl;
+  if (typeof record.url_3d === 'string' && record.url_3d.length > 0) return record.url_3d;
+  return null;
+}
+
 export const sipayProvider: BillingProviderHandler = {
   name: 'sipay',
   capabilities: {
@@ -34,8 +63,13 @@ export const sipayProvider: BillingProviderHandler = {
       }),
     });
     const data = await res.json();
-    if (!data.success) throw new Error(data.message || 'Sipay checkout failed');
-    return { paymentUrl: data.paymentUrl || data.url_3d, sessionId: orderId };
+    if (data === null || data === undefined) {
+      throw new TypeError("Cannot read properties of null (reading 'success')");
+    }
+    if (!readSipaySuccess(data)) throw new Error(readSipayError(data) || 'Sipay checkout failed');
+    const paymentUrl = readSipayCheckoutUrl(data);
+    if (paymentUrl === null) throw new Error('Sipay checkout failed');
+    return { paymentUrl, sessionId: orderId };
   },
 
   async verifyWebhook(_config: BillingProviderConfig, _headers: Record<string, string>, body: string): Promise<WebhookEvent | null> {

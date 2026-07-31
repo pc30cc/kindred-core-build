@@ -1,5 +1,29 @@
 import type { BillingProviderHandler, BillingProviderConfig, CheckoutRequest, CheckoutResult, WebhookEvent } from '../types.js';
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+/** Returns the raw `code` value only when it is a number or a string; no coercion. */
+function readNextPayCode(body: unknown): number | string | undefined {
+  const record = asRecord(body);
+  if (!record) return undefined;
+  const code = record.code;
+  if (typeof code === 'number' || typeof code === 'string') return code;
+  return undefined;
+}
+
+/** Returns `trans_id` only when it is a non-empty string or a number. */
+function readNextPayTransactionId(body: unknown): string | number | undefined {
+  const record = asRecord(body);
+  if (!record) return undefined;
+  const transId = record.trans_id;
+  if (typeof transId === 'number') return transId;
+  if (typeof transId === 'string' && transId.length > 0) return transId;
+  return undefined;
+}
+
 export const nextpayProvider: BillingProviderHandler = {
   name: 'nextpay',
   capabilities: {
@@ -22,10 +46,13 @@ export const nextpayProvider: BillingProviderHandler = {
       }),
     });
     const data = await res.json();
-    if (data.code !== -1) throw new Error(`NextPay error: code ${data.code}`);
+    const code = readNextPayCode(data);
+    if (code !== -1) throw new Error(`NextPay error: code ${code}`);
+    const transId = readNextPayTransactionId(data);
+    if (transId === undefined) throw new Error('NextPay error: missing trans_id');
     return {
-      paymentUrl: `https://nextpay.org/nx/gateway/payment/${data.trans_id}`,
-      sessionId: data.trans_id,
+      paymentUrl: `https://nextpay.org/nx/gateway/payment/${transId}`,
+      sessionId: typeof transId === 'string' ? transId : `${transId}`,
     };
   },
 
@@ -67,7 +94,7 @@ export const nextpayProvider: BillingProviderHandler = {
         body: JSON.stringify({ api_key: config.api_key, amount: 1000, order_id: 'test', callback_uri: 'https://test.localhost' }),
       });
       const data = await res.json();
-      if (data.code === -2) return { success: false, latencyMs: Date.now() - start, error: 'Invalid API key' };
+      if (readNextPayCode(data) === -2) return { success: false, latencyMs: Date.now() - start, error: 'Invalid API key' };
       return { success: true, latencyMs: Date.now() - start };
     } catch (e: any) {
       return { success: false, latencyMs: Date.now() - start, error: e.message };

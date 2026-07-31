@@ -1,5 +1,45 @@
 import type { BillingProviderHandler, BillingProviderConfig, CheckoutRequest, CheckoutResult, WebhookEvent } from '../types.js';
 
+// ── Local, ZarinPal-scoped readers (Create + testConnection only) ─────
+/** Narrows the top-level envelope. Nullish bodies keep the previous TypeError behaviour. */
+function asZarinpalRecord(value: unknown): Record<string, unknown> | null {
+  if (value === null || value === undefined) {
+    throw new TypeError(`Cannot read properties of ${String(value)} (reading 'data')`);
+  }
+  if (typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function asZarinpalSection(body: unknown, key: 'data' | 'errors'): Record<string, unknown> | null {
+  const section = asZarinpalRecord(body)?.[key];
+  if (typeof section !== 'object' || section === null || Array.isArray(section)) return null;
+  return section as Record<string, unknown>;
+}
+
+/** `data.code` only when it is a real number; never coerces '100' → 100. */
+function readZarinpalCreateCode(body: unknown): number | undefined {
+  const code = asZarinpalSection(body, 'data')?.code;
+  return typeof code === 'number' && Number.isFinite(code) ? code : undefined;
+}
+
+/** `data.authority` only when it is a non-empty string. */
+function readZarinpalAuthority(body: unknown): string | undefined {
+  const authority = asZarinpalSection(body, 'data')?.authority;
+  return typeof authority === 'string' && authority.length > 0 ? authority : undefined;
+}
+
+/** `errors.message` only when it is a non-empty string. */
+function readZarinpalErrorMessage(body: unknown): string | undefined {
+  const message = asZarinpalSection(body, 'errors')?.message;
+  return typeof message === 'string' && message.length > 0 ? message : undefined;
+}
+
+/** `errors.code` only when it is a real number. */
+function readZarinpalErrorCode(body: unknown): number | undefined {
+  const code = asZarinpalSection(body, 'errors')?.code;
+  return typeof code === 'number' && Number.isFinite(code) ? code : undefined;
+}
+
 const baseUrl = (config: BillingProviderConfig) =>
   config.sandbox ? 'https://sandbox.zarinpal.com/pg/v4/payment' : 'https://api.zarinpal.com/pg/v4/payment';
 
@@ -29,10 +69,13 @@ export const zarinpalProvider: BillingProviderHandler = {
       }),
     });
     const data = await res.json();
-    if (data.data?.code !== 100) throw new Error(data.errors?.message || `ZarinPal error code: ${data.data?.code}`);
+    const code = readZarinpalCreateCode(data);
+    if (code !== 100) throw new Error(readZarinpalErrorMessage(data) || `ZarinPal error code: ${code}`);
+    const authority = readZarinpalAuthority(data);
+    if (!authority) throw new Error('ZarinPal error: missing authority in gateway response');
     return {
-      paymentUrl: `${gatewayUrl(config)}/${data.data.authority}`,
-      authority: data.data.authority,
+      paymentUrl: `${gatewayUrl(config)}/${authority}`,
+      authority,
     };
   },
 
@@ -88,12 +131,14 @@ export const zarinpalProvider: BillingProviderHandler = {
         }),
       });
       const data = await res.json();
+      const createCode = readZarinpalCreateCode(data);
       // Code 100 = success, or any non-auth error means credentials work
-      if (data.data?.code === 100 || data.data?.code === -9) {
+      if (createCode === 100 || createCode === -9) {
         return { success: true, latencyMs: Date.now() - start };
       }
       // Auth errors
-      if (data.errors?.code === -1 || data.errors?.code === -2) {
+      const errorCode = readZarinpalErrorCode(data);
+      if (errorCode === -1 || errorCode === -2) {
         return { success: false, latencyMs: Date.now() - start, error: 'Invalid merchant ID' };
       }
       return { success: true, latencyMs: Date.now() - start };

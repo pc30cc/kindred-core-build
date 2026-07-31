@@ -54,6 +54,14 @@ export function readPayPalApprovalUrl(body: unknown): string | undefined {
   return undefined;
 }
 
+export function readPayPalRefundId(body: unknown): string | undefined {
+  const record = asRecord(body);
+  if (!record) return undefined;
+  const id = record.id;
+  if (typeof id !== 'string' || id.length === 0) return undefined;
+  return id;
+}
+
 async function getAccessToken(config: BillingProviderConfig): Promise<string> {
   const res = await fetch(`${baseUrl(config)}/v1/oauth2/token`, {
     method: 'POST',
@@ -140,7 +148,7 @@ export const paypalProvider: BillingProviderHandler = {
 
   async refundPayment(config: BillingProviderConfig, paymentId: string, amount?: number) {
     const token = await getAccessToken(config);
-    const body: any = {};
+    const body: { amount?: { value: string; currency_code: string } } = {};
     if (amount) body.amount = { value: (amount / 100).toFixed(2), currency_code: 'USD' };
     const res = await fetch(`${baseUrl(config)}/v2/payments/captures/${paymentId}/refund`, {
       method: 'POST',
@@ -148,7 +156,11 @@ export const paypalProvider: BillingProviderHandler = {
       body: JSON.stringify(body),
     });
     const data = await res.json();
-    return { success: res.ok, refundId: data.id };
+    // Preserve prior runtime behavior: property access on a null/undefined body threw a TypeError.
+    if (data === null || data === undefined) {
+      throw new TypeError("Cannot read properties of null (reading 'id')");
+    }
+    return { success: res.ok, refundId: readPayPalRefundId(data) };
   },
 
   async testConnection(config: BillingProviderConfig) {

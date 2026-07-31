@@ -115,10 +115,16 @@ export const paddleProvider: BillingProviderHandler = {
   },
 
   async cancelSubscription(config: BillingProviderConfig, subscriptionId: string) {
-    const data = await paddleApi(config, `/subscriptions/${subscriptionId}/cancel`, 'POST', {
+    const data: unknown = await paddleApi(config, `/subscriptions/${subscriptionId}/cancel`, 'POST', {
       effective_from: 'next_billing_period',
     });
-    return { success: !data.error };
+    if (data === null || data === undefined) {
+      // Preserves the previous runtime behaviour exactly: reading `.error` off a
+      // null/undefined JSON body threw a TypeError, surfaced by the caller as 500.
+      throw new TypeError("Cannot read properties of null (reading 'error')");
+    }
+    // Same truthiness semantics as the previous `!data.error` check.
+    return { success: readPaddleError(data) === null };
   },
 
   async getPortalUrl(_config: BillingProviderConfig, _customerId: string, returnUrl: string) {

@@ -22,6 +22,17 @@ function readStripeString(body: unknown, key: string): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
+/** Subscription-only readers. Scope: getSubscriptionStatus. No coercion, no fallbacks. */
+function readStripeSubscriptionField(body: unknown, key: string): unknown {
+  const record = asStripeRecord(body);
+  return record ? record[key] : undefined;
+}
+
+/** Mirrors the runtime semantics of `value * 1000` (ToNumber) without changing conversion. */
+function readStripeSubscriptionPeriodMs(body: unknown, key: string): number {
+  return Number(readStripeSubscriptionField(body, key)) * 1000;
+}
+
 export const stripeProvider: BillingProviderHandler = {
   name: 'stripe',
   capabilities: {

@@ -130,3 +130,82 @@ describe('paratika testConnection', () => {
     expect(result.error).not.toContain('MOCK_PASSWORD_XYZ');
   });
 });
+
+describe('paratika refundPayment', () => {
+  it('returns success and refund id, asserting the exact request payload', async () => {
+    const fetchMock = mockJson({ responseCode: '00', pgTranId: 'PG_REFUND_1' });
+    const result = await paratikaProvider.refundPayment?.(CONFIG, 'PG_TRAN_ORIGINAL', 14990);
+    expect(result).toEqual({ success: true, refundId: 'PG_REFUND_1' });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://entegrasyon.asseco-see.com.tr/fim/api');
+    expect(init.method).toBe('POST');
+    expect(init.headers).toEqual({ 'Content-Type': 'application/x-www-form-urlencoded' });
+    expect(Object.fromEntries(new URLSearchParams(init.body))).toEqual({
+      ACTION: 'REFUND',
+      MERCHANTUSER: 'MOCK_USER',
+      MERCHANTPASSWORD: 'MOCK_PASSWORD_XYZ',
+      MERCHANT: 'MOCK_MERCHANT',
+      PGTRANID: 'PG_TRAN_ORIGINAL',
+      AMOUNT: '149.90',
+      CURRENCY: 'TRY',
+    });
+  });
+
+  it('omits AMOUNT when no amount is passed', async () => {
+    const fetchMock = mockJson({ responseCode: '00', pgTranId: 'PG_REFUND_2' });
+    await paratikaProvider.refundPayment?.(CONFIG, 'PG_TRAN_ORIGINAL');
+    const params = new URLSearchParams(fetchMock.mock.calls[0][1].body);
+    expect(params.get('AMOUNT')).toBeNull();
+    expect(params.get('CURRENCY')).toBe('TRY');
+    expect(params.get('PGTRANID')).toBe('PG_TRAN_ORIGINAL');
+  });
+
+  it('converts a numeric pgTranId with an explicit toString', async () => {
+    mockJson({ responseCode: '00', pgTranId: 987654 });
+    expect(await paratikaProvider.refundPayment?.(CONFIG, 'PG_TRAN_ORIGINAL')).toEqual({
+      success: true,
+      refundId: '987654',
+    });
+  });
+
+  it('reports provider failure without inventing success', async () => {
+    mockJson({ responseCode: '99', responseMsg: 'Refund rejected' });
+    expect(await paratikaProvider.refundPayment?.(CONFIG, 'PG_TRAN_ORIGINAL', 100)).toEqual({
+      success: false,
+      refundId: undefined,
+    });
+  });
+
+  it.each([
+    ['null body', null, false, undefined],
+    ['array body', [], false, undefined],
+    ['empty object', {}, false, undefined],
+    ['primitive body', 'oops', false, undefined],
+    ['missing responseCode', { pgTranId: 'X' }, false, 'X'],
+    ['numeric responseCode', { responseCode: 0, pgTranId: 'X' }, false, 'X'],
+    ['success without pgTranId', { responseCode: '00' }, true, undefined],
+    ['object pgTranId', { responseCode: '00', pgTranId: { a: 1 } }, true, undefined],
+    ['boolean pgTranId', { responseCode: '00', pgTranId: true }, true, undefined],
+    ['null pgTranId', { responseCode: '00', pgTranId: null }, true, undefined],
+    ['wrong-typed responseMsg', { responseCode: '99', responseMsg: { m: 1 } }, false, undefined],
+  ])('handles malformed body (%s)', async (_label, body, success, refundId) => {
+    mockJson(body);
+    expect(await paratikaProvider.refundPayment?.(CONFIG, 'PG_TRAN_ORIGINAL')).toEqual({ success, refundId });
+  });
+
+  it('propagates network failure without retrying', async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new Error('network down'));
+    vi.stubGlobal('fetch', fetchMock);
+    const err = await paratikaProvider.refundPayment?.(CONFIG, 'PG_TRAN_ORIGINAL').catch((e: Error) => e);
+    expect((err as Error).message).toBe('network down');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not leak credentials in the returned result', async () => {
+    mockJson({ responseCode: '99', responseMsg: 'Refund rejected' });
+    const serialized = JSON.stringify(await paratikaProvider.refundPayment?.(CONFIG, 'PG_TRAN_ORIGINAL'));
+    expect(serialized).not.toContain('MOCK_PASSWORD_XYZ');
+    expect(serialized).not.toContain('MOCK_USER');
+    expect(serialized).not.toContain('MOCK_MERCHANT');
+  });
+});

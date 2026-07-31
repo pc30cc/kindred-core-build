@@ -29,6 +29,19 @@ export interface CentrifugoConnectionTokenResult {
 }
 
 /**
+ * Minimal shape of a Centrifugo HTTP API response envelope.
+ * Only `result` presence and `error` are consumed here.
+ */
+export interface CentrifugoApiResponse {
+  result?: unknown;
+  error?: unknown;
+}
+
+export function isCentrifugoApiResponse(value: unknown): value is CentrifugoApiResponse {
+  return typeof value === 'object' && value !== null;
+}
+
+/**
  * Phase 2 — fixed JWT identity claims. Centrifugo accepts any HS256 token
  * signed with its shared secret, so the only real defense against a
  * stolen-secret replay across services is to bind every token we mint to

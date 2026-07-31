@@ -194,3 +194,111 @@ describe('SEP does not leak sensitive data', () => {
     expect(text).not.toContain('RedirectUrl');
   });
 });
+
+describe('sep verifyPayment', () => {
+  const VERIFY_URL = 'https://sep.shaparak.ir/verifyTxnRandomSessionkey/ipg/VerifyTransaction';
+  const verifyParams = { RefNum: 'REFNUM_MOCK_0001' };
+
+  it('posts the verify payload and maps a positive ResultCode to success', async () => {
+    const fetchMock = mockJson({
+      ResultCode: 1,
+      TransactionDetail: { RefNum: 'REFNUM_MOCK_0001', OrginalAmount: 250000, AffectiveAmount: 250000 },
+    });
+    const out = await sepProvider.verifyPayment!(config, verifyParams);
+    const [url, init] = fetchMock.mock.calls[0];
+
+    expect(url).toBe(VERIFY_URL);
+    expect(init.method).toBe('POST');
+    expect(init.headers['Content-Type']).toBe('application/json');
+    expect(JSON.parse(init.body)).toEqual({ RefNum: 'REFNUM_MOCK_0001', TerminalNumber: TERMINAL });
+    expect(out).toEqual({
+      verified: true,
+      providerRef: 'REFNUM_MOCK_0001',
+      amount: 250000,
+      status: 'success',
+    });
+  });
+
+  it('keeps the existing ResultCode comparison for every value shape', async () => {
+    const cases: Array<[unknown, boolean]> = [
+      [1, true],
+      [2, true],
+      [0, false],
+      [-1, false],
+      ['1', true],
+      ['0', false],
+      ['oops', false],
+      [true, true],
+      [false, false],
+      [{ code: 1 }, false],
+      [[], false],
+      [null, false],
+      [undefined, false],
+    ];
+    for (const [ResultCode, verified] of cases) {
+      mockJson({ ResultCode, TransactionDetail: { OrginalAmount: 250000 } });
+      const out = await sepProvider.verifyPayment!(config, verifyParams);
+      expect(out.verified).toBe(verified);
+      expect(out.status).toBe(verified ? 'success' : 'failed');
+    }
+  });
+
+  it('returns OrginalAmount only when it is a finite number', async () => {
+    const cases: Array<[unknown, number | undefined]> = [
+      [250000, 250000],
+      [0, 0],
+      [-5, -5],
+      ['250000', undefined],
+      [Number.POSITIVE_INFINITY, undefined],
+      [Number.NaN, undefined],
+      [undefined, undefined],
+      [null, undefined],
+      [{ v: 1 }, undefined],
+      [true, undefined],
+    ];
+    for (const [OrginalAmount, expected] of cases) {
+      mockJson({ ResultCode: 1, TransactionDetail: { OrginalAmount } });
+      expect((await sepProvider.verifyPayment!(config, verifyParams)).amount).toBe(expected);
+    }
+  });
+
+  it('never renames OrginalAmount nor falls back to AffectiveAmount', async () => {
+    mockJson({ ResultCode: 1, TransactionDetail: { OriginalAmount: 111, AffectiveAmount: 222 } });
+    expect((await sepProvider.verifyPayment!(config, verifyParams)).amount).toBeUndefined();
+  });
+
+  it('keeps the request RefNum as the provider reference', async () => {
+    mockJson({ ResultCode: 1, TransactionDetail: { RefNum: 'OTHER_REF', OrginalAmount: 1 } });
+    expect((await sepProvider.verifyPayment!(config, verifyParams)).providerRef).toBe('REFNUM_MOCK_0001');
+
+    mockJson({ ResultCode: 1, TransactionDetail: { OrginalAmount: 1 } });
+    expect((await sepProvider.verifyPayment!(config, {})).providerRef).toBe('');
+  });
+
+  it('handles malformed bodies without inventing an amount', async () => {
+    for (const body of [{}, 'oops', 7, [], { ResultCode: 1 }, { ResultCode: 1, TransactionDetail: 'nope' }, { ResultCode: 1, TransactionDetail: [] }]) {
+      mockJson(body);
+      const out = await sepProvider.verifyPayment!(config, verifyParams);
+      expect(out.amount).toBeUndefined();
+      expect(out.providerRef).toBe('REFNUM_MOCK_0001');
+    }
+  });
+
+  it('keeps nullish TypeError and network rejection behaviour', async () => {
+    mockJson(null);
+    await expect(sepProvider.verifyPayment!(config, verifyParams)).rejects.toBeInstanceOf(TypeError);
+
+    const failing = vi.fn().mockRejectedValue(new Error('socket hang up'));
+    vi.stubGlobal('fetch', failing);
+    await expect(sepProvider.verifyPayment!(config, verifyParams)).rejects.toThrow('socket hang up');
+    expect(failing).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not leak terminal or customer data in the verify result', async () => {
+    mockJson({ ResultCode: 1, TransactionDetail: { OrginalAmount: 250000 } });
+    const serialized = JSON.stringify(await sepProvider.verifyPayment!(config, verifyParams));
+    expect(serialized).not.toContain(TERMINAL);
+    expect(serialized).not.toContain('09120000000');
+    expect(serialized).not.toContain('TransactionDetail');
+  });
+});

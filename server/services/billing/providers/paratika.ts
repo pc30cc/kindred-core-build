@@ -1,5 +1,30 @@
 import type { BillingProviderHandler, BillingProviderConfig, CheckoutRequest, CheckoutResult, WebhookEvent } from '../types.js';
 
+// ─── Local, minimal parsers (Create/session + testConnection only) ───
+// Deliberately scoped: no shared billing helper, no verify/refund parsing.
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function readParatikaResponseCode(body: unknown): string | undefined {
+  const record = asRecord(body);
+  if (!record) return undefined;
+  return typeof record.responseCode === 'string' ? record.responseCode : undefined;
+}
+
+function readParatikaError(body: unknown): string | undefined {
+  const record = asRecord(body);
+  if (!record) return undefined;
+  return typeof record.responseMsg === 'string' ? record.responseMsg : undefined;
+}
+
+function readParatikaSessionToken(body: unknown): string | undefined {
+  const record = asRecord(body);
+  if (!record) return undefined;
+  return typeof record.sessionToken === 'string' ? record.sessionToken : undefined;
+}
+
 export const paratikaProvider: BillingProviderHandler = {
   name: 'paratika',
   capabilities: {
@@ -29,10 +54,14 @@ export const paratikaProvider: BillingProviderHandler = {
       body: params.toString(),
     });
     const data = await res.json();
-    if (data.responseCode !== '00') throw new Error(data.responseMsg || 'Paratika session failed');
+    if (readParatikaResponseCode(data) !== '00') {
+      throw new Error(readParatikaError(data) || 'Paratika session failed');
+    }
+    const sessionToken = readParatikaSessionToken(data);
+    if (!sessionToken) throw new Error(readParatikaError(data) || 'Paratika session failed');
     return {
-      paymentUrl: `https://entegrasyon.asseco-see.com.tr/fim/paymentPage?sessiontoken=${data.sessionToken}`,
-      sessionId: data.sessionToken,
+      paymentUrl: `https://entegrasyon.asseco-see.com.tr/fim/paymentPage?sessiontoken=${sessionToken}`,
+      sessionId: sessionToken,
     };
   },
 
@@ -92,7 +121,7 @@ export const paratikaProvider: BillingProviderHandler = {
         body: params.toString(),
       });
       const data = await res.json();
-      if (data.responseCode === '99') return { success: false, latencyMs: Date.now() - start, error: 'Auth failed' };
+      if (readParatikaResponseCode(data) === '99') return { success: false, latencyMs: Date.now() - start, error: 'Auth failed' };
       return { success: true, latencyMs: Date.now() - start };
     } catch (e: any) {
       return { success: false, latencyMs: Date.now() - start, error: e.message };

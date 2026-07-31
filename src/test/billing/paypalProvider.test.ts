@@ -83,3 +83,130 @@ describe('paypal testConnection (OAuth token flow)', () => {
     expect(serialized).not.toContain('grant_type=client_credentials');
   });
 });
+
+// ── Create subscription (POST /v1/billing/subscriptions) ──
+import { readPayPalSubscriptionError, readPayPalSubscriptionId, readPayPalApprovalUrl } from '../../../server/services/billing/providers/paypal.js';
+
+const checkoutReq = {
+  workspaceId: 'ws-1',
+  planId: 'P-PLAN-123',
+  interval: 'monthly' as const,
+  currency: 'USD',
+  callbackUrl: 'https://app.test/billing/callback',
+  customerEmail: 'buyer@example.com',
+  customerName: 'Buyer Name',
+  metadata: { brand_name: 'Acme' },
+};
+
+function mockTokenThen(body: unknown, ok = true) {
+  const fn = vi.fn()
+    .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ access_token: 'tok' }) })
+    .mockResolvedValueOnce({ ok, status: ok ? 201 : 422, json: async () => body });
+  vi.stubGlobal('fetch', fn);
+  return fn;
+}
+
+describe('paypal createCheckoutSession', () => {
+  it('creates a subscription and returns approval url + id', async () => {
+    const fetchMock = mockTokenThen({
+      id: 'I-SUB-1',
+      links: [
+        { href: 'https://api/self', rel: 'self', method: 'GET' },
+        { href: 'https://paypal/approve', rel: 'approve', method: 'GET' },
+        { href: 'https://api/edit', rel: 'edit', method: 'PATCH' },
+        { href: 'https://api/cancel', rel: 'cancel', method: 'POST' },
+      ],
+    });
+    const out = await paypalProvider.createCheckoutSession(config, checkoutReq);
+    expect(out).toEqual({ paymentUrl: 'https://paypal/approve', sessionId: 'I-SUB-1' });
+
+    const [url, init] = fetchMock.mock.calls[1];
+    expect(url).toBe('https://api-m.sandbox.paypal.com/v1/billing/subscriptions');
+    expect(init.method).toBe('POST');
+    expect(init.headers).toEqual({ 'Authorization': 'Bearer tok', 'Content-Type': 'application/json' });
+    expect(JSON.parse(init.body)).toEqual({
+      plan_id: 'P-PLAN-123',
+      application_context: {
+        return_url: 'https://app.test/billing/callback?success=true',
+        cancel_url: 'https://app.test/billing/callback?success=false',
+        brand_name: 'Acme',
+      },
+      custom_id: 'ws-1',
+      subscriber: { email_address: 'buyer@example.com' },
+    });
+  });
+
+  it('omits subscriber when no email and defaults brand name', async () => {
+    const fetchMock = mockTokenThen({ id: 'I-2', links: [{ href: 'https://a', rel: 'approve' }] });
+    await paypalProvider.createCheckoutSession(config, { ...checkoutReq, customerEmail: undefined, metadata: {} });
+    const payload = JSON.parse(fetchMock.mock.calls[1][1].body);
+    expect(payload.subscriber).toBeUndefined();
+    expect(payload.application_context.brand_name).toBe('Platform');
+  });
+
+  it('picks the first approve link when several exist', async () => {
+    mockTokenThen({ id: 'I-3', links: [{ href: 'https://first', rel: 'approve' }, { href: 'https://second', rel: 'approve' }] });
+    const out = await paypalProvider.createCheckoutSession(config, checkoutReq);
+    expect(out.paymentUrl).toBe('https://first');
+  });
+
+  it('throws provider message on HTTP failure', async () => {
+    mockTokenThen({ name: 'UNPROCESSABLE_ENTITY', message: 'Plan not active', debug_id: 'd1' }, false);
+    await expect(paypalProvider.createCheckoutSession(config, checkoutReq)).rejects.toThrow('Plan not active');
+  });
+
+  it.each([[{}], [[]], ['oops'], [{ message: 42 }]])('falls back to generic error for %#', async (body) => {
+    mockTokenThen(body, false);
+    await expect(paypalProvider.createCheckoutSession(config, checkoutReq)).rejects.toThrow('PayPal subscription creation failed');
+  });
+
+  it('throws TypeError on null body', async () => {
+    mockTokenThen(null, false);
+    await expect(paypalProvider.createCheckoutSession(config, checkoutReq)).rejects.toBeInstanceOf(TypeError);
+  });
+
+  it.each([
+    [{}, { paymentUrl: '', sessionId: undefined }],
+    [[], { paymentUrl: '', sessionId: undefined }],
+    ['str', { paymentUrl: '', sessionId: undefined }],
+    [{ id: '' }, { paymentUrl: '', sessionId: undefined }],
+    [{ id: 7, links: [{ rel: 'approve', href: 'https://x' }] }, { paymentUrl: 'https://x', sessionId: undefined }],
+    [{ id: { a: 1 } }, { paymentUrl: '', sessionId: undefined }],
+    [{ id: 'I', links: 'nope' }, { paymentUrl: '', sessionId: 'I' }],
+    [{ id: 'I', links: ['x', 5, null] }, { paymentUrl: '', sessionId: 'I' }],
+    [{ id: 'I', links: [{ href: 'https://x' }] }, { paymentUrl: '', sessionId: 'I' }],
+    [{ id: 'I', links: [{ rel: 'approve' }] }, { paymentUrl: '', sessionId: 'I' }],
+    [{ id: 'I', links: [{ rel: 'approve', href: 9 }] }, { paymentUrl: '', sessionId: 'I' }],
+    [{ id: 'I', links: [{ rel: 'Approve', href: 'https://x' }] }, { paymentUrl: '', sessionId: 'I' }],
+  ])('handles malformed success body %#', async (body, expected) => {
+    mockTokenThen(body);
+    await expect(paypalProvider.createCheckoutSession(config, checkoutReq)).resolves.toEqual(expected);
+  });
+
+  it('propagates network failure without retrying', async () => {
+    const fn = vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ access_token: 'tok' }) })
+      .mockRejectedValueOnce(new Error('network down'));
+    vi.stubGlobal('fetch', fn);
+    await expect(paypalProvider.createCheckoutSession(config, checkoutReq)).rejects.toThrow('network down');
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not leak secrets or subscriber data in errors', async () => {
+    mockTokenThen({ message: 'Plan not active' }, false);
+    const err = await paypalProvider.createCheckoutSession(config, checkoutReq).catch((e: Error) => e);
+    const text = String((err as Error).message);
+    for (const secret of ['client-secret-mock', 'client-id-mock', 'Basic ', 'tok', 'buyer@example.com', 'Buyer Name']) {
+      expect(text).not.toContain(secret);
+    }
+  });
+});
+
+describe('paypal create parsers', () => {
+  it.each([null, [], {}, 'x', { message: '' }, { message: 3 }])('subscription error rejects %#', (b) => expect(readPayPalSubscriptionError(b)).toBeNull());
+  it('subscription error reads message', () => expect(readPayPalSubscriptionError({ message: 'm' })).toBe('m'));
+  it.each([null, [], {}, { id: '' }, { id: 1 }, { id: {} }])('subscription id rejects %#', (b) => expect(readPayPalSubscriptionId(b)).toBeUndefined());
+  it('subscription id reads string', () => expect(readPayPalSubscriptionId({ id: 'I' })).toBe('I'));
+  it.each([null, {}, { links: {} }, { links: [{ rel: 'self', href: 'h' }] }, { links: [{ rel: 'approve' }] }])('approval url rejects %#', (b) => expect(readPayPalApprovalUrl(b)).toBeUndefined());
+  it('approval url reads href', () => expect(readPayPalApprovalUrl({ links: [{ rel: 'approve', href: 'h' }] })).toBe('h'));
+});

@@ -24,6 +24,36 @@ export function readPayPalOAuthError(body: unknown): string | null {
   return null;
 }
 
+export function readPayPalSubscriptionError(body: unknown): string | null {
+  const record = asRecord(body);
+  if (!record) return null;
+  const message = record.message;
+  if (typeof message === 'string' && message.length > 0) return message;
+  return null;
+}
+
+export function readPayPalSubscriptionId(body: unknown): string | undefined {
+  const record = asRecord(body);
+  if (!record) return undefined;
+  const id = record.id;
+  if (typeof id !== 'string' || id.length === 0) return undefined;
+  return id;
+}
+
+export function readPayPalApprovalUrl(body: unknown): string | undefined {
+  const record = asRecord(body);
+  if (!record) return undefined;
+  const links = record.links;
+  if (!Array.isArray(links)) return undefined;
+  for (const link of links) {
+    const entry = asRecord(link);
+    if (!entry) continue;
+    if (entry.rel !== 'approve') continue;
+    return typeof entry.href === 'string' ? entry.href : undefined;
+  }
+  return undefined;
+}
+
 async function getAccessToken(config: BillingProviderConfig): Promise<string> {
   const res = await fetch(`${baseUrl(config)}/v1/oauth2/token`, {
     method: 'POST',
@@ -65,9 +95,12 @@ export const paypalProvider: BillingProviderHandler = {
       }),
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'PayPal subscription creation failed');
-    const approveLink = data.links?.find((l: any) => l.rel === 'approve');
-    return { paymentUrl: approveLink?.href || '', sessionId: data.id };
+    // Preserve prior runtime behavior: property access on a null/undefined body threw a TypeError.
+    if (data === null || data === undefined) {
+      throw new TypeError("Cannot read properties of null (reading 'message')");
+    }
+    if (!res.ok) throw new Error(readPayPalSubscriptionError(data) || 'PayPal subscription creation failed');
+    return { paymentUrl: readPayPalApprovalUrl(data) || '', sessionId: readPayPalSubscriptionId(data) };
   },
 
   async verifyWebhook(_config: BillingProviderConfig, _headers: Record<string, string>, body: string): Promise<WebhookEvent | null> {

@@ -94,6 +94,82 @@ describe('nextpay testConnection', () => {
     expect(result.success).toBe(false);
     expect(result.error).toBe('Invalid API key');
   });
+});
+
+const verifyParams = { trans_id: 'tx-123', amount: '250000' };
+
+describe('nextpay verifyPayment', () => {
+  it('verifies a successful payment and posts the exact payload', async () => {
+    const fetchMock = mockFetch({ code: 0, Shaparak_Ref_Id: 'shp-9' });
+    const result = await nextpayProvider.verifyPayment!(config, verifyParams);
+    expect(result).toEqual({ verified: true, providerRef: 'shp-9', amount: 250000, status: 'success' });
+
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, { method: string; headers: Record<string, string>; body: string }];
+    expect(url).toBe('https://nextpay.org/nx/gateway/verify');
+    expect(init.method).toBe('POST');
+    expect(init.headers).toEqual({ 'Content-Type': 'application/json' });
+    expect(JSON.parse(init.body)).toEqual({ api_key: 'mock-api-key-not-real', trans_id: 'tx-123', amount: 250000 });
+  });
+
+  it('stringifies a numeric shaparak reference', async () => {
+    mockFetch({ code: 0, Shaparak_Ref_Id: 987654 });
+    expect((await nextpayProvider.verifyPayment!(config, verifyParams)).providerRef).toBe('987654');
+  });
+
+  it('falls back to trans_id when the reference is missing', async () => {
+    mockFetch({ code: 0 });
+    const result = await nextpayProvider.verifyPayment!(config, verifyParams);
+    expect(result).toEqual({ verified: true, providerRef: 'tx-123', amount: 250000, status: 'success' });
+  });
+
+  it.each([
+    ['positive code', { code: 12 }],
+    ['negative code', { code: -1 }],
+    ["string '0'", { code: '0' }],
+    ['boolean code', { code: true }],
+    ['object code', { code: {} }],
+    ['missing code', { Shaparak_Ref_Id: 'shp-1' }],
+    ['empty object', {}],
+    ['array body', []],
+    ['primitive body', 'oops'],
+  ])('keeps %s as failed', async (_label, body) => {
+    mockFetch(body);
+    const result = await nextpayProvider.verifyPayment!(config, verifyParams);
+    expect(result.verified).toBe(false);
+    expect(result.status).toBe('failed');
+    expect(result.amount).toBe(250000);
+  });
+
+  it.each([
+    ['object reference', { code: 0, Shaparak_Ref_Id: { id: 1 } }],
+    ['boolean reference', { code: 0, Shaparak_Ref_Id: true }],
+    ['empty string reference', { code: 0, Shaparak_Ref_Id: '' }],
+  ])('falls back to trans_id on %s', async (_label, body) => {
+    mockFetch(body);
+    expect((await nextpayProvider.verifyPayment!(config, verifyParams)).providerRef).toBe('tx-123');
+  });
+
+  it('throws on a null body like before', async () => {
+    mockFetch(null);
+    await expect(nextpayProvider.verifyPayment!(config, verifyParams)).rejects.toThrow(TypeError);
+  });
+
+  it('defaults amount to 0 when not provided', async () => {
+    mockFetch({ code: 0, Shaparak_Ref_Id: 'shp-2' });
+    expect((await nextpayProvider.verifyPayment!(config, { trans_id: 'tx-1' })).amount).toBe(0);
+  });
+
+  it('propagates network failures without retrying or leaking the api key', async () => {
+    const fetchMock = vi.fn(async () => { throw new Error('network down'); });
+    vi.stubGlobal('fetch', fetchMock);
+    const error = await nextpayProvider.verifyPayment!(config, verifyParams).catch((e: Error) => e);
+    expect((error as Error).message).toBe('network down');
+    expect((error as Error).message).not.toContain('mock-api-key-not-real');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('nextpay testConnection (continued)', () => {
 
   it('reports success on other codes', async () => {
     mockFetch({ code: -1, trans_id: 'tx-1' });

@@ -24,6 +24,15 @@ function readNextPayTransactionId(body: unknown): string | number | undefined {
   return undefined;
 }
 
+/** Returns `Shaparak_Ref_Id` only when it is a string or a number; no coercion. */
+function readNextPayShaparakRefId(body: unknown): string | number | undefined {
+  const record = asRecord(body);
+  if (!record) return undefined;
+  const refId = record.Shaparak_Ref_Id;
+  if (typeof refId === 'number' || typeof refId === 'string') return refId;
+  return undefined;
+}
+
 export const nextpayProvider: BillingProviderHandler = {
   name: 'nextpay',
   capabilities: {
@@ -67,11 +76,19 @@ export const nextpayProvider: BillingProviderHandler = {
       }),
     });
     const data = await res.json();
+    if (data === null || data === undefined) {
+      // Preserves the previous TypeError raised by property access on a nullish body.
+      throw new TypeError(
+        `Cannot read properties of ${data === null ? 'null' : 'undefined'} (reading 'code')`,
+      );
+    }
+    const code = readNextPayCode(data);
+    const refId = readNextPayShaparakRefId(data);
     return {
-      verified: data.code === 0,
-      providerRef: String(data.Shaparak_Ref_Id || params.trans_id),
+      verified: code === 0,
+      providerRef: `${refId || params.trans_id}`,
       amount: parseInt(params.amount || '0'),
-      status: data.code === 0 ? 'success' : 'failed',
+      status: code === 0 ? 'success' : 'failed',
     };
   },
 

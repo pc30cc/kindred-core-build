@@ -100,8 +100,14 @@ describe('sipay createCheckoutSession', () => {
 
   it('does not leak secrets in error messages', async () => {
     mockJson({ success: false, message: 'Invalid merchant' });
-    const err = await sipayProvider.createCheckoutSession(config, req).catch((e) => e as Error);
-    const text = `${err.message}${err.stack ?? ''}`;
+    let err: Error | null = null;
+    try {
+      await sipayProvider.createCheckoutSession(config, req);
+    } catch (e) {
+      err = e instanceof Error ? e : new Error(String(e));
+    }
+    expect(err).not.toBeNull();
+    const text = `${err?.message}${err?.stack ?? ''}`;
     expect(text).not.toContain('APPSECRET_SUPER');
     expect(text).not.toContain('MKEY_SECRET');
     expect(text).not.toContain('APPKEY');

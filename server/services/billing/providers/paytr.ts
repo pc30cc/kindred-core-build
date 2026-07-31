@@ -1,6 +1,34 @@
 import type { BillingProviderHandler, BillingProviderConfig, CheckoutRequest, CheckoutResult, WebhookEvent } from '../types.js';
 import crypto from 'crypto';
 
+// Local, PayTR-specific parsers for the get-token response only.
+// They do not touch hashing, callback verification or amount handling.
+export function readPayTrRecord(body: unknown): Record<string, unknown> {
+  if (body === null || body === undefined) {
+    // Preserve previous runtime behaviour: property access on a nullish body threw.
+    throw new TypeError("Cannot read properties of null (reading 'status')");
+  }
+  if (typeof body === 'object' && !Array.isArray(body)) {
+    return body as Record<string, unknown>;
+  }
+  return {};
+}
+
+export function readPayTrCreateStatus(body: Record<string, unknown>): string | undefined {
+  const status = body.status;
+  return typeof status === 'string' ? status : undefined;
+}
+
+export function readPayTrCreateToken(body: Record<string, unknown>): string | undefined {
+  const token = body.token;
+  return typeof token === 'string' && token.length > 0 ? token : undefined;
+}
+
+export function readPayTrCreateError(body: Record<string, unknown>): string | undefined {
+  const reason = body.reason;
+  return typeof reason === 'string' && reason.length > 0 ? reason : undefined;
+}
+
 export const paytrProvider: BillingProviderHandler = {
   name: 'paytr',
   capabilities: {
@@ -46,10 +74,15 @@ export const paytrProvider: BillingProviderHandler = {
       body: params,
     });
     const data = await res.json();
-    if (data.status !== 'success') throw new Error(data.reason || 'PayTR token failed');
+    const record = readPayTrRecord(data);
+    if (readPayTrCreateStatus(record) !== 'success') {
+      throw new Error(readPayTrCreateError(record) || 'PayTR token failed');
+    }
+    const iframeToken = readPayTrCreateToken(record);
+    if (!iframeToken) throw new Error('PayTR token failed');
     return {
-      paymentUrl: `https://www.paytr.com/odeme/guvenli/${data.token}`,
-      sessionId: data.token,
+      paymentUrl: `https://www.paytr.com/odeme/guvenli/${iframeToken}`,
+      sessionId: iframeToken,
     };
   },
 
@@ -89,7 +122,9 @@ export const paytrProvider: BillingProviderHandler = {
       const res = await fetch('https://www.paytr.com/odeme/api/get-token', { method: 'POST', body: new URLSearchParams({ merchant_id: config.merchant_id as string }) });
       const data = await res.json();
       // Any response means endpoint is reachable
-      if (data.status === 'error' && data.reason?.includes('Üye işyeri')) {
+      const record = readPayTrRecord(data);
+      const reason = readPayTrCreateError(record);
+      if (readPayTrCreateStatus(record) === 'error' && reason?.includes('Üye işyeri')) {
         return { success: false, latencyMs: Date.now() - start, error: 'Invalid merchant credentials' };
       }
       return { success: true, latencyMs: Date.now() - start };

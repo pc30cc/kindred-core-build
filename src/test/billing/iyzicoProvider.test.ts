@@ -234,3 +234,98 @@ describe('iyzico testConnection', () => {
     expect(out).toMatchObject({ success: false, error: 'socket hang up' });
   });
 });
+
+describe('iyzico refundPayment', () => {
+  beforeEach(() => vi.spyOn(Date, 'now').mockReturnValue(FIXED_NOW));
+  afterEach(() => vi.restoreAllMocks());
+
+  it('posts the refund payload and returns the transaction id', async () => {
+    const fetchMock = mockJson({ status: 'success', paymentTransactionId: 'TXN-123' });
+    const out = await iyzicoProvider.refundPayment?.(config, 'PAY-MOCK-1', 14990);
+    const [url, init] = fetchMock.mock.calls[0];
+
+    expect(url).toBe('https://api.iyzipay.com/payment/refund');
+    expect(init.method).toBe('POST');
+    expect(init.headers['Content-Type']).toBe('application/json');
+    expect(init.headers['x-iyzi-rnd']).toBe(RND);
+    expect(init.headers['Authorization']).toBe(expectedAuth('/payment/refund', init.body));
+    expect(JSON.parse(init.body)).toEqual({
+      locale: 'tr',
+      paymentTransactionId: 'PAY-MOCK-1',
+      price: '149.90',
+      currency: 'TRY',
+      ip: '127.0.0.1',
+    });
+    expect(out).toEqual({ success: true, refundId: 'TXN-123' });
+  });
+
+  it('sends price 0 when no amount is provided', async () => {
+    const fetchMock = mockJson({ status: 'success' });
+    await iyzicoProvider.refundPayment?.(config, 'PAY-MOCK-1');
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).price).toBe('0');
+  });
+
+  it('keeps provider failures as failures', async () => {
+    mockJson({ status: 'failure', errorMessage: 'refund rejected' });
+    expect(await iyzicoProvider.refundPayment?.(config, 'PAY-MOCK-1')).toEqual({
+      success: false,
+      refundId: undefined,
+    });
+    mockJson({ status: 'SUCCESS', paymentTransactionId: 'TXN-9' });
+    expect(await iyzicoProvider.refundPayment?.(config, 'PAY-MOCK-1')).toEqual({
+      success: false,
+      refundId: 'TXN-9',
+    });
+  });
+
+  it('handles malformed bodies without inventing a refund id', async () => {
+    for (const body of [{}, 'oops', 7, [], { status: { ok: true } }]) {
+      mockJson(body);
+      expect(await iyzicoProvider.refundPayment?.(config, 'PAY-MOCK-1')).toEqual({
+        success: false,
+        refundId: undefined,
+      });
+    }
+    mockJson({ status: 'success' });
+    expect(await iyzicoProvider.refundPayment?.(config, 'PAY-MOCK-1')).toEqual({
+      success: true,
+      refundId: undefined,
+    });
+  });
+
+  it('narrows the refund id by type', async () => {
+    const cases: Array<[unknown, string | undefined]> = [
+      ['', ''],
+      [12345, '12345'],
+      [{ id: 1 }, undefined],
+      [true, undefined],
+      [null, undefined],
+    ];
+    for (const [value, expected] of cases) {
+      mockJson({ status: 'success', paymentTransactionId: value });
+      expect(await iyzicoProvider.refundPayment?.(config, 'PAY-MOCK-1')).toEqual({
+        success: true,
+        refundId: expected,
+      });
+    }
+  });
+
+  it('keeps nullish TypeError and network rejection behaviour', async () => {
+    mockJson(null);
+    await expect(iyzicoProvider.refundPayment?.(config, 'PAY-MOCK-1')).rejects.toBeInstanceOf(TypeError);
+
+    const failing = vi.fn().mockRejectedValue(new Error('socket hang up'));
+    vi.stubGlobal('fetch', failing);
+    await expect(iyzicoProvider.refundPayment?.(config, 'PAY-MOCK-1')).rejects.toThrow('socket hang up');
+    expect(failing).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not leak credentials in the refund result', async () => {
+    mockJson({ status: 'success', paymentTransactionId: 'TXN-123' });
+    const serialized = JSON.stringify(await iyzicoProvider.refundPayment?.(config, 'PAY-MOCK-1', 14990));
+    expect(serialized).not.toContain('mock-secret-key');
+    expect(serialized).not.toContain('mock-api-key');
+    expect(serialized).not.toContain('IYZWS');
+    expect(serialized).not.toContain(RND);
+  });
+});

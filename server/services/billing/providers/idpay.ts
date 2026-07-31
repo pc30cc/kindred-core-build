@@ -34,6 +34,28 @@ export function readIdPayCheckoutId(body: Record<string, unknown>): string | und
   return typeof id === 'string' && id.length > 0 ? id : undefined;
 }
 
+// ── Verify-only readers (separate from the Create/Test readers above) ──
+// They model only the three properties verifyPayment consumes.
+export function readIdPayVerifyStatus(body: Record<string, unknown>): unknown {
+  return body.status;
+}
+
+// Reproduces `String(data.track_id || '')`: falsy (0, '', null, undefined,
+// false) collapses to '', strings pass through, finite numbers stringify.
+export function readIdPayTrackId(body: Record<string, unknown>): string {
+  const trackId = body.track_id;
+  if (typeof trackId === 'string') return trackId;
+  if (typeof trackId === 'number' && Number.isFinite(trackId) && trackId !== 0) return String(trackId);
+  return '';
+}
+
+// The adapter contract types amount as `number | undefined`, so only finite
+// numbers are forwarded; anything else becomes undefined.
+export function readIdPayVerifiedAmount(body: Record<string, unknown>): number | undefined {
+  const amount = body.amount;
+  return typeof amount === 'number' && Number.isFinite(amount) ? amount : undefined;
+}
+
 const baseUrl = (config: BillingProviderConfig) =>
   config.sandbox ? 'https://api.idpay.ir/v1.1' : 'https://api.idpay.ir/v1.1';
 
@@ -82,12 +104,13 @@ export const idpayProvider: BillingProviderHandler = {
       },
       body: JSON.stringify({ id: params.id, order_id: params.order_id }),
     });
-    const data = await res.json();
+    const data = readIdPayRecord(await res.json());
+    const status = readIdPayVerifyStatus(data);
     return {
-      verified: data.status === 100 || data.status === 101,
-      providerRef: String(data.track_id || ''),
-      amount: data.amount,
-      status: data.status === 100 ? 'success' : 'failed',
+      verified: status === 100 || status === 101,
+      providerRef: readIdPayTrackId(data),
+      amount: readIdPayVerifiedAmount(data),
+      status: status === 100 ? 'success' : 'failed',
     };
   },
 

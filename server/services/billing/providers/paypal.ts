@@ -3,6 +3,27 @@ import type { BillingProviderHandler, BillingProviderConfig, CheckoutRequest, Ch
 const baseUrl = (config: BillingProviderConfig) =>
   config.sandbox ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com';
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+export function readPayPalAccessToken(body: unknown): string | null {
+  const record = asRecord(body);
+  if (!record) return null;
+  const token = record.access_token;
+  if (typeof token !== 'string' || token.length === 0) return null;
+  return token;
+}
+
+export function readPayPalOAuthError(body: unknown): string | null {
+  const record = asRecord(body);
+  if (!record) return null;
+  const description = record.error_description;
+  if (typeof description === 'string' && description.length > 0) return description;
+  return null;
+}
+
 async function getAccessToken(config: BillingProviderConfig): Promise<string> {
   const res = await fetch(`${baseUrl(config)}/v1/oauth2/token`, {
     method: 'POST',
@@ -13,8 +34,10 @@ async function getAccessToken(config: BillingProviderConfig): Promise<string> {
     body: 'grant_type=client_credentials',
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error_description || 'PayPal auth failed');
-  return data.access_token;
+  if (!res.ok) throw new Error(readPayPalOAuthError(data) || 'PayPal auth failed');
+  const token = readPayPalAccessToken(data);
+  if (!token) throw new Error('PayPal auth failed');
+  return token;
 }
 
 export const paypalProvider: BillingProviderHandler = {

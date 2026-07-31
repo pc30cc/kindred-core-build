@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import crypto from 'crypto';
 import { sipayProvider } from '../../../server/services/billing/providers/sipay';
 
 const config = {
@@ -126,5 +127,89 @@ describe('sipay testConnection', () => {
     const out = await sipayProvider.testConnection({ provider: 'sipay' });
     expect(out.success).toBe(false);
     expect(out.error).toBe('Missing credentials');
+  });
+});
+
+describe('sipay refundPayment', () => {
+  it('succeeds on status_code "100" and returns refund id, with exact payload and hash', async () => {
+    const fetchMock = mockJson({ status_code: '100', refund_id: 'RF-1' });
+    const out = await sipayProvider.refundPayment?.(config, 'INV-9', 14990);
+    expect(out).toEqual({ success: true, refundId: 'RF-1' });
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://app.sipay.com.tr/ccpayment/api/refund');
+    expect(init.method).toBe('POST');
+    expect(init.headers).toEqual({ 'Content-Type': 'application/json' });
+    const payload = JSON.parse(init.body);
+    expect(payload).toEqual({
+      merchant_key: 'MKEY_SECRET',
+      hash_key: payload.hash_key,
+      invoice_id: 'INV-9',
+      refund_amount: '149.90',
+    });
+    const expectedHash = crypto.createHmac('sha256', 'APPSECRET_SUPER')
+      .update('MKEY_SECRETINV-9').digest('base64');
+    expect(payload.hash_key).toBe(expectedHash);
+  });
+
+  it('omits refund_amount when amount is not provided', async () => {
+    const fetchMock = mockJson({ status_code: '100', refund_id: 'RF-2' });
+    await sipayProvider.refundPayment?.(config, 'INV-9');
+    const payload = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect('refund_amount' in payload).toBe(false);
+  });
+
+  it('stringifies a numeric refund id', async () => {
+    mockJson({ status_code: '100', refund_id: 12345 });
+    expect(await sipayProvider.refundPayment?.(config, 'INV-9')).toEqual({ success: true, refundId: '12345' });
+  });
+
+  it.each([
+    ['numeric failure code', { status_code: 200 }],
+    ['string failure code', { status_code: '41' }],
+    ['numeric 100 (not strictly equal)', { status_code: 100 }],
+    ['missing status_code', { refund_id: 'RF-3' }],
+    ['wrong-typed status_code', { status_code: { v: 100 } }],
+    ['empty object', {}],
+    ['array', []],
+    ['primitive', 5],
+  ])('does not report success for %s', async (_label, body) => {
+    const out = await sipayProvider.refundPayment?.(config, 'INV-9');
+    void _label; void body;
+    expect(out?.success).toBe(false);
+  });
+
+  it('returns success without refund id when refund_id is missing', async () => {
+    mockJson({ status_code: '100' });
+    expect(await sipayProvider.refundPayment?.(config, 'INV-9')).toEqual({ success: true, refundId: undefined });
+  });
+
+  it.each([
+    ['object', { status_code: '100', refund_id: { id: 1 } }],
+    ['boolean', { status_code: '100', refund_id: true }],
+    ['null', { status_code: '100', refund_id: null }],
+  ])('ignores refund_id of type %s', async (_label, body) => {
+    mockJson(body);
+    expect(await sipayProvider.refundPayment?.(config, 'INV-9')).toEqual({ success: true, refundId: undefined });
+  });
+
+  it('throws TypeError on null body (unchanged behavior)', async () => {
+    mockJson(null);
+    await expect(sipayProvider.refundPayment?.(config, 'INV-9')).rejects.toThrow(TypeError);
+  });
+
+  it('propagates network failure without retry', async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new Error('network down'));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(sipayProvider.refundPayment?.(config, 'INV-9')).rejects.toThrow('network down');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not leak secrets in the result', async () => {
+    mockJson({ status_code: '41', refund_id: 'RF-X' });
+    const text = JSON.stringify(await sipayProvider.refundPayment?.(config, 'INV-9'));
+    expect(text).not.toContain('APPSECRET_SUPER');
+    expect(text).not.toContain('MKEY_SECRET');
+    expect(text).not.toContain('APPKEY');
   });
 });

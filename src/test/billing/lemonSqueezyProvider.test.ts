@@ -116,8 +116,72 @@ describe('lemon squeezy createCheckoutSession', () => {
   });
 });
 
+describe('lemon squeezy cancelSubscription', () => {
+  const cancel = lemonSqueezyProvider.cancelSubscription!;
+  const SUB_ID = 'sub_98765';
+
+  it('succeeds on a body without errors and keeps the request contract', async () => {
+    const fetchMock = mockFetch(200, {
+      data: { type: 'subscriptions', id: SUB_ID, attributes: { status: 'cancelled' } },
+    });
+    const result = await cancel(config, SUB_ID);
+    expect(result).toEqual({ success: true });
+
+    const { url, init } = firstCall(fetchMock);
+    expect(url).toBe(`https://api.lemonsqueezy.com/v1/subscriptions/${SUB_ID}`);
+    expect(init.method).toBe('DELETE');
+    expect(init.headers).toEqual({
+      'Authorization': `Bearer ${MOCK_API_KEY}`,
+      'Accept': 'application/vnd.api+json',
+      'Content-Type': 'application/vnd.api+json',
+    });
+    expect(init.body).toBeUndefined();
+  });
+
+  it('fails on a valid error envelope', async () => {
+    mockFetch(404, { errors: [{ status: '404', title: 'Not found', detail: 'Subscription not found' }] });
+    expect(await cancel(config, SUB_ID)).toEqual({ success: false });
+  });
+
+  it('fails on an error entry without detail', async () => {
+    mockFetch(422, { errors: [{ title: 'Validation error' }] });
+    expect(await cancel(config, SUB_ID)).toEqual({ success: false });
+  });
+
+  it.each([
+    ['empty errors array', { errors: [] }, false],
+    ['errors with wrong type', { errors: 'boom' }, false],
+    ['empty object', {}, true],
+    ['array body', [], true],
+    ['string body', 'not json api', true],
+  ])('keeps previous behaviour for %s', async (_label, body, expected) => {
+    mockFetch(200, body);
+    expect(await cancel(config, SUB_ID)).toEqual({ success: expected });
+  });
+
+  it('throws on a null body, as before', async () => {
+    mockFetch(200, null);
+    await expect(cancel(config, SUB_ID)).rejects.toThrow(TypeError);
+  });
+
+  it('propagates network failures without retrying', async () => {
+    const fn = vi.fn(async () => { throw new Error('network down'); });
+    vi.stubGlobal('fetch', fn);
+    await expect(cancel(config, SUB_ID)).rejects.toThrow('network down');
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not leak secrets in the failure path', async () => {
+    mockFetch(404, { errors: [{ detail: 'Subscription not found' }] });
+    const result = await cancel(config, SUB_ID);
+    const text = JSON.stringify(result);
+    expect(text).not.toContain(MOCK_API_KEY);
+    expect(text).not.toContain('Authorization');
+    expect(text).not.toContain('buyer@test.localhost');
+  });
+});
+
 describe('lemon squeezy testConnection', () => {
-  it('placeholder-anchor', () => { expect(true).toBe(true); });
   it('succeeds on a valid store response and keeps the endpoint', async () => {
     const fetchMock = mockFetch(200, { data: { type: 'stores', id: MOCK_STORE_ID, attributes: { name: 'Mock Store' } } });
     const result = await lemonSqueezyProvider.testConnection!(config);

@@ -202,3 +202,114 @@ describe('zarinpal testConnection', () => {
     expect(out).toMatchObject({ success: false, error: 'socket hang up' });
   });
 });
+
+describe('zarinpal verifyPayment', () => {
+  const verifyParams = { Authority: 'A0000000000000000000000000000mock', amount: '250000' };
+
+  it('posts the verify payload and maps code 100 to success', async () => {
+    const fetchMock = mockJson({ data: { code: 100, ref_id: 987654321 } });
+    const out = await zarinpalProvider.verifyPayment!(config, verifyParams);
+    const [url, init] = fetchMock.mock.calls[0];
+
+    expect(url).toBe('https://api.zarinpal.com/pg/v4/payment/verify.json');
+    expect(init.method).toBe('POST');
+    expect(init.headers['Content-Type']).toBe('application/json');
+    expect(JSON.parse(init.body)).toEqual({
+      merchant_id: 'mock-merchant-id-0001',
+      authority: 'A0000000000000000000000000000mock',
+      amount: 250000,
+    });
+    expect(out).toEqual({
+      verified: true,
+      providerRef: '987654321',
+      amount: 250000,
+      status: 'success',
+    });
+  });
+
+  it('maps code 101 to already_verified and accepts a string ref_id unchanged', async () => {
+    mockJson({ data: { code: 101, ref_id: ' RF-001 ' } });
+    expect(await zarinpalProvider.verifyPayment!(config, verifyParams)).toEqual({
+      verified: true,
+      providerRef: ' RF-001 ',
+      amount: 250000,
+      status: 'already_verified',
+    });
+  });
+
+  it('uses the lowercase authority param and the sandbox endpoint when configured', async () => {
+    const fetchMock = mockJson({ data: { code: 100, ref_id: 1 } });
+    await zarinpalProvider.verifyPayment!(
+      { ...config, sandbox: true },
+      { authority: 'A0000000000000000000000000000mock', amount: '250000' },
+    );
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://sandbox.zarinpal.com/pg/v4/payment/verify.json');
+    expect(JSON.parse(init.body).authority).toBe('A0000000000000000000000000000mock');
+  });
+
+  it('parses the amount without any currency conversion', async () => {
+    for (const currency of ['IRR', 'IRT', undefined]) {
+      const fetchMock = mockJson({ data: { code: 100, ref_id: 5 } });
+      const out = await zarinpalProvider.verifyPayment!({ ...config, currency }, verifyParams);
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body).amount).toBe(250000);
+      expect(out.amount).toBe(250000);
+    }
+    const fetchMock = mockJson({ data: { code: 100, ref_id: 5 } });
+    const out = await zarinpalProvider.verifyPayment!(config, { Authority: 'A-mock' });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).amount).toBe(0);
+    expect(out.amount).toBe(0);
+  });
+
+  it('keeps provider failures as failures', async () => {
+    for (const code of [-51, 0, '100', '101', { v: 100 }, true, null]) {
+      mockJson({ data: { code, ref_id: 987654321 } });
+      const out = await zarinpalProvider.verifyPayment!(config, verifyParams);
+      expect(out.verified).toBe(false);
+      expect(out.status).toBe('failed');
+    }
+  });
+
+  it('handles malformed bodies without inventing a provider reference', async () => {
+    for (const body of [{}, 'oops', 7, [], { data: 'nope' }, { data: [] }, { errors: { code: -11 } }]) {
+      mockJson(body);
+      expect(await zarinpalProvider.verifyPayment!(config, verifyParams)).toEqual({
+        verified: false,
+        providerRef: '',
+        amount: 250000,
+        status: 'failed',
+      });
+    }
+  });
+
+  it('returns an empty provider reference for a successful code without a usable ref_id', async () => {
+    for (const ref_id of [undefined, null, '', 0, false, { a: 1 }, [1], true]) {
+      mockJson({ data: { code: 100, ref_id } });
+      expect(await zarinpalProvider.verifyPayment!(config, verifyParams)).toEqual({
+        verified: true,
+        providerRef: '',
+        amount: 250000,
+        status: 'success',
+      });
+    }
+  });
+
+  it('keeps nullish TypeError and network rejection behaviour', async () => {
+    mockJson(null);
+    await expect(zarinpalProvider.verifyPayment!(config, verifyParams)).rejects.toBeInstanceOf(TypeError);
+
+    const failing = vi.fn().mockRejectedValue(new Error('socket hang up'));
+    vi.stubGlobal('fetch', failing);
+    await expect(zarinpalProvider.verifyPayment!(config, verifyParams)).rejects.toThrow('socket hang up');
+    expect(failing).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not leak merchant or customer data in the verify result', async () => {
+    mockJson({ data: { code: 100, ref_id: 987654321 } });
+    const serialized = JSON.stringify(await zarinpalProvider.verifyPayment!(config, verifyParams));
+    expect(serialized).not.toContain('mock-merchant-id-0001');
+    expect(serialized).not.toContain('A0000000000000000000000000000mock');
+    expect(serialized).not.toContain('mock-buyer@example.com');
+    expect(serialized).not.toContain('09120000000');
+  });
+});

@@ -29,6 +29,38 @@ function readZibalTrackId(body: unknown): string | undefined {
   return undefined;
 }
 
+// ── Verify-only readers (separate from Create/Test helpers) ───────────
+/**
+ * Narrows the verify envelope. Nullish bodies keep the previous TypeError
+ * behaviour of reading `data.result` off null/undefined.
+ */
+function asZibalVerifyRecord(body: unknown): Record<string, unknown> | null {
+  if (body === null || body === undefined) {
+    throw new TypeError(`Cannot read properties of ${String(body)} (reading 'result')`);
+  }
+  if (typeof body !== 'object' || Array.isArray(body)) return null;
+  return body as Record<string, unknown>;
+}
+
+/** Raw `result`, kept unnarrowed so the existing `=== 100` check is unchanged. */
+function readZibalVerifyResult(body: unknown): unknown {
+  return asZibalVerifyRecord(body)?.result;
+}
+
+/** `refNumber` as a string when it is a non-empty string or a finite non-zero number. */
+function readZibalRefNumber(body: unknown): string | undefined {
+  const value = asZibalVerifyRecord(body)?.refNumber;
+  if (typeof value === 'string') return value.length > 0 ? value : undefined;
+  if (typeof value === 'number' && Number.isFinite(value) && value !== 0) return `${value}`;
+  return undefined;
+}
+
+/** `amount` only when it is a real number; other types become undefined. */
+function readZibalVerifiedAmount(body: unknown): number | undefined {
+  const value = asZibalVerifyRecord(body)?.amount;
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
 export const zibalProvider: BillingProviderHandler = {
   name: 'zibal',
   capabilities: {
@@ -72,11 +104,12 @@ export const zibalProvider: BillingProviderHandler = {
       }),
     });
     const data = await res.json();
+    const result = readZibalVerifyResult(data);
     return {
-      verified: data.result === 100,
-      providerRef: String(data.refNumber || params.trackId),
-      amount: data.amount,
-      status: data.result === 100 ? 'success' : 'failed',
+      verified: result === 100,
+      providerRef: readZibalRefNumber(data) ?? (params.trackId ?? ''),
+      amount: readZibalVerifiedAmount(data),
+      status: result === 100 ? 'success' : 'failed',
     };
   },
 

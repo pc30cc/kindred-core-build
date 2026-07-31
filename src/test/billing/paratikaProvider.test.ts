@@ -98,7 +98,6 @@ describe('paratika createCheckoutSession', () => {
 });
 
 describe('paratika testConnection', () => {
-  it('placeholder-anchor', () => { expect(true).toBe(true); });
   it('fails fast on missing credentials without calling fetch', async () => {
     const fetchMock = mockJson({});
     const result = await paratikaProvider.testConnection({ provider: 'paratika' });

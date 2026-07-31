@@ -25,6 +25,21 @@ function readParatikaSessionToken(body: unknown): string | undefined {
   return typeof record.sessionToken === 'string' ? record.sessionToken : undefined;
 }
 
+/**
+ * Refund envelope: only `pgTranId` is consumed as the refund reference.
+ * Paratika returns it as a string; a numeric value is rendered with an explicit
+ * `.toString()` so the declared `refundId?: string` contract holds. Any other
+ * type (object, boolean, null, missing) yields `undefined`, exactly as before.
+ */
+function readParatikaPgTranId(body: unknown): string | undefined {
+  const record = asRecord(body);
+  if (!record) return undefined;
+  const id = record.pgTranId;
+  if (typeof id === 'string') return id;
+  if (typeof id === 'number' && Number.isFinite(id)) return id.toString();
+  return undefined;
+}
+
 export const paratikaProvider: BillingProviderHandler = {
   name: 'paratika',
   capabilities: {
@@ -96,7 +111,7 @@ export const paratikaProvider: BillingProviderHandler = {
       body: params.toString(),
     });
     const data = await res.json();
-    return { success: data.responseCode === '00', refundId: data.pgTranId };
+    return { success: readParatikaResponseCode(data) === '00', refundId: readParatikaPgTranId(data) };
   },
 
   async testConnection(config: BillingProviderConfig) {

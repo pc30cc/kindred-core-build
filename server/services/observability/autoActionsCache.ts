@@ -26,7 +26,11 @@ export type AutoActionType =
   | 'throttle_new_conversations'
   | 'slow_mode_messages'
   | 'operator_load_shedding'
-  | 'priority_only_mode';
+  | 'priority_only_mode'
+  // Phase 8A call policy actions
+  | 'audio_only_mode'
+  | 'video_disabled'
+  | 'recording_forced';
 
 interface CachedAction {
   action_type: AutoActionType;

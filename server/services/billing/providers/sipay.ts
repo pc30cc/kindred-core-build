@@ -30,6 +30,26 @@ function readSipayCheckoutUrl(body: unknown): string | null {
   return null;
 }
 
+// ─── Local response parsers (refund path only) ────────────────────
+/** Raw `data.status_code` for refunds; compared strictly against '100' as before. */
+function readSipayRefundStatusCode(body: unknown): string | number | undefined {
+  const record = asRecord(body);
+  if (record === null) return undefined;
+  const value = record.status_code;
+  if (typeof value === 'string' || typeof value === 'number') return value;
+  return undefined;
+}
+
+/** `data.refund_id`, narrowed to the declared `string | undefined` return shape. */
+function readSipayRefundId(body: unknown): string | undefined {
+  const record = asRecord(body);
+  if (record === null) return undefined;
+  const value = record.refund_id;
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return `${value}`;
+  return undefined;
+}
+
 export const sipayProvider: BillingProviderHandler = {
   name: 'sipay',
   capabilities: {
@@ -102,7 +122,10 @@ export const sipayProvider: BillingProviderHandler = {
       }),
     });
     const data = await res.json();
-    return { success: data.status_code === '100', refundId: data.refund_id };
+    if (data === null || data === undefined) {
+      throw new TypeError("Cannot read properties of null (reading 'status_code')");
+    }
+    return { success: readSipayRefundStatusCode(data) === '100', refundId: readSipayRefundId(data) };
   },
 
   async testConnection(config: BillingProviderConfig) {

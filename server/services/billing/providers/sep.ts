@@ -1,5 +1,46 @@
 import type { BillingProviderHandler, BillingProviderConfig, CheckoutRequest, CheckoutResult, WebhookEvent } from '../types.js';
 
+// Local, SEP-specific readers for the token-request (create) and
+// test-connection responses only. They do not model verify/webhook payloads and
+// do not touch amounts, status mapping, currency or callback handling.
+export function readSepRecord(body: unknown): Record<string, unknown> {
+  if (body === null || body === undefined) {
+    // Preserve previous runtime behaviour: property access on a nullish body threw.
+    throw new TypeError("Cannot read properties of null (reading 'status')");
+  }
+  if (typeof body === 'object' && !Array.isArray(body)) {
+    return body as Record<string, unknown>;
+  }
+  return {};
+}
+
+// Raw value: the success condition stays a strict `=== 1` numeric comparison.
+export function readSepStatus(body: Record<string, unknown>): unknown {
+  return body.status;
+}
+
+export function readSepErrorDescription(body: Record<string, unknown>): string | undefined {
+  const desc = body.errorDesc;
+  return typeof desc === 'string' && desc.length > 0 ? desc : undefined;
+}
+
+export function readSepToken(body: Record<string, unknown>): string | undefined {
+  const token = body.token;
+  return typeof token === 'string' && token.length > 0 ? token : undefined;
+}
+
+// Keeps the previous `errorDesc || status` fallback, but never interpolates a
+// non-primitive value into the message.
+function describeSepFailure(body: Record<string, unknown>): string {
+  const desc = readSepErrorDescription(body);
+  if (desc) return desc;
+  const status = readSepStatus(body);
+  if (typeof status === 'string' || typeof status === 'number' || typeof status === 'boolean') {
+    return String(status);
+  }
+  return 'unknown status';
+}
+
 // SEP (Saman Electronic Payment / SamanKish) — Shaparak gateway
 export const sepProvider: BillingProviderHandler = {
   name: 'sep_shaparak',
@@ -23,10 +64,13 @@ export const sepProvider: BillingProviderHandler = {
       }),
     });
     const data = await res.json();
-    if (data.status !== 1) throw new Error(`SEP error: ${data.errorDesc || data.status}`);
+    const body = readSepRecord(data);
+    if (readSepStatus(body) !== 1) throw new Error(`SEP error: ${describeSepFailure(body)}`);
+    const token = readSepToken(body);
+    if (!token) throw new Error('SEP error: missing token in response');
     return {
-      paymentUrl: `https://sep.shaparak.ir/OnlinePG/SendToken?token=${data.token}`,
-      sessionId: data.token,
+      paymentUrl: `https://sep.shaparak.ir/OnlinePG/SendToken?token=${token}`,
+      sessionId: token,
     };
   },
 
@@ -68,7 +112,8 @@ export const sepProvider: BillingProviderHandler = {
         }),
       });
       const data = await res.json();
-      if (data.status === -1) return { success: false, latencyMs: Date.now() - start, error: 'Invalid terminal ID' };
+      const body = readSepRecord(data);
+      if (readSepStatus(body) === -1) return { success: false, latencyMs: Date.now() - start, error: 'Invalid terminal ID' };
       return { success: true, latencyMs: Date.now() - start };
     } catch (e: any) {
       return { success: false, latencyMs: Date.now() - start, error: e.message };

@@ -129,3 +129,66 @@ describe('paddle testConnection', () => {
     expect(result?.error).not.toContain(MOCK_API_KEY);
   });
 });
+
+describe('paddle cancelSubscription', () => {
+  const cancel = paddleProvider.cancelSubscription!;
+
+  it('succeeds and sends the unchanged request contract', async () => {
+    const fetchMock = mockFetch(200, { data: { id: 'sub_01mock', status: 'canceled' } });
+    const result = await cancel(config, 'sub_01mock');
+    expect(result).toEqual({ success: true });
+
+    const { url, init } = firstCall(fetchMock);
+    expect(url).toBe('https://sandbox-api.paddle.com/subscriptions/sub_01mock/cancel');
+    expect(init.method).toBe('POST');
+    expect(init.headers).toEqual({
+      'Authorization': `Bearer ${MOCK_API_KEY}`,
+      'Content-Type': 'application/json',
+    });
+    expect(JSON.parse(init.body as string)).toEqual({ effective_from: 'next_billing_period' });
+  });
+
+  it('uses the production base url when sandbox is off', async () => {
+    const fetchMock = mockFetch(200, {});
+    await cancel({ ...config, sandbox: false }, 'sub_02mock');
+    expect(firstCall(fetchMock).url).toBe('https://api.paddle.com/subscriptions/sub_02mock/cancel');
+  });
+
+  it('reports failure for a valid paddle error envelope', async () => {
+    mockFetch(400, { error: { code: 'subscription_update_error', detail: 'Subscription is already canceled' } });
+    await expect(cancel(config, 'sub_01mock')).resolves.toEqual({ success: false });
+  });
+
+  it('reports failure when error detail is missing', async () => {
+    mockFetch(400, { error: {} });
+    await expect(cancel(config, 'sub_01mock')).resolves.toEqual({ success: false });
+  });
+
+  it.each([
+    ['empty object', {}],
+    ['array', []],
+    ['string', 'not json object'],
+  ])('treats malformed body (%s) without error as success, as before', async (_label, body) => {
+    await mockFetch(200, body);
+    await expect(cancel(config, 'sub_01mock')).resolves.toEqual({ success: true });
+  });
+
+  it('keeps the previous throwing behaviour for a null json body', async () => {
+    mockFetch(200, null);
+    await expect(cancel(config, 'sub_01mock')).rejects.toBeInstanceOf(TypeError);
+  });
+
+  it('propagates network failures without retrying', async () => {
+    const fn = vi.fn(async () => { throw new Error('network down'); });
+    vi.stubGlobal('fetch', fn);
+    await expect(cancel(config, 'sub_01mock')).rejects.toThrow('network down');
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not leak secrets in the failure result', async () => {
+    mockFetch(400, { error: { detail: 'Subscription is already canceled' } });
+    const result = await cancel(config, 'sub_01mock');
+    expect(JSON.stringify(result)).not.toContain(MOCK_API_KEY);
+    expect(JSON.stringify(result)).not.toContain('Authorization');
+  });
+});

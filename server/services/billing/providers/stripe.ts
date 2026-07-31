@@ -146,7 +146,7 @@ export const stripeProvider: BillingProviderHandler = {
       body: params.toString(),
     });
     const data = await res.json();
-    return { success: res.ok, refundId: data.id };
+    return { success: res.ok, refundId: readStripeString(data, 'id') };
   },
 
   async getPortalUrl(config: BillingProviderConfig, customerId: string, returnUrl: string) {

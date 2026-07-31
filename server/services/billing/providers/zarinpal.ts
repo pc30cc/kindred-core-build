@@ -40,6 +40,25 @@ function readZarinpalErrorCode(body: unknown): number | undefined {
   return typeof code === 'number' && Number.isFinite(code) ? code : undefined;
 }
 
+// ── Verify-only readers ───────────────────────────────────────────────
+/** Verify `data.code`, kept raw so the existing `=== 100 / === 101` checks are unchanged. */
+function readZarinpalVerifyCode(body: unknown): unknown {
+  return asZarinpalSection(body, 'data')?.code;
+}
+
+/**
+ * Verify `data.ref_id` as the `providerRef: string` the interface declares.
+ * Mirrors the previous `String(ref_id || '')`: falsy values (0, '', null, undefined,
+ * false) stay `undefined` so the caller keeps emitting `''`; non-empty strings pass
+ * through and finite numbers become the string of that same number.
+ */
+function readZarinpalRefId(body: unknown): string | undefined {
+  const refId = asZarinpalSection(body, 'data')?.ref_id;
+  if (typeof refId === 'string') return refId.length > 0 ? refId : undefined;
+  if (typeof refId === 'number' && Number.isFinite(refId) && refId !== 0) return `${refId}`;
+  return undefined;
+}
+
 const baseUrl = (config: BillingProviderConfig) =>
   config.sandbox ? 'https://sandbox.zarinpal.com/pg/v4/payment' : 'https://api.zarinpal.com/pg/v4/payment';
 
@@ -91,10 +110,10 @@ export const zarinpalProvider: BillingProviderHandler = {
       }),
     });
     const data = await res.json();
-    const code = data.data?.code;
+    const code = readZarinpalVerifyCode(data);
     return {
       verified: code === 100 || code === 101,
-      providerRef: String(data.data?.ref_id || ''),
+      providerRef: readZarinpalRefId(data) ?? '',
       amount,
       status: code === 100 ? 'success' : code === 101 ? 'already_verified' : 'failed',
     };

@@ -66,7 +66,17 @@ aiRouter.post('/complete', requireModule('ai_assistant'), requireAICredits(1), a
       return res.status(429).json({ error: 'AI rate limit exceeded. Max 60 requests/minute per workspace.' });
     }
 
-    const result = await executeAICompletion(config, parsed.data);
+    // Build the request explicitly: zod's inferred output marks every property
+    // optional under `strictNullChecks: false`, while AIRequest requires
+    // workspaceId/prompt. The schema already guarantees both are present.
+    const result = await executeAICompletion(config, {
+      workspaceId: parsed.data.workspaceId,
+      prompt: parsed.data.prompt,
+      systemPrompt: parsed.data.systemPrompt,
+      model: parsed.data.model,
+      maxTokens: parsed.data.maxTokens,
+      temperature: parsed.data.temperature,
+    });
 
     // Track usage
     incrementUsage(config.supabaseUrl, config.supabaseServiceRoleKey, parsed.data.workspaceId, 'ai_requests_count');

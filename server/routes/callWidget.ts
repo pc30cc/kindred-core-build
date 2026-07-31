@@ -1288,7 +1288,7 @@ callWidgetRouter.post('/callbacks/request', async (req, res) => {
     let visitorIdForLookup: string | null = null;
     try {
       const cookieVid = readVisitorCookie(req as any);
-      visitorIdForLookup = cookieVid || null;
+      visitorIdForLookup = cookieVid ? cookieVid.v : null;
     } catch {/* ignore */}
     if (visitorIdForLookup) {
       const { data: recent } = await sb

@@ -29,6 +29,19 @@ export interface CentrifugoConnectionTokenResult {
 }
 
 /**
+ * Minimal shape of a Centrifugo HTTP API response envelope.
+ * Only `result` presence and `error` are consumed here.
+ */
+export interface CentrifugoApiResponse {
+  result?: unknown;
+  error?: unknown;
+}
+
+export function isCentrifugoApiResponse(value: unknown): value is CentrifugoApiResponse {
+  return typeof value === 'object' && value !== null;
+}
+
+/**
  * Phase 2 — fixed JWT identity claims. Centrifugo accepts any HS256 token
  * signed with its shared secret, so the only real defense against a
  * stolen-secret replay across services is to bind every token we mint to
@@ -137,8 +150,8 @@ export class CentrifugoDriver {
       if (!res.ok) {
         return { status: 'down', message: `HTTP ${res.status}` };
       }
-      const data = await res.json().catch(() => null);
-      if (data && (data.result || !data.error)) {
+      const data: unknown = await res.json().catch(() => null);
+      if (isCentrifugoApiResponse(data) && (!!data.result || !data.error)) {
         return { status: 'healthy', message: 'Centrifugo info OK' };
       }
       return { status: 'degraded', message: 'Unexpected response shape' };
@@ -166,8 +179,14 @@ export class CentrifugoDriver {
       });
       clearTimeout(timeout);
       if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
-      const json = await res.json().catch(() => null);
-      if (json?.error) return { ok: false, error: String(json.error.message || json.error) };
+      const json: unknown = await res.json().catch(() => null);
+      if (isCentrifugoApiResponse(json) && !!json.error) {
+        const err = json.error;
+        const message = typeof err === 'object' && err !== null && 'message' in err
+          ? (err as { message?: unknown }).message
+          : undefined;
+        return { ok: false, error: String(message ?? err) };
+      }
       return { ok: true };
     } catch (err: any) {
       return { ok: false, error: err?.message || 'Publish failed' };

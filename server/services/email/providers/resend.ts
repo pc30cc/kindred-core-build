@@ -2,6 +2,23 @@
 
 import type { ProviderConfig, SendResult } from '../index.js';
 
+/**
+ * Minimal shape of the Resend `POST /emails` success response.
+ * Only the message `id` is consumed here.
+ */
+interface ResendSendResponse {
+  id: string;
+}
+
+export function isResendSendResponse(value: unknown): value is ResendSendResponse {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'id' in value &&
+    typeof (value as { id: unknown }).id === 'string'
+  );
+}
+
 export async function sendViaResend(
   config: ProviderConfig,
   to: string,
@@ -37,6 +54,9 @@ export async function sendViaResend(
     return { success: false, provider: 'resend', error: `Resend ${res.status}: ${err}` };
   }
 
-  const data = await res.json();
+  const data: unknown = await res.json();
+  if (!isResendSendResponse(data)) {
+    return { success: false, provider: 'resend', error: 'Resend returned an unexpected response shape' };
+  }
   return { success: true, id: data.id, provider: 'resend' };
 }

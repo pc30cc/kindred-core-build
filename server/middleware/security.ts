@@ -163,6 +163,23 @@ export function recordLoginAttempt(req: Request, email: string, success: boolean
 
 // ─── Captcha Verification ───────────────────────────────────────
 
+/**
+ * Minimal shape of the Turnstile / reCAPTCHA siteverify response.
+ * Only the `success` flag is consumed by this module.
+ */
+interface CaptchaVerifyResponse {
+  success: boolean;
+}
+
+export function isCaptchaVerifyResponse(value: unknown): value is CaptchaVerifyResponse {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'success' in value &&
+    typeof (value as { success: unknown }).success === 'boolean'
+  );
+}
+
 export async function verifyCaptcha(
   token: string,
   provider: 'turnstile' | 'recaptcha',
@@ -186,8 +203,9 @@ export async function verifyCaptcha(
       body: body.toString(),
     });
 
-    const data = await res.json();
-    return { success: !!data.success, error: data.success ? undefined : 'Captcha verification failed' };
+    const data: unknown = await res.json();
+    const ok = isCaptchaVerifyResponse(data) && data.success === true;
+    return { success: ok, error: ok ? undefined : 'Captcha verification failed' };
   } catch (err) {
     return { success: false, error: 'Captcha service unavailable' };
   }

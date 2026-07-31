@@ -21,15 +21,18 @@ beforeAll(async () => {
 const VISITOR_ID = '11111111-1111-4111-8111-111111111111';
 const WORKSPACE_ID = '22222222-2222-4222-8222-222222222222';
 
-function reqWith(cookie: string) {
-  return { cookies: { dvsid: cookie } } as any;
+type CookieRequest = Parameters<typeof readVisitorCookie>[0];
+
+function reqWith(cookies: Record<string, string>): CookieRequest {
+  const req: Partial<CookieRequest> & { cookies: Record<string, string> } = { cookies };
+  return req as CookieRequest;
 }
 
 describe('visitor cookie identifier', () => {
   it('exposes the visitor UUID under `v`', () => {
     const now = Math.floor(Date.now() / 1000);
     const payload = readVisitorCookie(
-      reqWith(encode({ v: VISITOR_ID, w: WORKSPACE_ID, iat: now, exp: now + 3600 })),
+      reqWith({ dvsid: encode({ v: VISITOR_ID, w: WORKSPACE_ID, iat: now, exp: now + 3600 }) }),
     );
     expect(payload).not.toBeNull();
     expect(payload!.v).toBe(VISITOR_ID);
@@ -39,6 +42,6 @@ describe('visitor cookie identifier', () => {
   });
 
   it('returns null when no cookie is present', () => {
-    expect(readVisitorCookie({ cookies: {} } as any)).toBeNull();
+    expect(readVisitorCookie(reqWith({}))).toBeNull();
   });
 });

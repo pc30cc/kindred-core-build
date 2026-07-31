@@ -1,6 +1,47 @@
 import type { BillingProviderHandler, BillingProviderConfig, CheckoutRequest, CheckoutResult, WebhookEvent } from '../types.js';
 import crypto from 'crypto';
 
+// --- Local runtime narrowing for Lemon Squeezy JSON:API bodies (no casts, no shared helper) ---
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+/**
+ * JSON:API error envelope: `{ errors: [{ detail?, title?, ... }] }`.
+ * Mirrors the previous truthiness check on `data.errors`: any truthy `errors`
+ * value marks the response as failed. Only `errors[0].detail` is consumed.
+ */
+function readLemonSqueezyError(body: unknown): { detail: string | undefined } | null {
+  const root = asRecord(body);
+  if (root === null) return null;
+  const errors = root.errors;
+  if (!errors) return null;
+  const first = Array.isArray(errors) ? asRecord(errors[0]) : null;
+  const detail = first === null ? undefined : first.detail;
+  return { detail: typeof detail === 'string' ? detail : undefined };
+}
+
+/**
+ * JSON:API checkout envelope: `{ data: { id, attributes: { url } } }`.
+ * Only `data.id` and `data.attributes.url` are consumed by the adapter.
+ */
+function readLemonSqueezyCheckout(body: unknown): { id: string; url: string } | null {
+  const root = asRecord(body);
+  if (root === null) return null;
+  const data = asRecord(root.data);
+  if (data === null) return null;
+  const attributes = asRecord(data.attributes);
+  if (attributes === null) return null;
+  const id = data.id;
+  const url = attributes.url;
+  if (typeof id !== 'string' || id.length === 0) return null;
+  if (typeof url !== 'string' || url.length === 0) return null;
+  return { id, url };
+}
+
 async function lsApi(config: BillingProviderConfig, path: string, method = 'GET', body?: unknown) {
   const res = await fetch(`https://api.lemonsqueezy.com/v1${path}`, {
     method,
@@ -22,7 +63,7 @@ export const lemonSqueezyProvider: BillingProviderHandler = {
   },
 
   async createCheckoutSession(config: BillingProviderConfig, req: CheckoutRequest): Promise<CheckoutResult> {
-    const data = await lsApi(config, '/checkouts', 'POST', {
+    const data: unknown = await lsApi(config, '/checkouts', 'POST', {
       data: {
         type: 'checkouts',
         attributes: {
@@ -38,8 +79,11 @@ export const lemonSqueezyProvider: BillingProviderHandler = {
         },
       },
     });
-    if (data.errors) throw new Error(data.errors[0]?.detail || 'Lemon Squeezy checkout failed');
-    return { paymentUrl: data.data.attributes.url, sessionId: data.data.id };
+    const error = readLemonSqueezyError(data);
+    if (error !== null) throw new Error(error.detail || 'Lemon Squeezy checkout failed');
+    const checkout = readLemonSqueezyCheckout(data);
+    if (checkout === null) throw new Error('Lemon Squeezy checkout failed');
+    return { paymentUrl: checkout.url, sessionId: checkout.id };
   },
 
   async verifyWebhook(config: BillingProviderConfig, headers: Record<string, string>, body: string): Promise<WebhookEvent | null> {
@@ -82,8 +126,9 @@ export const lemonSqueezyProvider: BillingProviderHandler = {
   async testConnection(config: BillingProviderConfig) {
     const start = Date.now();
     try {
-      const data = await lsApi(config, `/stores/${config.store_id}`);
-      if (data.errors) return { success: false, latencyMs: Date.now() - start, error: data.errors[0]?.detail };
+      const data: unknown = await lsApi(config, `/stores/${config.store_id}`);
+      const error = readLemonSqueezyError(data);
+      if (error !== null) return { success: false, latencyMs: Date.now() - start, error: error.detail };
       return { success: true, latencyMs: Date.now() - start };
     } catch (e: any) {
       return { success: false, latencyMs: Date.now() - start, error: e.message };

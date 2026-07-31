@@ -1,6 +1,46 @@
 import type { BillingProviderHandler, BillingProviderConfig, CheckoutRequest, CheckoutResult, WebhookEvent } from '../types.js';
 import crypto from 'crypto';
 
+// ── Local, iyzico-scoped JSON readers (Create + testConnection only) ──
+/** Narrows the response envelope. Nullish bodies keep the previous TypeError behaviour. */
+function asIyzicoRecord(value: unknown): Record<string, unknown> | null {
+  if (value === null || value === undefined) {
+    throw new TypeError(`Cannot read properties of ${String(value)} (reading 'status')`);
+  }
+  if (typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+/** `status` only when it is a string; no casing or trimming changes. */
+function readIyzicoStatus(body: unknown): string | undefined {
+  const status = asIyzicoRecord(body)?.status;
+  return typeof status === 'string' ? status : undefined;
+}
+
+/** `errorMessage` only when it is a non-empty string. */
+function readIyzicoErrorMessage(body: unknown): string | undefined {
+  const message = asIyzicoRecord(body)?.errorMessage;
+  return typeof message === 'string' && message.length > 0 ? message : undefined;
+}
+
+/** `paymentPageUrl` only when it is a non-empty string. */
+function readIyzicoCheckoutUrl(body: unknown): string | undefined {
+  const url = asIyzicoRecord(body)?.paymentPageUrl;
+  return typeof url === 'string' && url.length > 0 ? url : undefined;
+}
+
+/** `token` only when it is a non-empty string. */
+function readIyzicoToken(body: unknown): string | undefined {
+  const token = asIyzicoRecord(body)?.token;
+  return typeof token === 'string' && token.length > 0 ? token : undefined;
+}
+
+/** `errorCode` only when it is a string, matching the existing `'1000'` comparison. */
+function readIyzicoErrorCode(body: unknown): string | undefined {
+  const code = asIyzicoRecord(body)?.errorCode;
+  return typeof code === 'string' ? code : undefined;
+}
+
 const baseUrl = (config: BillingProviderConfig) =>
   config.sandbox ? 'https://sandbox-api.iyzipay.com' : (config.base_url as string || 'https://api.iyzipay.com');
 
@@ -63,8 +103,12 @@ export const iyzicoProvider: BillingProviderHandler = {
       body,
     });
     const data = await res.json();
-    if (data.status !== 'success') throw new Error(data.errorMessage || 'iyzico checkout failed');
-    return { paymentUrl: data.paymentPageUrl, sessionId: data.token };
+    if (readIyzicoStatus(data) !== 'success') throw new Error(readIyzicoErrorMessage(data) || 'iyzico checkout failed');
+    const paymentUrl = readIyzicoCheckoutUrl(data);
+    const token = readIyzicoToken(data);
+    if (!paymentUrl) throw new Error('iyzico checkout failed: missing paymentPageUrl');
+    if (!token) throw new Error('iyzico checkout failed: missing token');
+    return { paymentUrl, sessionId: token };
   },
 
   async verifyWebhook(_config: BillingProviderConfig, _headers: Record<string, string>, body: string): Promise<WebhookEvent | null> {
@@ -109,7 +153,7 @@ export const iyzicoProvider: BillingProviderHandler = {
         body,
       });
       const data = await res.json();
-      if (data.status === 'failure' && data.errorCode === '1000') {
+      if (readIyzicoStatus(data) === 'failure' && readIyzicoErrorCode(data) === '1000') {
         return { success: false, latencyMs: Date.now() - start, error: 'Invalid credentials' };
       }
       return { success: true, latencyMs: Date.now() - start };

@@ -41,6 +41,18 @@ function readIyzicoErrorCode(body: unknown): string | undefined {
   return typeof code === 'string' ? code : undefined;
 }
 
+/**
+ * Refund only: `paymentTransactionId` as the `refundId?: string` the interface declares.
+ * Strings pass through unchanged (including empty, preserving prior runtime); a finite
+ * number becomes the string of that same number; anything else is `undefined`.
+ */
+function readIyzicoRefundTransactionId(body: unknown): string | undefined {
+  const id = asIyzicoRecord(body)?.paymentTransactionId;
+  if (typeof id === 'string') return id;
+  if (typeof id === 'number' && Number.isFinite(id)) return `${id}`;
+  return undefined;
+}
+
 const baseUrl = (config: BillingProviderConfig) =>
   config.sandbox ? 'https://sandbox-api.iyzipay.com' : (config.base_url as string || 'https://api.iyzipay.com');
 
@@ -140,7 +152,7 @@ export const iyzicoProvider: BillingProviderHandler = {
       body,
     });
     const data = await res.json();
-    return { success: data.status === 'success', refundId: data.paymentTransactionId };
+    return { success: readIyzicoStatus(data) === 'success', refundId: readIyzicoRefundTransactionId(data) };
   },
 
   async testConnection(config: BillingProviderConfig) {

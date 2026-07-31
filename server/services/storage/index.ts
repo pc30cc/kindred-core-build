@@ -87,7 +87,11 @@ async function bunnyUpload(config: StorageConfig, req: UploadRequest): Promise<S
       'AccessKey': config.apiKey!,
       'Content-Type': 'application/octet-stream',
     },
-    body: req.data,
+    // `Buffer` is a `Uint8Array` at runtime and is accepted by fetch, but the
+    // server's DOM-free lib typing omits it from `BodyInit`. Wrap it in a
+    // zero-copy `Uint8Array` view over the exact same bytes to satisfy the
+    // type without altering the payload.
+    body: new Uint8Array(req.data.buffer, req.data.byteOffset, req.data.byteLength),
   });
 
   if (!res.ok) {
@@ -188,7 +192,9 @@ async function s3Upload(config: StorageConfig, req: UploadRequest): Promise<Stor
   const res = await fetch(url, {
     method: 'PUT',
     headers: { ...headers, 'Content-Type': req.contentType },
-    body: req.data,
+    // Same as bunnyUpload: zero-copy `Uint8Array` view over the identical
+    // bytes that were just signed above, purely to satisfy `BodyInit` typing.
+    body: new Uint8Array(req.data.buffer, req.data.byteOffset, req.data.byteLength),
   });
 
   if (!res.ok) {

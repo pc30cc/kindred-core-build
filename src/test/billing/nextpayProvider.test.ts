@@ -88,6 +88,7 @@ describe('nextpay createCheckoutSession', () => {
 });
 
 describe('nextpay testConnection', () => {
+  it('placeholder-anchor', () => { expect(true).toBe(true); });
   it('reports invalid api key on code -2', async () => {
     mockFetch({ code: -2 });
     const result = await nextpayProvider.testConnection(config);

@@ -1,5 +1,39 @@
 import type { BillingProviderHandler, BillingProviderConfig, CheckoutRequest, CheckoutResult, WebhookEvent } from '../types.js';
 
+// Local, IDPay-specific readers for the create-payment and test-connection
+// responses only. They do not model verify/webhook payloads, and do not touch
+// amounts, status mapping, currency or callback handling.
+export function readIdPayRecord(body: unknown): Record<string, unknown> {
+  if (body === null || body === undefined) {
+    // Preserve previous runtime behaviour: property access on a nullish body threw.
+    throw new TypeError("Cannot read properties of null (reading 'error_code')");
+  }
+  if (typeof body === 'object' && !Array.isArray(body)) {
+    return body as Record<string, unknown>;
+  }
+  return {};
+}
+
+// Same truthiness semantics as the previous `if (data.error_code)` check.
+export function readIdPayErrorCode(body: Record<string, unknown>): unknown {
+  return body.error_code;
+}
+
+export function readIdPayErrorMessage(body: Record<string, unknown>): string | undefined {
+  const message = body.error_message;
+  return typeof message === 'string' && message.length > 0 ? message : undefined;
+}
+
+export function readIdPayCheckoutLink(body: Record<string, unknown>): string | undefined {
+  const link = body.link;
+  return typeof link === 'string' && link.length > 0 ? link : undefined;
+}
+
+export function readIdPayCheckoutId(body: Record<string, unknown>): string | undefined {
+  const id = body.id;
+  return typeof id === 'string' && id.length > 0 ? id : undefined;
+}
+
 const baseUrl = (config: BillingProviderConfig) =>
   config.sandbox ? 'https://api.idpay.ir/v1.1' : 'https://api.idpay.ir/v1.1';
 
@@ -28,9 +62,14 @@ export const idpayProvider: BillingProviderHandler = {
         name: req.customerName,
       }),
     });
-    const data = await res.json();
-    if (data.error_code) throw new Error(data.error_message || `IDPay error: ${data.error_code}`);
-    return { paymentUrl: data.link, sessionId: data.id };
+    const data = readIdPayRecord(await res.json());
+    const errorCode = readIdPayErrorCode(data);
+    if (errorCode) {
+      throw new Error(readIdPayErrorMessage(data) || `IDPay error: ${String(errorCode)}`);
+    }
+    const link = readIdPayCheckoutLink(data);
+    if (!link) throw new Error('IDPay error: missing payment link in response');
+    return { paymentUrl: link, sessionId: readIdPayCheckoutId(data) };
   },
 
   async verifyPayment(config: BillingProviderConfig, params: Record<string, string>) {
@@ -81,9 +120,10 @@ export const idpayProvider: BillingProviderHandler = {
         },
         body: JSON.stringify({ order_id: 'test', amount: 1000, callback: 'https://test.localhost' }),
       });
-      const data = await res.json();
+      const data = readIdPayRecord(await res.json());
+      const errorCode = readIdPayErrorCode(data);
       // Error 11 = user blocked, 12 = API key not found — auth errors
-      if (data.error_code === 12 || data.error_code === 11) {
+      if (errorCode === 12 || errorCode === 11) {
         return { success: false, latencyMs: Date.now() - start, error: 'Invalid API key' };
       }
       return { success: true, latencyMs: Date.now() - start };

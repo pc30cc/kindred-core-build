@@ -215,3 +215,128 @@ describe('idpay testConnection', () => {
     expect(JSON.stringify(r)).not.toContain(API_KEY);
   });
 });
+
+describe('idpay verifyPayment', () => {
+  const verifyParams = { id: 'pay-MOCK-1', order_id: 'ws-1_pro_1700000000000' };
+
+  it('verifies status 100 with exact request contract and output', async () => {
+    const fetchMock = mockJson({ status: 100, track_id: 'trk-MOCK', amount: 150000 });
+    const r = await idpayProvider.verifyPayment!(config, verifyParams);
+
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('https://api.idpay.ir/v1.1/payment/verify');
+    expect(init.method).toBe('POST');
+    expect(init.headers).toEqual({
+      'Content-Type': 'application/json',
+      'X-API-KEY': API_KEY,
+      'X-SANDBOX': '1',
+    });
+    expect(JSON.parse(init.body as string)).toEqual({ id: 'pay-MOCK-1', order_id: 'ws-1_pro_1700000000000' });
+    expect(r).toEqual({ verified: true, providerRef: 'trk-MOCK', amount: 150000, status: 'success' });
+  });
+
+  it('keeps status 101 distinct from 100', async () => {
+    mockJson({ status: 101, track_id: 'trk-MOCK', amount: 150000 });
+    await expect(idpayProvider.verifyPayment!(config, verifyParams)).resolves.toEqual({
+      verified: true,
+      providerRef: 'trk-MOCK',
+      amount: 150000,
+      status: 'failed',
+    });
+  });
+
+  it('sends X-SANDBOX 0 in production mode', async () => {
+    const fetchMock = mockJson({ status: 100 });
+    await idpayProvider.verifyPayment!({ provider: 'idpay', api_key: API_KEY, sandbox: false }, verifyParams);
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect((init.headers as Record<string, string>)['X-SANDBOX']).toBe('0');
+  });
+
+  it.each([[200], [0], [-1], ['100'], ['101'], [{ code: 100 }], [true], [undefined]])(
+    'treats non-numeric/other status %# as unverified failure',
+    async (status) => {
+      mockJson({ status, track_id: 'trk-MOCK' });
+      await expect(idpayProvider.verifyPayment!(config, verifyParams)).resolves.toMatchObject({
+        verified: false,
+        status: 'failed',
+      });
+    }
+  );
+
+  it.each([
+    [{ status: 100, track_id: 'trk-MOCK' }, 'trk-MOCK'],
+    [{ status: 100, track_id: 12345 }, '12345'],
+    [{ status: 100, track_id: 0 }, ''],
+    [{ status: 100, track_id: '' }, ''],
+    [{ status: 100 }, ''],
+    [{ status: 100, track_id: { a: 1 } }, ''],
+    [{ status: 100, track_id: true }, ''],
+    [{ status: 100, track_id: null }, ''],
+  ])('maps track_id %# to providerRef', async (body, expected) => {
+    mockJson(body);
+    await expect(idpayProvider.verifyPayment!(config, verifyParams)).resolves.toMatchObject({ providerRef: expected });
+  });
+
+  it.each([
+    [{ status: 100, amount: 150000 }, 150000],
+    [{ status: 100, amount: 0 }, 0],
+    [{ status: 100, amount: -5 }, -5],
+    [{ status: 100, amount: '150000' }, undefined],
+    [{ status: 100, amount: NaN }, undefined],
+    [{ status: 100, amount: Infinity }, undefined],
+    [{ status: 100 }, undefined],
+  ])('forwards only finite numeric amounts %#', async (body, expected) => {
+    mockJson(body);
+    await expect(idpayProvider.verifyPayment!(config, verifyParams)).resolves.toMatchObject({ amount: expected });
+  });
+
+  it.each([[{}], [[]], ['oops'], [7], [{ error_code: 12, error_message: 'bad key' }]])(
+    'handles malformed verify bodies %#',
+    async (body) => {
+      mockJson(body);
+      await expect(idpayProvider.verifyPayment!(config, verifyParams)).resolves.toEqual({
+        verified: false,
+        providerRef: '',
+        amount: undefined,
+        status: 'failed',
+      });
+    }
+  );
+
+  it.each([[null], [undefined]])('throws TypeError on nullish verify body (%#)', async (body) => {
+    mockJson(body);
+    await expect(idpayProvider.verifyPayment!(config, verifyParams)).rejects.toThrow(TypeError);
+  });
+
+  it('ignores HTTP failure status and only parses the body', async () => {
+    const fn = vi.fn(async () => ({ ok: false, status: 500, json: async () => ({ status: 100, track_id: 't' }) }));
+    (globalThis as unknown as { fetch: unknown }).fetch = fn;
+    await expect(idpayProvider.verifyPayment!(config, verifyParams)).resolves.toMatchObject({ verified: true });
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it('propagates network failure without retrying', async () => {
+    const fn = vi.fn(async () => {
+      throw new Error('network down');
+    });
+    (globalThis as unknown as { fetch: unknown }).fetch = fn;
+    await expect(idpayProvider.verifyPayment!(config, verifyParams)).rejects.toThrow('network down');
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it('never leaks credentials or identifiers on failure', async () => {
+    (globalThis as unknown as { fetch: unknown }).fetch = vi.fn(async () => {
+      throw new Error('network down');
+    });
+    let err: Error | undefined;
+    try {
+      await idpayProvider.verifyPayment!(config, verifyParams);
+    } catch (e) {
+      err = e as Error;
+    }
+    const text = `${err?.message}${err?.stack ?? ''}`;
+    expect(text).not.toContain(API_KEY);
+    expect(text).not.toContain('pay-MOCK-1');
+    expect(text).not.toContain('ws-1_pro_1700000000000');
+  });
+});

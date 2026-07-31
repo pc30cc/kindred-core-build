@@ -574,7 +574,7 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       let presenceByUser = new Map<string, 'online' | 'offline'>();
       try {
         const { listWorkspacePresence } = await import('../services/widget/operatorPresence.js');
-        const presence = await listWorkspacePresence(req.serverConfig, workspaceId);
+        const presence = await listWorkspacePresence(config, workspaceId);
         for (const p of presence) presenceByUser.set(p.user_id, p.state);
       } catch (_) {}
       if (profiles) {

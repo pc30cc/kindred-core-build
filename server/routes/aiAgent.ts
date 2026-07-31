@@ -2322,7 +2322,13 @@ aiAgentRouter.post('/learning-candidates/generate', requireModule('ai_assistant'
   const auth = await authorizeMember(req, res, config, parsed.data.workspaceId);
   if (!auth) return;
   if (!isOwnerOrAdmin(auth.role, auth.isAdmin)) return res.status(403).json({ error: 'owner_or_admin_required' });
-  const result = await generatePendingCandidates(config, parsed.data);
+  // zod's inferred output marks all properties optional under
+  // `strictNullChecks: false`; workspaceId is required by the schema.
+  const result = await generatePendingCandidates(config, {
+    workspaceId: parsed.data.workspaceId,
+    sinceIso: parsed.data.sinceIso,
+    limit: parsed.data.limit,
+  });
   return res.json(result);
 });
 

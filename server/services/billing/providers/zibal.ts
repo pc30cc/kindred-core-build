@@ -1,5 +1,34 @@
 import type { BillingProviderHandler, BillingProviderConfig, CheckoutRequest, CheckoutResult, WebhookEvent } from '../types.js';
 
+// ── Local, Zibal-scoped readers (no coercion, no fallbacks) ───────────
+function readZibalRecord(body: unknown): Record<string, unknown> | null {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) return null;
+  return body as Record<string, unknown>;
+}
+
+/** `result` only when it is a real number; never coerces '100' → 100. */
+function readZibalResult(body: unknown): number | undefined {
+  const rec = readZibalRecord(body);
+  const value = rec?.result;
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+/** `message` only when it is a non-empty string. */
+function readZibalMessage(body: unknown): string | undefined {
+  const rec = readZibalRecord(body);
+  const value = rec?.message;
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+/** `trackId` only from a non-empty string or a finite number. */
+function readZibalTrackId(body: unknown): string | undefined {
+  const rec = readZibalRecord(body);
+  const value = rec?.trackId;
+  if (typeof value === 'string' && value.length > 0) return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  return undefined;
+}
+
 export const zibalProvider: BillingProviderHandler = {
   name: 'zibal',
   capabilities: {
@@ -23,10 +52,13 @@ export const zibalProvider: BillingProviderHandler = {
       }),
     });
     const data = await res.json();
-    if (data.result !== 100) throw new Error(`Zibal error: ${data.message || data.result}`);
+    const result = readZibalResult(data);
+    if (result !== 100) throw new Error(`Zibal error: ${readZibalMessage(data) || result}`);
+    const trackId = readZibalTrackId(data);
+    if (!trackId) throw new Error('Zibal error: missing trackId in gateway response');
     return {
-      paymentUrl: `https://gateway.zibal.ir/start/${data.trackId}`,
-      sessionId: String(data.trackId),
+      paymentUrl: `https://gateway.zibal.ir/start/${trackId}`,
+      sessionId: trackId,
     };
   },
 
@@ -65,7 +97,8 @@ export const zibalProvider: BillingProviderHandler = {
         body: JSON.stringify({ merchant: config.merchant, amount: 1000, callbackUrl: 'https://test.localhost' }),
       });
       const data = await res.json();
-      if (data.result === 102 || data.result === 103) return { success: false, latencyMs: Date.now() - start, error: 'Invalid merchant' };
+      const result = readZibalResult(data);
+      if (result === 102 || result === 103) return { success: false, latencyMs: Date.now() - start, error: 'Invalid merchant' };
       return { success: true, latencyMs: Date.now() - start };
     } catch (e: any) {
       return { success: false, latencyMs: Date.now() - start, error: e.message };

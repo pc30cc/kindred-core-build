@@ -87,7 +87,7 @@ async function bunnyUpload(config: StorageConfig, req: UploadRequest): Promise<S
       'AccessKey': config.apiKey!,
       'Content-Type': 'application/octet-stream',
     },
-    body: req.data as unknown as BodyInit,
+    body: req.data,
   });
 
   if (!res.ok) {
@@ -188,7 +188,7 @@ async function s3Upload(config: StorageConfig, req: UploadRequest): Promise<Stor
   const res = await fetch(url, {
     method: 'PUT',
     headers: { ...headers, 'Content-Type': req.contentType },
-    body: req.data as unknown as BodyInit,
+    body: req.data,
   });
 
   if (!res.ok) {

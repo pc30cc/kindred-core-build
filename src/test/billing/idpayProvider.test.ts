@@ -158,8 +158,14 @@ describe('idpay createCheckoutSession', () => {
 
   it('never leaks credentials or customer data in errors', async () => {
     mockJson({ error_code: 12 });
-    const err = await idpayProvider.createCheckoutSession(config, checkoutReq).catch((e: unknown) => e as Error);
-    const text = `${err.message}${err.stack ?? ''}`;
+    let err: Error | undefined;
+    try {
+      await idpayProvider.createCheckoutSession(config, checkoutReq);
+    } catch (e) {
+      err = e as Error;
+    }
+    expect(err).toBeInstanceOf(Error);
+    const text = `${err?.message}${err?.stack ?? ''}`;
     expect(text).not.toContain(API_KEY);
     expect(text).not.toContain('buyer@example.test');
     expect(text).not.toContain('09120000000');

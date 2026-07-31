@@ -174,8 +174,8 @@ describe('sipay refundPayment', () => {
     ['array', []],
     ['primitive', 5],
   ])('does not report success for %s', async (_label, body) => {
+    mockJson(body);
     const out = await sipayProvider.refundPayment?.(config, 'INV-9');
-    void _label; void body;
     expect(out?.success).toBe(false);
   });
 

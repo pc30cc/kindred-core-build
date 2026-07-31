@@ -109,7 +109,7 @@ describe('paytr createCheckoutSession (success)', () => {
     expect(p.get('user_address')).toBe('Turkey');
     expect([...p.keys()].sort()).toEqual([
       'currency', 'debug_on', 'email', 'max_installment', 'merchant_fail_url', 'merchant_id',
-      'merchant_ok_url', 'merchant_oid', 'no_installment', 'payment_amount', 'paytr_token',
+      'merchant_oid', 'merchant_ok_url', 'no_installment', 'payment_amount', 'paytr_token',
       'test_mode', 'user_address', 'user_basket', 'user_ip', 'user_name', 'user_phone',
     ]);
   });

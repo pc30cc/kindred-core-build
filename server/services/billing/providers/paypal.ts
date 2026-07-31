@@ -95,6 +95,10 @@ export const paypalProvider: BillingProviderHandler = {
       }),
     });
     const data = await res.json();
+    // Preserve prior runtime behavior: property access on a null/undefined body threw a TypeError.
+    if (data === null || data === undefined) {
+      throw new TypeError("Cannot read properties of null (reading 'message')");
+    }
     if (!res.ok) throw new Error(readPayPalSubscriptionError(data) || 'PayPal subscription creation failed');
     return { paymentUrl: readPayPalApprovalUrl(data) || '', sessionId: readPayPalSubscriptionId(data) };
   },

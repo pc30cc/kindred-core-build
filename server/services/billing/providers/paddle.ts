@@ -1,6 +1,43 @@
 import type { BillingProviderHandler, BillingProviderConfig, CheckoutRequest, CheckoutResult, WebhookEvent } from '../types.js';
 import crypto from 'crypto';
 
+// --- Local runtime narrowing for Paddle JSON bodies (no shared helper, no casts) ---
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null;
+}
+
+/**
+ * Paddle v2 error envelope: `{ error: { code, detail, ... } }`.
+ * Mirrors the previous truthiness check on `data.error`: any truthy `error`
+ * value marks the response as failed; `detail` is only read when it is a string.
+ */
+function readPaddleError(body: unknown): { detail: string | undefined } | null {
+  const root = asRecord(body);
+  if (root === null) return null;
+  const error = root.error;
+  if (!error) return null;
+  const errorRecord = asRecord(error);
+  const detail = errorRecord === null ? undefined : errorRecord.detail;
+  return { detail: typeof detail === 'string' ? detail : undefined };
+}
+
+/**
+ * Paddle v2 transaction envelope: `{ data: { id, checkout?: { url } } }`.
+ * Only `data.id` and `data.checkout.url` are consumed by the adapter.
+ */
+function readPaddleTransaction(body: unknown): { id: string; checkoutUrl: string | null } | null {
+  const root = asRecord(body);
+  if (root === null) return null;
+  const data = asRecord(root.data);
+  if (data === null) return null;
+  const id = data.id;
+  if (typeof id !== 'string' || id.length === 0) return null;
+  const checkout = asRecord(data.checkout);
+  const url = checkout === null ? undefined : checkout.url;
+  return { id, checkoutUrl: typeof url === 'string' && url.length > 0 ? url : null };
+}
+
 const baseUrl = (config: BillingProviderConfig) =>
   config.sandbox ? 'https://sandbox-api.paddle.com' : 'https://api.paddle.com';
 
@@ -32,10 +69,12 @@ export const paddleProvider: BillingProviderHandler = {
       currency_code: req.currency.toUpperCase(),
       ...(req.customerEmail ? { customer: { email: req.customerEmail } } : {}),
     });
-    if (data.error) throw new Error(data.error.detail || 'Paddle checkout failed');
-    const txn = data.data;
+    const error = readPaddleError(data);
+    if (error !== null) throw new Error(error.detail || 'Paddle checkout failed');
+    const txn = readPaddleTransaction(data);
+    if (txn === null) throw new Error('Paddle checkout failed');
     return {
-      paymentUrl: txn.checkout?.url || `https://checkout.paddle.com/pay/${txn.id}`,
+      paymentUrl: txn.checkoutUrl || `https://checkout.paddle.com/pay/${txn.id}`,
       sessionId: txn.id,
     };
   },
@@ -91,7 +130,8 @@ export const paddleProvider: BillingProviderHandler = {
     const start = Date.now();
     try {
       const data = await paddleApi(config, '/event-types');
-      if (data.error) return { success: false, latencyMs: Date.now() - start, error: data.error.detail };
+      const error = readPaddleError(data);
+      if (error !== null) return { success: false, latencyMs: Date.now() - start, error: error.detail };
       return { success: true, latencyMs: Date.now() - start };
     } catch (e: any) {
       return { success: false, latencyMs: Date.now() - start, error: e.message };

@@ -117,6 +117,7 @@ describe('lemon squeezy createCheckoutSession', () => {
 });
 
 describe('lemon squeezy testConnection', () => {
+  it('placeholder-anchor', () => { expect(true).toBe(true); });
   it('succeeds on a valid store response and keeps the endpoint', async () => {
     const fetchMock = mockFetch(200, { data: { type: 'stores', id: MOCK_STORE_ID, attributes: { name: 'Mock Store' } } });
     const result = await lemonSqueezyProvider.testConnection!(config);

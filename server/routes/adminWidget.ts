@@ -57,13 +57,16 @@ async function fetchWithTimeout(url: string, init?: RequestInit) {
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   const start = Date.now();
   try {
-    const res = await fetch(url, {
+    // `cache` is honoured by the runtime fetch implementation but is absent
+    // from the Node RequestInit typing, so widen the local literal only.
+    const requestInit: RequestInit & { cache?: 'no-store' } = {
       ...init,
       signal: ctrl.signal,
       // Disable any caching so admins always see live results
       cache: 'no-store',
       redirect: 'follow',
-    });
+    };
+    const res = await fetch(url, requestInit);
     const duration = Date.now() - start;
     const text = await res.text();
     return { res, text, duration };

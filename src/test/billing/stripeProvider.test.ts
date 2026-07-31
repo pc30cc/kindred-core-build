@@ -289,3 +289,184 @@ describe('stripe refundPayment', () => {
     expect(serialized).not.toContain('pi_MOCK_11');
   });
 });
+
+describe('stripe getSubscriptionStatus', () => {
+  const getStatus = stripeProvider.getSubscriptionStatus!;
+
+  const okSub = {
+    id: 'sub_1',
+    status: 'active',
+    customer: 'cus_1',
+    current_period_start: 1700000000,
+    current_period_end: 1702592000,
+    cancel_at_period_end: false,
+    items: { data: [{ price: { id: 'price_abc' } }] },
+  };
+
+  it('uses the exact request contract and maps the full adapter output', async () => {
+    const fetchMock = mockJson(okSub);
+    const result = await getStatus(config, 'sub_1');
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(url).toBe('https://api.stripe.com/v1/subscriptions/sub_1');
+    expect(init.method).toBeUndefined();
+    expect(init.body).toBeUndefined();
+    expect(init.headers).toEqual({ Authorization: `Bearer ${SECRET}` });
+
+    expect(result).toEqual({
+      active: true,
+      status: 'active',
+      providerSubscriptionId: 'sub_1',
+      providerCustomerId: 'cus_1',
+      currentPeriodStart: new Date(1700000000 * 1000).toISOString(),
+      currentPeriodEnd: new Date(1702592000 * 1000).toISOString(),
+      cancelAtPeriodEnd: false,
+    });
+  });
+
+  it.each([
+    ['active', 'active', true],
+    ['trialing', 'trialing', true],
+    ['past_due', 'past_due', false],
+    ['canceled', 'canceled', false],
+    ['unpaid', 'unpaid', false],
+    ['incomplete', 'incomplete', false],
+    ['paused', 'paused', false],
+    ['incomplete_expired', 'none', false],
+    ['ACTIVE', 'none', false],
+    ['', 'none', false],
+  ])('maps stripe status %s', async (raw, mapped, active) => {
+    mockJson({ ...okSub, status: raw });
+    const result = await getStatus(config, 'sub_1');
+    expect(result.status).toBe(mapped);
+    expect(result.active).toBe(active);
+  });
+
+  it.each([
+    [undefined],
+    [5],
+    [true],
+    [{ value: 'active' }],
+  ])('falls back to none for non-string status %s', async (raw) => {
+    mockJson({ ...okSub, status: raw });
+    const result = await getStatus(config, 'sub_1');
+    expect(result.status).toBe('none');
+    expect(result.active).toBe(false);
+  });
+
+  it.each([
+    [0],
+    [-1000],
+    ['1700000000'],
+    [null],
+  ])('preserves the *1000 conversion for period value %s', async (raw) => {
+    mockJson({ ...okSub, current_period_start: raw, current_period_end: raw });
+    const result = await getStatus(config, 'sub_1');
+    expect(result.currentPeriodStart).toBe(new Date(Number(raw) * 1000).toISOString());
+    expect(result.currentPeriodEnd).toBe(new Date(Number(raw) * 1000).toISOString());
+  });
+
+  it.each([
+    [undefined],
+    ['abc'],
+    [Number.NaN],
+    [Number.POSITIVE_INFINITY],
+    [{}],
+  ])('still throws RangeError for out-of-range period value %s', async (raw) => {
+    mockJson({ ...okSub, current_period_start: raw });
+    await expect(getStatus(config, 'sub_1')).rejects.toBeInstanceOf(RangeError);
+  });
+
+  it.each([
+    [true, true],
+    [false, false],
+    [undefined, undefined],
+    [null, undefined],
+    ['true', undefined],
+    [1, undefined],
+    [{}, undefined],
+  ])('reads cancel_at_period_end %s', async (raw, expected) => {
+    mockJson({ ...okSub, cancel_at_period_end: raw });
+    const result = await getStatus(config, 'sub_1');
+    expect(result.cancelAtPeriodEnd).toBe(expected);
+  });
+
+  it.each([
+    ['cus_1', 'cus_1'],
+    ['', ''],
+    [undefined, undefined],
+    [null, undefined],
+    [42, undefined],
+    [{ id: 'cus_expanded' }, undefined],
+  ])('reads customer %s', async (raw, expected) => {
+    mockJson({ ...okSub, customer: raw });
+    const result = await getStatus(config, 'sub_1');
+    expect(result.providerCustomerId).toBe(expected);
+  });
+
+  it.each([
+    ['sub_9', 'sub_9'],
+    ['', ''],
+    [undefined, undefined],
+    [7, undefined],
+    [{}, undefined],
+  ])('reads subscription id %s', async (raw, expected) => {
+    mockJson({ ...okSub, id: raw });
+    const result = await getStatus(config, 'sub_1');
+    expect(result.providerSubscriptionId).toBe(expected);
+  });
+
+  it.each([
+    [{}],
+    [{ items: 'x' }],
+    [{ items: { data: [] } }],
+    [{ items: { data: [null] } }],
+    [{ items: { data: [{ price: 1 }] } }],
+  ])('ignores items/price shapes %s (never surfaced by the adapter)', async (extra) => {
+    mockJson({ ...okSub, ...extra });
+    const result = await getStatus(config, 'sub_1');
+    expect(result).not.toHaveProperty('planId');
+  });
+
+  it.each([
+    [null],
+    [undefined],
+    ['plain'],
+    [[]],
+    [{}],
+  ])('handles malformed body %s without leaking', async (body) => {
+    mockJson(body);
+    await expect(getStatus(config, 'sub_1')).rejects.toBeInstanceOf(RangeError);
+  });
+
+  it('returns the inactive/none envelope for HTTP failures', async () => {
+    mockJson({ error: { message: 'No such subscription' } }, false, 404);
+    const result = await getStatus(config, 'sub_missing');
+    expect(result).toEqual({ active: false, status: 'none' });
+  });
+
+  it.each([
+    [{ error: {} }],
+    [{ error: 'oops' }],
+    [null],
+  ])('returns the same envelope for malformed errors %s', async (body) => {
+    mockJson(body, false, 400);
+    const result = await getStatus(config, 'sub_missing');
+    expect(result).toEqual({ active: false, status: 'none' });
+  });
+
+  it('propagates network rejection without retrying', async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new Error('network down'));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(getStatus(config, 'sub_1')).rejects.toThrow('network down');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('never leaks the secret in the adapter output', async () => {
+    mockJson(okSub);
+    const result = await getStatus(config, 'sub_1');
+    expect(JSON.stringify(result)).not.toContain(SECRET);
+    expect(JSON.stringify(result)).not.toContain(WEBHOOK_SECRET);
+  });
+});

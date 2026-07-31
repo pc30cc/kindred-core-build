@@ -22,6 +22,17 @@ function readStripeString(body: unknown, key: string): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
+/** Subscription-only readers. Scope: getSubscriptionStatus. No coercion, no fallbacks. */
+function readStripeSubscriptionField(body: unknown, key: string): unknown {
+  const record = asStripeRecord(body);
+  return record ? record[key] : undefined;
+}
+
+/** Mirrors the runtime semantics of `value * 1000` (ToNumber) without changing conversion. */
+function readStripeSubscriptionPeriodMs(body: unknown, key: string): number {
+  return Number(readStripeSubscriptionField(body, key)) * 1000;
+}
+
 export const stripeProvider: BillingProviderHandler = {
   name: 'stripe',
   capabilities: {
@@ -106,14 +117,19 @@ export const stripeProvider: BillingProviderHandler = {
       active: 'active', trialing: 'trialing', past_due: 'past_due',
       canceled: 'canceled', unpaid: 'unpaid', incomplete: 'incomplete', paused: 'paused',
     };
+    const statusValue = readStripeSubscriptionField(sub, 'status');
+    const statusKey = typeof statusValue === 'string' ? statusValue : '';
+    const idValue = readStripeSubscriptionField(sub, 'id');
+    const customerValue = readStripeSubscriptionField(sub, 'customer');
+    const cancelValue = readStripeSubscriptionField(sub, 'cancel_at_period_end');
     return {
-      active: sub.status === 'active' || sub.status === 'trialing',
-      status: statusMap[sub.status] || 'none',
-      providerSubscriptionId: sub.id,
-      providerCustomerId: sub.customer,
-      currentPeriodStart: new Date(sub.current_period_start * 1000).toISOString(),
-      currentPeriodEnd: new Date(sub.current_period_end * 1000).toISOString(),
-      cancelAtPeriodEnd: sub.cancel_at_period_end,
+      active: statusValue === 'active' || statusValue === 'trialing',
+      status: statusMap[statusKey] || 'none',
+      providerSubscriptionId: typeof idValue === 'string' ? idValue : undefined,
+      providerCustomerId: typeof customerValue === 'string' ? customerValue : undefined,
+      currentPeriodStart: new Date(readStripeSubscriptionPeriodMs(sub, 'current_period_start')).toISOString(),
+      currentPeriodEnd: new Date(readStripeSubscriptionPeriodMs(sub, 'current_period_end')).toISOString(),
+      cancelAtPeriodEnd: typeof cancelValue === 'boolean' ? cancelValue : undefined,
     };
   },
 

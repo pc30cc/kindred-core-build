@@ -19,6 +19,8 @@ const config = {
 const req = {
   workspaceId: 'ws1',
   planId: 'plan-pro',
+  interval: 'monthly' as const,
+  currency: 'TRY',
   callbackUrl: 'https://app.example.com/billing/callback',
   customerEmail: 'buyer@example.com',
   customerName: 'Buyer Name',

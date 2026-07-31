@@ -122,6 +122,9 @@ export const sipayProvider: BillingProviderHandler = {
       }),
     });
     const data = await res.json();
+    if (data === null || data === undefined) {
+      throw new TypeError("Cannot read properties of null (reading 'status_code')");
+    }
     return { success: readSipayRefundStatusCode(data) === '100', refundId: readSipayRefundId(data) };
   },
 

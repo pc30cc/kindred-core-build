@@ -193,22 +193,21 @@ async function callOpenAI(config: AIConfig, req: AIRequest): Promise<AIResponse>
   }, AI_RETRY_ATTEMPTS, AI_HTTP_TIMEOUT_MS);
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: { message: res.statusText } }));
-    throw new Error(`OpenAI error: ${err.error?.message || res.statusText}`);
+    const err: unknown = await res.json().catch(() => ({ error: { message: res.statusText } }));
+    throw new Error(`OpenAI error: ${readProviderErrorMessage(err) || res.statusText}`);
   }
 
-  const data = await res.json();
+  const data: unknown = await res.json();
   const latencyMs = Date.now() - start;
-  const message = data.choices?.[0]?.message;
-  const toolArgs = message?.tool_calls?.[0]?.function?.arguments;
+  const parsed = parseOpenAIChatCompletion(data);
 
   return {
-    text: toolArgs || message?.content || '',
+    text: parsed.text,
     model,
     provider: 'openai',
-    promptTokens: data.usage?.prompt_tokens || 0,
-    completionTokens: data.usage?.completion_tokens || 0,
-    totalTokens: data.usage?.total_tokens || 0,
+    promptTokens: parsed.usage.promptTokens,
+    completionTokens: parsed.usage.completionTokens,
+    totalTokens: parsed.usage.totalTokens,
     latencyMs,
   };
 }
@@ -278,20 +277,21 @@ async function callAnthropic(config: AIConfig, req: AIRequest): Promise<AIRespon
   }, AI_RETRY_ATTEMPTS, AI_HTTP_TIMEOUT_MS);
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: { message: res.statusText } }));
-    throw new Error(`Anthropic error: ${err.error?.message || res.statusText}`);
+    const err: unknown = await res.json().catch(() => ({ error: { message: res.statusText } }));
+    throw new Error(`Anthropic error: ${readProviderErrorMessage(err) || res.statusText}`);
   }
 
-  const data = await res.json();
+  const data: unknown = await res.json();
   const latencyMs = Date.now() - start;
+  const parsed = parseAnthropicMessage(data);
 
   return {
-    text: data.content?.[0]?.text || '',
+    text: parsed.text,
     model,
     provider: 'anthropic',
-    promptTokens: data.usage?.input_tokens || 0,
-    completionTokens: data.usage?.output_tokens || 0,
-    totalTokens: (data.usage?.input_tokens || 0) + (data.usage?.output_tokens || 0),
+    promptTokens: parsed.usage.promptTokens,
+    completionTokens: parsed.usage.completionTokens,
+    totalTokens: parsed.usage.totalTokens,
     latencyMs,
   };
 }
@@ -326,20 +326,21 @@ async function callGemini(config: AIConfig, req: AIRequest): Promise<AIResponse>
   );
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: { message: res.statusText } }));
-    throw new Error(`Gemini error: ${err.error?.message || res.statusText}`);
+    const err: unknown = await res.json().catch(() => ({ error: { message: res.statusText } }));
+    throw new Error(`Gemini error: ${readProviderErrorMessage(err) || res.statusText}`);
   }
 
-  const data = await res.json();
+  const data: unknown = await res.json();
   const latencyMs = Date.now() - start;
+  const parsed = parseGeminiGenerateContent(data);
 
   return {
-    text: data.candidates?.[0]?.content?.parts?.[0]?.text || '',
+    text: parsed.text,
     model,
     provider: 'gemini',
-    promptTokens: data.usageMetadata?.promptTokenCount || 0,
-    completionTokens: data.usageMetadata?.candidatesTokenCount || 0,
-    totalTokens: data.usageMetadata?.totalTokenCount || 0,
+    promptTokens: parsed.usage.promptTokens,
+    completionTokens: parsed.usage.completionTokens,
+    totalTokens: parsed.usage.totalTokens,
     latencyMs,
   };
 }

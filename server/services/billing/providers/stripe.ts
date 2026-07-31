@@ -1,6 +1,27 @@
 import type { BillingProviderHandler, BillingProviderConfig, CheckoutRequest, CheckoutResult, WebhookEvent, SubscriptionStatus } from '../types.js';
 import crypto from 'crypto';
 
+/** Local, Stripe-only helpers. Scope: checkout session create, billing portal, test connection. */
+function asStripeRecord(value: unknown): Record<string, unknown> | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+/** Reads `error.message` from a Stripe error envelope. Returns undefined when absent/mistyped. */
+function readStripeErrorMessage(body: unknown): string | undefined {
+  const record = asStripeRecord(body);
+  const error = record ? asStripeRecord(record.error) : null;
+  const message = error ? error.message : undefined;
+  return typeof message === 'string' && message.length > 0 ? message : undefined;
+}
+
+/** Narrows a string field of a Stripe object; undefined when missing, empty or mistyped. */
+function readStripeString(body: unknown, key: string): string | undefined {
+  const record = asStripeRecord(body);
+  const value = record ? record[key] : undefined;
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
 export const stripeProvider: BillingProviderHandler = {
   name: 'stripe',
   capabilities: {
@@ -26,8 +47,11 @@ export const stripeProvider: BillingProviderHandler = {
       body: params.toString(),
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error?.message || 'Stripe checkout failed');
-    return { paymentUrl: data.url, sessionId: data.id };
+    if (!res.ok) throw new Error(readStripeErrorMessage(data) || 'Stripe checkout failed');
+    const paymentUrl = readStripeString(data, 'url');
+    if (!paymentUrl) throw new Error('Stripe checkout failed');
+    const sessionId = readStripeString(data, 'id');
+    return { paymentUrl, sessionId };
   },
 
   async verifyWebhook(config: BillingProviderConfig, headers: Record<string, string>, body: string): Promise<WebhookEvent | null> {
@@ -135,8 +159,10 @@ export const stripeProvider: BillingProviderHandler = {
       body: params.toString(),
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error?.message || 'Portal session failed');
-    return { url: data.url };
+    if (!res.ok) throw new Error(readStripeErrorMessage(data) || 'Portal session failed');
+    const url = readStripeString(data, 'url');
+    if (!url) throw new Error('Portal session failed');
+    return { url };
   },
 
   async testConnection(config: BillingProviderConfig) {
@@ -146,7 +172,7 @@ export const stripeProvider: BillingProviderHandler = {
         headers: { 'Authorization': `Bearer ${config.secret_key}` },
       });
       const data = await res.json();
-      if (!res.ok) return { success: false, latencyMs: Date.now() - start, error: data.error?.message };
+      if (!res.ok) return { success: false, latencyMs: Date.now() - start, error: readStripeErrorMessage(data) };
       return { success: true, latencyMs: Date.now() - start };
     } catch (e: any) {
       return { success: false, latencyMs: Date.now() - start, error: e.message };

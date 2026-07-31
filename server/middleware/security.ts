@@ -186,8 +186,9 @@ export async function verifyCaptcha(
       body: body.toString(),
     });
 
-    const data = await res.json();
-    return { success: !!data.success, error: data.success ? undefined : 'Captcha verification failed' };
+    const data: unknown = await res.json();
+    const ok = isCaptchaVerifyResponse(data) && data.success === true;
+    return { success: ok, error: ok ? undefined : 'Captcha verification failed' };
   } catch (err) {
     return { success: false, error: 'Captcha service unavailable' };
   }

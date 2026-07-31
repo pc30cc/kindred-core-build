@@ -3,7 +3,7 @@ import crypto from 'crypto';
 
 // Local, PayTR-specific parsers for the get-token response only.
 // They do not touch hashing, callback verification or amount handling.
-function readPayTrRecord(body: unknown): Record<string, unknown> {
+export function readPayTrRecord(body: unknown): Record<string, unknown> {
   if (body === null || body === undefined) {
     // Preserve previous runtime behaviour: property access on a nullish body threw.
     throw new TypeError("Cannot read properties of null (reading 'status')");
@@ -14,17 +14,17 @@ function readPayTrRecord(body: unknown): Record<string, unknown> {
   return {};
 }
 
-function readPayTrCreateStatus(body: Record<string, unknown>): string | undefined {
+export function readPayTrCreateStatus(body: Record<string, unknown>): string | undefined {
   const status = body.status;
   return typeof status === 'string' ? status : undefined;
 }
 
-function readPayTrCreateToken(body: Record<string, unknown>): string | undefined {
+export function readPayTrCreateToken(body: Record<string, unknown>): string | undefined {
   const token = body.token;
   return typeof token === 'string' && token.length > 0 ? token : undefined;
 }
 
-function readPayTrCreateError(body: Record<string, unknown>): string | undefined {
+export function readPayTrCreateError(body: Record<string, unknown>): string | undefined {
   const reason = body.reason;
   return typeof reason === 'string' && reason.length > 0 ? reason : undefined;
 }

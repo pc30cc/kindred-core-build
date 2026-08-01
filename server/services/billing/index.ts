@@ -123,6 +123,96 @@ export async function logBillingEvent(
   });
 }
 
+// ─── Webhook idempotency (replay / duplicate protection) ───────────────
+//
+// `billing_events` carries a unique index on
+// `(provider_name, provider_event_id) WHERE provider_event_id IS NOT NULL`.
+// A verified webhook MUST atomically claim its provider event row BEFORE any
+// financial side effect runs. A duplicate delivery loses the race on that
+// index and is acknowledged without re-applying anything.
+
+export type BillingEventClaim =
+  | { claimed: true; eventRowId: string }
+  | { claimed: false; duplicate: true };
+
+/** Postgres unique_violation. */
+const PG_UNIQUE_VIOLATION = '23505';
+
+function isUniqueViolation(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const code = (error as { code?: unknown }).code;
+  return code === PG_UNIQUE_VIOLATION;
+}
+
+export interface BillingWebhookClaimInput {
+  providerName: string;
+  providerEventId: string;
+  workspaceId: string;
+  eventType: string;
+  amount?: number;
+  currency?: string;
+  metadata?: unknown;
+}
+
+/**
+ * Atomically claims a provider webhook event.
+ *
+ * Resolves `{ claimed: true }` exactly once per
+ * `(provider_name, provider_event_id)` pair. Resolves
+ * `{ claimed: false, duplicate: true }` for a replay. Any other database
+ * failure REJECTS — the caller must abort without side effects.
+ */
+export async function claimBillingWebhookEvent(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  input: BillingWebhookClaimInput,
+): Promise<BillingEventClaim> {
+  if (!input.providerName) throw new Error('claimBillingWebhookEvent: providerName required');
+  if (!input.providerEventId) throw new Error('claimBillingWebhookEvent: providerEventId required');
+  if (!input.workspaceId) throw new Error('claimBillingWebhookEvent: workspaceId required');
+
+  const supabase = createClient(supabaseUrl, serviceRoleKey);
+  const { data, error } = await supabase
+    .from('billing_events')
+    .insert({
+      workspace_id: input.workspaceId,
+      event_type: input.eventType,
+      provider_name: input.providerName,
+      provider_event_id: input.providerEventId,
+      amount: input.amount,
+      currency: input.currency,
+      status: 'received',
+      metadata: input.metadata || {},
+    })
+    .select('id')
+    .single();
+
+  if (error) {
+    if (isUniqueViolation(error)) return { claimed: false, duplicate: true };
+    throw new Error('billing event claim failed');
+  }
+  const id = (data as { id?: unknown } | null)?.id;
+  if (typeof id !== 'string' || id.length === 0) throw new Error('billing event claim failed');
+  return { claimed: true, eventRowId: id };
+}
+
+/** Finalises a claimed event row. `processed_at` is only set on success. */
+export async function finalizeBillingWebhookEvent(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  eventRowId: string,
+  outcome: 'success' | 'failed',
+): Promise<void> {
+  const supabase = createClient(supabaseUrl, serviceRoleKey);
+  await supabase
+    .from('billing_events')
+    .update({
+      status: outcome,
+      ...(outcome === 'success' ? { processed_at: new Date().toISOString() } : {}),
+    })
+    .eq('id', eventRowId);
+}
+
 /**
  * Process a verified webhook event — update subscription state
  */
@@ -130,12 +220,15 @@ export async function processWebhookEvent(
   supabaseUrl: string,
   serviceRoleKey: string,
   providerName: string,
-  event: WebhookEvent
+  event: WebhookEvent,
+  opts: { alreadyClaimed?: boolean } = {},
 ) {
   const supabase = createClient(supabaseUrl, serviceRoleKey);
 
-  // Log the event
-  await logBillingEvent(supabaseUrl, serviceRoleKey, {
+  // Log the event — skipped when the caller already claimed a
+  // `billing_events` row for this provider event (idempotent webhook path),
+  // otherwise the second insert would trip the unique index.
+  if (!opts.alreadyClaimed) await logBillingEvent(supabaseUrl, serviceRoleKey, {
     workspace_id: event.workspaceId,
     event_type: event.type,
     provider_name: providerName,

@@ -29,6 +29,21 @@ export function readPayTrCreateError(body: Record<string, unknown>): string | un
   return typeof reason === 'string' && reason.length > 0 ? reason : undefined;
 }
 
+// --- Callback hash verification -----------------------------------------
+//
+// The hash string, algorithm and field order are unchanged; only the
+// comparison is hardened (constant-time, length-checked, malformed rejected).
+
+/** Length-checked constant-time base64 comparison. */
+export function timingSafeBase64Equal(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(b)) return false; // malformed hash
+  const bufA = Buffer.from(a, 'base64');
+  const bufB = Buffer.from(b, 'base64');
+  if (bufA.length === 0 || bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
 export const paytrProvider: BillingProviderHandler = {
   name: 'paytr',
   capabilities: {
@@ -94,11 +109,13 @@ export const paytrProvider: BillingProviderHandler = {
     const totalAmount = params.get('total_amount') || '0';
 
     // Verify hash
-    const merchantKey = config.merchant_key as string;
-    const merchantSalt = config.merchant_salt as string;
+    const merchantKey = typeof config.merchant_key === 'string' ? config.merchant_key : '';
+    const merchantSalt = typeof config.merchant_salt === 'string' ? config.merchant_salt : '';
+    // Fail-closed on missing credentials, missing hash or missing order id.
+    if (!merchantKey || !merchantSalt || !hash || !merchantOid) return null;
     const hashStr = `${merchantOid}${merchantSalt}${status}${totalAmount}`;
     const expected = crypto.createHmac('sha256', merchantKey).update(hashStr).digest('base64');
-    if (hash !== expected) throw new Error('Invalid PayTR webhook hash');
+    if (!timingSafeBase64Equal(expected, hash)) throw new Error('Invalid PayTR webhook hash');
 
     return {
       type: status === 'success' ? 'payment_succeeded' : 'payment_failed',

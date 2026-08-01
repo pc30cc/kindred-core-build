@@ -7,6 +7,21 @@ import express from 'express';
 const processWebhookEvent = vi.fn().mockResolvedValue(undefined);
 const stripeVerify = vi.fn();
 
+// In-memory stand-in for the `(provider_name, provider_event_id)` unique index.
+let claimedKeys = new Set<string>();
+let claimShouldThrow = false;
+const claimSpy = vi.fn();
+const finalizeSpy = vi.fn();
+
+async function fakeClaim(_url: string, _key: string, input: any) {
+  claimSpy(input);
+  if (claimShouldThrow) throw new Error('billing event claim failed');
+  const k = `${input.providerName}:${input.providerEventId}`;
+  if (claimedKeys.has(k)) return { claimed: false, duplicate: true };
+  claimedKeys.add(k);
+  return { claimed: true, eventRowId: `row_${claimedKeys.size}` };
+}
+
 vi.mock('../../../server/services/billing/index.js', () => ({
   resolveBillingConfig: vi.fn().mockResolvedValue(null),
   getProvider: (name: string) =>
@@ -19,6 +34,10 @@ vi.mock('../../../server/services/billing/index.js', () => ({
   processWebhookEvent: (...a: unknown[]) => processWebhookEvent(...a),
   logBillingEvent: vi.fn().mockResolvedValue(undefined),
   checkEntitlement: vi.fn().mockResolvedValue({ allowed: false }),
+  claimBillingWebhookEvent: (...a: any[]) => fakeClaim(a[0], a[1], a[2]),
+  finalizeBillingWebhookEvent: async (...a: unknown[]) => {
+    finalizeSpy(...a);
+  },
 }));
 
 let wsConfigRows: Array<{ workspace_id: string | null; config: unknown }> = [];
@@ -118,6 +137,10 @@ beforeEach(() => {
   globalConfigValue = null;
   processWebhookEvent.mockClear();
   stripeVerify.mockReset();
+  claimedKeys = new Set();
+  claimShouldThrow = false;
+  claimSpy.mockClear();
+  finalizeSpy.mockClear();
 });
 
 // ── Route protection ─────────────────────────────────────────────────────
@@ -272,5 +295,177 @@ describe('billing webhooks', () => {
     });
     expect(res.status).toBe(400);
     expect(processWebhookEvent).not.toHaveBeenCalled();
+  });
+});
+
+// ── Positive authorization paths ─────────────────────────────────────────
+describe('billing authorization — allowed callers', () => {
+  const ownerRoutes: Array<[string, string, unknown]> = [
+    ['POST', '/api/billing/checkout', { workspaceId: WS, planId: 'p', interval: 'monthly', currency: 'USD', callbackUrl: 'https://a/b' }],
+    ['POST', '/api/billing/subscription/cancel', { workspaceId: WS }],
+    ['POST', '/api/billing/subscription/resume', { workspaceId: WS }],
+    ['POST', '/api/billing/portal', { workspaceId: WS, returnUrl: 'https://a/b' }],
+    ['GET', `/api/billing/events/${WS}`, null],
+  ];
+
+  it.each(ownerRoutes)('%s %s passes authorization for a workspace owner', async (method, path, body) => {
+    authUser = { id: 'u1' };
+    memberOf = { [WS]: 'owner' };
+    const res = await call(method, path, {
+      body: body ? JSON.stringify(body) : undefined,
+      headers: { 'content-type': 'application/json', authorization: 'Bearer good' },
+    });
+    expect([401, 403]).not.toContain(res.status);
+  });
+
+  it.each(ownerRoutes)('%s %s passes authorization for a workspace admin', async (method, path, body) => {
+    authUser = { id: 'u1' };
+    memberOf = { [WS]: 'admin' };
+    const res = await call(method, path, {
+      body: body ? JSON.stringify(body) : undefined,
+      headers: { 'content-type': 'application/json', authorization: 'Bearer good' },
+    });
+    expect([401, 403]).not.toContain(res.status);
+  });
+
+  it('lets a plain member read status of their own workspace', async () => {
+    authUser = { id: 'u1' };
+    memberOf = { [WS]: 'agent' };
+    const res = await call('GET', `/api/billing/status/${WS}`, {
+      headers: { authorization: 'Bearer good' },
+    });
+    expect([401, 403]).not.toContain(res.status);
+  });
+
+  it('denies a plain member every management route', async () => {
+    authUser = { id: 'u1' };
+    memberOf = { [WS]: 'agent' };
+    for (const [method, path, body] of ownerRoutes) {
+      const res = await call(method, path, {
+        body: body ? JSON.stringify(body) : undefined,
+        headers: { 'content-type': 'application/json', authorization: 'Bearer good' },
+      });
+      expect(res.status).toBe(403);
+    }
+  });
+
+  it.each([
+    ['GET', '/api/billing/admin/overview', null],
+    ['POST', '/api/billing/admin/grant', { workspaceId: WS, planId: 'p' }],
+    ['POST', '/api/billing/test', { provider: 'stripe', config: {} }],
+  ] as Array<[string, string, unknown]>)('%s %s passes for a super admin', async (method, path, body) => {
+    authUser = { id: 'root' };
+    globalAdmin = true;
+    const res = await call(method, path, {
+      body: body ? JSON.stringify(body) : undefined,
+      headers: { 'content-type': 'application/json', authorization: 'Bearer good' },
+    });
+    expect([401, 403]).not.toContain(res.status);
+  });
+
+  it('rejects an auth-service failure as unauthenticated', async () => {
+    authUser = null;
+    const res = await call('GET', `/api/billing/status/${WS}`, {
+      headers: { authorization: 'Bearer broken' },
+    });
+    expect(res.status).toBe(401);
+  });
+});
+
+// ── Webhook idempotency / replay ─────────────────────────────────────────
+describe('billing webhook idempotency', () => {
+  const signedEvent = (id: string) => ({ type: 'invoice_paid', providerEventId: id, raw: {} });
+
+  beforeEach(() => {
+    wsConfigRows = [{ workspace_id: WS, config: { webhook_secret: 'a' } }];
+  });
+
+  it.each(['stripe'])('claims before any financial side effect (%s)', async (p) => {
+    stripeVerify.mockResolvedValue(signedEvent('evt_1'));
+    const res = await call('POST', `/api/billing/webhook/${p}`, { body: BODY, headers: { 'content-type': 'application/json' } });
+    expect(res.status).toBe(200);
+    expect(claimSpy).toHaveBeenCalledTimes(1);
+    expect(processWebhookEvent).toHaveBeenCalledTimes(1);
+    expect(claimSpy.mock.invocationCallOrder[0]).toBeLessThan(processWebhookEvent.mock.invocationCallOrder[0]);
+    expect(processWebhookEvent.mock.calls[0][4]).toEqual({ alreadyClaimed: true });
+  });
+
+  it('acknowledges a replay without re-applying side effects', async () => {
+    stripeVerify.mockResolvedValue(signedEvent('evt_dup'));
+    const first = await call('POST', '/api/billing/webhook/stripe', { body: BODY, headers: { 'content-type': 'application/json' } });
+    const second = await call('POST', '/api/billing/webhook/stripe', { body: BODY, headers: { 'content-type': 'application/json' } });
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(JSON.parse(second.body)).toEqual({ received: true, duplicate: true });
+    expect(processWebhookEvent).toHaveBeenCalledTimes(1);
+    expect(claimedKeys.size).toBe(1);
+  });
+
+  it('applies exactly one side effect under a concurrent double delivery', async () => {
+    stripeVerify.mockResolvedValue(signedEvent('evt_race'));
+    const [a, b] = await Promise.all([
+      call('POST', '/api/billing/webhook/stripe', { body: BODY, headers: { 'content-type': 'application/json' } }),
+      call('POST', '/api/billing/webhook/stripe', { body: BODY, headers: { 'content-type': 'application/json' } }),
+    ]);
+    expect([a.status, b.status]).toEqual([200, 200]);
+    const dupes = [a, b].filter((r) => JSON.parse(r.body).duplicate === true);
+    expect(dupes).toHaveLength(1);
+    expect(processWebhookEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a verified event with no stable provider event id', async () => {
+    stripeVerify.mockResolvedValue({ type: 'invoice_paid', providerEventId: '   ', raw: {} });
+    const res = await call('POST', '/api/billing/webhook/stripe', { body: BODY, headers: { 'content-type': 'application/json' } });
+    expect(res.status).toBe(400);
+    expect(processWebhookEvent).not.toHaveBeenCalled();
+  });
+
+  it('fails closed with a generic 500 when the claim errors', async () => {
+    claimShouldThrow = true;
+    stripeVerify.mockResolvedValue(signedEvent('evt_err'));
+    const res = await call('POST', '/api/billing/webhook/stripe', { body: BODY, headers: { 'content-type': 'application/json' } });
+    expect(res.status).toBe(500);
+    expect(JSON.parse(res.body)).toEqual({ error: 'Webhook processing failed' });
+    expect(processWebhookEvent).not.toHaveBeenCalled();
+  });
+
+  it('marks the claimed event failed when processing throws, without processed_at', async () => {
+    stripeVerify.mockResolvedValue(signedEvent('evt_fail'));
+    processWebhookEvent.mockRejectedValueOnce(new Error('boom'));
+    const res = await call('POST', '/api/billing/webhook/stripe', { body: BODY, headers: { 'content-type': 'application/json' } });
+    expect(res.status).toBe(500);
+    expect(finalizeSpy.mock.calls[0][3]).toBe('failed');
+  });
+
+  it('marks the claimed event successful after processing', async () => {
+    stripeVerify.mockResolvedValue(signedEvent('evt_ok'));
+    await call('POST', '/api/billing/webhook/stripe', { body: BODY, headers: { 'content-type': 'application/json' } });
+    expect(finalizeSpy.mock.calls[0][3]).toBe('success');
+  });
+
+  it('rejects ambiguous candidates that both verify the signature', async () => {
+    wsConfigRows = [
+      { workspace_id: WS, config: { webhook_secret: 'a' } },
+      { workspace_id: OTHER_WS, config: { webhook_secret: 'a' } },
+    ];
+    stripeVerify.mockResolvedValue(signedEvent('evt_ambiguous'));
+    const res = await call('POST', '/api/billing/webhook/stripe', { body: BODY, headers: { 'content-type': 'application/json' } });
+    expect(res.status).toBe(400);
+    expect(processWebhookEvent).not.toHaveBeenCalled();
+    expect(claimSpy).not.toHaveBeenCalled();
+  });
+
+  it('still accepts a later matching candidate after an earlier mismatch', async () => {
+    wsConfigRows = [
+      { workspace_id: OTHER_WS, config: { webhook_secret: 'a' } },
+      { workspace_id: WS, config: { webhook_secret: 'b' } },
+    ];
+    stripeVerify.mockImplementation(async (cfg: any) => {
+      if (cfg.webhook_secret !== 'b') throw new Error('Invalid signature');
+      return { type: 'invoice_paid', providerEventId: 'evt_late', workspaceId: WS, raw: {} };
+    });
+    const res = await call('POST', '/api/billing/webhook/stripe', { body: BODY, headers: { 'content-type': 'application/json' } });
+    expect(res.status).toBe(200);
+    expect(processWebhookEvent.mock.calls[0][3].workspaceId).toBe(WS);
   });
 });

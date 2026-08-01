@@ -60,6 +60,8 @@ export interface PhoneVerificationState {
   verifiedByAdminId: string | null;
   manualVerificationReason: string | null;
   hasActiveChallenge: boolean;
+  activeChallengeId: string | null;
+  challengeExpiresInSeconds: number | null;
   lastSentAt: string | null;
   lastCreatedAt: string | null;
   remainingAttempts: number | null;
@@ -75,6 +77,11 @@ export interface PhoneVerificationStatusResponse {
   allowedCountries?: string[];
   resendAfterSeconds?: number;
   verifiedAt?: string | null;
+  /** Resume support — only ever returned to the verification subject. */
+  hasActiveChallenge?: boolean;
+  activeChallengeId?: string | null;
+  challengeExpiresInSeconds?: number | null;
+  remainingAttempts?: number | null;
 }
 
 export interface PhoneChallengeResponse {

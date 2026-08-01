@@ -28,6 +28,7 @@ export interface AdminPhoneVerificationView {
   verifiedByAdminId: string | null;
   manualVerificationReason: string | null;
   hasActiveChallenge: boolean;
+  challengeExpiresInSeconds: number | null;
   lastSentAt: string | null;
   remainingAttempts: number | null;
 }
@@ -44,6 +45,7 @@ function toView(state: PhoneVerificationState): AdminPhoneVerificationView {
     verifiedByAdminId: state.verifiedByAdminId,
     manualVerificationReason: state.manualVerificationReason,
     hasActiveChallenge: state.hasActiveChallenge,
+    challengeExpiresInSeconds: state.challengeExpiresInSeconds,
     lastSentAt: state.lastSentAt,
     remainingAttempts: state.remainingAttempts,
   };
@@ -76,7 +78,7 @@ export async function adminResendVerification(
     ...(input.smsOptions ? { smsOptions: input.smsOptions } : {}),
   });
 
-  await getServiceClient(config)
+  const { error: auditError } = await getServiceClient(config)
     .from('audit_logs')
     .insert({
       action: 'phone_verification_admin_resend',
@@ -84,8 +86,13 @@ export async function adminResendVerification(
       entity_id: input.targetUserId,
       user_id: input.adminUserId,
       new_value: { phone_masked: maskE164(state.phone) } as any,
-    } as any)
-    .then(() => {}, () => {});
+    } as any);
+  if (auditError) {
+    // Sanitized log only — never the phone, the code or a provider payload.
+    console.error('[phoneVerification] admin resend audit failed', {
+      targetUserId: input.targetUserId,
+    });
+  }
 
   return {
     success: true as const,
@@ -115,31 +122,22 @@ export async function adminManualVerify(
   });
   if (error) throw new PhoneVerificationError('phone_verification_unavailable', 500);
   const row = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
-  if (typeof row.error === 'string') throw new PhoneVerificationError('phone_invalid', 400);
-
-  await client
-    .from('audit_logs')
-    .insert({
-      action: 'phone_verification_admin_manual_verify',
-      entity_type: 'user_phone_verification',
-      entity_id: input.targetUserId,
-      user_id: input.adminUserId,
-      old_value: { verified: before.verified, method: before.verificationMethod } as any,
-      new_value: {
-        verified: true,
-        method: 'admin_manual',
-        reason,
-        actor_admin_id: input.adminUserId,
-        target_user_id: input.targetUserId,
-        phone_masked: maskE164(before.phone),
-      } as any,
-    } as any)
-    .then(() => {}, () => {});
+  if (typeof row.error === 'string') {
+    throw new PhoneVerificationError(
+      row.error === 'phone_verification_not_allowed' ? 'phone_verification_not_allowed' : 'phone_invalid',
+      400,
+    );
+  }
+  // The audit row is written inside `phone_verification_manual_verify`, in the
+  // same transaction as the state change: a success response therefore always
+  // implies a persisted audit entry.
 
   return {
     success: true as const,
     verified: true as const,
-    verificationMethod: 'admin_manual' as const,
+    verificationMethod:
+      row.verificationMethod === 'sms_otp' ? ('sms_otp' as const) : ('admin_manual' as const),
     verifiedAt: typeof row.verifiedAt === 'string' ? row.verifiedAt : null,
+    alreadyVerified: row.alreadyVerified === true,
   };
 }

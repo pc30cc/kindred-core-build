@@ -18,33 +18,69 @@ export function useIsGlobalAdmin() {
   });
 }
 
-export function useAdminProfiles(limit = 50, offset = 0, search = '', sort = 'newest') {
+/** Three real phone states, filtered server-side (never after pagination). */
+export type AdminPhoneStatusFilter = 'all' | 'verified' | 'unverified' | 'no_phone';
+
+export type AdminVerificationMethod = 'sms_otp' | 'admin_manual' | null;
+
+export interface AdminProfileRow {
+  id: string;
+  email: string;
+  full_name: string | null;
+  avatar_url: string | null;
+  company_name: string | null;
+  website_domain: string | null;
+  ai_mode: string | null;
+  preferred_locale: string | null;
+  signup_locale: string | null;
+  signup_ip: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  workspace_count: number;
+  roles: string[];
+  /** Masked only — the list never carries a full number. */
+  phone_masked: string | null;
+  phone_verified: boolean;
+  phone_verified_at: string | null;
+  phone_verification_method: AdminVerificationMethod;
+}
+
+export interface AdminWorkspaceRow {
+  id: string;
+  name: string;
+  slug: string;
+  owner_id: string;
+  owner_email: string;
+  member_count: number;
+  contact_count: number;
+  conversation_count: number;
+  created_at: string;
+  updated_at: string;
+  owner_phone_masked: string | null;
+  owner_phone_verified: boolean;
+  owner_phone_verified_at: string | null;
+  owner_phone_verification_method: AdminVerificationMethod;
+}
+
+export function useAdminProfiles(
+  limit = 50,
+  offset = 0,
+  search = '',
+  sort = 'newest',
+  phoneStatus: AdminPhoneStatusFilter = 'all',
+) {
   return useQuery({
-    queryKey: ['admin-profiles', limit, offset, search, sort],
+    queryKey: ['admin-profiles', limit, offset, search, sort, phoneStatus],
     queryFn: async () => {
       const { data, error } = await supabase.rpc('admin_list_profiles', {
         _limit: limit,
         _offset: offset,
         _search: search,
         _sort: sort,
+        _phone_status: phoneStatus,
       });
       if (error) throw error;
-      return (data as Array<{
-        id: string;
-        email: string;
-        full_name: string | null;
-        avatar_url: string | null;
-        company_name: string | null;
-        website_domain: string | null;
-        ai_mode: string | null;
-        preferred_locale: string | null;
-        signup_locale: string | null;
-        signup_ip: string | null;
-        created_at: string | null;
-        updated_at: string | null;
-        workspace_count: number;
-        roles: string[];
-      }>) ?? [];
+      return (data as unknown as AdminProfileRow[]) ?? [];
     },
   });
 }
@@ -68,49 +104,51 @@ export function useAdminUserDetail(userId: string | null) {
   });
 }
 
-export function useAdminProfileCount() {
+export function useAdminProfileCount(search = '', phoneStatus: AdminPhoneStatusFilter = 'all') {
   return useQuery({
-    queryKey: ['admin-profile-count'],
+    queryKey: ['admin-profile-count', search, phoneStatus],
     queryFn: async () => {
-      const { data, error } = await supabase.rpc('admin_count_profiles');
+      const { data, error } = await supabase.rpc('admin_count_profiles', {
+        _search: search,
+        _phone_status: phoneStatus,
+      });
       if (error) throw error;
       return data as number;
     },
   });
 }
 
-export function useAdminWorkspaces(limit = 50, offset = 0, search = '', sort = 'newest') {
+export function useAdminWorkspaces(
+  limit = 50,
+  offset = 0,
+  search = '',
+  sort = 'newest',
+  phoneStatus: AdminPhoneStatusFilter = 'all',
+) {
   return useQuery({
-    queryKey: ['admin-workspaces', limit, offset, search, sort],
+    queryKey: ['admin-workspaces', limit, offset, search, sort, phoneStatus],
     queryFn: async () => {
       const { data, error } = await supabase.rpc('admin_list_workspaces', {
         _limit: limit,
         _offset: offset,
         _search: search,
         _sort: sort,
+        _phone_status: phoneStatus,
       });
       if (error) throw error;
-      return (data as Array<{
-        id: string;
-        name: string;
-        slug: string;
-        owner_id: string;
-        owner_email: string;
-        member_count: number;
-        contact_count: number;
-        conversation_count: number;
-        created_at: string;
-        updated_at: string;
-      }>) ?? [];
+      return (data as unknown as AdminWorkspaceRow[]) ?? [];
     },
   });
 }
 
-export function useAdminWorkspaceCount() {
+export function useAdminWorkspaceCount(search = '', phoneStatus: AdminPhoneStatusFilter = 'all') {
   return useQuery({
-    queryKey: ['admin-workspace-count'],
+    queryKey: ['admin-workspace-count', search, phoneStatus],
     queryFn: async () => {
-      const { data, error } = await supabase.rpc('admin_count_workspaces');
+      const { data, error } = await supabase.rpc('admin_count_workspaces', {
+        _search: search,
+        _phone_status: phoneStatus,
+      });
       if (error) throw error;
       return data as number;
     },

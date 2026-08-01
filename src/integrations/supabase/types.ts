@@ -7909,8 +7909,18 @@ export type Database = {
         Returns: Json
       }
       activate_auto_actions: { Args: never; Returns: Json }
-      admin_count_profiles: { Args: never; Returns: number }
-      admin_count_workspaces: { Args: never; Returns: number }
+      admin_count_profiles:
+        | { Args: never; Returns: number }
+        | {
+            Args: { _phone_status?: string; _search?: string }
+            Returns: number
+          }
+      admin_count_workspaces:
+        | { Args: never; Returns: number }
+        | {
+            Args: { _phone_status?: string; _search?: string }
+            Returns: number
+          }
       admin_delete_workspace: {
         Args: { _workspace_id: string }
         Returns: boolean
@@ -7924,15 +7934,26 @@ export type Database = {
         Args: { _email: string; _limit?: number }
         Returns: Json
       }
-      admin_list_profiles: {
-        Args: {
-          _limit?: number
-          _offset?: number
-          _search?: string
-          _sort?: string
-        }
-        Returns: Json
-      }
+      admin_list_profiles:
+        | {
+            Args: {
+              _limit?: number
+              _offset?: number
+              _search?: string
+              _sort?: string
+            }
+            Returns: Json
+          }
+        | {
+            Args: {
+              _limit?: number
+              _offset?: number
+              _phone_status?: string
+              _search?: string
+              _sort?: string
+            }
+            Returns: Json
+          }
       admin_list_realtime_audit: { Args: { _limit?: number }; Returns: Json }
       admin_list_workspaces:
         | {
@@ -7952,6 +7973,16 @@ export type Database = {
             Args: {
               _limit?: number
               _offset?: number
+              _search?: string
+              _sort?: string
+            }
+            Returns: Json
+          }
+        | {
+            Args: {
+              _limit?: number
+              _offset?: number
+              _phone_status?: string
               _search?: string
               _sort?: string
             }
@@ -8099,12 +8130,20 @@ export type Database = {
       }
       normalize_domain: { Args: { _input: string }; Returns: string }
       perf_metrics_rollup_and_prune: { Args: never; Returns: Json }
+      phone_status_matches: {
+        Args: { _filter: string; _phone: string; _verified_at: string }
+        Returns: boolean
+      }
       phone_verification_claim_attempt: {
         Args: { _challenge_id: string; _user_id: string }
         Returns: Json
       }
       phone_verification_consume: {
         Args: { _challenge_id: string; _user_id: string }
+        Returns: Json
+      }
+      phone_verification_invalidate: {
+        Args: { _challenge_id: string }
         Returns: Json
       }
       phone_verification_manual_verify: {
@@ -8118,10 +8157,11 @@ export type Database = {
           _provider_name: string
           _sent: boolean
         }
-        Returns: undefined
+        Returns: Json
       }
       phone_verification_start: {
         Args: {
+          _challenge_id: string
           _code_digest: string
           _created_by: string
           _created_by_admin_id: string

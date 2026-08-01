@@ -10,6 +10,16 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { toast } from '@/hooks/use-toast';
 import { Loader2, Send, ShieldCheck, Smartphone } from 'lucide-react';
 import {
@@ -17,11 +27,16 @@ import {
   adminManualVerifyUserPhone,
   adminResendUserPhoneVerification,
 } from '@/lib/api';
+import { PHONE_STATUS_CLASS, PHONE_STATUS_LABEL_KEY, resolvePhoneStatus } from './status';
+
+const REASON_MIN = 5;
+const REASON_MAX = 500;
 
 export function AdminPhoneVerificationCard({ userId }: { userId: string }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const [reason, setReason] = useState('');
+  const [confirming, setConfirming] = useState<'resend' | 'manual' | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin-phone-verification', userId],
@@ -48,6 +63,10 @@ export function AdminPhoneVerificationCard({ userId }: { userId: string }) {
     onError: (e: Error) => toast({ title: e.message, variant: 'destructive' }),
   });
 
+  const reasonLength = reason.trim().length;
+  const reasonValid = reasonLength >= REASON_MIN && reasonLength <= REASON_MAX;
+  const status = data ? resolvePhoneStatus({ phoneMasked: data.phoneMasked, verified: data.verified }) : null;
+
   return (
     <Card>
       <CardContent className="p-4 space-y-3">
@@ -64,9 +83,11 @@ export function AdminPhoneVerificationCard({ userId }: { userId: string }) {
               <span className="font-mono text-muted-foreground" dir="ltr">
                 {data.phoneMasked || '—'}
               </span>
-              <Badge variant={data.verified ? 'default' : 'secondary'} className="text-xs">
-                {data.verified ? t('phoneVerification.statusVerified') : t('phoneVerification.statusUnverified')}
-              </Badge>
+              {status && (
+                <Badge variant="outline" className={`text-xs ${PHONE_STATUS_CLASS[status]}`}>
+                  {t(PHONE_STATUS_LABEL_KEY[status] as never)}
+                </Badge>
+              )}
             </div>
 
             {data.verified && data.verificationMethod === 'admin_manual' && (
@@ -78,7 +99,7 @@ export function AdminPhoneVerificationCard({ userId }: { userId: string }) {
                 size="sm"
                 variant="outline"
                 disabled={!data.phone || data.verified || resend.isPending}
-                onClick={() => resend.mutate()}
+                onClick={() => setConfirming('resend')}
               >
                 {resend.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                 <span className="ms-2">{t('admin.users.phoneResend')}</span>
@@ -93,21 +114,54 @@ export function AdminPhoneVerificationCard({ userId }: { userId: string }) {
                     value={reason}
                     onChange={(e) => setReason(e.target.value)}
                     placeholder={t('admin.users.phoneManualReason')}
-                    maxLength={200}
+                    maxLength={REASON_MAX}
                   />
                   <Button
                     size="sm"
-                    disabled={!data.phone || reason.trim().length < 3 || manual.isPending}
-                    onClick={() => manual.mutate()}
+                    disabled={!data.phone || !reasonValid || manual.isPending}
+                    onClick={() => setConfirming('manual')}
                   >
                     {manual.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
                     <span className="ms-2">{t('admin.users.phoneManualVerify')}</span>
                   </Button>
                 </div>
+                {reasonLength > 0 && !reasonValid && (
+                  <p className="text-xs text-destructive">{t('admin.users.phoneReasonTooShort')}</p>
+                )}
               </div>
             )}
           </>
         )}
+
+        <AlertDialog open={confirming !== null} onOpenChange={(open) => !open && setConfirming(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {confirming === 'manual'
+                  ? t('admin.users.phoneManualConfirmTitle')
+                  : t('admin.users.phoneResendConfirmTitle')}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {confirming === 'manual'
+                  ? t('admin.users.phoneManualConfirmBody')
+                  : t('admin.users.phoneResendConfirmBody')}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>{t('admin.users.phoneCancel')}</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  const action = confirming;
+                  setConfirming(null);
+                  if (action === 'manual' && reasonValid) manual.mutate();
+                  if (action === 'resend') resend.mutate();
+                }}
+              >
+                {t('admin.users.phoneConfirm')}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </CardContent>
     </Card>
   );

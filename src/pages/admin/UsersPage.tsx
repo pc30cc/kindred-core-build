@@ -2,6 +2,7 @@ import { useState, useDeferredValue } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/card';
 import { AdminPhoneVerificationCard } from '@/features/phone-verification/AdminPhoneVerificationCard';
+import { PhoneStatusCell } from '@/features/phone-verification/PhoneStatusCell';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -13,6 +14,7 @@ import {
   useAdminProfiles, useAdminProfileCount, useAdminUserDetail,
   useAdminUserRoles, useAssignRole, useRemoveRole,
 } from '@/hooks/useAdmin';
+import type { AdminPhoneStatusFilter } from '@/hooks/useAdmin';
 import { useAdminPlans, useAssignPlan, useRevokePlan, useWorkspacePlan } from '@/hooks/usePlans';
 import { supabase } from '@/lib/supabase';
 import {
@@ -33,10 +35,12 @@ export default function AdminUsersPage() {
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState('newest');
   const [limit, setLimit] = useState(30);
+  const [phoneStatus, setPhoneStatus] = useState<AdminPhoneStatusFilter>('all');
   const deferredSearch = useDeferredValue(search);
 
-  const { data: profiles, isLoading } = useAdminProfiles(limit, page * limit, deferredSearch, sort);
-  const { data: count } = useAdminProfileCount();
+  // Filtering happens server-side so the count and pagination stay truthful.
+  const { data: profiles, isLoading } = useAdminProfiles(limit, page * limit, deferredSearch, sort, phoneStatus);
+  const { data: count } = useAdminProfileCount(deferredSearch, phoneStatus);
 
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 
@@ -74,6 +78,17 @@ export default function AdminUsersPage() {
             <SelectItem value="newest">{t('admin.users.sortNewest')}</SelectItem>
             <SelectItem value="oldest">{t('admin.users.sortOldest')}</SelectItem>
             <SelectItem value="name_asc">{t('admin.users.sortNameAsc')}</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={phoneStatus} onValueChange={v => { setPhoneStatus(v as AdminPhoneStatusFilter); setPage(0); }}>
+          <SelectTrigger className="w-full sm:w-[180px]">
+            <SelectValue placeholder={t('admin.users.phoneFilter')} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">{t('admin.users.phoneFilterAll')}</SelectItem>
+            <SelectItem value="verified">{t('admin.users.phoneFilterVerified')}</SelectItem>
+            <SelectItem value="unverified">{t('admin.users.phoneFilterUnverified')}</SelectItem>
+            <SelectItem value="no_phone">{t('admin.users.phoneFilterNoPhone')}</SelectItem>
           </SelectContent>
         </Select>
         <Select value={String(limit)} onValueChange={v => { setLimit(Number(v)); setPage(0); }}>
@@ -144,18 +159,7 @@ export default function AdminUsersPage() {
                   </TableCell>
                   <TableCell><Badge variant="secondary">{p.workspace_count}</Badge></TableCell>
                   <TableCell>
-                    <div className="flex items-center gap-2">
-                      <Badge variant={(p as any).phone_verified ? 'default' : 'secondary'} className="text-xs">
-                        {(p as any).phone_verified
-                          ? t('phoneVerification.statusVerified')
-                          : t('phoneVerification.statusUnverified')}
-                      </Badge>
-                      {(p as any).phone_masked && (
-                        <span className="text-xs text-muted-foreground font-mono" dir="ltr">
-                          {(p as any).phone_masked}
-                        </span>
-                      )}
-                    </div>
+                    <PhoneStatusCell masked={p.phone_masked} verified={p.phone_verified} />
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {p.created_at ? format(new Date(p.created_at), 'yyyy-MM-dd') : '—'}

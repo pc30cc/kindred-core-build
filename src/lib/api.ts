@@ -533,6 +533,11 @@ export interface PhoneVerificationStatus {
   allowedCountries?: string[];
   resendAfterSeconds?: number;
   verifiedAt?: string | null;
+  /** Resume fields — the backend only returns these to the subject. */
+  hasActiveChallenge?: boolean;
+  activeChallengeId?: string | null;
+  challengeExpiresInSeconds?: number | null;
+  remainingAttempts?: number | null;
 }
 
 export interface PhoneChallenge {
@@ -606,6 +611,7 @@ export interface AdminPhoneVerification {
   verifiedByAdminId: string | null;
   manualVerificationReason: string | null;
   hasActiveChallenge: boolean;
+  challengeExpiresInSeconds: number | null;
   lastSentAt: string | null;
   remainingAttempts: number | null;
 }
@@ -624,7 +630,13 @@ export async function adminResendUserPhoneVerification(userId: string) {
 }
 
 export async function adminManualVerifyUserPhone(userId: string, reason: string) {
-  return request<{ success: true; verified: true; verificationMethod: 'admin_manual'; verifiedAt: string | null }>(
+  return request<{
+    success: true;
+    verified: true;
+    verificationMethod: 'sms_otp' | 'admin_manual';
+    verifiedAt: string | null;
+    alreadyVerified?: boolean;
+  }>(
     `/api/admin/users/${userId}/phone-verification/manual-verify`,
     { method: 'POST', headers: await getAdminAuthHeaders(), body: JSON.stringify({ reason }) },
   );

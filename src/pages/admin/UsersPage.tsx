@@ -441,6 +441,8 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
       </Card>
 
       {/* Workspace Plans & Subscriptions */}
+      <AdminPhoneVerificationCard userId={userId} />
+
       {detail.workspaces && detail.workspaces.length > 0 && (
         <Card>
           <CardContent className="p-4 space-y-3">

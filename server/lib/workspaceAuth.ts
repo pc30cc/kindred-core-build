@@ -120,17 +120,31 @@ export async function requirePlatformAdmin(req: any, res: any): Promise<string |
  * permitted; private/loopback/link-local/metadata targets are rejected.
  */
 const PRIVATE_HOST_RE =
-  /^(localhost|.*\.local|.*\.internal|metadata\.google\.internal)$/i;
+  /^(localhost|.*\.localhost|.*\.local|.*\.internal|metadata|metadata\.google\.internal)$/i;
+
+/** Lowercases and strips a trailing FQDN dot so `evil.internal.` cannot bypass the host rules. */
+export function normalizeHostname(host: string): string {
+  return host.replace(/^\[|\]$/g, '').replace(/\.+$/, '').toLowerCase();
+}
+
+/** True when the hostname itself is a forbidden internal/metadata name. */
+export function isBlockedHostname(host: string): boolean {
+  return PRIVATE_HOST_RE.test(normalizeHostname(host));
+}
 
 function isPrivateIpv4(host: string): boolean {
   const m = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
   if (!m) return false;
-  const [a, b] = [Number(m[1]), Number(m[2])];
+  const [a, b, c] = [Number(m[1]), Number(m[2]), Number(m[3])];
   if (a === 10 || a === 127 || a === 0) return true;
   if (a === 169 && b === 254) return true;
   if (a === 172 && b >= 16 && b <= 31) return true;
   if (a === 192 && b === 168) return true;
   if (a === 100 && b >= 64 && b <= 127) return true;
+  if (a === 192 && b === 0 && (c === 0 || c === 2)) return true; // 192.0.0.0/24, TEST-NET-1
+  if (a === 198 && (b === 18 || b === 19)) return true; // benchmarking 198.18.0.0/15
+  if (a === 198 && b === 51 && c === 100) return true; // TEST-NET-2
+  if (a === 203 && b === 0 && c === 113) return true; // TEST-NET-3
   return false;
 }
 

@@ -17,10 +17,13 @@ let rpcHandlers: Record<string, () => RpcResult> = {};
 
 vi.mock('../../../server/supabase.js', () => ({
   getServiceClient: () => ({
-    rpc: async (name: string) => {
+    rpc: async (name: string, args: Record<string, unknown>) => {
       calls.push(`rpc:${name}`);
       const handler = rpcHandlers[name];
-      return handler ? handler() : { data: { ok: true }, error: null };
+      if (handler) return handler();
+      // The service generates the challenge id itself and requires the RPC to
+      // echo it back, so the mock replays whatever it was given.
+      return { data: { ok: true, challengeId: args?._challenge_id }, error: null };
     },
   }),
 }));
@@ -42,9 +45,7 @@ const USER = '22222222-2222-4222-8222-222222222222';
 const ADMIN = '33333333-3333-4333-8333-333333333333';
 
 function baseHandlers(): Record<string, () => RpcResult> {
-  return {
-    phone_verification_start: () => ({ data: { challengeId: null }, error: null }),
-  };
+  return {};
 }
 
 async function runResend() {
@@ -66,11 +67,6 @@ beforeEach(() => {
 
 describe('admin resend fail-closed ordering', () => {
   it('writes the requested audit before any SMS is sent', async () => {
-    rpcHandlers.phone_verification_start = () => {
-      const id = calls.length; // placeholder, real id injected below
-      void id;
-      return { data: { challengeId: currentChallengeId() }, error: null };
-    };
     await expect(runResend()).resolves.toMatchObject({ success: true });
     const auditIdx = calls.indexOf('rpc:phone_verification_admin_resend_requested');
     const smsIdx = calls.indexOf('sms:send');
@@ -80,10 +76,6 @@ describe('admin resend fail-closed ordering', () => {
   });
 
   it('sends no SMS and invalidates the challenge when the requested audit fails', async () => {
-    rpcHandlers.phone_verification_start = () => ({
-      data: { challengeId: currentChallengeId() },
-      error: null,
-    });
     rpcHandlers.phone_verification_admin_resend_requested = () => ({
       data: { error: 'phone_challenge_not_found' },
       error: null,
@@ -95,10 +87,6 @@ describe('admin resend fail-closed ordering', () => {
   });
 
   it('sends no SMS when the requested audit RPC errors', async () => {
-    rpcHandlers.phone_verification_start = () => ({
-      data: { challengeId: currentChallengeId() },
-      error: null,
-    });
     rpcHandlers.phone_verification_admin_resend_requested = () => ({
       data: null,
       error: { message: 'boom' },
@@ -108,10 +96,6 @@ describe('admin resend fail-closed ordering', () => {
   });
 
   it('never returns success when finalize fails, and invalidates the OTP', async () => {
-    rpcHandlers.phone_verification_start = () => ({
-      data: { challengeId: currentChallengeId() },
-      error: null,
-    });
     rpcHandlers.phone_verification_finalize_admin_resend = () => ({
       data: { error: 'phone_challenge_not_found' },
       error: null,
@@ -121,33 +105,8 @@ describe('admin resend fail-closed ordering', () => {
   });
 
   it('never leaks the provider name or a raw error to the caller', async () => {
-    rpcHandlers.phone_verification_start = () => ({
-      data: { challengeId: currentChallengeId() },
-      error: null,
-    });
     const result = await runResend();
     expect(JSON.stringify(result)).not.toMatch(/kavenegar|mid-1/i);
     expect(result.phoneMasked).not.toContain('9121234567');
   });
-});
-
-/**
- * `issueChallenge` generates the challenge id internally and requires the RPC
- * to echo it back, so the mock replays whatever id the service just produced.
- */
-let lastChallengeId = CHALLENGE;
-function currentChallengeId(): string {
-  return lastChallengeId;
-}
-
-vi.mock('node:crypto', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:crypto')>();
-  return {
-    ...actual,
-    default: actual,
-    randomUUID: () => {
-      lastChallengeId = CHALLENGE;
-      return CHALLENGE;
-    },
-  };
 });

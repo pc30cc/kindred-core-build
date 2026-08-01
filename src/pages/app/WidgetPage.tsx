@@ -32,7 +32,7 @@ function isValidDomain(d: string): boolean {
   return /^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/.test(d);
 }
 
-export default function WidgetPage() {
+function WidgetPageContent() {
   const { t } = useTranslation();
   const workspace = useCurrentWorkspace();
   const { data: widget, isLoading } = useWidgetSettings(workspace?.id);

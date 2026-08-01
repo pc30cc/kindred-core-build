@@ -22,6 +22,7 @@ import {
 import { supabase } from '@/lib/supabase';
 
 export default function AdminWorkspacesPage() {
+  const { t } = useTranslation();
   const [page, setPage] = useState(0);
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState('newest');
@@ -90,6 +91,24 @@ export default function AdminWorkspacesPage() {
             className="pl-9"
           />
         </div>
+        <Select value={sort} onValueChange={v => { setSort(v); setPage(0); }}>
+          <SelectTrigger className="w-full sm:w-[200px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="newest">Newest first</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={phoneFilter} onValueChange={v => { setPhoneFilter(v as typeof phoneFilter); setPage(0); }}>
+          <SelectTrigger className="w-full sm:w-[200px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">{t('admin.workspaces.filterPhoneAll')}</SelectItem>
+            <SelectItem value="verified">{t('admin.workspaces.filterPhoneVerified')}</SelectItem>
+            <SelectItem value="unverified">{t('admin.workspaces.filterPhoneUnverified')}</SelectItem>
+          </SelectContent>
+        </Select>
         <Select value={sort} onValueChange={v => { setSort(v); setPage(0); }}>
           <SelectTrigger className="w-full sm:w-[200px]">
             <SelectValue placeholder="Sort by" />

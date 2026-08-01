@@ -58,6 +58,15 @@ const MAX_TEST_RESPONSE_BYTES = 64 * 1024;
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
+/** Origin = protocol + hostname + effective port (443 when omitted for https). */
+function originOf(url: URL): string {
+  return `${url.protocol}//${normalizeHostname(url.hostname)}:${url.port || '443'}`;
+}
+
+function sameOrigin(a: URL, b: URL): boolean {
+  return originOf(a) === originOf(b);
+}
+
 /** Validates one URL and pins exactly one verified public address for it. */
 async function resolvePinnedTarget(
   url: URL,
@@ -146,6 +155,9 @@ function performRequest(
     const req = requestImpl(
       {
         protocol: 'https:',
+        // No connection pooling: a reused keep-alive socket would skip our
+        // pinned `lookup` and could target an address we never validated.
+        agent: false,
         // `host` keeps the real hostname for the Host header, `servername`
         // keeps TLS SNI + certificate verification on the real hostname.
         host: target.hostname,
@@ -250,6 +262,12 @@ export function createSafeTestFetch(options: SafeTransportOptions = {}): SafeTes
       } catch {
         throw new SafeTransportError('redirect_blocked');
       }
+      if (next.protocol !== 'https:') throw new SafeTransportError('unsafe_scheme');
+      if (next.username || next.password) throw new SafeTransportError('credentials_not_allowed');
+      // Same-origin only (protocol + hostname + effective port). A connection
+      // test never needs to hop between hosts, and refusing outright is safer
+      // than trying to strip individual credential-bearing headers.
+      if (!sameOrigin(url, next)) throw new SafeTransportError('redirect_blocked');
       // Standard fetch method semantics: 307/308 preserve method+body,
       // 301/302/303 downgrade a non-GET/HEAD request to GET without a body.
       if (raw.status !== 307 && raw.status !== 308 && method !== 'GET' && method !== 'HEAD') {

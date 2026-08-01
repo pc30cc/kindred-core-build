@@ -149,6 +149,30 @@ function isPrivateIpv4(host: string): boolean {
 }
 
 /** Extracts a dotted IPv4 from an IPv4-mapped IPv6 literal, hex or dotted form. */
+/**
+ * Reads the first 16-bit group of an IPv6 address, supporting the compressed
+ * `::` form. Returns null for malformed input (callers must fail closed).
+ */
+export function ipv6First16Bits(addr: string): number | null {
+  const host = addr.toLowerCase().replace(/%.*$/, '').replace(/^\[|\]$/g, '');
+  if (!host.includes(':')) return null;
+  const doubleColons = host.split('::').length - 1;
+  if (doubleColons > 1) return null;
+  const head = host.split('::')[0];
+  // `::xxxx` (leading compression) means the first group is zero.
+  if (head === '') return 0;
+  const first = head.split(':')[0];
+  if (!/^[0-9a-f]{1,4}$/.test(first)) return null;
+  return parseInt(first, 16);
+}
+
+/** True for fe80::/10 (link-local), covering fe80 … febf. */
+export function isIpv6LinkLocal(addr: string): boolean {
+  const first = ipv6First16Bits(addr);
+  if (first === null) return false;
+  return (first & 0xffc0) === 0xfe80;
+}
+
 function mappedIpv4(host: string): string | null {
   const dotted = host.match(/^::(?:ffff:)?(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i);
   if (dotted) return dotted[1];
@@ -179,7 +203,7 @@ export function isSafeOutboundUrl(raw: string): boolean {
   const mapped = mappedIpv4(host);
   if (mapped && isPrivateIpv4(mapped)) return false;
   // IPv6 loopback / unique-local / link-local
-  if (host === '::1' || host === '::' || /^f[cd][0-9a-f]{2}:/i.test(host) || /^fe80:/i.test(host)) return false;
+  if (host === '::1' || host === '::' || /^f[cd][0-9a-f]{2}:/i.test(host) || isIpv6LinkLocal(host)) return false;
   if (/^ff[0-9a-f]{2}:/i.test(host)) return false; // IPv6 multicast
   return true;
 }
@@ -198,7 +222,7 @@ function isBlockedIpv6(addr: string): boolean {
   const host = addr.toLowerCase().replace(/%.*$/, '');
   if (host === '::1' || host === '::') return true;
   if (/^f[cd][0-9a-f]{2}:/.test(host)) return true; // unique-local
-  if (/^fe80:/.test(host)) return true; // link-local
+  if (isIpv6LinkLocal(host)) return true; // fe80::/10
   if (/^ff[0-9a-f]{2}:/.test(host)) return true; // multicast
   const mapped = mappedIpv4(host);
   if (mapped) return isBlockedIpv4(mapped);

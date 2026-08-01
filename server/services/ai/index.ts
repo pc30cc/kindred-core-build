@@ -6,6 +6,12 @@
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 
+/**
+ * Minimal fetch contract. Runtime completion paths use the global `fetch`;
+ * the provider connection test injects an SSRF-safe transport instead.
+ */
+export type HttpFetch = (input: string | URL, init?: RequestInit) => Promise<Response>;
+
 const AI_HTTP_TIMEOUT_MS = parseInt(process.env.AI_HTTP_TIMEOUT_MS || '45000', 10);
 const AI_RETRY_ATTEMPTS = parseInt(process.env.AI_RETRY_ATTEMPTS || '3', 10);
 
@@ -155,7 +161,7 @@ export function parseGeminiGenerateContent(value: unknown): GeminiGenerateConten
 
 // ─── OpenAI ──────────────────────────────────────────────────────
 
-async function callOpenAI(config: AIConfig, req: AIRequest): Promise<AIResponse> {
+async function callOpenAI(config: AIConfig, req: AIRequest, fetchImpl?: HttpFetch): Promise<AIResponse> {
   const start = Date.now();
   const baseUrl = config.baseUrl || 'https://api.openai.com/v1';
   const model = req.model || config.model || 'gpt-4o-mini';
@@ -190,7 +196,7 @@ async function callOpenAI(config: AIConfig, req: AIRequest): Promise<AIResponse>
     method: 'POST',
     headers,
     body: JSON.stringify(body),
-  }, AI_RETRY_ATTEMPTS, AI_HTTP_TIMEOUT_MS);
+  }, AI_RETRY_ATTEMPTS, AI_HTTP_TIMEOUT_MS, fetchImpl);
 
   if (!res.ok) {
     const err: unknown = await res.json().catch(() => ({ error: { message: res.statusText } }));
@@ -220,13 +226,15 @@ async function fetchWithRetry(
   init: RequestInit,
   maxAttempts = 3,
   timeoutMs = AI_HTTP_TIMEOUT_MS,
+  fetchImpl?: HttpFetch,
 ): Promise<Response> {
+  const doFetch: HttpFetch = fetchImpl ?? ((input, requestInit) => fetch(input, requestInit));
   let lastErr: any;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
-      return await fetch(url, { ...init, signal: ctrl.signal });
+      return await doFetch(url, { ...init, signal: ctrl.signal });
     } catch (err: any) {
       lastErr = err;
       const detail = String(
@@ -255,7 +263,7 @@ async function fetchWithRetry(
 
 // ─── Anthropic ───────────────────────────────────────────────────
 
-async function callAnthropic(config: AIConfig, req: AIRequest): Promise<AIResponse> {
+async function callAnthropic(config: AIConfig, req: AIRequest, fetchImpl?: HttpFetch): Promise<AIResponse> {
   const start = Date.now();
   const model = req.model || config.model || 'claude-sonnet-4-20250514';
 
@@ -274,7 +282,7 @@ async function callAnthropic(config: AIConfig, req: AIRequest): Promise<AIRespon
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),
-  }, AI_RETRY_ATTEMPTS, AI_HTTP_TIMEOUT_MS);
+  }, AI_RETRY_ATTEMPTS, AI_HTTP_TIMEOUT_MS, fetchImpl);
 
   if (!res.ok) {
     const err: unknown = await res.json().catch(() => ({ error: { message: res.statusText } }));
@@ -298,7 +306,7 @@ async function callAnthropic(config: AIConfig, req: AIRequest): Promise<AIRespon
 
 // ─── Google Gemini ───────────────────────────────────────────────
 
-async function callGemini(config: AIConfig, req: AIRequest): Promise<AIResponse> {
+async function callGemini(config: AIConfig, req: AIRequest, fetchImpl?: HttpFetch): Promise<AIResponse> {
   const start = Date.now();
   const model = req.model || config.model || 'gemini-2.5-flash';
 
@@ -323,6 +331,7 @@ async function callGemini(config: AIConfig, req: AIRequest): Promise<AIResponse>
     },
     AI_RETRY_ATTEMPTS,
     AI_HTTP_TIMEOUT_MS,
+    fetchImpl,
   );
 
   if (!res.ok) {
@@ -347,7 +356,10 @@ async function callGemini(config: AIConfig, req: AIRequest): Promise<AIResponse>
 
 // ─── Provider Router ─────────────────────────────────────────────
 
-const providerHandlers: Record<string, (config: AIConfig, req: AIRequest) => Promise<AIResponse>> = {
+const providerHandlers: Record<
+  string,
+  (config: AIConfig, req: AIRequest, fetchImpl?: HttpFetch) => Promise<AIResponse>
+> = {
   openai: callOpenAI,
   azure_openai: callOpenAI, // Same API, different baseUrl
   anthropic: callAnthropic,
@@ -502,7 +514,10 @@ export async function executeAICompletion(
 /**
  * Test AI provider connection with a minimal completion.
  */
-export async function testAIConnection(config: AIConfig): Promise<{
+export async function testAIConnection(
+  config: AIConfig,
+  options: { fetchImpl?: HttpFetch } = {},
+): Promise<{
   success: boolean;
   latencyMs: number;
   model: string;
@@ -519,12 +534,16 @@ export async function testAIConnection(config: AIConfig): Promise<{
   }
 
   try {
-    const result = await handler(config, {
-      workspaceId: 'test',
-      prompt: 'Say "ok" and nothing else.',
-      maxTokens: 5,
-      temperature: 0,
-    });
+    const result = await handler(
+      config,
+      {
+        workspaceId: 'test',
+        prompt: 'Say "ok" and nothing else.',
+        maxTokens: 5,
+        temperature: 0,
+      },
+      options.fetchImpl,
+    );
     return { success: true, latencyMs: result.latencyMs, model: result.model };
   } catch (err: any) {
     return { success: false, latencyMs: 0, model: config.model, error: err.message };

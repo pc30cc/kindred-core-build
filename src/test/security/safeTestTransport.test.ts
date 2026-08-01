@@ -269,7 +269,7 @@ describe('safe test transport — timeout', () => {
 
   it('fails closed when a redirected hop times out', async () => {
     const { fetchImpl } = make([
-      { status: 302, headers: { location: 'https://b.example.com/x' } },
+      { status: 302, headers: { location: 'https://a.example.com/y' } },
       { status: 0, timeout: true },
     ]);
     expect(await reasonOf(fetchImpl('https://a.example.com/x'))).toBe('timeout');
@@ -278,7 +278,7 @@ describe('safe test transport — timeout', () => {
   it('shares one deadline across the chain', async () => {
     const { fetchImpl, seen } = make(
       [
-        { status: 302, headers: { location: 'https://b.example.com/x' } },
+        { status: 302, headers: { location: 'https://a.example.com/y' } },
         { status: 200, body: '{}' },
       ],
       { timeoutMs: 5000 },

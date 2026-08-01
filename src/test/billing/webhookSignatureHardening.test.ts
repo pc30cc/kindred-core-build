@@ -146,8 +146,11 @@ describe('paytr callback hash verification', () => {
     const body = callback('failed', '1000').replace('status=failed', 'status=success');
     await expect(paytrProvider.verifyWebhook(config, {}, body)).rejects.toThrow(/Invalid PayTR webhook hash/);
   });
-  it.each(['', 'not-base64!!', 'YWJj'])('rejects malformed hash %j', async (h) => {
+  it.each(['not-base64!!', 'YWJj'])('rejects malformed hash %j', async (h) => {
     await expect(paytrProvider.verifyWebhook(config, {}, callback('success', '1000', h))).rejects.toThrow(/Invalid PayTR webhook hash/);
+  });
+  it('treats an empty hash as missing and fails closed', async () => {
+    await expect(paytrProvider.verifyWebhook(config, {}, callback('success', '1000', ''))).resolves.toBeNull();
   });
   it('fails closed when credentials, hash or order id are missing', async () => {
     await expect(paytrProvider.verifyWebhook({ provider: 'paytr' }, {}, callback('success', '1000'))).resolves.toBeNull();

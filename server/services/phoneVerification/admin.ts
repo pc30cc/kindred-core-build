@@ -26,6 +26,7 @@ export interface AdminPhoneVerificationView {
   verifiedAt: string | null;
   verificationMethod: 'sms_otp' | 'admin_manual' | null;
   verifiedByAdminId: string | null;
+  verifiedByAdminEmail: string | null;
   manualVerificationReason: string | null;
   hasActiveChallenge: boolean;
   challengeExpiresInSeconds: number | null;
@@ -43,6 +44,7 @@ function toView(state: PhoneVerificationState): AdminPhoneVerificationView {
     verifiedAt: state.verifiedAt,
     verificationMethod: state.verificationMethod,
     verifiedByAdminId: state.verifiedByAdminId,
+    verifiedByAdminEmail: state.verifiedByAdminEmail,
     manualVerificationReason: state.manualVerificationReason,
     hasActiveChallenge: state.hasActiveChallenge,
     challengeExpiresInSeconds: state.challengeExpiresInSeconds,

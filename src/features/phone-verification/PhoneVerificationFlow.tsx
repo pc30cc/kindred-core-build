@@ -13,6 +13,7 @@ import { Loader2, ShieldCheck, Smartphone } from 'lucide-react';
 import type { PhoneVerificationContext } from '@/lib/api';
 import {
   useCheckPhoneVerification,
+  useCancelPhoneVerification,
   useResendPhoneVerification,
   useStartPhoneVerification,
 } from './hooks';
@@ -82,6 +83,7 @@ export function PhoneVerificationFlow({
   const start = useStartPhoneVerification(context);
   const resend = useResendPhoneVerification(context);
   const check = useCheckPhoneVerification(context);
+  const cancel = useCancelPhoneVerification(context);
 
   useEffect(() => {
     if (cooldown <= 0) return;
@@ -105,7 +107,7 @@ export function PhoneVerificationFlow({
     return () => window.clearInterval(id);
   }, [challengeId, expiresIn]);
 
-  const busy = start.isPending || resend.isPending || check.isPending;
+  const busy = start.isPending || resend.isPending || check.isPending || cancel.isPending;
   const step = challengeId ? 'code' : 'phone';
 
   const digitsOnly = useMemo(
@@ -176,6 +178,28 @@ export function PhoneVerificationFlow({
     );
   };
 
+  /** Invalidates the outstanding code server-side before returning to step 1. */
+  const handleChangeNumber = () => {
+    if (busy) return;
+    const id = challengeId;
+    const reset = () => {
+      setChallengeId(null);
+      setCode('');
+      setExpired(false);
+      setAttemptsLeft(null);
+      setExpiresIn(0);
+    };
+    cancel.mutate(
+      { challengeId: id },
+      {
+        onSuccess: reset,
+        // A cancel that could not be recorded must not pretend the old code is
+        // dead: keep the user on the code step and surface the failure.
+        onError: (err) => toast({ title: t(errorKey(err) as never), variant: 'destructive' }),
+      },
+    );
+  };
+
   return (
     <div className="space-y-5">
       {step === 'phone' ? (
@@ -240,12 +264,8 @@ export function PhoneVerificationFlow({
             <span className="ms-2">{t('phoneVerification.verify')}</span>
           </Button>
           <div className="flex items-center justify-between gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={busy}
-              onClick={() => { setChallengeId(null); setCode(''); setExpired(false); setAttemptsLeft(null); }}
-            >
+            <Button variant="ghost" size="sm" disabled={busy} onClick={handleChangeNumber}>
+              {cancel.isPending && <Loader2 className="h-3 w-3 animate-spin me-2" />}
               {t('phoneVerification.changeNumber')}
             </Button>
             <Button variant="ghost" size="sm" disabled={busy || cooldown > 0} onClick={handleResend}>

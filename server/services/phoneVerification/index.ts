@@ -72,6 +72,7 @@ export async function getPhoneVerificationState(
     verifiedAt: str(raw.verifiedAt),
     verificationMethod: method === 'sms_otp' || method === 'admin_manual' ? method : null,
     verifiedByAdminId: str(raw.verifiedByAdminId),
+    verifiedByAdminEmail: str(raw.verifiedByAdminEmail),
     manualVerificationReason: str(raw.manualVerificationReason),
     hasActiveChallenge: raw.hasActiveChallenge === true,
     activeChallengeId: str(raw.activeChallengeId),
@@ -518,6 +519,45 @@ export async function checkVerification(
     phoneMasked: str(consumedRow.phoneMasked) ?? maskE164(phone),
     verifiedAt: str(consumedRow.verifiedAt),
   };
+}
+
+/** True when the purpose requirement is satisfied for this workspace. */
+export async function cancelVerification(
+  config: ServerConfig,
+  input: {
+    purpose: PhoneVerificationPurpose;
+    actorUserId: string;
+    workspaceId?: string;
+    workspaceSlug?: string;
+    challengeId?: string | null;
+  },
+): Promise<{ success: true; cancelled: number }> {
+  const ctx = await resolvePurposeContext(config, input);
+  if (!ctx.actorIsSubject) throw new PhoneVerificationError('phone_verification_not_allowed', 403);
+
+  const state = await getPhoneVerificationState(config, ctx.subjectUserId);
+  if (state.verified) throw new PhoneVerificationError('phone_already_verified', 409);
+
+  const { data, error } = await sb(config).rpc('phone_verification_cancel', {
+    _user_id: ctx.subjectUserId,
+    _challenge_id: input.challengeId ?? null,
+  });
+  if (error) throw new PhoneVerificationError('phone_verification_unavailable', 500);
+
+  const row = asRecord(data);
+  const cancelled = typeof row.cancelled === 'number' ? row.cancelled : 0;
+
+  if (cancelled > 0) {
+    await audit(config, {
+      action: 'phone_verification_cancelled',
+      userId: input.actorUserId,
+      targetUserId: ctx.subjectUserId,
+      workspaceId: ctx.workspaceId,
+      details: { purpose: input.purpose, cancelled },
+    });
+  }
+
+  return { success: true, cancelled };
 }
 
 /** True when the purpose requirement is satisfied for this workspace. */

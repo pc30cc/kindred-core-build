@@ -32,8 +32,15 @@ import { PHONE_STATUS_CLASS, PHONE_STATUS_LABEL_KEY, resolvePhoneStatus } from '
 const REASON_MIN = 5;
 const REASON_MAX = 500;
 
+function formatMoment(value: string | null | undefined, locale: string): string | null {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(d);
+}
+
 export function AdminPhoneVerificationCard({ userId }: { userId: string }) {
-  const { t } = useTranslation();
+  const { t, locale: uiLocale } = useTranslation();
   const qc = useQueryClient();
   const [reason, setReason] = useState('');
   const [confirming, setConfirming] = useState<'resend' | 'manual' | null>(null);
@@ -66,6 +73,32 @@ export function AdminPhoneVerificationCard({ userId }: { userId: string }) {
   const reasonLength = reason.trim().length;
   const reasonValid = reasonLength >= REASON_MIN && reasonLength <= REASON_MAX;
   const status = data ? resolvePhoneStatus({ phoneMasked: data.phoneMasked, verified: data.verified }) : null;
+  const locale = uiLocale === 'fa' ? 'fa-IR' : uiLocale === 'tr' ? 'tr-TR' : 'en-US';
+  const verifiedAt = formatMoment(data?.verifiedAt, locale);
+  const lastSentAt = formatMoment(data?.lastSentAt, locale);
+
+  const rows: Array<{ label: string; value: string }> = [];
+  if (data?.verified) {
+    if (verifiedAt) rows.push({ label: t('admin.users.phoneVerifiedAt'), value: verifiedAt });
+    rows.push({
+      label: t('admin.users.phoneMethod'),
+      value:
+        data.verificationMethod === 'admin_manual'
+          ? t('admin.users.phoneMethodManual')
+          : t('admin.users.phoneMethodSms'),
+    });
+    if (data.verifiedByAdminEmail) {
+      rows.push({ label: t('admin.users.phoneVerifiedBy'), value: data.verifiedByAdminEmail });
+    }
+    if (data.manualVerificationReason) {
+      rows.push({
+        label: t('admin.users.phoneManualReasonLabel'),
+        value: data.manualVerificationReason,
+      });
+    }
+  } else if (lastSentAt) {
+    rows.push({ label: t('admin.users.phoneLastSent'), value: lastSentAt });
+  }
 
   return (
     <Card>
@@ -92,6 +125,33 @@ export function AdminPhoneVerificationCard({ userId }: { userId: string }) {
 
             {data.verified && data.verificationMethod === 'admin_manual' && (
               <p className="text-xs text-muted-foreground">{t('phoneVerification.verifiedByAdmin')}</p>
+            )}
+
+            {!data.phone && <p className="text-xs text-muted-foreground">{t('admin.users.phoneNoRecord')}</p>}
+
+            {rows.length > 0 && (
+              <dl className="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1 text-xs">
+                {rows.map((row) => (
+                  <div key={row.label} className="contents">
+                    <dt className="text-muted-foreground">{row.label}</dt>
+                    <dd className="break-words">{row.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+
+            {!data.verified && data.hasActiveChallenge && (
+              <p className="text-xs text-warning">
+                {t('admin.users.phoneActiveChallenge').replace(
+                  '{{seconds}}',
+                  String(data.challengeExpiresInSeconds ?? 0),
+                )}
+                {typeof data.remainingAttempts === 'number' && (
+                  <span className="ms-2 text-muted-foreground">
+                    {t('admin.users.phoneAttemptsLeft').replace('{{count}}', String(data.remainingAttempts))}
+                  </span>
+                )}
+              </p>
             )}
 
             <div className="flex flex-wrap items-center gap-2 pt-1">

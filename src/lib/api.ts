@@ -598,6 +598,17 @@ export async function checkPhoneVerification(
   });
 }
 
+/** Server-side invalidation of the outstanding code ("change number"). */
+export async function cancelPhoneVerification(
+  input: PhoneVerificationContext & { challengeId?: string | null },
+) {
+  return request<{ success: true; cancelled: number }>('/api/phone-verification/cancel', {
+    method: 'POST',
+    headers: await userAuthHeaders(),
+    body: JSON.stringify(input),
+  });
+}
+
 // ─── Admin: phone verification (super admin only) ────────────────
 
 export interface AdminPhoneVerification {
@@ -609,6 +620,7 @@ export interface AdminPhoneVerification {
   verifiedAt: string | null;
   verificationMethod: 'sms_otp' | 'admin_manual' | null;
   verifiedByAdminId: string | null;
+  verifiedByAdminEmail: string | null;
   manualVerificationReason: string | null;
   hasActiveChallenge: boolean;
   challengeExpiresInSeconds: number | null;

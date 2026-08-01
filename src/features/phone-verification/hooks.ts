@@ -6,6 +6,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   checkPhoneVerification,
+  cancelPhoneVerification,
   getPhoneVerificationStatus,
   resendPhoneVerification,
   startPhoneVerification,
@@ -37,6 +38,21 @@ export function useStartPhoneVerification(ctx: PhoneVerificationContext) {
 
 export function useResendPhoneVerification(ctx: PhoneVerificationContext) {
   return useMutation({ mutationFn: () => resendPhoneVerification(ctx) });
+}
+
+/**
+ * "Change number" must kill the outstanding code server-side; clearing local
+ * state alone would leave a usable OTP in flight.
+ */
+export function useCancelPhoneVerification(ctx: PhoneVerificationContext) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input?: { challengeId?: string | null }) =>
+      cancelPhoneVerification({ ...ctx, challengeId: input?.challengeId ?? null }),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: phoneVerificationStatusKey(ctx) });
+    },
+  });
 }
 
 export function useCheckPhoneVerification(ctx: PhoneVerificationContext) {

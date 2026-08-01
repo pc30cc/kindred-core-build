@@ -8134,6 +8134,10 @@ export type Database = {
         Args: { _filter: string; _phone: string; _verified_at: string }
         Returns: boolean
       }
+      phone_verification_cancel: {
+        Args: { _challenge_id?: string; _user_id: string }
+        Returns: Json
+      }
       phone_verification_claim_attempt: {
         Args: { _challenge_id: string; _user_id: string }
         Returns: Json

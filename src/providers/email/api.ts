@@ -7,7 +7,14 @@
 import type { EmailProvider, EmailMessage } from '@/types/providers';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+/** Real end-user identity — the publishable anon key is not an identity and is
+ *  rejected by /api/email/send. */
+async function userAuthHeader(): Promise<Record<string, string>> {
+  const { supabase } = await import('@/integrations/supabase/client');
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
 /**
  * Creates an EmailProvider that routes through the self-hosted backend API.
@@ -22,7 +29,7 @@ export function createApiEmailProvider(workspaceId: string): EmailProvider {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+            ...(await userAuthHeader()),
           },
           body: JSON.stringify({
             workspaceId,

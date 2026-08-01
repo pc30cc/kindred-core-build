@@ -7,6 +7,7 @@ import { Router } from 'express';
 import { sendEmail } from '../services/email/index.js';
 import { requireChannel } from '../middleware/featureGating.js';
 import type { ServerConfig } from '../config.js';
+import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 
 export const emailRouter = Router();
 
@@ -30,20 +31,17 @@ emailRouter.post('/send', async (req, res) => {
   try {
     const config: ServerConfig = (req as any).serverConfig;
 
-    // Validate auth — require the anon key or a valid JWT in the Authorization header
-    const authHeader = req.headers.authorization;
-    const token = authHeader?.replace('Bearer ', '');
-
-    // Accept anon key (from frontend) or service role key (from server-to-server)
-    if (token !== config.supabaseAnonKey && token !== config.supabaseServiceRoleKey) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
     const { workspaceId, to, subject, html, text, from, replyTo, templateSlug, templateData, locale } = req.body;
 
     if (!workspaceId || !to) {
       return res.status(400).json({ error: 'workspaceId and to are required' });
     }
+
+    // Identity must be a real Supabase user JWT with membership of the target
+    // workspace. The publishable anon key is public and would turn this route
+    // into an open mail relay. In-process auth/transactional callers use
+    // sendEmail() directly and never traverse HTTP.
+    if (!(await authorizeWorkspaceAccess(req, res, workspaceId))) return;
 
     const result = await sendEmail(config, {
       workspaceId,
@@ -81,16 +79,11 @@ emailRouter.post('/send-channel', requireChannel('email'), async (req, res) => {
   try {
     const config: ServerConfig = (req as any).serverConfig;
 
-    const authHeader = req.headers.authorization;
-    const token = authHeader?.replace('Bearer ', '');
-    if (token !== config.supabaseAnonKey && token !== config.supabaseServiceRoleKey) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
     const { workspaceId, to, subject, html, text, from, replyTo, templateSlug, templateData, locale } = req.body;
     if (!workspaceId || !to) {
       return res.status(400).json({ error: 'workspaceId and to are required' });
     }
+    if (!(await authorizeWorkspaceAccess(req, res, workspaceId))) return;
 
     const result = await sendEmail(config, {
       workspaceId, to, subject, html, text, from, replyTo, templateSlug, templateData, locale,

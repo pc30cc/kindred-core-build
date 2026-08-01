@@ -26,14 +26,9 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
-function authHeaders(): Record<string, string> {
-  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-  return anonKey ? { 'Authorization': `Bearer ${anonKey}` } : {};
-}
-
 /**
  * Real end-user identity for routes that authorize per user + workspace
- * (currently the /api/storage/* routes). The publishable anon key is NOT an
+ * (storage, AI, CDN, email and billing routes). The publishable anon key is NOT an
  * identity and is rejected by those routes.
  */
 async function userAuthHeaders(): Promise<Record<string, string>> {
@@ -97,7 +92,7 @@ export function heartbeatVisitor(data: {
 
 // ─── AI ──────────────────────────────────────────────────────────
 
-export function aiComplete(data: {
+export async function aiComplete(data: {
   workspaceId: string;
   prompt: string;
   systemPrompt?: string;
@@ -113,12 +108,12 @@ export function aiComplete(data: {
     latencyMs: number;
   }>('/api/ai/complete', {
     method: 'POST',
-    headers: authHeaders(),
+    headers: await userAuthHeaders(),
     body: JSON.stringify(data),
   });
 }
 
-export function aiTestConnection(data: {
+export async function aiTestConnection(data: {
   provider: string;
   apiKey: string;
   model?: string;
@@ -131,12 +126,12 @@ export function aiTestConnection(data: {
     error?: string;
   }>('/api/ai/test', {
     method: 'POST',
-    headers: authHeaders(),
+    headers: await userAuthHeaders(),
     body: JSON.stringify(data),
   });
 }
 
-export function aiGetConfig(workspaceId: string) {
+export async function aiGetConfig(workspaceId: string) {
   return request<{
     configured: boolean;
     provider?: string;
@@ -144,7 +139,7 @@ export function aiGetConfig(workspaceId: string) {
     maxTokens?: number;
     temperature?: number;
   }>(`/api/ai/config/${workspaceId}`, {
-    headers: authHeaders(),
+    headers: await userAuthHeaders(),
   });
 }
 
@@ -221,19 +216,19 @@ export async function storageGetConfig(workspaceId: string) {
 
 // ─── CDN ─────────────────────────────────────────────────────────
 
-export function cdnPurge(data: { workspaceId: string; paths?: string[] }) {
+export async function cdnPurge(data: { workspaceId: string; paths?: string[] }) {
   return request<{
     success: boolean;
     purgedPaths?: string[];
     error?: string;
   }>('/api/cdn/purge', {
     method: 'POST',
-    headers: authHeaders(),
+    headers: await userAuthHeaders(),
     body: JSON.stringify(data),
   });
 }
 
-export function cdnTestConnection(data: {
+export async function cdnTestConnection(data: {
   provider: string;
   api_key?: string;
   api_token?: string;
@@ -257,25 +252,25 @@ export function cdnTestConnection(data: {
     details?: string;
   }>('/api/cdn/test', {
     method: 'POST',
-    headers: authHeaders(),
+    headers: await userAuthHeaders(),
     body: JSON.stringify(data),
   });
 }
 
-export function cdnGetConfig(workspaceId: string) {
+export async function cdnGetConfig(workspaceId: string) {
   return request<{
     configured: boolean;
     provider?: string;
     domain?: string;
   }>(`/api/cdn/config/${workspaceId}`, {
-    headers: authHeaders(),
+    headers: await userAuthHeaders(),
   });
 }
 
-export function cdnGetAssetUrl(workspaceId: string, path: string) {
+export async function cdnGetAssetUrl(workspaceId: string, path: string) {
   return request<{ url: string }>('/api/cdn/asset-url', {
     method: 'POST',
-    headers: authHeaders(),
+    headers: await userAuthHeaders(),
     body: JSON.stringify({ workspaceId, path }),
   });
 }

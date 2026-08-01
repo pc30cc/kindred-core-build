@@ -13,6 +13,7 @@ import {
   getCDNAssetUrl,
   type CDNConfig,
 } from '../services/cdn/index.js';
+import { authorizeWorkspaceAccess, requirePlatformAdmin } from '../lib/workspaceAuth.js';
 
 export const cdnRouter = Router();
 
@@ -23,15 +24,13 @@ export const cdnRouter = Router();
 cdnRouter.post('/purge', async (req, res) => {
   try {
     const config: ServerConfig = (req as any).serverConfig;
-    const token = req.headers.authorization?.replace('Bearer ', '');
-    if (token !== config.supabaseServiceRoleKey && token !== config.supabaseAnonKey) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
     const { workspaceId, paths } = req.body;
     if (!workspaceId) {
       return res.status(400).json({ error: 'workspaceId is required' });
     }
+    // Purging is a workspace-owner/admin action, not something the public
+    // publishable key may trigger.
+    if (!(await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true }))) return;
 
     const result = await purgeCDN(config, workspaceId, paths || []);
     return res.status(result.success ? 200 : 500).json(result);
@@ -64,11 +63,7 @@ const testSchema = z.object({
 
 cdnRouter.post('/test', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
-    const token = req.headers.authorization?.replace('Bearer ', '');
-    if (token !== config.supabaseServiceRoleKey && token !== config.supabaseAnonKey) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
+    if (!(await requirePlatformAdmin(req, res))) return;
 
     const parsed = testSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -107,10 +102,7 @@ cdnRouter.post('/test', async (req, res) => {
 cdnRouter.get('/config/:workspaceId', async (req, res) => {
   try {
     const config: ServerConfig = (req as any).serverConfig;
-    const token = req.headers.authorization?.replace('Bearer ', '');
-    if (token !== config.supabaseAnonKey && token !== config.supabaseServiceRoleKey) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
+    if (!(await authorizeWorkspaceAccess(req, res, req.params.workspaceId))) return;
 
     const cdnConfig = await resolveCDNConfig(config, req.params.workspaceId);
     if (!cdnConfig) {
@@ -135,15 +127,11 @@ cdnRouter.get('/config/:workspaceId', async (req, res) => {
 cdnRouter.post('/asset-url', async (req, res) => {
   try {
     const config: ServerConfig = (req as any).serverConfig;
-    const token = req.headers.authorization?.replace('Bearer ', '');
-    if (token !== config.supabaseAnonKey && token !== config.supabaseServiceRoleKey) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
     const { workspaceId, path } = req.body;
     if (!workspaceId || !path) {
       return res.status(400).json({ error: 'workspaceId and path required' });
     }
+    if (!(await authorizeWorkspaceAccess(req, res, workspaceId))) return;
 
     const cdnConfig = await resolveCDNConfig(config, workspaceId);
     if (!cdnConfig) {

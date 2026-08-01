@@ -1479,6 +1479,13 @@ const smsVendors: ProviderVendor[] = [
   },
 ];
 
+// Only Kavenegar has a real server-side runtime adapter today. Every other SMS
+// vendor stays in the catalogue for discoverability but is flagged so the admin
+// UI renders it as "Coming soon" and refuses to activate it.
+for (const vendor of smsVendors) {
+  if (vendor.name !== 'kavenegar') vendor.comingSoon = true;
+}
+
 // =============================================
 // GEO ENRICHMENT VENDORS (server-side IP→geo)
 // =============================================

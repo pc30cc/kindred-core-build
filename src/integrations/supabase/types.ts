@@ -8183,8 +8183,8 @@ export type Database = {
       phone_verification_mark_delivery: {
         Args: {
           _challenge_id: string
-          _provider_message_id: string
-          _provider_name: string
+          _provider_message_id?: string
+          _provider_name?: string
           _sent: boolean
         }
         Returns: Json

@@ -262,6 +262,8 @@ export function createSafeTestFetch(options: SafeTransportOptions = {}): SafeTes
       } catch {
         throw new SafeTransportError('redirect_blocked');
       }
+      if (next.protocol !== 'https:') throw new SafeTransportError('unsafe_scheme');
+      if (next.username || next.password) throw new SafeTransportError('credentials_not_allowed');
       // Same-origin only (protocol + hostname + effective port). A connection
       // test never needs to hop between hosts, and refusing outright is safer
       // than trying to strip individual credential-bearing headers.

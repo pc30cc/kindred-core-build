@@ -296,12 +296,29 @@ export async function issueChallenge(
   if (isAdminResend) {
     // Durable "requested" trail before the external send, so a resend can
     // never happen without a record even if the finalize step later fails.
-    await client.rpc('phone_verification_admin_resend_requested', {
-      _challenge_id: challengeId,
-      _user_id: input.subjectUserId,
-      _admin_id: input.adminUserId ?? input.actorUserId,
-      _phone_masked: maskE164(input.phoneE164),
-    });
+    const { data: requestAuditData, error: requestAuditError } = await client.rpc(
+      'phone_verification_admin_resend_requested',
+      {
+        _challenge_id: challengeId,
+        _user_id: input.subjectUserId,
+        _admin_id: input.adminUserId ?? input.actorUserId,
+        _phone_masked: maskE164(input.phoneE164),
+      },
+    );
+    // Fail-closed: no SMS is sent — and no provider is initialized — unless
+    // the requested-audit row is committed.
+    if (requestAuditError || asRecord(requestAuditData).ok !== true) {
+      const { error: invalidateError } = await client.rpc('phone_verification_invalidate', {
+        _challenge_id: challengeId,
+      });
+      if (invalidateError) {
+        console.error(
+          '[phoneVerification] failed to invalidate challenge after resend audit failure',
+          { challengeId, targetUserId: input.subjectUserId },
+        );
+      }
+      throw new PhoneVerificationError('phone_verification_unavailable', 500);
+    }
   } else {
     await audit(config, {
       action: 'phone_verification_started',
@@ -337,8 +354,22 @@ export async function issueChallenge(
         _error_code: sent.errorCode ?? null,
       },
     );
-    if (finError || str(asRecord(finData).error)) {
-      await client.rpc('phone_verification_invalidate', { _challenge_id: challengeId });
+    const finRow = asRecord(finData);
+    // A failed provider send is finalized as `ok:false` by design; only a
+    // transport/RPC error or an unexpected shape is a bookkeeping failure.
+    const finalizeFailed =
+      Boolean(finError) || str(finRow.error) !== null || (sent.success && finRow.ok !== true);
+    if (finalizeFailed) {
+      const { data: invalidateData, error: invalidateError } = await client.rpc(
+        'phone_verification_invalidate',
+        { _challenge_id: challengeId },
+      );
+      if (invalidateError || asRecord(invalidateData).ok !== true) {
+        console.error('[phoneVerification] admin resend finalize and invalidation failed', {
+          challengeId,
+          targetUserId: input.subjectUserId,
+        });
+      }
       throw new PhoneVerificationError('phone_verification_unavailable', 500);
     }
     if (!sent.success) throw new PhoneVerificationError('phone_verification_unavailable', 502);

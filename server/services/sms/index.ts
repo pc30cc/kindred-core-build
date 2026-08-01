@@ -21,6 +21,7 @@ import {
   SMS_PROVIDER_NAMES,
   SUPPORTED_SMS_PROVIDERS,
   type KavenegarSmsConfig,
+  type SmsIrSmsConfig,
   type SmsProviderInfo,
   type SmsProviderName,
   type SmsSendRequest,
@@ -33,6 +34,14 @@ import {
   type KavenegarAdapter,
   type KavenegarAdapterOptions,
 } from './providers/kavenegar.js';
+import {
+  createSmsIrAdapter,
+  isValidSmsIrLineNumber,
+  isValidSmsIrParameterName,
+  isValidSmsIrTemplateId,
+  type SmsIrAdapter,
+  type SmsIrAdapterOptions,
+} from './providers/smsir.js';
 
 const TABLE = 'platform_sms_provider_config';
 
@@ -43,7 +52,7 @@ export function isValidVerifyTemplate(value: unknown): value is string {
   return typeof value === 'string' && VERIFY_TEMPLATE_PATTERN.test(value);
 }
 
-export function isSupportedSmsProvider(value: unknown): value is 'kavenegar' {
+export function isSupportedSmsProvider(value: unknown): value is 'kavenegar' | 'smsir' {
   return typeof value === 'string' && (SUPPORTED_SMS_PROVIDERS as readonly string[]).includes(value);
 }
 
@@ -62,6 +71,14 @@ function readString(source: Record<string, unknown> | null, key: string): string
   if (!source) return null;
   const value: unknown = source[key];
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : null;
+}
+
+function readInt(source: Record<string, unknown> | null, key: string): number | null {
+  if (!source) return null;
+  const value: unknown = source[key];
+  if (typeof value === 'number' && Number.isInteger(value)) return value;
+  if (typeof value === 'string' && /^[0-9]{1,15}$/.test(value.trim())) return Number(value.trim());
+  return null;
 }
 
 async function loadRow(serverConfig: ServerConfig): Promise<StoredRow | null> {
@@ -110,6 +127,9 @@ export async function getSmsProviderInfo(serverConfig: ServerConfig): Promise<Sm
     hasApiKey: apiKey !== null,
     sender: readString(row.config, 'sender'),
     verifyTemplate: readString(row.config, 'verifyTemplate'),
+    lineNumber: readString(row.config, 'lineNumber'),
+    verifyTemplateId: readInt(row.config, 'verifyTemplateId'),
+    verifyParameterName: readString(row.config, 'verifyParameterName'),
     updatedAt: row.updated_at,
   };
 }
@@ -119,14 +139,22 @@ export interface SaveSmsProviderInput {
   enabled: boolean;
   /** Omitted / blank on update = keep the stored credential. */
   apiKey?: string;
+  /** Kavenegar */
   sender?: string;
-  verifyTemplate: string;
+  verifyTemplate?: string;
+  /** SMS.ir */
+  lineNumber?: string;
+  verifyTemplateId?: number;
+  verifyParameterName?: string;
 }
 
 export type SaveSmsProviderError =
   | 'unsupported_provider'
   | 'api_key_required'
   | 'invalid_verify_template'
+  | 'invalid_line_number'
+  | 'invalid_verify_template_id'
+  | 'invalid_verify_parameter_name'
   | 'save_failed';
 
 export class SmsConfigValidationError extends Error {
@@ -150,22 +178,44 @@ export async function saveSmsProviderConfig(
   if (!isSupportedSmsProvider(input.providerName)) {
     throw new SmsConfigValidationError('unsupported_provider');
   }
-  if (!isValidVerifyTemplate(input.verifyTemplate)) {
-    throw new SmsConfigValidationError('invalid_verify_template');
-  }
 
   const existing = await loadRow(serverConfig);
-  const existingKey = readString(existing?.config ?? null, 'apiKey');
+  // Switching vendors must never silently reuse the previous vendor's
+  // credential — a fresh API key is always required.
+  const sameProvider = existing?.provider_name === input.providerName;
+  const existingKey = sameProvider ? readString(existing?.config ?? null, 'apiKey') : null;
   const incomingKey = typeof input.apiKey === 'string' ? input.apiKey.trim() : '';
   const apiKey = incomingKey !== '' ? incomingKey : existingKey;
   if (!apiKey) throw new SmsConfigValidationError('api_key_required');
 
-  const sender = typeof input.sender === 'string' ? input.sender.trim() : '';
-  const nextConfig: Record<string, string> = {
-    apiKey,
-    verifyTemplate: input.verifyTemplate,
-  };
-  if (sender) nextConfig.sender = sender;
+  // Only whitelisted keys for the SELECTED vendor are written, so switching
+  // vendors wipes every field that belonged to the previous one.
+  const nextConfig: Record<string, string | number> = { apiKey };
+
+  if (input.providerName === 'kavenegar') {
+    if (!isValidVerifyTemplate(input.verifyTemplate)) {
+      throw new SmsConfigValidationError('invalid_verify_template');
+    }
+    nextConfig.verifyTemplate = input.verifyTemplate;
+    const sender = typeof input.sender === 'string' ? input.sender.trim() : '';
+    if (sender) nextConfig.sender = sender;
+  } else {
+    const lineNumber = typeof input.lineNumber === 'string' ? input.lineNumber.trim() : '';
+    if (!isValidSmsIrLineNumber(lineNumber)) {
+      throw new SmsConfigValidationError('invalid_line_number');
+    }
+    if (!isValidSmsIrTemplateId(input.verifyTemplateId)) {
+      throw new SmsConfigValidationError('invalid_verify_template_id');
+    }
+    const parameterName =
+      typeof input.verifyParameterName === 'string' ? input.verifyParameterName.trim() : '';
+    if (!isValidSmsIrParameterName(parameterName)) {
+      throw new SmsConfigValidationError('invalid_verify_parameter_name');
+    }
+    nextConfig.lineNumber = lineNumber;
+    nextConfig.verifyTemplateId = input.verifyTemplateId;
+    nextConfig.verifyParameterName = parameterName;
+  }
 
   const sb = getServiceClient(serverConfig);
   const { error } = await sb.from(TABLE).upsert(
@@ -205,15 +255,15 @@ export async function deleteSmsProviderConfig(
   return getSmsProviderInfo(serverConfig);
 }
 
-interface ResolvedProvider {
-  providerName: 'kavenegar';
-  config: KavenegarSmsConfig;
-  adapter: KavenegarAdapter;
-}
+type ResolvedProvider =
+  | { providerName: 'kavenegar'; config: KavenegarSmsConfig; adapter: KavenegarAdapter }
+  | { providerName: 'smsir'; config: SmsIrSmsConfig; adapter: SmsIrAdapter };
 
 export interface SmsRuntimeOptions {
   /** Test seam forwarded to the vendor adapter. */
   adapterOptions?: KavenegarAdapterOptions;
+  /** Test seam forwarded to the SMS.ir adapter. */
+  smsIrAdapterOptions?: SmsIrAdapterOptions;
 }
 
 /**
@@ -234,21 +284,42 @@ async function resolveProvider(
   if (!row.is_active) throw new SmsError('sms_provider_disabled');
 
   const apiKey = readString(row.config, 'apiKey');
-  const verifyTemplate = readString(row.config, 'verifyTemplate');
   if (!apiKey) throw new SmsError('sms_provider_not_configured');
-  if (!verifyTemplate) throw new SmsError('sms_template_not_found');
 
-  const sender = readString(row.config, 'sender');
-  const config: KavenegarSmsConfig = {
-    provider: 'kavenegar',
+  if (row.provider_name === 'kavenegar') {
+    const verifyTemplate = readString(row.config, 'verifyTemplate');
+    if (!verifyTemplate) throw new SmsError('sms_template_not_found');
+    const sender = readString(row.config, 'sender');
+    const config: KavenegarSmsConfig = {
+      provider: 'kavenegar',
+      apiKey,
+      verifyTemplate,
+      ...(sender ? { sender } : {}),
+    };
+    return {
+      providerName: 'kavenegar',
+      config,
+      adapter: createKavenegarAdapter(config, options.adapterOptions),
+    };
+  }
+
+  const lineNumber = readString(row.config, 'lineNumber');
+  const verifyTemplateId = readInt(row.config, 'verifyTemplateId');
+  const verifyParameterName = readString(row.config, 'verifyParameterName');
+  if (!isValidSmsIrLineNumber(lineNumber)) throw new SmsError('sms_provider_not_configured');
+  if (!isValidSmsIrTemplateId(verifyTemplateId)) throw new SmsError('sms_template_not_found');
+  if (!isValidSmsIrParameterName(verifyParameterName)) throw new SmsError('sms_template_invalid');
+  const config: SmsIrSmsConfig = {
+    provider: 'smsir',
     apiKey,
-    verifyTemplate,
-    ...(sender ? { sender } : {}),
+    lineNumber,
+    verifyTemplateId,
+    verifyParameterName,
   };
   return {
-    providerName: 'kavenegar',
+    providerName: 'smsir',
     config,
-    adapter: createKavenegarAdapter(config, options.adapterOptions),
+    adapter: createSmsIrAdapter(config, options.smsIrAdapterOptions),
   };
 }
 
@@ -286,11 +357,18 @@ export async function sendSms(
   try {
     const resolved = await resolveProvider(serverConfig, options);
     provider = resolved.providerName;
-    const { messageId } = await resolved.adapter.sendSms({
-      receptor: request.to,
-      message: request.body,
-      ...(request.sender ? { sender: request.sender } : {}),
-    });
+    const { messageId } =
+      resolved.providerName === 'kavenegar'
+        ? await resolved.adapter.sendSms({
+            receptor: request.to,
+            message: request.body,
+            ...(request.sender ? { sender: request.sender } : {}),
+          })
+        : await resolved.adapter.sendSms({
+            receptor: request.to,
+            message: request.body,
+            ...(request.sender ? { lineNumber: request.sender } : {}),
+          });
     logSmsAttempt({ provider, purpose: 'transactional', recipient: request.to, success: true, messageId });
     return { success: true, provider, ...(messageId ? { messageId } : {}) };
   } catch (err) {
@@ -313,13 +391,28 @@ export async function sendSmsVerification(
   try {
     const resolved = await resolveProvider(serverConfig, options);
     provider = resolved.providerName;
-    const template = request.template ?? resolved.config.verifyTemplate;
-    if (!isValidVerifyTemplate(template)) throw new SmsError('sms_template_invalid');
-    const { messageId } = await resolved.adapter.sendVerificationCode({
-      receptor: request.to,
-      token: request.code,
-      template,
-    });
+    let messageId: string | undefined;
+    if (resolved.providerName === 'kavenegar') {
+      const template = request.template ?? resolved.config.verifyTemplate;
+      if (!isValidVerifyTemplate(template)) throw new SmsError('sms_template_invalid');
+      ({ messageId } = await resolved.adapter.sendVerificationCode({
+        receptor: request.to,
+        token: request.code,
+        template,
+      }));
+    } else {
+      const templateId =
+        request.template !== undefined && /^[0-9]{1,15}$/.test(request.template)
+          ? Number(request.template)
+          : resolved.config.verifyTemplateId;
+      if (!isValidSmsIrTemplateId(templateId)) throw new SmsError('sms_template_invalid');
+      ({ messageId } = await resolved.adapter.sendVerificationCode({
+        receptor: request.to,
+        token: request.code,
+        templateId,
+        parameterName: resolved.config.verifyParameterName,
+      }));
+    }
     logSmsAttempt({ provider, purpose: 'verification', recipient: request.to, success: true, messageId });
     return { success: true, provider, ...(messageId ? { messageId } : {}) };
   } catch (err) {

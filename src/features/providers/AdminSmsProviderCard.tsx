@@ -344,7 +344,7 @@ export function AdminSmsProviderCard() {
               <Smartphone className="h-4 w-4 text-primary" /> Configure SMS Provider
             </DialogTitle>
             <DialogDescription className="text-xs">
-              Kavenegar is the only vendor with a live runtime today. Credentials are stored
+              Kavenegar and SMS.ir have live runtimes today. Credentials are stored
               server-side and are never sent back to the browser.
             </DialogDescription>
           </DialogHeader>
@@ -352,15 +352,27 @@ export function AdminSmsProviderCard() {
           <div className="space-y-3">
             <div className="space-y-1.5">
               <Label className="text-xs">Vendor</Label>
-              <div className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-xs">
-                <span className="text-foreground">{kavenegar?.label ?? 'Kavenegar'}</span>
-                {kavenegar?.docsUrl && (
-                  <a href={kavenegar.docsUrl} target="_blank" rel="noreferrer"
-                    className="flex items-center gap-1 text-primary hover:underline">
-                    Docs <ExternalLink className="h-3 w-3" />
-                  </a>
-                )}
+              <div className="grid grid-cols-2 gap-2">
+                {(['kavenegar', 'smsir'] as const).map((name) => (
+                  <Button
+                    key={name}
+                    type="button"
+                    size="sm"
+                    variant={vendor === name ? 'default' : 'outline'}
+                    className="text-xs"
+                    data-testid={`sms-vendor-select-${name}`}
+                    onClick={() => setVendor(name)}
+                  >
+                    {vendorLabel(name)}
+                  </Button>
+                ))}
               </div>
+              {activeVendorSchema?.docsUrl && (
+                <a href={activeVendorSchema.docsUrl} target="_blank" rel="noreferrer"
+                  className="flex items-center gap-1 text-[11px] text-primary hover:underline">
+                  Docs <ExternalLink className="h-3 w-3" />
+                </a>
+              )}
             </div>
 
             <div className="space-y-1.5">
@@ -371,15 +383,21 @@ export function AdminSmsProviderCard() {
                 autoComplete="off"
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
-                placeholder={info?.hasApiKey ? 'Leave blank to keep the current key' : 'Required'}
+                placeholder={keyKept ? 'Leave blank to keep the current key' : 'Required'}
               />
-              {info?.hasApiKey && (
+              {keyKept ? (
                 <p className="flex items-center gap-1 text-[11px] text-emerald-500">
                   <ShieldCheck className="h-3 w-3" /> Credential saved
                 </p>
-              )}
+              ) : info?.hasApiKey ? (
+                <p className="text-[11px] text-amber-500" data-testid="sms-switch-key-warning">
+                  Switching vendors requires a new API key.
+                </p>
+              ) : null}
             </div>
 
+            {vendor === 'kavenegar' ? (
+            <>
             <div className="space-y-1.5">
               <Label htmlFor="sms-template" className="text-xs">OTP / Verification Template</Label>
               <Input
@@ -405,6 +423,51 @@ export function AdminSmsProviderCard() {
                 Used for plain SMS only. Verification messages use Kavenegar's approved line.
               </p>
             </div>
+            </>
+            ) : (
+            <>
+            <div className="space-y-1.5">
+              <Label htmlFor="sms-line-number" className="text-xs">Line Number</Label>
+              <Input
+                id="sms-line-number"
+                value={lineNumber}
+                onChange={(e) => setLineNumber(e.target.value)}
+                placeholder="30007732"
+                inputMode="numeric"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Dedicated line from your SMS.ir panel — digits only.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="sms-template-id" className="text-xs">Verification Template ID</Label>
+              <Input
+                id="sms-template-id"
+                value={verifyTemplateId}
+                onChange={(e) => setVerifyTemplateId(e.target.value)}
+                placeholder="100000"
+                inputMode="numeric"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Numeric template ID of the approved OTP template.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="sms-parameter-name" className="text-xs">Code Parameter Name</Label>
+              <Input
+                id="sms-parameter-name"
+                value={verifyParameterName}
+                onChange={(e) => setVerifyParameterName(e.target.value)}
+                placeholder="CODE"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                The template placeholder that receives the verification code.
+              </p>
+            </div>
+            </>
+            )}
 
             <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
               <Label htmlFor="sms-enabled" className="text-xs">Enabled</Label>

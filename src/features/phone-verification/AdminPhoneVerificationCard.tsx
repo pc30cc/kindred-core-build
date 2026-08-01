@@ -40,7 +40,7 @@ function formatMoment(value: string | null | undefined, locale: string): string 
 }
 
 export function AdminPhoneVerificationCard({ userId }: { userId: string }) {
-  const { t, language } = useTranslation();
+  const { t, locale: uiLocale } = useTranslation();
   const qc = useQueryClient();
   const [reason, setReason] = useState('');
   const [confirming, setConfirming] = useState<'resend' | 'manual' | null>(null);
@@ -73,7 +73,7 @@ export function AdminPhoneVerificationCard({ userId }: { userId: string }) {
   const reasonLength = reason.trim().length;
   const reasonValid = reasonLength >= REASON_MIN && reasonLength <= REASON_MAX;
   const status = data ? resolvePhoneStatus({ phoneMasked: data.phoneMasked, verified: data.verified }) : null;
-  const locale = language === 'fa' ? 'fa-IR' : language === 'tr' ? 'tr-TR' : 'en-US';
+  const locale = uiLocale === 'fa' ? 'fa-IR' : uiLocale === 'tr' ? 'tr-TR' : 'en-US';
   const verifiedAt = formatMoment(data?.verifiedAt, locale);
   const lastSentAt = formatMoment(data?.lastSentAt, locale);
 
